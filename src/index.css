@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+  .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+  .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+}
+
+body {
+  /* Deep dark blue background with a subtle gradient mesh */
+  background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #020617 60%);
+  color: #f8fafc;
+  min-height: 100vh;
+}

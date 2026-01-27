@@ -1,19 +1,16 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { authApi } from '../services/auth'; // Import your auth api if needed
 
 interface User {
   id: string;
   name: string;
-  email?: string;
-  phone?: string;
   avatar: string;
-  plan: 'free' | 'pro';
-  token?: string; // Store the backend token
+  plan: 'pro';
 }
 
 interface AuthContextType {
   user: User | null;
-  // We allow login to take optional data (for the real API response)
-  login: (identifier: string, userData?: any) => Promise<void>;
+  login: (identifier: string, serverData?: any) => Promise<void>;
   logout: () => void;
   isLoading: boolean;
 }
@@ -25,47 +22,43 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('vflow_ai_user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
+    // Check if we have user data in local storage (UI persistence)
+    // We rely on the browser cookie for actual API access
+    const stored = localStorage.getItem('vflow_ai_user');
+    if (stored) {
+      setUser(JSON.parse(stored));
     }
     setIsLoading(false);
   }, []);
 
-  // Update logic to accept real data from the Phone Login API
-  const login = async (identifier: string, apiResponseData?: any) => {
+  const login = async (identifier: string, serverData?: any) => {
+    setIsLoading(true);
     
-    // If we have real data from the backend (Phone Login)
-    if (apiResponseData) {
-      const realUser: User = {
-        id: apiResponseData.user?.id || 'server-user',
-        name: apiResponseData.user?.username || identifier,
-        phone: identifier,
-        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + identifier,
-        plan: 'pro',
-        token: apiResponseData.token // Save the token from your API
-      };
-      setUser(realUser);
-      localStorage.setItem('vflow_ai_user', JSON.stringify(realUser));
-    } 
-    // Fallback to Mock (Email Login)
-    else {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      const mockUser: User = {
-        id: '1',
-        name: identifier.split('@')[0],
-        email: identifier,
-        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + identifier,
-        plan: 'pro'
-      };
-      setUser(mockUser);
-      localStorage.setItem('vflow_ai_user', JSON.stringify(mockUser));
-    }
+    // We DO NOT need to find a token anymore.
+    // If we are here, the API call succeeded (200 OK), 
+    // so the browser definitely has the Set-Cookie headers now.
+
+    const newUser: User = {
+      id: serverData?.user_id || 'user-1',
+      name: identifier,
+      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${identifier}`,
+      plan: 'pro',
+    };
+
+    setUser(newUser);
+    localStorage.setItem('vflow_ai_user', JSON.stringify(newUser));
+    
+    setIsLoading(false);
   };
 
-  const logout = () => {
+  const logout = async () => {
+    // Optional: Call backend logout to clear cookie
+    // await authApi.logout(); 
     setUser(null);
     localStorage.removeItem('vflow_ai_user');
+    // Clear cookies document-side just in case
+    document.cookie = "sessionid=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+    window.location.href = '/login';
   };
 
   return (

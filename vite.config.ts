@@ -10,12 +10,15 @@ export default defineConfig({
         target: 'http://1.95.137.119:8001',
         changeOrigin: true,
         secure: false,
-        // CRITICAL: Rewrite the cookie domain so localhost accepts it
-        cookieDomainRewrite: {
-          "*": "" // Rewrites any domain to localhost
-        }
+        cookieDomainRewrite: { "*": "" }
       },
       '/media': {
+        target: 'http://1.95.137.119:8001',
+        changeOrigin: true,
+        secure: false,
+      },
+      // ADD THIS NEW BLOCK:
+      '/accounts': {
         target: 'http://1.95.137.119:8001',
         changeOrigin: true,
         secure: false,

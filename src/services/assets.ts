@@ -49,37 +49,43 @@ function getCookie(name: string) {
 }
 
 export const assetsApi = {
-  // 1. GET List
+  // GET List
   getAssets: async (): Promise<Asset[]> => {
     try {
       const response = await fetch(`${API_BASE_URL}/list/`, {
         method: 'GET',
         headers: { 
           'Content-Type': 'application/json',
-          // CRITICAL: Tells Django "I am an API, don't give me HTML redirects"
-          'X-Requested-With': 'XMLHttpRequest', 
+          'X-Requested-With': 'XMLHttpRequest', // Should stop redirects, but sometimes doesn't
         },
-        // CRITICAL: Sends the 'sessionid' cookie
         credentials: 'include', 
       });
 
-      // Handle Auth Errors gracefully
-      if (response.status === 401 || response.status === 403) {
-        console.error("Auth Failed: Cookies invalid or expired");
-        throw new Error('Unauthorized');
+      // 1. Check if the URL changed (Browser followed a redirect)
+      if (response.url.includes('/accounts/login')) {
+        console.error("Authentication Failed: Redirected to Login Page.");
+        throw new Error('Unauthorized'); // Force catch block
       }
 
-      if (!response.ok) throw new Error('Failed to fetch assets');
+      // 2. Read text first (Safety Check)
+      const text = await response.text();
       
-      const json = await response.json();
-      const backendData: BackendAsset[] = json.data || [];
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch (e) {
+        // This is where we catch your specific error!
+        console.error("CRITICAL: Received HTML instead of JSON. See below:");
+        console.log(text.substring(0, 500)); // Print first 500 chars of HTML
+        throw new Error('Server returned HTML (likely a login page or error page)');
+      }
 
-      // Map Backend Data -> Frontend Data
-      return backendData.map(item => ({
+      const backendData = json.data || [];
+
+      return backendData.map((item: any) => ({
         id: item.id.toString(),
         name: item.display_name,
-        // Ensure lowercase types for frontend logic
-        type: item.type.toLowerCase() as 'model' | 'product' | 'scene',
+        type: item.type.toLowerCase(),
         file_url: item.url, 
         size: (item.meta_data.size_bytes / 1024 / 1024).toFixed(2) + ' MB',
         status: 'ready',

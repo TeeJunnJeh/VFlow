@@ -71,21 +71,53 @@ const Workbench = () => {
     }
   };
 
-  // Asset Library Upload (Real API)
+// Asset Library Upload (Batch Support)
   const handleAssetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
     setIsUploading(true);
+    let successCount = 0;
+    let failCount = 0;
+
     try {
-      // Pass the active tab type (e.g., 'product') to the API
-      await assetsApi.uploadAsset(file, activeAssetTab);
-      await loadAssets(); // Refresh list after upload
-      alert("Upload successful!");
+      // 1. Convert FileList to a standard Array
+      const fileArray = Array.from(files);
+
+      // 2. Create a list of upload tasks (Promises)
+      // We wrap each upload in a catch block so one failure doesn't stop the rest
+      const uploadTasks = fileArray.map(async (file) => {
+        try {
+          await assetsApi.uploadAsset(file, activeAssetTab);
+          successCount++;
+        } catch (err) {
+          console.error(`Failed to upload ${file.name}`, err);
+          failCount++;
+        }
+      });
+
+      // 3. Execute all uploads in parallel
+      await Promise.all(uploadTasks);
+
+      // 4. Refresh the list
+      await loadAssets(); 
+
+      // 5. Show Feedback
+      if (failCount === 0) {
+        alert(`Successfully uploaded ${successCount} files!`);
+      } else {
+        alert(`Upload complete: ${successCount} successful, ${failCount} failed.`);
+      }
+
     } catch (err) {
-      alert("Upload failed. Please check the backend connection.");
+      console.error("Batch upload critical error", err);
+      alert("An error occurred during upload.");
     } finally {
       setIsUploading(false);
+      // Reset the input so you can re-select the same files if needed
+      if (assetInputRef.current) {
+        assetInputRef.current.value = '';
+      }
     }
   };
 
@@ -305,7 +337,14 @@ const Workbench = () => {
                   >
                     {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} {t.assets_btn_upload}
                   </button>
-                  <input type="file" ref={assetInputRef} className="hidden" onChange={handleAssetUpload} />
+                  {/* ADD 'multiple' attribute here */}
+<input 
+  type="file" 
+  ref={assetInputRef} 
+  className="hidden" 
+  multiple 
+  onChange={handleAssetUpload} 
+/>
                 </div>
              </header>
              

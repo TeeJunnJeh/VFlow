@@ -1,22 +1,21 @@
 // src/services/auth.ts
 
-const API_BASE_URL = 'http://1.95.137.119:8001/api/auth';
+// Use the proxy path configured in vite.config.ts
+const API_BASE_URL = '/api/auth'; 
 
 export const authApi = {
-  // 1. 发送验证码
+  // 1. Send Verification Code
   sendCode: async (phoneNumber: string) => {
     try {
       const response = await fetch(`${API_BASE_URL}/send-code/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // 注意：这里必须改写成 "phone"，与你的接口文档截图一致
-        body: JSON.stringify({ phone: phoneNumber }),
+        body: JSON.stringify({ phone: phoneNumber }), 
       });
 
       if (!response.ok) {
-        // 400 错误时，尝试解析后端返回的错误详情
         const errorData = await response.json();
-        throw new Error(errorData.message || '发送失败，请检查手机号格式');
+        throw new Error(errorData.message || 'Failed to send code');
       }
       return await response.json();
     } catch (error) {
@@ -24,21 +23,25 @@ export const authApi = {
     }
   },
 
-  // 2. 验证并登录
+  // 2. Verify Code & Login
   loginWithPhone: async (phoneNumber: string, code: string) => {
     try {
-        const response = await fetch(`${API_BASE_URL}/login/`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include', // <--- ADD THIS
-            body: JSON.stringify({ phone: phoneNumber, code: code }),
-        });
+      const response = await fetch(`${API_BASE_URL}/login/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // CRITICAL: This tells the browser to SAVE the cookie the server sends back
+        credentials: 'include', 
+        body: JSON.stringify({ 
+          phone: phoneNumber,
+          code: code 
+        }),
+      });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || '验证码错误或登录失败');
+        throw new Error(errorData.message || 'Invalid code or login failed');
       }
-      return await response.json();
+      return await response.json(); 
     } catch (error) {
       throw error;
     }

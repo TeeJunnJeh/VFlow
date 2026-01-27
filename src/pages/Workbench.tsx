@@ -1,40 +1,104 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   Zap, Image as ImageIcon, LayoutTemplate, History, UploadCloud, Plus, X, 
   SlidersHorizontal, ChevronDown, Wand2, Clapperboard, PlayCircle, Undo2, 
   RefreshCw, Trash2, MonitorPlay, Film, Play, SkipBack, SkipForward, Download, 
   Maximize, Share2, Music2, Instagram, Youtube, Send, FolderPlus, Upload, 
-  Flame, Gem, ArrowRight, Settings2, Video, HardDrive, Eye, Edit3, ArrowLeft, CheckCircle 
+  Flame, Gem, ArrowRight, Settings2, Video, HardDrive, Eye, Edit3, ArrowLeft, CheckCircle, Loader2 
 } from 'lucide-react';
-import { useLanguage } from '../context/LanguageContext'; // Import Hook
-import { LanguageSwitcher } from '../components/common/LanguageSwitcher'; // Optional: if you want switcher inside
+import { useLanguage } from '../context/LanguageContext';
+import { LanguageSwitcher } from '../components/common/LanguageSwitcher';
+// FIX: Use "type" import to prevent the SyntaxError
+import { assetsApi, type Asset } from '../services/assets'; 
 
 // Types
 type ViewType = 'workbench' | 'assets' | 'templates' | 'history' | 'editor';
+type AssetType = 'model' | 'product' | 'scene';
 
 const Workbench = () => {
-  const { t } = useLanguage(); // Get Translations
+  const { t } = useLanguage();
 
-  // --- State Management ---
+  // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
+
+  // --- Workbench State ---
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
   const [fileName, setFileName] = useState('');
-  
-  // Script Management
   const [scripts, setScripts] = useState([
     { id: 1, shot: '1', type: 'Close-up', dur: '2.5s', visual: 'Model holding coffee cup...', audio: '"Start your morning..."' },
     { id: 2, shot: '2', type: 'Detail', dur: '1.5s', visual: 'Liquid pouring into cup...', audio: '(Pouring sound)' }
   ]);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // --- Assets View State (NEW) ---
+  const [assetList, setAssetList] = useState<Asset[]>([]);
+  const [isLoadingAssets, setIsLoadingAssets] = useState(false);
+  const [activeAssetTab, setActiveAssetTab] = useState<AssetType>('product'); // Default to product since you have data there
+  const [isUploading, setIsUploading] = useState(false);
+  const assetInputRef = useRef<HTMLInputElement>(null);
+
+  // --- Effects ---
+  
+  // Load assets when entering Assets View
+  useEffect(() => {
+    if (activeView === 'assets') {
+      loadAssets();
+    }
+  }, [activeView]);
+
+  const loadAssets = async () => {
+    setIsLoadingAssets(true);
+    try {
+      const data = await assetsApi.getAssets();
+      // Ensure we always have an array
+      setAssetList(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Failed to load assets", err);
+    } finally {
+      setIsLoadingAssets(false);
+    }
+  };
+
   // --- Handlers ---
-  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+
+  // Workbench Upload (Local Preview)
+  const handleWorkbenchUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const url = URL.createObjectURL(file);
       setUploadedFile(url);
       setFileName(file.name);
+    }
+  };
+
+  // Asset Library Upload (Real API)
+  const handleAssetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    try {
+      // Pass the active tab type (e.g., 'product') to the API
+      await assetsApi.uploadAsset(file, activeAssetTab);
+      await loadAssets(); // Refresh list after upload
+      alert("Upload successful!");
+    } catch (err) {
+      alert("Upload failed. Please check the backend connection.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Asset Delete
+  const handleDeleteAsset = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering card click
+    if (!window.confirm("Are you sure you want to delete this asset?")) return;
+
+    try {
+      await assetsApi.deleteAsset(id);
+      setAssetList(prev => prev.filter(a => a.id !== id));
+    } catch (err) {
+      alert("Failed to delete asset");
     }
   };
 
@@ -47,12 +111,7 @@ const Workbench = () => {
   const addScript = () => {
     const newId = scripts.length + 1;
     setScripts([...scripts, { 
-      id: newId, 
-      shot: newId.toString(), 
-      type: 'Medium', 
-      dur: '2.0s', 
-      visual: '', 
-      audio: '' 
+      id: newId, shot: newId.toString(), type: 'Medium', dur: '2.0s', visual: '', audio: '' 
     }]);
   };
 
@@ -60,7 +119,7 @@ const Workbench = () => {
     setScripts(scripts.filter(s => s.id !== id));
   };
 
-  // --- Sidebar Component (Internal Navigation) ---
+  // Internal Navigation Component
   const InternalNav = ({ icon: Icon, view, label }: { icon: any, view: ViewType, label: string }) => (
     <div 
       onClick={() => setActiveView(view)}
@@ -76,38 +135,32 @@ const Workbench = () => {
     </div>
   );
 
+  // Filter Assets based on Active Tab
+  const filteredAssets = assetList.filter(a => a.type === activeAssetTab);
+
   return (
     <div className="flex h-screen overflow-hidden bg-[#050505] text-zinc-100 font-sans">
       
-      {/* 1. Internal Mini Sidebar */}
+      {/* 1. Sidebar */}
       <aside className="w-16 lg:w-20 bg-zinc-950 border-r border-white/5 flex flex-col items-center py-6 gap-6 z-30 shrink-0">
         <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-orange-500 flex items-center justify-center font-bold italic text-black mb-2 shadow-lg shadow-orange-500/20">VF</div>
-        
         <div className="flex flex-col gap-4 w-full px-2">
           <InternalNav icon={Zap} view="workbench" label={t.wb_nav_workbench} />
           <InternalNav icon={ImageIcon} view="assets" label={t.wb_nav_assets} />
           <InternalNav icon={LayoutTemplate} view="templates" label={t.wb_nav_templates} />
           <InternalNav icon={History} view="history" label={t.wb_nav_history} />
         </div>
-        
-        <div className="mt-auto pb-4">
-           <div className="w-8 h-8 rounded-full bg-zinc-800 border border-white/10" />
-        </div>
+        <div className="mt-auto pb-4"><div className="w-8 h-8 rounded-full bg-zinc-800 border border-white/10" /></div>
       </aside>
 
-      {/* 2. Main Content Area */}
+      {/* 2. Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden relative">
         <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-orange-900/10 to-transparent pointer-events-none z-0" />
-        
-        {/* Optional: Language Switcher in Top Right */}
-        <div className="absolute top-4 right-8 z-50">
-          <LanguageSwitcher />
-        </div>
+        <div className="absolute top-4 right-8 z-50"><LanguageSwitcher /></div>
 
         {/* === VIEW 1: WORKBENCH === */}
         {activeView === 'workbench' && (
           <div className="flex flex-col h-full z-10 animate-in fade-in zoom-in-95 duration-300">
-            {/* Header */}
             <header className="flex justify-between items-center px-8 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm shrink-0">
               <div className="flex items-center gap-4">
                 <h1 className="text-xl font-bold tracking-tight text-white">Project_Alpha_01</h1>
@@ -117,58 +170,31 @@ const Workbench = () => {
             </header>
 
             <div className="flex-1 flex overflow-hidden p-6 gap-6">
-              
-              {/* Left Column: Config */}
+              {/* Left Column */}
               <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto custom-scroll pr-1">
-                {/* Upload */}
                 <div className="flex flex-col gap-3">
-                  <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                    <UploadCloud className="w-3 h-3" /> {t.wb_upload_title}
-                  </h2>
-                  <div 
-                    onClick={() => fileInputRef.current?.click()}
-                    className={`glass-panel rounded-xl p-1 border-2 border-dashed border-zinc-800 hover:border-orange-500/50 transition-colors h-32 relative group cursor-pointer ${uploadedFile ? 'border-none' : ''}`}
-                  >
-                    <input type="file" ref={fileInputRef} className="hidden" onChange={handleUpload} />
-                    
+                  <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
+                  <div onClick={() => fileInputRef.current?.click()} className={`glass-panel rounded-xl p-1 border-2 border-dashed border-zinc-800 hover:border-orange-500/50 transition-colors h-32 relative group cursor-pointer ${uploadedFile ? 'border-none' : ''}`}>
+                    <input type="file" ref={fileInputRef} className="hidden" onChange={handleWorkbenchUpload} />
                     {!uploadedFile ? (
                       <div className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none">
-                        <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition duration-300">
-                          <Plus className="w-4 h-4 text-zinc-500 group-hover:text-orange-500" />
-                        </div>
+                        <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition duration-300"><Plus className="w-4 h-4 text-zinc-500 group-hover:text-orange-500" /></div>
                         <p className="text-[10px] font-medium text-zinc-400">{t.wb_upload_click}</p>
                       </div>
                     ) : (
                       <div className="absolute inset-0 bg-zinc-900 rounded-lg overflow-hidden group/preview">
                         <img src={uploadedFile} className="w-full h-full object-cover opacity-80" alt="Preview" />
-                        <div className="absolute top-2 right-2 opacity-0 group-hover/preview:opacity-100 transition">
-                          <button onClick={removeUpload} className="p-1.5 bg-black/50 hover:bg-red-500 rounded-md text-white transition">
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                        <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
-                          <p className="text-[10px] text-white truncate">{fileName}</p>
-                          <p className="text-[10px] text-green-400 flex items-center gap-1"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p>
-                        </div>
+                        <div className="absolute top-2 right-2 opacity-0 group-hover/preview:opacity-100 transition"><button onClick={removeUpload} className="p-1.5 bg-black/50 hover:bg-red-500 rounded-md text-white transition"><X className="w-3 h-3" /></button></div>
+                        <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent"><p className="text-[10px] text-white truncate">{fileName}</p><p className="text-[10px] text-green-400 flex items-center gap-1"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p></div>
                       </div>
                     )}
                   </div>
                 </div>
-
-                {/* Attributes */}
                 <div className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${!uploadedFile ? 'opacity-50 pointer-events-none' : ''}`}>
-                  <div className="flex justify-between items-center">
-                    <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                      <SlidersHorizontal className="w-3 h-3" /> {t.wb_config_title}
-                    </h2>
-                  </div>
-                  
+                  <div className="flex justify-between items-center"><h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><SlidersHorizontal className="w-3 h-3" /> {t.wb_config_title}</h2></div>
                   <div className="glass-panel rounded-xl p-5 flex flex-col gap-5">
                     <div>
-                      <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase flex justify-between">
-                        {t.wb_config_template_label}
-                        <span className="text-orange-500 cursor-pointer hover:underline" onClick={() => setActiveView('templates')}>{t.wb_config_manage}</span>
-                      </label>
+                      <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase flex justify-between">{t.wb_config_template_label}<span className="text-orange-500 cursor-pointer hover:underline" onClick={() => setActiveView('templates')}>{t.wb_config_manage}</span></label>
                       <div className="relative">
                         <select className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-orange-500 font-bold focus:outline-none focus:border-orange-500 transition appearance-none cursor-pointer hover:bg-white/5">
                           <option value="">{t.wb_config_custom}</option>
@@ -178,44 +204,23 @@ const Workbench = () => {
                         <ChevronDown className="w-3 h-3 text-zinc-500 absolute right-3 top-2.5 pointer-events-none" />
                       </div>
                     </div>
-
                     <hr className="border-white/5" />
-
-                    <div>
-                      <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
-                        {t.wb_config_prompt_label}
-                      </label>
-                      <textarea className="w-full bg-black/40 text-xs text-zinc-300 p-3 rounded-lg border border-white/10 focus:border-orange-500 focus:outline-none resize-none min-h-[80px]" placeholder={t.wb_config_prompt_placeholder} />
-                    </div>
-
+                    <div><label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_prompt_label}</label><textarea className="w-full bg-black/40 text-xs text-zinc-300 p-3 rounded-lg border border-white/10 focus:border-orange-500 focus:outline-none resize-none min-h-[80px]" placeholder={t.wb_config_prompt_placeholder} /></div>
                     <div>
                       <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
-                      <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
-                        {['15s', '30s', '60s'].map(d => (
-                           <button key={d} className={`flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${d === '30s' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:bg-zinc-800'}`}>{d}</button>
-                        ))}
-                      </div>
+                      <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">{['15s', '30s', '60s'].map(d => (<button key={d} className={`flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${d === '30s' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:bg-zinc-800'}`}>{d}</button>))}</div>
                     </div>
-
-                    <button className="w-full bg-white text-black py-3 rounded-xl font-bold text-xs hover:bg-orange-500 hover:text-white transition shadow-lg shadow-white/5 mt-2 flex items-center justify-center gap-2 group">
-                      <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" /> 
-                      {t.wb_btn_gen_scripts}
-                    </button>
+                    <button className="w-full bg-white text-black py-3 rounded-xl font-bold text-xs hover:bg-orange-500 hover:text-white transition shadow-lg shadow-white/5 mt-2 flex items-center justify-center gap-2 group"><Wand2 className="w-4 h-4 group-hover:rotate-12 transition" /> {t.wb_btn_gen_scripts}</button>
                   </div>
                 </div>
               </div>
 
-              {/* Middle Column: Script Editor */}
+              {/* Middle Column */}
               <div className="flex-1 flex flex-col gap-3 h-full min-w-[300px]">
                 <div className="flex justify-between items-center shrink-0 h-[32px]">
-                  <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                    <Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}
-                  </h2>
-                  <button className="bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20">
-                    <PlayCircle className="w-4 h-4 fill-current" /> {t.wb_btn_gen_video}
-                  </button>
+                  <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
+                  <button className="bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20"><PlayCircle className="w-4 h-4 fill-current" /> {t.wb_btn_gen_video}</button>
                 </div>
-
                 <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
                   {scripts.map((script) => (
                     <div key={script.id} className={`glass-card p-4 rounded-xl group relative border-l-2 ${script.id % 2 === 0 ? 'border-l-purple-500' : 'border-l-orange-500'}`}>
@@ -243,80 +248,37 @@ const Workbench = () => {
                       </div>
                     </div>
                   ))}
-
-                  <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition gap-2 group">
-                    <Plus className="w-4 h-4 group-hover:scale-110 transition" />
-                    <span className="text-xs font-bold">{t.wb_btn_add_shot}</span>
-                  </button>
+                  <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition gap-2 group"><Plus className="w-4 h-4 group-hover:scale-110 transition" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
                 </div>
               </div>
 
-              {/* Right Column: Preview */}
+              {/* Right Column */}
               <div className="w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full">
                 <div className="flex justify-between items-end shrink-0 h-[32px]">
-                  <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                    <MonitorPlay className="w-3 h-3" /> {t.wb_col_preview}
-                  </h2>
+                  <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-3 h-3" /> {t.wb_col_preview}</h2>
                   <span className="text-[10px] text-zinc-600">{t.wb_auto_saved}</span>
                 </div>
-
                 <div className="glass-panel flex-1 rounded-2xl p-1 relative flex flex-col overflow-hidden">
                    <div className="flex-1 bg-black rounded-xl relative overflow-hidden group flex items-center justify-center">
-                      <div className="text-center opacity-30">
-                        <Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" />
-                        <p className="text-xs text-zinc-600">{t.wb_waiting}</p>
-                      </div>
+                      <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{t.wb_waiting}</p></div>
                       <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition cursor-pointer">
-                        <div className="w-14 h-14 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 hover:scale-110 transition">
-                          <Play className="w-6 h-6 fill-white text-white ml-1" />
-                        </div>
-                      </div>
-                      <div className="absolute bottom-4 left-4 right-4">
-                        <div className="h-1 bg-white/20 rounded-full overflow-hidden">
-                          <div className="h-full w-1/3 bg-orange-500" />
-                        </div>
-                        <div className="flex justify-between mt-2 text-[10px] text-zinc-400 font-mono">
-                          <span>00:05</span>
-                          <span>00:15</span>
-                        </div>
+                        <div className="w-14 h-14 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 hover:scale-110 transition"><Play className="w-6 h-6 fill-white text-white ml-1" /></div>
                       </div>
                    </div>
-
                    <div className="h-14 flex items-center justify-between px-4 border-t border-white/5 bg-zinc-900/50">
-                      <div className="flex gap-4">
-                        <button className="text-zinc-400 hover:text-white transition"><SkipBack className="w-4 h-4" /></button>
-                        <button className="text-white hover:text-orange-500 transition"><Play className="w-4 h-4 fill-current" /></button>
-                        <button className="text-zinc-400 hover:text-white transition"><SkipForward className="w-4 h-4" /></button>
-                      </div>
-                      <div className="flex gap-3">
-                        <button className="text-zinc-500 hover:text-white transition"><Download className="w-4 h-4" /></button>
-                        <button className="text-zinc-500 hover:text-white transition"><Maximize className="w-4 h-4" /></button>
-                      </div>
+                      <div className="flex gap-4"><button className="text-zinc-400 hover:text-white transition"><SkipBack className="w-4 h-4" /></button><button className="text-white hover:text-orange-500 transition"><Play className="w-4 h-4 fill-current" /></button><button className="text-zinc-400 hover:text-white transition"><SkipForward className="w-4 h-4" /></button></div>
+                      <div className="flex gap-3"><button className="text-zinc-500 hover:text-white transition"><Download className="w-4 h-4" /></button><button className="text-zinc-500 hover:text-white transition"><Maximize className="w-4 h-4" /></button></div>
                    </div>
                 </div>
-
                 <div className="h-24 glass-card rounded-xl p-4 flex flex-col justify-between">
-                  <div className="flex justify-between items-center mb-2">
-                    <h3 className="text-xs font-bold text-zinc-300 flex items-center gap-2">
-                      <Share2 className="w-3 h-3 text-orange-500" /> {t.wb_publish_title}
-                    </h3>
-                    <span className="text-[9px] text-zinc-500">{t.wb_publish_sync}</span>
-                  </div>
+                  <div className="flex justify-between items-center mb-2"><h3 className="text-xs font-bold text-zinc-300 flex items-center gap-2"><Share2 className="w-3 h-3 text-orange-500" /> {t.wb_publish_title}</h3><span className="text-[9px] text-zinc-500">{t.wb_publish_sync}</span></div>
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex gap-2">
-                      <button className="w-8 h-8 rounded-full bg-zinc-800 border border-white/5 hover:border-white/20 hover:bg-black text-white flex items-center justify-center transition group relative">
-                        <Music2 className="w-4 h-4" />
-                      </button>
-                      <button className="w-8 h-8 rounded-full bg-zinc-800 border border-white/5 hover:border-pink-500/50 hover:bg-pink-500/10 text-white flex items-center justify-center transition">
-                        <Instagram className="w-4 h-4" />
-                      </button>
-                      <button className="w-8 h-8 rounded-full bg-zinc-800 border border-white/5 hover:border-red-500/50 hover:bg-red-500/10 text-white flex items-center justify-center transition">
-                        <Youtube className="w-4 h-4" />
-                      </button>
+                      <button className="w-8 h-8 rounded-full bg-zinc-800 border border-white/5 hover:border-white/20 hover:bg-black text-white flex items-center justify-center transition group relative"><Music2 className="w-4 h-4" /></button>
+                      <button className="w-8 h-8 rounded-full bg-zinc-800 border border-white/5 hover:border-pink-500/50 hover:bg-pink-500/10 text-white flex items-center justify-center transition"><Instagram className="w-4 h-4" /></button>
+                      <button className="w-8 h-8 rounded-full bg-zinc-800 border border-white/5 hover:border-red-500/50 hover:bg-red-500/10 text-white flex items-center justify-center transition"><Youtube className="w-4 h-4" /></button>
                     </div>
-                    <button className="bg-gradient-to-r from-orange-600 to-red-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-lg shadow-orange-500/20 hover:brightness-110 active:scale-95 transition flex items-center gap-1">
-                      {t.wb_btn_post} <Send className="w-3 h-3" />
-                    </button>
+                    <button className="bg-gradient-to-r from-orange-600 to-red-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-lg shadow-orange-500/20 hover:brightness-110 active:scale-95 transition flex items-center gap-1">{t.wb_btn_post} <Send className="w-3 h-3" /></button>
                   </div>
                 </div>
               </div>
@@ -324,7 +286,7 @@ const Workbench = () => {
           </div>
         )}
 
-        {/* === VIEW 2: ASSETS === */}
+        {/* === VIEW 2: ASSETS (REAL DATA) === */}
         {activeView === 'assets' && (
            <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
              <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
@@ -336,77 +298,97 @@ const Workbench = () => {
                   <button className="bg-zinc-800 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-zinc-700 transition flex items-center gap-2">
                     <FolderPlus className="w-4 h-4" /> {t.assets_btn_new_folder}
                   </button>
-                  <button className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20">
-                    <Upload className="w-4 h-4" /> {t.assets_btn_upload}
+                  <button 
+                    onClick={() => assetInputRef.current?.click()}
+                    className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20"
+                    disabled={isUploading}
+                  >
+                    {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} {t.assets_btn_upload}
                   </button>
+                  <input type="file" ref={assetInputRef} className="hidden" onChange={handleAssetUpload} />
                 </div>
              </header>
-             <div className="flex-1 p-10 overflow-y-auto custom-scroll">
-               <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-6">
-                 {/* Upload Placeholder */}
-                 <div className="glass-card rounded-2xl aspect-[3/4] border-2 border-dashed border-zinc-800 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-orange-500/50 hover:bg-zinc-900/50 transition group">
-                   <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center group-hover:scale-110 transition">
-                     <Plus className="w-6 h-6 text-zinc-500 group-hover:text-orange-500" />
-                   </div>
-                   <span className="text-xs font-medium text-zinc-500">{t.assets_upload_hint}</span>
-                 </div>
-                 {/* Sample Item */}
-                 <div className="glass-card rounded-2xl p-2 group relative">
-                    <div className="aspect-[3/4] bg-zinc-800 rounded-xl overflow-hidden relative">
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                      <div className="absolute bottom-3 left-3">
-                        <p className="text-xs font-bold text-white">Asian_Model_01</p>
-                        <p className="text-[10px] text-zinc-400">2.4 MB</p>
-                      </div>
-                      <div className="absolute top-2 right-2 bg-black/40 px-2 py-0.5 rounded text-[9px] text-white backdrop-blur-sm">{t.wb_ready}</div>
-                    </div>
-                 </div>
-               </div>
+             
+             <div className="flex-1 flex flex-col p-10 overflow-hidden">
+                {/* Tabs */}
+                <div className="flex gap-4 mb-8 border-b border-white/5 pb-2">
+                    {(['model', 'product', 'scene'] as AssetType[]).map(type => (
+                        <button 
+                            key={type}
+                            onClick={() => setActiveAssetTab(type)} 
+                            className={`text-sm font-bold px-6 py-2 rounded-full transition ${activeAssetTab === type ? 'bg-white text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}
+                        >
+                            {/* Simple capitalization logic */}
+                            {type.charAt(0).toUpperCase() + type.slice(1)}s
+                        </button>
+                    ))}
+                </div>
+
+                {/* Grid */}
+                <div className="flex-1 overflow-y-auto custom-scroll">
+                    {isLoadingAssets ? (
+                        <div className="flex justify-center py-20 text-zinc-500"><Loader2 className="animate-spin mr-2" /> Loading Assets...</div>
+                    ) : (
+                        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-6">
+                            {/* Upload Placeholder */}
+                            <div onClick={() => assetInputRef.current?.click()} className="glass-card rounded-2xl aspect-[3/4] border-2 border-dashed border-zinc-800 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-orange-500/50 hover:bg-zinc-900/50 transition group">
+                                <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center group-hover:scale-110 transition"><Plus className="w-6 h-6 text-zinc-500 group-hover:text-orange-500" /></div>
+                                <span className="text-xs font-medium text-zinc-500">{t.assets_upload_hint}</span>
+                            </div>
+
+                            {/* Asset Cards */}
+                            {filteredAssets.map(asset => (
+                                <div key={asset.id} className="glass-card rounded-2xl p-2 group relative">
+                                    <div className="aspect-[3/4] bg-zinc-800 rounded-xl overflow-hidden relative">
+                                        {asset.file_url ? (
+                                            <img 
+                                              src={asset.file_url} 
+                                              className="w-full h-full object-cover" 
+                                              alt={asset.name} 
+                                              // Fallback for broken images
+                                              onError={(e) => {
+                                                (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x400?text=Error';
+                                              }}
+                                            />
+                                        ) : (
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-center justify-center text-zinc-600">No Preview</div>
+                                        )}
+                                        <div className="absolute bottom-3 left-3">
+                                            <p className="text-xs font-bold text-white truncate w-24">{asset.name}</p>
+                                            <p className="text-[10px] text-zinc-400">{asset.size || '-- MB'}</p>
+                                        </div>
+                                        <div className="absolute top-2 right-2 bg-black/40 px-2 py-0.5 rounded text-[9px] text-white backdrop-blur-sm capitalize">{asset.status}</div>
+                                    </div>
+                                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-2xl flex flex-col items-center justify-center gap-2">
+                                        <button className="bg-white text-black px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition">Details</button>
+                                        <button onClick={(e) => handleDeleteAsset(asset.id, e)} className="text-red-400 text-xs hover:text-red-300">Delete</button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
              </div>
            </div>
         )}
 
-        {/* === VIEW 3: TEMPLATES === */}
+        {/* === VIEW 3: TEMPLATES (Keep existing UI) === */}
         {activeView === 'templates' && (
           <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
              <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
-                <div>
-                  <h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.tpl_title}</h1>
-                  <p className="text-zinc-500 text-xs mt-1">{t.tpl_subtitle}</p>
-                </div>
-                <button onClick={() => setActiveView('editor')} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20">
-                    <Plus className="w-4 h-4" /> {t.tpl_btn_new}
-                </button>
+                <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.tpl_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.tpl_subtitle}</p></div>
+                <button onClick={() => setActiveView('editor')} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20"><Plus className="w-4 h-4" /> {t.tpl_btn_new}</button>
              </header>
              <div className="flex-1 overflow-y-auto p-10">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                    <div className="glass-card rounded-2xl p-6 relative group overflow-hidden border-t-4 border-t-purple-500 flex flex-col justify-between h-96">
                       <div className="absolute -right-10 -top-10 w-32 h-32 bg-purple-500/10 rounded-full blur-2xl group-hover:bg-purple-500/20 transition" />
-                      <div>
-                        <div className="flex justify-between items-start mb-6">
-                          <div className="w-12 h-12 rounded-xl bg-zinc-800/80 border border-white/5 flex items-center justify-center text-purple-400 shadow-lg"><Flame className="w-6 h-6" /></div>
-                        </div>
-                        <h3 className="text-xl font-bold text-white mb-1">{t.tpl_card_tiktok}</h3>
-                        <p className="text-xs text-zinc-500 mb-6 font-mono">ID: TIKTOK_V01</p>
-                        <div className="space-y-3 bg-zinc-900/50 p-4 rounded-xl border border-white/5">
-                           <div className="flex items-center justify-between text-xs"><span className="text-zinc-500">{t.wb_config_duration}</span><span className="text-zinc-300 font-bold">15s</span></div>
-                        </div>
-                      </div>
+                      <div><div className="flex justify-between items-start mb-6"><div className="w-12 h-12 rounded-xl bg-zinc-800/80 border border-white/5 flex items-center justify-center text-purple-400 shadow-lg"><Flame className="w-6 h-6" /></div></div><h3 className="text-xl font-bold text-white mb-1">{t.tpl_card_tiktok}</h3><p className="text-xs text-zinc-500 mb-6 font-mono">ID: TIKTOK_V01</p><div className="space-y-3 bg-zinc-900/50 p-4 rounded-xl border border-white/5"><div className="flex items-center justify-between text-xs"><span className="text-zinc-500">{t.wb_config_duration}</span><span className="text-zinc-300 font-bold">15s</span></div></div></div>
                       <button onClick={() => setActiveView('editor')} className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/5 text-xs font-bold text-zinc-300 rounded-xl mt-4 transition flex items-center justify-center gap-2">{t.tpl_btn_edit} <ArrowRight className="w-3 h-3" /></button>
                    </div>
-                   
                    <div className="glass-card rounded-2xl p-6 relative group overflow-hidden border-t-4 border-t-orange-500 flex flex-col justify-between h-96">
                       <div className="absolute -right-10 -top-10 w-32 h-32 bg-orange-500/10 rounded-full blur-2xl group-hover:bg-orange-500/20 transition" />
-                      <div>
-                        <div className="flex justify-between items-start mb-6">
-                          <div className="w-12 h-12 rounded-xl bg-zinc-800/80 border border-white/5 flex items-center justify-center text-orange-400 shadow-lg"><Gem className="w-6 h-6" /></div>
-                        </div>
-                        <h3 className="text-xl font-bold text-white mb-1">{t.tpl_card_product}</h3>
-                        <p className="text-xs text-zinc-500 mb-6 font-mono">ID: PROD_HIGH_02</p>
-                        <div className="space-y-3 bg-zinc-900/50 p-4 rounded-xl border border-white/5">
-                           <div className="flex items-center justify-between text-xs"><span className="text-zinc-500">{t.wb_config_duration}</span><span className="text-zinc-300 font-bold">30s</span></div>
-                        </div>
-                      </div>
+                      <div><div className="flex justify-between items-start mb-6"><div className="w-12 h-12 rounded-xl bg-zinc-800/80 border border-white/5 flex items-center justify-center text-orange-400 shadow-lg"><Gem className="w-6 h-6" /></div></div><h3 className="text-xl font-bold text-white mb-1">{t.tpl_card_product}</h3><p className="text-xs text-zinc-500 mb-6 font-mono">ID: PROD_HIGH_02</p><div className="space-y-3 bg-zinc-900/50 p-4 rounded-xl border border-white/5"><div className="flex items-center justify-between text-xs"><span className="text-zinc-500">{t.wb_config_duration}</span><span className="text-zinc-300 font-bold">30s</span></div></div></div>
                       <button onClick={() => setActiveView('editor')} className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/5 text-xs font-bold text-zinc-300 rounded-xl mt-4 transition flex items-center justify-center gap-2">{t.tpl_btn_edit} <ArrowRight className="w-3 h-3" /></button>
                    </div>
                 </div>
@@ -437,7 +419,7 @@ const Workbench = () => {
            </div>
         )}
 
-        {/* === VIEW 5: HISTORY === */}
+        {/* === VIEW 5: HISTORY (Keep existing UI) === */}
         {activeView === 'history' && (
            <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
              <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">

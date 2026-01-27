@@ -27,14 +27,12 @@ export const authApi = {
   // 2. 验证并登录
   loginWithPhone: async (phoneNumber: string, code: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/login/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: phoneNumber,
-          code: code
-        }),
-      });
+        const response = await fetch(`${API_BASE_URL}/login/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include', // <--- ADD THIS
+            body: JSON.stringify({ phone: phoneNumber, code: code }),
+        });
 
       if (!response.ok) {
         const errorData = await response.json();

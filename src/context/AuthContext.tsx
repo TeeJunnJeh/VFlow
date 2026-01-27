@@ -1,17 +1,19 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
-// Define what a User looks like
 interface User {
   id: string;
   name: string;
-  email: string;
+  email?: string;
+  phone?: string;
   avatar: string;
   plan: 'free' | 'pro';
+  token?: string; // Store the backend token
 }
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string) => Promise<void>;
+  // We allow login to take optional data (for the real API response)
+  login: (identifier: string, userData?: any) => Promise<void>;
   logout: () => void;
   isLoading: boolean;
 }
@@ -22,36 +24,48 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Check for existing session on load
   useEffect(() => {
-    const storedUser = localStorage.getItem('ai_studio_user');
+    const storedUser = localStorage.getItem('vflow_ai_user');
     if (storedUser) {
       setUser(JSON.parse(storedUser));
     }
     setIsLoading(false);
   }, []);
 
-  // Mock Login Function
-  const login = async (email: string) => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
+  // Update logic to accept real data from the Phone Login API
+  const login = async (identifier: string, apiResponseData?: any) => {
     
-    // Create a mock user
-    const mockUser: User = {
-      id: '1',
-      name: email.split('@')[0], // Use part of email as name
-      email: email,
-      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + email, // Generates cool avatars
-      plan: 'pro'
-    };
-
-    setUser(mockUser);
-    localStorage.setItem('ai_studio_user', JSON.stringify(mockUser));
+    // If we have real data from the backend (Phone Login)
+    if (apiResponseData) {
+      const realUser: User = {
+        id: apiResponseData.user?.id || 'server-user',
+        name: apiResponseData.user?.username || identifier,
+        phone: identifier,
+        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + identifier,
+        plan: 'pro',
+        token: apiResponseData.token // Save the token from your API
+      };
+      setUser(realUser);
+      localStorage.setItem('vflow_ai_user', JSON.stringify(realUser));
+    } 
+    // Fallback to Mock (Email Login)
+    else {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      const mockUser: User = {
+        id: '1',
+        name: identifier.split('@')[0],
+        email: identifier,
+        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + identifier,
+        plan: 'pro'
+      };
+      setUser(mockUser);
+      localStorage.setItem('vflow_ai_user', JSON.stringify(mockUser));
+    }
   };
 
   const logout = () => {
     setUser(null);
-    localStorage.removeItem('ai_studio_user');
+    localStorage.removeItem('vflow_ai_user');
   };
 
   return (

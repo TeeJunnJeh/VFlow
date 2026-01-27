@@ -68,3 +68,39 @@ body {
 .animate-ping-slow {
   animation: ping-slow 1s cubic-bezier(0, 0, 0.2, 1) forwards;
 }
+
+/* index.css */
+
+@keyframes shooting {
+  0% {
+    /** * 核心修复：
+     * 1. 必须先写 rotate(-45deg) 锁定朝向，让流星“尖头朝下”。
+     * 2. 然后写 translate(0, 0) 指定起点。
+     */
+    transform: rotate(-45deg) translate(0, 0);
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    /** * 核心修复：
+     * 1. 每一帧都必须重复 rotate(-45deg)，否则流星会在滑动中“转回”水平。
+     * 2. translate(-800px, 800px) 确保它向左下对角线滑行。
+     */
+    transform: rotate(-45deg) translate(-800px, 800px);
+    opacity: 0;
+  }
+}
+
+.animate-shooting-star {
+  /* 使用 linear 确保匀速滑落，!important 确保不被 Tailwind 默认样式干扰 */
+  animation: shooting 3s linear infinite !important;
+  /* 确保元素是块级或行内块，否则 transform 可能失效 */
+  display: inline-block;
+}
+
+/* 备用强制修复方案 */
+.animate-shooting-star {
+  animation: shooting 10s linear infinite !important;
+}

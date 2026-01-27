@@ -41,3 +41,30 @@ body {
 /* Hide Scrollbar */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* index.css */
+@keyframes ripple {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+    border-width: 8px;
+  }
+  100% {
+    transform: scale(10);
+    opacity: 0;
+    border-width: 1px;
+  }
+}
+
+@keyframes ping-slow {
+  0% { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(15); opacity: 0; }
+}
+
+.animate-ripple {
+  animation: ripple 1.2s cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+.animate-ping-slow {
+  animation: ping-slow 1s cubic-bezier(0, 0, 0.2, 1) forwards;
+}

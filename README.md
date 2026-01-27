@@ -1,73 +1,115 @@
-# React + TypeScript + Vite
+# Vflow AI (Video Flow)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**Next-Gen Video Generation for Global E-Commerce.**
 
-Currently, two official plugins are available:
+Vflow AI is a modern, production-grade frontend application designed to streamline the video creation process for e-commerce. It features a sophisticated "Workbench" interface for script-to-video generation, asset management, and template configuration, all wrapped in a sleek, dark-mode glassmorphism UI.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## ✨ Key Features
 
-## React Compiler
+### 1. 🔐 Secure Authentication
+* **Dual Login Methods:** Support for Email (Mock) and Phone Number (Real API Integration).
+* **OTP Verification:** Integrated with backend API for SMS code verification.
+* **Session Management:** Persistent login state using `AuthContext` and LocalStorage.
+* **Protected Routes:** Automatic redirection for unauthenticated users.
 
-The React Compiler is currently not compatible with SWC. See [this issue](https://github.com/vitejs/vite-plugin-react/issues/428) for tracking the progress.
+### 2. 🛠️ AI Workbench (Core)
+A powerful, three-column workspace designed for creators:
+* **Config Panel (Left):** File uploads, attribute configuration (Duration, Aspect Ratio, Style), and prompt input.
+* **Script Editor (Center):** Interactive shot list editor. Add, remove, or modify visual/audio scripts for each shot.
+* **Preview & Publish (Right):** Real-time video preview placeholder and one-click publishing to social platforms (TikTok, Instagram, YouTube).
 
-## Expanding the ESLint configuration
+### 3. 🌐 Internationalization (i18n)
+* **Bilingual Support:** Full English and Chinese (Simplified) translations.
+* **Instant Switching:** Global language switcher available on all pages.
+* **Context-Aware:** Translations applied to Sidebar, Workbench, Login, and Landing pages.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### 4. 🎨 Modern UI/UX
+* **Design System:** "Dark Mode" aesthetic with deep violet/orange gradients and glassmorphism effects.
+* **Responsive:** Adaptive sidebar and layout logic.
+* **Animations:** Smooth transitions using Tailwind CSS and Lucide React icons.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### 5. 📂 Asset & Template Management
+* **Asset Hub:** Manage uploaded models, products, and scenes.
+* **Template Library:** Create, edit, and save reusable video configuration templates (e.g., "TikTok Viral", "High-End Product").
+* **History Archive:** Track past generations with status indicators (Draft, Completed).
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+---
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## 🛠️ Tech Stack
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+* **Framework:** [React 18](https://reactjs.org/) (via [Vite](https://vitejs.dev/))
+* **Language:** [TypeScript](https://www.typescriptlang.org/)
+* **Styling:** [Tailwind CSS](https://tailwindcss.com/)
+* **Icons:** [Lucide React](https://lucide.dev/)
+* **Routing:** [React Router DOM](https://reactrouter.com/)
+* **State Management:** React Context API (Auth & Language)
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+---
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## 🚀 Getting Started
+
+### Prerequisites
+* Node.js (v16 or higher)
+* npm or yarn
+
+### Installation
+
+1.  **Clone the repository**
+    ```bash
+    git clone [https://github.com/TeeJunnJeh/VFlow.git](https://github.com/TeeJunnJeh/VFlow.git)
+    cd vflow-ai
+    ```
+
+2.  **Install dependencies**
+    ```bash
+    npm install
+    # or
+    yarn install
+    ```
+
+3.  **Configure Proxy (Important)**
+    To avoid CORS issues with the backend API, ensure `vite.config.ts` is configured to proxy requests:
+    ```typescript
+    // vite.config.ts
+    server: {
+      proxy: {
+        '/api': {
+          target: '[http://1.95.137.119:8001](http://1.95.137.119:8001)',
+          changeOrigin: true,
+          secure: false,
+        }
+      }
+    }
+    ```
+
+4.  **Run the development server**
+    ```bash
+    npm run dev
+    ```
+
+5.  **Open the app**
+    Visit `http://localhost:5173` in your browser.
+
+---
+
+## 📂 Project Structure
+
+```text
+src/
+├── components/
+│   └── common/
+│       └── LanguageSwitcher.tsx  # Global language toggle
+├── context/
+│   ├── AuthContext.tsx           # User session & login logic
+│   └── LanguageContext.tsx       # i18n state management
+├── i18n/
+│   └── translations.ts           # EN/ZH translation dictionary
+├── pages/
+│   ├── Landing.tsx               # Public landing page
+│   ├── Login.tsx                 # Split-screen auth page
+│   └── Workbench.tsx             # Main app (Dashboard, Assets, Editor)
+├── services/
+│   └── auth.ts                   # API calls (Send Code, Login)
+├── App.tsx                       # Routing & Layout definitions
+├── index.css                     # Global styles & Tailwind directives
+└── main.tsx                      # Entry point

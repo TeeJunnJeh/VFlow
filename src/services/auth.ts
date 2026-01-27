@@ -30,8 +30,6 @@ export const authApi = {
       const response = await fetch(`${API_BASE_URL}/login/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // 同理，请确认登录接口的键名是 phone 还是 phone_number
-        // 如果文档也是 "phone"，这里也要改
         body: JSON.stringify({
           phone: phoneNumber,
           code: code

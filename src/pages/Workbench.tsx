@@ -493,7 +493,7 @@ const Workbench = () => {
                   </button>
                 </div>
                 <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
-                  // Inside the render loop for scripts (Middle Column)
+                  {/* // Inside the render loop for scripts (Middle Column) */}
                   {scripts.map((script) => (
                     <div key={script.id} className={`glass-card p-4 rounded-xl group relative border-l-2 ${script.id % 2 === 0 ? 'border-l-purple-500' : 'border-l-orange-500'}`}>
                       <div className="flex justify-between items-center mb-3">

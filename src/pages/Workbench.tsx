@@ -42,14 +42,19 @@ const Workbench = () => {
     custom_config: ''
   });
 
-  // --- Workbench & Assets State ---
+  // --- Workbench State ---
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
   const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null);
   const [fileName, setFileName] = useState('');
+  
+  // Generation Config
   const [genPrompt, setGenPrompt] = useState('');
-  const [genDuration, setGenDuration] = useState<number>(5);
+  const [genDuration, setGenDuration] = useState<number>(10);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
+
+  // Scripts State
   const [scripts, setScripts] = useState([
     { id: 1, shot: '1', type: 'Close-up', dur: '2.5s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio },
     { id: 2, shot: '2', type: 'Detail', dur: '1.5s', visual: t.demo_shot2_visual, audio: t.demo_shot2_audio }
@@ -83,7 +88,7 @@ const Workbench = () => {
     if (activeView === 'templates' && currentUserId) loadTemplates();
   }, [activeView, currentUserId]);
 
-  // --- API Actions ---
+  // --- API Actions: Templates ---
   const loadTemplates = async () => {
     if (!currentUserId) return;
     try {
@@ -167,9 +172,111 @@ const Workbench = () => {
     }
   };
 
+  // --- Handle Script Generation ---
+  const handleGenerateScripts = async () => {
+    if (!currentUserId) return alert("Please log in first");
+    
+    setIsGeneratingScript(true);
+
+    try {
+      let imagePath = "";
+
+      // 1. Upload Image (Reuse existing logic)
+      if (selectedFileObj) {
+        console.log("🚀 Uploading reference image for script...");
+        const uploadResp = await assetsApi.uploadAsset(selectedFileObj, 'product');
+        
+        let rawPath = null;
+        if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
+            rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
+        } else {
+            rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
+        }
+
+        if (rawPath) {
+            // Script API expects absolute URL: http://...
+            if (rawPath.startsWith('/')) {
+                imagePath = `http://1.95.137.119:8001${rawPath}`; 
+            } else {
+                imagePath = rawPath;
+            }
+        }
+      }
+
+      // 2. Prepare Payload (updated)
+      const promptText = genPrompt || "产品推广"; 
+
+      const payload = {
+        // --- FIX: Add prompt keys to ROOT level ---
+        // The backend likely looks here for 'user_prompt'
+        user_prompt: promptText,
+        prompt: promptText,
+        input: promptText, 
+        // ------------------------------------------
+
+        product_category: "相机", 
+        visual_style: "写实",
+        aspect_ratio: "720*1280",
+        
+        script_content: {
+            duration: genDuration || 10,
+            shot_number: 5,
+            custom: "突出夜景拍摄",
+            
+            // Keep them here too, just in case
+            input: promptText,
+            prompt: promptText,
+            user_prompt: promptText,
+            
+            shots: [] 
+        },
+        product_image_path: imagePath || "http://1.95.137.119:8001/media/uploads/default.jpg"
+      };
+
+      console.log("📜 Generating Script with payload:", payload);
+
+      // 3. Call API
+      const response = await videoApi.generateScript(currentUserId, payload);
+      
+      console.log("✅ Script Generated:", response);
+
+      // 4. Update Scripts List
+      if (response.code === 0 && response.data && response.data.script_content && response.data.script_content.shots) {
+        const newScripts = response.data.script_content.shots.map((shot: any) => ({
+            id: shot.shot_index,
+            shot: shot.shot_index.toString(),
+            type: 'General', 
+            dur: `${shot.duration_sec}s`,
+            visual: shot.visual,
+            audio: shot.voiceover || shot.beat 
+        }));
+        
+        setScripts(newScripts);
+      } else {
+        console.warn("Unexpected response format:", response);
+        alert("Script generation completed but returned unexpected data.");
+      }
+
+    } catch (err: any) {
+      console.error("Script Gen Error:", err);
+      // Try to parse the backend error message for display
+      let msg = err.message;
+      try {
+         const jsonPart = err.message.substring(err.message.indexOf('{'));
+         const parsed = JSON.parse(jsonPart);
+         if (parsed.message) msg = parsed.message;
+      } catch (e) {}
+      alert(`Script Generation Failed: ${msg}`);
+    } finally {
+      setIsGeneratingScript(false);
+    }
+  };
+
   const handleGenerateVideo = async () => {
     if (!selectedFileObj) return alert("Please upload a reference image first!");
-    if (!genPrompt.trim()) return alert("Please enter a prompt!");
+    
+    // FIX: Check if scripts exist instead of checking genPrompt
+    if (scripts.length === 0) return alert("Please generate or add scripts first!");
 
     setIsGenerating(true);
     setGeneratedVideoUrl(null); 
@@ -192,8 +299,21 @@ const Workbench = () => {
         apiPath = '.' + apiPath; 
       }
 
+      // --- FIX: Construct Prompt from Scripts ---
+      // We combine the 'visual' text from every shot in the list
+      const combinedScriptPrompt = scripts
+        .map(s => s.visual) // Extract visual description
+        .filter(v => v && v.trim().length > 0) // Remove empty lines
+        .join(' '); // Join them into one paragraph
+
+      console.log("🎬 Generated Video Prompt from Scripts:", combinedScriptPrompt);
+
+      if (!combinedScriptPrompt) {
+          throw new Error("Scripts are empty. Please generate scripts first.");
+      }
+
       const payload = {
-        prompt: genPrompt,
+        prompt: combinedScriptPrompt, // <--- Using the script content here
         project_id: "53584869-a37f-4e02-8b77-385b2eff8ebb", 
         duration: genDuration,
         image_path: apiPath, 
@@ -291,7 +411,7 @@ const Workbench = () => {
         {/* 1. WORKBENCH VIEW */}
         {activeView === 'workbench' && (
           <div className="flex flex-col h-full z-10 animate-in fade-in zoom-in-95 duration-300">
-            {/* FIX: relative z-50 added to header */}
+            {/* Header (Z-50 to fix overlapping) */}
             <header className="flex justify-between items-center px-8 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm shrink-0 relative z-50">
               <div className="flex items-center gap-4">
                 <h1 className="text-xl font-bold tracking-tight text-white">Project_Alpha_01</h1>
@@ -350,7 +470,15 @@ const Workbench = () => {
                         ))}
                       </div>
                     </div>
-                    <button className="w-full bg-white/5 text-zinc-400 py-3 rounded-xl font-bold text-xs hover:bg-white/10 transition mt-2 flex items-center justify-center gap-2 group"><Wand2 className="w-4 h-4 group-hover:rotate-12 transition" /> {t.wb_btn_gen_scripts}</button>
+                    {/* BUTTON: Generate Scripts */}
+                    <button 
+                        onClick={handleGenerateScripts} 
+                        disabled={isGeneratingScript}
+                        className="w-full bg-white text-black py-3 rounded-xl font-bold text-xs hover:bg-orange-500 hover:text-white transition shadow-lg shadow-white/5 mt-2 flex items-center justify-center gap-2 group"
+                    >
+                        {isGeneratingScript ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />} 
+                        {isGeneratingScript ? 'Generating...' : t.wb_btn_gen_scripts}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -365,15 +493,46 @@ const Workbench = () => {
                   </button>
                 </div>
                 <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
+                  // Inside the render loop for scripts (Middle Column)
                   {scripts.map((script) => (
-                     <div key={script.id} className={`glass-card p-4 rounded-xl group relative border-l-2 ${script.id % 2 === 0 ? 'border-l-purple-500' : 'border-l-orange-500'}`}>
-                        <div className="flex justify-between items-center mb-3">
-                           <div className="flex items-center gap-2"><span className={`${script.id % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span><span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.type}</span></div>
-                        </div>
-                        <div className="grid grid-cols-1 gap-3">
-                           <div className="relative"><p className="text-[9px] text-zinc-600 uppercase font-bold absolute top-2 left-2">{t.wb_visual}</p><textarea className="w-full bg-black/20 text-xs text-zinc-300 p-2 pt-6 rounded-lg border border-white/5" defaultValue={script.visual} /></div>
-                        </div>
-                     </div>
+                    <div key={script.id} className={`glass-card p-4 rounded-xl group relative border-l-2 ${script.id % 2 === 0 ? 'border-l-purple-500' : 'border-l-orange-500'}`}>
+                      <div className="flex justify-between items-center mb-3">
+                          <div className="flex items-center gap-2">
+                              <span className={`${script.id % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
+                              <span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.type}</span>
+                              <span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.dur}</span>
+                          </div>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3">
+                          <div className="relative group/input">
+                              <p className="text-[9px] text-zinc-600 uppercase font-bold absolute top-2 left-2 pointer-events-none">{t.wb_visual}</p>
+                              
+                              {/* FIX: Changed defaultValue to value + onChange to sync state */}
+                              <textarea 
+                                  className="w-full bg-black/20 text-xs text-zinc-300 p-2 pt-6 rounded-lg border border-white/5 focus:border-orange-500/50 focus:outline-none resize-none min-h-[60px]" 
+                                  value={script.visual} 
+                                  onChange={(e) => {
+                                      const newScripts = scripts.map(s => s.id === script.id ? { ...s, visual: e.target.value } : s);
+                                      setScripts(newScripts);
+                                  }}
+                              />
+                          </div>
+                          <div className="relative group/input">
+                              <p className="text-[9px] text-zinc-600 uppercase font-bold absolute top-2 left-2 pointer-events-none">{t.wb_audio}</p>
+                              
+                              {/* FIX: Added onChange for Audio as well */}
+                              <input 
+                                  type="text" 
+                                  className="w-full bg-black/20 text-xs text-zinc-400 p-2 pl-12 rounded-lg border border-white/5 focus:border-orange-500/50 focus:outline-none italic" 
+                                  value={script.audio} 
+                                  onChange={(e) => {
+                                      const newScripts = scripts.map(s => s.id === script.id ? { ...s, audio: e.target.value } : s);
+                                      setScripts(newScripts);
+                                  }}
+                              />
+                          </div>
+                      </div>
+                    </div>
                   ))}
                   <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
                 </div>
@@ -407,7 +566,7 @@ const Workbench = () => {
         {/* 2. ASSETS VIEW */}
         {activeView === 'assets' && (
            <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
-             {/* FIX: relative z-50 added */}
+             {/* Header (Z-50 to fix overlapping) */}
              <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
                 <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.assets_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.assets_subtitle}</p></div>
                 <div className="flex gap-3 items-center">
@@ -461,7 +620,7 @@ const Workbench = () => {
         {/* 3. TEMPLATES VIEW */}
         {activeView === 'templates' && (
           <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
-             {/* FIX: relative z-50 added */}
+             {/* Header (Z-50 to fix overlapping) */}
              <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
                 <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.tpl_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.tpl_subtitle}</p></div>
                 <div className="flex items-center gap-3">
@@ -505,7 +664,7 @@ const Workbench = () => {
         {/* 4. EDITOR VIEW */}
         {activeView === 'editor' && (
            <div className="flex flex-col h-full z-20 bg-zinc-950 animate-in fade-in zoom-in-95 duration-200">
-             {/* FIX: relative z-50 added */}
+             {/* Header (Z-50 to fix overlapping) */}
              <div className="px-10 py-6 border-b border-white/5 flex justify-between items-center gap-4 bg-zinc-900/30 relative z-50">
                 <div className="flex items-center gap-4">
                     <button onClick={() => setActiveView('templates')} className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center hover:bg-zinc-700 transition"><ArrowLeft className="w-5 h-5" /></button>
@@ -515,7 +674,6 @@ const Workbench = () => {
              </div>
              <div className="flex-1 overflow-y-auto p-10 max-w-5xl mx-auto w-full custom-scroll">
                 <div className="glass-panel p-8 rounded-3xl border border-white/10 space-y-8">
-                   {/* ... Editor Fields ... */}
                    <div className="grid grid-cols-2 gap-8">
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-zinc-400">{t.editor_label_name}</label>
@@ -600,7 +758,7 @@ const Workbench = () => {
         {/* 5. HISTORY VIEW */}
         {activeView === 'history' && (
            <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
-             {/* FIX: relative z-50 added */}
+             {/* Header (Z-50 to fix overlapping) */}
              <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
                 <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.hist_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.hist_subtitle}</p></div>
                 <LanguageSwitcher />

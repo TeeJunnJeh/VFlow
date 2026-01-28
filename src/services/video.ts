@@ -1,7 +1,8 @@
 // src/services/video.ts
+
 const API_BASE_URL = '/api/projects';
 
-// Helper to get CSRF token (Same as in assets.ts)
+// Helper to get CSRF token from cookies (Django requirement)
 function getCookie(name: string) {
   let cookieValue = null;
   if (document.cookie && document.cookie !== '') {
@@ -17,23 +18,43 @@ function getCookie(name: string) {
   return cookieValue;
 }
 
-export interface GenerateVideoPayload {
-  prompt: string;
-  negative_prompt?: string;
-  project_id: string; // UUID
-  duration: number;
-  image_path: string; // Path on server
-  sound: 'on' | 'off';
-}
-
 export const videoApi = {
-  generate: async (payload: GenerateVideoPayload) => {
+  // 1. Generate Video (The missing function)
+  generate: async (payload: any) => {
     const csrftoken = getCookie('csrftoken');
+    
+    const response = await fetch(`${API_BASE_URL}/generate_video`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest', // Important for some backends
+      },
+      credentials: 'include', // Important for session cookies
+      body: JSON.stringify(payload),
+    });
 
-    // CHANGE THIS LINE: Remove the trailing slash after 'generate_video'
-    // OLD: `${API_BASE_URL}/generate_video/`
-    // NEW: `${API_BASE_URL}/generate_video`
-    const response = await fetch(`${API_BASE_URL}/generate_video`, { 
+    if (!response.ok) {
+      // Try to parse error message from backend
+      let errorMsg = 'Video generation failed';
+      try {
+        const errData = await response.json();
+        errorMsg = errData.message || JSON.stringify(errData);
+      } catch (e) {
+        errorMsg = await response.text(); 
+      }
+      throw new Error(errorMsg);
+    }
+
+    return await response.json();
+  },
+
+  // 2. Generate Script (The new function)
+  generateScript: async (userId: string | number, payload: any) => {
+    const csrftoken = getCookie('csrftoken');
+    
+    // Note: ensure no trailing slash if your backend dislikes it
+    const response = await fetch(`${API_BASE_URL}/users/${userId}/generate-script`, { 
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -45,8 +66,14 @@ export const videoApi = {
     });
 
     if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Generation failed: ${response.status} ${errorText}`);
+        let errorMsg = 'Script generation failed';
+        try {
+            const errData = await response.json();
+            errorMsg = errData.message || JSON.stringify(errData);
+        } catch (e) {
+            errorMsg = await response.text();
+        }
+        throw new Error(errorMsg);
     }
     
     return await response.json();

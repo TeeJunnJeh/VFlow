@@ -8,13 +8,13 @@ export default defineConfig({
     host: true,
     proxy: {
       '/api': {
-        target: 'https://thucvml-vgen.top:7443',
+        target: 'http://1.95.137.119:8001',
         changeOrigin: true,
         secure: false,
         cookieDomainRewrite: { "*": "" }
       },
       '/media': {
-        target: 'https://thucvml-vgen.top:7443',
+        target: 'http://1.95.137.119:8001',
         changeOrigin: true,
         secure: false,
       },

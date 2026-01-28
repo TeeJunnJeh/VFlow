@@ -24,20 +24,25 @@ export const translations = {
     landing_cta_start: "Start Creating",
 
     // New Login Design Keys
-    login_tagline: "NEXT-GEN VIDEO GENERATION FOR GLOBAL E-COMMERCE",
-    login_title: "Welcome Login", // 欢迎登录
-    login_tab_phone: "Phone Login", // 手机登录
-    login_tab_email: "Email Login", // 邮箱登录 (Your original function)
-    login_input_phone: "Enter mobile number", // 请输入手机号
-    login_input_code: "Enter verification code", // 请输入验证码
-    login_btn_get_code: "Get Code", // 获取验证码
-    login_btn_start: "Start Creating", // 立即创作
-    login_agreement: "Login implies agreement to", // 登录即代表同意
-    login_agreement_user: "User Agreement", // 《用户协议》
-    login_agreement_privacy: "Privacy Policy", // 《隐私政策》
+    // 技巧：在翻译字符串中直接加入 <br />，配合组件中的 dangerouslySetInnerHTML 实现精准换行
+    login_tagline: "NEXT-GEN VIDEO GENERATION <br /> FOR GLOBAL E-COMMERCE",
+    login_title: "Welcome Login",
+    login_tab_phone: "Phone Login",
+    login_tab_email: "Email Login",
+    login_input_phone: "Enter mobile number",
+    login_input_code: "Enter verification code",
+    login_btn_get_code: "Get Code",
+    login_btn_start: "Start Creating",
+    login_agreement: "Login implies agreement to",
+    login_agreement_user: "User Agreement",
+    login_agreement_privacy: "Privacy Policy",
     login_input_email: "Enter email address",
     login_input_password: "Enter password",
-    
+
+    // Login Validation Errors (EN)
+    login_error_invalid_phone: "Invalid phone number",
+    login_error_invalid_otp: "Invalid verification code",
+    login_error_missing_fields: "Please enter phone and code",
 
     // Generate Page
     header_title_prefix: "What do you want to",
@@ -56,7 +61,7 @@ export const translations = {
     btn_generate: "Generate Video",
     btn_processing: "Processing...",
 
-    // Login Page
+    // Legacy Login Page Keys
     welcome_back: "Welcome Back",
     sign_in_subtitle: "Sign in to continue creating.",
     email_label: "Email",
@@ -67,8 +72,8 @@ export const translations = {
     btn_sign_in: "Sign In",
     no_account: "Don't have an account?",
     join_waitlist: "Join the waitlist",
-    
-    // Auth
+
+    // Auth Tabs
     tab_email: "Email",
     tab_phone: "Phone",
 
@@ -77,11 +82,11 @@ export const translations = {
     wb_nav_assets: "Assets",
     wb_nav_templates: "Templates",
     wb_nav_history: "History",
-    
+
     // --- WORKBENCH VIEW ---
     wb_header_draft: "Draft",
     wb_header_save: "Last saved: Just now",
-    
+
     // Left Col
     wb_upload_title: "Upload Assets",
     wb_upload_click: "Click to Upload",
@@ -94,7 +99,7 @@ export const translations = {
     wb_config_prompt_placeholder: "E.g. Futuristic coffee ad, fast paced...",
     wb_config_duration: "Duration",
     wb_btn_gen_scripts: "Generate Scripts",
-    
+
     // Middle Col
     wb_col_scripts: "Scripts",
     wb_btn_gen_video: "Generate Video",
@@ -102,7 +107,7 @@ export const translations = {
     wb_visual: "Visual",
     wb_audio: "Audio",
     wb_btn_add_shot: "Add Shot",
-    
+
     // Right Col
     wb_col_preview: "Preview",
     wb_auto_saved: "Auto-saved",
@@ -137,7 +142,6 @@ export const translations = {
     // --- HISTORY VIEW ---
     hist_title: "History",
     hist_subtitle: "Archive of generated projects",
-
   },
   zh: {
     // Sidebar
@@ -176,6 +180,11 @@ export const translations = {
     login_input_email: "请输入邮箱地址",
     login_input_password: "请输入密码",
 
+    // 登录校验错误提示 (ZH)
+    login_error_invalid_phone: "手机号非法",
+    login_error_invalid_otp: "验证码错误",
+    login_error_missing_fields: "请输入手机号和验证码",
+
     // Generate Page
     header_title_prefix: "今天你想",
     header_title_highlight: "创作",
@@ -193,7 +202,7 @@ export const translations = {
     btn_generate: "生成视频",
     btn_processing: "生成中...",
 
-    // Login Page
+    // Login Page (Legacy)
     welcome_back: "欢迎回来",
     sign_in_subtitle: "登录以开始创作。",
     email_label: "电子邮箱",
@@ -205,7 +214,7 @@ export const translations = {
     no_account: "还没有账号？",
     join_waitlist: "加入候补名单",
 
-    // Auth
+    // Auth Tabs
     tab_email: "邮箱登录",
     tab_phone: "手机登录",
 
@@ -214,11 +223,11 @@ export const translations = {
     wb_nav_assets: "素材库",
     wb_nav_templates: "模版配置",
     wb_nav_history: "历史记录",
-    
+
     // --- WORKBENCH VIEW ---
     wb_header_draft: "草稿",
     wb_header_save: "上次保存: 刚刚",
-    
+
     // Left Col
     wb_upload_title: "素材上传",
     wb_upload_click: "点击上传",
@@ -231,7 +240,7 @@ export const translations = {
     wb_config_prompt_placeholder: "例如：未来感咖啡广告，节奏快...",
     wb_config_duration: "时长",
     wb_btn_gen_scripts: "生成分镜脚本",
-    
+
     // Middle Col
     wb_col_scripts: "分镜脚本",
     wb_btn_gen_video: "生成视频",
@@ -239,7 +248,7 @@ export const translations = {
     wb_visual: "画面描述",
     wb_audio: "音频/台词",
     wb_btn_add_shot: "添加镜头",
-    
+
     // Right Col
     wb_col_preview: "预览",
     wb_auto_saved: "自动保存",

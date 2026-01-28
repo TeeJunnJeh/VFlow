@@ -138,6 +138,28 @@ export const translations = {
     hist_title: "History",
     hist_subtitle: "Archive of generated projects",
 
+    // Editor Labels
+    editor_label_category: "PRODUCT CATEGORY",
+    editor_label_style: "VISUAL STYLE",
+    editor_label_ratio: "ASPECT RATIO",
+    editor_label_duration: "DURATION (SEC)",
+    editor_label_shots: "SHOT NUMBER",
+    editor_label_custom: "CUSTOM CONFIG",
+    
+    // Editor Options (Dropdowns)
+    opt_cat_camera: "Camera",
+    opt_cat_beauty: "Beauty",
+    opt_cat_food: "Food",
+    opt_cat_digital: "Electronics",
+    
+    opt_style_real: "Realistic",
+    opt_style_cine: "Cinematic",
+    opt_style_3d: "3D Render",
+    opt_style_anime: "Anime",
+    
+    editor_ph_custom: "Enter any custom configuration text here...",
+    editor_ph_select: "Select or type..."
+
   },
   zh: {
     // Sidebar
@@ -274,5 +296,27 @@ export const translations = {
     // --- HISTORY VIEW ---
     hist_title: "历史记录",
     hist_subtitle: "查看过往生成的视频项目",
+
+    // Editor Labels
+    editor_label_category: "产品品类",
+    editor_label_style: "视觉风格",
+    editor_label_ratio: "画面比例",
+    editor_label_duration: "时长 (秒)",
+    editor_label_shots: "镜头数量",
+    editor_label_custom: "自定义配置",
+    
+    // Editor Options (Dropdowns)
+    opt_cat_camera: "相机",
+    opt_cat_beauty: "美妆",
+    opt_cat_food: "美食",
+    opt_cat_digital: "数码",
+    
+    opt_style_real: "写实",
+    opt_style_cine: "电影感",
+    opt_style_3d: "3D渲染",
+    opt_style_anime: "动漫",
+
+    editor_ph_custom: "在此输入任意自定义配置文本...",
+    editor_ph_select: "选择或输入..."
   }
 };

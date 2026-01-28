@@ -1,7 +1,10 @@
 // src/services/assets.ts
 
-// Use the proxy path configured in vite.config.ts
+// Use the proxy path configured in vite.config.ts for API calls
 const API_BASE_URL = '/api/assets';
+
+// Define the Backend Server URL for images
+const SERVER_DOMAIN = 'http://1.95.137.119:8001';
 
 // Frontend Interface
 export interface Asset {
@@ -38,7 +41,6 @@ function getCookie(name: string) {
     const cookies = document.cookie.split(';');
     for (let i = 0; i < cookies.length; i++) {
       const cookie = cookies[i].trim();
-      // Does this cookie string begin with the name we want?
       if (cookie.substring(0, name.length + 1) === (name + '=')) {
         cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
         break;
@@ -49,48 +51,49 @@ function getCookie(name: string) {
 }
 
 export const assetsApi = {
-  // GET List
+  // 1. GET List
   getAssets: async (): Promise<Asset[]> => {
     try {
       const response = await fetch(`${API_BASE_URL}/list/`, {
         method: 'GET',
         headers: { 
           'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest', // Should stop redirects, but sometimes doesn't
+          'X-Requested-With': 'XMLHttpRequest', 
         },
         credentials: 'include', 
       });
 
-      // 1. Check if the URL changed (Browser followed a redirect)
-      if (response.url.includes('/accounts/login')) {
-        console.error("Authentication Failed: Redirected to Login Page.");
-        throw new Error('Unauthorized'); // Force catch block
+      if (response.status === 401 || response.status === 403) {
+        console.error("Auth Failed: Cookies invalid or expired");
+        throw new Error('Unauthorized');
       }
 
-      // 2. Read text first (Safety Check)
-      const text = await response.text();
+      if (!response.ok) throw new Error('Failed to fetch assets');
       
-      let json;
-      try {
-        json = JSON.parse(text);
-      } catch (e) {
-        // This is where we catch your specific error!
-        console.error("CRITICAL: Received HTML instead of JSON. See below:");
-        console.log(text.substring(0, 500)); // Print first 500 chars of HTML
-        throw new Error('Server returned HTML (likely a login page or error page)');
-      }
+      const json = await response.json();
+      const backendData: BackendAsset[] = json.data || [];
 
-      const backendData = json.data || [];
+      // Map Backend Data -> Frontend Data
+      return backendData.map(item => {
+        
+        // --- FIX: Force Absolute URL for Images ---
+        // If the URL is relative (e.g., "/media/uploads..."), prepend the server domain
+        let fullUrl = item.url;
+        if (fullUrl && fullUrl.startsWith('/')) {
+            fullUrl = `${SERVER_DOMAIN}${fullUrl}`;
+        }
+        // ------------------------------------------
 
-      return backendData.map((item: any) => ({
-        id: item.id.toString(),
-        name: item.display_name,
-        type: item.type.toLowerCase(),
-        file_url: item.url, 
-        size: (item.meta_data.size_bytes / 1024 / 1024).toFixed(2) + ' MB',
-        status: 'ready',
-        created_at: item.created_at
-      }));
+        return {
+          id: item.id.toString(),
+          name: item.display_name,
+          type: item.type.toLowerCase() as 'model' | 'product' | 'scene',
+          file_url: fullUrl, // Use the absolute URL here
+          size: (item.meta_data.size_bytes / 1024 / 1024).toFixed(2) + ' MB',
+          status: 'ready',
+          created_at: item.created_at
+        };
+      });
 
     } catch (error) {
       console.error("Fetch Assets Error:", error);
@@ -105,17 +108,16 @@ export const assetsApi = {
     formData.append('type', type.toUpperCase()); 
     formData.append('display_name', file.name);
 
-    // Get CSRF Token for Write Operations
     const csrftoken = getCookie('csrftoken');
 
     try {
       const response = await fetch(`${API_BASE_URL}/list/`, {
         method: 'POST',
         headers: {
-          'X-CSRFToken': csrftoken || '', // CRITICAL for Django POST
+          'X-CSRFToken': csrftoken || '',
           'X-Requested-With': 'XMLHttpRequest',
         },
-        credentials: 'include', // Sends cookies
+        credentials: 'include', 
         body: formData, 
       });
 
@@ -136,7 +138,7 @@ export const assetsApi = {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRFToken': csrftoken || '', // CRITICAL for Django DELETE
+          'X-CSRFToken': csrftoken || '',
           'X-Requested-With': 'XMLHttpRequest',
         },
         credentials: 'include',

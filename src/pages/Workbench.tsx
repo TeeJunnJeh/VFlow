@@ -8,8 +8,8 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { LanguageSwitcher } from '../components/common/LanguageSwitcher';
-// Use "type" import to prevent SyntaxError with Vite
 import { assetsApi, type Asset } from '../services/assets'; 
+import { videoApi } from '../services/video';
 
 // Types
 type ViewType = 'workbench' | 'assets' | 'templates' | 'history' | 'editor';
@@ -21,29 +21,26 @@ const Workbench = () => {
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
 
-  // --- Workbench State ---
-  const [uploadedFile, setUploadedFile] = useState<string | null>(null);
+  // --- Workbench State (Generation) ---
+  const [uploadedFile, setUploadedFile] = useState<string | null>(null); // Local Preview URL
+  const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null); // Actual File Object for API
   const [fileName, setFileName] = useState('');
   
-  // Scripts State (Initialized with translatable demo text)
-  // Note: These will load in the current language. Switching language will not 
-  // overwrite edits unless the component remounts.
+  // Generation Config State
+  const [genPrompt, setGenPrompt] = useState('');
+  const [genDuration, setGenDuration] = useState<number>(5);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
+
+  // Scripts State
   const [scripts, setScripts] = useState([
     { 
-      id: 1, 
-      shot: '1', 
-      type: 'Close-up', 
-      dur: '2.5s', 
-      visual: t.demo_shot1_visual, 
-      audio: t.demo_shot1_audio 
+      id: 1, shot: '1', type: 'Close-up', dur: '2.5s', 
+      visual: t.demo_shot1_visual, audio: t.demo_shot1_audio 
     },
     { 
-      id: 2, 
-      shot: '2', 
-      type: 'Detail', 
-      dur: '1.5s', 
-      visual: t.demo_shot2_visual, 
-      audio: t.demo_shot2_audio 
+      id: 2, shot: '2', type: 'Detail', dur: '1.5s', 
+      visual: t.demo_shot2_visual, audio: t.demo_shot2_audio 
     }
   ]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -56,8 +53,6 @@ const Workbench = () => {
   const assetInputRef = useRef<HTMLInputElement>(null);
 
   // --- Effects ---
-  
-  // Load assets when entering Assets View
   useEffect(() => {
     if (activeView === 'assets') {
       loadAssets();
@@ -78,17 +73,102 @@ const Workbench = () => {
 
   // --- Handlers ---
 
-  // Workbench Upload (Local Preview)
+  // 1. Workbench Upload (Store File for later Generation)
   const handleWorkbenchUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      // Local Preview
       const url = URL.createObjectURL(file);
       setUploadedFile(url);
       setFileName(file.name);
+      // Store File Object for API Upload
+      setSelectedFileObj(file);
+      // Clear previous video
+      setGeneratedVideoUrl(null);
     }
   };
 
-  // Asset Library Upload (Batch Support)
+ // 2. Generate Video Logic (FIXED PATH)
+  const handleGenerateVideo = async () => {
+    if (!selectedFileObj) {
+      alert("Please upload a reference image first!");
+      return;
+    }
+    if (!genPrompt.trim()) {
+      alert("Please enter a prompt!");
+      return;
+    }
+
+    setIsGenerating(true);
+    setGeneratedVideoUrl(null); 
+
+    try {
+      console.log("🚀 Uploading reference image...");
+      const uploadResp = await assetsApi.uploadAsset(selectedFileObj, 'product');
+      
+      // 1. Extract path
+      let rawPath = null;
+      if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
+        rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
+      } else {
+        rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
+      }
+
+      if (!rawPath) {
+        console.error("❌ Could not find image path.", uploadResp);
+        alert("Upload successful, but failed to parse the file path.");
+        return; 
+      }
+
+      // 2. CRITICAL FIX: Add dot (.) if missing
+      // The backend needs "./media/..." to find the file on disk.
+      // The API returns "/media/..." which works for browsers but not for Python file system access.
+      let apiPath = rawPath;
+      if (apiPath.startsWith('/')) {
+        apiPath = '.' + apiPath; 
+      }
+
+      console.log("✅ Image uploaded. Raw:", rawPath, "-> API Payload:", apiPath);
+
+      // Step B: Call Generation API
+      const payload = {
+        prompt: genPrompt,
+        project_id: "53584869-a37f-4e02-8b77-385b2eff8ebb", 
+        duration: genDuration,
+        image_path: apiPath, // Send the relative path (with dot)
+        sound: "on" as const
+      };
+
+      console.log("🚀 Sending Generation Request:", payload);
+      const genResp = await videoApi.generate(payload);
+      console.log("🎉 Generation Success:", genResp);
+
+      const videoUrl = genResp.video_url || genResp.url || genResp.data?.video_url || genResp.data?.url;
+
+      if (videoUrl) {
+        setGeneratedVideoUrl(videoUrl);
+      } else {
+        alert("Video generated, but no URL found in response.");
+      }
+
+    } catch (err: any) {
+      console.error("🔥 Generation Error:", err);
+      // Try to parse JSON error message from backend if possible
+      let msg = err.message;
+      try {
+         // The error string might contain JSON like "500 {"code": 1...}"
+         const jsonPart = err.message.substring(err.message.indexOf('{'));
+         const parsed = JSON.parse(jsonPart);
+         if (parsed.message) msg = parsed.message;
+      } catch (e) { /* ignore parse error */ }
+      
+      alert(`Error: ${msg}`);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Asset Library Upload
   const handleAssetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -98,11 +178,7 @@ const Workbench = () => {
     let failCount = 0;
 
     try {
-      // 1. Convert FileList to a standard Array
       const fileArray = Array.from(files);
-
-      // 2. Create a list of upload tasks (Promises)
-      // We wrap each upload in a catch block so one failure doesn't stop the rest
       const uploadTasks = fileArray.map(async (file) => {
         try {
           await assetsApi.uploadAsset(file, activeAssetTab);
@@ -112,37 +188,25 @@ const Workbench = () => {
           failCount++;
         }
       });
-
-      // 3. Execute all uploads in parallel
       await Promise.all(uploadTasks);
-
-      // 4. Refresh the list
       await loadAssets(); 
-
-      // 5. Show Feedback
       if (failCount === 0) {
         alert(`Successfully uploaded ${successCount} files!`);
       } else {
         alert(`Upload complete: ${successCount} successful, ${failCount} failed.`);
       }
-
     } catch (err) {
       console.error("Batch upload critical error", err);
       alert("An error occurred during upload.");
     } finally {
       setIsUploading(false);
-      // Reset the input so you can re-select the same files if needed
-      if (assetInputRef.current) {
-        assetInputRef.current.value = '';
-      }
+      if (assetInputRef.current) assetInputRef.current.value = '';
     }
   };
 
-  // Asset Delete
   const handleDeleteAsset = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent triggering card click
+    e.stopPropagation();
     if (!window.confirm("Are you sure you want to delete this asset?")) return;
-
     try {
       await assetsApi.deleteAsset(id);
       setAssetList(prev => prev.filter(a => a.id !== id));
@@ -154,6 +218,7 @@ const Workbench = () => {
   const removeUpload = (e: React.MouseEvent) => {
     e.stopPropagation();
     setUploadedFile(null);
+    setSelectedFileObj(null);
     setFileName('');
   };
 
@@ -168,7 +233,6 @@ const Workbench = () => {
     setScripts(scripts.filter(s => s.id !== id));
   };
 
-  // Internal Navigation Component
   const InternalNav = ({ icon: Icon, view, label }: { icon: any, view: ViewType, label: string }) => (
     <div 
       onClick={() => setActiveView(view)}
@@ -184,7 +248,6 @@ const Workbench = () => {
     </div>
   );
 
-  // Filter Assets based on Active Tab
   const filteredAssets = assetList.filter(a => a.type === activeAssetTab);
 
   return (
@@ -219,8 +282,10 @@ const Workbench = () => {
             </header>
 
             <div className="flex-1 flex overflow-hidden p-6 gap-6">
-              {/* Left Column */}
+              {/* Left Column (Config) */}
               <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto custom-scroll pr-1">
+                
+                {/* Upload Area */}
                 <div className="flex flex-col gap-3">
                   <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
                   <div onClick={() => fileInputRef.current?.click()} className={`glass-panel rounded-xl p-1 border-2 border-dashed border-zinc-800 hover:border-orange-500/50 transition-colors h-32 relative group cursor-pointer ${uploadedFile ? 'border-none' : ''}`}>
@@ -239,96 +304,115 @@ const Workbench = () => {
                     )}
                   </div>
                 </div>
+
+                {/* Configuration Area */}
                 <div className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${!uploadedFile ? 'opacity-50 pointer-events-none' : ''}`}>
                   <div className="flex justify-between items-center"><h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><SlidersHorizontal className="w-3 h-3" /> {t.wb_config_title}</h2></div>
                   <div className="glass-panel rounded-xl p-5 flex flex-col gap-5">
+                    
+                    {/* Template Select */}
                     <div>
-                      <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase flex justify-between">{t.wb_config_template_label}<span className="text-orange-500 cursor-pointer hover:underline" onClick={() => setActiveView('templates')}>{t.wb_config_manage}</span></label>
+                      <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase flex justify-between">{t.wb_config_template_label}</label>
                       <div className="relative">
                         <select className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-orange-500 font-bold focus:outline-none focus:border-orange-500 transition appearance-none cursor-pointer hover:bg-white/5">
                           <option value="">{t.wb_config_custom}</option>
-                          <option value="tiktok_viral">🔥 {t.tpl_card_tiktok} (15s)</option>
-                          <option value="product_high_end">✨ {t.tpl_card_product} (30s)</option>
+                          <option value="tiktok_viral">🔥 {t.tpl_card_tiktok}</option>
                         </select>
                         <ChevronDown className="w-3 h-3 text-zinc-500 absolute right-3 top-2.5 pointer-events-none" />
                       </div>
                     </div>
                     <hr className="border-white/5" />
-                    <div><label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_prompt_label}</label><textarea className="w-full bg-black/40 text-xs text-zinc-300 p-3 rounded-lg border border-white/10 focus:border-orange-500 focus:outline-none resize-none min-h-[80px]" placeholder={t.wb_config_prompt_placeholder} /></div>
+                    
+                    {/* Prompt Input */}
+                    <div>
+                      <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_prompt_label}</label>
+                      <textarea 
+                        className="w-full bg-black/40 text-xs text-zinc-300 p-3 rounded-lg border border-white/10 focus:border-orange-500 focus:outline-none resize-none min-h-[80px]" 
+                        placeholder={t.wb_config_prompt_placeholder}
+                        value={genPrompt}
+                        onChange={(e) => setGenPrompt(e.target.value)}
+                      />
+                    </div>
+
+                    {/* Duration Input */}
                     <div>
                       <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
-                      <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">{['15s', '30s', '60s'].map(d => (<button key={d} className={`flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${d === '30s' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:bg-zinc-800'}`}>{d}</button>))}</div>
+                      <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
+                        {[5, 10, 15].map(d => (
+                          <button 
+                            key={d} 
+                            onClick={() => setGenDuration(d)}
+                            className={`flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${genDuration === d ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:bg-zinc-800'}`}
+                          >
+                            {d}s
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <button className="w-full bg-white text-black py-3 rounded-xl font-bold text-xs hover:bg-orange-500 hover:text-white transition shadow-lg shadow-white/5 mt-2 flex items-center justify-center gap-2 group"><Wand2 className="w-4 h-4 group-hover:rotate-12 transition" /> {t.wb_btn_gen_scripts}</button>
+
+                    {/* Generate Scripts (Optional functionality) */}
+                    <button className="w-full bg-white/5 text-zinc-400 py-3 rounded-xl font-bold text-xs hover:bg-white/10 transition mt-2 flex items-center justify-center gap-2 group"><Wand2 className="w-4 h-4 group-hover:rotate-12 transition" /> {t.wb_btn_gen_scripts}</button>
                   </div>
                 </div>
               </div>
 
-              {/* Middle Column */}
+              {/* Middle Column (Scripts) */}
               <div className="flex-1 flex flex-col gap-3 h-full min-w-[300px]">
                 <div className="flex justify-between items-center shrink-0 h-[32px]">
                   <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
-                  <button className="bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20"><PlayCircle className="w-4 h-4 fill-current" /> {t.wb_btn_gen_video}</button>
+                  <button 
+                    onClick={handleGenerateVideo}
+                    disabled={isGenerating || !uploadedFile}
+                    className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  >
+                     {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}
+                     {isGenerating ? 'Generating...' : t.wb_btn_gen_video}
+                  </button>
                 </div>
+                {/* ... (Existing Script List Code) ... */}
                 <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
                   {scripts.map((script) => (
-                    <div key={script.id} className={`glass-card p-4 rounded-xl group relative border-l-2 ${script.id % 2 === 0 ? 'border-l-purple-500' : 'border-l-orange-500'}`}>
-                      <div className="flex justify-between items-center mb-3">
-                        <div className="flex items-center gap-2">
-                          <span className={`${script.id % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
-                          <span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.type}</span>
-                          <span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.dur}</span>
+                     <div key={script.id} className={`glass-card p-4 rounded-xl group relative border-l-2 ${script.id % 2 === 0 ? 'border-l-purple-500' : 'border-l-orange-500'}`}>
+                        <div className="flex justify-between items-center mb-3">
+                           <div className="flex items-center gap-2"><span className={`${script.id % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span><span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.type}</span></div>
                         </div>
-                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
-                          <button className="p-1.5 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition"><Undo2 className="w-3 h-3" /></button>
-                          <button className="p-1.5 hover:bg-zinc-800 rounded text-zinc-500 hover:text-orange-500 transition"><RefreshCw className="w-3 h-3" /></button>
-                          <button onClick={() => removeScript(script.id)} className="p-1.5 hover:bg-zinc-800 rounded text-zinc-500 hover:text-red-500 transition"><Trash2 className="w-3 h-3" /></button>
+                        <div className="grid grid-cols-1 gap-3">
+                           <div className="relative"><p className="text-[9px] text-zinc-600 uppercase font-bold absolute top-2 left-2">{t.wb_visual}</p><textarea className="w-full bg-black/20 text-xs text-zinc-300 p-2 pt-6 rounded-lg border border-white/5" defaultValue={script.visual} /></div>
                         </div>
-                      </div>
-                      <div className="grid grid-cols-1 gap-3">
-                        <div className="relative group/input">
-                          <p className="text-[9px] text-zinc-600 uppercase font-bold absolute top-2 left-2 pointer-events-none group-hover/input:text-orange-500 transition">{t.wb_visual}</p>
-                          <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-2 pt-6 rounded-lg border border-white/5 focus:border-orange-500/50 focus:bg-black/40 focus:outline-none resize-none min-h-[60px] transition" placeholder="Describe visuals..." defaultValue={script.visual} />
-                        </div>
-                        <div className="relative group/input">
-                          <p className="text-[9px] text-zinc-600 uppercase font-bold absolute top-2 left-2 pointer-events-none group-hover/input:text-orange-500 transition">{t.wb_audio}</p>
-                          <input type="text" className="w-full bg-black/20 text-xs text-zinc-400 p-2 pl-12 rounded-lg border border-white/5 focus:border-orange-500/50 focus:bg-black/40 focus:outline-none italic transition" defaultValue={script.audio} />
-                        </div>
-                      </div>
-                    </div>
+                     </div>
                   ))}
-                  <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 hover:bg-orange-500/5 transition gap-2 group"><Plus className="w-4 h-4 group-hover:scale-110 transition" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
+                  <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
                 </div>
               </div>
 
-              {/* Right Column */}
+              {/* Right Column (Preview) */}
               <div className="w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full">
                 <div className="flex justify-between items-end shrink-0 h-[32px]">
                   <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-3 h-3" /> {t.wb_col_preview}</h2>
-                  <span className="text-[10px] text-zinc-600">{t.wb_auto_saved}</span>
                 </div>
                 <div className="glass-panel flex-1 rounded-2xl p-1 relative flex flex-col overflow-hidden">
                    <div className="flex-1 bg-black rounded-xl relative overflow-hidden group flex items-center justify-center">
-                      <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{t.wb_waiting}</p></div>
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition cursor-pointer">
-                        <div className="w-14 h-14 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 hover:scale-110 transition"><Play className="w-6 h-6 fill-white text-white ml-1" /></div>
-                      </div>
+                      
+                      {/* PREVIEW LOGIC: Show Video if Generated, else Show Placeholder */}
+                      {generatedVideoUrl ? (
+                        <video 
+                          src={generatedVideoUrl} 
+                          controls 
+                          autoPlay 
+                          loop 
+                          className="w-full h-full object-contain"
+                        />
+                      ) : (
+                        <>
+                          <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Generating Video...' : t.wb_waiting}</p></div>
+                          {isGenerating && <div className="absolute inset-0 flex items-center justify-center bg-black/50"><Loader2 className="w-8 h-8 text-orange-500 animate-spin" /></div>}
+                        </>
+                      )}
+
                    </div>
                    <div className="h-14 flex items-center justify-between px-4 border-t border-white/5 bg-zinc-900/50">
-                      <div className="flex gap-4"><button className="text-zinc-400 hover:text-white transition"><SkipBack className="w-4 h-4" /></button><button className="text-white hover:text-orange-500 transition"><Play className="w-4 h-4 fill-current" /></button><button className="text-zinc-400 hover:text-white transition"><SkipForward className="w-4 h-4" /></button></div>
-                      <div className="flex gap-3"><button className="text-zinc-500 hover:text-white transition"><Download className="w-4 h-4" /></button><button className="text-zinc-500 hover:text-white transition"><Maximize className="w-4 h-4" /></button></div>
+                      <div className="flex gap-4"><button className="text-zinc-400 hover:text-white"><SkipBack className="w-4 h-4" /></button><button className="text-white hover:text-orange-500"><Play className="w-4 h-4 fill-current" /></button><button className="text-zinc-400 hover:text-white"><SkipForward className="w-4 h-4" /></button></div>
                    </div>
-                </div>
-                <div className="h-24 glass-card rounded-xl p-4 flex flex-col justify-between">
-                  <div className="flex justify-between items-center mb-2"><h3 className="text-xs font-bold text-zinc-300 flex items-center gap-2"><Share2 className="w-3 h-3 text-orange-500" /> {t.wb_publish_title}</h3><span className="text-[9px] text-zinc-500">{t.wb_publish_sync}</span></div>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex gap-2">
-                      <button className="w-8 h-8 rounded-full bg-zinc-800 border border-white/5 hover:border-white/20 hover:bg-black text-white flex items-center justify-center transition group relative"><Music2 className="w-4 h-4" /></button>
-                      <button className="w-8 h-8 rounded-full bg-zinc-800 border border-white/5 hover:border-pink-500/50 hover:bg-pink-500/10 text-white flex items-center justify-center transition"><Instagram className="w-4 h-4" /></button>
-                      <button className="w-8 h-8 rounded-full bg-zinc-800 border border-white/5 hover:border-red-500/50 hover:bg-red-500/10 text-white flex items-center justify-center transition"><Youtube className="w-4 h-4" /></button>
-                    </div>
-                    <button className="bg-gradient-to-r from-orange-600 to-red-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-lg shadow-orange-500/20 hover:brightness-110 active:scale-95 transition flex items-center gap-1">{t.wb_btn_post} <Send className="w-3 h-3" /></button>
-                  </div>
                 </div>
               </div>
             </div>

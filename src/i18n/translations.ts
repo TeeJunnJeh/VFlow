@@ -158,7 +158,13 @@ export const translations = {
     opt_style_anime: "Anime",
     
     editor_ph_custom: "Enter any custom configuration text here...",
-    editor_ph_select: "Select or type..."
+    editor_ph_select: "Select or type...",
+
+    // Demo Scripts
+    demo_shot1_visual: "Model holding coffee cup...",
+    demo_shot1_audio: "\"Start your morning...\"",
+    demo_shot2_visual: "Liquid pouring into cup...",
+    demo_shot2_audio: "(Pouring sound)",
 
   },
   zh: {
@@ -318,5 +324,11 @@ export const translations = {
 
     editor_ph_custom: "在此输入任意自定义配置文本...",
     editor_ph_select: "选择或输入..."
+
+    // Demo Scripts
+    demo_shot1_visual: "模特手持咖啡杯...",
+    demo_shot1_audio: "“开启你的早晨...”",
+    demo_shot2_visual: "液体倒入杯中...",
+    demo_shot2_audio: "（倒水声）",
   }
 };

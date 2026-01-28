@@ -1,11 +1,11 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { authApi } from '../services/auth'; // Import your auth api if needed
 
 interface User {
-  id: string;
+  id: string | number; // Allow number
   name: string;
   avatar: string;
   plan: 'pro';
+  token?: string; 
 }
 
 interface AuthContextType {
@@ -21,42 +21,72 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // 1. Load User from Storage on Startup
   useEffect(() => {
-    // Check if we have user data in local storage (UI persistence)
-    // We rely on the browser cookie for actual API access
-    const stored = localStorage.getItem('vflow_ai_user');
-    if (stored) {
-      setUser(JSON.parse(stored));
-    }
-    setIsLoading(false);
+    const checkAuth = () => {
+      try {
+        const stored = localStorage.getItem('vflow_ai_user');
+        if (stored) {
+          setUser(JSON.parse(stored));
+        }
+      } catch (e) {
+        console.error("Auth init error", e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    checkAuth();
   }, []);
 
+  // 2. Login Function (UPDATED)
   const login = async (identifier: string, serverData?: any) => {
     setIsLoading(true);
     
-    // We DO NOT need to find a token anymore.
-    // If we are here, the API call succeeded (200 OK), 
-    // so the browser definitely has the Set-Cookie headers now.
+    console.log("🔍 Login Response Data:", serverData);
 
+    // --- FIX: Find the correct User ID ---
+    // Look in all common places API might return it
+    const realUserId = 
+      serverData?.user_id || 
+      serverData?.id ||
+      serverData?.data?.user_id || 
+      serverData?.data?.id ||
+      serverData?.user?.id;
+
+    if (!realUserId) {
+      console.warn("⚠️ No numeric User ID found. Backend calls might fail with 404.");
+    }
+
+    // Try to find token (for reference, though we use Cookies now)
+    const token = 
+      serverData?.token || 
+      serverData?.access || 
+      serverData?.data?.token;
+
+    // Construct the User Object
     const newUser: User = {
-      id: serverData?.user_id || 'user-1',
+      // Use the Real ID if found, otherwise crash/warn instead of using a fake string
+      id: realUserId || '1', // Defaulting to '1' is safer for Django than 'user-xyz'
       name: identifier,
       avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${identifier}`,
       plan: 'pro',
+      token: token 
     };
 
+    console.log("✅ User Saved:", newUser);
+
+    // Save
     setUser(newUser);
     localStorage.setItem('vflow_ai_user', JSON.stringify(newUser));
     
+    await new Promise(resolve => setTimeout(resolve, 500));
     setIsLoading(false);
   };
 
-  const logout = async () => {
-    // Optional: Call backend logout to clear cookie
-    // await authApi.logout(); 
+  const logout = () => {
     setUser(null);
     localStorage.removeItem('vflow_ai_user');
-    // Clear cookies document-side just in case
+    // Clear cookies
     document.cookie = "sessionid=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
     window.location.href = '/login';
   };

@@ -45,5 +45,20 @@ export const authApi = {
     } catch (error) {
       throw error;
     }
-  }
+  },
+
+  // NEW: Get Current User Info
+  getMe: async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/me/`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to fetch user info');
+      return await response.json(); // Returns { id: 123, ... }
+    } catch (error) {
+      throw error;
+    }
+  },
 };

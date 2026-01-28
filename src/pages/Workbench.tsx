@@ -7,9 +7,12 @@ import {
   Flame, Gem, ArrowRight, Settings2, Video, HardDrive, Eye, Edit3, ArrowLeft, CheckCircle, Loader2 
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext'; 
+import { authApi } from '../services/auth'; 
 import { LanguageSwitcher } from '../components/common/LanguageSwitcher';
 import { assetsApi, type Asset } from '../services/assets'; 
 import { videoApi } from '../services/video';
+import { templatesApi, type Template } from '../services/templates';
 
 // Types
 type ViewType = 'workbench' | 'assets' | 'templates' | 'history' | 'editor';
@@ -17,35 +20,41 @@ type AssetType = 'model' | 'product' | 'scene';
 
 const Workbench = () => {
   const { t } = useLanguage();
+  const { user } = useAuth(); 
 
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
+  const [currentUserId, setCurrentUserId] = useState<string | number | undefined>(user?.id);
 
-  // --- Workbench State (Generation) ---
-  const [uploadedFile, setUploadedFile] = useState<string | null>(null); // Local Preview URL
-  const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null); // Actual File Object for API
-  const [fileName, setFileName] = useState('');
+  // --- Template State ---
+  const [templateList, setTemplateList] = useState<Template[]>([]);
+  const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
   
-  // Generation Config State
+  // Editor Form State
+  const [editorForm, setEditorForm] = useState<Template>({
+    name: 'New Template',
+    icon: 'flame',
+    product_category: 'camera',
+    visual_style: 'realistic',
+    aspect_ratio: '1080*1920',
+    duration: 10,
+    shot_number: 5,
+    custom_config: ''
+  });
+
+  // --- Workbench & Assets State ---
+  const [uploadedFile, setUploadedFile] = useState<string | null>(null);
+  const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null);
+  const [fileName, setFileName] = useState('');
   const [genPrompt, setGenPrompt] = useState('');
   const [genDuration, setGenDuration] = useState<number>(5);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
-
-  // Scripts State
   const [scripts, setScripts] = useState([
-    { 
-      id: 1, shot: '1', type: 'Close-up', dur: '2.5s', 
-      visual: t.demo_shot1_visual, audio: t.demo_shot1_audio 
-    },
-    { 
-      id: 2, shot: '2', type: 'Detail', dur: '1.5s', 
-      visual: t.demo_shot2_visual, audio: t.demo_shot2_audio 
-    }
+    { id: 1, shot: '1', type: 'Close-up', dur: '2.5s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio },
+    { id: 2, shot: '2', type: 'Detail', dur: '1.5s', visual: t.demo_shot2_visual, audio: t.demo_shot2_audio }
   ]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // --- Assets View State ---
   const [assetList, setAssetList] = useState<Asset[]>([]);
   const [isLoadingAssets, setIsLoadingAssets] = useState(false);
   const [activeAssetTab, setActiveAssetTab] = useState<AssetType>('product');
@@ -53,11 +62,98 @@ const Workbench = () => {
   const assetInputRef = useRef<HTMLInputElement>(null);
 
   // --- Effects ---
+  
+  // Ensure we have User ID (Refresh safe)
   useEffect(() => {
-    if (activeView === 'assets') {
-      loadAssets();
+    const initUser = async () => {
+        if (user?.id) {
+            setCurrentUserId(user.id);
+        } else {
+            try {
+                // If context is empty (refresh), fetch me
+                const me = await authApi.getMe();
+                setCurrentUserId(me.id || me.user_id);
+            } catch (e) {
+                console.error("Not logged in");
+            }
+        }
+    };
+    initUser();
+  }, [user]);
+
+  // Load Data based on view
+  useEffect(() => {
+    if (activeView === 'assets') loadAssets();
+    if (activeView === 'templates' && currentUserId) loadTemplates();
+  }, [activeView, currentUserId]);
+
+  // --- API Actions: Templates ---
+
+  const loadTemplates = async () => {
+    if (!currentUserId) return;
+    try {
+      const data = await templatesApi.getTemplates(currentUserId);
+      setTemplateList(data);
+    } catch (err) {
+      console.error("Failed to load templates", err);
     }
-  }, [activeView]);
+  };
+
+  const handleSaveTemplate = async () => {
+    if (!currentUserId) return alert("Please log in first");
+    
+    try {
+      if (editingTemplate && editingTemplate.id) {
+        // UPDATE Existing
+        await templatesApi.updateTemplate(currentUserId, editingTemplate.id, editorForm);
+        alert("Template updated successfully!");
+      } else {
+        // CREATE New
+        await templatesApi.addTemplate(currentUserId, editorForm);
+        alert("Template created successfully!");
+      }
+      setActiveView('templates'); 
+      loadTemplates(); 
+    } catch (err) {
+      console.error("Save failed", err);
+      alert("Failed to save template");
+    }
+  };
+
+  const handleDeleteTemplate = async (templateId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentUserId) return;
+    if (!confirm("Delete this template?")) return;
+    try {
+      await templatesApi.deleteTemplate(currentUserId, templateId);
+      setTemplateList(prev => prev.filter(t => t.id !== templateId));
+    } catch (err) {
+      alert("Failed to delete template");
+    }
+  };
+
+  const openEditor = (template?: Template) => {
+    if (template) {
+      setEditingTemplate(template);
+      setEditorForm(template); // Pre-fill form
+    } else {
+      setEditingTemplate(null);
+      // Reset form
+      setEditorForm({
+        name: 'New Template',
+        icon: 'flame',
+        product_category: 'camera',
+        visual_style: 'realistic',
+        aspect_ratio: '16:9', // Default to API format
+        duration: 10,
+        shot_number: 5,
+        custom_config: ''
+      });
+    }
+    setActiveView('editor');
+  };
+
+  // --- API Actions: Assets & Video ---
 
   const loadAssets = async () => {
     setIsLoadingAssets(true);
@@ -71,33 +167,20 @@ const Workbench = () => {
     }
   };
 
-  // --- Handlers ---
-
-  // 1. Workbench Upload (Store File for later Generation)
   const handleWorkbenchUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Local Preview
       const url = URL.createObjectURL(file);
       setUploadedFile(url);
       setFileName(file.name);
-      // Store File Object for API Upload
       setSelectedFileObj(file);
-      // Clear previous video
       setGeneratedVideoUrl(null);
     }
   };
 
- // 2. Generate Video Logic (FIXED PATH)
   const handleGenerateVideo = async () => {
-    if (!selectedFileObj) {
-      alert("Please upload a reference image first!");
-      return;
-    }
-    if (!genPrompt.trim()) {
-      alert("Please enter a prompt!");
-      return;
-    }
+    if (!selectedFileObj) return alert("Please upload a reference image first!");
+    if (!genPrompt.trim()) return alert("Please enter a prompt!");
 
     setIsGenerating(true);
     setGeneratedVideoUrl(null); 
@@ -106,7 +189,6 @@ const Workbench = () => {
       console.log("🚀 Uploading reference image...");
       const uploadResp = await assetsApi.uploadAsset(selectedFileObj, 'product');
       
-      // 1. Extract path
       let rawPath = null;
       if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
         rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
@@ -114,89 +196,46 @@ const Workbench = () => {
         rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
       }
 
-      if (!rawPath) {
-        console.error("❌ Could not find image path.", uploadResp);
-        alert("Upload successful, but failed to parse the file path.");
-        return; 
-      }
+      if (!rawPath) throw new Error("Could not find image path in response");
 
-      // 2. CRITICAL FIX: Add dot (.) if missing
-      // The backend needs "./media/..." to find the file on disk.
-      // The API returns "/media/..." which works for browsers but not for Python file system access.
       let apiPath = rawPath;
       if (apiPath.startsWith('/')) {
         apiPath = '.' + apiPath; 
       }
 
-      console.log("✅ Image uploaded. Raw:", rawPath, "-> API Payload:", apiPath);
-
-      // Step B: Call Generation API
       const payload = {
         prompt: genPrompt,
         project_id: "53584869-a37f-4e02-8b77-385b2eff8ebb", 
         duration: genDuration,
-        image_path: apiPath, // Send the relative path (with dot)
+        image_path: apiPath, 
         sound: "on" as const
       };
 
-      console.log("🚀 Sending Generation Request:", payload);
       const genResp = await videoApi.generate(payload);
-      console.log("🎉 Generation Success:", genResp);
-
       const videoUrl = genResp.video_url || genResp.url || genResp.data?.video_url || genResp.data?.url;
 
       if (videoUrl) {
         setGeneratedVideoUrl(videoUrl);
       } else {
-        alert("Video generated, but no URL found in response.");
+        alert("Video generated, but no URL found.");
       }
-
     } catch (err: any) {
-      console.error("🔥 Generation Error:", err);
-      // Try to parse JSON error message from backend if possible
-      let msg = err.message;
-      try {
-         // The error string might contain JSON like "500 {"code": 1...}"
-         const jsonPart = err.message.substring(err.message.indexOf('{'));
-         const parsed = JSON.parse(jsonPart);
-         if (parsed.message) msg = parsed.message;
-      } catch (e) { /* ignore parse error */ }
-      
-      alert(`Error: ${msg}`);
+      alert(`Error: ${err.message || 'Generation failed'}`);
     } finally {
       setIsGenerating(false);
     }
   };
 
-  // Asset Library Upload
   const handleAssetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-
     setIsUploading(true);
-    let successCount = 0;
-    let failCount = 0;
-
     try {
-      const fileArray = Array.from(files);
-      const uploadTasks = fileArray.map(async (file) => {
-        try {
-          await assetsApi.uploadAsset(file, activeAssetTab);
-          successCount++;
-        } catch (err) {
-          console.error(`Failed to upload ${file.name}`, err);
-          failCount++;
-        }
-      });
+      const uploadTasks = Array.from(files).map(file => assetsApi.uploadAsset(file, activeAssetTab));
       await Promise.all(uploadTasks);
       await loadAssets(); 
-      if (failCount === 0) {
-        alert(`Successfully uploaded ${successCount} files!`);
-      } else {
-        alert(`Upload complete: ${successCount} successful, ${failCount} failed.`);
-      }
+      alert(`Successfully uploaded ${files.length} files!`);
     } catch (err) {
-      console.error("Batch upload critical error", err);
       alert("An error occurred during upload.");
     } finally {
       setIsUploading(false);
@@ -206,7 +245,7 @@ const Workbench = () => {
 
   const handleDeleteAsset = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm("Are you sure you want to delete this asset?")) return;
+    if (!window.confirm("Delete this asset?")) return;
     try {
       await assetsApi.deleteAsset(id);
       setAssetList(prev => prev.filter(a => a.id !== id));
@@ -224,36 +263,27 @@ const Workbench = () => {
 
   const addScript = () => {
     const newId = scripts.length + 1;
-    setScripts([...scripts, { 
-      id: newId, shot: newId.toString(), type: 'Medium', dur: '2.0s', visual: '', audio: '' 
-    }]);
+    setScripts([...scripts, { id: newId, shot: newId.toString(), type: 'Medium', dur: '2.0s', visual: '', audio: '' }]);
   };
 
   const removeScript = (id: number) => {
     setScripts(scripts.filter(s => s.id !== id));
   };
 
+  // --- Components ---
   const InternalNav = ({ icon: Icon, view, label }: { icon: any, view: ViewType, label: string }) => (
-    <div 
-      onClick={() => setActiveView(view)}
-      className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${
-        activeView === view ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-white'
-      }`}
-      title={label}
-    >
+    <div onClick={() => setActiveView(view)} className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${activeView === view ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-white'}`} title={label}>
       <Icon className={`w-5 h-5 transition-all ${activeView === view ? 'stroke-[2.5px]' : ''}`} />
-      {activeView === view && (
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />
-      )}
+      {activeView === view && (<div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />)}
     </div>
   );
-
   const filteredAssets = assetList.filter(a => a.type === activeAssetTab);
 
+  // --- RENDER ---
   return (
     <div className="flex h-screen overflow-hidden bg-[#050505] text-zinc-100 font-sans">
       
-      {/* 1. Sidebar */}
+      {/* Sidebar */}
       <aside className="w-16 lg:w-20 bg-zinc-950 border-r border-white/5 flex flex-col items-center py-6 gap-6 z-30 shrink-0">
         <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-orange-500 flex items-center justify-center font-bold italic text-black mb-2 shadow-lg shadow-orange-500/20">VF</div>
         <div className="flex flex-col gap-4 w-full px-2">
@@ -265,12 +295,12 @@ const Workbench = () => {
         <div className="mt-auto pb-4"><div className="w-8 h-8 rounded-full bg-zinc-800 border border-white/10" /></div>
       </aside>
 
-      {/* 2. Main Content */}
+      {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden relative">
         <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-orange-900/10 to-transparent pointer-events-none z-0" />
         <div className="absolute top-4 right-8 z-50"><LanguageSwitcher /></div>
 
-        {/* === VIEW 1: WORKBENCH === */}
+        {/* 1. WORKBENCH VIEW */}
         {activeView === 'workbench' && (
           <div className="flex flex-col h-full z-10 animate-in fade-in zoom-in-95 duration-300">
             <header className="flex justify-between items-center px-8 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm shrink-0">
@@ -282,10 +312,8 @@ const Workbench = () => {
             </header>
 
             <div className="flex-1 flex overflow-hidden p-6 gap-6">
-              {/* Left Column (Config) */}
+              {/* Left Column */}
               <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto custom-scroll pr-1">
-                
-                {/* Upload Area */}
                 <div className="flex flex-col gap-3">
                   <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
                   <div onClick={() => fileInputRef.current?.click()} className={`glass-panel rounded-xl p-1 border-2 border-dashed border-zinc-800 hover:border-orange-500/50 transition-colors h-32 relative group cursor-pointer ${uploadedFile ? 'border-none' : ''}`}>
@@ -304,13 +332,9 @@ const Workbench = () => {
                     )}
                   </div>
                 </div>
-
-                {/* Configuration Area */}
                 <div className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${!uploadedFile ? 'opacity-50 pointer-events-none' : ''}`}>
                   <div className="flex justify-between items-center"><h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><SlidersHorizontal className="w-3 h-3" /> {t.wb_config_title}</h2></div>
                   <div className="glass-panel rounded-xl p-5 flex flex-col gap-5">
-                    
-                    {/* Template Select */}
                     <div>
                       <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase flex justify-between">{t.wb_config_template_label}</label>
                       <div className="relative">
@@ -322,54 +346,32 @@ const Workbench = () => {
                       </div>
                     </div>
                     <hr className="border-white/5" />
-                    
-                    {/* Prompt Input */}
                     <div>
                       <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_prompt_label}</label>
-                      <textarea 
-                        className="w-full bg-black/40 text-xs text-zinc-300 p-3 rounded-lg border border-white/10 focus:border-orange-500 focus:outline-none resize-none min-h-[80px]" 
-                        placeholder={t.wb_config_prompt_placeholder}
-                        value={genPrompt}
-                        onChange={(e) => setGenPrompt(e.target.value)}
-                      />
+                      <textarea className="w-full bg-black/40 text-xs text-zinc-300 p-3 rounded-lg border border-white/10 focus:border-orange-500 focus:outline-none resize-none min-h-[80px]" placeholder={t.wb_config_prompt_placeholder} value={genPrompt} onChange={(e) => setGenPrompt(e.target.value)} />
                     </div>
-
-                    {/* Duration Input */}
                     <div>
                       <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
                       <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
                         {[5, 10, 15].map(d => (
-                          <button 
-                            key={d} 
-                            onClick={() => setGenDuration(d)}
-                            className={`flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${genDuration === d ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:bg-zinc-800'}`}
-                          >
-                            {d}s
-                          </button>
+                          <button key={d} onClick={() => setGenDuration(d)} className={`flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${genDuration === d ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:bg-zinc-800'}`}>{d}s</button>
                         ))}
                       </div>
                     </div>
-
-                    {/* Generate Scripts (Optional functionality) */}
                     <button className="w-full bg-white/5 text-zinc-400 py-3 rounded-xl font-bold text-xs hover:bg-white/10 transition mt-2 flex items-center justify-center gap-2 group"><Wand2 className="w-4 h-4 group-hover:rotate-12 transition" /> {t.wb_btn_gen_scripts}</button>
                   </div>
                 </div>
               </div>
 
-              {/* Middle Column (Scripts) */}
+              {/* Middle Column */}
               <div className="flex-1 flex flex-col gap-3 h-full min-w-[300px]">
                 <div className="flex justify-between items-center shrink-0 h-[32px]">
                   <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
-                  <button 
-                    onClick={handleGenerateVideo}
-                    disabled={isGenerating || !uploadedFile}
-                    className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-70 cursor-not-allowed' : ''}`}
-                  >
+                  <button onClick={handleGenerateVideo} disabled={isGenerating || !uploadedFile} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-70 cursor-not-allowed' : ''}`}>
                      {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}
                      {isGenerating ? 'Generating...' : t.wb_btn_gen_video}
                   </button>
                 </div>
-                {/* ... (Existing Script List Code) ... */}
                 <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
                   {scripts.map((script) => (
                      <div key={script.id} className={`glass-card p-4 rounded-xl group relative border-l-2 ${script.id % 2 === 0 ? 'border-l-purple-500' : 'border-l-orange-500'}`}>
@@ -385,30 +387,21 @@ const Workbench = () => {
                 </div>
               </div>
 
-              {/* Right Column (Preview) */}
+              {/* Right Column */}
               <div className="w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full">
                 <div className="flex justify-between items-end shrink-0 h-[32px]">
                   <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-3 h-3" /> {t.wb_col_preview}</h2>
                 </div>
                 <div className="glass-panel flex-1 rounded-2xl p-1 relative flex flex-col overflow-hidden">
                    <div className="flex-1 bg-black rounded-xl relative overflow-hidden group flex items-center justify-center">
-                      
-                      {/* PREVIEW LOGIC: Show Video if Generated, else Show Placeholder */}
                       {generatedVideoUrl ? (
-                        <video 
-                          src={generatedVideoUrl} 
-                          controls 
-                          autoPlay 
-                          loop 
-                          className="w-full h-full object-contain"
-                        />
+                        <video src={generatedVideoUrl} controls autoPlay loop className="w-full h-full object-contain" />
                       ) : (
                         <>
                           <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Generating Video...' : t.wb_waiting}</p></div>
                           {isGenerating && <div className="absolute inset-0 flex items-center justify-center bg-black/50"><Loader2 className="w-8 h-8 text-orange-500 animate-spin" /></div>}
                         </>
                       )}
-
                    </div>
                    <div className="h-14 flex items-center justify-between px-4 border-t border-white/5 bg-zinc-900/50">
                       <div className="flex gap-4"><button className="text-zinc-400 hover:text-white"><SkipBack className="w-4 h-4" /></button><button className="text-white hover:text-orange-500"><Play className="w-4 h-4 fill-current" /></button><button className="text-zinc-400 hover:text-white"><SkipForward className="w-4 h-4" /></button></div>
@@ -419,82 +412,43 @@ const Workbench = () => {
           </div>
         )}
 
-        {/* === VIEW 2: ASSETS (REAL DATA) === */}
+        {/* 2. ASSETS VIEW */}
         {activeView === 'assets' && (
            <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
              <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
-                <div>
-                  <h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.assets_title}</h1>
-                  <p className="text-zinc-500 text-xs mt-1">{t.assets_subtitle}</p>
-                </div>
+                <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.assets_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.assets_subtitle}</p></div>
                 <div className="flex gap-3">
-                  <button className="bg-zinc-800 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-zinc-700 transition flex items-center gap-2">
-                    <FolderPlus className="w-4 h-4" /> {t.assets_btn_new_folder}
-                  </button>
-                  <button 
-                    onClick={() => assetInputRef.current?.click()}
-                    className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20"
-                    disabled={isUploading}
-                  >
+                  <button className="bg-zinc-800 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-zinc-700 transition flex items-center gap-2"><FolderPlus className="w-4 h-4" /> {t.assets_btn_new_folder}</button>
+                  <button onClick={() => assetInputRef.current?.click()} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20" disabled={isUploading}>
                     {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} {t.assets_btn_upload}
                   </button>
-                  <input 
-                    type="file" 
-                    ref={assetInputRef} 
-                    className="hidden" 
-                    multiple // Enables batch upload
-                    onChange={handleAssetUpload} 
-                  />
+                  <input type="file" ref={assetInputRef} className="hidden" multiple onChange={handleAssetUpload} />
                 </div>
              </header>
-             
              <div className="flex-1 flex flex-col p-10 overflow-hidden">
-                {/* Tabs */}
                 <div className="flex gap-4 mb-8 border-b border-white/5 pb-2">
                     {(['model', 'product', 'scene'] as AssetType[]).map(type => (
-                        <button 
-                            key={type}
-                            onClick={() => setActiveAssetTab(type)} 
-                            className={`text-sm font-bold px-6 py-2 rounded-full transition ${activeAssetTab === type ? 'bg-white text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}
-                        >
-                            {/* Simple capitalization logic */}
-                            {type.charAt(0).toUpperCase() + type.slice(1)}s
-                        </button>
+                        <button key={type} onClick={() => setActiveAssetTab(type)} className={`text-sm font-bold px-6 py-2 rounded-full transition ${activeAssetTab === type ? 'bg-white text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>{type.charAt(0).toUpperCase() + type.slice(1)}s</button>
                     ))}
                 </div>
-
-                {/* Grid */}
                 <div className="flex-1 overflow-y-auto custom-scroll">
                     {isLoadingAssets ? (
                         <div className="flex justify-center py-20 text-zinc-500"><Loader2 className="animate-spin mr-2" /> Loading Assets...</div>
                     ) : (
                         <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-6">
-                            {/* Upload Placeholder */}
                             <div onClick={() => assetInputRef.current?.click()} className="glass-card rounded-2xl aspect-[3/4] border-2 border-dashed border-zinc-800 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-orange-500/50 hover:bg-zinc-900/50 transition group">
                                 <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center group-hover:scale-110 transition"><Plus className="w-6 h-6 text-zinc-500 group-hover:text-orange-500" /></div>
                                 <span className="text-xs font-medium text-zinc-500">{t.assets_upload_hint}</span>
                             </div>
-
-                            {/* Asset Cards */}
                             {filteredAssets.map(asset => (
                                 <div key={asset.id} className="glass-card rounded-2xl p-2 group relative">
                                     <div className="aspect-[3/4] bg-zinc-800 rounded-xl overflow-hidden relative">
                                         {asset.file_url ? (
-                                            <img 
-                                              src={asset.file_url} 
-                                              className="w-full h-full object-cover" 
-                                              alt={asset.name} 
-                                              onError={(e) => {
-                                                (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x400?text=Error';
-                                              }}
-                                            />
+                                            <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} onError={(e) => { (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x400?text=Error'; }} />
                                         ) : (
                                             <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-center justify-center text-zinc-600">No Preview</div>
                                         )}
-                                        <div className="absolute bottom-3 left-3">
-                                            <p className="text-xs font-bold text-white truncate w-24">{asset.name}</p>
-                                            <p className="text-[10px] text-zinc-400">{asset.size || '-- MB'}</p>
-                                        </div>
+                                        <div className="absolute bottom-3 left-3"><p className="text-xs font-bold text-white truncate w-24">{asset.name}</p><p className="text-[10px] text-zinc-400">{asset.size || '-- MB'}</p></div>
                                         <div className="absolute top-2 right-2 bg-black/40 px-2 py-0.5 rounded text-[9px] text-white backdrop-blur-sm capitalize">{asset.status}</div>
                                     </div>
                                     <div className="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-2xl flex flex-col items-center justify-center gap-2">
@@ -510,67 +464,79 @@ const Workbench = () => {
            </div>
         )}
 
-        {/* === VIEW 3: TEMPLATES (Keep existing UI) === */}
+        {/* 3. TEMPLATES VIEW (Fix applied here) */}
         {activeView === 'templates' && (
           <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
              <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
                 <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.tpl_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.tpl_subtitle}</p></div>
-                <button onClick={() => setActiveView('editor')} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20"><Plus className="w-4 h-4" /> {t.tpl_btn_new}</button>
+                <button onClick={() => openEditor()} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20"><Plus className="w-4 h-4" /> {t.tpl_btn_new}</button>
              </header>
              <div className="flex-1 overflow-y-auto p-10">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                   <div className="glass-card rounded-2xl p-6 relative group overflow-hidden border-t-4 border-t-purple-500 flex flex-col justify-between h-96">
-                      <div className="absolute -right-10 -top-10 w-32 h-32 bg-purple-500/10 rounded-full blur-2xl group-hover:bg-purple-500/20 transition" />
-                      <div><div className="flex justify-between items-start mb-6"><div className="w-12 h-12 rounded-xl bg-zinc-800/80 border border-white/5 flex items-center justify-center text-purple-400 shadow-lg"><Flame className="w-6 h-6" /></div></div><h3 className="text-xl font-bold text-white mb-1">{t.tpl_card_tiktok}</h3><p className="text-xs text-zinc-500 mb-6 font-mono">ID: TIKTOK_V01</p><div className="space-y-3 bg-zinc-900/50 p-4 rounded-xl border border-white/5"><div className="flex items-center justify-between text-xs"><span className="text-zinc-500">{t.wb_config_duration}</span><span className="text-zinc-300 font-bold">15s</span></div></div></div>
-                      <button onClick={() => setActiveView('editor')} className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/5 text-xs font-bold text-zinc-300 rounded-xl mt-4 transition flex items-center justify-center gap-2">{t.tpl_btn_edit} <ArrowRight className="w-3 h-3" /></button>
-                   </div>
-                   <div className="glass-card rounded-2xl p-6 relative group overflow-hidden border-t-4 border-t-orange-500 flex flex-col justify-between h-96">
-                      <div className="absolute -right-10 -top-10 w-32 h-32 bg-orange-500/10 rounded-full blur-2xl group-hover:bg-orange-500/20 transition" />
-                      <div><div className="flex justify-between items-start mb-6"><div className="w-12 h-12 rounded-xl bg-zinc-800/80 border border-white/5 flex items-center justify-center text-orange-400 shadow-lg"><Gem className="w-6 h-6" /></div></div><h3 className="text-xl font-bold text-white mb-1">{t.tpl_card_product}</h3><p className="text-xs text-zinc-500 mb-6 font-mono">ID: PROD_HIGH_02</p><div className="space-y-3 bg-zinc-900/50 p-4 rounded-xl border border-white/5"><div className="flex items-center justify-between text-xs"><span className="text-zinc-500">{t.wb_config_duration}</span><span className="text-zinc-300 font-bold">30s</span></div></div></div>
-                      <button onClick={() => setActiveView('editor')} className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/5 text-xs font-bold text-zinc-300 rounded-xl mt-4 transition flex items-center justify-center gap-2">{t.tpl_btn_edit} <ArrowRight className="w-3 h-3" /></button>
-                   </div>
+                   {templateList.length === 0 && <div className="col-span-full text-center text-zinc-500 py-10">No templates found. Create one!</div>}
+                   {templateList.map(tpl => (
+                     <div key={tpl.id} className={`glass-card rounded-2xl p-6 relative group overflow-hidden border-t-4 flex flex-col justify-between h-96 ${tpl.icon === 'gem' ? 'border-t-orange-500' : 'border-t-purple-500'}`}>
+                        {/* Blob - Background */}
+                        <div className={`absolute -right-10 -top-10 w-32 h-32 rounded-full blur-2xl transition group-hover:opacity-40 opacity-20 ${tpl.icon === 'gem' ? 'bg-orange-500' : 'bg-purple-500'}`} />
+                        
+                        {/* Content Container - Z-Index Fix */}
+                        <div className="relative z-10">
+                          <div className="flex justify-between items-start mb-6">
+                            <div className="w-12 h-12 rounded-xl bg-zinc-800/80 border border-white/5 flex items-center justify-center text-white shadow-lg">
+                              {tpl.icon === 'gem' ? <Gem className="w-6 h-6" /> : (tpl.icon === 'zap' ? <Zap className="w-6 h-6"/> : <Flame className="w-6 h-6"/>)}
+                            </div>
+                            <button onClick={(e) => handleDeleteTemplate(tpl.id!, e)} className="p-2 hover:bg-zinc-800 rounded text-zinc-500 hover:text-red-500 transition cursor-pointer"><Trash2 className="w-4 h-4" /></button>
+                          </div>
+                          <h3 className="text-xl font-bold text-white mb-1">{tpl.name}</h3>
+                          <p className="text-xs text-zinc-500 mb-6 font-mono capitalize">{tpl.product_category} • {tpl.visual_style}</p>
+                          <div className="space-y-3 bg-zinc-900/50 p-4 rounded-xl border border-white/5">
+                            <div className="flex items-center justify-between text-xs"><span className="text-zinc-500">Duration</span><span className="text-zinc-300 font-bold">{tpl.duration}s</span></div>
+                            <div className="flex items-center justify-between text-xs"><span className="text-zinc-500">Ratio</span><span className="text-zinc-300 font-bold">{tpl.aspect_ratio}</span></div>
+                          </div>
+                        </div>
+                        
+                        {/* Bottom Button - Z-Index Fix */}
+                        <button onClick={() => openEditor(tpl)} className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/5 text-xs font-bold text-zinc-300 rounded-xl mt-4 transition flex items-center justify-center gap-2 relative z-10">{t.tpl_btn_edit} <ArrowRight className="w-3 h-3" /></button>
+                     </div>
+                   ))}
                 </div>
              </div>
           </div>
         )}
 
-        {/* === VIEW 4: TEMPLATE EDITOR (i18n Enabled) === */}
+        {/* 4. EDITOR VIEW */}
         {activeView === 'editor' && (
            <div className="flex flex-col h-full z-20 bg-zinc-950 animate-in fade-in zoom-in-95 duration-200">
-             {/* Header */}
              <div className="px-10 py-6 border-b border-white/5 flex items-center gap-4 bg-zinc-900/30">
                 <button onClick={() => setActiveView('templates')} className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center hover:bg-zinc-700 transition"><ArrowLeft className="w-5 h-5" /></button>
-                <div><h1 className="text-xl font-bold text-white">{t.editor_title}</h1><p className="text-xs text-zinc-500">{t.editor_subtitle}</p></div>
+                <div><h1 className="text-xl font-bold text-white">{editingTemplate ? 'Edit Template' : t.editor_title}</h1><p className="text-xs text-zinc-500">{t.editor_subtitle}</p></div>
              </div>
-
-             {/* Form Content */}
              <div className="flex-1 overflow-y-auto p-10 max-w-5xl mx-auto w-full custom-scroll">
                 <div className="glass-panel p-8 rounded-3xl border border-white/10 space-y-8">
-                   
-                   {/* Row 1: Basic Info */}
                    <div className="grid grid-cols-2 gap-8">
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-zinc-400">{t.editor_label_name}</label>
-                        <input type="text" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white" defaultValue="New Template 01" />
+                        <input type="text" value={editorForm.name} onChange={e => setEditorForm({...editorForm, name: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white" />
                       </div>
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-zinc-400">{t.editor_label_icon}</label>
                         <div className="flex gap-3">
-                            <button className="w-12 h-12 rounded-xl bg-orange-500/20 border border-orange-500 text-orange-500 flex items-center justify-center"><Flame className="w-6 h-6" /></button>
-                            <button className="w-12 h-12 rounded-xl bg-zinc-800 border border-white/5 text-zinc-500 hover:text-white flex items-center justify-center transition"><Gem className="w-6 h-6" /></button>
-                            <button className="w-12 h-12 rounded-xl bg-zinc-800 border border-white/5 text-zinc-500 hover:text-white flex items-center justify-center transition"><Zap className="w-6 h-6" /></button>
+                            {['flame', 'gem', 'zap'].map(icon => (
+                              <button key={icon} onClick={() => setEditorForm({...editorForm, icon})} className={`w-12 h-12 rounded-xl border flex items-center justify-center transition ${editorForm.icon === icon ? 'bg-orange-500/20 border-orange-500 text-orange-500' : 'bg-zinc-800 border-white/5 text-zinc-500 hover:text-white'}`}>
+                                {icon === 'flame' && <Flame className="w-6 h-6" />}
+                                {icon === 'gem' && <Gem className="w-6 h-6" />}
+                                {icon === 'zap' && <Zap className="w-6 h-6" />}
+                              </button>
+                            ))}
                         </div>
                       </div>
                    </div>
-
                    <hr className="border-white/5" />
-
-                   {/* Row 2: Category & Style (Translated Options) */}
                    <div className="grid grid-cols-2 gap-8">
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-zinc-400">{t.editor_label_category}</label>
                         <div className="relative">
-                            <select className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer">
+                            <select value={editorForm.product_category} onChange={e => setEditorForm({...editorForm, product_category: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer">
                                 <option value="camera">{t.opt_cat_camera}</option>
                                 <option value="beauty">{t.opt_cat_beauty}</option>
                                 <option value="food">{t.opt_cat_food}</option>
@@ -582,7 +548,7 @@ const Workbench = () => {
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-zinc-400">{t.editor_label_style}</label>
                         <div className="relative">
-                            <select className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer">
+                            <select value={editorForm.visual_style} onChange={e => setEditorForm({...editorForm, visual_style: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer">
                                 <option value="realistic">{t.opt_style_real}</option>
                                 <option value="cinematic">{t.opt_style_cine}</option>
                                 <option value="3d">{t.opt_style_3d}</option>
@@ -592,14 +558,11 @@ const Workbench = () => {
                         </div>
                       </div>
                    </div>
-
-                   {/* Row 3: Specs (Ratio, Duration, Shot Number) */}
                    <div className="grid grid-cols-3 gap-6">
-                      {/* Aspect Ratio */}
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-zinc-400">{t.editor_label_ratio}</label>
                         <div className="relative">
-                            <select className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer">
+                            <select value={editorForm.aspect_ratio} onChange={e => setEditorForm({...editorForm, aspect_ratio: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer">
                                 <option value="720*1280">9:16 (720x1280)</option>
                                 <option value="1080*1920">9:16 (1080x1920)</option>
                                 <option value="1280*720">16:9 (1280x720)</option>
@@ -608,61 +571,30 @@ const Workbench = () => {
                             <ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-zinc-500 pointer-events-none" />
                         </div>
                       </div>
-
-                      {/* Duration */}
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-zinc-400">{t.editor_label_duration}</label>
-                        <input type="number" defaultValue={10} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white" />
+                        <input type="number" value={editorForm.duration} onChange={e => setEditorForm({...editorForm, duration: parseInt(e.target.value)})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white" />
                       </div>
-
-                      {/* Shot Number (Combo Box) */}
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-zinc-400">{t.editor_label_shots}</label>
-                        <div className="relative">
-                            {/* Input with list attribute creates the combo-box effect */}
-                            <input 
-                                list="shot-options" 
-                                type="number" 
-                                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white placeholder-zinc-600"
-                                placeholder={t.editor_ph_select}
-                                defaultValue={5}
-                            />
-                            {/* Datalist provides the dropdown options */}
-                            <datalist id="shot-options">
-                                <option value="3" />
-                                <option value="5" />
-                                <option value="8" />
-                                <option value="10" />
-                            </datalist>
-                             <div className="absolute right-4 top-3.5 pointer-events-none text-zinc-500 text-xs">
-                                <SlidersHorizontal className="w-4 h-4 opacity-50" />
-                             </div>
-                        </div>
+                        <input type="number" value={editorForm.shot_number} onChange={e => setEditorForm({...editorForm, shot_number: parseInt(e.target.value)})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white" />
                       </div>
                    </div>
-
-                   {/* Row 4: Custom Text */}
                    <div className="space-y-2">
                       <label className="text-sm font-bold text-zinc-400">{t.editor_label_custom}</label>
-                      <textarea 
-                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white resize-none h-24" 
-                        placeholder={t.editor_ph_custom}
-                      ></textarea>
+                      <textarea value={editorForm.custom_config} onChange={e => setEditorForm({...editorForm, custom_config: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white resize-none h-24" placeholder={t.editor_ph_custom}></textarea>
                    </div>
-
                    <hr className="border-white/5" />
-                   
-                   {/* Footer Actions */}
                    <div className="pt-2 flex justify-end gap-4">
                       <button onClick={() => setActiveView('templates')} className="px-6 py-3 rounded-xl text-sm font-bold text-zinc-400 hover:text-white hover:bg-white/5 transition">{t.editor_btn_cancel}</button>
-                      <button onClick={() => setActiveView('templates')} className="px-8 py-3 rounded-xl text-sm font-bold bg-orange-600 text-white hover:bg-orange-500 shadow-lg shadow-orange-500/20 transition">{t.editor_btn_save}</button>
+                      <button onClick={handleSaveTemplate} className="px-8 py-3 rounded-xl text-sm font-bold bg-orange-600 text-white hover:bg-orange-500 shadow-lg shadow-orange-500/20 transition">{t.editor_btn_save}</button>
                    </div>
                 </div>
              </div>
            </div>
         )}
 
-        {/* === VIEW 5: HISTORY (Keep existing UI) === */}
+        {/* 5. HISTORY VIEW */}
         {activeView === 'history' && (
            <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
              <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">

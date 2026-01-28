@@ -435,21 +435,126 @@ const Workbench = () => {
           </div>
         )}
 
-        {/* === VIEW 4: TEMPLATE EDITOR === */}
+        {/* === VIEW 4: TEMPLATE EDITOR (i18n Enabled) === */}
         {activeView === 'editor' && (
            <div className="flex flex-col h-full z-20 bg-zinc-950 animate-in fade-in zoom-in-95 duration-200">
+             {/* Header */}
              <div className="px-10 py-6 border-b border-white/5 flex items-center gap-4 bg-zinc-900/30">
                 <button onClick={() => setActiveView('templates')} className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center hover:bg-zinc-700 transition"><ArrowLeft className="w-5 h-5" /></button>
                 <div><h1 className="text-xl font-bold text-white">{t.editor_title}</h1><p className="text-xs text-zinc-500">{t.editor_subtitle}</p></div>
              </div>
-             <div className="flex-1 overflow-y-auto p-10 max-w-4xl mx-auto w-full">
+
+             {/* Form Content */}
+             <div className="flex-1 overflow-y-auto p-10 max-w-5xl mx-auto w-full custom-scroll">
                 <div className="glass-panel p-8 rounded-3xl border border-white/10 space-y-8">
+                   
+                   {/* Row 1: Basic Info */}
                    <div className="grid grid-cols-2 gap-8">
-                      <div className="space-y-2"><label className="text-sm font-bold text-zinc-400">{t.editor_label_name}</label><input type="text" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white" defaultValue="New Template 01" /></div>
-                      <div className="space-y-2"><label className="text-sm font-bold text-zinc-400">{t.editor_label_icon}</label><div className="flex gap-3"><button className="w-12 h-12 rounded-xl bg-orange-500/20 border border-orange-500 text-orange-500 flex items-center justify-center"><Flame className="w-6 h-6" /></button><button className="w-12 h-12 rounded-xl bg-zinc-800 border border-white/5 text-zinc-500 hover:text-white flex items-center justify-center transition"><Gem className="w-6 h-6" /></button></div></div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-bold text-zinc-400">{t.editor_label_name}</label>
+                        <input type="text" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white" defaultValue="New Template 01" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-bold text-zinc-400">{t.editor_label_icon}</label>
+                        <div className="flex gap-3">
+                            <button className="w-12 h-12 rounded-xl bg-orange-500/20 border border-orange-500 text-orange-500 flex items-center justify-center"><Flame className="w-6 h-6" /></button>
+                            <button className="w-12 h-12 rounded-xl bg-zinc-800 border border-white/5 text-zinc-500 hover:text-white flex items-center justify-center transition"><Gem className="w-6 h-6" /></button>
+                            <button className="w-12 h-12 rounded-xl bg-zinc-800 border border-white/5 text-zinc-500 hover:text-white flex items-center justify-center transition"><Zap className="w-6 h-6" /></button>
+                        </div>
+                      </div>
                    </div>
+
                    <hr className="border-white/5" />
-                   <div className="pt-6 flex justify-end gap-4">
+
+                   {/* Row 2: Category & Style (Translated Options) */}
+                   <div className="grid grid-cols-2 gap-8">
+                      <div className="space-y-2">
+                        <label className="text-sm font-bold text-zinc-400">{t.editor_label_category}</label>
+                        <div className="relative">
+                            <select className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer">
+                                <option value="camera">{t.opt_cat_camera}</option>
+                                <option value="beauty">{t.opt_cat_beauty}</option>
+                                <option value="food">{t.opt_cat_food}</option>
+                                <option value="electronics">{t.opt_cat_digital}</option>
+                            </select>
+                            <ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-zinc-500 pointer-events-none" />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-bold text-zinc-400">{t.editor_label_style}</label>
+                        <div className="relative">
+                            <select className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer">
+                                <option value="realistic">{t.opt_style_real}</option>
+                                <option value="cinematic">{t.opt_style_cine}</option>
+                                <option value="3d">{t.opt_style_3d}</option>
+                                <option value="anime">{t.opt_style_anime}</option>
+                            </select>
+                            <ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-zinc-500 pointer-events-none" />
+                        </div>
+                      </div>
+                   </div>
+
+                   {/* Row 3: Specs (Ratio, Duration, Shot Number) */}
+                   <div className="grid grid-cols-3 gap-6">
+                      {/* Aspect Ratio */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-bold text-zinc-400">{t.editor_label_ratio}</label>
+                        <div className="relative">
+                            <select className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer">
+                                <option value="720*1280">9:16 (720x1280)</option>
+                                <option value="1080*1920">9:16 (1080x1920)</option>
+                                <option value="1280*720">16:9 (1280x720)</option>
+                                <option value="1080*1080">1:1 (1080x1080)</option>
+                            </select>
+                            <ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-zinc-500 pointer-events-none" />
+                        </div>
+                      </div>
+
+                      {/* Duration */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-bold text-zinc-400">{t.editor_label_duration}</label>
+                        <input type="number" defaultValue={10} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white" />
+                      </div>
+
+                      {/* Shot Number (Combo Box) */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-bold text-zinc-400">{t.editor_label_shots}</label>
+                        <div className="relative">
+                            {/* Input with list attribute creates the combo-box effect */}
+                            <input 
+                                list="shot-options" 
+                                type="number" 
+                                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white placeholder-zinc-600"
+                                placeholder={t.editor_ph_select}
+                                defaultValue={5}
+                            />
+                            {/* Datalist provides the dropdown options */}
+                            <datalist id="shot-options">
+                                <option value="3" />
+                                <option value="5" />
+                                <option value="8" />
+                                <option value="10" />
+                            </datalist>
+                             <div className="absolute right-4 top-3.5 pointer-events-none text-zinc-500 text-xs">
+                                <SlidersHorizontal className="w-4 h-4 opacity-50" />
+                             </div>
+                        </div>
+                      </div>
+                   </div>
+
+                   {/* Row 4: Custom Text */}
+                   <div className="space-y-2">
+                      <label className="text-sm font-bold text-zinc-400">{t.editor_label_custom}</label>
+                      <textarea 
+                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white resize-none h-24" 
+                        placeholder={t.editor_ph_custom}
+                      ></textarea>
+                   </div>
+
+                   <hr className="border-white/5" />
+                   
+                   {/* Footer Actions */}
+                   <div className="pt-2 flex justify-end gap-4">
                       <button onClick={() => setActiveView('templates')} className="px-6 py-3 rounded-xl text-sm font-bold text-zinc-400 hover:text-white hover:bg-white/5 transition">{t.editor_btn_cancel}</button>
                       <button onClick={() => setActiveView('templates')} className="px-8 py-3 rounded-xl text-sm font-bold bg-orange-600 text-white hover:bg-orange-500 shadow-lg shadow-orange-500/20 transition">{t.editor_btn_save}</button>
                    </div>

@@ -14,7 +14,7 @@ export default defineConfig({
         cookieDomainRewrite: { "*": "" }
       },
       '/media': {
-        target: 'https://thucvml-vgen.top:7443',
+        target: 'http://1.95.137.119:8001',
         changeOrigin: true,
         secure: false,
       },

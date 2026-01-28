@@ -3,8 +3,8 @@
 // Use the proxy path configured in vite.config.ts for API calls
 const API_BASE_URL = '/api/assets';
 
-// Define the Backend Server URL for images
-const SERVER_DOMAIN = 'http://1.95.137.119:8001';
+// --- UPDATE: New Server Domain for Images ---
+const SERVER_DOMAIN = 'https://thucvml-vgen.top:7443';
 
 // Frontend Interface
 export interface Asset {
@@ -77,7 +77,7 @@ export const assetsApi = {
       return backendData.map(item => {
         
         // --- FIX: Force Absolute URL for Images ---
-        // If the URL is relative (e.g., "/media/uploads..."), prepend the server domain
+        // If the URL is relative (e.g., "/media/uploads..."), prepend the NEW server domain
         let fullUrl = item.url;
         if (fullUrl && fullUrl.startsWith('/')) {
             fullUrl = `${SERVER_DOMAIN}${fullUrl}`;
@@ -88,7 +88,7 @@ export const assetsApi = {
           id: item.id.toString(),
           name: item.display_name,
           type: item.type.toLowerCase() as 'model' | 'product' | 'scene',
-          file_url: fullUrl, // Use the absolute URL here
+          file_url: fullUrl, 
           size: (item.meta_data.size_bytes / 1024 / 1024).toFixed(2) + ' MB',
           status: 'ready',
           created_at: item.created_at

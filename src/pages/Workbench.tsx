@@ -288,17 +288,15 @@ const Workbench = () => {
       <main className="flex-1 flex flex-col overflow-hidden relative">
         <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-orange-900/10 to-transparent pointer-events-none z-0" />
         
-        {/* REMOVED: Absolute Positioned Language Switcher was here */}
-
         {/* 1. WORKBENCH VIEW */}
         {activeView === 'workbench' && (
           <div className="flex flex-col h-full z-10 animate-in fade-in zoom-in-95 duration-300">
-            <header className="flex justify-between items-center px-8 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm shrink-0">
+            {/* FIX: relative z-50 added to header */}
+            <header className="flex justify-between items-center px-8 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm shrink-0 relative z-50">
               <div className="flex items-center gap-4">
                 <h1 className="text-xl font-bold tracking-tight text-white">Project_Alpha_01</h1>
                 <span className="px-2 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-400 border border-white/5">{t.wb_header_draft}</span>
               </div>
-              {/* FIXED: Language Switcher moved here */}
               <div className="flex items-center gap-4">
                 <div className="text-xs text-zinc-500">{t.wb_header_save}</div>
                 <LanguageSwitcher />
@@ -306,7 +304,6 @@ const Workbench = () => {
             </header>
 
             <div className="flex-1 flex overflow-hidden p-6 gap-6">
-              {/* ... Workbench Columns (Left, Middle, Right) ... */}
               {/* Left Column */}
               <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto custom-scroll pr-1">
                 <div className="flex flex-col gap-3">
@@ -410,10 +407,10 @@ const Workbench = () => {
         {/* 2. ASSETS VIEW */}
         {activeView === 'assets' && (
            <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
-             <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
+             {/* FIX: relative z-50 added */}
+             <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
                 <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.assets_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.assets_subtitle}</p></div>
                 <div className="flex gap-3 items-center">
-                  {/* FIXED: Language Switcher moved here */}
                   <LanguageSwitcher />
                   <button className="bg-zinc-800 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-zinc-700 transition flex items-center gap-2"><FolderPlus className="w-4 h-4" /> {t.assets_btn_new_folder}</button>
                   <button onClick={() => assetInputRef.current?.click()} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20" disabled={isUploading}>
@@ -464,10 +461,10 @@ const Workbench = () => {
         {/* 3. TEMPLATES VIEW */}
         {activeView === 'templates' && (
           <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
-             <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
+             {/* FIX: relative z-50 added */}
+             <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
                 <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.tpl_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.tpl_subtitle}</p></div>
                 <div className="flex items-center gap-3">
-                    {/* FIXED: Language Switcher moved here */}
                     <LanguageSwitcher />
                     <button onClick={() => openEditor()} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20"><Plus className="w-4 h-4" /> {t.tpl_btn_new}</button>
                 </div>
@@ -508,16 +505,17 @@ const Workbench = () => {
         {/* 4. EDITOR VIEW */}
         {activeView === 'editor' && (
            <div className="flex flex-col h-full z-20 bg-zinc-950 animate-in fade-in zoom-in-95 duration-200">
-             <div className="px-10 py-6 border-b border-white/5 flex justify-between items-center gap-4 bg-zinc-900/30">
+             {/* FIX: relative z-50 added */}
+             <div className="px-10 py-6 border-b border-white/5 flex justify-between items-center gap-4 bg-zinc-900/30 relative z-50">
                 <div className="flex items-center gap-4">
                     <button onClick={() => setActiveView('templates')} className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center hover:bg-zinc-700 transition"><ArrowLeft className="w-5 h-5" /></button>
                     <div><h1 className="text-xl font-bold text-white">{editingTemplate ? 'Edit Template' : t.editor_title}</h1><p className="text-xs text-zinc-500">{t.editor_subtitle}</p></div>
                 </div>
-                {/* FIXED: Language Switcher moved here */}
                 <LanguageSwitcher />
              </div>
              <div className="flex-1 overflow-y-auto p-10 max-w-5xl mx-auto w-full custom-scroll">
                 <div className="glass-panel p-8 rounded-3xl border border-white/10 space-y-8">
+                   {/* ... Editor Fields ... */}
                    <div className="grid grid-cols-2 gap-8">
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-zinc-400">{t.editor_label_name}</label>
@@ -568,9 +566,10 @@ const Workbench = () => {
                         <label className="text-sm font-bold text-zinc-400">{t.editor_label_ratio}</label>
                         <div className="relative">
                             <select value={editorForm.aspect_ratio} onChange={e => setEditorForm({...editorForm, aspect_ratio: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer">
-                                <option value="16:9">16:9 (1280x720)</option>
-                                <option value="9:16">9:16 (720x1280)</option>
-                                <option value="1:1">1:1 (1080x1080)</option>
+                                <option value="720*1280">9:16 (720x1280)</option>
+                                <option value="1080*1920">9:16 (1080x1920)</option>
+                                <option value="1280*720">16:9 (1280x720)</option>
+                                <option value="1080*1080">1:1 (1080x1080)</option>
                             </select>
                             <ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-zinc-500 pointer-events-none" />
                         </div>
@@ -601,9 +600,9 @@ const Workbench = () => {
         {/* 5. HISTORY VIEW */}
         {activeView === 'history' && (
            <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
-             <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
+             {/* FIX: relative z-50 added */}
+             <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
                 <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.hist_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.hist_subtitle}</p></div>
-                {/* FIXED: Language Switcher moved here */}
                 <LanguageSwitcher />
              </header>
              <div className="flex-1 overflow-y-auto p-10 custom-scroll">

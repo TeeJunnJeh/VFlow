@@ -1,36 +1,41 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { translations } from '../i18n/translations';
 
-type Language = 'en' | 'zh';
+// 1. Define Valid Language Types
+type Language = 'en' | 'zh' | 'ms' | 'vi' | 'ko';
 
 interface LanguageContextType {
   language: Language;
   setLanguage: (lang: Language) => void;
-  t: typeof translations.en; // Helper to get the current translation object
+  t: typeof translations['en']; // Use English structure for type hints
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export const LanguageProvider = ({ children }: { children: React.ReactNode }) => {
-  const [language, setLanguage] = useState<Language>('en');
+  // 2. Load from LocalStorage or default to 'en'
+  const [language, setLanguage] = useState<Language>(() => {
+    const saved = localStorage.getItem('app_language');
+    // Simple validation to ensure saved lang is valid
+    if (saved && ['en', 'zh', 'ms', 'vi', 'ko'].includes(saved)) {
+      return saved as Language;
+    }
+    return 'en';
+  });
 
-  // Load saved preference
+  // 3. Save change to LocalStorage
   useEffect(() => {
-    const savedLang = localStorage.getItem('vflow_lang') as Language;
-    if (savedLang) setLanguage(savedLang);
-  }, []);
+    localStorage.setItem('app_language', language);
+  }, [language]);
 
-  const handleSetLanguage = (lang: Language) => {
-    setLanguage(lang);
-    localStorage.setItem('vflow_lang', lang);
+  const value = {
+    language,
+    setLanguage,
+    t: translations[language] || translations['en'] // Fallback to EN if missing
   };
 
   return (
-    <LanguageContext.Provider value={{ 
-      language, 
-      setLanguage: handleSetLanguage, 
-      t: translations[language] 
-    }}>
+    <LanguageContext.Provider value={value}>
       {children}
     </LanguageContext.Provider>
   );

@@ -72,7 +72,7 @@ function App() {
     return (
         <AuthProvider>
             <LanguageProvider>
-                <BrowserRouter basename="/VFlow">
+                <BrowserRouter>
                     <AnimatedRoutes />
                 </BrowserRouter>
             </LanguageProvider>

@@ -72,8 +72,7 @@ function App() {
     return (
         <AuthProvider>
             <LanguageProvider>
-                <BrowserRouter>
-                    {/* AnimatedRoutes 必须在 BrowserRouter 包裹下才能获取 location */}
+                <BrowserRouter basename="/VFlow">
                     <AnimatedRoutes />
                 </BrowserRouter>
             </LanguageProvider>

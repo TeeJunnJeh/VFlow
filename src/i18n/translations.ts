@@ -323,7 +323,7 @@ export const translations = {
     opt_style_anime: "动漫",
 
     editor_ph_custom: "在此输入任意自定义配置文本...",
-    editor_ph_select: "选择或输入..."
+    editor_ph_select: "选择或输入...",
 
     // Demo Scripts
     demo_shot1_visual: "模特手持咖啡杯...",

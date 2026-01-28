@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { LanguageSwitcher } from '../components/common/LanguageSwitcher';
-// FIX: Use "type" import to prevent the SyntaxError
+// Use "type" import to prevent SyntaxError with Vite
 import { assetsApi, type Asset } from '../services/assets'; 
 
 // Types
@@ -24,16 +24,34 @@ const Workbench = () => {
   // --- Workbench State ---
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
   const [fileName, setFileName] = useState('');
+  
+  // Scripts State (Initialized with translatable demo text)
+  // Note: These will load in the current language. Switching language will not 
+  // overwrite edits unless the component remounts.
   const [scripts, setScripts] = useState([
-    { id: 1, shot: '1', type: 'Close-up', dur: '2.5s', visual: 'Model holding coffee cup...', audio: '"Start your morning..."' },
-    { id: 2, shot: '2', type: 'Detail', dur: '1.5s', visual: 'Liquid pouring into cup...', audio: '(Pouring sound)' }
+    { 
+      id: 1, 
+      shot: '1', 
+      type: 'Close-up', 
+      dur: '2.5s', 
+      visual: t.demo_shot1_visual, 
+      audio: t.demo_shot1_audio 
+    },
+    { 
+      id: 2, 
+      shot: '2', 
+      type: 'Detail', 
+      dur: '1.5s', 
+      visual: t.demo_shot2_visual, 
+      audio: t.demo_shot2_audio 
+    }
   ]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- Assets View State (NEW) ---
+  // --- Assets View State ---
   const [assetList, setAssetList] = useState<Asset[]>([]);
   const [isLoadingAssets, setIsLoadingAssets] = useState(false);
-  const [activeAssetTab, setActiveAssetTab] = useState<AssetType>('product'); // Default to product since you have data there
+  const [activeAssetTab, setActiveAssetTab] = useState<AssetType>('product');
   const [isUploading, setIsUploading] = useState(false);
   const assetInputRef = useRef<HTMLInputElement>(null);
 
@@ -50,7 +68,6 @@ const Workbench = () => {
     setIsLoadingAssets(true);
     try {
       const data = await assetsApi.getAssets();
-      // Ensure we always have an array
       setAssetList(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Failed to load assets", err);
@@ -71,7 +88,7 @@ const Workbench = () => {
     }
   };
 
-// Asset Library Upload (Batch Support)
+  // Asset Library Upload (Batch Support)
   const handleAssetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -337,14 +354,13 @@ const Workbench = () => {
                   >
                     {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} {t.assets_btn_upload}
                   </button>
-                  {/* ADD 'multiple' attribute here */}
-<input 
-  type="file" 
-  ref={assetInputRef} 
-  className="hidden" 
-  multiple 
-  onChange={handleAssetUpload} 
-/>
+                  <input 
+                    type="file" 
+                    ref={assetInputRef} 
+                    className="hidden" 
+                    multiple // Enables batch upload
+                    onChange={handleAssetUpload} 
+                  />
                 </div>
              </header>
              
@@ -384,7 +400,6 @@ const Workbench = () => {
                                               src={asset.file_url} 
                                               className="w-full h-full object-cover" 
                                               alt={asset.name} 
-                                              // Fallback for broken images
                                               onError={(e) => {
                                                 (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x400?text=Error';
                                               }}

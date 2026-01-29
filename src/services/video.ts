@@ -26,7 +26,7 @@ export const videoApi = {
     // FIX: Added trailing slash '/' at the end
     // WAS: `${API_BASE_URL}/generate_video`
     // NOW: `${API_BASE_URL}/generate_video/`
-    const response = await fetch(`${API_BASE_URL}/generate_video/`, {
+    const response = await fetch(`${API_BASE_URL}/generate_video`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -729,7 +729,7 @@ const Workbench = () => {
                         <div className="relative">
                             <select value={editorForm.product_category} onChange={e => setEditorForm({...editorForm, product_category: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer">
                                 <option value="camera">{t.opt_cat_camera}</option>
-                                <option value="beauty">{t.opt_cat_beauty}</option>
+                                <option value="shoes">{t.opt_cat_beauty}</option>
                                 <option value="food">{t.opt_cat_food}</option>
                                 <option value="electronics">{t.opt_cat_digital}</option>
                             </select>

@@ -153,7 +153,7 @@ export const translations = {
     
     // Editor Options
     opt_cat_camera: "Camera",
-    opt_cat_beauty: "Beauty",
+    opt_cat_beauty: "Shoes",
     opt_cat_food: "Food",
     opt_cat_digital: "Electronics",
     
@@ -306,7 +306,7 @@ export const translations = {
     editor_label_custom: "自定义配置",
     
     opt_cat_camera: "相机",
-    opt_cat_beauty: "美妆",
+    opt_cat_beauty: "鞋子",
     opt_cat_food: "美食",
     opt_cat_digital: "数码",
     

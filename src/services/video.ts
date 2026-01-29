@@ -2,7 +2,7 @@
 
 const API_BASE_URL = '/api/projects';
 
-// Helper to get CSRF token from cookies (Django requirement)
+// Helper to get CSRF token
 function getCookie(name: string) {
   let cookieValue = null;
   if (document.cookie && document.cookie !== '') {
@@ -19,29 +19,31 @@ function getCookie(name: string) {
 }
 
 export const videoApi = {
-  // 1. Generate Video (The missing function)
+  // 1. Generate Video
   generate: async (payload: any) => {
     const csrftoken = getCookie('csrftoken');
     
-    const response = await fetch(`${API_BASE_URL}/generate_video`, {
+    // FIX: Added trailing slash '/' at the end
+    // WAS: `${API_BASE_URL}/generate_video`
+    // NOW: `${API_BASE_URL}/generate_video/`
+    const response = await fetch(`${API_BASE_URL}/generate_video/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRFToken': csrftoken || '',
-        'X-Requested-With': 'XMLHttpRequest', // Important for some backends
+        'X-Requested-With': 'XMLHttpRequest', 
       },
-      credentials: 'include', // Important for session cookies
+      credentials: 'include', 
       body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
-      // Try to parse error message from backend
       let errorMsg = 'Video generation failed';
       try {
         const errData = await response.json();
         errorMsg = errData.message || JSON.stringify(errData);
       } catch (e) {
-        errorMsg = await response.text(); 
+        errorMsg = `Server Error: ${response.status} ${response.statusText}`; 
       }
       throw new Error(errorMsg);
     }
@@ -49,11 +51,12 @@ export const videoApi = {
     return await response.json();
   },
 
-  // 2. Generate Script (The new function)
+  // 2. Generate Script
   generateScript: async (userId: string | number, payload: any) => {
     const csrftoken = getCookie('csrftoken');
     
-    // Note: ensure no trailing slash if your backend dislikes it
+    // Ensure this path matches your backend. 
+    // If this starts 404ing too, try adding a slash here as well.
     const response = await fetch(`${API_BASE_URL}/users/${userId}/generate-script`, { 
       method: 'POST',
       headers: {

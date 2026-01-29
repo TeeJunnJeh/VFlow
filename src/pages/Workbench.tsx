@@ -18,14 +18,14 @@ import { templatesApi, type Template } from '../services/templates';
 type ViewType = 'workbench' | 'assets' | 'templates' | 'history' | 'editor';
 type AssetType = 'model' | 'product' | 'scene';
 
-// Helper: Map icons to Emojis for the dropdown
+// Helper: Map icons to Emojis
 const ICON_EMOJI_MAP: Record<string, string> = {
   'flame': '🔥',
   'gem': '💎',
   'zap': '⚡'
 };
 
-// Helper: Map simple ratio to resolution string (if backend requires 1280*720 format)
+// Helper: Map simple ratio to resolution string
 const RATIO_TO_RES: Record<string, string> = {
   '16:9': '1280*720',
   '9:16': '720*1280',
@@ -43,7 +43,7 @@ const Workbench = () => {
 
   // --- Template State ---
   const [templateList, setTemplateList] = useState<Template[]>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null); // NEW: Track selected template
+  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
   
   // Editor Form State
@@ -72,9 +72,10 @@ const Workbench = () => {
 
   // Scripts State
   const [scripts, setScripts] = useState([
-    { id: 1, shot: '1', type: 'Close-up', dur: '2.5s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio },
-    { id: 2, shot: '2', type: 'Detail', dur: '1.5s', visual: t.demo_shot2_visual, audio: t.demo_shot2_audio }
+    { id: 1, shot: '1', type: 'Medium', dur: '2s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio },
+    { id: 2, shot: '2', type: 'Detail', dur: '2s', visual: t.demo_shot2_visual, audio: t.demo_shot2_audio }
   ]);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [assetList, setAssetList] = useState<Asset[]>([]);
   const [isLoadingAssets, setIsLoadingAssets] = useState(false);
@@ -99,9 +100,9 @@ const Workbench = () => {
     initUser();
   }, [user]);
 
-  // FIX: Load templates when in Workbench view too
   useEffect(() => {
     if (activeView === 'assets') loadAssets();
+    // Load templates in both template view AND workbench view (for dropdown)
     if ((activeView === 'templates' || activeView === 'workbench') && currentUserId) loadTemplates();
   }, [activeView, currentUserId]);
 
@@ -116,110 +117,6 @@ const Workbench = () => {
     }
   };
 
-  // --- Handle Script Generation (Updated to use Selected Template) ---
-  const handleGenerateScripts = async () => {
-    if (!currentUserId) return alert("Please log in first");
-    
-    setIsGeneratingScript(true);
-
-    try {
-      let imagePath = "";
-
-      // 1. Upload Image
-      if (selectedFileObj) {
-        console.log("🚀 Uploading reference image for script...");
-        const uploadResp = await assetsApi.uploadAsset(selectedFileObj, 'product');
-        
-        let rawPath = null;
-        if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
-            rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
-        } else {
-            rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
-        }
-
-        if (rawPath) {
-            if (rawPath.startsWith('/')) {
-                imagePath = `http://1.95.137.119:8001${rawPath}`; 
-            } else {
-                imagePath = rawPath;
-            }
-        }
-      }
-
-      // 2. Prepare Payload using Selected Template or Defaults
-      const promptText = genPrompt || "产品推广";
-      
-      // Determine settings from template or fallback
-      const category = selectedTemplate?.product_category || "相机";
-      const style = selectedTemplate?.visual_style || "写实";
-      // Convert ratio "16:9" -> "1280*720" if needed, or use raw string
-      const rawRatio = selectedTemplate?.aspect_ratio || "16:9";
-      const resolution = RATIO_TO_RES[rawRatio] || rawRatio || "1280*720";
-      
-      const duration = genDuration || selectedTemplate?.duration || 10;
-      const shots = selectedTemplate?.shot_number || 5;
-
-      const payload = {
-        user_prompt: promptText,
-        prompt: promptText,
-        input: promptText, 
-
-        product_category: category, 
-        visual_style: style,
-        aspect_ratio: resolution,
-        
-        script_content: {
-            duration: duration,
-            shot_number: shots,
-            custom: selectedTemplate?.custom_config || "突出夜景拍摄",
-            
-            input: promptText,
-            prompt: promptText,
-            user_prompt: promptText,
-            shots: [] 
-        },
-        product_image_path: imagePath || "http://1.95.137.119:8001/media/uploads/default.jpg"
-      };
-
-      console.log("📜 Generating Script with payload:", payload);
-
-      // 3. Call API
-      const response = await videoApi.generateScript(currentUserId, payload);
-      
-      console.log("✅ Script Generated:", response);
-
-      // 4. Update Scripts List
-      if (response.code === 0 && response.data && response.data.script_content && response.data.script_content.shots) {
-        const newScripts = response.data.script_content.shots.map((shot: any) => ({
-            id: shot.shot_index,
-            shot: shot.shot_index.toString(),
-            type: 'General', 
-            dur: `${shot.duration_sec}s`,
-            visual: shot.visual,
-            audio: shot.voiceover || shot.beat 
-        }));
-        
-        setScripts(newScripts);
-      } else {
-        console.warn("Unexpected response:", response);
-        alert("Script generation completed but returned unexpected data.");
-      }
-
-    } catch (err: any) {
-      console.error("Script Gen Error:", err);
-      let msg = err.message;
-      try {
-         const jsonPart = err.message.substring(err.message.indexOf('{'));
-         const parsed = JSON.parse(jsonPart);
-         if (parsed.message) msg = parsed.message;
-      } catch (e) {}
-      alert(`Script Generation Failed: ${msg}`);
-    } finally {
-      setIsGeneratingScript(false);
-    }
-  };
-
-  // ... (Other handlers: handleSaveTemplate, handleDeleteTemplate, openEditor, etc.)
   const handleSaveTemplate = async () => {
     if (!currentUserId) return alert("Please log in first");
     try {
@@ -270,17 +167,194 @@ const Workbench = () => {
     setActiveView('editor');
   };
 
-// ... inside src/pages/Workbench.tsx
+  // --- API Actions: Assets ---
+  const loadAssets = async () => {
+    setIsLoadingAssets(true);
+    try {
+      const data = await assetsApi.getAssets();
+      setAssetList(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Failed to load assets", err);
+    } finally {
+      setIsLoadingAssets(false);
+    }
+  };
 
+  const handleAssetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setIsUploading(true);
+    try {
+      const uploadTasks = Array.from(files).map(file => assetsApi.uploadAsset(file, activeAssetTab));
+      await Promise.all(uploadTasks);
+      await loadAssets(); 
+      alert(`Successfully uploaded ${files.length} files!`);
+    } catch (err) {
+      alert("An error occurred during upload.");
+    } finally {
+      setIsUploading(false);
+      if (assetInputRef.current) assetInputRef.current.value = '';
+    }
+  };
+
+  const handleDeleteAsset = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm("Delete this asset?")) return;
+    try {
+      await assetsApi.deleteAsset(id);
+      setAssetList(prev => prev.filter(a => a.id !== id));
+    } catch (err) {
+      alert("Failed to delete asset");
+    }
+  };
+
+  // --- Workbench Actions ---
+  const handleWorkbenchUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setUploadedFile(url);
+      setFileName(file.name);
+      setSelectedFileObj(file);
+      setGeneratedVideoUrl(null);
+    }
+  };
+
+  const removeUpload = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setUploadedFile(null);
+    setSelectedFileObj(null);
+    setFileName('');
+  };
+
+  // --- Script Actions (Add/Remove) ---
+  const addScript = () => {
+    // Generate unique ID
+    const newId = scripts.length > 0 ? Math.max(...scripts.map(s => s.id)) + 1 : 1;
+    const nextShotNum = scripts.length + 1;
+    setScripts([...scripts, { 
+      id: newId, 
+      shot: nextShotNum.toString(), 
+      type: 'Medium', 
+      dur: '2s', 
+      visual: '', 
+      audio: '' 
+    }]);
+  };
+
+  const removeScript = (id: number) => {
+    const remaining = scripts.filter(s => s.id !== id);
+    // Re-index shots visually
+    const reindexed = remaining.map((s, index) => ({
+      ...s,
+      shot: (index + 1).toString()
+    }));
+    setScripts(reindexed);
+  };
+
+  // --- API: Script Generation ---
+  const handleGenerateScripts = async () => {
+    if (!currentUserId) return alert("Please log in first");
+    
+    setIsGeneratingScript(true);
+
+    try {
+      let imagePath = "";
+
+      // 1. Upload Image
+      if (selectedFileObj) {
+        console.log("🚀 Uploading reference image for script...");
+        const uploadResp = await assetsApi.uploadAsset(selectedFileObj, 'product');
+        
+        let rawPath = null;
+        if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
+            rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
+        } else {
+            rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
+        }
+
+        if (rawPath) {
+            if (rawPath.startsWith('/')) {
+                imagePath = `http://1.95.137.119:8001${rawPath}`; 
+            } else {
+                imagePath = rawPath;
+            }
+        }
+      }
+
+      // 2. Prepare Payload (Robust)
+      const promptText = genPrompt || "产品推广";
+      
+      // Values from Selected Template or Default
+      const category = selectedTemplate?.product_category || "相机";
+      const style = selectedTemplate?.visual_style || "写实";
+      const rawRatio = selectedTemplate?.aspect_ratio || "16:9";
+      const resolution = RATIO_TO_RES[rawRatio] || rawRatio || "1280*720";
+      const duration = genDuration || selectedTemplate?.duration || 10;
+      const shots = selectedTemplate?.shot_number || 5;
+
+      const payload = {
+        // Root level prompt for backend safety
+        user_prompt: promptText,
+        prompt: promptText,
+        input: promptText, 
+
+        product_category: category, 
+        visual_style: style,
+        aspect_ratio: resolution,
+        
+        script_content: {
+            duration: duration,
+            shot_number: shots,
+            custom: selectedTemplate?.custom_config || "突出夜景拍摄",
+            // Inner level prompt
+            input: promptText,
+            prompt: promptText,
+            user_prompt: promptText,
+            shots: [] 
+        },
+        product_image_path: imagePath || "http://1.95.137.119:8001/media/uploads/default.jpg"
+      };
+
+      console.log("📜 Generating Script with payload:", payload);
+
+      const response = await videoApi.generateScript(currentUserId, payload);
+      
+      console.log("✅ Script Generated:", response);
+
+      if (response.code === 0 && response.data?.script_content?.shots) {
+        const newScripts = response.data.script_content.shots.map((shot: any) => ({
+            id: shot.shot_index,
+            shot: shot.shot_index.toString(),
+            type: 'General', 
+            dur: `${shot.duration_sec}s`,
+            visual: shot.visual,
+            audio: shot.voiceover || shot.beat 
+        }));
+        setScripts(newScripts);
+      } else {
+        alert("Script generation completed but returned unexpected data.");
+      }
+
+    } catch (err: any) {
+      console.error("Script Gen Error:", err);
+      let msg = err.message;
+      try {
+         const jsonPart = err.message.substring(err.message.indexOf('{'));
+         const parsed = JSON.parse(jsonPart);
+         if (parsed.message) msg = parsed.message;
+      } catch (e) {}
+      alert(`Script Generation Failed: ${msg}`);
+    } finally {
+      setIsGeneratingScript(false);
+    }
+  };
+
+  // --- API: Video Generation ---
   const handleGenerateVideo = async () => {
-    // 1. Validation Checks
     if (!selectedFileObj) return alert("Please upload a reference image first!");
     if (scripts.length === 0) return alert("Please generate or add scripts first!");
-    
-    // NEW: Ensure a template is selected to get the dynamic Project ID
-    if (!selectedTemplate?.id) {
-        return alert("Please select a Template from the Config panel first!");
-    }
+    if (!selectedTemplate?.id) return alert("Please select a Template from the Config panel first!");
 
     setIsGenerating(true);
     setGeneratedVideoUrl(null); 
@@ -303,6 +377,7 @@ const Workbench = () => {
         apiPath = '.' + apiPath; 
       }
 
+      // Combine Scripts into Prompt
       const combinedScriptPrompt = scripts
         .map(s => s.visual)
         .filter(v => v && v.trim().length > 0)
@@ -310,13 +385,9 @@ const Workbench = () => {
 
       if (!combinedScriptPrompt) throw new Error("Scripts are empty.");
 
-      // --- FIX: Dynamic Project ID from Selected Template ---
       const payload = {
         prompt: combinedScriptPrompt,
-        
-        // Use the ID from the selected template state
-        project_id: selectedTemplate.id, 
-        
+        project_id: selectedTemplate.id, // Dynamic Project ID
         duration: genDuration,
         image_path: apiPath, 
         sound: "on" as const
@@ -339,33 +410,6 @@ const Workbench = () => {
     }
   };
 
-  const handleAssetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => { /* ... existing logic ... */ };
-  const handleDeleteAsset = async (id: string, e: React.MouseEvent) => { /* ... existing logic ... */ };
-  const removeUpload = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setUploadedFile(null);
-    setSelectedFileObj(null);
-    setFileName('');
-  };
-  const addScript = () => {
-    const newId = scripts.length + 1;
-    setScripts([...scripts, { id: newId, shot: newId.toString(), type: 'Medium', dur: '2.0s', visual: '', audio: '' }]);
-  };
-  const removeScript = (id: number) => {
-    setScripts(scripts.filter(s => s.id !== id));
-  };
-  const handleWorkbenchUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setUploadedFile(url);
-      setFileName(file.name);
-      setSelectedFileObj(file);
-      setGeneratedVideoUrl(null);
-    }
-  };
-  const loadAssets = async () => { /* ... existing logic ... */ };
-
   // --- Components ---
   const InternalNav = ({ icon: Icon, view, label }: { icon: any, view: ViewType, label: string }) => (
     <div onClick={() => setActiveView(view)} className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${activeView === view ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-white'}`} title={label}>
@@ -375,6 +419,7 @@ const Workbench = () => {
   );
   const filteredAssets = assetList.filter(a => a.type === activeAssetTab);
 
+  // --- RENDER ---
   return (
     <div className="flex h-screen overflow-hidden bg-[#050505] text-zinc-100 font-sans">
       
@@ -411,7 +456,7 @@ const Workbench = () => {
             <div className="flex-1 flex overflow-hidden p-6 gap-6">
               {/* Left Column */}
               <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto custom-scroll pr-1">
-                {/* ... Upload Section (No Change) ... */}
+                {/* Upload */}
                 <div className="flex flex-col gap-3">
                   <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
                   <div onClick={() => fileInputRef.current?.click()} className={`glass-panel rounded-xl p-1 border-2 border-dashed border-zinc-800 hover:border-orange-500/50 transition-colors h-32 relative group cursor-pointer ${uploadedFile ? 'border-none' : ''}`}>
@@ -431,14 +476,13 @@ const Workbench = () => {
                   </div>
                 </div>
 
-                {/* Config Section */}
+                {/* Config */}
                 <div className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${!uploadedFile ? 'opacity-50 pointer-events-none' : ''}`}>
                   <div className="flex justify-between items-center"><h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><SlidersHorizontal className="w-3 h-3" /> {t.wb_config_title}</h2></div>
                   <div className="glass-panel rounded-xl p-5 flex flex-col gap-5">
                     <div>
                       <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase flex justify-between">{t.wb_config_template_label}</label>
                       <div className="relative">
-                        {/* UPDATE: Dropdown lists real templates */}
                         <select 
                             className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-orange-500 font-bold focus:outline-none focus:border-orange-500 transition appearance-none cursor-pointer hover:bg-white/5"
                             value={selectedTemplate?.id || ""}
@@ -446,7 +490,7 @@ const Workbench = () => {
                                 const tpl = templateList.find(t => t.id === e.target.value);
                                 if (tpl) {
                                     setSelectedTemplate(tpl);
-                                    setGenDuration(tpl.duration); // Auto-apply duration
+                                    setGenDuration(tpl.duration); 
                                 } else {
                                     setSelectedTemplate(null);
                                 }
@@ -487,9 +531,8 @@ const Workbench = () => {
                 </div>
               </div>
 
-              {/* Middle & Right Columns (Same as before) */}
+              {/* Middle Column */}
               <div className="flex-1 flex flex-col gap-3 h-full min-w-[300px]">
-                {/* ... (Scripts list map) ... */}
                 <div className="flex justify-between items-center shrink-0 h-[32px]">
                   <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
                   <button onClick={handleGenerateVideo} disabled={isGenerating || !uploadedFile} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-70 cursor-not-allowed' : ''}`}>
@@ -498,19 +541,33 @@ const Workbench = () => {
                   </button>
                 </div>
                 <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
-                  {scripts.map((script) => (
-                     <div key={script.id} className={`glass-card p-4 rounded-xl group relative border-l-2 ${script.id % 2 === 0 ? 'border-l-purple-500' : 'border-l-orange-500'}`}>
-                        <div className="flex justify-between items-center mb-3">
-                           <div className="flex items-center gap-2"><span className={`${script.id % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span><span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.type}</span><span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.dur}</span></div>
+                  {scripts.map((script, index) => (
+                     <div key={script.id} className={`glass-card p-4 rounded-xl group relative border-l-2 ${index % 2 === 0 ? 'border-l-purple-500' : 'border-l-orange-500'}`}>
+                        <div className="flex justify-between items-start mb-3">
+                           <div className="flex items-center gap-2">
+                              <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
+                              <span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.type}</span>
+                              <span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.dur}</span>
+                           </div>
+                           <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1 hover:bg-white/5 rounded"><X className="w-3.5 h-3.5" /></button>
                         </div>
                         <div className="grid grid-cols-1 gap-3">
                            <div className="relative group/input">
                                 <p className="text-[9px] text-zinc-600 uppercase font-bold absolute top-2 left-2 pointer-events-none">{t.wb_visual}</p>
-                                <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-2 pt-6 rounded-lg border border-white/5 focus:border-orange-500/50 focus:outline-none resize-none min-h-[60px]" value={script.visual} onChange={(e) => { const newScripts = scripts.map(s => s.id === script.id ? { ...s, visual: e.target.value } : s); setScripts(newScripts); }} />
+                                <textarea 
+                                  className="w-full bg-black/20 text-xs text-zinc-300 p-2 pt-6 rounded-lg border border-white/5 focus:border-orange-500/50 focus:outline-none resize-none min-h-[60px]" 
+                                  value={script.visual} 
+                                  onChange={(e) => { const newScripts = scripts.map(s => s.id === script.id ? { ...s, visual: e.target.value } : s); setScripts(newScripts); }} 
+                                />
                            </div>
                            <div className="relative group/input">
                                 <p className="text-[9px] text-zinc-600 uppercase font-bold absolute top-2 left-2 pointer-events-none">{t.wb_audio}</p>
-                                <input type="text" className="w-full bg-black/20 text-xs text-zinc-400 p-2 pl-12 rounded-lg border border-white/5 focus:border-orange-500/50 focus:outline-none italic" value={script.audio} onChange={(e) => { const newScripts = scripts.map(s => s.id === script.id ? { ...s, audio: e.target.value } : s); setScripts(newScripts); }} />
+                                <input 
+                                  type="text" 
+                                  className="w-full bg-black/20 text-xs text-zinc-400 p-2 pl-12 rounded-lg border border-white/5 focus:border-orange-500/50 focus:outline-none italic" 
+                                  value={script.audio} 
+                                  onChange={(e) => { const newScripts = scripts.map(s => s.id === script.id ? { ...s, audio: e.target.value } : s); setScripts(newScripts); }} 
+                                />
                            </div>
                         </div>
                      </div>
@@ -519,7 +576,7 @@ const Workbench = () => {
                 </div>
               </div>
 
-              {/* Right Column (Same as before) */}
+              {/* Right Column */}
               <div className="w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full">
                 <div className="flex justify-between items-end shrink-0 h-[32px]">
                   <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-3 h-3" /> {t.wb_col_preview}</h2>
@@ -544,7 +601,7 @@ const Workbench = () => {
           </div>
         )}
 
-        {/* ... (Keep other views ASSETS, TEMPLATES, EDITOR, HISTORY exactly as they were) ... */}
+        {/* 2. ASSETS VIEW */}
         {activeView === 'assets' && (
            <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
              <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">

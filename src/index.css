@@ -104,3 +104,115 @@ body {
 .animate-shooting-star {
   animation: shooting 10s linear infinite !important;
 }
+
+/* Light theme overrides when `theme-light` class is set on <html> */
+.theme-light body {
+  background: linear-gradient(180deg,#f8fafc 0%,#eef2ff 60%);
+  color: #0f172a;
+}
+.theme-light .glass-panel {
+  background: rgba(255,255,255,0.7);
+  border-color: rgba(15,23,42,0.06);
+}
+.theme-light .glass-card {
+  background: rgba(0,0,0,0.03);
+  border-color: rgba(15,23,42,0.06);
+}
+.theme-light .text-zinc-400 { color: #475569; }
+.theme-light .text-zinc-300 { color: #64748b; }
+.theme-light .bg-zinc-800 { background-color: #f1f5f9; }
+
+/* Additional light-theme overrides for common layout elements */
+.theme-light aside { background: #ffffff; color: #0f172a; border-color: rgba(15,23,42,0.06); }
+.theme-light main { color: #0f172a; }
+.theme-light header { background: rgba(255,255,255,0.7); }
+.theme-light .border-white\/5 { border-color: rgba(15,23,42,0.06) !important; }
+.theme-light .bg-zinc-950 { background-color: #ffffff !important; }
+.theme-light .bg-zinc-900 { background-color: #f8fafc !important; }
+.theme-light .bg-zinc-800 { background-color: #f1f5f9 !important; }
+.theme-light .text-zinc-200 { color: #0f172a !important; }
+.theme-light .text-zinc-100 { color: #0f172a !important; }
+.theme-light .bg-black\/20 { background-color: rgba(255,255,255,0.6) !important; }
+.theme-light .bg-black\/40 { background-color: rgba(255,255,255,0.5) !important; }
+.theme-light .glass-panel { background: rgba(255,255,255,0.85); backdrop-filter: blur(8px); border-color: rgba(15,23,42,0.06); }
+
+/* Ensure main app container and other strong backgrounds switch in light mode */
+.theme-light .bg-\\[\#050505\\] { background: linear-gradient(180deg,#f8fafc 0%,#eef2ff 60%) !important; }
+.theme-light .text-zinc-100 { color: #0f172a !important; }
+.theme-light .border-slate-800 { border-color: rgba(15,23,42,0.06) !important; }
+.theme-light .border-slate-900 { border-color: rgba(15,23,42,0.06) !important; }
+.theme-light .bg-black\/20 { background-color: rgba(255,255,255,0.75) !important; }
+.theme-light .bg-black\/40 { background-color: rgba(255,255,255,0.6) !important; }
+.theme-light .bg-zinc-950 { background-color: #ffffff !important; }
+.theme-light .bg-zinc-900 { background-color: #f8fafc !important; }
+.theme-light .text-white { color: #0f172a !important; }
+.theme-light .shadow-orange-500\/20 { box-shadow: none !important; }
+/* Broader overrides to catch remaining dark components/buttons in light mode */
+.theme-light .bg-zinc-900, .theme-light .bg-zinc-800, .theme-light .bg-zinc-700, .theme-light .bg-black, .theme-light .bg-black\/20, .theme-light .bg-black\/40 {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+.theme-light button, .theme-light .btn, .theme-light .rounded-btn {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+.theme-light .glass-card, .theme-light .glass-panel {
+  background: rgba(255,255,255,0.85) !important;
+  border-color: rgba(15,23,42,0.06) !important;
+}
+
+/* Catch Tailwind opacity-suffixed bg classes like bg-zinc-900/50, bg-black/20, etc. */
+.theme-light [class*="bg-zinc-900/"] { background-color: rgba(248,250,252,0.95) !important; color: #0f172a !important; }
+.theme-light [class*="bg-zinc-800/"] { background-color: rgba(241,245,249,0.95) !important; color: #0f172a !important; }
+.theme-light [class*="bg-black/"] { background-color: rgba(255,255,255,0.85) !important; color: #0f172a !important; }
+
+/* Explicit hex-bg overrides used in some components */
+.theme-light [class*="bg-[#1a1a1a]"] { background-color: rgba(255,255,255,0.95) !important; color: #0f172a !important; }
+
+/* Dropdown / panel shadows and borders */
+.theme-light .shadow-black\/50 { box-shadow: 0 6px 18px rgba(15,23,42,0.06) !important; }
+.theme-light .border-white\/10 { border-color: rgba(15,23,42,0.06) !important; }
+
+/* Buttons that used dark fills should be lighter in light-mode */
+.theme-light .bg-zinc-800, .theme-light .bg-zinc-700, .theme-light .bg-black { background-color: #ffffff !important; color: #0f172a !important; }
+.theme-light .hover\:bg-zinc-700:hover { background-color: #f1f5f9 !important; }
+
+/* Template icon square (w-12 h-12 bg-zinc-800/80) -> make pale */
+.theme-light .w-12.h-12[class*="bg-zinc-800"] { background-color: #ffffff !important; color: #0f172a !important; border-color: rgba(15,23,42,0.06) !important; }
+
+/* Form selects / inputs that used bg-black/40 or bg-black/20 */
+.theme-light select[class*="bg-black"], .theme-light input[class*="bg-black"], .theme-light textarea[class*="bg-black"] {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: rgba(15,23,42,0.06) !important;
+}
+
+/* Ensure preview control bar becomes light */
+.theme-light .h-14[class*="bg-zinc-900"], .theme-light .h-14[class*="bg-black"] { background-color: rgba(255,255,255,0.9) !important; border-top-color: rgba(15,23,42,0.06) !important; }
+/* Additional targeted fixes for elements using explicit color classes */
+/* Ensure any element that uses `bg-[#050505]` becomes light in light mode */
+.theme-light [class*="bg-[#050505]"] {
+  background: linear-gradient(180deg,#f8fafc 0%,#eef2ff 60%) !important;
+  color: #0f172a !important;
+}
+
+/* Make large decorative absolute overlays lighter and non-intrusive */
+.theme-light .absolute.top-0, .theme-light .absolute.top-0.left-1\/4, .theme-light .absolute.top-0.left-0 {
+  background: transparent !important;
+}
+
+/* Landing page blur circle (common pattern) — reduce tint in light mode */
+.theme-light .bg-violet-600\/10 {
+  background-color: rgba(99,102,241,0.06) !important;
+}
+
+/* Guarantee base containers flip to light backgrounds */
+.theme-light .min-h-screen, .theme-light .min-h-full {
+  background: linear-gradient(180deg,#f8fafc 0%,#eef2ff 60%) !important;
+}
+
+/* Soften header/top bar in light mode */
+.theme-light header, .theme-light .topbar, .theme-light .app-header {
+  background: rgba(255,255,255,0.9) !important;
+  color: #0f172a !important;
+}

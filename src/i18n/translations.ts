@@ -170,6 +170,19 @@ export const translations = {
     demo_shot1_audio: "\"Start your morning...\"",
     demo_shot2_visual: "Liquid pouring into cup...",
     demo_shot2_audio: "(Pouring sound)",
+    // Profile / Account
+    profile_title: "Profile",
+    profile_subtitle: "Manage your account",
+    profile_nickname: "Nickname",
+    profile_theme: "Interface Theme",
+    profile_theme_dark: "Dark",
+    profile_theme_light: "Light",
+    profile_permissions_balance: "Plan & Credits",
+    profile_use_default_avatar: "Use default avatar",
+    profile_debug: "Debug",
+    profile_plan_free: "FREE",
+    profile_plan_plus: "PLUS",
+    profile_plan_pro: "PRO",
   },
   
   zh: {
@@ -322,6 +335,19 @@ export const translations = {
     demo_shot1_audio: "“开启你的早晨...”",
     demo_shot2_visual: "液体倒入杯中...",
     demo_shot2_audio: "（倒水声）",
+    // 个人中心 / 账户
+    profile_title: "个人中心",
+    profile_subtitle: "管理你的资料",
+    profile_nickname: "昵称",
+    profile_theme: "界面主题",
+    profile_theme_dark: "深色",
+    profile_theme_light: "浅色",
+    profile_permissions_balance: "权限与余额",
+    profile_use_default_avatar: "使用默认头像",
+    profile_debug: "调试",
+    profile_plan_free: "FREE",
+    profile_plan_plus: "PLUS",
+    profile_plan_pro: "PRO",
   },
 
   // --- NEW: Malay (ms) ---
@@ -486,6 +512,19 @@ export const translations = {
     demo_shot1_audio: "\"Mulakan pagi anda...\"",
     demo_shot2_visual: "Cecair dituang ke dalam cawan...",
     demo_shot2_audio: "(Bunyi menuang)",
+    // Profile / Account
+    profile_title: "Profile",
+    profile_subtitle: "Manage your account",
+    profile_nickname: "Nickname",
+    profile_theme: "Interface Theme",
+    profile_theme_dark: "Dark",
+    profile_theme_light: "Light",
+    profile_permissions_balance: "Plan & Credits",
+    profile_use_default_avatar: "Use default avatar",
+    profile_debug: "Debug",
+    profile_plan_free: "FREE",
+    profile_plan_plus: "PLUS",
+    profile_plan_pro: "PRO",
   },
 
   // --- NEW: Vietnamese (vi) ---
@@ -650,6 +689,19 @@ export const translations = {
     demo_shot1_audio: "\"Bắt đầu buổi sáng của bạn...\"",
     demo_shot2_visual: "Chất lỏng rót vào cốc...",
     demo_shot2_audio: "(Tiếng rót nước)",
+    // Profile / Account
+    profile_title: "Hồ sơ",
+    profile_subtitle: "Quản lý tài khoản của bạn",
+    profile_nickname: "Biệt danh",
+    profile_theme: "Giao diện",
+    profile_theme_dark: "Tối",
+    profile_theme_light: "Sáng",
+    profile_permissions_balance: "Gói & Số dư",
+    profile_use_default_avatar: "Sử dụng avatar mặc định",
+    profile_debug: "Gỡ lỗi",
+    profile_plan_free: "FREE",
+    profile_plan_plus: "PLUS",
+    profile_plan_pro: "PRO",
   },
 
   // --- NEW: Korean (ko) ---
@@ -814,5 +866,18 @@ export const translations = {
     demo_shot1_audio: "\"아침을 시작하세요...\"",
     demo_shot2_visual: "컵에 따르는 액체...",
     demo_shot2_audio: "(따르는 소리)",
+    // Profile / Account
+    profile_title: "프로필",
+    profile_subtitle: "계정 관리",
+    profile_nickname: "닉네임",
+    profile_theme: "인터페이스 테마",
+    profile_theme_dark: "다크",
+    profile_theme_light: "라이트",
+    profile_permissions_balance: "플랜 및 크레딧",
+    profile_use_default_avatar: "기본 아바타 사용",
+    profile_debug: "디버그",
+    profile_plan_free: "FREE",
+    profile_plan_plus: "PLUS",
+    profile_plan_pro: "PRO",
   }
 };

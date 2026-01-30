@@ -6,6 +6,7 @@ import {
   Maximize, Share2, Music2, Instagram, Youtube, Send, FolderPlus, Upload, 
   Flame, Gem, ArrowRight, Settings2, Video, HardDrive, Eye, Edit3, ArrowLeft, CheckCircle, Loader2, User 
 } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext'; 
 import { authApi } from '../services/auth'; 
@@ -36,6 +37,7 @@ const RATIO_TO_RES: Record<string, string> = {
 const Workbench = () => {
   const { t } = useLanguage();
   const { user, login, updateUser, logout } = useAuth(); 
+  const location = useLocation();
 
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
@@ -109,6 +111,21 @@ const Workbench = () => {
   useEffect(() => {
     applyTheme(profileTheme);
   }, []);
+
+  // Handle asset from library
+  useEffect(() => {
+    const state = location.state as any;
+    if (state?.fromAssetLibrary && state?.selectedAsset) {
+      const asset = state.selectedAsset as Asset;
+      // Set the uploaded file to the asset preview URL
+      setUploadedFile(asset.previewUrl);
+      setFileName(asset.name);
+      // Set active view to workbench
+      setActiveView('workbench');
+      // Clear the location state to prevent re-triggering
+      window.history.replaceState({}, document.title);
+    }
+  }, [location]);
 
   // Credits baseline for progress UI: default to 100 if missing
   const userCredits = user?.credits ?? 100;
@@ -839,7 +856,19 @@ const Workbench = () => {
                                         <div className="absolute top-2 right-2 bg-black/40 px-2 py-0.5 rounded text-[9px] text-white backdrop-blur-sm capitalize">{asset.status}</div>
                                     </div>
                                     <div className="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-2xl flex flex-col items-center justify-center gap-2">
-                                        <button className="bg-white text-black px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition">Details</button>
+                                        <button 
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            // Use this asset in workbench
+                                            setUploadedFile(asset.file_url || '');
+                                            setFileName(asset.name);
+                                            setActiveView('workbench');
+                                          }}
+                                          className="bg-white text-black px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition"
+                                        >
+                                          Use in Workbench
+                                        </button>
+                                        <button className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition">Details</button>
                                         <button onClick={(e) => handleDeleteAsset(asset.id, e)} className="text-red-400 text-xs hover:text-red-300">Delete</button>
                                     </div>
                                 </div>

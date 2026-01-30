@@ -15,11 +15,11 @@ const AssetsPage = () => {
   }, [activeTab]);
 
   const handleUseAsset = (asset: Asset) => {
-    // Navigate to generate page and pre-fill prompt/settings based on template
-    navigate('/', { 
+    // Navigate to workbench and pass the asset
+    navigate('/app', { 
       state: { 
-        prompt: `Using template: ${asset.name}... [Auto-filled details]`,
-        // You could pass complex settings objects here
+        selectedAsset: asset,
+        fromAssetLibrary: true
       } 
     });
   };

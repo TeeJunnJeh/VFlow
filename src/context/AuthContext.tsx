@@ -4,13 +4,16 @@ interface User {
   id: string | number; // Allow number
   name: string;
   avatar: string;
-  plan: 'pro';
+  plan: 'free' | 'plus' | 'pro';
+  credits?: number; // remaining generation credits (v点)
   token?: string; 
 }
 
 interface AuthContextType {
   user: User | null;
   login: (identifier: string, serverData?: any) => Promise<void>;
+  updateUser: (patch: Partial<User>) => void;
+  updateCredits: (delta: number) => void;
   logout: () => void;
   isLoading: boolean;
 }
@@ -64,12 +67,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       serverData?.data?.token;
 
     // Construct the User Object
+    // Determine plan and starting credits
+    const planFromServer = serverData?.plan || serverData?.data?.plan;
+    const resolvedPlan: User['plan'] = planFromServer === 'plus' ? 'plus' : (planFromServer === 'pro' ? 'pro' : 'free');
+    const defaultCredits = 100; // default balance as requested
+
     const newUser: User = {
       // Use the Real ID if found, otherwise crash/warn instead of using a fake string
       id: realUserId || '1', // Defaulting to '1' is safer for Django than 'user-xyz'
       name: identifier,
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${identifier}`,
-      plan: 'pro',
+      avatar: '',
+      plan: resolvedPlan,
+      credits: serverData?.credits ?? serverData?.data?.credits ?? defaultCredits,
       token: token 
     };
 
@@ -91,8 +100,30 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     window.location.href = '/login';
   };
 
+  const updateUser = (patch: Partial<User>) => {
+    setUser(prev => {
+      const updated = { ...(prev as User || {}), ...patch } as User;
+      try {
+        localStorage.setItem('vflow_ai_user', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to persist user to localStorage', e);
+      }
+      return updated;
+    });
+  };
+
+  const updateCredits = (delta: number) => {
+    setUser(prev => {
+      if (!prev) return prev;
+      const newCredits = (prev.credits || 0) + delta;
+      const updated = { ...prev, credits: newCredits } as User;
+      try { localStorage.setItem('vflow_ai_user', JSON.stringify(updated)); } catch (e) { console.error(e); }
+      return updated;
+    });
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, login, updateUser, updateCredits, logout, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

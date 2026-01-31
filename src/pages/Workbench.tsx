@@ -275,7 +275,10 @@ const Workbench = () => {
     }
     // If it's a relative path (/media/...), prepend API base URL
     if (path.startsWith('/')) {
-      return `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}${path}`;
+      // In production, relative paths work directly with nginx
+      // In development, use env variable or default to localhost
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+      return baseUrl ? `${baseUrl}${path}` : path;
     }
     // Otherwise (blob:..., data:...), use as-is
     return path;

@@ -4,9 +4,8 @@ import {
   SlidersHorizontal, ChevronDown, Wand2, Clapperboard, PlayCircle, Undo2, 
   RefreshCw, Trash2, MonitorPlay, Film, Play, SkipBack, SkipForward, Download, 
   Maximize, Share2, Music2, Instagram, Youtube, Send, FolderPlus, Upload, 
-  Flame, Gem, ArrowRight, Settings2, Video, HardDrive, Eye, Edit3, ArrowLeft, CheckCircle, Loader2, User 
+  Flame, Gem, ArrowRight, Settings2, Video, HardDrive, Eye, Edit3, ArrowLeft, CheckCircle, Loader2 
 } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext'; 
 import { authApi } from '../services/auth'; 
@@ -16,7 +15,7 @@ import { videoApi } from '../services/video';
 import { templatesApi, type Template } from '../services/templates';
 
 // Types
-type ViewType = 'workbench' | 'assets' | 'templates' | 'history' | 'editor' | 'profile';
+type ViewType = 'workbench' | 'assets' | 'templates' | 'history' | 'editor';
 type AssetType = 'model' | 'product' | 'scene';
 
 // Helper: Map icons to Emojis
@@ -36,8 +35,7 @@ const RATIO_TO_RES: Record<string, string> = {
 
 const Workbench = () => {
   const { t } = useLanguage();
-  const { user, login, updateUser, logout } = useAuth(); 
-  const location = useLocation();
+  const { user } = useAuth(); 
 
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
@@ -84,109 +82,6 @@ const Workbench = () => {
   const [activeAssetTab, setActiveAssetTab] = useState<AssetType>('product');
   const [isUploading, setIsUploading] = useState(false);
   const assetInputRef = useRef<HTMLInputElement>(null);
-  const avatarInputRef = useRef<HTMLInputElement>(null);
-  // Profile form state
-  const [profileName, setProfileName] = useState(user?.name || '');
-  const [profileTheme, setProfileTheme] = useState<string>(localStorage.getItem('vflow_theme') || 'dark');
-  const [showDebug, setShowDebug] = useState(false);
-  const [debugPlan, setDebugPlan] = useState<User['plan']>(user?.plan || 'free');
-  const [debugCredits, setDebugCredits] = useState<number>(user?.credits ?? 100);
-  const [avatarPreviewSeed, setAvatarPreviewSeed] = useState<string>(user?.name || 'user');
-  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string>(user?.avatar || '');
-  const [selectedAvatarFile, setSelectedAvatarFile] = useState<File | null>(null);
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
-
-  const applyTheme = (theme: string) => {
-    try {
-      if (theme === 'light') {
-        document.documentElement.classList.add('theme-light');
-      } else {
-        document.documentElement.classList.remove('theme-light');
-      }
-    } catch (e) {
-      console.warn('Theme apply failed', e);
-    }
-  };
-
-  useEffect(() => {
-    applyTheme(profileTheme);
-  }, []);
-
-  // Handle asset from library
-  useEffect(() => {
-    const state = location.state as any;
-    if (state?.fromAssetLibrary && state?.selectedAsset) {
-      const asset = state.selectedAsset as Asset;
-      // Set the uploaded file to the asset preview URL
-      setUploadedFile(asset.previewUrl);
-      setFileName(asset.name);
-      // Set active view to workbench
-      setActiveView('workbench');
-      // Clear the location state to prevent re-triggering
-      window.history.replaceState({}, document.title);
-    }
-  }, [location]);
-
-  // Credits baseline for progress UI: default to 100 if missing
-  const userCredits = user?.credits ?? 100;
-  const creditsPercent = Math.min(100, Math.round((userCredits / 100) * 100));
-
-  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    setSelectedAvatarFile(f);
-    const url = URL.createObjectURL(f);
-    setAvatarPreviewUrl(url);
-
-    // Auto-save avatar to local user state (would upload to backend in real app)
-    if (user) {
-      const updatedUser: any = { ...user, avatar: url };
-      updateUser(updatedUser);
-    }
-  };
-
-  const handleResetAvatar = () => {
-    setSelectedAvatarFile(null);
-    setAvatarPreviewUrl('');
-    if (user) updateUser({ ...user, avatar: '' });
-  };
-
-  const handleThemeChange = (theme: string) => {
-    setProfileTheme(theme);
-    localStorage.setItem('vflow_theme', theme);
-    applyTheme(theme);
-  };
-
-  const handleSaveProfile = async () => {
-    if (!user) return alert('请先登录');
-    setIsSavingProfile(true);
-    try {
-      // Save theme locally
-      localStorage.setItem('vflow_theme', profileTheme);
-
-      // Construct updated user object
-      const updatedUser: any = {
-        ...user,
-        name: profileName,
-        email: profileEmail || (user as any).email,
-        avatar: avatarPreviewUrl || '',
-      };
-
-      // Update AuthContext (and persist to localStorage inside updateUser)
-      updateUser(updatedUser);
-
-      // Update local state to reflect saved values
-      setProfileName(updatedUser.name);
-      setProfileEmail(updatedUser.email);
-
-      alert('已保存个人设置');
-    } catch (err) {
-      console.error(err);
-      alert('保存失败');
-    } finally {
-      setIsSavingProfile(false);
-    }
-  };
 
   // --- Effects ---
   useEffect(() => {
@@ -207,17 +102,14 @@ const Workbench = () => {
 
   useEffect(() => {
     if (activeView === 'assets') loadAssets();
+    // Load templates in both template view AND workbench view (for dropdown)
     if ((activeView === 'templates' || activeView === 'workbench') && currentUserId) loadTemplates();
   }, [activeView, currentUserId]);
 
-  // --- NEW: Sync Demo Scripts with Language ---
-  // This effect runs whenever 't' (language) changes.
+  // Sync Demo Scripts with Language (Only if untouched)
   useEffect(() => {
     setScripts(prevScripts => {
-      // Logic: Only update if the scripts look like the default demo (Length 2, IDs 1 & 2)
-      // This prevents overwriting a user's custom generated script.
       const isDemo = prevScripts.length === 2 && prevScripts[0].id === 1 && prevScripts[1].id === 2;
-      
       if (isDemo) {
         return [
           { id: 1, shot: '1', type: 'Medium', dur: '2s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio },
@@ -227,6 +119,29 @@ const Workbench = () => {
       return prevScripts;
     });
   }, [t]);
+
+  // --- DURATION LOGIC & VALIDATION ---
+  
+  // 1. Calculate current total duration
+  const currentScriptDuration = scripts.reduce((total, s) => {
+    const durationVal = parseFloat(s.dur.replace('s', '')) || 0;
+    return total + durationVal;
+  }, 0);
+
+  // 2. Validation Check (Allow small float margin < 0.1)
+  const isDurationValid = Math.abs(currentScriptDuration - genDuration) < 0.1;
+
+  // 3. Handler for editable duration input
+  const handleDurationChange = (id: number, newValue: string) => {
+    const newScripts = scripts.map(s => {
+      if (s.id === id) {
+        const num = parseFloat(newValue);
+        return { ...s, dur: isNaN(num) ? '0s' : `${num}s` };
+      }
+      return s;
+    });
+    setScripts(newScripts);
+  };
 
   // --- API Actions: Templates ---
   const loadTemplates = async () => {
@@ -349,10 +264,12 @@ const Workbench = () => {
     setFileName('');
   };
 
-  // --- Script Actions ---
+  // --- Script Actions (Add/Remove) ---
   const addScript = () => {
+    // Generate unique ID
     const newId = scripts.length > 0 ? Math.max(...scripts.map(s => s.id)) + 1 : 1;
     const nextShotNum = scripts.length + 1;
+    // Default duration split evenly or just 2s
     setScripts([...scripts, { 
       id: newId, 
       shot: nextShotNum.toString(), 
@@ -365,6 +282,7 @@ const Workbench = () => {
 
   const removeScript = (id: number) => {
     const remaining = scripts.filter(s => s.id !== id);
+    // Re-index shots visually
     const reindexed = remaining.map((s, index) => ({
       ...s,
       shot: (index + 1).toString()
@@ -405,6 +323,7 @@ const Workbench = () => {
       // 2. Prepare Payload (Robust)
       const promptText = genPrompt || "产品推广";
       
+      // Values from Selected Template or Default
       const category = selectedTemplate?.product_category || "相机";
       const style = selectedTemplate?.visual_style || "写实";
       const rawRatio = selectedTemplate?.aspect_ratio || "16:9";
@@ -413,6 +332,7 @@ const Workbench = () => {
       const shots = selectedTemplate?.shot_number || 5;
 
       const payload = {
+        // Root level prompt for backend safety
         user_prompt: promptText,
         prompt: promptText,
         input: promptText, 
@@ -425,6 +345,7 @@ const Workbench = () => {
             duration: duration,
             shot_number: shots,
             custom: selectedTemplate?.custom_config || "突出夜景拍摄",
+            // Inner level prompt
             input: promptText,
             prompt: promptText,
             user_prompt: promptText,
@@ -469,9 +390,11 @@ const Workbench = () => {
 
   // --- API: Video Generation ---
   const handleGenerateVideo = async () => {
+    // Validation
     if (!selectedFileObj) return alert("Please upload a reference image first!");
     if (scripts.length === 0) return alert("Please generate or add scripts first!");
     if (!selectedTemplate?.id) return alert("Please select a Template from the Config panel first!");
+    if (!isDurationValid) return alert(`Total script duration (${currentScriptDuration}s) must match requested duration (${genDuration}s)!`);
 
     setIsGenerating(true);
     setGeneratedVideoUrl(null); 
@@ -504,7 +427,7 @@ const Workbench = () => {
 
       const payload = {
         prompt: combinedScriptPrompt,
-        project_id: selectedTemplate.id, 
+        project_id: selectedTemplate.id, // Dynamic ID
         duration: genDuration,
         image_path: apiPath, 
         sound: "on" as const
@@ -543,24 +466,13 @@ const Workbench = () => {
       {/* Sidebar */}
       <aside className="w-16 lg:w-20 bg-zinc-950 border-r border-white/5 flex flex-col items-center py-6 gap-6 z-30 shrink-0">
         <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-orange-500 flex items-center justify-center font-bold italic text-black mb-2 shadow-lg shadow-orange-500/20">VF</div>
-        {/* plan/credits intentionally not shown in sidebar */}
         <div className="flex flex-col gap-4 w-full px-2">
           <InternalNav icon={Zap} view="workbench" label={t.wb_nav_workbench} />
           <InternalNav icon={ImageIcon} view="assets" label={t.wb_nav_assets} />
           <InternalNav icon={LayoutTemplate} view="templates" label={t.wb_nav_templates} />
           <InternalNav icon={History} view="history" label={t.wb_nav_history} />
         </div>
-        <div className="mt-auto pb-4 w-full flex items-center justify-center">
-          <div className="relative">
-            <button onClick={() => setActiveView('profile')} className={`w-8 h-8 rounded-full border border-white/10 flex items-center justify-center transition overflow-hidden ${activeView === 'profile' ? 'bg-transparent ring-2 ring-orange-500' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`} title={t.profile_title}>
-              {user?.avatar ? (
-                <img src={user.avatar} alt={user?.name || 'avatar'} className={`w-full h-full object-cover ${activeView === 'profile' ? 'ring-0' : ''}`} />
-              ) : (
-                <User className="w-4 h-4 text-zinc-400" />
-              )}
-            </button>
-          </div>
-        </div>
+        <div className="mt-auto pb-4"><div className="w-8 h-8 rounded-full bg-zinc-800 border border-white/10" /></div>
       </aside>
 
       {/* Main Content */}
@@ -662,8 +574,19 @@ const Workbench = () => {
               {/* Middle Column */}
               <div className="flex-1 flex flex-col gap-3 h-full min-w-[300px]">
                 <div className="flex justify-between items-center shrink-0 h-[32px]">
-                  <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
-                  <button onClick={handleGenerateVideo} disabled={isGenerating || !uploadedFile} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-70 cursor-not-allowed' : ''}`}>
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
+                    {/* Duration Validation Indicator */}
+                    <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>
+                        {currentScriptDuration.toFixed(1)}s / {genDuration}s
+                    </div>
+                  </div>
+                  <button 
+                    onClick={handleGenerateVideo} 
+                    disabled={isGenerating || !uploadedFile || !isDurationValid} 
+                    className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating || !isDurationValid ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
+                    title={!isDurationValid ? `Total duration must match ${genDuration}s` : ''}
+                  >
                      {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}
                      {isGenerating ? 'Generating...' : t.wb_btn_gen_video}
                   </button>
@@ -675,7 +598,19 @@ const Workbench = () => {
                            <div className="flex items-center gap-2">
                               <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
                               <span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.type}</span>
-                              <span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.dur}</span>
+                              
+                              {/* Editable Duration Input */}
+                              <div className="flex items-center bg-black/20 border border-white/10 rounded px-1.5 gap-0.5">
+                                <input 
+                                    type="number" 
+                                    step="0.1"
+                                    min="0.1"
+                                    className="w-8 bg-transparent text-[10px] text-zinc-300 focus:outline-none text-right"
+                                    value={parseFloat(script.dur.replace('s',''))}
+                                    onChange={(e) => handleDurationChange(script.id, e.target.value)}
+                                />
+                                <span className="text-[10px] text-zinc-500">s</span>
+                              </div>
                            </div>
                            <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1 hover:bg-white/5 rounded"><X className="w-3.5 h-3.5" /></button>
                         </div>
@@ -704,7 +639,7 @@ const Workbench = () => {
                 </div>
               </div>
 
-              {/* Right Column (Same as before) */}
+              {/* Right Column */}
               <div className="w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full">
                 <div className="flex justify-between items-end shrink-0 h-[32px]">
                   <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-3 h-3" /> {t.wb_col_preview}</h2>
@@ -725,104 +660,6 @@ const Workbench = () => {
                    </div>
                 </div>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* PROFILE VIEW */}
-        {activeView === 'profile' && (
-          <div className="flex flex-col h-full z-10 animate-in fade-in duration-200">
-            <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
-              <div><h1 className="text-2xl font-bold tracking-tighter text-zinc-200">{t.profile_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.profile_subtitle}</p></div>
-                                <div className="flex items-end gap-3">
-                <LanguageSwitcher />
-              </div>
-            </header>
-            <div className="flex-1 p-10 overflow-y-auto">
-                <div className="max-w-5xl mx-auto">
-                  <div className="glass-panel p-8 rounded-3xl border border-white/10 space-y-8 relative overflow-hidden">
-                    <div className="absolute -right-8 -top-8 w-72 h-72 rounded-full blur-3xl opacity-20 bg-gradient-to-tr from-purple-500 to-orange-400 pointer-events-none" />
-                    <div className="flex flex-col md:flex-row gap-6">
-                      <div className="flex-shrink-0 flex flex-col items-center gap-4 w-full md:w-1/3">
-                        <div onClick={() => avatarInputRef.current?.click()} className="w-28 h-28 rounded-full bg-zinc-800 border border-white/10 overflow-hidden flex items-center justify-center cursor-pointer relative">
-                          {avatarPreviewUrl ? (
-                            <img src={avatarPreviewUrl} alt="avatar" className="w-full h-full object-cover" />
-                          ) : (
-                            <User className="w-10 h-10 text-zinc-400" />
-                          )}
-                        </div>
-                        <input ref={avatarInputRef} type="file" accept="image/*" onChange={handleAvatarChange} className="hidden" />
-                        <button onClick={handleResetAvatar} className="mt-2 px-3 py-1 rounded text-sm bg-white/5 hover:bg-white/10 text-zinc-300">{t.profile_use_default_avatar}</button>
-
-                        {/* Debug controls: toggle to allow switch plan/credits quickly */}
-                        <div className="mt-3 w-full">
-                          <button onClick={() => setShowDebug(prev => !prev)} className="text-xs text-zinc-400 hover:text-white">{t.profile_debug}</button>
-                          {showDebug && (
-                            <div className="mt-2 space-y-2 bg-black/20 p-3 rounded">
-                              <div className="flex gap-2">
-                                <select value={debugPlan} onChange={(e) => setDebugPlan(e.target.value as any)} className="bg-black/40 border border-white/10 rounded px-2 py-1 text-sm">
-                                  <option value="free">FREE</option>
-                                  <option value="plus">PLUS</option>
-                                  <option value="pro">PRO</option>
-                                </select>
-                                <input type="number" value={debugCredits} onChange={e => setDebugCredits(Number(e.target.value))} className="bg-black/40 border border-white/10 rounded px-2 py-1 text-sm w-24" />
-                                <button onClick={() => { if (user) updateUser({ ...user, plan: debugPlan as any, credits: debugCredits }); }} className="px-2 py-1 bg-orange-600 text-white rounded">应用</button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                        <div className="flex-1 space-y-6">
-                        <div>
-                          <label className="text-sm font-bold text-zinc-400">{t.profile_nickname}</label>
-                          <input value={profileName} onChange={e => {
-                            setProfileName(e.target.value);
-                            if (user) updateUser({ ...user, name: e.target.value });
-                          }} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white" />
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                            <div>
-                              <label className="text-sm font-bold text-zinc-400">界面主题</label>
-                              <div className="flex items-center gap-3 mt-2">
-                                <button onClick={() => handleThemeChange('dark')} className={`px-3 py-2 rounded-lg ${profileTheme === 'dark' ? 'bg-zinc-700 text-white shadow-lg' : 'bg-zinc-800 text-zinc-300'}`}>{t.profile_theme_dark}</button>
-                                <button onClick={() => handleThemeChange('light')} className={`px-3 py-2 rounded-lg ${profileTheme === 'light' ? 'bg-zinc-700 text-white shadow-lg' : 'bg-zinc-800 text-zinc-300'}`}>{t.profile_theme_light}</button>
-                              </div>
-                            </div>
-
-                            <div className="text-left">
-                              <label className="text-sm font-bold text-zinc-400 mb-2 block">{t.profile_permissions_balance}</label>
-                              <div className="flex items-center gap-3">
-                                {/* Plan badge moved here (left) */}
-                                <div>
-                                  {user && (
-                                    <div className={`w-20 h-8 inline-flex items-center justify-center gap-2 px-3 py-1 rounded-full text-xs font-semibold ${user.plan === 'pro' ? 'bg-gradient-to-r from-yellow-400 to-orange-400 text-black' : user.plan === 'plus' ? 'bg-gradient-to-r from-blue-400 to-indigo-500 text-white' : 'bg-transparent text-zinc-300 border border-white/5'}`}>
-                                      <span className="text-xs font-semibold">{user.plan === 'pro' ? t.profile_plan_pro : user.plan === 'plus' ? t.profile_plan_plus : t.profile_plan_free}</span>
-                                      {user.plan === 'pro' && <span className="ml-1">👑</span>}
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="flex-1 md:w-56">
-                                  <div className="flex items-center justify-between mb-2">
-                                    <div className="text-xs text-zinc-400">&nbsp;</div>
-                                    <div className="text-xs text-zinc-300">{userCredits} / 100</div>
-                                  </div>
-                                  <div className="w-full h-3 bg-zinc-800 rounded-full overflow-hidden">
-                                    <div className="h-full bg-gradient-to-r from-purple-600 to-orange-500" style={{ width: `${creditsPercent}%` }} />
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                        <div className="flex justify-end mt-4">
-                          <button onClick={() => logout()} className="px-4 py-2 rounded-xl text-sm font-medium text-zinc-400 hover:text-white hover:bg-white/5">{t.sign_out}</button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
             </div>
           </div>
         )}
@@ -868,19 +705,7 @@ const Workbench = () => {
                                         <div className="absolute top-2 right-2 bg-black/40 px-2 py-0.5 rounded text-[9px] text-white backdrop-blur-sm capitalize">{asset.status}</div>
                                     </div>
                                     <div className="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-2xl flex flex-col items-center justify-center gap-2">
-                                        <button 
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            // Use this asset in workbench
-                                            setUploadedFile(asset.file_url || '');
-                                            setFileName(asset.name);
-                                            setActiveView('workbench');
-                                          }}
-                                          className="bg-white text-black px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition"
-                                        >
-                                          Use in Workbench
-                                        </button>
-                                        <button className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition">Details</button>
+                                        <button className="bg-white text-black px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition">Details</button>
                                         <button onClick={(e) => handleDeleteAsset(asset.id, e)} className="text-red-400 text-xs hover:text-red-300">Delete</button>
                                     </div>
                                 </div>

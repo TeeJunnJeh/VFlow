@@ -336,7 +336,11 @@ const Workbench = () => {
 
         if (rawPath) {
           setLastUploadedUrl(rawPath);
-          if (rawPath.startsWith('/')) {
+          // If it's already HTTPS URL (material library), use as-is
+          if (rawPath.startsWith('http://') || rawPath.startsWith('https://')) {
+            imagePath = rawPath;
+          } else if (rawPath.startsWith('/')) {
+            // Relative path (self-upload): construct full URL
             imagePath = `http://1.95.137.119:8001${rawPath}`;
           } else {
             imagePath = rawPath;
@@ -344,7 +348,11 @@ const Workbench = () => {
         }
       } else if (selectedAssetUrl) {
         setLastUploadedUrl(selectedAssetUrl);
-        if (selectedAssetUrl.startsWith('/')) {
+        // If it's already HTTPS URL (material library), use as-is
+        if (selectedAssetUrl.startsWith('http://') || selectedAssetUrl.startsWith('https://')) {
+          imagePath = selectedAssetUrl;
+        } else if (selectedAssetUrl.startsWith('/')) {
+          // Relative path (self-upload): construct full URL
           imagePath = `http://1.95.137.119:8001${selectedAssetUrl}`;
         } else {
           imagePath = selectedAssetUrl;
@@ -450,10 +458,15 @@ const Workbench = () => {
       if (!rawPath) throw new Error("Could not find image path");
       setLastUploadedUrl(rawPath);
 
+      // Distinguish between HTTPS URL (material library) and relative path (self-upload)
       let apiPath = rawPath;
-      if (apiPath.startsWith('/')) {
-        apiPath = '.' + apiPath;
+      if (!apiPath.startsWith('http://') && !apiPath.startsWith('https://')) {
+        // Relative path (self-upload): /media/... -> ./media/...
+        if (apiPath.startsWith('/')) {
+          apiPath = '.' + apiPath;
+        }
       }
+      // If it's HTTPS URL (material library), send as-is
 
 
       // Combine Scripts into Prompt (with audio markers)

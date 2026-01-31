@@ -400,7 +400,7 @@ const Workbench = () => {
             type: 'General', 
             dur: `${shot.duration_sec}s`,
             visual: shot.visual,
-            audio: shot.voiceover || shot.beat 
+            audio: shot.audio || shot.voiceover || shot.beat 
         }));
         setScripts(newScripts);
       } else {

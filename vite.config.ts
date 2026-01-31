@@ -8,18 +8,18 @@ export default defineConfig({
     host: true,
     proxy: {
       '/api': {
-        target: 'http://1.95.137.119:8001',
+        target: 'http://localhost:8000',
         changeOrigin: true,
         secure: false,
         cookieDomainRewrite: { "*": "" }
       },
       '/media': {
-        target: 'http://1.95.137.119:8001',
+        target: 'http://localhost:8000',
         changeOrigin: true,
         secure: false,
       },
       '/accounts': {
-        target: 'http://1.95.137.119:8001',
+        target: 'http://localhost:8000',
         changeOrigin: true,
         secure: false,
       }

@@ -4,7 +4,8 @@ import {
   SlidersHorizontal, ChevronDown, Wand2, Clapperboard, PlayCircle, Undo2, 
   RefreshCw, Trash2, MonitorPlay, Film, Play, SkipBack, SkipForward, Download, 
   Maximize, Share2, Music2, Instagram, Youtube, Send, FolderPlus, Upload, 
-  Flame, Gem, ArrowRight, Settings2, Video, HardDrive, Eye, Edit3, ArrowLeft, CheckCircle, Loader2 
+  Flame, Gem, ArrowRight, Settings2, Video, HardDrive, Eye, Edit3, ArrowLeft, CheckCircle, Loader2,
+  LogOut // [Added] Import LogOut icon
 } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
@@ -37,7 +38,7 @@ const RATIO_TO_RES: Record<string, string> = {
 
 const Workbench = () => {
   const { t } = useLanguage();
-  const { user } = useAuth(); 
+  const { user, logout } = useAuth(); // [Modified] Get logout function
   const location = useLocation();
 
   // --- Global State ---
@@ -527,7 +528,17 @@ const Workbench = () => {
           <InternalNav icon={LayoutTemplate} view="templates" label={t.wb_nav_templates} />
           <InternalNav icon={History} view="history" label={t.wb_nav_history} />
         </div>
-        <div className="mt-auto pb-4"><div className="w-8 h-8 rounded-full bg-zinc-800 border border-white/10" /></div>
+        
+        {/* Logout Button */}
+        <div className="mt-auto pb-6 w-full px-2">
+          <button
+            onClick={logout}
+            className="h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition text-zinc-500 hover:text-red-500 hover:bg-white/5 group relative"
+            title={t.sign_out}
+          >
+            <LogOut className="w-5 h-5" />
+          </button>
+        </div>
       </aside>
 
       {/* Main Content */}

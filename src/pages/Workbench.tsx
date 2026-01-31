@@ -207,9 +207,26 @@ const Workbench = () => {
 
   useEffect(() => {
     if (activeView === 'assets') loadAssets();
-    // Load templates in both template view AND workbench view (for dropdown)
     if ((activeView === 'templates' || activeView === 'workbench') && currentUserId) loadTemplates();
   }, [activeView, currentUserId]);
+
+  // --- NEW: Sync Demo Scripts with Language ---
+  // This effect runs whenever 't' (language) changes.
+  useEffect(() => {
+    setScripts(prevScripts => {
+      // Logic: Only update if the scripts look like the default demo (Length 2, IDs 1 & 2)
+      // This prevents overwriting a user's custom generated script.
+      const isDemo = prevScripts.length === 2 && prevScripts[0].id === 1 && prevScripts[1].id === 2;
+      
+      if (isDemo) {
+        return [
+          { id: 1, shot: '1', type: 'Medium', dur: '2s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio },
+          { id: 2, shot: '2', type: 'Detail', dur: '2s', visual: t.demo_shot2_visual, audio: t.demo_shot2_audio }
+        ];
+      }
+      return prevScripts;
+    });
+  }, [t]);
 
   // --- API Actions: Templates ---
   const loadTemplates = async () => {
@@ -332,9 +349,8 @@ const Workbench = () => {
     setFileName('');
   };
 
-  // --- Script Actions (Add/Remove) ---
+  // --- Script Actions ---
   const addScript = () => {
-    // Generate unique ID
     const newId = scripts.length > 0 ? Math.max(...scripts.map(s => s.id)) + 1 : 1;
     const nextShotNum = scripts.length + 1;
     setScripts([...scripts, { 
@@ -349,7 +365,6 @@ const Workbench = () => {
 
   const removeScript = (id: number) => {
     const remaining = scripts.filter(s => s.id !== id);
-    // Re-index shots visually
     const reindexed = remaining.map((s, index) => ({
       ...s,
       shot: (index + 1).toString()
@@ -390,7 +405,6 @@ const Workbench = () => {
       // 2. Prepare Payload (Robust)
       const promptText = genPrompt || "产品推广";
       
-      // Values from Selected Template or Default
       const category = selectedTemplate?.product_category || "相机";
       const style = selectedTemplate?.visual_style || "写实";
       const rawRatio = selectedTemplate?.aspect_ratio || "16:9";
@@ -399,7 +413,6 @@ const Workbench = () => {
       const shots = selectedTemplate?.shot_number || 5;
 
       const payload = {
-        // Root level prompt for backend safety
         user_prompt: promptText,
         prompt: promptText,
         input: promptText, 
@@ -412,7 +425,6 @@ const Workbench = () => {
             duration: duration,
             shot_number: shots,
             custom: selectedTemplate?.custom_config || "突出夜景拍摄",
-            // Inner level prompt
             input: promptText,
             prompt: promptText,
             user_prompt: promptText,
@@ -492,7 +504,7 @@ const Workbench = () => {
 
       const payload = {
         prompt: combinedScriptPrompt,
-        project_id: selectedTemplate.id, // Dynamic Project ID
+        project_id: selectedTemplate.id, 
         duration: genDuration,
         image_path: apiPath, 
         sound: "on" as const
@@ -692,7 +704,7 @@ const Workbench = () => {
                 </div>
               </div>
 
-              {/* Right Column */}
+              {/* Right Column (Same as before) */}
               <div className="w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full">
                 <div className="flex justify-between items-end shrink-0 h-[32px]">
                   <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-3 h-3" /> {t.wb_col_preview}</h2>
@@ -955,7 +967,7 @@ const Workbench = () => {
                         <div className="relative">
                             <select value={editorForm.product_category} onChange={e => setEditorForm({...editorForm, product_category: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer">
                                 <option value="camera">{t.opt_cat_camera}</option>
-                                <option value="shoes">{t.opt_cat_beauty}</option>
+                                <option value="beauty">{t.opt_cat_beauty}</option>
                                 <option value="food">{t.opt_cat_food}</option>
                                 <option value="electronics">{t.opt_cat_digital}</option>
                             </select>

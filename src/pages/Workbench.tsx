@@ -6,6 +6,7 @@ import {
   Maximize, Share2, Music2, Instagram, Youtube, Send, FolderPlus, Upload, 
   Flame, Gem, ArrowRight, Settings2, Video, HardDrive, Eye, Edit3, ArrowLeft, CheckCircle, Loader2 
 } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext'; 
 import { authApi } from '../services/auth'; 
@@ -13,6 +14,7 @@ import { LanguageSwitcher } from '../components/common/LanguageSwitcher';
 import { assetsApi, type Asset } from '../services/assets'; 
 import { videoApi } from '../services/video';
 import { templatesApi, type Template } from '../services/templates';
+import type { Asset as LibraryAsset } from '../types';
 
 // Types
 type ViewType = 'workbench' | 'assets' | 'templates' | 'history' | 'editor';
@@ -36,6 +38,7 @@ const RATIO_TO_RES: Record<string, string> = {
 const Workbench = () => {
   const { t } = useLanguage();
   const { user } = useAuth(); 
+  const location = useLocation();
 
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
@@ -62,6 +65,9 @@ const Workbench = () => {
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
   const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null);
   const [fileName, setFileName] = useState('');
+  const [selectedAssetUrl, setSelectedAssetUrl] = useState<string | null>(null);
+  const [selectedAssetSource, setSelectedAssetSource] = useState<'product' | 'preference' | null>(null);
+  const [lastUploadedUrl, setLastUploadedUrl] = useState<string | null>(null);
   
   // Generation Config
   const [genPrompt, setGenPrompt] = useState('');
@@ -99,6 +105,21 @@ const Workbench = () => {
     };
     initUser();
   }, [user]);
+
+  useEffect(() => {
+    const state = location.state as { fromAssetLibrary?: boolean; selectedAsset?: LibraryAsset } | null;
+    if (state?.fromAssetLibrary && state?.selectedAsset) {
+      const asset = state.selectedAsset;
+      setUploadedFile(asset.previewUrl || null);
+      setFileName(asset.name || '');
+      setSelectedFileObj(null);
+      setSelectedAssetUrl(asset.previewUrl || null);
+      setSelectedAssetSource('preference');
+      setGeneratedVideoUrl(null);
+      setActiveView('workbench');
+      window.history.replaceState({}, document.title);
+    }
+  }, [location]);
 
   useEffect(() => {
     if (activeView === 'assets') loadAssets();
@@ -253,6 +274,8 @@ const Workbench = () => {
       setUploadedFile(url);
       setFileName(file.name);
       setSelectedFileObj(file);
+      setSelectedAssetUrl(null);
+      setSelectedAssetSource('product');
       setGeneratedVideoUrl(null);
     }
   };
@@ -312,13 +335,22 @@ const Workbench = () => {
         }
 
         if (rawPath) {
-            if (rawPath.startsWith('/')) {
-                imagePath = `http://1.95.137.119:8001${rawPath}`; 
-            } else {
-                imagePath = rawPath;
-            }
+          setLastUploadedUrl(rawPath);
+          if (rawPath.startsWith('/')) {
+            imagePath = `http://1.95.137.119:8001${rawPath}`;
+          } else {
+            imagePath = rawPath;
+          }
+        }
+      } else if (selectedAssetUrl) {
+        setLastUploadedUrl(selectedAssetUrl);
+        if (selectedAssetUrl.startsWith('/')) {
+          imagePath = `http://1.95.137.119:8001${selectedAssetUrl}`;
+        } else {
+          imagePath = selectedAssetUrl;
         }
       }
+
 
       // 2. Prepare Payload (Robust)
       const promptText = genPrompt || "产品推广";
@@ -351,7 +383,8 @@ const Workbench = () => {
             user_prompt: promptText,
             shots: [] 
         },
-        product_image_path: imagePath || "http://1.95.137.119:8001/media/uploads/default.jpg"
+        product_image_path: imagePath || "http://1.95.137.119:8001/media/uploads/default.jpg",
+        asset_source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference')
       };
 
       console.log("📜 Generating Script with payload:", payload);
@@ -391,7 +424,7 @@ const Workbench = () => {
   // --- API: Video Generation ---
   const handleGenerateVideo = async () => {
     // Validation
-    if (!selectedFileObj) return alert("Please upload a reference image first!");
+    if (!selectedFileObj && !selectedAssetUrl) return alert("Please upload a reference image first!");
     if (scripts.length === 0) return alert("Please generate or add scripts first!");
     if (!selectedTemplate?.id) return alert("Please select a Template from the Config panel first!");
     if (!isDurationValid) return alert(`Total script duration (${currentScriptDuration}s) must match requested duration (${genDuration}s)!`);
@@ -400,26 +433,37 @@ const Workbench = () => {
     setGeneratedVideoUrl(null); 
 
     try {
-      console.log("🚀 Uploading reference image...");
-      const uploadResp = await assetsApi.uploadAsset(selectedFileObj, 'product');
-      
-      let rawPath = null;
-      if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
-        rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
-      } else {
-        rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
+      let rawPath: string | null = null;
+      if (selectedFileObj) {
+        console.log("🚀 Uploading reference image...");
+        const uploadResp = await assetsApi.uploadAsset(selectedFileObj, 'product');
+        if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
+          rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
+        } else {
+          rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
+        }
+        if (!rawPath) throw new Error("Could not find image path in response");
+      } else if (selectedAssetUrl) {
+        rawPath = selectedAssetUrl;
       }
 
-      if (!rawPath) throw new Error("Could not find image path in response");
+      if (!rawPath) throw new Error("Could not find image path");
+      setLastUploadedUrl(rawPath);
 
       let apiPath = rawPath;
       if (apiPath.startsWith('/')) {
-        apiPath = '.' + apiPath; 
+        apiPath = '.' + apiPath;
       }
 
-      // Combine Scripts into Prompt
+
+      // Combine Scripts into Prompt (with audio markers)
       const combinedScriptPrompt = scripts
-        .map(s => s.visual)
+        .map(s => {
+          const visual = s.visual || '';
+          const audio = s.audio || '';
+          const audioMarker = audio ? `【音频|【[旁白]】${audio}】` : '';
+          return `${visual} ${audioMarker}`.trim();
+        })
         .filter(v => v && v.trim().length > 0)
         .join(' '); 
 
@@ -430,7 +474,8 @@ const Workbench = () => {
         project_id: selectedTemplate.id, // Dynamic ID
         duration: genDuration,
         image_path: apiPath, 
-        sound: "on" as const
+        sound: "on" as const,
+        asset_source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference')
       };
 
       console.log("🚀 Sending Generation Request:", payload);
@@ -514,6 +559,11 @@ const Workbench = () => {
                       </div>
                     )}
                   </div>
+                  {lastUploadedUrl && (
+                    <div className="text-[10px] text-zinc-500 break-all">
+                      Last uploaded URL: {lastUploadedUrl}
+                    </div>
+                  )}
                 </div>
 
                 {/* Config */}
@@ -705,8 +755,23 @@ const Workbench = () => {
                                         <div className="absolute top-2 right-2 bg-black/40 px-2 py-0.5 rounded text-[9px] text-white backdrop-blur-sm capitalize">{asset.status}</div>
                                     </div>
                                     <div className="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-2xl flex flex-col items-center justify-center gap-2">
-                                        <button className="bg-white text-black px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition">Details</button>
-                                        <button onClick={(e) => handleDeleteAsset(asset.id, e)} className="text-red-400 text-xs hover:text-red-300">Delete</button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setUploadedFile(asset.file_url || null);
+                                          setFileName(asset.name || '');
+                                          setSelectedFileObj(null);
+                                              setSelectedAssetUrl(asset.file_url || null);
+                                              setSelectedAssetSource('preference');
+                                          setGeneratedVideoUrl(null);
+                                          setActiveView('workbench');
+                                        }}
+                                        className="bg-white text-black px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition"
+                                      >
+                                        Use in Workbench
+                                      </button>
+                                      <button className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition">Details</button>
+                                      <button onClick={(e) => handleDeleteAsset(asset.id, e)} className="text-red-400 text-xs hover:text-red-300">Delete</button>
                                     </div>
                                 </div>
                             ))}

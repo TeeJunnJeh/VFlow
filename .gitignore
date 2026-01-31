@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# 本地配置文件
+vite.config.local.ts
+*.local.ts

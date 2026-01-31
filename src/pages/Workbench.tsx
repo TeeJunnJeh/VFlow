@@ -14,7 +14,7 @@ import { LanguageSwitcher } from '../components/common/LanguageSwitcher';
 import { assetsApi, type Asset } from '../services/assets'; 
 import { videoApi } from '../services/video';
 import { templatesApi, type Template } from '../services/templates';
-import { Asset as LibraryAsset } from '../types';
+import type { Asset as LibraryAsset } from '../types';
 
 // Types
 type ViewType = 'workbench' | 'assets' | 'templates' | 'history' | 'editor';
@@ -67,6 +67,7 @@ const Workbench = () => {
   const [fileName, setFileName] = useState('');
   const [selectedAssetUrl, setSelectedAssetUrl] = useState<string | null>(null);
   const [selectedAssetSource, setSelectedAssetSource] = useState<'product' | 'preference' | null>(null);
+  const [lastUploadedUrl, setLastUploadedUrl] = useState<string | null>(null);
   
   // Generation Config
   const [genPrompt, setGenPrompt] = useState('');
@@ -334,6 +335,7 @@ const Workbench = () => {
         }
 
         if (rawPath) {
+          setLastUploadedUrl(rawPath);
           if (rawPath.startsWith('/')) {
             imagePath = `http://1.95.137.119:8001${rawPath}`;
           } else {
@@ -341,6 +343,7 @@ const Workbench = () => {
           }
         }
       } else if (selectedAssetUrl) {
+        setLastUploadedUrl(selectedAssetUrl);
         if (selectedAssetUrl.startsWith('/')) {
           imagePath = `http://1.95.137.119:8001${selectedAssetUrl}`;
         } else {
@@ -445,6 +448,7 @@ const Workbench = () => {
       }
 
       if (!rawPath) throw new Error("Could not find image path");
+      setLastUploadedUrl(rawPath);
 
       let apiPath = rawPath;
       if (apiPath.startsWith('/')) {
@@ -456,8 +460,8 @@ const Workbench = () => {
       const combinedScriptPrompt = scripts
         .map(s => {
           const visual = s.visual || '';
-          const voiceover = s.voiceover || '';
-          const audioMarker = voiceover ? `【音频|【[旁白]】${voiceover}】` : '';
+          const audio = s.audio || '';
+          const audioMarker = audio ? `【音频|【[旁白]】${audio}】` : '';
           return `${visual} ${audioMarker}`.trim();
         })
         .filter(v => v && v.trim().length > 0)

@@ -460,7 +460,7 @@ const Workbench = () => {
       const combinedScriptPrompt = scripts
         .map(s => {
           const visual = s.visual || '';
-          const audio = s.audio || '';
+          const audio = s.audio || s.voiceover || '';
           const audioMarker = audio ? `【音频|【[旁白]】${audio}】` : '';
           return `${visual} ${audioMarker}`.trim();
         })

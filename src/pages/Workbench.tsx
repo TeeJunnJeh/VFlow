@@ -452,9 +452,14 @@ const Workbench = () => {
       }
 
 
-      // Combine Scripts into Prompt
+      // Combine Scripts into Prompt (with audio markers)
       const combinedScriptPrompt = scripts
-        .map(s => s.visual)
+        .map(s => {
+          const visual = s.visual || '';
+          const voiceover = s.voiceover || '';
+          const audioMarker = voiceover ? `【音频|【[旁白]】${voiceover}】` : '';
+          return `${visual} ${audioMarker}`.trim();
+        })
         .filter(v => v && v.trim().length > 0)
         .join(' '); 
 

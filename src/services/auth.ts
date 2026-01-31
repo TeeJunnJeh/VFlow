@@ -52,11 +52,20 @@ export const authApi = {
     try {
       const response = await fetch(`${API_BASE_URL}/me/`, {
         method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+            'Content-Type': 'application/json',
+            // Add AJAX header for better compatibility with Django
+            'X-Requested-With': 'XMLHttpRequest'
+        },
         credentials: 'include',
       });
-      if (!response.ok) throw new Error('Failed to fetch user info');
-      return await response.json(); // Returns { id: 123, ... }
+      
+      // If 401 Unauthorized or 403 Forbidden, session is invalid
+      if (!response.ok) {
+          throw new Error('Session invalid or expired');
+      }
+      
+      return await response.json(); // Expected: { is_logged_in: true, data: { ... } }
     } catch (error) {
       throw error;
     }

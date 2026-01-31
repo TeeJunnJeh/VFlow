@@ -8,6 +8,30 @@ import LandingPage from './pages/Landing';
 import Workbench from './pages/Workbench';
 
 /**
+ * [新增] 访客路由封装 (GuestRoute)
+ * 作用：限制已登录用户访问游客页面（如首页、登录页）
+ * 逻辑：
+ * 1. 等待 AuthContext 初始化 (isLoading)
+ * 2. 如果已登录 (user 存在) -> 重定向到工作台 (/app)
+ * 3. 如果未登录 -> 允许访问 (Landing/Login)
+ */
+const GuestRoute = ({ children }: { children: React.ReactNode }) => {
+    const { user, isLoading } = useAuth();
+
+    // 防止在检查 Session 时页面闪烁，显示与背景色一致的空状态
+    if (isLoading) {
+        return <div className="min-h-screen bg-[#050505]" />;
+    }
+
+    if (user) {
+        // 已登录用户访问首页/登录页，直接跳到内部应用
+        return <Navigate to="/app" replace />;
+    }
+
+    return <>{children}</>;
+};
+
+/**
  * 受保护路由封装
  * 确保只有登录用户可以访问工作台
  */
@@ -45,11 +69,25 @@ const AnimatedRoutes = () => {
          */
         <AnimatePresence mode="wait">
             <Routes location={location} key={location.pathname}>
-                {/* 首页 */}
-                <Route path="/" element={<LandingPage />} />
+                {/* 首页 - 使用 GuestRoute 包裹，已登录则跳过 */}
+                <Route 
+                    path="/" 
+                    element={
+                        <GuestRoute>
+                            <LandingPage />
+                        </GuestRoute>
+                    } 
+                />
 
-                {/* 登录页 */}
-                <Route path="/login" element={<LoginPage />} />
+                {/* 登录页 - 使用 GuestRoute 包裹，已登录则跳过 */}
+                <Route 
+                    path="/login" 
+                    element={
+                        <GuestRoute>
+                            <LoginPage />
+                        </GuestRoute>
+                    } 
+                />
 
                 {/* 受保护的工作台 */}
                 <Route

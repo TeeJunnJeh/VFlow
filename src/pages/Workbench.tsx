@@ -110,7 +110,7 @@ const Workbench = () => {
     const state = location.state as { fromAssetLibrary?: boolean; selectedAsset?: LibraryAsset } | null;
     if (state?.fromAssetLibrary && state?.selectedAsset) {
       const asset = state.selectedAsset;
-      setUploadedFile(asset.previewUrl || null);
+      setUploadedFile(getDisplayUrl(asset.previewUrl) || null);
       setFileName(asset.name || '');
       setSelectedFileObj(null);
       setSelectedAssetUrl(asset.previewUrl || null);
@@ -266,6 +266,24 @@ const Workbench = () => {
     }
   };
 
+  // Helper: Convert path to displayable URL
+  const getDisplayUrl = (path: string | null): string | null => {
+    if (!path) return null;
+    // If it's already a full URL (http/https), use as-is
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return path;
+    }
+    // If it's a relative path (/media/...), prepend API base URL
+    if (path.startsWith('/')) {
+      // In production, relative paths work directly with nginx
+      // In development, use env variable or default to localhost
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+      return baseUrl ? `${baseUrl}${path}` : path;
+    }
+    // Otherwise (blob:..., data:...), use as-is
+    return path;
+  };
+
   // --- Workbench Actions ---
   const handleWorkbenchUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -336,19 +354,13 @@ const Workbench = () => {
 
         if (rawPath) {
           setLastUploadedUrl(rawPath);
-          if (rawPath.startsWith('/')) {
-            imagePath = `http://1.95.137.119:8001${rawPath}`;
-          } else {
-            imagePath = rawPath;
-          }
+          // Send raw path directly to backend (backend will handle URL vs path)
+          imagePath = rawPath;
         }
       } else if (selectedAssetUrl) {
         setLastUploadedUrl(selectedAssetUrl);
-        if (selectedAssetUrl.startsWith('/')) {
-          imagePath = `http://1.95.137.119:8001${selectedAssetUrl}`;
-        } else {
-          imagePath = selectedAssetUrl;
-        }
+        // Send raw URL directly to backend
+        imagePath = selectedAssetUrl;
       }
 
 
@@ -450,17 +462,15 @@ const Workbench = () => {
       if (!rawPath) throw new Error("Could not find image path");
       setLastUploadedUrl(rawPath);
 
-      let apiPath = rawPath;
-      if (apiPath.startsWith('/')) {
-        apiPath = '.' + apiPath;
-      }
+      // Send raw path directly to backend (backend will handle URL vs path)
+      const apiPath = rawPath;
 
 
       // Combine Scripts into Prompt (with audio markers)
       const combinedScriptPrompt = scripts
         .map(s => {
           const visual = s.visual || '';
-          const audio = s.audio || s.voiceover || '';
+          const audio = s.audio || '';
           const audioMarker = audio ? `【音频|【[旁白]】${audio}】` : '';
           return `${visual} ${audioMarker}`.trim();
         })
@@ -747,7 +757,7 @@ const Workbench = () => {
                                 <div key={asset.id} className="glass-card rounded-2xl p-2 group relative">
                                     <div className="aspect-[3/4] bg-zinc-800 rounded-xl overflow-hidden relative">
                                         {asset.file_url ? (
-                                            <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} onError={(e) => { (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x400?text=Error'; }} />
+                                            <img src={getDisplayUrl(asset.file_url) || 'https://via.placeholder.com/300x400?text=No+Image'} className="w-full h-full object-cover" alt={asset.name} onError={(e) => { (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x400?text=Error'; }} />
                                         ) : (
                                             <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-center justify-center text-zinc-600">No Preview</div>
                                         )}
@@ -758,7 +768,7 @@ const Workbench = () => {
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          setUploadedFile(asset.file_url || null);
+                                          setUploadedFile(getDisplayUrl(asset.file_url) || null);
                                           setFileName(asset.name || '');
                                           setSelectedFileObj(null);
                                               setSelectedAssetUrl(asset.file_url || null);

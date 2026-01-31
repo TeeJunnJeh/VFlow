@@ -110,7 +110,7 @@ const Workbench = () => {
     const state = location.state as { fromAssetLibrary?: boolean; selectedAsset?: LibraryAsset } | null;
     if (state?.fromAssetLibrary && state?.selectedAsset) {
       const asset = state.selectedAsset;
-      setUploadedFile(asset.previewUrl || null);
+      setUploadedFile(getDisplayUrl(asset.previewUrl) || null);
       setFileName(asset.name || '');
       setSelectedFileObj(null);
       setSelectedAssetUrl(asset.previewUrl || null);
@@ -264,6 +264,21 @@ const Workbench = () => {
     } catch (err) {
       alert("Failed to delete asset");
     }
+  };
+
+  // Helper: Convert path to displayable URL
+  const getDisplayUrl = (path: string | null): string | null => {
+    if (!path) return null;
+    // If it's already a full URL (http/https), use as-is
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return path;
+    }
+    // If it's a relative path (/media/...), prepend API base URL
+    if (path.startsWith('/')) {
+      return `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}${path}`;
+    }
+    // Otherwise (blob:..., data:...), use as-is
+    return path;
   };
 
   // --- Workbench Actions ---
@@ -739,7 +754,7 @@ const Workbench = () => {
                                 <div key={asset.id} className="glass-card rounded-2xl p-2 group relative">
                                     <div className="aspect-[3/4] bg-zinc-800 rounded-xl overflow-hidden relative">
                                         {asset.file_url ? (
-                                            <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} onError={(e) => { (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x400?text=Error'; }} />
+                                            <img src={getDisplayUrl(asset.file_url) || 'https://via.placeholder.com/300x400?text=No+Image'} className="w-full h-full object-cover" alt={asset.name} onError={(e) => { (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x400?text=Error'; }} />
                                         ) : (
                                             <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-center justify-center text-zinc-600">No Preview</div>
                                         )}
@@ -750,7 +765,7 @@ const Workbench = () => {
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          setUploadedFile(asset.file_url || null);
+                                          setUploadedFile(getDisplayUrl(asset.file_url) || null);
                                           setFileName(asset.name || '');
                                           setSelectedFileObj(null);
                                               setSelectedAssetUrl(asset.file_url || null);

@@ -9,6 +9,21 @@ const AssetsPage = () => {
   const [assets, setAssets] = useState<Asset[]>([]);
   const navigate = useNavigate();
 
+  // Helper: Convert path to displayable URL
+  const getDisplayUrl = (path: string | undefined): string => {
+    if (!path) return 'https://via.placeholder.com/300x400?text=No+Image';
+    // If it's already a full URL (http/https), use as-is
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return path;
+    }
+    // If it's a relative path (/media/...), prepend API base URL
+    if (path.startsWith('/')) {
+      return `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}${path}`;
+    }
+    // Otherwise (blob:..., data:...), use as-is
+    return path;
+  };
+
   useEffect(() => {
     setAssets([]); // Clear while loading new tab
     api.getAssets(activeTab).then(data => setAssets(data));
@@ -58,7 +73,7 @@ const AssetsPage = () => {
         {assets.map((asset) => (
           <div key={asset.id} className="group relative bg-slate-800 rounded-xl overflow-hidden border border-slate-700 hover:border-slate-500 transition-all">
             <div className="aspect-square bg-slate-900 overflow-hidden">
-              <img src={asset.previewUrl} alt={asset.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+              <img src={getDisplayUrl(asset.previewUrl)} alt={asset.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onError={(e) => { (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x400?text=Error'; }} />
               
               {/* Overlay on hover */}
               <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-4">

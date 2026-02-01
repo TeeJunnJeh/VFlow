@@ -156,11 +156,13 @@ export const translations = {
     opt_cat_beauty: "Shoes",
     opt_cat_food: "Food",
     opt_cat_digital: "Electronics",
+    opt_cat_custom: "Custom",
     
     opt_style_real: "Realistic",
     opt_style_cine: "Cinematic",
     opt_style_3d: "3D Render",
     opt_style_anime: "Anime",
+    opt_style_custom: "Custom",
     
     editor_ph_custom: "Enter any custom configuration text here...",
     editor_ph_select: "Select or type...",
@@ -322,11 +324,13 @@ export const translations = {
     opt_cat_beauty: "鞋子",
     opt_cat_food: "美食",
     opt_cat_digital: "数码",
+    opt_cat_custom: "自定义",
     
     opt_style_real: "写实",
     opt_style_cine: "电影感",
     opt_style_3d: "3D渲染",
     opt_style_anime: "动漫",
+    opt_style_custom: "自定义",
 
     editor_ph_custom: "在此输入任意自定义配置文本...",
     editor_ph_select: "选择或输入...",
@@ -499,11 +503,13 @@ export const translations = {
     opt_cat_beauty: "Kecantikan",
     opt_cat_food: "Makanan",
     opt_cat_digital: "Elektronik",
+    opt_cat_custom: "Tersuai",
     
     opt_style_real: "Realistik",
     opt_style_cine: "Sinematik",
     opt_style_3d: "Render 3D",
     opt_style_anime: "Anime",
+    opt_style_custom: "Tersuai",
     
     editor_ph_custom: "Masukkan teks konfigurasi tersuai di sini...",
     editor_ph_select: "Pilih atau taip...",
@@ -676,11 +682,13 @@ export const translations = {
     opt_cat_beauty: "Làm đẹp",
     opt_cat_food: "Thực phẩm",
     opt_cat_digital: "Điện tử",
+    opt_cat_custom: "Tùy chỉnh",
     
     opt_style_real: "Thực tế",
     opt_style_cine: "Điện ảnh",
     opt_style_3d: "Kết xuất 3D",
     opt_style_anime: "Anime",
+    opt_style_custom: "Tùy chỉnh",
     
     editor_ph_custom: "Nhập văn bản cấu hình tùy chỉnh tại đây...",
     editor_ph_select: "Chọn hoặc nhập...",
@@ -853,11 +861,13 @@ export const translations = {
     opt_cat_beauty: "뷰티",
     opt_cat_food: "음식",
     opt_cat_digital: "전자제품",
+    opt_cat_custom: "사용자 지정",
     
     opt_style_real: "사실적",
     opt_style_cine: "영화 같은",
     opt_style_3d: "3D 렌더링",
     opt_style_anime: "애니메이션",
+    opt_style_custom: "사용자 지정",
     
     editor_ph_custom: "여기에 사용자 지정 구성 텍스트를 입력하세요...",
     editor_ph_select: "선택 또는 입력...",

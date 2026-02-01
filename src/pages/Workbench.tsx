@@ -61,6 +61,12 @@ const Workbench = () => {
     shot_number: 5,
     custom_config: ''
   });
+  const categoryOptions = ['camera', 'beauty', 'food', 'electronics'] as const;
+  const styleOptions = ['realistic', 'cinematic', '3d', 'anime'] as const;
+  const [isCustomCategory, setIsCustomCategory] = useState(false);
+  const [customCategory, setCustomCategory] = useState('');
+  const [isCustomStyle, setIsCustomStyle] = useState(false);
+  const [customStyle, setCustomStyle] = useState('');
 
   // --- Workbench State ---
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
@@ -210,6 +216,12 @@ const Workbench = () => {
     if (template) {
       setEditingTemplate(template);
       setEditorForm(template);
+      const categoryIsPreset = categoryOptions.includes(template.product_category as (typeof categoryOptions)[number]);
+      setIsCustomCategory(!categoryIsPreset);
+      setCustomCategory(categoryIsPreset ? '' : template.product_category);
+      const styleIsPreset = styleOptions.includes(template.visual_style as (typeof styleOptions)[number]);
+      setIsCustomStyle(!styleIsPreset);
+      setCustomStyle(styleIsPreset ? '' : template.visual_style);
     } else {
       setEditingTemplate(null);
       setEditorForm({
@@ -222,6 +234,10 @@ const Workbench = () => {
         shot_number: 5,
         custom_config: ''
       });
+      setIsCustomCategory(false);
+      setCustomCategory('');
+      setIsCustomStyle(false);
+      setCustomStyle('');
     }
     setActiveView('editor');
   };
@@ -876,26 +892,82 @@ const Workbench = () => {
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-zinc-400">{t.editor_label_category}</label>
                         <div className="relative">
-                            <select value={editorForm.product_category} onChange={e => setEditorForm({...editorForm, product_category: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer">
+                            <select
+                              value={isCustomCategory ? '__custom__' : editorForm.product_category}
+                              onChange={e => {
+                                const value = e.target.value;
+                                if (value === '__custom__') {
+                                  setIsCustomCategory(true);
+                                  setEditorForm({ ...editorForm, product_category: customCategory });
+                                } else {
+                                  setIsCustomCategory(false);
+                                  setCustomCategory('');
+                                  setEditorForm({ ...editorForm, product_category: value });
+                                }
+                              }}
+                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer"
+                            >
                                 <option value="camera">{t.opt_cat_camera}</option>
                                 <option value="beauty">{t.opt_cat_beauty}</option>
                                 <option value="food">{t.opt_cat_food}</option>
                                 <option value="electronics">{t.opt_cat_digital}</option>
+                                <option value="__custom__">{t.opt_cat_custom}</option>
                             </select>
                             <ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-zinc-500 pointer-events-none" />
                         </div>
+                        {isCustomCategory && (
+                          <input
+                            type="text"
+                            value={customCategory}
+                            onChange={e => {
+                              const value = e.target.value;
+                              setCustomCategory(value);
+                              setEditorForm({ ...editorForm, product_category: value });
+                            }}
+                            placeholder={t.editor_ph_select}
+                            className="mt-3 w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white"
+                          />
+                        )}
                       </div>
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-zinc-400">{t.editor_label_style}</label>
                         <div className="relative">
-                            <select value={editorForm.visual_style} onChange={e => setEditorForm({...editorForm, visual_style: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer">
+                            <select
+                              value={isCustomStyle ? '__custom__' : editorForm.visual_style}
+                              onChange={e => {
+                                const value = e.target.value;
+                                if (value === '__custom__') {
+                                  setIsCustomStyle(true);
+                                  setEditorForm({ ...editorForm, visual_style: customStyle });
+                                } else {
+                                  setIsCustomStyle(false);
+                                  setCustomStyle('');
+                                  setEditorForm({ ...editorForm, visual_style: value });
+                                }
+                              }}
+                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer"
+                            >
                                 <option value="realistic">{t.opt_style_real}</option>
                                 <option value="cinematic">{t.opt_style_cine}</option>
                                 <option value="3d">{t.opt_style_3d}</option>
                                 <option value="anime">{t.opt_style_anime}</option>
+                                <option value="__custom__">{t.opt_style_custom}</option>
                             </select>
                             <ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-zinc-500 pointer-events-none" />
                         </div>
+                        {isCustomStyle && (
+                          <input
+                            type="text"
+                            value={customStyle}
+                            onChange={e => {
+                              const value = e.target.value;
+                              setCustomStyle(value);
+                              setEditorForm({ ...editorForm, visual_style: value });
+                            }}
+                            placeholder={t.editor_ph_select}
+                            className="mt-3 w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white"
+                          />
+                        )}
                       </div>
                    </div>
                    <div className="grid grid-cols-3 gap-6">

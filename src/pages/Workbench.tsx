@@ -4,7 +4,7 @@ import {
   SlidersHorizontal, ChevronDown, Wand2, Clapperboard, PlayCircle, Undo2, 
   RefreshCw, Trash2, MonitorPlay, Film, Play, SkipBack, SkipForward, Download, 
   Maximize, Share2, Music2, Instagram, Youtube, Send, FolderPlus, Upload, 
-  Flame, Gem, ArrowRight, Settings2, Video, HardDrive, Eye, Edit3, ArrowLeft, CheckCircle, Loader2, Folder
+  Flame, Gem, ArrowRight, Settings2, Video, HardDrive, Eye, Edit3, ArrowLeft, CheckCircle, Loader2, Folder, LogOut
 } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
@@ -19,6 +19,32 @@ import type { Asset as LibraryAsset } from '../types';
 // Types
 type ViewType = 'workbench' | 'assets' | 'templates' | 'history' | 'editor';
 type AssetType = 'model' | 'product' | 'scene';
+
+type ScriptItem = {
+  id: number;
+  shot: string;
+  type: string;
+  dur: string;
+  visual: string;
+  audio: string;
+};
+
+type QueuedAsset = {
+  id: string;
+  name: string;
+  previewUrl: string | null;
+  fileObj?: File | null;
+  assetUrl?: string | null;
+  source: 'product' | 'preference';
+  uploadedPath?: string | null;
+};
+
+type QueuedScript = {
+  id: string;
+  name: string;
+  scripts: ScriptItem[];
+  duration: number;
+};
 
 // Helper: Map icons to Emojis
 const ICON_EMOJI_MAP: Record<string, string> = {
@@ -37,7 +63,7 @@ const RATIO_TO_RES: Record<string, string> = {
 
 const Workbench = () => {
   const { t } = useLanguage();
-  const { user } = useAuth(); 
+  const { user, logout } = useAuth(); // [Modified] Get logout function
   const location = useLocation();
 
   // --- Global State ---
@@ -60,6 +86,12 @@ const Workbench = () => {
     shot_number: 5,
     custom_config: ''
   });
+  const categoryOptions = ['camera', 'beauty', 'food', 'electronics'] as const;
+  const styleOptions = ['realistic', 'cinematic', '3d', 'anime'] as const;
+  const [isCustomCategory, setIsCustomCategory] = useState(false);
+  const [customCategory, setCustomCategory] = useState('');
+  const [isCustomStyle, setIsCustomStyle] = useState(false);
+  const [customStyle, setCustomStyle] = useState('');
 
   // --- Workbench State ---
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
@@ -77,7 +109,7 @@ const Workbench = () => {
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
 
   // Scripts State
-  const [scripts, setScripts] = useState([
+  const [scripts, setScripts] = useState<ScriptItem[]>([
     { id: 1, shot: '1', type: 'Medium', dur: '2s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio },
     { id: 2, shot: '2', type: 'Detail', dur: '2s', visual: t.demo_shot2_visual, audio: t.demo_shot2_audio }
   ]);
@@ -115,6 +147,11 @@ const Workbench = () => {
   const [confirmIsWorking, setConfirmIsWorking] = useState(false);
   const confirmActionRef = useRef<null | (() => Promise<void> | void)>(null);
 
+  // --- Reuse Queues ---
+  const [assetQueue, setAssetQueue] = useState<QueuedAsset[]>([]);
+  const [scriptQueue, setScriptQueue] = useState<QueuedScript[]>([]);
+  const [generatedBatch, setGeneratedBatch] = useState<Array<{ id: string; assetName: string; scriptName: string; url: string }>>([]);
+
   // --- Effects ---
   useEffect(() => {
     const initUser = async () => {
@@ -136,7 +173,7 @@ const Workbench = () => {
     const state = location.state as { fromAssetLibrary?: boolean; selectedAsset?: LibraryAsset } | null;
     if (state?.fromAssetLibrary && state?.selectedAsset) {
       const asset = state.selectedAsset;
-      setUploadedFile(asset.previewUrl || null);
+      setUploadedFile(getDisplayUrl(asset.previewUrl) || null);
       setFileName(asset.name || '');
       setSelectedFileObj(null);
       setSelectedAssetUrl(asset.previewUrl || null);
@@ -247,6 +284,12 @@ const Workbench = () => {
     if (template) {
       setEditingTemplate(template);
       setEditorForm(template);
+      const categoryIsPreset = categoryOptions.includes(template.product_category as (typeof categoryOptions)[number]);
+      setIsCustomCategory(!categoryIsPreset);
+      setCustomCategory(categoryIsPreset ? '' : template.product_category);
+      const styleIsPreset = styleOptions.includes(template.visual_style as (typeof styleOptions)[number]);
+      setIsCustomStyle(!styleIsPreset);
+      setCustomStyle(styleIsPreset ? '' : template.visual_style);
     } else {
       setEditingTemplate(null);
       setEditorForm({
@@ -259,6 +302,10 @@ const Workbench = () => {
         shot_number: 5,
         custom_config: ''
       });
+      setIsCustomCategory(false);
+      setCustomCategory('');
+      setIsCustomStyle(false);
+      setCustomStyle('');
     }
     setActiveView('editor');
   };
@@ -461,6 +508,91 @@ const Workbench = () => {
     } finally {
       setIsMovingAsset(false);
     }
+  // Helper: Convert path to displayable URL
+  const getDisplayUrl = (path: string | null): string | null => {
+    if (!path) return null;
+    // If it's already a full URL (http/https), use as-is
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return path;
+    }
+    // If it's a relative path (/media/...), prepend API base URL
+    if (path.startsWith('/')) {
+      // In production, relative paths work directly with nginx
+      // In development, use env variable or default to localhost
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+      return baseUrl ? `${baseUrl}${path}` : path;
+    }
+    // Otherwise (blob:..., data:...), use as-is
+    return path;
+  };
+
+  const buildCombinedScriptPrompt = (scriptList: ScriptItem[]) => {
+    return scriptList
+      .map(s => {
+        const visual = s.visual || '';
+        const audio = s.audio || '';
+        const audioMarker = audio ? `【音频|【[旁白]】${audio}】` : '';
+        return `${visual} ${audioMarker}`.trim();
+      })
+      .filter(v => v && v.trim().length > 0)
+      .join(' ');
+  };
+
+  const addCurrentAssetToQueue = () => {
+    if (!selectedFileObj && !selectedAssetUrl) {
+      alert('请先选择或上传素材');
+      return;
+    }
+
+    const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const previewUrl = uploadedFile || getDisplayUrl(selectedAssetUrl) || null;
+    const name = fileName || '未命名素材';
+
+    setAssetQueue(prev => ([
+      ...prev,
+      {
+        id: newId,
+        name,
+        previewUrl,
+        fileObj: selectedFileObj,
+        assetUrl: selectedAssetUrl,
+        source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference'),
+        uploadedPath: null
+      }
+    ]));
+  };
+
+  const removeAssetFromQueue = (id: string) => {
+    setAssetQueue(prev => prev.filter(a => a.id !== id));
+  };
+
+  const addCurrentScriptToQueue = () => {
+    if (scripts.length === 0) {
+      alert('请先生成或添加脚本');
+      return;
+    }
+    if (!isDurationValid) {
+      alert(`脚本总时长(${currentScriptDuration.toFixed(1)}s)需要与配置时长(${genDuration}s)一致`);
+      return;
+    }
+
+    const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const name = `脚本 ${scriptQueue.length + 1}`;
+    const copiedScripts = scripts.map(s => ({ ...s }));
+
+    setScriptQueue(prev => ([
+      ...prev,
+      {
+        id: newId,
+        name,
+        scripts: copiedScripts,
+        duration: genDuration
+      }
+    ]));
+  };
+
+  const removeScriptFromQueue = (id: string) => {
+    setScriptQueue(prev => prev.filter(s => s.id !== id));
   };
 
   // --- Workbench Actions ---
@@ -533,19 +665,13 @@ const Workbench = () => {
 
         if (rawPath) {
           setLastUploadedUrl(rawPath);
-          if (rawPath.startsWith('/')) {
-            imagePath = `http://1.95.137.119:8001${rawPath}`;
-          } else {
-            imagePath = rawPath;
-          }
+          // Send raw path directly to backend (backend will handle URL vs path)
+          imagePath = rawPath;
         }
       } else if (selectedAssetUrl) {
         setLastUploadedUrl(selectedAssetUrl);
-        if (selectedAssetUrl.startsWith('/')) {
-          imagePath = `http://1.95.137.119:8001${selectedAssetUrl}`;
-        } else {
-          imagePath = selectedAssetUrl;
-        }
+        // Send raw URL directly to backend
+        imagePath = selectedAssetUrl;
       }
 
 
@@ -618,8 +744,113 @@ const Workbench = () => {
     }
   };
 
+  const handleBatchGenerate = async () => {
+    if (!selectedTemplate?.id) {
+      alert('请先在配置面板选择模板');
+      return;
+    }
+    if (assetQueue.length === 0 || scriptQueue.length === 0) {
+      alert('请先把素材和脚本都加入队列');
+      return;
+    }
+
+    setIsGenerating(true);
+    setGeneratedVideoUrl(null);
+    setGeneratedBatch([]);
+
+    const results: Array<{ id: string; assetName: string; scriptName: string; url: string }> = [];
+    let errorCount = 0;
+
+    const ensureAssetPath = async (asset: QueuedAsset) => {
+      if (asset.uploadedPath) return asset.uploadedPath;
+
+      let rawPath: string | null = null;
+      if (asset.fileObj) {
+        const uploadResp = await assetsApi.uploadAsset(asset.fileObj, 'product');
+        if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
+          rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
+        } else {
+          rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
+        }
+      } else if (asset.assetUrl) {
+        rawPath = asset.assetUrl;
+      }
+
+      if (!rawPath) throw new Error('无法获取素材路径');
+
+      setAssetQueue(prev => prev.map(a => a.id === asset.id ? { ...a, uploadedPath: rawPath } : a));
+      return rawPath;
+    };
+
+    const cloneProjectId = async () => {
+      const cloneResp = await videoApi.cloneProject(selectedTemplate.id!);
+      const newId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
+      if (!newId) throw new Error('克隆模板失败');
+      return newId;
+    };
+
+    try {
+      for (const asset of assetQueue) {
+        let apiPath: string | null = null;
+        try {
+          apiPath = await ensureAssetPath(asset);
+        } catch (e) {
+          errorCount += 1;
+          continue;
+        }
+
+        for (const scriptItem of scriptQueue) {
+          try {
+            const combinedScriptPrompt = buildCombinedScriptPrompt(scriptItem.scripts);
+            if (!combinedScriptPrompt) throw new Error('脚本内容为空');
+
+            const newProjectId = await cloneProjectId();
+
+            const payload = {
+              prompt: combinedScriptPrompt,
+              project_id: newProjectId,
+              duration: scriptItem.duration,
+              image_path: apiPath,
+              sound: "on" as const,
+              asset_source: asset.source
+            };
+
+            const genResp = await videoApi.generate(payload);
+            const videoUrl = genResp.video_url || genResp.url || genResp.data?.video_url || genResp.data?.url;
+
+            if (videoUrl) {
+              results.push({
+                id: `${asset.id}-${scriptItem.id}`,
+                assetName: asset.name,
+                scriptName: scriptItem.name,
+                url: videoUrl
+              });
+              setGeneratedVideoUrl(videoUrl);
+            } else {
+              errorCount += 1;
+            }
+          } catch (e) {
+            errorCount += 1;
+          }
+        }
+      }
+    } finally {
+      setGeneratedBatch(results);
+      setIsGenerating(false);
+      if (results.length === 0) {
+        alert('未生成任何视频，请检查队列或网络状态');
+      } else if (errorCount > 0) {
+        alert(`已完成批量生成，其中有 ${errorCount} 个任务失败`);
+      }
+    }
+  };
+
   // --- API: Video Generation ---
   const handleGenerateVideo = async () => {
+    if (assetQueue.length > 0 || scriptQueue.length > 0) {
+      await handleBatchGenerate();
+      return;
+    }
     // Validation
     if (!selectedFileObj && !selectedAssetUrl) return alert("Please upload a reference image first!");
     if (scripts.length === 0) return alert("Please generate or add scripts first!");
@@ -647,17 +878,15 @@ const Workbench = () => {
       if (!rawPath) throw new Error("Could not find image path");
       setLastUploadedUrl(rawPath);
 
-      let apiPath = rawPath;
-      if (apiPath.startsWith('/')) {
-        apiPath = '.' + apiPath;
-      }
+      // Send raw path directly to backend (backend will handle URL vs path)
+      const apiPath = rawPath;
 
 
       // Combine Scripts into Prompt (with audio markers)
       const combinedScriptPrompt = scripts
         .map(s => {
           const visual = s.visual || '';
-          const audio = s.audio || s.voiceover || '';
+          const audio = s.audio || '';
           const audioMarker = audio ? `【音频|【[旁白]】${audio}】` : '';
           return `${visual} ${audioMarker}`.trim();
         })
@@ -700,6 +929,8 @@ const Workbench = () => {
     </div>
   );
   const filteredAssets = assetList.filter(a => a.type === activeAssetTab);
+  const isReuseReady = assetQueue.length > 0 && scriptQueue.length > 0;
+  const expectedBatchCount = isReuseReady ? assetQueue.length * scriptQueue.length : 0;
 
   // --- RENDER ---
   return (
@@ -714,7 +945,17 @@ const Workbench = () => {
           <InternalNav icon={LayoutTemplate} view="templates" label={t.wb_nav_templates} />
           <InternalNav icon={History} view="history" label={t.wb_nav_history} />
         </div>
-        <div className="mt-auto pb-4"><div className="w-8 h-8 rounded-full bg-zinc-800 border border-white/10" /></div>
+        
+        {/* Logout Button */}
+        <div className="mt-auto pb-6 w-full px-2">
+          <button
+            onClick={logout}
+            className="h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition text-zinc-500 hover:text-red-500 hover:bg-white/5 group relative"
+            title={t.sign_out}
+          >
+            <LogOut className="w-5 h-5" />
+          </button>
+        </div>
       </aside>
 
       {/* Main Content */}
@@ -761,6 +1002,78 @@ const Workbench = () => {
                       Last uploaded URL: {lastUploadedUrl}
                     </div>
                   )}
+                </div>
+
+                {/* Reuse Queues */}
+                <div className="flex flex-col gap-3">
+                  <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> 复用队列</h2>
+                  <div className="glass-panel rounded-xl p-4 flex flex-col gap-4">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] text-zinc-400 font-bold uppercase">素材队列</div>
+                      <button
+                        onClick={addCurrentAssetToQueue}
+                        disabled={!uploadedFile && !selectedAssetUrl}
+                        className={`text-[10px] px-2 py-1 rounded border border-white/10 ${!uploadedFile && !selectedAssetUrl ? 'text-zinc-600' : 'text-orange-500 hover:bg-white/5'}`}
+                      >
+                        加入素材队列
+                      </button>
+                    </div>
+                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
+                      {assetQueue.length === 0 ? (
+                        <div className="text-[10px] text-zinc-600">暂无素材</div>
+                      ) : (
+                        assetQueue.map(item => (
+                          <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
+                            <div className="w-8 h-8 rounded bg-zinc-800 overflow-hidden shrink-0">
+                              {item.previewUrl ? (
+                                <img src={item.previewUrl} alt={item.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-zinc-600 text-[8px]">无预览</div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
+                              <div className="text-[9px] text-zinc-500">来源：{item.source === 'product' ? '本地上传' : '素材库'}</div>
+                            </div>
+                            <button onClick={() => removeAssetFromQueue(item.id)} className="text-zinc-600 hover:text-red-400 p-1">
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] text-zinc-400 font-bold uppercase">脚本队列</div>
+                      <button
+                        onClick={addCurrentScriptToQueue}
+                        className="text-[10px] px-2 py-1 rounded border border-white/10 text-orange-500 hover:bg-white/5"
+                      >
+                        加入脚本队列
+                      </button>
+                    </div>
+                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
+                      {scriptQueue.length === 0 ? (
+                        <div className="text-[10px] text-zinc-600">暂无脚本</div>
+                      ) : (
+                        scriptQueue.map(item => (
+                          <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
+                              <div className="text-[9px] text-zinc-500">镜头数：{item.scripts.length} · 时长：{item.duration}s</div>
+                            </div>
+                            <button onClick={() => removeScriptFromQueue(item.id)} className="text-zinc-600 hover:text-red-400 p-1">
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div className="text-[10px] text-zinc-500">
+                      预计生成：{assetQueue.length} × {scriptQueue.length} = {expectedBatchCount}
+                    </div>
+                  </div>
                 </div>
 
                 {/* Config */}
@@ -830,9 +1143,9 @@ const Workbench = () => {
                   </div>
                   <button 
                     onClick={handleGenerateVideo} 
-                    disabled={isGenerating || !uploadedFile || !isDurationValid} 
-                    className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating || !isDurationValid ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
-                    title={!isDurationValid ? `Total duration must match ${genDuration}s` : ''}
+                    disabled={isGenerating || (!isReuseReady && (!uploadedFile || !isDurationValid))} 
+                    className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating || (!isReuseReady && !isDurationValid) ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
+                    title={!isReuseReady && !isDurationValid ? `Total duration must match ${genDuration}s` : ''}
                   >
                      {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}
                      {isGenerating ? 'Generating...' : t.wb_btn_gen_video}
@@ -905,6 +1218,21 @@ const Workbench = () => {
                    <div className="h-14 flex items-center justify-between px-4 border-t border-white/5 bg-zinc-900/50">
                       <div className="flex gap-4"><button className="text-zinc-400 hover:text-white"><SkipBack className="w-4 h-4" /></button><button className="text-white hover:text-orange-500"><Play className="w-4 h-4 fill-current" /></button><button className="text-zinc-400 hover:text-white"><SkipForward className="w-4 h-4" /></button></div>
                    </div>
+                </div>
+
+                <div className="glass-panel rounded-2xl p-4 border border-white/5 max-h-56 overflow-y-auto custom-scroll">
+                  <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3">批量生成结果</div>
+                  {generatedBatch.length === 0 ? (
+                    <div className="text-[10px] text-zinc-600">暂无结果</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {generatedBatch.map(item => (
+                        <a key={item.id} href={item.url} target="_blank" rel="noreferrer" className="block text-[10px] text-zinc-300 hover:text-orange-400 transition">
+                          {item.assetName} × {item.scriptName}
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1002,7 +1330,7 @@ const Workbench = () => {
                                 <div key={asset.id} className="glass-card rounded-2xl p-2 group relative">
                                     <div className="aspect-[3/4] bg-zinc-800 rounded-xl overflow-hidden relative">
                                         {asset.file_url ? (
-                                            <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} onError={(e) => { (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x400?text=Error'; }} />
+                                            <img src={getDisplayUrl(asset.file_url) || 'https://via.placeholder.com/300x400?text=No+Image'} className="w-full h-full object-cover" alt={asset.name} onError={(e) => { (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x400?text=Error'; }} />
                                         ) : (
                                             <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-center justify-center text-zinc-600">No Preview</div>
                                         )}
@@ -1013,7 +1341,7 @@ const Workbench = () => {
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          setUploadedFile(asset.file_url || null);
+                                          setUploadedFile(getDisplayUrl(asset.file_url) || null);
                                           setFileName(asset.name || '');
                                           setSelectedFileObj(null);
                                               setSelectedAssetUrl(asset.file_url || null);
@@ -1286,26 +1614,82 @@ const Workbench = () => {
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-zinc-400">{t.editor_label_category}</label>
                         <div className="relative">
-                            <select value={editorForm.product_category} onChange={e => setEditorForm({...editorForm, product_category: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer">
+                            <select
+                              value={isCustomCategory ? '__custom__' : editorForm.product_category}
+                              onChange={e => {
+                                const value = e.target.value;
+                                if (value === '__custom__') {
+                                  setIsCustomCategory(true);
+                                  setEditorForm({ ...editorForm, product_category: customCategory });
+                                } else {
+                                  setIsCustomCategory(false);
+                                  setCustomCategory('');
+                                  setEditorForm({ ...editorForm, product_category: value });
+                                }
+                              }}
+                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer"
+                            >
                                 <option value="camera">{t.opt_cat_camera}</option>
                                 <option value="beauty">{t.opt_cat_beauty}</option>
                                 <option value="food">{t.opt_cat_food}</option>
                                 <option value="electronics">{t.opt_cat_digital}</option>
+                                <option value="__custom__">{t.opt_cat_custom}</option>
                             </select>
                             <ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-zinc-500 pointer-events-none" />
                         </div>
+                        {isCustomCategory && (
+                          <input
+                            type="text"
+                            value={customCategory}
+                            onChange={e => {
+                              const value = e.target.value;
+                              setCustomCategory(value);
+                              setEditorForm({ ...editorForm, product_category: value });
+                            }}
+                            placeholder={t.editor_ph_select}
+                            className="mt-3 w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white"
+                          />
+                        )}
                       </div>
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-zinc-400">{t.editor_label_style}</label>
                         <div className="relative">
-                            <select value={editorForm.visual_style} onChange={e => setEditorForm({...editorForm, visual_style: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer">
+                            <select
+                              value={isCustomStyle ? '__custom__' : editorForm.visual_style}
+                              onChange={e => {
+                                const value = e.target.value;
+                                if (value === '__custom__') {
+                                  setIsCustomStyle(true);
+                                  setEditorForm({ ...editorForm, visual_style: customStyle });
+                                } else {
+                                  setIsCustomStyle(false);
+                                  setCustomStyle('');
+                                  setEditorForm({ ...editorForm, visual_style: value });
+                                }
+                              }}
+                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer"
+                            >
                                 <option value="realistic">{t.opt_style_real}</option>
                                 <option value="cinematic">{t.opt_style_cine}</option>
                                 <option value="3d">{t.opt_style_3d}</option>
                                 <option value="anime">{t.opt_style_anime}</option>
+                                <option value="__custom__">{t.opt_style_custom}</option>
                             </select>
                             <ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-zinc-500 pointer-events-none" />
                         </div>
+                        {isCustomStyle && (
+                          <input
+                            type="text"
+                            value={customStyle}
+                            onChange={e => {
+                              const value = e.target.value;
+                              setCustomStyle(value);
+                              setEditorForm({ ...editorForm, visual_style: value });
+                            }}
+                            placeholder={t.editor_ph_select}
+                            className="mt-3 w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white"
+                          />
+                        )}
                       </div>
                    </div>
                    <div className="grid grid-cols-3 gap-6">

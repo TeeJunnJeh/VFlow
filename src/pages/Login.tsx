@@ -9,7 +9,7 @@ import { LanguageSwitcher } from '../components/common/LanguageSwitcher';
 
 const LoginPage = () => {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, user, isLoading } = useAuth();
   const { t } = useLanguage();
 
   // --- 业务状态 ---
@@ -22,6 +22,15 @@ const LoginPage = () => {
   const [isLoginSuccess, setIsLoginSuccess] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [error, setError] = useState('');
+
+  // --- 自动跳转逻辑 ---
+  // 场景：用户打开页面时 Session 依然有效 (自动登录)
+  useEffect(() => {
+    // 只有当不是正在手动提交、且没有播放成功动画时，才执行自动跳转
+    if (!isLoading && user && !isSubmitting && !isLoginSuccess) {
+      navigate('/app', { replace: true });
+    }
+  }, [isLoading, user, isSubmitting, isLoginSuccess, navigate]);
 
   // --- 验证码倒计时逻辑 ---
   useEffect(() => {
@@ -60,20 +69,45 @@ const LoginPage = () => {
       if (phone.length !== 11) throw new Error(t.login_error_invalid_phone);
       if (otp !== '1234' && otp !== '8888') throw new Error(t.login_error_invalid_otp);
 
+      // 1. 标记正在提交 (这会防止下方的自动跳转拦截逻辑生效)
       setIsSubmitting(true);
+      
       const data = await authApi.loginWithPhone(phone, otp);
+      
+      // 2. 更新 Context 状态 (此时 user 变为非空)
       await login(phone, data);
 
+      // 3. 触发成功动画状态
       setIsLoginSuccess(true);
+      
+      // 4. 等待动画播放完毕后跳转
       setTimeout(() => {
         navigate('/app');
       }, 1200);
 
     } catch (err: any) {
       setError(err.message || "Login failed");
-      setIsSubmitting(false);
+      setIsSubmitting(false); // 失败时重置提交状态
     }
   };
+
+  // --- 拦截渲染逻辑 ---
+
+  // 1. Session 校验中：显示居中 Loading
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-violet-500 animate-spin" />
+      </div>
+    );
+  }
+
+  // 2. 已登录且非手动操作：显示空背景等待 useEffect 跳转 (防止表单闪烁)
+  // [关键修改] 增加了 !isSubmitting 条件
+  // 如果正在提交(isSubmitting=true)，说明是手动登录，需要继续渲染下方的 JSX 以显示动画，不能 return null
+  if (user && !isSubmitting && !isLoginSuccess) {
+    return <div className="min-h-screen bg-[#050505]" />;
+  }
 
   return (
       <div className="min-h-screen w-full flex bg-[#050505] text-white overflow-hidden font-sans relative">

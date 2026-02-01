@@ -69,7 +69,10 @@ const AnimatedRoutes = () => {
          */
         <AnimatePresence mode="wait">
             <Routes location={location} key={location.pathname}>
-                {/* 首页 - 使用 GuestRoute 包裹，已登录则跳过 */}
+                {/* 
+                   首页：使用 GuestRoute 包裹。
+                   效果：如果已登录访问首页，直接跳去 /app；未登录则显示首页。
+                */}
                 <Route 
                     path="/" 
                     element={
@@ -79,15 +82,11 @@ const AnimatedRoutes = () => {
                     } 
                 />
 
-                {/* 登录页 - 使用 GuestRoute 包裹，已登录则跳过 */}
-                <Route 
-                    path="/login" 
-                    element={
-                        <GuestRoute>
-                            <LoginPage />
-                        </GuestRoute>
-                    } 
-                />
+                {/* 
+                   登录页：不使用 GuestRoute 包裹。
+                   原因：我们需要在 Login 页面内部控制跳转时机，以免打断登录成功的动画。
+                */}
+                <Route path="/login" element={<LoginPage />} />
 
                 {/* 受保护的工作台 */}
                 <Route

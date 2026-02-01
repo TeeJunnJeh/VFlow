@@ -21,6 +21,32 @@ import type { Asset as LibraryAsset } from '../types';
 type ViewType = 'workbench' | 'assets' | 'templates' | 'history' | 'editor';
 type AssetType = 'model' | 'product' | 'scene';
 
+type ScriptItem = {
+  id: number;
+  shot: string;
+  type: string;
+  dur: string;
+  visual: string;
+  audio: string;
+};
+
+type QueuedAsset = {
+  id: string;
+  name: string;
+  previewUrl: string | null;
+  fileObj?: File | null;
+  assetUrl?: string | null;
+  source: 'product' | 'preference';
+  uploadedPath?: string | null;
+};
+
+type QueuedScript = {
+  id: string;
+  name: string;
+  scripts: ScriptItem[];
+  duration: number;
+};
+
 // Helper: Map icons to Emojis
 const ICON_EMOJI_MAP: Record<string, string> = {
   'flame': '🔥',
@@ -78,7 +104,7 @@ const Workbench = () => {
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
 
   // Scripts State
-  const [scripts, setScripts] = useState([
+  const [scripts, setScripts] = useState<ScriptItem[]>([
     { id: 1, shot: '1', type: 'Medium', dur: '2s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio },
     { id: 2, shot: '2', type: 'Detail', dur: '2s', visual: t.demo_shot2_visual, audio: t.demo_shot2_audio }
   ]);
@@ -89,6 +115,11 @@ const Workbench = () => {
   const [activeAssetTab, setActiveAssetTab] = useState<AssetType>('product');
   const [isUploading, setIsUploading] = useState(false);
   const assetInputRef = useRef<HTMLInputElement>(null);
+
+  // --- Reuse Queues ---
+  const [assetQueue, setAssetQueue] = useState<QueuedAsset[]>([]);
+  const [scriptQueue, setScriptQueue] = useState<QueuedScript[]>([]);
+  const [generatedBatch, setGeneratedBatch] = useState<Array<{ id: string; assetName: string; scriptName: string; url: string }>>([]);
 
   // --- Effects ---
   useEffect(() => {
@@ -285,6 +316,75 @@ const Workbench = () => {
     return path;
   };
 
+  const buildCombinedScriptPrompt = (scriptList: ScriptItem[]) => {
+    return scriptList
+      .map(s => {
+        const visual = s.visual || '';
+        const audio = s.audio || '';
+        const audioMarker = audio ? `【音频|【[旁白]】${audio}】` : '';
+        return `${visual} ${audioMarker}`.trim();
+      })
+      .filter(v => v && v.trim().length > 0)
+      .join(' ');
+  };
+
+  const addCurrentAssetToQueue = () => {
+    if (!selectedFileObj && !selectedAssetUrl) {
+      alert('请先选择或上传素材');
+      return;
+    }
+
+    const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const previewUrl = uploadedFile || getDisplayUrl(selectedAssetUrl) || null;
+    const name = fileName || '未命名素材';
+
+    setAssetQueue(prev => ([
+      ...prev,
+      {
+        id: newId,
+        name,
+        previewUrl,
+        fileObj: selectedFileObj,
+        assetUrl: selectedAssetUrl,
+        source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference'),
+        uploadedPath: null
+      }
+    ]));
+  };
+
+  const removeAssetFromQueue = (id: string) => {
+    setAssetQueue(prev => prev.filter(a => a.id !== id));
+  };
+
+  const addCurrentScriptToQueue = () => {
+    if (scripts.length === 0) {
+      alert('请先生成或添加脚本');
+      return;
+    }
+    if (!isDurationValid) {
+      alert(`脚本总时长(${currentScriptDuration.toFixed(1)}s)需要与配置时长(${genDuration}s)一致`);
+      return;
+    }
+
+    const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const name = `脚本 ${scriptQueue.length + 1}`;
+    const copiedScripts = scripts.map(s => ({ ...s }));
+
+    setScriptQueue(prev => ([
+      ...prev,
+      {
+        id: newId,
+        name,
+        scripts: copiedScripts,
+        duration: genDuration
+      }
+    ]));
+  };
+
+  const removeScriptFromQueue = (id: string) => {
+    setScriptQueue(prev => prev.filter(s => s.id !== id));
+  };
+
   // --- Workbench Actions ---
   const handleWorkbenchUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -434,8 +534,113 @@ const Workbench = () => {
     }
   };
 
+  const handleBatchGenerate = async () => {
+    if (!selectedTemplate?.id) {
+      alert('请先在配置面板选择模板');
+      return;
+    }
+    if (assetQueue.length === 0 || scriptQueue.length === 0) {
+      alert('请先把素材和脚本都加入队列');
+      return;
+    }
+
+    setIsGenerating(true);
+    setGeneratedVideoUrl(null);
+    setGeneratedBatch([]);
+
+    const results: Array<{ id: string; assetName: string; scriptName: string; url: string }> = [];
+    let errorCount = 0;
+
+    const ensureAssetPath = async (asset: QueuedAsset) => {
+      if (asset.uploadedPath) return asset.uploadedPath;
+
+      let rawPath: string | null = null;
+      if (asset.fileObj) {
+        const uploadResp = await assetsApi.uploadAsset(asset.fileObj, 'product');
+        if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
+          rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
+        } else {
+          rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
+        }
+      } else if (asset.assetUrl) {
+        rawPath = asset.assetUrl;
+      }
+
+      if (!rawPath) throw new Error('无法获取素材路径');
+
+      setAssetQueue(prev => prev.map(a => a.id === asset.id ? { ...a, uploadedPath: rawPath } : a));
+      return rawPath;
+    };
+
+    const cloneProjectId = async () => {
+      const cloneResp = await videoApi.cloneProject(selectedTemplate.id!);
+      const newId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
+      if (!newId) throw new Error('克隆模板失败');
+      return newId;
+    };
+
+    try {
+      for (const asset of assetQueue) {
+        let apiPath: string | null = null;
+        try {
+          apiPath = await ensureAssetPath(asset);
+        } catch (e) {
+          errorCount += 1;
+          continue;
+        }
+
+        for (const scriptItem of scriptQueue) {
+          try {
+            const combinedScriptPrompt = buildCombinedScriptPrompt(scriptItem.scripts);
+            if (!combinedScriptPrompt) throw new Error('脚本内容为空');
+
+            const newProjectId = await cloneProjectId();
+
+            const payload = {
+              prompt: combinedScriptPrompt,
+              project_id: newProjectId,
+              duration: scriptItem.duration,
+              image_path: apiPath,
+              sound: "on" as const,
+              asset_source: asset.source
+            };
+
+            const genResp = await videoApi.generate(payload);
+            const videoUrl = genResp.video_url || genResp.url || genResp.data?.video_url || genResp.data?.url;
+
+            if (videoUrl) {
+              results.push({
+                id: `${asset.id}-${scriptItem.id}`,
+                assetName: asset.name,
+                scriptName: scriptItem.name,
+                url: videoUrl
+              });
+              setGeneratedVideoUrl(videoUrl);
+            } else {
+              errorCount += 1;
+            }
+          } catch (e) {
+            errorCount += 1;
+          }
+        }
+      }
+    } finally {
+      setGeneratedBatch(results);
+      setIsGenerating(false);
+      if (results.length === 0) {
+        alert('未生成任何视频，请检查队列或网络状态');
+      } else if (errorCount > 0) {
+        alert(`已完成批量生成，其中有 ${errorCount} 个任务失败`);
+      }
+    }
+  };
+
   // --- API: Video Generation ---
   const handleGenerateVideo = async () => {
+    if (assetQueue.length > 0 || scriptQueue.length > 0) {
+      await handleBatchGenerate();
+      return;
+    }
     // Validation
     if (!selectedFileObj && !selectedAssetUrl) return alert("Please upload a reference image first!");
     if (scripts.length === 0) return alert("Please generate or add scripts first!");
@@ -514,6 +719,8 @@ const Workbench = () => {
     </div>
   );
   const filteredAssets = assetList.filter(a => a.type === activeAssetTab);
+  const isReuseReady = assetQueue.length > 0 && scriptQueue.length > 0;
+  const expectedBatchCount = isReuseReady ? assetQueue.length * scriptQueue.length : 0;
 
   // --- RENDER ---
   return (
@@ -587,6 +794,78 @@ const Workbench = () => {
                   )}
                 </div>
 
+                {/* Reuse Queues */}
+                <div className="flex flex-col gap-3">
+                  <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> 复用队列</h2>
+                  <div className="glass-panel rounded-xl p-4 flex flex-col gap-4">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] text-zinc-400 font-bold uppercase">素材队列</div>
+                      <button
+                        onClick={addCurrentAssetToQueue}
+                        disabled={!uploadedFile && !selectedAssetUrl}
+                        className={`text-[10px] px-2 py-1 rounded border border-white/10 ${!uploadedFile && !selectedAssetUrl ? 'text-zinc-600' : 'text-orange-500 hover:bg-white/5'}`}
+                      >
+                        加入素材队列
+                      </button>
+                    </div>
+                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
+                      {assetQueue.length === 0 ? (
+                        <div className="text-[10px] text-zinc-600">暂无素材</div>
+                      ) : (
+                        assetQueue.map(item => (
+                          <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
+                            <div className="w-8 h-8 rounded bg-zinc-800 overflow-hidden shrink-0">
+                              {item.previewUrl ? (
+                                <img src={item.previewUrl} alt={item.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-zinc-600 text-[8px]">无预览</div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
+                              <div className="text-[9px] text-zinc-500">来源：{item.source === 'product' ? '本地上传' : '素材库'}</div>
+                            </div>
+                            <button onClick={() => removeAssetFromQueue(item.id)} className="text-zinc-600 hover:text-red-400 p-1">
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] text-zinc-400 font-bold uppercase">脚本队列</div>
+                      <button
+                        onClick={addCurrentScriptToQueue}
+                        className="text-[10px] px-2 py-1 rounded border border-white/10 text-orange-500 hover:bg-white/5"
+                      >
+                        加入脚本队列
+                      </button>
+                    </div>
+                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
+                      {scriptQueue.length === 0 ? (
+                        <div className="text-[10px] text-zinc-600">暂无脚本</div>
+                      ) : (
+                        scriptQueue.map(item => (
+                          <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
+                              <div className="text-[9px] text-zinc-500">镜头数：{item.scripts.length} · 时长：{item.duration}s</div>
+                            </div>
+                            <button onClick={() => removeScriptFromQueue(item.id)} className="text-zinc-600 hover:text-red-400 p-1">
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div className="text-[10px] text-zinc-500">
+                      预计生成：{assetQueue.length} × {scriptQueue.length} = {expectedBatchCount}
+                    </div>
+                  </div>
+                </div>
+
                 {/* Config */}
                 <div className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${!uploadedFile ? 'opacity-50 pointer-events-none' : ''}`}>
                   <div className="flex justify-between items-center"><h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><SlidersHorizontal className="w-3 h-3" /> {t.wb_config_title}</h2></div>
@@ -654,9 +933,9 @@ const Workbench = () => {
                   </div>
                   <button 
                     onClick={handleGenerateVideo} 
-                    disabled={isGenerating || !uploadedFile || !isDurationValid} 
-                    className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating || !isDurationValid ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
-                    title={!isDurationValid ? `Total duration must match ${genDuration}s` : ''}
+                    disabled={isGenerating || (!isReuseReady && (!uploadedFile || !isDurationValid))} 
+                    className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating || (!isReuseReady && !isDurationValid) ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
+                    title={!isReuseReady && !isDurationValid ? `Total duration must match ${genDuration}s` : ''}
                   >
                      {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}
                      {isGenerating ? 'Generating...' : t.wb_btn_gen_video}
@@ -729,6 +1008,21 @@ const Workbench = () => {
                    <div className="h-14 flex items-center justify-between px-4 border-t border-white/5 bg-zinc-900/50">
                       <div className="flex gap-4"><button className="text-zinc-400 hover:text-white"><SkipBack className="w-4 h-4" /></button><button className="text-white hover:text-orange-500"><Play className="w-4 h-4 fill-current" /></button><button className="text-zinc-400 hover:text-white"><SkipForward className="w-4 h-4" /></button></div>
                    </div>
+                </div>
+
+                <div className="glass-panel rounded-2xl p-4 border border-white/5 max-h-56 overflow-y-auto custom-scroll">
+                  <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3">批量生成结果</div>
+                  {generatedBatch.length === 0 ? (
+                    <div className="text-[10px] text-zinc-600">暂无结果</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {generatedBatch.map(item => (
+                        <a key={item.id} href={item.url} target="_blank" rel="noreferrer" className="block text-[10px] text-zinc-300 hover:text-orange-400 transition">
+                          {item.assetName} × {item.scriptName}
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

@@ -16,6 +16,7 @@ export interface Asset {
   size: string;
   status: 'ready' | 'processing' | 'failed';
   created_at: string;
+  folder_id?: string | null;
 }
 
 // Backend Interface (Internal use)
@@ -25,6 +26,7 @@ interface BackendAsset {
   type: string;
   type_display: string;
   url: string;
+  folder_id?: number | null;
   meta_data: {
     width: number;
     height: number;
@@ -32,6 +34,14 @@ interface BackendAsset {
     format: string;
   };
   created_at: string;
+}
+
+export interface AssetFolder {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  asset_type: 'model' | 'product' | 'scene';
+  created_at?: string;
 }
 
 // --- Helper: Read CSRF Token from Browser Cookies ---
@@ -50,11 +60,26 @@ function getCookie(name: string) {
   return cookieValue;
 }
 
+async function readApiError(response: Response): Promise<string> {
+  try {
+    const json = await response.json();
+    return (json?.error || json?.message || 'Request failed') as string;
+  } catch {
+    return response.statusText || 'Request failed';
+  }
+}
+
 export const assetsApi = {
   // 1. GET List
-  getAssets: async (): Promise<Asset[]> => {
+  getAssets: async (params?: { type?: 'model' | 'product' | 'scene'; folderId?: string | null }): Promise<Asset[]> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/list/`, {
+      const search = new URLSearchParams();
+      if (params?.type) search.set('type', params.type.toUpperCase());
+      if (params && 'folderId' in params) {
+        search.set('folder_id', params.folderId ?? '');
+      }
+      const query = search.toString();
+      const response = await fetch(`${API_BASE_URL}/list/${query ? `?${query}` : ''}`, {
         method: 'GET',
         headers: { 
           'Content-Type': 'application/json',
@@ -91,7 +116,8 @@ export const assetsApi = {
           file_url: fullUrl, 
           size: (item.meta_data.size_bytes / 1024 / 1024).toFixed(2) + ' MB',
           status: 'ready',
-          created_at: item.created_at
+          created_at: item.created_at,
+          folder_id: item.folder_id?.toString() ?? null
         };
       });
 
@@ -102,11 +128,12 @@ export const assetsApi = {
   },
 
   // 2. CREATE (Upload)
-  uploadAsset: async (file: File, type: string) => {
+  uploadAsset: async (file: File, type: string, folderId?: string | null) => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('type', type.toUpperCase()); 
     formData.append('display_name', file.name);
+    if (folderId !== undefined) formData.append('folder_id', folderId ?? '');
 
     const csrftoken = getCookie('csrftoken');
 
@@ -150,5 +177,138 @@ export const assetsApi = {
       console.error("Delete Error:", error);
       throw error;
     }
+  },
+
+  // 4. FOLDERS
+  getFolders: async (params: { type: 'model' | 'product' | 'scene'; parentId: string | null }) => {
+    const search = new URLSearchParams();
+    search.set('type', params.type.toUpperCase());
+    search.set('parent_id', params.parentId ?? '');
+    const response = await fetch(`${API_BASE_URL}/folders/?${search.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) throw new Error(await readApiError(response));
+    const json = await response.json();
+    const data = (json.data || []) as Array<{ id: number; name: string; parent_id: number | null; asset_type: string; created_at?: string }>;
+    const breadcrumb = (json.breadcrumb || []) as Array<{ id: number; name: string; parent_id: number | null; asset_type: string }>;
+
+    return {
+      folders: data.map(item => ({
+        id: item.id.toString(),
+        name: item.name,
+        parent_id: item.parent_id ? item.parent_id.toString() : null,
+        asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene',
+        created_at: item.created_at
+      })),
+      breadcrumb: breadcrumb.map(item => ({
+        id: item.id.toString(),
+        name: item.name,
+        parent_id: item.parent_id ? item.parent_id.toString() : null,
+        asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene'
+      }))
+    };
+  },
+
+  getAllFolders: async (type: 'model' | 'product' | 'scene') => {
+    const search = new URLSearchParams();
+    search.set('type', type.toUpperCase());
+    search.set('all', '1');
+    const response = await fetch(`${API_BASE_URL}/folders/?${search.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) throw new Error(await readApiError(response));
+    const json = await response.json();
+    const data = (json.data || []) as Array<{ id: number; name: string; parent_id: number | null; asset_type: string; created_at?: string }>;
+
+    return data.map(item => ({
+      id: item.id.toString(),
+      name: item.name,
+      parent_id: item.parent_id ? item.parent_id.toString() : null,
+      asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene',
+      created_at: item.created_at
+    })) as AssetFolder[];
+  },
+
+  createFolder: async (name: string, type: 'model' | 'product' | 'scene', parentId: string | null) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/folders/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        name,
+        asset_type: type.toUpperCase(),
+        parent_id: parentId
+      })
+    });
+
+    if (!response.ok) throw new Error(await readApiError(response));
+    return await response.json();
+  },
+
+  renameFolder: async (folderId: string, name: string) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/folders/${folderId}/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ name })
+    });
+
+    if (!response.ok) throw new Error(await readApiError(response));
+    return await response.json();
+  },
+
+  deleteFolder: async (folderId: string) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/folders/${folderId}/`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) throw new Error(await readApiError(response));
+    return true;
+  },
+
+  moveAsset: async (assetId: string, folderId: string | null) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/${assetId}/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ folder_id: folderId }),
+    });
+
+    if (!response.ok) throw new Error(await readApiError(response));
+    return await response.json();
   }
 };

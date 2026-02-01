@@ -4,14 +4,14 @@ import {
   SlidersHorizontal, ChevronDown, Wand2, Clapperboard, PlayCircle, Undo2, 
   RefreshCw, Trash2, MonitorPlay, Film, Play, SkipBack, SkipForward, Download, 
   Maximize, Share2, Music2, Instagram, Youtube, Send, FolderPlus, Upload, 
-  Flame, Gem, ArrowRight, Settings2, Video, HardDrive, Eye, Edit3, ArrowLeft, CheckCircle, Loader2 
+  Flame, Gem, ArrowRight, Settings2, Video, HardDrive, Eye, Edit3, ArrowLeft, CheckCircle, Loader2, Folder
 } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext'; 
 import { authApi } from '../services/auth'; 
 import { LanguageSwitcher } from '../components/common/LanguageSwitcher';
-import { assetsApi, type Asset } from '../services/assets'; 
+import { assetsApi, type Asset, type AssetFolder } from '../services/assets'; 
 import { videoApi } from '../services/video';
 import { templatesApi, type Template } from '../services/templates';
 import type { Asset as LibraryAsset } from '../types';
@@ -88,6 +88,32 @@ const Workbench = () => {
   const [activeAssetTab, setActiveAssetTab] = useState<AssetType>('product');
   const [isUploading, setIsUploading] = useState(false);
   const assetInputRef = useRef<HTMLInputElement>(null);
+  const [folderList, setFolderList] = useState<AssetFolder[]>([]);
+  const [folderBreadcrumb, setFolderBreadcrumb] = useState<AssetFolder[]>([]);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [openFolderMenuId, setOpenFolderMenuId] = useState<string | null>(null);
+  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
+  const [moveAsset, setMoveAsset] = useState<Asset | null>(null);
+  const [moveFolders, setMoveFolders] = useState<AssetFolder[]>([]);
+  const [moveTargetFolderId, setMoveTargetFolderId] = useState<string | null>(null);
+  const [isMovingAsset, setIsMovingAsset] = useState(false);
+  const [isMoveDropdownOpen, setIsMoveDropdownOpen] = useState(false);
+
+  // Folder create/rename modal (replace window.prompt so it matches the app style)
+  const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
+  const [folderModalMode, setFolderModalMode] = useState<'create' | 'rename'>('create');
+  const [folderModalTarget, setFolderModalTarget] = useState<AssetFolder | null>(null);
+  const [folderNameInput, setFolderNameInput] = useState('');
+  const [isSavingFolder, setIsSavingFolder] = useState(false);
+  const folderNameInputRef = useRef<HTMLInputElement>(null);
+
+  // Confirm modal (replace window.confirm so it matches the app style)
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [confirmTitle, setConfirmTitle] = useState('');
+  const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
+  const [confirmIsDanger, setConfirmIsDanger] = useState(false);
+  const [confirmIsWorking, setConfirmIsWorking] = useState(false);
+  const confirmActionRef = useRef<null | (() => Promise<void> | void)>(null);
 
   // --- Effects ---
   useEffect(() => {
@@ -122,10 +148,24 @@ const Workbench = () => {
   }, [location]);
 
   useEffect(() => {
-    if (activeView === 'assets') loadAssets();
+    if (activeView === 'assets') {
+      loadAssets();
+      loadFolders();
+    }
     // Load templates in both template view AND workbench view (for dropdown)
     if ((activeView === 'templates' || activeView === 'workbench') && currentUserId) loadTemplates();
-  }, [activeView, currentUserId]);
+  }, [activeView, currentUserId, activeAssetTab, currentFolderId]);
+
+  useEffect(() => {
+    setCurrentFolderId(null);
+    setOpenFolderMenuId(null);
+  }, [activeAssetTab]);
+
+  useEffect(() => {
+    if (!isFolderModalOpen) return;
+    // Focus after render so it behaves like a proper dialog.
+    setTimeout(() => folderNameInputRef.current?.focus(), 0);
+  }, [isFolderModalOpen]);
 
   // Sync Demo Scripts with Language (Only if untouched)
   useEffect(() => {
@@ -193,10 +233,8 @@ const Workbench = () => {
     }
   };
 
-  const handleDeleteTemplate = async (templateId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleDeleteTemplate = async (templateId: string) => {
     if (!currentUserId) return;
-    if (!confirm("Delete this template?")) return;
     try {
       await templatesApi.deleteTemplate(currentUserId, templateId);
       setTemplateList(prev => prev.filter(t => t.id !== templateId));
@@ -229,7 +267,7 @@ const Workbench = () => {
   const loadAssets = async () => {
     setIsLoadingAssets(true);
     try {
-      const data = await assetsApi.getAssets();
+      const data = await assetsApi.getAssets({ type: activeAssetTab, folderId: currentFolderId });
       setAssetList(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Failed to load assets", err);
@@ -238,12 +276,22 @@ const Workbench = () => {
     }
   };
 
+  const loadFolders = async () => {
+    try {
+      const result = await assetsApi.getFolders({ type: activeAssetTab, parentId: currentFolderId });
+      setFolderList(result.folders);
+      setFolderBreadcrumb(result.breadcrumb);
+    } catch (err) {
+      console.error("Failed to load folders", err);
+    }
+  };
+
   const handleAssetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
     setIsUploading(true);
     try {
-      const uploadTasks = Array.from(files).map(file => assetsApi.uploadAsset(file, activeAssetTab));
+      const uploadTasks = Array.from(files).map(file => assetsApi.uploadAsset(file, activeAssetTab, currentFolderId));
       await Promise.all(uploadTasks);
       await loadAssets(); 
       alert(`Successfully uploaded ${files.length} files!`);
@@ -255,14 +303,163 @@ const Workbench = () => {
     }
   };
 
-  const handleDeleteAsset = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!window.confirm("Delete this asset?")) return;
+  const deleteAssetById = async (id: string) => {
     try {
       await assetsApi.deleteAsset(id);
       setAssetList(prev => prev.filter(a => a.id !== id));
     } catch (err) {
       alert("Failed to delete asset");
+    }
+  };
+
+  const openCreateFolderModal = () => {
+    setFolderModalMode('create');
+    setFolderModalTarget(null);
+    setFolderNameInput('');
+    setIsSavingFolder(false);
+    setIsFolderModalOpen(true);
+  };
+
+  const handleRenameFolder = async (folder: AssetFolder) => {
+    setOpenFolderMenuId(null);
+    setFolderModalMode('rename');
+    setFolderModalTarget(folder);
+    setFolderNameInput(folder.name);
+    setIsSavingFolder(false);
+    setIsFolderModalOpen(true);
+  };
+
+  const closeFolderModal = () => {
+    setIsFolderModalOpen(false);
+    setFolderModalTarget(null);
+    setFolderNameInput('');
+    setIsSavingFolder(false);
+  };
+
+  const submitFolderModal = async () => {
+    const name = folderNameInput.trim();
+    if (!name) return;
+    setIsSavingFolder(true);
+    try {
+      if (folderModalMode === 'create') {
+        await assetsApi.createFolder(name, activeAssetTab, currentFolderId);
+      } else if (folderModalMode === 'rename' && folderModalTarget) {
+        await assetsApi.renameFolder(folderModalTarget.id, name);
+      }
+      await loadFolders();
+      closeFolderModal();
+    } catch (err) {
+      alert((err as Error)?.message || "Failed to save folder");
+      setIsSavingFolder(false);
+    }
+  };
+
+  const handleDeleteFolder = async (folder: AssetFolder) => {
+    try {
+      await assetsApi.deleteFolder(folder.id);
+      // If we deleted the folder we are currently in, go back to root.
+      if (currentFolderId === folder.id) setCurrentFolderId(null);
+      await loadFolders();
+    } catch (err) {
+      const msg = (err as Error)?.message || "Failed to delete folder";
+      if (msg.includes('文件夹非空') || msg.toLowerCase().includes('not empty')) {
+        alert(t.assets_folder_not_empty_hint);
+      } else {
+        alert(msg);
+      }
+    } finally {
+      setOpenFolderMenuId(null);
+    }
+  };
+
+  const closeConfirmModal = () => {
+    if (confirmIsWorking) return;
+    setIsConfirmModalOpen(false);
+    setConfirmTitle('');
+    setConfirmMessage(null);
+    setConfirmIsDanger(false);
+    setConfirmIsWorking(false);
+    confirmActionRef.current = null;
+  };
+
+  const openConfirmModal = (opts: { title: string; message?: string; danger?: boolean; onConfirm: () => Promise<void> | void }) => {
+    setConfirmTitle(opts.title);
+    setConfirmMessage(opts.message || null);
+    setConfirmIsDanger(Boolean(opts.danger));
+    setConfirmIsWorking(false);
+    confirmActionRef.current = opts.onConfirm;
+    setIsConfirmModalOpen(true);
+  };
+
+  const runConfirmAction = async () => {
+    if (!confirmActionRef.current) return;
+    setConfirmIsWorking(true);
+    try {
+      await confirmActionRef.current();
+      closeConfirmModal();
+    } catch (err) {
+      // The action handler should surface any meaningful errors itself.
+      setConfirmIsWorking(false);
+    }
+  };
+
+  const openMoveDialog = async (asset: Asset) => {
+    setMoveAsset(asset);
+    setMoveTargetFolderId(asset.folder_id ?? null);
+    setIsMoveModalOpen(true);
+    setIsMoveDropdownOpen(false);
+    try {
+      const folders = await assetsApi.getAllFolders(activeAssetTab);
+      setMoveFolders(folders);
+    } catch (err) {
+      alert((err as Error)?.message || "Failed to load folders");
+    }
+  };
+
+  const closeMoveDialog = () => {
+    setIsMoveModalOpen(false);
+    setMoveAsset(null);
+    setMoveTargetFolderId(null);
+    setMoveFolders([]);
+    setIsMoveDropdownOpen(false);
+  };
+
+  const buildFolderOptions = (folders: AssetFolder[]) => {
+    const byParent = new Map<string | null, AssetFolder[]>();
+    for (const f of folders) {
+      const key = f.parent_id ?? null;
+      const list = byParent.get(key) || [];
+      list.push(f);
+      byParent.set(key, list);
+    }
+    for (const list of byParent.values()) {
+      list.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    const out: Array<{ id: string; label: string }> = [];
+    const walk = (parentId: string | null, depth: number) => {
+      const children = byParent.get(parentId) || [];
+      for (const child of children) {
+        const prefix = depth > 0 ? `${'--'.repeat(depth)} ` : '';
+        out.push({ id: child.id, label: `${prefix}${child.name}` });
+        walk(child.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    return out;
+  };
+
+  const handleConfirmMove = async () => {
+    if (!moveAsset) return;
+    setIsMovingAsset(true);
+    try {
+      await assetsApi.moveAsset(moveAsset.id, moveTargetFolderId);
+      await loadAssets();
+      closeMoveDialog();
+    } catch (err) {
+      alert((err as Error)?.message || "Failed to move asset");
+    } finally {
+      setIsMovingAsset(false);
     }
   };
 
@@ -716,12 +913,16 @@ const Workbench = () => {
 
         {/* 2. ASSETS VIEW */}
         {activeView === 'assets' && (
-           <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
+           <div
+              className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300"
+              onClick={() => setOpenFolderMenuId(null)}
+           >
+            
              <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
                 <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.assets_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.assets_subtitle}</p></div>
                 <div className="flex gap-3 items-center">
                   <LanguageSwitcher />
-                  <button className="bg-zinc-800 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-zinc-700 transition flex items-center gap-2"><FolderPlus className="w-4 h-4" /> {t.assets_btn_new_folder}</button>
+                  <button onClick={openCreateFolderModal} className="bg-zinc-800 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-zinc-700 transition flex items-center gap-2"><FolderPlus className="w-4 h-4" /> {t.assets_btn_new_folder}</button>
                   <button onClick={() => assetInputRef.current?.click()} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20" disabled={isUploading}>
                     {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} {t.assets_btn_upload}
                   </button>
@@ -731,14 +932,68 @@ const Workbench = () => {
              <div className="flex-1 flex flex-col p-10 overflow-hidden">
                 <div className="flex gap-4 mb-8 border-b border-white/5 pb-2">
                     {(['model', 'product', 'scene'] as AssetType[]).map(type => (
-                        <button key={type} onClick={() => setActiveAssetTab(type)} className={`text-sm font-bold px-6 py-2 rounded-full transition ${activeAssetTab === type ? 'bg-white text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>{type.charAt(0).toUpperCase() + type.slice(1)}s</button>
+                        <button
+                          key={type}
+                          onClick={() => setActiveAssetTab(type)}
+                          className={`text-sm font-bold px-6 py-2 rounded-full transition ${activeAssetTab === type ? 'bg-white text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}
+                        >
+                          {type === 'model' ? t.assets_tab_models : type === 'product' ? t.assets_tab_products : t.assets_tab_scenes}
+                        </button>
                     ))}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-zinc-500 mb-4">
+                  <button onClick={() => setCurrentFolderId(null)} className={`hover:text-white ${currentFolderId === null ? 'text-white' : ''}`}>{t.assets_root}</button>
+                  {folderBreadcrumb.map(folder => (
+                    <div key={folder.id} className="flex items-center gap-2">
+                      <span>/</span>
+                      <button onClick={() => setCurrentFolderId(folder.id)} className={`hover:text-white ${currentFolderId === folder.id ? 'text-white' : ''}`}>{folder.name}</button>
+                    </div>
+                  ))}
                 </div>
                 <div className="flex-1 overflow-y-auto custom-scroll">
                     {isLoadingAssets ? (
                         <div className="flex justify-center py-20 text-zinc-500"><Loader2 className="animate-spin mr-2" /> Loading Assets...</div>
                     ) : (
                         <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-6">
+                            {folderList.map(folder => (
+                              <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className="glass-card rounded-2xl aspect-[3/4] border border-zinc-800 flex flex-col items-center justify-center gap-3 cursor-pointer hover:border-orange-500/50 hover:bg-zinc-900/50 transition group relative">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenFolderMenuId(prev => (prev === folder.id ? null : folder.id));
+                                  }}
+                                  className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/30 hover:bg-black/50 flex items-center justify-center text-zinc-300 hover:text-white"
+                                  aria-label="Folder menu"
+                                >
+                                  ...
+                                </button>
+                                {openFolderMenuId === folder.id && (
+                                  <div
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="absolute top-10 right-2 bg-zinc-900/90 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden text-xs z-50 min-w-[140px]"
+                                  >
+                                    <button className="w-full text-left px-3 py-2 hover:bg-white/5 text-zinc-200" onClick={() => handleRenameFolder(folder)}>{t.assets_folder_menu_rename}</button>
+                                    <button
+                                      className="w-full text-left px-3 py-2 hover:bg-white/5 text-red-300"
+                                      onClick={() => {
+                                        setOpenFolderMenuId(null);
+                                        openConfirmModal({
+                                          title: t.assets_confirm_delete_folder,
+                                          message: `${folder.name}\n\n${t.assets_confirm_body_irreversible}`,
+                                          danger: true,
+                                          onConfirm: () => handleDeleteFolder(folder),
+                                        });
+                                      }}
+                                    >
+                                      {t.assets_folder_menu_delete}
+                                    </button>
+                                  </div>
+                                )}
+
+                                <div className="w-14 h-14 rounded-full bg-zinc-800 flex items-center justify-center group-hover:scale-110 transition"><Folder className="w-6 h-6 text-zinc-400 group-hover:text-orange-500" /></div>
+                                <span className="text-xs font-bold text-zinc-300 truncate max-w-[120px]">{folder.name}</span>
+                              </div>
+                            ))}
                             <div onClick={() => assetInputRef.current?.click()} className="glass-card rounded-2xl aspect-[3/4] border-2 border-dashed border-zinc-800 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-orange-500/50 hover:bg-zinc-900/50 transition group">
                                 <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center group-hover:scale-110 transition"><Plus className="w-6 h-6 text-zinc-500 group-hover:text-orange-500" /></div>
                                 <span className="text-xs font-medium text-zinc-500">{t.assets_upload_hint}</span>
@@ -768,10 +1023,31 @@ const Workbench = () => {
                                         }}
                                         className="bg-white text-black px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition"
                                       >
-                                        Use in Workbench
+                                        {t.assets_use_in_workbench}
                                       </button>
-                                      <button className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition">Details</button>
-                                      <button onClick={(e) => handleDeleteAsset(asset.id, e)} className="text-red-400 text-xs hover:text-red-300">Delete</button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openMoveDialog(asset);
+                                        }}
+                                        className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition"
+                                      >
+                                        {t.assets_move_asset}
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openConfirmModal({
+                                            title: t.assets_confirm_delete_asset,
+                                            message: `${asset.name}\n\n${t.assets_confirm_body_irreversible}`,
+                                            danger: true,
+                                            onConfirm: () => deleteAssetById(asset.id),
+                                          });
+                                        }}
+                                        className="text-red-400 text-xs hover:text-red-300"
+                                      >
+                                        {t.assets_delete}
+                                      </button>
                                     </div>
                                 </div>
                             ))}
@@ -780,6 +1056,149 @@ const Workbench = () => {
                 </div>
              </div>
            </div>
+        )}
+
+        {isMoveModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6" onClick={closeMoveDialog}>
+            <div className="w-full max-w-md glass-panel rounded-2xl p-6 border border-white/10" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-zinc-200">{t.assets_move_title}</h3>
+                <button className="text-zinc-400 hover:text-white" onClick={closeMoveDialog}>x</button>
+              </div>
+
+              <div className="text-xs text-zinc-500 mb-3 truncate">
+                {moveAsset?.name}
+              </div>
+
+              <div className="relative">
+                <button
+                  className={`w-full bg-black/30 text-zinc-200 text-sm rounded-lg border px-3 py-2 flex items-center justify-between focus:outline-none transition ${isMoveDropdownOpen ? 'border-orange-500/60' : 'border-white/10 hover:border-white/20'}`}
+                  onClick={() => setIsMoveDropdownOpen(v => !v)}
+                >
+                  <span className="truncate">
+                    {(() => {
+                      if (!moveTargetFolderId) return t.assets_move_root;
+                      const found = moveFolders.find(f => f.id === moveTargetFolderId);
+                      return found?.name || t.assets_move_root;
+                    })()}
+                  </span>
+                  <span className="text-zinc-400">v</span>
+                </button>
+
+                {isMoveDropdownOpen && (
+                  <div className="absolute mt-2 w-full max-h-64 overflow-auto rounded-lg border border-white/10 bg-zinc-950/90 backdrop-blur-sm shadow-xl z-[120]">
+                    <button
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-white/5 ${moveTargetFolderId === null ? 'text-white' : 'text-zinc-200'}`}
+                      onClick={() => {
+                        setMoveTargetFolderId(null);
+                        setIsMoveDropdownOpen(false);
+                      }}
+                    >
+                      {t.assets_move_root}
+                    </button>
+                    {buildFolderOptions(moveFolders).map(opt => (
+                      <button
+                        key={opt.id}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-white/5 ${moveTargetFolderId === opt.id ? 'text-white' : 'text-zinc-200'}`}
+                        onClick={() => {
+                          setMoveTargetFolderId(opt.id);
+                          setIsMoveDropdownOpen(false);
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3 mt-5">
+                <button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={closeMoveDialog}>
+                  {t.assets_move_cancel}
+                </button>
+                <button
+                  className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-500 disabled:opacity-60"
+                  onClick={handleConfirmMove}
+                  disabled={isMovingAsset}
+                >
+                  {t.assets_move_confirm}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isFolderModalOpen && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6" onClick={closeFolderModal}>
+            <div className="w-full max-w-md glass-panel rounded-2xl p-6 border border-white/10" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-zinc-200">
+                  {folderModalMode === 'create' ? t.assets_new_folder_title : t.assets_rename_folder_title}
+                </h3>
+                <button className="text-zinc-400 hover:text-white" onClick={closeFolderModal}>x</button>
+              </div>
+
+              <label className="block text-xs text-zinc-500 mb-2">{t.assets_name_label}</label>
+              <input
+                ref={folderNameInputRef}
+                className="w-full bg-black/30 text-zinc-200 text-sm rounded-lg border border-white/10 px-3 py-2 focus:outline-none focus:border-orange-500/50"
+                value={folderNameInput}
+                onChange={(e) => setFolderNameInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submitFolderModal();
+                  if (e.key === 'Escape') closeFolderModal();
+                }}
+                placeholder={t.assets_new_folder_prompt}
+              />
+
+              <div className="flex justify-end gap-3 mt-5">
+                <button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={closeFolderModal}>
+                  {t.assets_move_cancel}
+                </button>
+                <button
+                  className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-500 disabled:opacity-60"
+                  onClick={submitFolderModal}
+                  disabled={isSavingFolder}
+                >
+                  {folderModalMode === 'create' ? t.assets_btn_new_folder : t.assets_save}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isConfirmModalOpen && (
+          <div className="fixed inset-0 z-[115] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6" onClick={closeConfirmModal}>
+            <div className="w-full max-w-md glass-panel rounded-2xl p-6 border border-white/10" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-zinc-200">{confirmTitle || t.assets_confirm_title}</h3>
+                <button className="text-zinc-400 hover:text-white" onClick={closeConfirmModal}>x</button>
+              </div>
+
+              {confirmMessage && (
+                <div className="text-sm text-zinc-300 whitespace-pre-line">
+                  {confirmMessage}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 mt-5">
+                <button
+                  className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700 disabled:opacity-60"
+                  onClick={closeConfirmModal}
+                  disabled={confirmIsWorking}
+                >
+                  {t.assets_move_cancel}
+                </button>
+                <button
+                  className={`px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-60 ${confirmIsDanger ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-orange-600 hover:bg-orange-500 text-white'}`}
+                  onClick={runConfirmAction}
+                  disabled={confirmIsWorking}
+                >
+                  {confirmIsWorking ? '...' : t.assets_delete}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* 3. TEMPLATES VIEW */}
@@ -803,7 +1222,19 @@ const Workbench = () => {
                             <div className="w-12 h-12 rounded-xl bg-zinc-800/80 border border-white/5 flex items-center justify-center text-white shadow-lg">
                               {tpl.icon === 'gem' ? <Gem className="w-6 h-6" /> : (tpl.icon === 'zap' ? <Zap className="w-6 h-6"/> : <Flame className="w-6 h-6"/>)}
                             </div>
-                            <button onClick={(e) => handleDeleteTemplate(tpl.id!, e)} className="p-2 hover:bg-zinc-800 rounded text-zinc-500 hover:text-red-500 transition cursor-pointer"><Trash2 className="w-4 h-4" /></button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openConfirmModal({
+                                  title: t.assets_confirm_delete_template ?? 'Delete template',
+                                  message: `${tpl.name}\n\n${t.assets_confirm_body_irreversible}`,
+                                  danger: true,
+                                  onConfirm: () => handleDeleteTemplate(tpl.id!),
+                                });
+                              }}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                           <h3 className="text-xl font-bold text-white mb-1">{tpl.name}</h3>
                           <p className="text-xs text-zinc-500 mb-6 font-mono capitalize">{tpl.product_category} • {tpl.visual_style}</p>

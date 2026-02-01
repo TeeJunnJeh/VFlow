@@ -508,6 +508,8 @@ const Workbench = () => {
     } finally {
       setIsMovingAsset(false);
     }
+  };
+
   // Helper: Convert path to displayable URL
   const getDisplayUrl = (path: string | null): string | null => {
     if (!path) return null;

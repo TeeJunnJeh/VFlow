@@ -4,7 +4,7 @@ import {
   SlidersHorizontal, ChevronDown, Wand2, Clapperboard, PlayCircle, Undo2, 
   RefreshCw, Trash2, MonitorPlay, Film, Play, SkipBack, SkipForward, Download, 
   Maximize, Share2, Music2, Instagram, Youtube, Send, FolderPlus, Upload, 
-  Flame, Gem, ArrowRight, Settings2, Video, HardDrive, Eye, Edit3, ArrowLeft, CheckCircle, Loader2, Folder, LogOut
+  Flame, Gem, ArrowRight, Settings2, Video, HardDrive, Eye, Edit3, ArrowLeft, CheckCircle, Loader2, Folder, LogOut, User as UserIcon
 } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
@@ -17,7 +17,7 @@ import { templatesApi, type Template } from '../services/templates';
 import type { Asset as LibraryAsset } from '../types';
 
 // Types
-type ViewType = 'workbench' | 'assets' | 'templates' | 'history' | 'editor';
+type ViewType = 'workbench' | 'assets' | 'templates' | 'history' | 'editor' | 'profile';
 type AssetType = 'model' | 'product' | 'scene';
 
 type ScriptItem = {
@@ -63,11 +63,22 @@ const RATIO_TO_RES: Record<string, string> = {
 
 const Workbench = () => {
   const { t } = useLanguage();
-  const { user, logout } = useAuth(); // [Modified] Get logout function
+  const { user, updateUser, updateCredits, logout } = useAuth();
   const location = useLocation();
 
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+
+  // Handle Theme Logic
+  useEffect(() => {
+    if (theme === 'light') {
+      document.documentElement.classList.add('theme-light');
+    } else {
+      document.documentElement.classList.remove('theme-light');
+    }
+  }, [theme]);
+  
   const [currentUserId, setCurrentUserId] = useState<string | number | undefined>(user?.id);
 
   // --- Template State ---
@@ -115,6 +126,7 @@ const Workbench = () => {
   ]);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
   const [assetList, setAssetList] = useState<Asset[]>([]);
   const [isLoadingAssets, setIsLoadingAssets] = useState(false);
   const [activeAssetTab, setActiveAssetTab] = useState<AssetType>('product');
@@ -136,6 +148,13 @@ const Workbench = () => {
   const [folderModalMode, setFolderModalMode] = useState<'create' | 'rename'>('create');
   const [folderModalTarget, setFolderModalTarget] = useState<AssetFolder | null>(null);
   const [folderNameInput, setFolderNameInput] = useState('');
+  
+  // Nickname editing state
+  const [isEditingNickname, setIsEditingNickname] = useState(false);
+  const [newNickname, setNewNickname] = useState(user?.name || '');
+  useEffect(() => {
+    if (user?.name) setNewNickname(user.name);
+  }, [user?.name]);
   const [isSavingFolder, setIsSavingFolder] = useState(false);
   const folderNameInputRef = useRef<HTMLInputElement>(null);
 
@@ -618,6 +637,21 @@ const Workbench = () => {
     setFileName('');
   };
 
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        updateUser({ avatar: reader.result as string });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleUseDefaultAvatar = () => {
+    updateUser({ avatar: '' });
+  };
+
   // --- Script Actions (Add/Remove) ---
   const addScript = () => {
     // Generate unique ID
@@ -948,15 +982,21 @@ const Workbench = () => {
           <InternalNav icon={History} view="history" label={t.wb_nav_history} />
         </div>
         
-        {/* Logout Button */}
-        <div className="mt-auto pb-6 w-full px-2">
-          <button
-            onClick={logout}
-            className="h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition text-zinc-500 hover:text-red-500 hover:bg-white/5 group relative"
-            title={t.sign_out}
+        {/* Profile / Logout Section */}
+        <div className="mt-auto pb-6 w-full px-2 flex flex-col items-center gap-4">
+          <div 
+            onClick={() => setActiveView('profile')}
+            className={`w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative overflow-hidden ${activeView === 'profile' ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_15px_rgba(249,115,22,0.2)]' : 'border-white/5 bg-zinc-900/50 hover:border-white/20'}`}
+            title={t.profile_title}
           >
-            <LogOut className="w-5 h-5" />
-          </button>
+            {user?.avatar ? (
+              <img src={user.avatar} className="w-full h-full object-cover" alt="Profile" />
+            ) : (
+              <div className={`transition-colors ${activeView === 'profile' ? 'text-orange-500' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
+                <UserIcon className="w-5 h-5" />
+              </div>
+            )}
+          </div>
         </div>
       </aside>
 
@@ -1747,6 +1787,213 @@ const Workbench = () => {
                       </div>
                       <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition px-2"><button className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-white"><Download className="w-4 h-4" /></button><button className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-white"><Edit3 className="w-4 h-4" /></button></div>
                   </div>
+               </div>
+             </div>
+           </div>
+        )}
+
+        {/* 6. PROFILE VIEW */}
+        {activeView === 'profile' && (
+           <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
+             <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
+                <div>
+                  <h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.profile_title}</h1>
+                  <p className="text-zinc-500 text-xs mt-1">{t.profile_subtitle}</p>
+                </div>
+                <div className="flex items-center gap-6">
+                  {/* Developer Debug Panel */}
+                  <div className="flex items-center gap-2 bg-zinc-900/80 border border-white/5 p-1 rounded-xl">
+                    <div className="text-[10px] font-bold text-zinc-600 px-2 uppercase tracking-widest">{t.profile_debug || 'Debug'}</div>
+                    <div className="flex gap-1">
+                      {['free', 'plus', 'pro'].map((p) => (
+                        <button 
+                          key={p}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            updateUser({ plan: p as any });
+                          }}
+                          className={`px-2 py-0.5 rounded text-[9px] font-bold border transition ${user?.plan === p ? 'bg-orange-500/20 border-orange-500/50 text-orange-500' : 'bg-transparent border-white/5 text-zinc-500 hover:text-white'}`}
+                        >
+                          {p.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="w-px h-3 bg-white/5 mx-1" />
+                    <div className="flex items-center gap-1 pr-1">
+                       <input 
+                         type="number" 
+                         className="w-12 bg-zinc-800 text-[10px] px-1 py-0.5 rounded text-white border border-white/10 outline-none focus:border-orange-500"
+                         defaultValue={100}
+                         onKeyDown={(e) => {
+                           if (e.key === 'Enter') {
+                             updateCredits(Number((e.currentTarget as HTMLInputElement).value) - (user?.credits || 0));
+                           }
+                         }}
+                       />
+                       <span className="text-[8px] text-zinc-600">V</span>
+                    </div>
+                  </div>
+                  <LanguageSwitcher />
+                </div>
+             </header>
+             <div className="flex-1 overflow-y-auto p-10 custom-scroll">
+               <div className="max-w-4xl mx-auto">
+                 <div className="glass-panel p-12 rounded-[40px] border border-white/5 relative overflow-hidden group">
+                   {/* Plan Glow Background */}
+                   <div className={`absolute top-0 right-0 w-[400px] h-[400px] blur-[120px] rounded-full transition-all duration-1000 ${
+                     user?.plan === 'pro' ? 'bg-orange-500/10' : 
+                     user?.plan === 'plus' ? 'bg-indigo-500/10' : 
+                                           'bg-zinc-500/5'
+                   }`} />
+                   
+                   <div className="flex flex-col md:flex-row items-center md:items-start gap-12 relative z-10 w-full">
+                     {/* LEFT: Identity */}
+                     <div className="flex flex-col items-center gap-6 w-48 shrink-0">
+                        <div className="relative group/avatar">
+                          <input type="file" ref={avatarInputRef} className="hidden" onChange={handleAvatarUpload} accept="image/*" />
+                          <div 
+                            onClick={() => avatarInputRef.current?.click()}
+                            className={`w-32 h-32 rounded-[32px] bg-zinc-900 border flex items-center justify-center overflow-hidden transition-all duration-700 cursor-pointer ${
+                              user?.plan === 'pro' ? 'border-orange-500/40 shadow-[0_0_30px_rgba(249,115,22,0.1)]' : 
+                              user?.plan === 'plus' ? 'border-indigo-500/40 shadow-[0_0_30px_rgba(99,102,241,0.1)]' : 
+                                                    'border-white/10 shadow-none'
+                            }`}
+                          >
+                            {user?.avatar ? (
+                              <img src={user.avatar} className="w-full h-full object-cover" />
+                            ) : (
+                              <UserIcon className="w-12 h-12 text-zinc-700" />
+                            )}
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/avatar:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
+                              <Edit3 className="w-8 h-8 text-white" />
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-center group/name relative w-full">
+                          {isEditingNickname ? (
+                            <input 
+                              type="text" 
+                              value={newNickname}
+                              onChange={(e) => setNewNickname(e.target.value)}
+                              onBlur={() => {
+                                setIsEditingNickname(false);
+                                if (newNickname.trim()) updateUser({ name: newNickname.trim() });
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  setIsEditingNickname(false);
+                                  if (newNickname.trim()) updateUser({ name: newNickname.trim() });
+                                }
+                                if (e.key === 'Escape') {
+                                  setIsEditingNickname(false);
+                                  setNewNickname(user?.name || '');
+                                }
+                              }}
+                              autoFocus
+                              className="text-xl font-bold text-white bg-white/5 border border-orange-500/50 rounded-lg px-2 py-1 outline-none text-center w-full"
+                            />
+                          ) : (
+                            <div className="flex items-center justify-center gap-2 group cursor-pointer" onClick={() => setIsEditingNickname(true)}>
+                              <h2 className="text-2xl font-bold text-white tracking-tight break-words max-w-full">{user?.name || 'User'}</h2>
+                              <Edit3 className="w-3 h-3 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                            </div>
+                          )}
+                          <div className="mt-2 text-center">
+                            <button 
+                              onClick={handleUseDefaultAvatar}
+                              className="text-[10px] font-bold text-zinc-500 hover:text-orange-500 transition-colors uppercase tracking-widest py-1 border-b border-white/5"
+                            >
+                              {t.profile_use_default_avatar}
+                            </button>
+                          </div>
+                        </div>
+                     </div>
+
+                     {/* RIGHT: Plan & Balance */}
+                     <div className="flex-1 w-full space-y-10 py-2">
+                       <div className="space-y-4">
+                         <div className="flex items-center gap-3">
+                            <div className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-[11px] font-black tracking-[0.15em] border transition-all duration-700 ${
+                              user?.plan === 'pro' ? 'bg-orange-500/20 text-orange-500 border-orange-500/20' : 
+                              user?.plan === 'plus' ? 'bg-indigo-500/20 text-indigo-500 border-indigo-500/20' : 
+                                                    'bg-zinc-800 text-zinc-400 border-white/5'
+                            }`}>
+                              {user?.plan === 'pro' ? <Flame className="w-3.5 h-3.5" /> : user?.plan === 'plus' ? <Gem className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
+                              {(user?.plan === 'pro' ? (t.profile_plan_pro_name || 'pro user') : user?.plan === 'plus' ? (t.profile_plan_plus_name || 'plus user') : (t.profile_plan_free_name || 'free user')).toUpperCase()}
+                            </div>
+                         </div>
+                         <p className="text-sm text-zinc-500 leading-relaxed max-w-md">
+                           {user?.plan === 'pro' ? (t.plan_desc_pro || t.profile_plan_pro || 'PRO') : 
+                            user?.plan === 'plus' ? (t.plan_desc_plus || t.profile_plan_plus || 'PLUS') : 
+                                                    (t.plan_desc_free || t.profile_plan_free || 'FREE')}
+                         </p>
+                       </div>
+
+                       <div className="space-y-4 bg-white/2 rounded-2xl p-6 border border-white/5 shadow-inner">
+                         <div className="flex items-end justify-between px-1">
+                            <div className="space-y-1">
+                              <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest">{t.profile_balance || 'Balance'}</div>
+                              <div className="text-4xl font-black text-white italic tracking-tighter">
+                                {user?.plan === 'pro' ? '∞' : (user?.credits || 0)} <span className="text-[10px] not-italic text-zinc-500 font-bold uppercase ml-1">{t.v_points || 'V-Points'}</span>
+                              </div>
+                            </div>
+                            <div className="text-xs font-bold text-zinc-600 mb-1">LIMIT: {user?.plan === 'pro' ? '∞' : user?.plan === 'plus' ? 500 : 100} V</div>
+                         </div>
+                         <div className="h-4 w-full bg-zinc-900 rounded-full border border-white/5 p-1 overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full transition-all duration-1000 ease-out relative ${
+                                user?.plan === 'pro' ? 'bg-gradient-to-r from-purple-600 via-orange-500 to-yellow-400' :
+                                user?.plan === 'plus' ? 'bg-gradient-to-r from-blue-700 via-indigo-500 to-cyan-400' :
+                                                       'bg-gradient-to-r from-zinc-700 via-zinc-500 to-emerald-500/50'
+                              }`}
+                              style={{ width: `${user?.plan === 'pro' ? 100 : Math.min(((user?.credits || 0) / (user?.plan === 'plus' ? 500 : 100)) * 100, 100)}%` }}
+                            >
+                               {/* Animated pulse on progress bar */}
+                               <div className="absolute inset-0 bg-white/10 animate-pulse" />
+                            </div>
+                         </div>
+                       </div>
+                     </div>
+                   </div>
+
+                   <hr className="mt-6 mb-6 border-white/5" />
+
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-12">
+                     <div 
+                        onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                        className="flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/item cursor-pointer shadow-sm hover:shadow-orange-500/5"
+                     >
+                       <div className="flex items-center gap-4">
+                         <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/item:text-orange-500 transition-colors">
+                           <Settings2 className="w-6 h-6" />
+                         </div>
+                         <div className="text-left">
+                              <div className="text-base font-bold text-white">{t.profile_theme || 'Appearance'}</div>
+                           <div className="text-xs text-zinc-600 mt-0.5 uppercase tracking-widest font-black">
+                             {theme === 'dark' ? t.profile_theme_dark : t.profile_theme_light}
+                           </div>
+                         </div>
+                       </div>
+                       <ChevronDown className={`w-5 h-5 text-zinc-700 transition-transform ${theme === 'light' ? 'rotate-180' : ''}`} />
+                     </div>
+
+                     <button 
+                       onClick={logout}
+                       className="w-full flex items-center justify-between p-6 rounded-2xl bg-red-500/5 hover:bg-red-500/10 transition group/logout border border-red-500/10 hover:border-red-500/20"
+                     >
+                       <div className="flex items-center gap-4">
+                         <div className="w-12 h-12 rounded-xl bg-red-500/10 flex items-center justify-center text-red-500">
+                           <LogOut className="w-6 h-6" />
+                         </div>
+                         <div className="text-left">
+                           <div className="text-base font-bold text-red-500">{t.sign_out}</div>
+                           <div className="text-xs text-red-500/60 mt-0.5">{t.sign_out_subtitle || '退出当前账户，清除本地缓存'}</div>
+                         </div>
+                       </div>
+                       <ArrowRight className="w-5 h-5 text-red-500/30 group-hover:text-red-500 group-hover:translate-x-1 transition-all" />
+                     </button>
+                   </div>
+                 </div>
                </div>
              </div>
            </div>

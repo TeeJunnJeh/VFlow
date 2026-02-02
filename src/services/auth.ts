@@ -70,4 +70,33 @@ export const authApi = {
       throw error;
     }
   },
+
+  // 4. Update Profile (Avatar/Name/Theme/Tier/Credits)
+  updateProfile: async (data: { avatar?: File; name?: string; theme?: string; tier?: string; credits?: number }) => {
+    try {
+      const formData = new FormData();
+      if (data.avatar) formData.append('avatar', data.avatar);
+      if (data.name) formData.append('name', data.name);
+      if (data.theme) formData.append('theme', data.theme);
+      if (data.tier) formData.append('tier', data.tier);
+      if (data.credits !== undefined) formData.append('credits', data.credits.toString());
+
+      const response = await fetch(`${API_BASE_URL}/update-profile/`, {
+        method: 'POST',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        credentials: 'include',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update profile');
+      }
+
+      return await response.json();
+    } catch (error) {
+      throw error;
+    }
+  },
 };

@@ -3,8 +3,9 @@
 // Use the proxy path configured in vite.config.ts for API calls
 const API_BASE_URL = '/api/assets';
 
-// --- UPDATE: New Server Domain for Images ---
-const SERVER_DOMAIN = 'https://thucvml-vgen.top:7443';
+// Optional: override the base URL used for `/media/...` in production.
+// In development, keep it empty so Vite's `/media` proxy works.
+const MEDIA_BASE_URL = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
 
 // Frontend Interface
 export interface Asset {
@@ -96,18 +97,25 @@ export const assetsApi = {
       if (!response.ok) throw new Error('Failed to fetch assets');
       
       const json = await response.json();
-      const backendData: BackendAsset[] = json.data || [];
+      // Be robust across backend variants (some deployments wrap in `data`, some may return `assets`).
+      const backendData: BackendAsset[] = (json.data || json.assets || json.results || []) as BackendAsset[];
 
       // Map Backend Data -> Frontend Data
       return backendData.map(item => {
-        
-        // --- FIX: Force Absolute URL for Images ---
-        // If the URL is relative (e.g., "/media/uploads..."), prepend the NEW server domain
-        let fullUrl = item.url;
-        if (fullUrl && fullUrl.startsWith('/')) {
-            fullUrl = `${SERVER_DOMAIN}${fullUrl}`;
+        // Some backends may return `url`, `file_url`, or `path` for the file location.
+        const rawUrl =
+          (item as any).url ||
+          (item as any).file_url ||
+          (item as any).fileUrl ||
+          (item as any).path ||
+          '';
+
+        // If the URL is relative (e.g. "/media/uploads..."), optionally prepend a configured base URL.
+        // Otherwise keep it relative so it can be served by current origin (or Vite proxy in dev).
+        let fullUrl = rawUrl;
+        if (fullUrl && fullUrl.startsWith('/') && MEDIA_BASE_URL) {
+          fullUrl = `${MEDIA_BASE_URL}${fullUrl}`;
         }
-        // ------------------------------------------
 
         return {
           id: item.id.toString(),

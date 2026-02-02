@@ -108,7 +108,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         else if (lowerPlan === 'plus') resolvedPlan = 'plus';
     }
 
-    const defaultCredits = 10; // default balance
+    const defaultCredits = 100; // default balance to 100
 
     const newUser: User = {
       // Use the Real ID if found, otherwise crash/warn instead of using a fake string

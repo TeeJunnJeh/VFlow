@@ -7,6 +7,7 @@ interface User {
   avatar: string;
   plan: 'free' | 'plus' | 'pro';
   credits?: number; // remaining generation credits (v点)
+  theme?: 'light' | 'dark';
   token?: string; 
 }
 
@@ -38,16 +39,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             
             // Map backend Tier to frontend Plan
             let plan: User['plan'] = 'free';
-            if (backendUser.tier === 'PRO') plan = 'pro';
-            else if (backendUser.tier === 'ENTERPRISE') plan = 'pro'; // Map enterprise to pro for now
+            if (backendUser.tier === 'PRO') plan = 'plus';
+            else if (backendUser.tier === 'ENTERPRISE') plan = 'pro';
 
             // Construct valid user object
             const verifiedUser: User = {
                 id: backendUser.user_id,
-                name: backendUser.username || backendUser.phone || 'User',
-                avatar: '', // Backend doesn't return avatar yet
+                name: backendUser.nickname || backendUser.username || backendUser.phone || 'User',
+                avatar: backendUser.avatar || '', 
                 plan: plan,
                 credits: backendUser.balance,
+                theme: backendUser.theme as 'light' | 'dark' || 'dark',
                 token: undefined // We rely on Cookie Session, no JWT token needed in state
             };
 
@@ -103,20 +105,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     // Normalize plan string from server (handle PRO/FREE uppercase)
     let resolvedPlan: User['plan'] = 'free';
     if (planFromServer && typeof planFromServer === 'string') {
-        const lowerPlan = planFromServer.toLowerCase();
-        if (lowerPlan === 'pro' || lowerPlan === 'enterprise') resolvedPlan = 'pro';
-        else if (lowerPlan === 'plus') resolvedPlan = 'plus';
+        const upperPlan = planFromServer.toUpperCase();
+        if (upperPlan === 'ENTERPRISE') resolvedPlan = 'pro';
+        else if (upperPlan === 'PRO') resolvedPlan = 'plus';
+        else resolvedPlan = 'free';
     }
 
-    const defaultCredits = 100; // default balance to 100
+    const defaultCredits = 50; // default balance to 50 for Free
 
     const newUser: User = {
       // Use the Real ID if found, otherwise crash/warn instead of using a fake string
       id: realUserId || '1', 
-      name: identifier,
-      avatar: '',
+      name: serverData?.nickname || serverData?.data?.nickname || serverData?.data?.username || serverData?.username || identifier,
+      avatar: serverData?.avatar || serverData?.data?.avatar || '',
       plan: resolvedPlan,
       credits: serverData?.credits ?? serverData?.data?.balance ?? defaultCredits,
+      theme: serverData?.theme || serverData?.data?.theme || 'dark',
       token: token 
     };
 

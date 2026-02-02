@@ -68,7 +68,14 @@ const Workbench = () => {
 
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [theme, setTheme] = useState<'dark' | 'light'>(user?.theme || 'dark');
+
+  // Sync theme with user object
+  useEffect(() => {
+    if (user?.theme && user.theme !== theme) {
+      setTheme(user.theme);
+    }
+  }, [user?.theme]);
 
   // Handle Theme Logic
   useEffect(() => {
@@ -637,18 +644,24 @@ const Workbench = () => {
     setFileName('');
   };
 
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        updateUser({ avatar: reader.result as string });
-      };
-      reader.readAsDataURL(file);
+      try {
+        const res = await authApi.updateProfile({ avatar: file });
+        if (res.data?.avatar) {
+          updateUser({ avatar: res.data.avatar });
+        }
+      } catch (err) {
+        console.error("Avatar upload failed", err);
+        alert("Failed to upload avatar");
+      }
     }
   };
 
-  const handleUseDefaultAvatar = () => {
+  const handleUseDefaultAvatar = async () => {
+    // Note: If we want to truly clear it on backend, we might need a specific flag or null value
+    // For now, let's just update local and perhaps backend with a placeholder if needed
     updateUser({ avatar: '' });
   };
 
@@ -1808,9 +1821,27 @@ const Workbench = () => {
                       {['free', 'plus', 'pro'].map((p) => (
                         <button 
                           key={p}
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation();
-                            updateUser({ plan: p as any });
+                            const newPlan = p as any;
+                            let newCredits = user?.credits;
+                            
+                            // Debug behavior: reset credits based on tier if plan changes
+                            if (newPlan === 'free') newCredits = 50;
+                            else if (newPlan === 'plus') newCredits = 200;
+                            else if (newPlan === 'pro') newCredits = 9999; 
+
+                            try {
+                              const res = await authApi.updateProfile({ tier: newPlan, credits: newCredits });
+                              // Map backend Tier back to frontend Plan
+                              let resolvedPlan: any = 'free';
+                              if (res.data.tier === 'PRO') resolvedPlan = 'plus';
+                              else if (res.data.tier === 'ENTERPRISE') resolvedPlan = 'pro';
+                              
+                              updateUser({ plan: resolvedPlan, credits: res.data.balance });
+                            } catch (err) {
+                              alert("Failed to update plan via debug");
+                            }
                           }}
                           className={`px-2 py-0.5 rounded text-[9px] font-bold border transition ${user?.plan === p ? 'bg-orange-500/20 border-orange-500/50 text-orange-500' : 'bg-transparent border-white/5 text-zinc-500 hover:text-white'}`}
                         >
@@ -1824,9 +1855,15 @@ const Workbench = () => {
                          type="number" 
                          className="w-12 bg-zinc-800 text-[10px] px-1 py-0.5 rounded text-white border border-white/10 outline-none focus:border-orange-500"
                          defaultValue={100}
-                         onKeyDown={(e) => {
+                         onKeyDown={async (e) => {
                            if (e.key === 'Enter') {
-                             updateCredits(Number((e.currentTarget as HTMLInputElement).value) - (user?.credits || 0));
+                             const val = Number((e.currentTarget as HTMLInputElement).value);
+                             try {
+                               const res = await authApi.updateProfile({ credits: val });
+                               updateUser({ credits: res.data.balance });
+                             } catch (err) {
+                               alert("Failed to update credits via debug");
+                             }
                            }
                          }}
                        />
@@ -1875,14 +1912,28 @@ const Workbench = () => {
                               type="text" 
                               value={newNickname}
                               onChange={(e) => setNewNickname(e.target.value)}
-                              onBlur={() => {
+                              onBlur={async () => {
                                 setIsEditingNickname(false);
-                                if (newNickname.trim()) updateUser({ name: newNickname.trim() });
+                                if (newNickname.trim() && newNickname.trim() !== user?.name) {
+                                  try {
+                                    const res = await authApi.updateProfile({ name: newNickname.trim() });
+                                    updateUser({ name: res.data.name });
+                                  } catch (err) {
+                                    alert("Failed to update nickname");
+                                  }
+                                }
                               }}
-                              onKeyDown={(e) => {
+                              onKeyDown={async (e) => {
                                 if (e.key === 'Enter') {
                                   setIsEditingNickname(false);
-                                  if (newNickname.trim()) updateUser({ name: newNickname.trim() });
+                                  if (newNickname.trim() && newNickname.trim() !== user?.name) {
+                                    try {
+                                      const res = await authApi.updateProfile({ name: newNickname.trim() });
+                                      updateUser({ name: res.data.name });
+                                    } catch (err) {
+                                      alert("Failed to update nickname");
+                                    }
+                                  }
                                 }
                                 if (e.key === 'Escape') {
                                   setIsEditingNickname(false);
@@ -1922,7 +1973,7 @@ const Workbench = () => {
                               {(user?.plan === 'pro' ? (t.profile_plan_pro_name || 'pro user') : user?.plan === 'plus' ? (t.profile_plan_plus_name || 'plus user') : (t.profile_plan_free_name || 'free user')).toUpperCase()}
                             </div>
                          </div>
-                         <p className="text-sm text-zinc-500 leading-relaxed max-w-md">
+                         <p className="text-sm text-zinc-500 leading-relaxed max-w-xl">
                            {user?.plan === 'pro' ? (t.plan_desc_pro || t.profile_plan_pro || 'PRO') : 
                             user?.plan === 'plus' ? (t.plan_desc_plus || t.profile_plan_plus || 'PLUS') : 
                                                     (t.plan_desc_free || t.profile_plan_free || 'FREE')}
@@ -1960,7 +2011,16 @@ const Workbench = () => {
 
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-12">
                      <div 
-                        onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                        onClick={async () => {
+                          const newTheme = theme === 'dark' ? 'light' : 'dark';
+                          setTheme(newTheme);
+                          try {
+                            const res = await authApi.updateProfile({ theme: newTheme });
+                            updateUser({ theme: res.data.theme });
+                          } catch (err) {
+                            console.error("Failed to save theme preference", err);
+                          }
+                        }}
                         className="flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/item cursor-pointer shadow-sm hover:shadow-orange-500/5"
                      >
                        <div className="flex items-center gap-4">

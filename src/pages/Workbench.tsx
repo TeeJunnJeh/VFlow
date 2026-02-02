@@ -61,6 +61,9 @@ const RATIO_TO_RES: Record<string, string> = {
   '4:3': '1024*768',
 };
 
+const ASSET_PLACEHOLDER_DATA_URL =
+  'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiB2aWV3Qm94PSIwIDAgMzAwIDQwMCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzFmMjkzNyIvPjx0ZXh0IHg9IjE1MCIgeT0iMjAwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiBmaWxsPSIjOWNhM2FmIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiPk5vIFByZXZpZXc8L3RleHQ+PC9zdmc+';
+
 const Workbench = () => {
   const { t } = useLanguage();
   const { user, updateUser, updateCredits, logout } = useAuth();
@@ -149,6 +152,9 @@ const Workbench = () => {
   const [moveTargetFolderId, setMoveTargetFolderId] = useState<string | null>(null);
   const [isMovingAsset, setIsMovingAsset] = useState(false);
   const [isMoveDropdownOpen, setIsMoveDropdownOpen] = useState(false);
+
+  const [isAssetPreviewOpen, setIsAssetPreviewOpen] = useState(false);
+  const [assetPreview, setAssetPreview] = useState<Asset | null>(null);
 
   // Folder create/rename modal (replace window.prompt so it matches the app style)
   const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
@@ -545,13 +551,23 @@ const Workbench = () => {
     }
     // If it's a relative path (/media/...), prepend API base URL
     if (path.startsWith('/')) {
-      // In production, relative paths work directly with nginx
-      // In development, use env variable or default to localhost
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
-      return baseUrl ? `${baseUrl}${path}` : path;
+      // In development, keep relative so Vite proxy (`/media`) can work.
+      // In production, you can set VITE_MEDIA_BASE_URL to an absolute origin if needed.
+      const mediaBaseUrl = import.meta.env.VITE_MEDIA_BASE_URL || '';
+      return mediaBaseUrl ? `${mediaBaseUrl}${path}` : path;
     }
     // Otherwise (blob:..., data:...), use as-is
     return path;
+  };
+
+  const openAssetPreview = (asset: Asset) => {
+    setAssetPreview(asset);
+    setIsAssetPreviewOpen(true);
+  };
+
+  const closeAssetPreview = () => {
+    setIsAssetPreviewOpen(false);
+    setAssetPreview(null);
   };
 
   const buildCombinedScriptPrompt = (scriptList: ScriptItem[]) => {
@@ -1383,9 +1399,9 @@ const Workbench = () => {
                             </div>
                             {filteredAssets.map(asset => (
                                 <div key={asset.id} className="glass-card rounded-2xl p-2 group relative">
-                                    <div className="aspect-[3/4] bg-zinc-800 rounded-xl overflow-hidden relative">
+                                    <div className="aspect-[3/4] bg-zinc-800 rounded-xl overflow-hidden relative cursor-zoom-in" onClick={() => openAssetPreview(asset)}>
                                         {asset.file_url ? (
-                                            <img src={getDisplayUrl(asset.file_url) || 'https://via.placeholder.com/300x400?text=No+Image'} className="w-full h-full object-cover" alt={asset.name} onError={(e) => { (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x400?text=Error'; }} />
+                                            <img src={getDisplayUrl(asset.file_url) || ASSET_PLACEHOLDER_DATA_URL} className="w-full h-full object-cover" alt={asset.name} onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }} />
                                         ) : (
                                             <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-center justify-center text-zinc-600">No Preview</div>
                                         )}
@@ -1407,6 +1423,16 @@ const Workbench = () => {
                                         className="bg-white text-black px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition"
                                       >
                                         {t.assets_use_in_workbench}
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openAssetPreview(asset);
+                                        }}
+                                        className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition flex items-center gap-2"
+                                      >
+                                        <Eye className="w-3.5 h-3.5" />
+                                        {t.assets_view_image}
                                       </button>
                                       <button
                                         onClick={(e) => {
@@ -1439,6 +1465,44 @@ const Workbench = () => {
                 </div>
              </div>
            </div>
+        )}
+
+        {isAssetPreviewOpen && assetPreview && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6" onClick={closeAssetPreview}>
+            <div
+              className="glass-panel rounded-2xl p-4 md:p-6 border border-white/10 w-auto max-w-[calc(100vw-3rem)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-4 mb-4">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-zinc-200">{t.assets_preview_title}</h3>
+                  <div className="text-xs text-zinc-500 truncate">{assetPreview.name}</div>
+                </div>
+                <button className="text-zinc-400 hover:text-white" onClick={closeAssetPreview}>x</button>
+              </div>
+
+              <div className="flex items-center justify-center">
+                {assetPreview.file_url ? (
+                  <div className="inline-flex bg-black/30 rounded-xl border border-white/10 overflow-hidden">
+                    <img
+                      src={getDisplayUrl(assetPreview.file_url) || ASSET_PLACEHOLDER_DATA_URL}
+                      alt={assetPreview.name}
+                      className="block"
+                      style={{
+                        maxWidth: 'calc(100vw - 6rem)',
+                        maxHeight: '72vh',
+                        width: 'auto',
+                        height: 'auto'
+                      }}
+                      onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }}
+                    />
+                  </div>
+                ) : (
+                  <div className="py-24 text-zinc-500">No Preview</div>
+                )}
+              </div>
+            </div>
+          </div>
         )}
 
         {isMoveModalOpen && (

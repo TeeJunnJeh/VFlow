@@ -30,6 +30,12 @@ type ScriptItem = {
   audio: string;
 };
 
+type ScriptPage = {
+  id: string;
+  name: string;
+  scripts: ScriptItem[];
+};
+
 type QueuedAsset = {
   id: string;
   name: string;
@@ -70,6 +76,10 @@ const Workbench = () => {
   const { user, updateUser, updateCredits, logout } = useAuth();
   const { tasks, addTask, removeTask } = useTasks();
   const location = useLocation();
+  const buildDemoScripts = () => ([
+    { id: 1, shot: '1', type: 'Medium', dur: '2s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio },
+    { id: 2, shot: '2', type: 'Detail', dur: '2s', visual: t.demo_shot2_visual, audio: t.demo_shot2_audio }
+  ]);
 
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
@@ -127,15 +137,17 @@ const Workbench = () => {
   // Generation Config
   const [genPrompt, setGenPrompt] = useState('');
   const [genDuration, setGenDuration] = useState<number>(10);
+  const [scriptVariantCount, setScriptVariantCount] = useState<number>(1);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
 
   // Scripts State
-  const [scripts, setScripts] = useState<ScriptItem[]>([
-    { id: 1, shot: '1', type: 'Medium', dur: '2s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio },
-    { id: 2, shot: '2', type: 'Detail', dur: '2s', visual: t.demo_shot2_visual, audio: t.demo_shot2_audio }
-  ]);
+  const [scripts, setScripts] = useState<ScriptItem[]>(() => buildDemoScripts());
+  const [scriptPages, setScriptPages] = useState<ScriptPage[]>(() => ([
+    { id: 'page-1', name: '脚本 1', scripts: buildDemoScripts() }
+  ]));
+  const [activeScriptPage, setActiveScriptPage] = useState(0);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -240,13 +252,10 @@ const Workbench = () => {
 
   // Sync Demo Scripts with Language (Only if untouched)
   useEffect(() => {
-    setScripts(prevScripts => {
+    updateScripts(prevScripts => {
       const isDemo = prevScripts.length === 2 && prevScripts[0].id === 1 && prevScripts[1].id === 2;
       if (isDemo) {
-        return [
-          { id: 1, shot: '1', type: 'Medium', dur: '2s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio },
-          { id: 2, shot: '2', type: 'Detail', dur: '2s', visual: t.demo_shot2_visual, audio: t.demo_shot2_audio }
-        ];
+        return buildDemoScripts();
       }
       return prevScripts;
     });
@@ -272,7 +281,24 @@ const Workbench = () => {
       }
       return s;
     });
-    setScripts(newScripts);
+    updateScripts(newScripts);
+  };
+
+  const updateScripts = (updater: ScriptItem[] | ((prev: ScriptItem[]) => ScriptItem[])) => {
+    setScripts(prev => {
+      const nextScripts = typeof updater === 'function' ? updater(prev) : updater;
+      setScriptPages(prevPages => {
+        const nextPages = [...prevPages];
+        const currentPage = nextPages[activeScriptPage] || {
+          id: `page-${activeScriptPage + 1}`,
+          name: `脚本 ${activeScriptPage + 1}`,
+          scripts: []
+        };
+        nextPages[activeScriptPage] = { ...currentPage, scripts: nextScripts };
+        return nextPages;
+      });
+      return nextScripts;
+    });
   };
 
   // --- API Actions: Templates ---
@@ -689,7 +715,7 @@ const Workbench = () => {
     const newId = scripts.length > 0 ? Math.max(...scripts.map(s => s.id)) + 1 : 1;
     const nextShotNum = scripts.length + 1;
     // Default duration split evenly or just 2s
-    setScripts([...scripts, { 
+    updateScripts([...scripts, { 
       id: newId, 
       shot: nextShotNum.toString(), 
       type: 'Medium', 
@@ -706,8 +732,21 @@ const Workbench = () => {
       ...s,
       shot: (index + 1).toString()
     }));
-    setScripts(reindexed);
+    updateScripts(reindexed);
   };
+
+  const handleScriptPageChange = (nextIndex: number) => {
+    if (nextIndex < 0 || nextIndex >= scriptPages.length) return;
+    setActiveScriptPage(nextIndex);
+    setScripts(scriptPages[nextIndex]?.scripts || []);
+  };
+
+  useEffect(() => {
+    if (activeScriptPage >= scriptPages.length && scriptPages.length > 0) {
+      setActiveScriptPage(scriptPages.length - 1);
+      setScripts(scriptPages[scriptPages.length - 1].scripts || []);
+    }
+  }, [activeScriptPage, scriptPages]);
 
   // --- API: Script Generation ---
   const handleGenerateScripts = async () => {
@@ -762,6 +801,7 @@ const Workbench = () => {
         product_category: category, 
         visual_style: style,
         aspect_ratio: resolution,
+        script_count: scriptVariantCount,
         
         script_content: {
             duration: duration,
@@ -771,6 +811,7 @@ const Workbench = () => {
             input: promptText,
             prompt: promptText,
             user_prompt: promptText,
+            script_count: scriptVariantCount,
             shots: [] 
         },
         product_image_path: imagePath || "http://1.95.137.119:8001/media/uploads/default.jpg",
@@ -783,16 +824,57 @@ const Workbench = () => {
       
       console.log("✅ Script Generated:", response);
 
-      if (response.code === 0 && response.data?.script_content?.shots) {
-        const newScripts = response.data.script_content.shots.map((shot: any) => ({
-            id: shot.shot_index,
-            shot: shot.shot_index.toString(),
-            type: 'General', 
-            dur: `${shot.duration_sec}s`,
-            visual: shot.visual,
-            audio: shot.audio || shot.voiceover || shot.beat 
-        }));
-        setScripts(newScripts);
+      const buildScriptsFromShots = (shots: any[]) => shots.map((shot: any) => ({
+        id: shot.shot_index,
+        shot: shot.shot_index.toString(),
+        type: 'General', 
+        dur: `${shot.duration_sec}s`,
+        visual: shot.visual,
+        audio: shot.audio || shot.voiceover || shot.beat 
+      }));
+
+      const extractScriptPages = (data: any): ScriptPage[] => {
+        if (!data) return [];
+        if (Array.isArray(data.script_contents)) {
+          return data.script_contents.map((sc: any, idx: number) => ({
+            id: `page-${idx + 1}`,
+            name: `脚本 ${idx + 1}`,
+            scripts: buildScriptsFromShots(sc?.shots || [])
+          }));
+        }
+        if (Array.isArray(data.script_variants)) {
+          return data.script_variants.map((variant: any, idx: number) => ({
+            id: `page-${idx + 1}`,
+            name: `脚本 ${idx + 1}`,
+            scripts: buildScriptsFromShots(variant?.script_content?.shots || variant?.shots || [])
+          }));
+        }
+        if (Array.isArray(data.variants)) {
+          return data.variants.map((variant: any, idx: number) => ({
+            id: `page-${idx + 1}`,
+            name: `脚本 ${idx + 1}`,
+            scripts: buildScriptsFromShots(variant?.script_content?.shots || variant?.shots || [])
+          }));
+        }
+        if (data.script_content?.shots) {
+          return [{
+            id: 'page-1',
+            name: '脚本 1',
+            scripts: buildScriptsFromShots(data.script_content.shots)
+          }];
+        }
+        return [];
+      };
+
+      if (response.code === 0) {
+        const pages = extractScriptPages(response.data);
+        if (pages.length > 0) {
+          setScriptPages(pages);
+          setActiveScriptPage(0);
+          setScripts(pages[0].scripts);
+        } else {
+          alert("Script generation completed but returned unexpected data.");
+        }
       } else {
         alert("Script generation completed but returned unexpected data.");
       }
@@ -1279,6 +1361,25 @@ const Workbench = () => {
                         ))}
                       </div>
                     </div>
+                    <div>
+                      <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">生成脚本数量</label>
+                      <div className="flex items-center gap-2 bg-black/40 p-2 rounded-lg border border-white/5">
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          step={1}
+                          value={scriptVariantCount}
+                          onChange={(e) => {
+                            const next = Math.max(1, Math.min(10, Number(e.target.value || 1)));
+                            setScriptVariantCount(Number.isNaN(next) ? 1 : next);
+                          }}
+                          className="w-16 bg-transparent text-xs text-zinc-200 focus:outline-none text-center"
+                        />
+                        <span className="text-[10px] text-zinc-500">份</span>
+                        <div className="text-[10px] text-zinc-500">同一提示生成多版脚本</div>
+                      </div>
+                    </div>
                     <button 
                         onClick={handleGenerateScripts} 
                         disabled={isGeneratingScript}
@@ -1299,6 +1400,27 @@ const Workbench = () => {
                     {/* Duration Validation Indicator */}
                     <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>
                         {currentScriptDuration.toFixed(1)}s / {genDuration}s
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => handleScriptPageChange(activeScriptPage - 1)}
+                        disabled={scriptPages.length <= 1 || activeScriptPage === 0}
+                        className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
+                        title="上一页"
+                      >
+                        <ArrowLeft className="w-3 h-3" />
+                      </button>
+                      <div className="text-[10px] text-zinc-400 border border-white/10 px-2 py-0.5 rounded">
+                        脚本 {activeScriptPage + 1} / {Math.max(scriptPages.length, 1)}
+                      </div>
+                      <button
+                        onClick={() => handleScriptPageChange(activeScriptPage + 1)}
+                        disabled={scriptPages.length <= 1 || activeScriptPage === scriptPages.length - 1}
+                        className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === scriptPages.length - 1 ? 'opacity-40 cursor-not-allowed' : ''}`}
+                        title="下一页"
+                      >
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
                     </div>
                   </div>
                   <button 
@@ -1340,7 +1462,7 @@ const Workbench = () => {
                                 <textarea 
                                   className="w-full bg-black/20 text-xs text-zinc-300 p-2 pt-6 rounded-lg border border-white/5 focus:border-orange-500/50 focus:outline-none resize-none min-h-[60px]" 
                                   value={script.visual} 
-                                  onChange={(e) => { const newScripts = scripts.map(s => s.id === script.id ? { ...s, visual: e.target.value } : s); setScripts(newScripts); }} 
+                                  onChange={(e) => { const newScripts = scripts.map(s => s.id === script.id ? { ...s, visual: e.target.value } : s); updateScripts(newScripts); }} 
                                 />
                            </div>
                            <div className="relative group/input">
@@ -1349,7 +1471,7 @@ const Workbench = () => {
                                   type="text" 
                                   className="w-full bg-black/20 text-xs text-zinc-400 p-2 pl-12 rounded-lg border border-white/5 focus:border-orange-500/50 focus:outline-none italic" 
                                   value={script.audio} 
-                                  onChange={(e) => { const newScripts = scripts.map(s => s.id === script.id ? { ...s, audio: e.target.value } : s); setScripts(newScripts); }} 
+                                  onChange={(e) => { const newScripts = scripts.map(s => s.id === script.id ? { ...s, audio: e.target.value } : s); updateScripts(newScripts); }} 
                                 />
                            </div>
                         </div>

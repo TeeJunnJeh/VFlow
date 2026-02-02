@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { TaskProvider } from './context/TaskContext';
 import { LanguageProvider } from './context/LanguageContext';
 import LoginPage from './pages/Login';
 import LandingPage from './pages/Landing';
@@ -108,11 +109,13 @@ const AnimatedRoutes = () => {
 function App() {
     return (
         <AuthProvider>
-            <LanguageProvider>
-                <BrowserRouter>
-                    <AnimatedRoutes />
-                </BrowserRouter>
-            </LanguageProvider>
+            <TaskProvider>
+                <LanguageProvider>
+                    <BrowserRouter>
+                        <AnimatedRoutes />
+                    </BrowserRouter>
+                </LanguageProvider>
+            </TaskProvider>
         </AuthProvider>
     );
 }

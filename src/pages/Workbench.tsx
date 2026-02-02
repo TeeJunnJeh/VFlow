@@ -9,6 +9,7 @@ import {
 import { useLocation } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext'; 
+import { useTasks } from '../context/TaskContext';
 import { authApi } from '../services/auth'; 
 import { LanguageSwitcher } from '../components/common/LanguageSwitcher';
 import { assetsApi, type Asset, type AssetFolder } from '../services/assets'; 
@@ -67,6 +68,7 @@ const ASSET_PLACEHOLDER_DATA_URL =
 const Workbench = () => {
   const { t } = useLanguage();
   const { user, updateUser, updateCredits, logout } = useAuth();
+  const { tasks, addTask, removeTask } = useTasks();
   const location = useLocation();
 
   // --- Global State ---
@@ -182,7 +184,7 @@ const Workbench = () => {
   // --- Reuse Queues ---
   const [assetQueue, setAssetQueue] = useState<QueuedAsset[]>([]);
   const [scriptQueue, setScriptQueue] = useState<QueuedScript[]>([]);
-  const [generatedBatch, setGeneratedBatch] = useState<Array<{ id: string; assetName: string; scriptName: string; url: string }>>([]);
+  const [generatedBatch, setGeneratedBatch] = useState<Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }>>([]);
 
   // --- Effects ---
   useEffect(() => {
@@ -823,7 +825,7 @@ const Workbench = () => {
     setGeneratedVideoUrl(null);
     setGeneratedBatch([]);
 
-    const results: Array<{ id: string; assetName: string; scriptName: string; url: string }> = [];
+    const results: Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }> = [];
     let errorCount = 0;
 
     const ensureAssetPath = async (asset: QueuedAsset) => {
@@ -881,16 +883,26 @@ const Workbench = () => {
             };
 
             const genResp = await videoApi.generate(payload);
-            const videoUrl = genResp.video_url || genResp.url || genResp.data?.video_url || genResp.data?.url;
+            const taskId = genResp?.data?.task_id || genResp?.task_id;
+            const projectId = genResp?.data?.project_id || newProjectId;
 
-            if (videoUrl) {
+            if (genResp?.code === 0 && taskId) {
+              addTask({
+                id: taskId,
+                projectId: String(projectId),
+                type: 'video_generation',
+                status: 'processing',
+                name: `${asset.name} × ${scriptItem.name}`,
+                thumbnail: asset.previewUrl || undefined,
+                createdAt: Date.now(),
+              });
+
               results.push({
                 id: `${asset.id}-${scriptItem.id}`,
                 assetName: asset.name,
                 scriptName: scriptItem.name,
-                url: videoUrl
+                taskId,
               });
-              setGeneratedVideoUrl(videoUrl);
             } else {
               errorCount += 1;
             }
@@ -903,9 +915,11 @@ const Workbench = () => {
       setGeneratedBatch(results);
       setIsGenerating(false);
       if (results.length === 0) {
-        alert('未生成任何视频，请检查队列或网络状态');
+        alert('未提交任何任务，请检查队列或网络状态');
       } else if (errorCount > 0) {
-        alert(`已完成批量生成，其中有 ${errorCount} 个任务失败`);
+        alert(`已提交 ${results.length} 个任务，其中有 ${errorCount} 个提交失败`);
+      } else {
+        alert(`已提交 ${results.length} 个后台任务，正在生成中…`);
       }
     }
   };
@@ -960,9 +974,17 @@ const Workbench = () => {
 
       if (!combinedScriptPrompt) throw new Error("Scripts are empty.");
 
+      // Clone the selected template into a new Project, so each generation has its own history record.
+      const cloneResp = await videoApi.cloneProject(selectedTemplate.id);
+      const newProjectId =
+        cloneResp?.data?.new_project_id ||
+        cloneResp?.new_project_id ||
+        cloneResp?.data?.id;
+      if (!newProjectId) throw new Error('克隆模板失败');
+
       const payload = {
         prompt: combinedScriptPrompt,
-        project_id: selectedTemplate.id, // Dynamic ID
+        project_id: newProjectId,
         duration: genDuration,
         image_path: apiPath, 
         sound: "on" as const,
@@ -972,18 +994,85 @@ const Workbench = () => {
       console.log("🚀 Sending Generation Request:", payload);
 
       const genResp = await videoApi.generate(payload);
-      const videoUrl = genResp.video_url || genResp.url || genResp.data?.video_url || genResp.data?.url;
+      const taskId = genResp?.data?.task_id || genResp?.task_id;
+      const projectId = genResp?.data?.project_id || newProjectId;
 
-      if (videoUrl) {
-        setGeneratedVideoUrl(videoUrl);
+      if (genResp?.code === 0 && taskId) {
+        addTask({
+          id: taskId,
+          projectId: String(projectId),
+          type: 'video_generation',
+          status: 'processing',
+          name: `${selectedTemplate.name || 'Video'} (${String(projectId).slice(0, 6)})`,
+          thumbnail: uploadedFile || apiPath || undefined,
+          createdAt: Date.now(),
+        });
+        alert("任务已提交到后台运行，您可以继续修改参数生成下一个！");
       } else {
-        alert("Video generated, but no URL found.");
+        alert("提交成功，但未返回任务ID。");
       }
     } catch (err: any) {
       alert(`Error: ${err.message || 'Generation failed'}`);
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const renderTaskQueue = () => {
+    if (!tasks || tasks.length === 0) return null;
+
+    const activeCount = tasks.filter(t => t.status === 'pending' || t.status === 'processing').length;
+    const recentTasks = tasks.slice(0, 6);
+
+    return (
+      <div className="absolute bottom-4 right-4 bg-zinc-900/90 border border-white/10 rounded-xl p-3 shadow-2xl w-72 z-50 backdrop-blur">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+            后台任务 {activeCount > 0 ? `(${activeCount} 进行中)` : ''}
+          </h3>
+        </div>
+
+        <div className="space-y-2 max-h-52 overflow-y-auto custom-scroll pr-1">
+          {recentTasks.map(t => {
+            const url = t.result?.video_url || t.result?.url;
+            const isActive = t.status === 'pending' || t.status === 'processing';
+
+            return (
+              <div key={t.id} className="flex items-center gap-2 text-[11px]">
+                {isActive ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-500 shrink-0" />
+                ) : t.status === 'success' ? (
+                  <CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                ) : (
+                  <X className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                )}
+
+                <button
+                  className="flex-1 text-left truncate text-zinc-200 hover:text-orange-400 transition"
+                  onClick={() => {
+                    if (url) {
+                      setGeneratedVideoUrl(url);
+                      setActiveView('workbench');
+                    }
+                  }}
+                  title={t.name || `Task ${t.id}`}
+                >
+                  {t.name || `Task ${t.id}`}
+                </button>
+
+                <button
+                  onClick={() => removeTask(t.id)}
+                  className="text-zinc-500 hover:text-zinc-200 transition"
+                  title="移除"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
   };
 
   // --- Components ---
@@ -1281,7 +1370,7 @@ const Workbench = () => {
                         <video src={generatedVideoUrl} controls autoPlay loop className="w-full h-full object-contain" />
                       ) : (
                         <>
-                          <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Generating Video...' : t.wb_waiting}</p></div>
+                          <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Submitting…' : t.wb_waiting}</p></div>
                           {isGenerating && <div className="absolute inset-0 flex items-center justify-center bg-black/50"><Loader2 className="w-8 h-8 text-orange-500 animate-spin" /></div>}
                         </>
                       )}
@@ -1297,11 +1386,29 @@ const Workbench = () => {
                     <div className="text-[10px] text-zinc-600">暂无结果</div>
                   ) : (
                     <div className="space-y-2">
-                      {generatedBatch.map(item => (
-                        <a key={item.id} href={item.url} target="_blank" rel="noreferrer" className="block text-[10px] text-zinc-300 hover:text-orange-400 transition">
-                          {item.assetName} × {item.scriptName}
-                        </a>
-                      ))}
+                      {generatedBatch.map(item => {
+                        const task = tasks.find(t => t.id === item.taskId);
+                        const status = task?.status;
+                        const url = task?.result?.video_url || task?.result?.url;
+
+                        return (
+                          <div key={item.id} className="flex items-center justify-between gap-2 text-[10px]">
+                            <span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>
+                            {status === 'success' && url ? (
+                              <button
+                                onClick={() => setGeneratedVideoUrl(url)}
+                                className="text-orange-400 hover:text-orange-300 transition"
+                              >
+                                预览
+                              </button>
+                            ) : status === 'failed' ? (
+                              <span className="text-red-400">失败</span>
+                            ) : (
+                              <span className="text-zinc-500">生成中…</span>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -2123,6 +2230,7 @@ const Workbench = () => {
            </div>
         )}
 
+        {renderTaskQueue()}
       </main>
     </div>
   );

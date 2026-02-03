@@ -137,6 +137,7 @@ const Workbench = () => {
   // Generation Config
   const [genPrompt, setGenPrompt] = useState('');
   const [genDuration, setGenDuration] = useState<number>(10);
+  const [soundSetting, setSoundSetting] = useState<'on' | 'off'>('on');
   const [scriptVariantCount, setScriptVariantCount] = useState<number>(1);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
@@ -955,14 +956,14 @@ const Workbench = () => {
 
             const newProjectId = await cloneProjectId();
 
-            const payload = {
-              prompt: combinedScriptPrompt,
-              project_id: newProjectId,
-              duration: scriptItem.duration,
-              image_path: apiPath,
-              sound: "on" as const,
-              asset_source: asset.source
-            };
+              const payload = {
+                prompt: combinedScriptPrompt,
+                project_id: newProjectId,
+                duration: scriptItem.duration,
+                image_path: apiPath,
+                sound: soundSetting,
+                asset_source: asset.source
+              };
 
             const genResp = await videoApi.generate(payload);
             const taskId = genResp?.data?.task_id || genResp?.task_id;
@@ -1069,7 +1070,7 @@ const Workbench = () => {
         project_id: newProjectId,
         duration: genDuration,
         image_path: apiPath, 
-        sound: "on" as const,
+        sound: soundSetting,
         asset_source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference')
       };
 
@@ -1359,6 +1360,23 @@ const Workbench = () => {
                         {[5, 10, 15].map(d => (
                           <button key={d} onClick={() => setGenDuration(d)} className={`flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${genDuration === d ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:bg-zinc-800'}`}>{d}s</button>
                         ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_audio}</label>
+                      <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
+                        <button
+                          onClick={() => setSoundSetting('on')}
+                          className={`flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'on' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:bg-zinc-800'}`}
+                        >
+                          {t.wb_config_audio_on}
+                        </button>
+                        <button
+                          onClick={() => setSoundSetting('off')}
+                          className={`flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'off' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:bg-zinc-800'}`}
+                        >
+                          {t.wb_config_audio_off}
+                        </button>
                       </div>
                     </div>
                     <div>

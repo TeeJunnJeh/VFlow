@@ -98,6 +98,9 @@ export const translations = {
     wb_config_prompt_label: "Prompt (Optional)",
     wb_config_prompt_placeholder: "E.g. Futuristic coffee ad, fast paced...",
     wb_config_duration: "Duration",
+    wb_config_audio: "Audio",
+    wb_config_audio_on: "On",
+    wb_config_audio_off: "Off",
     wb_btn_gen_scripts: "Generate Scripts",
 
     // Middle Col
@@ -309,6 +312,9 @@ export const translations = {
     wb_config_prompt_label: "创意描述 (选填)",
     wb_config_prompt_placeholder: "例如：未来感咖啡广告，节奏快...",
     wb_config_duration: "时长",
+    wb_config_audio: "音频",
+    wb_config_audio_on: "开启",
+    wb_config_audio_off: "关闭",
     wb_btn_gen_scripts: "生成分镜脚本",
 
     wb_col_scripts: "分镜脚本",
@@ -519,6 +525,9 @@ export const translations = {
     wb_config_prompt_label: "Prom (Pilihan)",
     wb_config_prompt_placeholder: "Cth. Iklan kopi futuristik, rentak pantas...",
     wb_config_duration: "Tempoh",
+    wb_config_audio: "Audio",
+    wb_config_audio_on: "On",
+    wb_config_audio_off: "Off",
     wb_btn_gen_scripts: "Jana Skrip",
 
     wb_col_scripts: "Skrip",
@@ -733,6 +742,9 @@ export const translations = {
     wb_config_prompt_label: "Câu lệnh (Tùy chọn)",
     wb_config_prompt_placeholder: "VD: Quảng cáo cà phê tương lai, nhịp nhanh...",
     wb_config_duration: "Thời lượng",
+    wb_config_audio: "Âm thanh",
+    wb_config_audio_on: "Bật",
+    wb_config_audio_off: "Tắt",
     wb_btn_gen_scripts: "Tạo kịch bản",
 
     wb_col_scripts: "Kịch bản",
@@ -948,6 +960,9 @@ export const translations = {
     wb_config_prompt_label: "프롬프트 (선택 사항)",
     wb_config_prompt_placeholder: "예: 미래지향적인 커피 광고, 빠른 템포...",
     wb_config_duration: "길이",
+    wb_config_audio: "오디오",
+    wb_config_audio_on: "켜짐",
+    wb_config_audio_off: "꺼짐",
     wb_btn_gen_scripts: "스크립트 생성",
 
     wb_col_scripts: "스크립트",

@@ -1478,76 +1478,29 @@ const Workbench = () => {
 
               {/* Middle Column */}
               <div className="flex-1 flex flex-col gap-3 h-full min-w-[300px]">
-                {/* --- HEADER --- */}
+                {/* --- HEADER (UPDATED) --- */}
                 <div className="flex justify-between items-center shrink-0 h-[32px]">
                   <div className="flex items-center gap-3">
                     <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
-                    
-                    {/* Duration Indicator */}
-                    <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>
-                        {currentScriptDuration.toFixed(1)}s / {genDuration}s
-                    </div>
-
-                    {/* Import/Export Buttons */}
+                    <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{currentScriptDuration.toFixed(1)}s / {genDuration}s</div>
+                    {/* NEW: Buttons Container */}
                     <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
-                        <button 
-                            onClick={handleDownloadScripts} 
-                            className="p-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition"
-                            title="Export Script (JSON)"
-                        >
-                            <FileDown className="w-3.5 h-3.5" />
-                        </button>
-                        <button 
-                            onClick={() => scriptFileInputRef.current?.click()} 
-                            className="p-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition"
-                            title="Import Script (JSON)"
-                        >
-                            <FileUp className="w-3.5 h-3.5" />
-                        </button>
-                        <input 
-                            type="file" 
-                            ref={scriptFileInputRef} 
-                            className="hidden" 
-                            accept=".json"
-                            onChange={handleUploadScripts} 
-                        />
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => handleScriptPageChange(activeScriptPage - 1)}
-                        disabled={scriptPages.length <= 1 || activeScriptPage === 0}
-                        className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
-                        title="上一页"
-                      >
-                        <ArrowLeft className="w-3 h-3" />
-                      </button>
-                      <div className="text-[10px] text-zinc-400 border border-white/10 px-2 py-0.5 rounded">
-                        脚本 {activeScriptPage + 1} / {Math.max(scriptPages.length, 1)}
-                      </div>
-                      <button
-                        onClick={() => handleScriptPageChange(activeScriptPage + 1)}
-                        disabled={scriptPages.length <= 1 || activeScriptPage === scriptPages.length - 1}
-                        className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === scriptPages.length - 1 ? 'opacity-40 cursor-not-allowed' : ''}`}
-                        title="下一页"
-                      >
-                        <ArrowRight className="w-3 h-3" />
-                      </button>
+                        <button onClick={handleDownloadScripts} className="p-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition" title="Export Script (JSON)"><FileDown className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => scriptFileInputRef.current?.click()} className="p-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition" title="Import Script (JSON)"><FileUp className="w-3.5 h-3.5" /></button>
+                        <input type="file" ref={scriptFileInputRef} className="hidden" accept=".json" onChange={handleUploadScripts} />
                     </div>
                   </div>
-
-                  <button 
-                    onClick={handleGenerateVideo} 
-                    disabled={isGenerating || (!isReuseReady && (!uploadedFile || !isDurationValid))} 
-                    className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating || (!isReuseReady && !isDurationValid) ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
-                    title={!isReuseReady && !isDurationValid ? `Total duration must match ${genDuration}s` : ''}
-                  >
-                     {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}
-                     {isGenerating ? 'Generating...' : t.wb_btn_gen_video}
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => handleScriptPageChange(activeScriptPage - 1)} disabled={scriptPages.length <= 1 || activeScriptPage === 0} className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === 0 ? 'opacity-40 cursor-not-allowed' : ''}`} title="上一页"><ArrowLeft className="w-3 h-3" /></button>
+                    <div className="text-[10px] text-zinc-400 border border-white/10 px-2 py-0.5 rounded">脚本 {activeScriptPage + 1} / {Math.max(scriptPages.length, 1)}</div>
+                    <button onClick={() => handleScriptPageChange(activeScriptPage + 1)} disabled={scriptPages.length <= 1 || activeScriptPage === scriptPages.length - 1} className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === scriptPages.length - 1 ? 'opacity-40 cursor-not-allowed' : ''}`} title="下一页"><ArrowRight className="w-3 h-3" /></button>
+                  </div>
+                  <button onClick={handleGenerateVideo} disabled={isGenerating || (!isReuseReady && (!uploadedFile || !isDurationValid))} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating || (!isReuseReady && !isDurationValid) ? 'opacity-50 cursor-not-allowed grayscale' : ''}`} title={!isReuseReady && !isDurationValid ? `Total duration must match ${genDuration}s` : ''}>{isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}{isGenerating ? 'Generating...' : t.wb_btn_gen_video}</button>
                 </div>
 
                 <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
                   {scripts.length === 0 ? (
-                      // --- EMPTY STATE ---
+                      // --- NEW: Empty State ---
                       <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
                           <FileJson className="w-10 h-10 mb-2 opacity-50" />
                           <p className="text-xs">No scripts yet.</p>
@@ -1558,72 +1511,12 @@ const Workbench = () => {
                           </div>
                       </div>
                   ) : (
-                      scripts.map((script, index) => (
+                    scripts.map((script, index) => (
                         <div key={script.id} className={`glass-card p-4 rounded-xl group relative border-l-2 ${index % 2 === 0 ? 'border-l-purple-500' : 'border-l-orange-500'}`}>
-                            <div className="flex justify-between items-start mb-3">
-                                <div className="flex items-center gap-2">
-                                    <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
-                                    <span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.type}</span>
-                                    {/* Editable Duration Input */}
-                                    <div className="flex items-center bg-black/20 border border-white/10 rounded px-1.5 gap-0.5">
-                                        <input type="number" step="0.1" min="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 focus:outline-none text-right" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
-                                        <span className="text-[10px] text-zinc-500">s</span>
-                                    </div>
-                                </div>
-                                <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1 hover:bg-white/5 rounded"><X className="w-3.5 h-3.5" /></button>
-                            </div>
-                            <div className="grid grid-cols-1 gap-3">
-                                <div className="relative group/input">
-                                    <p className="text-[9px] text-zinc-600 uppercase font-bold absolute top-2 left-2 pointer-events-none">{t.wb_visual}</p>
-                                    <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-2 pt-6 rounded-lg border border-white/5 focus:border-orange-500/50 focus:outline-none resize-none min-h-[60px]" value={script.visual} onChange={(e) => { const newScripts = scripts.map(s => s.id === script.id ? { ...s, visual: e.target.value } : s); setScripts(newScripts); }} />
-                                </div>
-                                <div className="relative group/input">
-                                    <p className="text-[9px] text-zinc-600 uppercase font-bold absolute top-2 left-2 pointer-events-none">{t.wb_audio}</p>
-                                    <input type="text" className="w-full bg-black/20 text-xs text-zinc-400 p-2 pl-12 rounded-lg border border-white/5 focus:border-orange-500/50 focus:outline-none italic" value={script.audio} onChange={(e) => { const newScripts = scripts.map(s => s.id === script.id ? { ...s, audio: e.target.value } : s); setScripts(newScripts); }} />
-                                </div>
-                            </div>
-                  {scripts.map((script, index) => (
-                     <div key={script.id} className={`glass-card p-4 rounded-xl group relative border-l-2 ${index % 2 === 0 ? 'border-l-purple-500' : 'border-l-orange-500'}`}>
-                        <div className="flex justify-between items-start mb-3">
-                           <div className="flex items-center gap-2">
-                              <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
-                              <span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.type}</span>
-                              
-                              {/* Editable Duration Input */}
-                              <div className="flex items-center bg-black/20 border border-white/10 rounded px-1.5 gap-0.5">
-                                <input 
-                                    type="number" 
-                                    step="0.1"
-                                    min="0.1"
-                                    className="w-8 bg-transparent text-[10px] text-zinc-300 focus:outline-none text-right"
-                                    value={parseFloat(script.dur.replace('s',''))}
-                                    onChange={(e) => handleDurationChange(script.id, e.target.value)}
-                                />
-                                <span className="text-[10px] text-zinc-500">s</span>
-                              </div>
-                           </div>
-                           <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1 hover:bg-white/5 rounded"><X className="w-3.5 h-3.5" /></button>
+                            <div className="flex justify-between items-start mb-3"><div className="flex items-center gap-2"><span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span><span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.type}</span><div className="flex items-center bg-black/20 border border-white/10 rounded px-1.5 gap-0.5"><input type="number" step="0.1" min="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 focus:outline-none text-right" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} /><span className="text-[10px] text-zinc-500">s</span></div></div><button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1 hover:bg-white/5 rounded"><X className="w-3.5 h-3.5" /></button></div>
+                            <div className="grid grid-cols-1 gap-3"><div className="relative group/input"><p className="text-[9px] text-zinc-600 uppercase font-bold absolute top-2 left-2 pointer-events-none">{t.wb_visual}</p><textarea className="w-full bg-black/20 text-xs text-zinc-300 p-2 pt-6 rounded-lg border border-white/5 focus:border-orange-500/50 focus:outline-none resize-none min-h-[60px]" value={script.visual} onChange={(e) => { const newScripts = scripts.map(s => s.id === script.id ? { ...s, visual: e.target.value } : s); updateScripts(newScripts); }} /></div><div className="relative group/input"><p className="text-[9px] text-zinc-600 uppercase font-bold absolute top-2 left-2 pointer-events-none">{t.wb_audio}</p><input type="text" className="w-full bg-black/20 text-xs text-zinc-400 p-2 pl-12 rounded-lg border border-white/5 focus:border-orange-500/50 focus:outline-none italic" value={script.audio} onChange={(e) => { const newScripts = scripts.map(s => s.id === script.id ? { ...s, audio: e.target.value } : s); updateScripts(newScripts); }} /></div></div>
                         </div>
-                        <div className="grid grid-cols-1 gap-3">
-                           <div className="relative group/input">
-                                <p className="text-[9px] text-zinc-600 uppercase font-bold absolute top-2 left-2 pointer-events-none">{t.wb_visual}</p>
-                                <textarea 
-                                  className="w-full bg-black/20 text-xs text-zinc-300 p-2 pt-6 rounded-lg border border-white/5 focus:border-orange-500/50 focus:outline-none resize-none min-h-[60px]" 
-                                  value={script.visual} 
-                                  onChange={(e) => { const newScripts = scripts.map(s => s.id === script.id ? { ...s, visual: e.target.value } : s); updateScripts(newScripts); }} 
-                                />
-                           </div>
-                           <div className="relative group/input">
-                                <p className="text-[9px] text-zinc-600 uppercase font-bold absolute top-2 left-2 pointer-events-none">{t.wb_audio}</p>
-                                <input 
-                                  type="text" 
-                                  className="w-full bg-black/20 text-xs text-zinc-400 p-2 pl-12 rounded-lg border border-white/5 focus:border-orange-500/50 focus:outline-none italic" 
-                                  value={script.audio} 
-                                  onChange={(e) => { const newScripts = scripts.map(s => s.id === script.id ? { ...s, audio: e.target.value } : s); updateScripts(newScripts); }} 
-                                />
-                           </div>
-                        </div>
-                      ))
+                    ))
                   )}
                   <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
                 </div>

@@ -4,7 +4,9 @@ import {
   SlidersHorizontal, ChevronDown, Wand2, Clapperboard, PlayCircle, Undo2, 
   RefreshCw, Trash2, MonitorPlay, Film, Play, SkipBack, SkipForward, Download, 
   Maximize, Share2, Music2, Instagram, Youtube, Send, FolderPlus, Upload, 
-  Flame, Gem, ArrowRight, Settings2, Video, HardDrive, Eye, Edit3, ArrowLeft, CheckCircle, Loader2, Folder, LogOut, User as UserIcon
+  Flame, Gem, ArrowRight, Settings2, Video, HardDrive, Eye, Edit3, ArrowLeft, CheckCircle, Loader2, Folder, LogOut, User as UserIcon,
+  // --- NEW ICONS ---
+  FileJson, FileUp, FileDown 
 } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
@@ -138,6 +140,10 @@ const Workbench = () => {
   ]);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // --- NEW: Reference for Script JSON Upload ---
+  const scriptFileInputRef = useRef<HTMLInputElement>(null);
+
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [assetList, setAssetList] = useState<Asset[]>([]);
   const [isLoadingAssets, setIsLoadingAssets] = useState(false);
@@ -273,6 +279,66 @@ const Workbench = () => {
       return s;
     });
     setScripts(newScripts);
+  };
+
+  // --- NEW: SCRIPT IMPORT / EXPORT FUNCTIONS ---
+
+  const handleDownloadScripts = () => {
+    if (scripts.length === 0) return alert("No scripts to download!");
+    
+    // Create JSON blob
+    const dataStr = JSON.stringify(scripts, null, 2);
+    const blob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    
+    // Trigger download
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `scripts_${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleUploadScripts = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string);
+        
+        // Validation: Check if array and has some expected fields
+        if (Array.isArray(parsed) && parsed.length > 0 && ('visual' in parsed[0] || 'shot' in parsed[0])) {
+           const validScripts = parsed.map((item: any, idx: number) => ({
+              id: item.id || Date.now() + idx,
+              shot: item.shot || (idx + 1).toString(),
+              type: item.type || 'General',
+              dur: item.dur || '2s',
+              visual: item.visual || '',
+              audio: item.audio || ''
+           }));
+           setScripts(validScripts);
+           
+           // Optional: Update duration config to match imported script
+           const newTotal = validScripts.reduce((acc: number, s: any) => acc + (parseFloat(s.dur.replace('s','')) || 0), 0);
+           if (Math.abs(newTotal - genDuration) > 0.5) {
+               // Update genDuration to match script if significantly different
+               setGenDuration(Math.ceil(newTotal));
+           }
+        } else {
+          alert("Invalid script format. Please upload a valid JSON file.");
+        }
+      } catch (err) {
+        console.error(err);
+        alert("Failed to parse script file.");
+      }
+    };
+    reader.readAsText(file);
+    // Reset file input so user can re-upload same file if needed
+    e.target.value = '';
   };
 
   // --- API Actions: Templates ---
@@ -1293,14 +1359,42 @@ const Workbench = () => {
 
               {/* Middle Column */}
               <div className="flex-1 flex flex-col gap-3 h-full min-w-[300px]">
+                {/* --- HEADER --- */}
                 <div className="flex justify-between items-center shrink-0 h-[32px]">
                   <div className="flex items-center gap-3">
                     <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
-                    {/* Duration Validation Indicator */}
+                    
+                    {/* Duration Indicator */}
                     <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>
                         {currentScriptDuration.toFixed(1)}s / {genDuration}s
                     </div>
+
+                    {/* Import/Export Buttons */}
+                    <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
+                        <button 
+                            onClick={handleDownloadScripts} 
+                            className="p-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition"
+                            title="Export Script (JSON)"
+                        >
+                            <FileDown className="w-3.5 h-3.5" />
+                        </button>
+                        <button 
+                            onClick={() => scriptFileInputRef.current?.click()} 
+                            className="p-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition"
+                            title="Import Script (JSON)"
+                        >
+                            <FileUp className="w-3.5 h-3.5" />
+                        </button>
+                        <input 
+                            type="file" 
+                            ref={scriptFileInputRef} 
+                            className="hidden" 
+                            accept=".json"
+                            onChange={handleUploadScripts} 
+                        />
+                    </div>
                   </div>
+
                   <button 
                     onClick={handleGenerateVideo} 
                     disabled={isGenerating || (!isReuseReady && (!uploadedFile || !isDurationValid))} 
@@ -1311,50 +1405,47 @@ const Workbench = () => {
                      {isGenerating ? 'Generating...' : t.wb_btn_gen_video}
                   </button>
                 </div>
+
                 <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
-                  {scripts.map((script, index) => (
-                     <div key={script.id} className={`glass-card p-4 rounded-xl group relative border-l-2 ${index % 2 === 0 ? 'border-l-purple-500' : 'border-l-orange-500'}`}>
-                        <div className="flex justify-between items-start mb-3">
-                           <div className="flex items-center gap-2">
-                              <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
-                              <span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.type}</span>
-                              
-                              {/* Editable Duration Input */}
-                              <div className="flex items-center bg-black/20 border border-white/10 rounded px-1.5 gap-0.5">
-                                <input 
-                                    type="number" 
-                                    step="0.1"
-                                    min="0.1"
-                                    className="w-8 bg-transparent text-[10px] text-zinc-300 focus:outline-none text-right"
-                                    value={parseFloat(script.dur.replace('s',''))}
-                                    onChange={(e) => handleDurationChange(script.id, e.target.value)}
-                                />
-                                <span className="text-[10px] text-zinc-500">s</span>
-                              </div>
-                           </div>
-                           <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1 hover:bg-white/5 rounded"><X className="w-3.5 h-3.5" /></button>
+                  {scripts.length === 0 ? (
+                      // --- EMPTY STATE ---
+                      <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
+                          <FileJson className="w-10 h-10 mb-2 opacity-50" />
+                          <p className="text-xs">No scripts yet.</p>
+                          <div className="flex gap-2 mt-3">
+                              <button onClick={() => scriptFileInputRef.current?.click()} className="text-[10px] text-orange-500 hover:underline">Upload JSON</button>
+                              <span className="text-[10px]">•</span>
+                              <button onClick={handleGenerateScripts} className="text-[10px] text-orange-500 hover:underline">Generate AI Script</button>
+                          </div>
+                      </div>
+                  ) : (
+                      scripts.map((script, index) => (
+                        <div key={script.id} className={`glass-card p-4 rounded-xl group relative border-l-2 ${index % 2 === 0 ? 'border-l-purple-500' : 'border-l-orange-500'}`}>
+                            <div className="flex justify-between items-start mb-3">
+                                <div className="flex items-center gap-2">
+                                    <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
+                                    <span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.type}</span>
+                                    {/* Editable Duration Input */}
+                                    <div className="flex items-center bg-black/20 border border-white/10 rounded px-1.5 gap-0.5">
+                                        <input type="number" step="0.1" min="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 focus:outline-none text-right" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
+                                        <span className="text-[10px] text-zinc-500">s</span>
+                                    </div>
+                                </div>
+                                <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1 hover:bg-white/5 rounded"><X className="w-3.5 h-3.5" /></button>
+                            </div>
+                            <div className="grid grid-cols-1 gap-3">
+                                <div className="relative group/input">
+                                    <p className="text-[9px] text-zinc-600 uppercase font-bold absolute top-2 left-2 pointer-events-none">{t.wb_visual}</p>
+                                    <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-2 pt-6 rounded-lg border border-white/5 focus:border-orange-500/50 focus:outline-none resize-none min-h-[60px]" value={script.visual} onChange={(e) => { const newScripts = scripts.map(s => s.id === script.id ? { ...s, visual: e.target.value } : s); setScripts(newScripts); }} />
+                                </div>
+                                <div className="relative group/input">
+                                    <p className="text-[9px] text-zinc-600 uppercase font-bold absolute top-2 left-2 pointer-events-none">{t.wb_audio}</p>
+                                    <input type="text" className="w-full bg-black/20 text-xs text-zinc-400 p-2 pl-12 rounded-lg border border-white/5 focus:border-orange-500/50 focus:outline-none italic" value={script.audio} onChange={(e) => { const newScripts = scripts.map(s => s.id === script.id ? { ...s, audio: e.target.value } : s); setScripts(newScripts); }} />
+                                </div>
+                            </div>
                         </div>
-                        <div className="grid grid-cols-1 gap-3">
-                           <div className="relative group/input">
-                                <p className="text-[9px] text-zinc-600 uppercase font-bold absolute top-2 left-2 pointer-events-none">{t.wb_visual}</p>
-                                <textarea 
-                                  className="w-full bg-black/20 text-xs text-zinc-300 p-2 pt-6 rounded-lg border border-white/5 focus:border-orange-500/50 focus:outline-none resize-none min-h-[60px]" 
-                                  value={script.visual} 
-                                  onChange={(e) => { const newScripts = scripts.map(s => s.id === script.id ? { ...s, visual: e.target.value } : s); setScripts(newScripts); }} 
-                                />
-                           </div>
-                           <div className="relative group/input">
-                                <p className="text-[9px] text-zinc-600 uppercase font-bold absolute top-2 left-2 pointer-events-none">{t.wb_audio}</p>
-                                <input 
-                                  type="text" 
-                                  className="w-full bg-black/20 text-xs text-zinc-400 p-2 pl-12 rounded-lg border border-white/5 focus:border-orange-500/50 focus:outline-none italic" 
-                                  value={script.audio} 
-                                  onChange={(e) => { const newScripts = scripts.map(s => s.id === script.id ? { ...s, audio: e.target.value } : s); setScripts(newScripts); }} 
-                                />
-                           </div>
-                        </div>
-                     </div>
-                  ))}
+                      ))
+                  )}
                   <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
                 </div>
               </div>
@@ -1379,38 +1470,9 @@ const Workbench = () => {
                       <div className="flex gap-4"><button className="text-zinc-400 hover:text-white"><SkipBack className="w-4 h-4" /></button><button className="text-white hover:text-orange-500"><Play className="w-4 h-4 fill-current" /></button><button className="text-zinc-400 hover:text-white"><SkipForward className="w-4 h-4" /></button></div>
                    </div>
                 </div>
-
                 <div className="glass-panel rounded-2xl p-4 border border-white/5 max-h-56 overflow-y-auto custom-scroll">
                   <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3">批量生成结果</div>
-                  {generatedBatch.length === 0 ? (
-                    <div className="text-[10px] text-zinc-600">暂无结果</div>
-                  ) : (
-                    <div className="space-y-2">
-                      {generatedBatch.map(item => {
-                        const task = tasks.find(t => t.id === item.taskId);
-                        const status = task?.status;
-                        const url = task?.result?.video_url || task?.result?.url;
-
-                        return (
-                          <div key={item.id} className="flex items-center justify-between gap-2 text-[10px]">
-                            <span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>
-                            {status === 'success' && url ? (
-                              <button
-                                onClick={() => setGeneratedVideoUrl(url)}
-                                className="text-orange-400 hover:text-orange-300 transition"
-                              >
-                                预览
-                              </button>
-                            ) : status === 'failed' ? (
-                              <span className="text-red-400">失败</span>
-                            ) : (
-                              <span className="text-zinc-500">生成中…</span>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                  {generatedBatch.length === 0 ? <div className="text-[10px] text-zinc-600">暂无结果</div> : <div className="space-y-2">{generatedBatch.map(item => { const task = tasks.find(t => t.id === item.taskId); const status = task?.status; const url = task?.result?.video_url || task?.result?.url; return (<div key={item.id} className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>{status === 'success' && url ? (<button onClick={() => setGeneratedVideoUrl(url)} className="text-orange-400 hover:text-orange-300 transition">预览</button>) : status === 'failed' ? (<span className="text-red-400">失败</span>) : (<span className="text-zinc-500">生成中…</span>)}</div>); })}</div>}
                 </div>
               </div>
             </div>
@@ -1419,11 +1481,7 @@ const Workbench = () => {
 
         {/* 2. ASSETS VIEW */}
         {activeView === 'assets' && (
-           <div
-              className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300"
-              onClick={() => setOpenFolderMenuId(null)}
-           >
-            
+           <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300" onClick={() => setOpenFolderMenuId(null)}>
              <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
                 <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.assets_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.assets_subtitle}</p></div>
                 <div className="flex gap-3 items-center">
@@ -1438,22 +1496,13 @@ const Workbench = () => {
              <div className="flex-1 flex flex-col p-10 overflow-hidden">
                 <div className="flex gap-4 mb-8 border-b border-white/5 pb-2">
                     {(['model', 'product', 'scene'] as AssetType[]).map(type => (
-                        <button
-                          key={type}
-                          onClick={() => setActiveAssetTab(type)}
-                          className={`text-sm font-bold px-6 py-2 rounded-full transition ${activeAssetTab === type ? 'bg-white text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}
-                        >
-                          {type === 'model' ? t.assets_tab_models : type === 'product' ? t.assets_tab_products : t.assets_tab_scenes}
-                        </button>
+                        <button key={type} onClick={() => setActiveAssetTab(type)} className={`text-sm font-bold px-6 py-2 rounded-full transition ${activeAssetTab === type ? 'bg-white text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>{type === 'model' ? t.assets_tab_models : type === 'product' ? t.assets_tab_products : t.assets_tab_scenes}</button>
                     ))}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-zinc-500 mb-4">
                   <button onClick={() => setCurrentFolderId(null)} className={`hover:text-white ${currentFolderId === null ? 'text-white' : ''}`}>{t.assets_root}</button>
                   {folderBreadcrumb.map(folder => (
-                    <div key={folder.id} className="flex items-center gap-2">
-                      <span>/</span>
-                      <button onClick={() => setCurrentFolderId(folder.id)} className={`hover:text-white ${currentFolderId === folder.id ? 'text-white' : ''}`}>{folder.name}</button>
-                    </div>
+                    <div key={folder.id} className="flex items-center gap-2"><span>/</span><button onClick={() => setCurrentFolderId(folder.id)} className={`hover:text-white ${currentFolderId === folder.id ? 'text-white' : ''}`}>{folder.name}</button></div>
                   ))}
                 </div>
                 <div className="flex-1 overflow-y-auto custom-scroll">
@@ -1463,39 +1512,13 @@ const Workbench = () => {
                         <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-6">
                             {folderList.map(folder => (
                               <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className="glass-card rounded-2xl aspect-[3/4] border border-zinc-800 flex flex-col items-center justify-center gap-3 cursor-pointer hover:border-orange-500/50 hover:bg-zinc-900/50 transition group relative">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setOpenFolderMenuId(prev => (prev === folder.id ? null : folder.id));
-                                  }}
-                                  className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/30 hover:bg-black/50 flex items-center justify-center text-zinc-300 hover:text-white"
-                                  aria-label="Folder menu"
-                                >
-                                  ...
-                                </button>
+                                <button onClick={(e) => { e.stopPropagation(); setOpenFolderMenuId(prev => (prev === folder.id ? null : folder.id)); }} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/30 hover:bg-black/50 flex items-center justify-center text-zinc-300 hover:text-white">...</button>
                                 {openFolderMenuId === folder.id && (
-                                  <div
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="absolute top-10 right-2 bg-zinc-900/90 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden text-xs z-50 min-w-[140px]"
-                                  >
+                                  <div onClick={(e) => e.stopPropagation()} className="absolute top-10 right-2 bg-zinc-900/90 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden text-xs z-50 min-w-[140px]">
                                     <button className="w-full text-left px-3 py-2 hover:bg-white/5 text-zinc-200" onClick={() => handleRenameFolder(folder)}>{t.assets_folder_menu_rename}</button>
-                                    <button
-                                      className="w-full text-left px-3 py-2 hover:bg-white/5 text-red-300"
-                                      onClick={() => {
-                                        setOpenFolderMenuId(null);
-                                        openConfirmModal({
-                                          title: t.assets_confirm_delete_folder,
-                                          message: `${folder.name}\n\n${t.assets_confirm_body_irreversible}`,
-                                          danger: true,
-                                          onConfirm: () => handleDeleteFolder(folder),
-                                        });
-                                      }}
-                                    >
-                                      {t.assets_folder_menu_delete}
-                                    </button>
+                                    <button className="w-full text-left px-3 py-2 hover:bg-white/5 text-red-300" onClick={() => { setOpenFolderMenuId(null); openConfirmModal({ title: t.assets_confirm_delete_folder, message: `${folder.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => handleDeleteFolder(folder) }); }}>{t.assets_folder_menu_delete}</button>
                                   </div>
                                 )}
-
                                 <div className="w-14 h-14 rounded-full bg-zinc-800 flex items-center justify-center group-hover:scale-110 transition"><Folder className="w-6 h-6 text-zinc-400 group-hover:text-orange-500" /></div>
                                 <span className="text-xs font-bold text-zinc-300 truncate max-w-[120px]">{folder.name}</span>
                               </div>
@@ -1507,63 +1530,15 @@ const Workbench = () => {
                             {filteredAssets.map(asset => (
                                 <div key={asset.id} className="glass-card rounded-2xl p-2 group relative">
                                     <div className="aspect-[3/4] bg-zinc-800 rounded-xl overflow-hidden relative cursor-zoom-in" onClick={() => openAssetPreview(asset)}>
-                                        {asset.file_url ? (
-                                            <img src={getDisplayUrl(asset.file_url) || ASSET_PLACEHOLDER_DATA_URL} className="w-full h-full object-cover" alt={asset.name} onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }} />
-                                        ) : (
-                                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-center justify-center text-zinc-600">No Preview</div>
-                                        )}
+                                        {asset.file_url ? <img src={getDisplayUrl(asset.file_url) || ASSET_PLACEHOLDER_DATA_URL} className="w-full h-full object-cover" alt={asset.name} onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }} /> : <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-center justify-center text-zinc-600">No Preview</div>}
                                         <div className="absolute bottom-3 left-3"><p className="text-xs font-bold text-white truncate w-24">{asset.name}</p><p className="text-[10px] text-zinc-400">{asset.size || '-- MB'}</p></div>
                                         <div className="absolute top-2 right-2 bg-black/40 px-2 py-0.5 rounded text-[9px] text-white backdrop-blur-sm capitalize">{asset.status}</div>
                                     </div>
                                     <div className="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-2xl flex flex-col items-center justify-center gap-2">
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setUploadedFile(getDisplayUrl(asset.file_url) || null);
-                                          setFileName(asset.name || '');
-                                          setSelectedFileObj(null);
-                                              setSelectedAssetUrl(asset.file_url || null);
-                                              setSelectedAssetSource('preference');
-                                          setGeneratedVideoUrl(null);
-                                          setActiveView('workbench');
-                                        }}
-                                        className="bg-white text-black px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition"
-                                      >
-                                        {t.assets_use_in_workbench}
-                                      </button>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          openAssetPreview(asset);
-                                        }}
-                                        className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition flex items-center gap-2"
-                                      >
-                                        <Eye className="w-3.5 h-3.5" />
-                                        {t.assets_view_image}
-                                      </button>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          openMoveDialog(asset);
-                                        }}
-                                        className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition"
-                                      >
-                                        {t.assets_move_asset}
-                                      </button>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          openConfirmModal({
-                                            title: t.assets_confirm_delete_asset,
-                                            message: `${asset.name}\n\n${t.assets_confirm_body_irreversible}`,
-                                            danger: true,
-                                            onConfirm: () => deleteAssetById(asset.id),
-                                          });
-                                        }}
-                                        className="text-red-400 text-xs hover:text-red-300"
-                                      >
-                                        {t.assets_delete}
-                                      </button>
+                                        <button onClick={(e) => { e.stopPropagation(); setUploadedFile(getDisplayUrl(asset.file_url) || null); setFileName(asset.name || ''); setSelectedFileObj(null); setSelectedAssetUrl(asset.file_url || null); setSelectedAssetSource('preference'); setGeneratedVideoUrl(null); setActiveView('workbench'); }} className="bg-white text-black px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition">{t.assets_use_in_workbench}</button>
+                                        <button onClick={(e) => { e.stopPropagation(); openAssetPreview(asset); }} className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition flex items-center gap-2"><Eye className="w-3.5 h-3.5" /> {t.assets_view_image}</button>
+                                        <button onClick={(e) => { e.stopPropagation(); openMoveDialog(asset); }} className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition">{t.assets_move_asset}</button>
+                                        <button onClick={(e) => { e.stopPropagation(); openConfirmModal({ title: t.assets_confirm_delete_asset, message: `${asset.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => deleteAssetById(asset.id) }); }} className="text-red-400 text-xs hover:text-red-300">{t.assets_delete}</button>
                                     </div>
                                 </div>
                             ))}
@@ -1576,38 +1551,9 @@ const Workbench = () => {
 
         {isAssetPreviewOpen && assetPreview && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6" onClick={closeAssetPreview}>
-            <div
-              className="glass-panel rounded-2xl p-4 md:p-6 border border-white/10 w-auto max-w-[calc(100vw-3rem)]"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between gap-4 mb-4">
-                <div className="min-w-0">
-                  <h3 className="text-sm font-bold text-zinc-200">{t.assets_preview_title}</h3>
-                  <div className="text-xs text-zinc-500 truncate">{assetPreview.name}</div>
-                </div>
-                <button className="text-zinc-400 hover:text-white" onClick={closeAssetPreview}>x</button>
-              </div>
-
-              <div className="flex items-center justify-center">
-                {assetPreview.file_url ? (
-                  <div className="inline-flex bg-black/30 rounded-xl border border-white/10 overflow-hidden">
-                    <img
-                      src={getDisplayUrl(assetPreview.file_url) || ASSET_PLACEHOLDER_DATA_URL}
-                      alt={assetPreview.name}
-                      className="block"
-                      style={{
-                        maxWidth: 'calc(100vw - 6rem)',
-                        maxHeight: '72vh',
-                        width: 'auto',
-                        height: 'auto'
-                      }}
-                      onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }}
-                    />
-                  </div>
-                ) : (
-                  <div className="py-24 text-zinc-500">No Preview</div>
-                )}
-              </div>
+            <div className="glass-panel rounded-2xl p-4 md:p-6 border border-white/10 w-auto max-w-[calc(100vw-3rem)]" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between gap-4 mb-4"><div className="min-w-0"><h3 className="text-sm font-bold text-zinc-200">{t.assets_preview_title}</h3><div className="text-xs text-zinc-500 truncate">{assetPreview.name}</div></div><button className="text-zinc-400 hover:text-white" onClick={closeAssetPreview}>x</button></div>
+              <div className="flex items-center justify-center">{assetPreview.file_url ? <div className="inline-flex bg-black/30 rounded-xl border border-white/10 overflow-hidden"><img src={getDisplayUrl(assetPreview.file_url) || ASSET_PLACEHOLDER_DATA_URL} alt={assetPreview.name} className="block" style={{ maxWidth: 'calc(100vw - 6rem)', maxHeight: '72vh', width: 'auto', height: 'auto' }} onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }} /></div> : <div className="py-24 text-zinc-500">No Preview</div>}</div>
             </div>
           </div>
         )}
@@ -1615,68 +1561,22 @@ const Workbench = () => {
         {isMoveModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6" onClick={closeMoveDialog}>
             <div className="w-full max-w-md glass-panel rounded-2xl p-6 border border-white/10" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-bold text-zinc-200">{t.assets_move_title}</h3>
-                <button className="text-zinc-400 hover:text-white" onClick={closeMoveDialog}>x</button>
-              </div>
-
-              <div className="text-xs text-zinc-500 mb-3 truncate">
-                {moveAsset?.name}
-              </div>
-
+              <div className="flex items-center justify-between mb-4"><h3 className="text-sm font-bold text-zinc-200">{t.assets_move_title}</h3><button className="text-zinc-400 hover:text-white" onClick={closeMoveDialog}>x</button></div>
+              <div className="text-xs text-zinc-500 mb-3 truncate">{moveAsset?.name}</div>
               <div className="relative">
-                <button
-                  className={`w-full bg-black/30 text-zinc-200 text-sm rounded-lg border px-3 py-2 flex items-center justify-between focus:outline-none transition ${isMoveDropdownOpen ? 'border-orange-500/60' : 'border-white/10 hover:border-white/20'}`}
-                  onClick={() => setIsMoveDropdownOpen(v => !v)}
-                >
-                  <span className="truncate">
-                    {(() => {
-                      if (!moveTargetFolderId) return t.assets_move_root;
-                      const found = moveFolders.find(f => f.id === moveTargetFolderId);
-                      return found?.name || t.assets_move_root;
-                    })()}
-                  </span>
-                  <span className="text-zinc-400">v</span>
+                <button className={`w-full bg-black/30 text-zinc-200 text-sm rounded-lg border px-3 py-2 flex items-center justify-between focus:outline-none transition ${isMoveDropdownOpen ? 'border-orange-500/60' : 'border-white/10 hover:border-white/20'}`} onClick={() => setIsMoveDropdownOpen(v => !v)}>
+                  <span className="truncate">{(() => { if (!moveTargetFolderId) return t.assets_move_root; const found = moveFolders.find(f => f.id === moveTargetFolderId); return found?.name || t.assets_move_root; })()}</span><span className="text-zinc-400">v</span>
                 </button>
-
                 {isMoveDropdownOpen && (
                   <div className="absolute mt-2 w-full max-h-64 overflow-auto rounded-lg border border-white/10 bg-zinc-950/90 backdrop-blur-sm shadow-xl z-[120]">
-                    <button
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-white/5 ${moveTargetFolderId === null ? 'text-white' : 'text-zinc-200'}`}
-                      onClick={() => {
-                        setMoveTargetFolderId(null);
-                        setIsMoveDropdownOpen(false);
-                      }}
-                    >
-                      {t.assets_move_root}
-                    </button>
-                    {buildFolderOptions(moveFolders).map(opt => (
-                      <button
-                        key={opt.id}
-                        className={`w-full text-left px-3 py-2 text-sm hover:bg-white/5 ${moveTargetFolderId === opt.id ? 'text-white' : 'text-zinc-200'}`}
-                        onClick={() => {
-                          setMoveTargetFolderId(opt.id);
-                          setIsMoveDropdownOpen(false);
-                        }}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
+                    <button className={`w-full text-left px-3 py-2 text-sm hover:bg-white/5 ${moveTargetFolderId === null ? 'text-white' : 'text-zinc-200'}`} onClick={() => { setMoveTargetFolderId(null); setIsMoveDropdownOpen(false); }}>{t.assets_move_root}</button>
+                    {buildFolderOptions(moveFolders).map(opt => (<button key={opt.id} className={`w-full text-left px-3 py-2 text-sm hover:bg-white/5 ${moveTargetFolderId === opt.id ? 'text-white' : 'text-zinc-200'}`} onClick={() => { setMoveTargetFolderId(opt.id); setIsMoveDropdownOpen(false); }}>{opt.label}</button>))}
                   </div>
                 )}
               </div>
-
               <div className="flex justify-end gap-3 mt-5">
-                <button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={closeMoveDialog}>
-                  {t.assets_move_cancel}
-                </button>
-                <button
-                  className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-500 disabled:opacity-60"
-                  onClick={handleConfirmMove}
-                  disabled={isMovingAsset}
-                >
-                  {t.assets_move_confirm}
-                </button>
+                <button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={closeMoveDialog}>{t.assets_move_cancel}</button>
+                <button className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-500 disabled:opacity-60" onClick={handleConfirmMove} disabled={isMovingAsset}>{t.assets_move_confirm}</button>
               </div>
             </div>
           </div>
@@ -1685,37 +1585,12 @@ const Workbench = () => {
         {isFolderModalOpen && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6" onClick={closeFolderModal}>
             <div className="w-full max-w-md glass-panel rounded-2xl p-6 border border-white/10" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-bold text-zinc-200">
-                  {folderModalMode === 'create' ? t.assets_new_folder_title : t.assets_rename_folder_title}
-                </h3>
-                <button className="text-zinc-400 hover:text-white" onClick={closeFolderModal}>x</button>
-              </div>
-
+              <div className="flex items-center justify-between mb-4"><h3 className="text-sm font-bold text-zinc-200">{folderModalMode === 'create' ? t.assets_new_folder_title : t.assets_rename_folder_title}</h3><button className="text-zinc-400 hover:text-white" onClick={closeFolderModal}>x</button></div>
               <label className="block text-xs text-zinc-500 mb-2">{t.assets_name_label}</label>
-              <input
-                ref={folderNameInputRef}
-                className="w-full bg-black/30 text-zinc-200 text-sm rounded-lg border border-white/10 px-3 py-2 focus:outline-none focus:border-orange-500/50"
-                value={folderNameInput}
-                onChange={(e) => setFolderNameInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') submitFolderModal();
-                  if (e.key === 'Escape') closeFolderModal();
-                }}
-                placeholder={t.assets_new_folder_prompt}
-              />
-
+              <input ref={folderNameInputRef} className="w-full bg-black/30 text-zinc-200 text-sm rounded-lg border border-white/10 px-3 py-2 focus:outline-none focus:border-orange-500/50" value={folderNameInput} onChange={(e) => setFolderNameInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submitFolderModal(); if (e.key === 'Escape') closeFolderModal(); }} placeholder={t.assets_new_folder_prompt} />
               <div className="flex justify-end gap-3 mt-5">
-                <button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={closeFolderModal}>
-                  {t.assets_move_cancel}
-                </button>
-                <button
-                  className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-500 disabled:opacity-60"
-                  onClick={submitFolderModal}
-                  disabled={isSavingFolder}
-                >
-                  {folderModalMode === 'create' ? t.assets_btn_new_folder : t.assets_save}
-                </button>
+                <button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={closeFolderModal}>{t.assets_move_cancel}</button>
+                <button className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-500 disabled:opacity-60" onClick={submitFolderModal} disabled={isSavingFolder}>{folderModalMode === 'create' ? t.assets_btn_new_folder : t.assets_save}</button>
               </div>
             </div>
           </div>
@@ -1724,32 +1599,11 @@ const Workbench = () => {
         {isConfirmModalOpen && (
           <div className="fixed inset-0 z-[115] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6" onClick={closeConfirmModal}>
             <div className="w-full max-w-md glass-panel rounded-2xl p-6 border border-white/10" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-bold text-zinc-200">{confirmTitle || t.assets_confirm_title}</h3>
-                <button className="text-zinc-400 hover:text-white" onClick={closeConfirmModal}>x</button>
-              </div>
-
-              {confirmMessage && (
-                <div className="text-sm text-zinc-300 whitespace-pre-line">
-                  {confirmMessage}
-                </div>
-              )}
-
+              <div className="flex items-center justify-between mb-4"><h3 className="text-sm font-bold text-zinc-200">{confirmTitle || t.assets_confirm_title}</h3><button className="text-zinc-400 hover:text-white" onClick={closeConfirmModal}>x</button></div>
+              {confirmMessage && <div className="text-sm text-zinc-300 whitespace-pre-line">{confirmMessage}</div>}
               <div className="flex justify-end gap-3 mt-5">
-                <button
-                  className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700 disabled:opacity-60"
-                  onClick={closeConfirmModal}
-                  disabled={confirmIsWorking}
-                >
-                  {t.assets_move_cancel}
-                </button>
-                <button
-                  className={`px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-60 ${confirmIsDanger ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-orange-600 hover:bg-orange-500 text-white'}`}
-                  onClick={runConfirmAction}
-                  disabled={confirmIsWorking}
-                >
-                  {confirmIsWorking ? '...' : t.assets_delete}
-                </button>
+                <button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700 disabled:opacity-60" onClick={closeConfirmModal} disabled={confirmIsWorking}>{t.assets_move_cancel}</button>
+                <button className={`px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-60 ${confirmIsDanger ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-orange-600 hover:bg-orange-500 text-white'}`} onClick={runConfirmAction} disabled={confirmIsWorking}>{confirmIsWorking ? '...' : t.assets_delete}</button>
               </div>
             </div>
           </div>
@@ -1760,10 +1614,7 @@ const Workbench = () => {
           <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
              <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
                 <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.tpl_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.tpl_subtitle}</p></div>
-                <div className="flex items-center gap-3">
-                    <LanguageSwitcher />
-                    <button onClick={() => openEditor()} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20"><Plus className="w-4 h-4" /> {t.tpl_btn_new}</button>
-                </div>
+                <div className="flex items-center gap-3"><LanguageSwitcher /><button onClick={() => openEditor()} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20"><Plus className="w-4 h-4" /> {t.tpl_btn_new}</button></div>
              </header>
              <div className="flex-1 overflow-y-auto p-10">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -1773,22 +1624,8 @@ const Workbench = () => {
                         <div className={`absolute -right-10 -top-10 w-32 h-32 rounded-full blur-2xl transition group-hover:opacity-40 opacity-20 ${tpl.icon === 'gem' ? 'bg-orange-500' : 'bg-purple-500'}`} />
                         <div className="relative z-10">
                           <div className="flex justify-between items-start mb-6">
-                            <div className="w-12 h-12 rounded-xl bg-zinc-800/80 border border-white/5 flex items-center justify-center text-white shadow-lg">
-                              {tpl.icon === 'gem' ? <Gem className="w-6 h-6" /> : (tpl.icon === 'zap' ? <Zap className="w-6 h-6"/> : <Flame className="w-6 h-6"/>)}
-                            </div>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openConfirmModal({
-                                  title: t.assets_confirm_delete_template ?? 'Delete template',
-                                  message: `${tpl.name}\n\n${t.assets_confirm_body_irreversible}`,
-                                  danger: true,
-                                  onConfirm: () => handleDeleteTemplate(tpl.id!),
-                                });
-                              }}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <div className="w-12 h-12 rounded-xl bg-zinc-800/80 border border-white/5 flex items-center justify-center text-white shadow-lg">{tpl.icon === 'gem' ? <Gem className="w-6 h-6" /> : (tpl.icon === 'zap' ? <Zap className="w-6 h-6"/> : <Flame className="w-6 h-6"/>)}</div>
+                            <button onClick={(e) => { e.stopPropagation(); openConfirmModal({ title: t.assets_confirm_delete_template ?? 'Delete template', message: `${tpl.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => handleDeleteTemplate(tpl.id!), }); }}><Trash2 className="w-4 h-4" /></button>
                           </div>
                           <h3 className="text-xl font-bold text-white mb-1">{tpl.name}</h3>
                           <p className="text-xs text-zinc-500 mb-6 font-mono capitalize">{tpl.product_category} • {tpl.visual_style}</p>
@@ -1809,140 +1646,26 @@ const Workbench = () => {
         {activeView === 'editor' && (
            <div className="flex flex-col h-full z-20 bg-zinc-950 animate-in fade-in zoom-in-95 duration-200">
              <div className="px-10 py-6 border-b border-white/5 flex justify-between items-center gap-4 bg-zinc-900/30 relative z-50">
-                <div className="flex items-center gap-4">
-                    <button onClick={() => setActiveView('templates')} className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center hover:bg-zinc-700 transition"><ArrowLeft className="w-5 h-5" /></button>
-                    <div><h1 className="text-xl font-bold text-white">{editingTemplate ? 'Edit Template' : t.editor_title}</h1><p className="text-xs text-zinc-500">{t.editor_subtitle}</p></div>
-                </div>
+                <div className="flex items-center gap-4"><button onClick={() => setActiveView('templates')} className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center hover:bg-zinc-700 transition"><ArrowLeft className="w-5 h-5" /></button><div><h1 className="text-xl font-bold text-white">{editingTemplate ? 'Edit Template' : t.editor_title}</h1><p className="text-xs text-zinc-500">{t.editor_subtitle}</p></div></div>
                 <LanguageSwitcher />
              </div>
              <div className="flex-1 overflow-y-auto p-10 max-w-5xl mx-auto w-full custom-scroll">
                 <div className="glass-panel p-8 rounded-3xl border border-white/10 space-y-8">
                    <div className="grid grid-cols-2 gap-8">
-                      <div className="space-y-2">
-                        <label className="text-sm font-bold text-zinc-400">{t.editor_label_name}</label>
-                        <input type="text" value={editorForm.name} onChange={e => setEditorForm({...editorForm, name: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white" />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-bold text-zinc-400">{t.editor_label_icon}</label>
-                        <div className="flex gap-3">
-                            {['flame', 'gem', 'zap'].map(icon => (
-                              <button key={icon} onClick={() => setEditorForm({...editorForm, icon})} className={`w-12 h-12 rounded-xl border flex items-center justify-center transition ${editorForm.icon === icon ? 'bg-orange-500/20 border-orange-500 text-orange-500' : 'bg-zinc-800 border-white/5 text-zinc-500 hover:text-white'}`}>
-                                {icon === 'flame' && <Flame className="w-6 h-6" />}
-                                {icon === 'gem' && <Gem className="w-6 h-6" />}
-                                {icon === 'zap' && <Zap className="w-6 h-6" />}
-                              </button>
-                            ))}
-                        </div>
-                      </div>
+                      <div className="space-y-2"><label className="text-sm font-bold text-zinc-400">{t.editor_label_name}</label><input type="text" value={editorForm.name} onChange={e => setEditorForm({...editorForm, name: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white" /></div>
+                      <div className="space-y-2"><label className="text-sm font-bold text-zinc-400">{t.editor_label_icon}</label><div className="flex gap-3">{['flame', 'gem', 'zap'].map(icon => (<button key={icon} onClick={() => setEditorForm({...editorForm, icon})} className={`w-12 h-12 rounded-xl border flex items-center justify-center transition ${editorForm.icon === icon ? 'bg-orange-500/20 border-orange-500 text-orange-500' : 'bg-zinc-800 border-white/5 text-zinc-500 hover:text-white'}`}>{icon === 'flame' && <Flame className="w-6 h-6" />}{icon === 'gem' && <Gem className="w-6 h-6" />}{icon === 'zap' && <Zap className="w-6 h-6" />}</button>))}</div></div>
                    </div>
                    <hr className="border-white/5" />
                    <div className="grid grid-cols-2 gap-8">
-                      <div className="space-y-2">
-                        <label className="text-sm font-bold text-zinc-400">{t.editor_label_category}</label>
-                        <div className="relative">
-                            <select
-                              value={isCustomCategory ? '__custom__' : editorForm.product_category}
-                              onChange={e => {
-                                const value = e.target.value;
-                                if (value === '__custom__') {
-                                  setIsCustomCategory(true);
-                                  setEditorForm({ ...editorForm, product_category: customCategory });
-                                } else {
-                                  setIsCustomCategory(false);
-                                  setCustomCategory('');
-                                  setEditorForm({ ...editorForm, product_category: value });
-                                }
-                              }}
-                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer"
-                            >
-                                <option value="camera">{t.opt_cat_camera}</option>
-                                <option value="beauty">{t.opt_cat_beauty}</option>
-                                <option value="food">{t.opt_cat_food}</option>
-                                <option value="electronics">{t.opt_cat_digital}</option>
-                                <option value="__custom__">{t.opt_cat_custom}</option>
-                            </select>
-                            <ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-zinc-500 pointer-events-none" />
-                        </div>
-                        {isCustomCategory && (
-                          <input
-                            type="text"
-                            value={customCategory}
-                            onChange={e => {
-                              const value = e.target.value;
-                              setCustomCategory(value);
-                              setEditorForm({ ...editorForm, product_category: value });
-                            }}
-                            placeholder={t.editor_ph_select}
-                            className="mt-3 w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white"
-                          />
-                        )}
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-bold text-zinc-400">{t.editor_label_style}</label>
-                        <div className="relative">
-                            <select
-                              value={isCustomStyle ? '__custom__' : editorForm.visual_style}
-                              onChange={e => {
-                                const value = e.target.value;
-                                if (value === '__custom__') {
-                                  setIsCustomStyle(true);
-                                  setEditorForm({ ...editorForm, visual_style: customStyle });
-                                } else {
-                                  setIsCustomStyle(false);
-                                  setCustomStyle('');
-                                  setEditorForm({ ...editorForm, visual_style: value });
-                                }
-                              }}
-                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer"
-                            >
-                                <option value="realistic">{t.opt_style_real}</option>
-                                <option value="cinematic">{t.opt_style_cine}</option>
-                                <option value="3d">{t.opt_style_3d}</option>
-                                <option value="anime">{t.opt_style_anime}</option>
-                                <option value="__custom__">{t.opt_style_custom}</option>
-                            </select>
-                            <ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-zinc-500 pointer-events-none" />
-                        </div>
-                        {isCustomStyle && (
-                          <input
-                            type="text"
-                            value={customStyle}
-                            onChange={e => {
-                              const value = e.target.value;
-                              setCustomStyle(value);
-                              setEditorForm({ ...editorForm, visual_style: value });
-                            }}
-                            placeholder={t.editor_ph_select}
-                            className="mt-3 w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white"
-                          />
-                        )}
-                      </div>
+                      <div className="space-y-2"><label className="text-sm font-bold text-zinc-400">{t.editor_label_category}</label><div className="relative"><select value={isCustomCategory ? '__custom__' : editorForm.product_category} onChange={e => { const value = e.target.value; if (value === '__custom__') { setIsCustomCategory(true); setEditorForm({ ...editorForm, product_category: customCategory }); } else { setIsCustomCategory(false); setCustomCategory(''); setEditorForm({ ...editorForm, product_category: value }); } }} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer"><option value="camera">{t.opt_cat_camera}</option><option value="beauty">{t.opt_cat_beauty}</option><option value="food">{t.opt_cat_food}</option><option value="electronics">{t.opt_cat_digital}</option><option value="__custom__">{t.opt_cat_custom}</option></select><ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-zinc-500 pointer-events-none" /></div>{isCustomCategory && (<input type="text" value={customCategory} onChange={e => { const value = e.target.value; setCustomCategory(value); setEditorForm({ ...editorForm, product_category: value }); }} placeholder={t.editor_ph_select} className="mt-3 w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white" />)}</div>
+                      <div className="space-y-2"><label className="text-sm font-bold text-zinc-400">{t.editor_label_style}</label><div className="relative"><select value={isCustomStyle ? '__custom__' : editorForm.visual_style} onChange={e => { const value = e.target.value; if (value === '__custom__') { setIsCustomStyle(true); setEditorForm({ ...editorForm, visual_style: customStyle }); } else { setIsCustomStyle(false); setCustomStyle(''); setEditorForm({ ...editorForm, visual_style: value }); } }} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer"><option value="realistic">{t.opt_style_real}</option><option value="cinematic">{t.opt_style_cine}</option><option value="3d">{t.opt_style_3d}</option><option value="anime">{t.opt_style_anime}</option><option value="__custom__">{t.opt_style_custom}</option></select><ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-zinc-500 pointer-events-none" /></div>{isCustomStyle && (<input type="text" value={customStyle} onChange={e => { const value = e.target.value; setCustomStyle(value); setEditorForm({ ...editorForm, visual_style: value }); }} placeholder={t.editor_ph_select} className="mt-3 w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white" />)}</div>
                    </div>
                    <div className="grid grid-cols-3 gap-6">
-                      <div className="space-y-2">
-                        <label className="text-sm font-bold text-zinc-400">{t.editor_label_ratio}</label>
-                        <div className="relative">
-                            <select value={editorForm.aspect_ratio} onChange={e => setEditorForm({...editorForm, aspect_ratio: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer">
-                                <option value="16:9">16:9 (1280x720)</option>
-                                <option value="9:16">9:16 (720x1280)</option>
-                                <option value="1:1">1:1 (1080x1080)</option>
-                            </select>
-                            <ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-zinc-500 pointer-events-none" />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-bold text-zinc-400">{t.editor_label_duration}</label>
-                        <input type="number" value={editorForm.duration} onChange={e => setEditorForm({...editorForm, duration: parseInt(e.target.value)})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white" />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-bold text-zinc-400">{t.editor_label_shots}</label>
-                        <input type="number" value={editorForm.shot_number} onChange={e => setEditorForm({...editorForm, shot_number: parseInt(e.target.value)})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white" />
-                      </div>
+                      <div className="space-y-2"><label className="text-sm font-bold text-zinc-400">{t.editor_label_ratio}</label><div className="relative"><select value={editorForm.aspect_ratio} onChange={e => setEditorForm({...editorForm, aspect_ratio: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer"><option value="16:9">16:9 (1280x720)</option><option value="9:16">9:16 (720x1280)</option><option value="1:1">1:1 (1080x1080)</option></select><ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-zinc-500 pointer-events-none" /></div></div>
+                      <div className="space-y-2"><label className="text-sm font-bold text-zinc-400">{t.editor_label_duration}</label><input type="number" value={editorForm.duration} onChange={e => setEditorForm({...editorForm, duration: parseInt(e.target.value)})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white" /></div>
+                      <div className="space-y-2"><label className="text-sm font-bold text-zinc-400">{t.editor_label_shots}</label><input type="number" value={editorForm.shot_number} onChange={e => setEditorForm({...editorForm, shot_number: parseInt(e.target.value)})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white" /></div>
                    </div>
-                   <div className="space-y-2">
-                      <label className="text-sm font-bold text-zinc-400">{t.editor_label_custom}</label>
-                      <textarea value={editorForm.custom_config} onChange={e => setEditorForm({...editorForm, custom_config: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white resize-none h-24" placeholder={t.editor_ph_custom}></textarea>
-                   </div>
+                   <div className="space-y-2"><label className="text-sm font-bold text-zinc-400">{t.editor_label_custom}</label><textarea value={editorForm.custom_config} onChange={e => setEditorForm({...editorForm, custom_config: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white resize-none h-24" placeholder={t.editor_ph_custom}></textarea></div>
                    <hr className="border-white/5" />
                    <div className="pt-2 flex justify-end gap-4">
                       <button onClick={() => setActiveView('templates')} className="px-6 py-3 rounded-xl text-sm font-bold text-zinc-400 hover:text-white hover:bg-white/5 transition">{t.editor_btn_cancel}</button>
@@ -1956,19 +1679,12 @@ const Workbench = () => {
         {/* 5. HISTORY VIEW */}
         {activeView === 'history' && (
            <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
-             <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
-                <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.hist_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.hist_subtitle}</p></div>
-                <LanguageSwitcher />
-             </header>
+             <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50"><div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.hist_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.hist_subtitle}</p></div><LanguageSwitcher /></header>
              <div className="flex-1 overflow-y-auto p-10 custom-scroll">
                <div className="max-w-5xl mx-auto space-y-4">
                   <div className="glass-card p-4 rounded-xl flex items-center gap-6 group hover:border-orange-500/50 transition">
                       <div className="w-40 aspect-video bg-zinc-800 rounded-lg overflow-hidden relative shrink-0 flex items-center justify-center"><Video className="w-6 h-6 text-zinc-700" /></div>
-                      <div className="flex-1 min-w-0">
-                          <h4 className="text-base font-bold text-white truncate group-hover:text-orange-500 transition">Project_Alpha_01</h4>
-                          <p className="text-xs text-zinc-500 mb-3">2024-05-20 14:30</p>
-                          <div className="flex gap-4 text-xs text-zinc-400"><span className="flex items-center gap-1"><HardDrive className="w-3 h-3" /> 15MB</span><span className="flex items-center gap-1"><Eye className="w-3 h-3" /> 24 Views</span></div>
-                      </div>
+                      <div className="flex-1 min-w-0"><h4 className="text-base font-bold text-white truncate group-hover:text-orange-500 transition">Project_Alpha_01</h4><p className="text-xs text-zinc-500 mb-3">2024-05-20 14:30</p><div className="flex gap-4 text-xs text-zinc-400"><span className="flex items-center gap-1"><HardDrive className="w-3 h-3" /> 15MB</span><span className="flex items-center gap-1"><Eye className="w-3 h-3" /> 24 Views</span></div></div>
                       <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition px-2"><button className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-white"><Download className="w-4 h-4" /></button><button className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-white"><Edit3 className="w-4 h-4" /></button></div>
                   </div>
                </div>
@@ -1979,250 +1695,25 @@ const Workbench = () => {
         {/* 6. PROFILE VIEW */}
         {activeView === 'profile' && (
            <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
-             <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
-                <div>
-                  <h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.profile_title}</h1>
-                  <p className="text-zinc-500 text-xs mt-1">{t.profile_subtitle}</p>
-                </div>
-                <div className="flex items-center gap-6">
-                  {/* Developer Debug Panel */}
-                  <div className="flex items-center gap-2 bg-zinc-900/80 border border-white/5 p-1 rounded-xl">
-                    <div className="text-[10px] font-bold text-zinc-600 px-2 uppercase tracking-widest">{t.profile_debug || 'Debug'}</div>
-                    <div className="flex gap-1">
-                      {['free', 'plus', 'pro'].map((p) => (
-                        <button 
-                          key={p}
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            const newPlan = p as any;
-                            let newCredits = user?.credits;
-                            
-                            // Debug behavior: reset credits based on tier if plan changes
-                            if (newPlan === 'free') newCredits = 50;
-                            else if (newPlan === 'plus') newCredits = 200;
-                            else if (newPlan === 'pro') newCredits = 9999; 
-
-                            try {
-                              const res = await authApi.updateProfile({ tier: newPlan, credits: newCredits });
-                              // Map backend Tier back to frontend Plan
-                              let resolvedPlan: any = 'free';
-                              if (res.data.tier === 'PRO') resolvedPlan = 'plus';
-                              else if (res.data.tier === 'ENTERPRISE') resolvedPlan = 'pro';
-                              
-                              updateUser({ plan: resolvedPlan, credits: res.data.balance });
-                            } catch (err) {
-                              alert("Failed to update plan via debug");
-                            }
-                          }}
-                          className={`px-2 py-0.5 rounded text-[9px] font-bold border transition ${user?.plan === p ? 'bg-orange-500/20 border-orange-500/50 text-orange-500' : 'bg-transparent border-white/5 text-zinc-500 hover:text-white'}`}
-                        >
-                          {p.toUpperCase()}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="w-px h-3 bg-white/5 mx-1" />
-                    <div className="flex items-center gap-1 pr-1">
-                       <input 
-                         type="number" 
-                         className="w-12 bg-zinc-800 text-[10px] px-1 py-0.5 rounded text-white border border-white/10 outline-none focus:border-orange-500"
-                         defaultValue={100}
-                         onKeyDown={async (e) => {
-                           if (e.key === 'Enter') {
-                             const val = Number((e.currentTarget as HTMLInputElement).value);
-                             try {
-                               const res = await authApi.updateProfile({ credits: val });
-                               updateUser({ credits: res.data.balance });
-                             } catch (err) {
-                               alert("Failed to update credits via debug");
-                             }
-                           }
-                         }}
-                       />
-                       <span className="text-[8px] text-zinc-600">V</span>
-                    </div>
-                  </div>
-                  <LanguageSwitcher />
-                </div>
-             </header>
+             <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50"><div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.profile_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.profile_subtitle}</p></div><div className="flex items-center gap-6"><div className="flex items-center gap-2 bg-zinc-900/80 border border-white/5 p-1 rounded-xl"><div className="text-[10px] font-bold text-zinc-600 px-2 uppercase tracking-widest">{t.profile_debug || 'Debug'}</div><div className="flex gap-1">{['free', 'plus', 'pro'].map((p) => (<button key={p} onClick={async (e) => { e.stopPropagation(); const newPlan = p as any; let newCredits = user?.credits; if (newPlan === 'free') newCredits = 50; else if (newPlan === 'plus') newCredits = 200; else if (newPlan === 'pro') newCredits = 9999; try { const res = await authApi.updateProfile({ tier: newPlan, credits: newCredits }); let resolvedPlan: any = 'free'; if (res.data.tier === 'PRO') resolvedPlan = 'plus'; else if (res.data.tier === 'ENTERPRISE') resolvedPlan = 'pro'; updateUser({ plan: resolvedPlan, credits: res.data.balance }); } catch (err) { alert("Failed to update plan via debug"); } }} className={`px-2 py-0.5 rounded text-[9px] font-bold border transition ${user?.plan === p ? 'bg-orange-500/20 border-orange-500/50 text-orange-500' : 'bg-transparent border-white/5 text-zinc-500 hover:text-white'}`}>{p.toUpperCase()}</button>))}</div><div className="w-px h-3 bg-white/5 mx-1" /><div className="flex items-center gap-1 pr-1"><input type="number" className="w-12 bg-zinc-800 text-[10px] px-1 py-0.5 rounded text-white border border-white/10 outline-none focus:border-orange-500" defaultValue={100} onKeyDown={async (e) => { if (e.key === 'Enter') { const val = Number((e.currentTarget as HTMLInputElement).value); try { const res = await authApi.updateProfile({ credits: val }); updateUser({ credits: res.data.balance }); } catch (err) { alert("Failed to update credits via debug"); } } }} /><span className="text-[8px] text-zinc-600">V</span></div></div><LanguageSwitcher /></div></header>
              <div className="flex-1 overflow-y-auto p-10 custom-scroll">
                <div className="max-w-4xl mx-auto">
                  <div className="glass-panel p-12 rounded-[40px] border border-white/5 relative overflow-hidden group">
-                   {/* Plan Glow Background */}
-                   <div className={`absolute top-0 right-0 w-[400px] h-[400px] blur-[120px] rounded-full transition-all duration-1000 ${
-                     user?.plan === 'pro' ? 'bg-orange-500/10' : 
-                     user?.plan === 'plus' ? 'bg-indigo-500/10' : 
-                                           'bg-zinc-500/5'
-                   }`} />
-                   
+                   <div className={`absolute top-0 right-0 w-[400px] h-[400px] blur-[120px] rounded-full transition-all duration-1000 ${user?.plan === 'pro' ? 'bg-orange-500/10' : user?.plan === 'plus' ? 'bg-indigo-500/10' : 'bg-zinc-500/5'}`} />
                    <div className="flex flex-col md:flex-row items-center md:items-start gap-12 relative z-10 w-full">
-                     {/* LEFT: Identity */}
                      <div className="flex flex-col items-center gap-6 w-48 shrink-0">
-                        <div className="relative group/avatar">
-                          <input type="file" ref={avatarInputRef} className="hidden" onChange={handleAvatarUpload} accept="image/*" />
-                          <div 
-                            onClick={() => avatarInputRef.current?.click()}
-                            className={`w-32 h-32 rounded-[32px] bg-zinc-900 border flex items-center justify-center overflow-hidden transition-all duration-700 cursor-pointer ${
-                              user?.plan === 'pro' ? 'border-orange-500/40 shadow-[0_0_30px_rgba(249,115,22,0.1)]' : 
-                              user?.plan === 'plus' ? 'border-indigo-500/40 shadow-[0_0_30px_rgba(99,102,241,0.1)]' : 
-                                                    'border-white/10 shadow-none'
-                            }`}
-                          >
-                            {user?.avatar ? (
-                              <img src={user.avatar} className="w-full h-full object-cover" />
-                            ) : (
-                              <UserIcon className="w-12 h-12 text-zinc-700" />
-                            )}
-                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/avatar:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
-                              <Edit3 className="w-8 h-8 text-white" />
-                            </div>
-                          </div>
-                        </div>
-                        <div className="text-center group/name relative w-full">
-                          {isEditingNickname ? (
-                            <input 
-                              type="text" 
-                              value={newNickname}
-                              onChange={(e) => setNewNickname(e.target.value)}
-                              onBlur={async () => {
-                                setIsEditingNickname(false);
-                                if (newNickname.trim() && newNickname.trim() !== user?.name) {
-                                  try {
-                                    const res = await authApi.updateProfile({ name: newNickname.trim() });
-                                    updateUser({ name: res.data.name });
-                                  } catch (err) {
-                                    alert("Failed to update nickname");
-                                  }
-                                }
-                              }}
-                              onKeyDown={async (e) => {
-                                if (e.key === 'Enter') {
-                                  setIsEditingNickname(false);
-                                  if (newNickname.trim() && newNickname.trim() !== user?.name) {
-                                    try {
-                                      const res = await authApi.updateProfile({ name: newNickname.trim() });
-                                      updateUser({ name: res.data.name });
-                                    } catch (err) {
-                                      alert("Failed to update nickname");
-                                    }
-                                  }
-                                }
-                                if (e.key === 'Escape') {
-                                  setIsEditingNickname(false);
-                                  setNewNickname(user?.name || '');
-                                }
-                              }}
-                              autoFocus
-                              className="text-xl font-bold text-white bg-white/5 border border-orange-500/50 rounded-lg px-2 py-1 outline-none text-center w-full"
-                            />
-                          ) : (
-                            <div className="flex items-center justify-center gap-2 group cursor-pointer" onClick={() => setIsEditingNickname(true)}>
-                              <h2 className="text-2xl font-bold text-white tracking-tight break-words max-w-full">{user?.name || 'User'}</h2>
-                              <Edit3 className="w-3 h-3 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                            </div>
-                          )}
-                          <div className="mt-2 text-center">
-                            <button 
-                              onClick={handleUseDefaultAvatar}
-                              className="text-[10px] font-bold text-zinc-500 hover:text-orange-500 transition-colors uppercase tracking-widest py-1 border-b border-white/5"
-                            >
-                              {t.profile_use_default_avatar}
-                            </button>
-                          </div>
-                        </div>
+                        <div className="relative group/avatar"><input type="file" ref={avatarInputRef} className="hidden" onChange={handleAvatarUpload} accept="image/*" /><div onClick={() => avatarInputRef.current?.click()} className={`w-32 h-32 rounded-[32px] bg-zinc-900 border flex items-center justify-center overflow-hidden transition-all duration-700 cursor-pointer ${user?.plan === 'pro' ? 'border-orange-500/40 shadow-[0_0_30px_rgba(249,115,22,0.1)]' : user?.plan === 'plus' ? 'border-indigo-500/40 shadow-[0_0_30px_rgba(99,102,241,0.1)]' : 'border-white/10 shadow-none'}`}>{user?.avatar ? (<img src={user.avatar} className="w-full h-full object-cover" />) : (<UserIcon className="w-12 h-12 text-zinc-700" />)}<div className="absolute inset-0 bg-black/40 opacity-0 group-hover/avatar:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]"><Edit3 className="w-8 h-8 text-white" /></div></div></div>
+                        <div className="text-center group/name relative w-full">{isEditingNickname ? (<input type="text" value={newNickname} onChange={(e) => setNewNickname(e.target.value)} onBlur={async () => { setIsEditingNickname(false); if (newNickname.trim() && newNickname.trim() !== user?.name) { try { const res = await authApi.updateProfile({ name: newNickname.trim() }); updateUser({ name: res.data.name }); } catch (err) { alert("Failed to update nickname"); } } }} onKeyDown={async (e) => { if (e.key === 'Enter') { setIsEditingNickname(false); if (newNickname.trim() && newNickname.trim() !== user?.name) { try { const res = await authApi.updateProfile({ name: newNickname.trim() }); updateUser({ name: res.data.name }); } catch (err) { alert("Failed to update nickname"); } } } if (e.key === 'Escape') { setIsEditingNickname(false); setNewNickname(user?.name || ''); } }} autoFocus className="text-xl font-bold text-white bg-white/5 border border-orange-500/50 rounded-lg px-2 py-1 outline-none text-center w-full" />) : (<div className="flex items-center justify-center gap-2 group cursor-pointer" onClick={() => setIsEditingNickname(true)}><h2 className="text-2xl font-bold text-white tracking-tight break-words max-w-full">{user?.name || 'User'}</h2><Edit3 className="w-3 h-3 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" /></div>)}<div className="mt-2 text-center"><button onClick={handleUseDefaultAvatar} className="text-[10px] font-bold text-zinc-500 hover:text-orange-500 transition-colors uppercase tracking-widest py-1 border-b border-white/5">{t.profile_use_default_avatar}</button></div></div>
                      </div>
-
-                     {/* RIGHT: Plan & Balance */}
                      <div className="flex-1 w-full space-y-10 py-2">
-                       <div className="space-y-4">
-                         <div className="flex items-center gap-3">
-                            <div className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-[11px] font-black tracking-[0.15em] border transition-all duration-700 ${
-                              user?.plan === 'pro' ? 'bg-orange-500/20 text-orange-500 border-orange-500/20' : 
-                              user?.plan === 'plus' ? 'bg-indigo-500/20 text-indigo-500 border-indigo-500/20' : 
-                                                    'bg-zinc-800 text-zinc-400 border-white/5'
-                            }`}>
-                              {user?.plan === 'pro' ? <Flame className="w-3.5 h-3.5" /> : user?.plan === 'plus' ? <Gem className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
-                              {(user?.plan === 'pro' ? (t.profile_plan_pro_name || 'pro user') : user?.plan === 'plus' ? (t.profile_plan_plus_name || 'plus user') : (t.profile_plan_free_name || 'free user')).toUpperCase()}
-                            </div>
-                         </div>
-                         <p className="text-sm text-zinc-500 leading-relaxed max-w-xl">
-                           {user?.plan === 'pro' ? (t.plan_desc_pro || t.profile_plan_pro || 'PRO') : 
-                            user?.plan === 'plus' ? (t.plan_desc_plus || t.profile_plan_plus || 'PLUS') : 
-                                                    (t.plan_desc_free || t.profile_plan_free || 'FREE')}
-                         </p>
-                       </div>
-
-                       <div className="space-y-4 bg-white/2 rounded-2xl p-6 border border-white/5 shadow-inner">
-                         <div className="flex items-end justify-between px-1">
-                            <div className="space-y-1">
-                              <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest">{t.profile_balance || 'Balance'}</div>
-                              <div className="text-4xl font-black text-white italic tracking-tighter">
-                                {user?.plan === 'pro' ? '∞' : (user?.credits || 0)} <span className="text-[10px] not-italic text-zinc-500 font-bold uppercase ml-1">{t.v_points || 'V-Points'}</span>
-                              </div>
-                            </div>
-                            <div className="text-xs font-bold text-zinc-600 mb-1">LIMIT: {user?.plan === 'pro' ? '∞' : user?.plan === 'plus' ? 500 : 100} V</div>
-                         </div>
-                         <div className="h-4 w-full bg-zinc-900 rounded-full border border-white/5 p-1 overflow-hidden">
-                            <div 
-                              className={`h-full rounded-full transition-all duration-1000 ease-out relative ${
-                                user?.plan === 'pro' ? 'bg-gradient-to-r from-purple-600 via-orange-500 to-yellow-400' :
-                                user?.plan === 'plus' ? 'bg-gradient-to-r from-blue-700 via-indigo-500 to-cyan-400' :
-                                                       'bg-gradient-to-r from-zinc-700 via-zinc-500 to-emerald-500/50'
-                              }`}
-                              style={{ width: `${user?.plan === 'pro' ? 100 : Math.min(((user?.credits || 0) / (user?.plan === 'plus' ? 500 : 100)) * 100, 100)}%` }}
-                            >
-                               {/* Animated pulse on progress bar */}
-                               <div className="absolute inset-0 bg-white/10 animate-pulse" />
-                            </div>
-                         </div>
-                       </div>
+                       <div className="space-y-4"><div className="flex items-center gap-3"><div className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-[11px] font-black tracking-[0.15em] border transition-all duration-700 ${user?.plan === 'pro' ? 'bg-orange-500/20 text-orange-500 border-orange-500/20' : user?.plan === 'plus' ? 'bg-indigo-500/20 text-indigo-500 border-indigo-500/20' : 'bg-zinc-800 text-zinc-400 border-white/5'}`}>{user?.plan === 'pro' ? <Flame className="w-3.5 h-3.5" /> : user?.plan === 'plus' ? <Gem className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}{(user?.plan === 'pro' ? (t.profile_plan_pro_name || 'pro user') : user?.plan === 'plus' ? (t.profile_plan_plus_name || 'plus user') : (t.profile_plan_free_name || 'free user')).toUpperCase()}</div></div><p className="text-sm text-zinc-500 leading-relaxed max-w-xl">{user?.plan === 'pro' ? (t.plan_desc_pro || t.profile_plan_pro || 'PRO') : user?.plan === 'plus' ? (t.plan_desc_plus || t.profile_plan_plus || 'PLUS') : (t.plan_desc_free || t.profile_plan_free || 'FREE')}</p></div>
+                       <div className="space-y-4 bg-white/2 rounded-2xl p-6 border border-white/5 shadow-inner"><div className="flex items-end justify-between px-1"><div className="space-y-1"><div className="text-xs font-bold text-zinc-500 uppercase tracking-widest">{t.profile_balance || 'Balance'}</div><div className="text-4xl font-black text-white italic tracking-tighter">{user?.plan === 'pro' ? '∞' : (user?.credits || 0)} <span className="text-[10px] not-italic text-zinc-500 font-bold uppercase ml-1">{t.v_points || 'V-Points'}</span></div></div><div className="text-xs font-bold text-zinc-600 mb-1">LIMIT: {user?.plan === 'pro' ? '∞' : user?.plan === 'plus' ? 500 : 100} V</div></div><div className="h-4 w-full bg-zinc-900 rounded-full border border-white/5 p-1 overflow-hidden"><div className={`h-full rounded-full transition-all duration-1000 ease-out relative ${user?.plan === 'pro' ? 'bg-gradient-to-r from-purple-600 via-orange-500 to-yellow-400' : user?.plan === 'plus' ? 'bg-gradient-to-r from-blue-700 via-indigo-500 to-cyan-400' : 'bg-gradient-to-r from-zinc-700 via-zinc-500 to-emerald-500/50'}`} style={{ width: `${user?.plan === 'pro' ? 100 : Math.min(((user?.credits || 0) / (user?.plan === 'plus' ? 500 : 100)) * 100, 100)}%` }}><div className="absolute inset-0 bg-white/10 animate-pulse" /></div></div></div>
                      </div>
                    </div>
-
                    <hr className="mt-6 mb-6 border-white/5" />
-
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-12">
-                     <div 
-                        onClick={async () => {
-                          const newTheme = theme === 'dark' ? 'light' : 'dark';
-                          setTheme(newTheme);
-                          try {
-                            const res = await authApi.updateProfile({ theme: newTheme });
-                            updateUser({ theme: res.data.theme });
-                          } catch (err) {
-                            console.error("Failed to save theme preference", err);
-                          }
-                        }}
-                        className="flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/item cursor-pointer shadow-sm hover:shadow-orange-500/5"
-                     >
-                       <div className="flex items-center gap-4">
-                         <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/item:text-orange-500 transition-colors">
-                           <Settings2 className="w-6 h-6" />
-                         </div>
-                         <div className="text-left">
-                              <div className="text-base font-bold text-white">{t.profile_theme || 'Appearance'}</div>
-                           <div className="text-xs text-zinc-600 mt-0.5 uppercase tracking-widest font-black">
-                             {theme === 'dark' ? t.profile_theme_dark : t.profile_theme_light}
-                           </div>
-                         </div>
-                       </div>
-                       <ChevronDown className={`w-5 h-5 text-zinc-700 transition-transform ${theme === 'light' ? 'rotate-180' : ''}`} />
-                     </div>
-
-                     <button 
-                       onClick={logout}
-                       className="w-full flex items-center justify-between p-6 rounded-2xl bg-red-500/5 hover:bg-red-500/10 transition group/logout border border-red-500/10 hover:border-red-500/20"
-                     >
-                       <div className="flex items-center gap-4">
-                         <div className="w-12 h-12 rounded-xl bg-red-500/10 flex items-center justify-center text-red-500">
-                           <LogOut className="w-6 h-6" />
-                         </div>
-                         <div className="text-left">
-                           <div className="text-base font-bold text-red-500">{t.sign_out}</div>
-                           <div className="text-xs text-red-500/60 mt-0.5">{t.sign_out_subtitle || '退出当前账户，清除本地缓存'}</div>
-                         </div>
-                       </div>
-                       <ArrowRight className="w-5 h-5 text-red-500/30 group-hover:text-red-500 group-hover:translate-x-1 transition-all" />
-                     </button>
+                     <div onClick={async () => { const newTheme = theme === 'dark' ? 'light' : 'dark'; setTheme(newTheme); try { const res = await authApi.updateProfile({ theme: newTheme }); updateUser({ theme: res.data.theme }); } catch (err) { console.error("Failed to save theme preference", err); } }} className="flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/item cursor-pointer shadow-sm hover:shadow-orange-500/5"><div className="flex items-center gap-4"><div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/item:text-orange-500 transition-colors"><Settings2 className="w-6 h-6" /></div><div className="text-left"><div className="text-base font-bold text-white">{t.profile_theme || 'Appearance'}</div><div className="text-xs text-zinc-600 mt-0.5 uppercase tracking-widest font-black">{theme === 'dark' ? t.profile_theme_dark : t.profile_theme_light}</div></div></div><ChevronDown className={`w-5 h-5 text-zinc-700 transition-transform ${theme === 'light' ? 'rotate-180' : ''}`} /></div>
+                     <button onClick={logout} className="w-full flex items-center justify-between p-6 rounded-2xl bg-red-500/5 hover:bg-red-500/10 transition group/logout border border-red-500/10 hover:border-red-500/20"><div className="flex items-center gap-4"><div className="w-12 h-12 rounded-xl bg-red-500/10 flex items-center justify-center text-red-500"><LogOut className="w-6 h-6" /></div><div className="text-left"><div className="text-base font-bold text-red-500">{t.sign_out}</div><div className="text-xs text-red-500/60 mt-0.5">{t.sign_out_subtitle || '退出当前账户，清除本地缓存'}</div></div></div><ArrowRight className="w-5 h-5 text-red-500/30 group-hover:text-red-500 group-hover:translate-x-1 transition-all" /></button>
                    </div>
                  </div>
                </div>

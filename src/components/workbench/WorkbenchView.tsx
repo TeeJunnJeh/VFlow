@@ -119,6 +119,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   // Draft restore / autosave
   const [isRestoring, setIsRestoring] = useState(true);
   const [pendingTemplateId, setPendingTemplateId] = useState<string | null>(null);
+  // Track whether we actually restored a draft snapshot this session.
+  // If true, we must NOT auto-pick a template (draft selection has priority, including "Custom Config").
+  const [wasDraftRestored, setWasDraftRestored] = useState(false);
+  // One-shot guard: don't keep forcing a template after the user intentionally switches back to "Custom Config".
+  const hasAutoSelectedTemplateRef = useRef(false);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestSnapshotRef = useRef<WorkbenchSnapshot | null>(null);
   const canAutoSaveRef = useRef(false);
@@ -174,18 +179,29 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const restoreDraft = async () => {
       setIsRestoring(true);
+      setWasDraftRestored(false);
+      hasAutoSelectedTemplateRef.current = false;
+      setPendingTemplateId(null);
 
       if (!user?.id) {
         setIsRestoring(false);
         return;
       }
 
+      let restored = false;
+
       try {
         const res = await videoApi.getDraft();
         if (cancelled) return;
 
         const snap = (res && res.code === 0 ? res.data?.snapshot : null) as Partial<WorkbenchSnapshot> | null;
-        if (snap && typeof snap === 'object') {
+        const hasSnap =
+          !!snap &&
+          typeof snap === 'object' &&
+          Object.keys(snap as Record<string, unknown>).length > 0;
+
+        if (hasSnap) {
+          restored = true;
           // Asset
           const assetUrl = typeof snap.asset_url === 'string' ? snap.asset_url : null;
           const displayUrl = toDisplayUrl(assetUrl);
@@ -225,6 +241,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         console.warn("Failed to restore workbench draft:", err);
       } finally {
         if (cancelled) return;
+
+        setWasDraftRestored(restored);
 
         // If an asset is passed in (e.g. "Use in Workbench"), it should override the restored asset.
         if (initialFileUrl) {
@@ -267,6 +285,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setPendingTemplateId(null);
     }
   }, [pendingTemplateId, selectedTemplate?.id, templateList, onSelectTemplate]);
+
+  // Default template selection:
+  // - If user has templates and there's NO restored draft, default to the first template (not "Custom Config").
+  // - If user has no templates, keep showing "Custom Config".
+  useEffect(() => {
+    if (isRestoring) return;
+    if (wasDraftRestored) return;
+    if (!templateList || templateList.length === 0) return;
+    if (selectedTemplate?.id) return;
+    if (hasAutoSelectedTemplateRef.current) return;
+
+    const first = templateList.find((tpl) => !!tpl.id) || null;
+    if (!first) return;
+
+    onSelectTemplate(first);
+    hasAutoSelectedTemplateRef.current = true;
+  }, [isRestoring, wasDraftRestored, templateList, selectedTemplate?.id, onSelectTemplate]);
 
   // Keep a best-effort "latest snapshot" for debounce + unmount flush.
   const normalizedScriptPages: ScriptPage[] = (scriptPages || []).map((p, idx) =>

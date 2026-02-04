@@ -58,6 +58,12 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [isMoveDropdownOpen, setIsMoveDropdownOpen] = useState(false);
   const [isMovingAsset, setIsMovingAsset] = useState(false);
 
+  // 2.5 Drag & Drop (Move Asset)
+  const [draggingAsset, setDraggingAsset] = useState<Asset | null>(null);
+  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+  const [isDragOverRoot, setIsDragOverRoot] = useState(false);
+  const [isDragMoving, setIsDragMoving] = useState(false);
+
   // 3. Confirm Dialog
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [confirmTitle, setConfirmTitle] = useState('');
@@ -200,6 +206,70 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     }
   };
 
+  const beginDragAsset = (asset: Asset, e: React.DragEvent) => {
+    setDraggingAsset(asset);
+    setDragOverFolderId(null);
+    setIsDragOverRoot(false);
+    try {
+      e.dataTransfer.setData('text/plain', asset.id);
+      e.dataTransfer.effectAllowed = 'move';
+    } catch {
+      // ignore
+    }
+  };
+
+  const endDragAsset = () => {
+    setDraggingAsset(null);
+    setDragOverFolderId(null);
+    setIsDragOverRoot(false);
+    setIsDragMoving(false);
+  };
+
+  const dragOverFolder = (folderId: string, e: React.DragEvent) => {
+    if (!draggingAsset || isDragMoving) return;
+    e.preventDefault();
+    setIsDragOverRoot(false);
+    setDragOverFolderId(folderId);
+    try {
+      e.dataTransfer.dropEffect = 'move';
+    } catch {
+      // ignore
+    }
+  };
+
+  const dragOverRoot = (e: React.DragEvent) => {
+    if (!draggingAsset || isDragMoving) return;
+    e.preventDefault();
+    setDragOverFolderId(null);
+    setIsDragOverRoot(true);
+    try {
+      e.dataTransfer.dropEffect = 'move';
+    } catch {
+      // ignore
+    }
+  };
+
+  const dropMoveTo = async (folderId: string | null, e: React.DragEvent) => {
+    if (!draggingAsset || isDragMoving) return;
+    e.preventDefault();
+
+    const targetFolderId = folderId;
+    if ((draggingAsset.folder_id ?? null) === targetFolderId) {
+      endDragAsset();
+      return;
+    }
+
+    setIsDragMoving(true);
+    try {
+      await assetsApi.moveAsset(draggingAsset.id, targetFolderId);
+      await loadData();
+    } catch (err) {
+      alert("Failed to move asset");
+    } finally {
+      endDragAsset();
+    }
+  };
+
   const handleConfirmMove = async () => {
     if (!moveAsset) return;
     setIsMovingAsset(true);
@@ -267,6 +337,29 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
   return (
     <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300" onClick={() => setOpenFolderMenuId(null)}>
+       {draggingAsset && (
+          <div className="fixed inset-0 z-[105] pointer-events-none bg-black/10">
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 glass-panel border border-white/10 rounded-2xl px-4 py-3 shadow-xl max-w-[calc(100vw-2rem)]">
+              <div className="text-xs text-zinc-300 truncate">{draggingAsset.name}</div>
+              <div className="mt-1 text-sm font-bold text-white flex items-center gap-2">
+                {isDragMoving && <Loader2 className="w-4 h-4 animate-spin" />}
+                <span className="truncate">
+                  {(() => {
+                    const dragTitle = (t as any).assets_drag_move_title || t.assets_move_title;
+                    if (isDragOverRoot) return `${dragTitle} ${t.assets_move_root}`;
+                    if (dragOverFolderId) {
+                      const found =
+                        folderList.find(f => f.id === dragOverFolderId) ||
+                        folderBreadcrumb.find(f => f.id === dragOverFolderId);
+                      if (found?.name) return `${dragTitle} ${found.name}`;
+                    }
+                    return dragTitle;
+                  })()}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
        <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
           <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.assets_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.assets_subtitle}</p></div>
           <div className="flex gap-3 items-center">
@@ -300,9 +393,30 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
           
           {/* Breadcrumb */}
           <div className="flex items-center gap-2 text-xs text-zinc-500 mb-4">
-             <button onClick={() => setCurrentFolderId(null)} className={`hover:text-white ${currentFolderId === null ? 'text-white' : ''}`}>{t.assets_root}</button>
+             <button
+               onClick={() => setCurrentFolderId(null)}
+               onDragOver={dragOverRoot}
+               onDragEnter={dragOverRoot}
+               onDragLeave={() => setIsDragOverRoot(false)}
+               onDrop={(e) => dropMoveTo(null, e)}
+               className={`hover:text-white ${currentFolderId === null ? 'text-white' : ''} ${draggingAsset && isDragOverRoot ? 'text-white' : ''}`}
+             >
+               {t.assets_root}
+             </button>
              {folderBreadcrumb.map(folder => (
-                <div key={folder.id} className="flex items-center gap-2"><span>/</span><button onClick={() => setCurrentFolderId(folder.id)} className={`hover:text-white ${currentFolderId === folder.id ? 'text-white' : ''}`}>{folder.name}</button></div>
+                <div key={folder.id} className="flex items-center gap-2">
+                  <span>/</span>
+                  <button
+                    onClick={() => setCurrentFolderId(folder.id)}
+                    onDragOver={(e) => dragOverFolder(folder.id, e)}
+                    onDragEnter={(e) => dragOverFolder(folder.id, e)}
+                    onDragLeave={() => { if (dragOverFolderId === folder.id) setDragOverFolderId(null); }}
+                    onDrop={(e) => dropMoveTo(folder.id, e)}
+                    className={`hover:text-white ${currentFolderId === folder.id ? 'text-white' : ''} ${draggingAsset && dragOverFolderId === folder.id ? 'text-white underline decoration-orange-500/80' : ''}`}
+                  >
+                    {folder.name}
+                  </button>
+                </div>
              ))}
           </div>
 
@@ -311,7 +425,19 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                 <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-6">
                    {/* Folders */}
                    {folderList.map(folder => (
-                      <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className="glass-card rounded-2xl aspect-[3/4] border border-zinc-800 flex flex-col items-center justify-center gap-3 cursor-pointer hover:border-orange-500/50 hover:bg-zinc-900/50 transition group relative">
+                      <div
+                        key={folder.id}
+                        onClick={() => setCurrentFolderId(folder.id)}
+                        onDragOver={(e) => dragOverFolder(folder.id, e)}
+                        onDragEnter={(e) => dragOverFolder(folder.id, e)}
+                        onDragLeave={() => { if (dragOverFolderId === folder.id) setDragOverFolderId(null); }}
+                        onDrop={(e) => dropMoveTo(folder.id, e)}
+                        className={`glass-card rounded-2xl aspect-[3/4] border flex flex-col items-center justify-center gap-3 cursor-pointer transition group relative ${
+                          draggingAsset ? 'border-zinc-700/80' : 'border-zinc-800 hover:border-orange-500/50 hover:bg-zinc-900/50'
+                        } ${
+                          draggingAsset && dragOverFolderId === folder.id ? 'ring-2 ring-orange-500/70 scale-[1.02] bg-zinc-900/50' : ''
+                        }`}
+                      >
                          <button onClick={(e) => { e.stopPropagation(); setOpenFolderMenuId(prev => (prev === folder.id ? null : folder.id)); }} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/30 hover:bg-black/50 flex items-center justify-center text-zinc-300 hover:text-white z-20">...</button>
                          {openFolderMenuId === folder.id && (
                              <div onClick={(e) => e.stopPropagation()} className="absolute top-10 right-2 bg-zinc-900/90 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden text-xs z-50 min-w-[140px]">
@@ -326,7 +452,13 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                    
                    {/* Assets */}
                    {assetList.filter(a => a.type === activeAssetTab).map(asset => (
-                      <div key={asset.id} className="glass-card rounded-2xl p-2 group relative">
+                      <div
+                        key={asset.id}
+                        className={`glass-card rounded-2xl p-2 group relative ${draggingAsset?.id === asset.id ? 'opacity-60' : ''}`}
+                        draggable
+                        onDragStart={(e) => beginDragAsset(asset, e)}
+                        onDragEnd={endDragAsset}
+                      >
                          <div className="aspect-[3/4] bg-zinc-800 rounded-xl overflow-hidden relative cursor-zoom-in" onClick={() => { setAssetPreview(asset); setIsAssetPreviewOpen(true); }}>
                             {asset.file_url ? <img src={getDisplayUrl(asset.file_url) || ASSET_PLACEHOLDER_DATA_URL} className="w-full h-full object-cover" alt={asset.name} onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }} /> : <div className="absolute inset-0 flex items-center justify-center text-zinc-600">No Preview</div>}
                             <div className="absolute bottom-3 left-3"><p className="text-xs font-bold text-white truncate w-24">{asset.name}</p></div>

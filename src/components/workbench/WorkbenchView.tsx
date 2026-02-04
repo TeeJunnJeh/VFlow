@@ -128,6 +128,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const latestSnapshotRef = useRef<WorkbenchSnapshot | null>(null);
   const canAutoSaveRef = useRef(false);
   const skipTemplateDurationSyncRef = useRef(false);
+  const restoredDraftRef = useRef(false);
 
   // Config State
   const [genPrompt, setGenPrompt] = useState('');
@@ -179,9 +180,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const restoreDraft = async () => {
       setIsRestoring(true);
-      setWasDraftRestored(false);
-      hasAutoSelectedTemplateRef.current = false;
-      setPendingTemplateId(null);
+      restoredDraftRef.current = false;
 
       if (!user?.id) {
         setIsRestoring(false);
@@ -195,13 +194,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (cancelled) return;
 
         const snap = (res && res.code === 0 ? res.data?.snapshot : null) as Partial<WorkbenchSnapshot> | null;
-        const hasSnap =
-          !!snap &&
-          typeof snap === 'object' &&
-          Object.keys(snap as Record<string, unknown>).length > 0;
-
-        if (hasSnap) {
-          restored = true;
+        if (snap && typeof snap === 'object') {
+          restoredDraftRef.current = true;
           // Asset
           const assetUrl = typeof snap.asset_url === 'string' ? snap.asset_url : null;
           const displayUrl = toDisplayUrl(assetUrl);
@@ -271,6 +265,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   // Apply restored template once templates are available
   useEffect(() => {
     if (!pendingTemplateId) return;
+    if (isRestoring) return;
 
     // If user already selected something manually, don't override.
     if (selectedTemplate?.id) {
@@ -283,8 +278,32 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       skipTemplateDurationSyncRef.current = true;
       onSelectTemplate(tpl);
       setPendingTemplateId(null);
+      return;
     }
-  }, [pendingTemplateId, selectedTemplate?.id, templateList, onSelectTemplate]);
+
+    // Template was deleted or otherwise unavailable. Clear pending so we can fall back.
+    if (templateList.length > 0) setPendingTemplateId(null);
+  }, [pendingTemplateId, isRestoring, selectedTemplate?.id, templateList, onSelectTemplate]);
+
+  // If user has templates, "Custom Config" is not a valid/meaningful option:
+  // - Hide it in the dropdown (render logic below)
+  // - Ensure we always have a real template selected (default to the first)
+  // - Don't interrupt draft restore (pendingTemplateId) or in-progress restore
+  useEffect(() => {
+    if (isRestoring) return;
+    if (pendingTemplateId) return;
+    if (templateList.length === 0) return;
+
+    const selectedId = selectedTemplate?.id;
+    const isValidSelection = !!selectedId && templateList.some(t => t.id === selectedId);
+    if (isValidSelection) return;
+
+    // If we just restored a draft snapshot (that may have been "Custom Config"),
+    // preserve the restored duration instead of syncing to template default.
+    if (restoredDraftRef.current) skipTemplateDurationSyncRef.current = true;
+
+    onSelectTemplate(templateList[0]);
+  }, [templateList, selectedTemplate?.id, pendingTemplateId, isRestoring, onSelectTemplate]);
 
   // Default template selection:
   // - If user has templates and there's NO restored draft, default to the first template (not "Custom Config").
@@ -934,16 +953,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
            <div>
               <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_template_label}</label>
               <div className="relative">
-                <select 
-                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-orange-500 font-bold focus:outline-none focus:border-orange-500 transition appearance-none cursor-pointer hover:bg-white/5"
-                    value={selectedTemplate?.id || ""}
-                    onChange={(e) => onSelectTemplate(templateList.find(t => t.id === e.target.value) || null)}
-                >
-                  <option value="">{t.wb_config_custom}</option>
-                  {templateList.map(tpl => (
-                      <option key={tpl.id} value={tpl.id}>{ICON_EMOJI_MAP[tpl.icon] || '🔥'} {tpl.name}</option>
-                  ))}
-                </select>
+	                <select 
+	                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-orange-500 font-bold focus:outline-none focus:border-orange-500 transition appearance-none cursor-pointer hover:bg-white/5"
+	                    value={selectedTemplate?.id || ""}
+	                    onChange={(e) => onSelectTemplate(templateList.find(t => t.id === e.target.value) || null)}
+	                >
+	                  {templateList.length === 0 && <option value="">{t.wb_config_custom}</option>}
+	                  {templateList.map(tpl => (
+	                      <option key={tpl.id} value={tpl.id}>{ICON_EMOJI_MAP[tpl.icon] || '🔥'} {tpl.name}</option>
+	                  ))}
+	                </select>
                 <ChevronDown className="w-3 h-3 text-zinc-500 absolute right-3 top-2.5 pointer-events-none" />
               </div>
            </div>

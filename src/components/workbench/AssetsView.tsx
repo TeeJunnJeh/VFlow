@@ -22,6 +22,12 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   setCurrentFolderId 
 }) => {
   const { t } = useLanguage();
+
+  const assetTabLabel: Record<AssetType, string> = {
+    model: t.assets_tab_models,
+    product: t.assets_tab_products,
+    scene: t.assets_tab_scenes
+  };
   
   // Data State
   const [assetList, setAssetList] = useState<Asset[]>([]);
@@ -277,7 +283,18 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
           {/* Tabs */}
           <div className="flex gap-4 mb-8 border-b border-white/5 pb-2">
              {(['model', 'product', 'scene'] as AssetType[]).map(type => (
-                <button key={type} onClick={() => setActiveAssetTab(type)} className={`text-sm font-bold px-6 py-2 rounded-full transition ${activeAssetTab === type ? 'bg-white text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>{type.toUpperCase()}</button>
+                <button
+                  key={type}
+                  onClick={() => {
+                    if (type === activeAssetTab) return;
+                    setActiveAssetTab(type);
+                    setCurrentFolderId(null);
+                    setFolderBreadcrumb([]);
+                  }}
+                  className={`text-sm font-bold px-6 py-2 rounded-full transition ${activeAssetTab === type ? 'bg-white text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}
+                >
+                  {assetTabLabel[type] || type.toUpperCase()}
+                </button>
              ))}
           </div>
           

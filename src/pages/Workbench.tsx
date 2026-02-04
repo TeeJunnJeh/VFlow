@@ -109,6 +109,14 @@ const Workbench = () => {
     setActiveView('workbench');
   };
 
+  // Consume the "use in workbench" asset as a one-shot input.
+  // WorkbenchView keeps its own state; if we keep this value forever it will override restored drafts on re-mount.
+  useEffect(() => {
+    if (activeView === 'workbench' && selectedAssetForWorkbench) {
+      setSelectedAssetForWorkbench(null);
+    }
+  }, [activeView, selectedAssetForWorkbench]);
+
   return (
     <div className="flex h-screen overflow-hidden bg-[#050505] text-zinc-100 font-sans">
       

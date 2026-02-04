@@ -46,6 +46,23 @@ type QueuedScript = {
   duration: number;
 };
 
+// What we persist to the backend for cross-refresh / cross-device restore.
+// Keep it JSON-serializable (no File / Blob / functions).
+type WorkbenchSnapshot = {
+  version: 1;
+  asset_url: string | null; // URL or "/media/..." path (backend accepts both)
+  file_name: string;
+  asset_source: 'product' | 'preference' | null;
+  prompt: string;
+  duration: number;
+  sound: 'on' | 'off';
+  script_count: number;
+  template_id: string | null;
+  script_pages: ScriptPage[];
+  active_page_index: number;
+  timestamp: number; // client timestamp (ms)
+};
+
 // Helper constants
 const RATIO_TO_RES: Record<string, string> = {
   '16:9': '1280*720',
@@ -55,6 +72,13 @@ const RATIO_TO_RES: Record<string, string> = {
 };
 
 const ICON_EMOJI_MAP: Record<string, string> = { 'flame': '🔥', 'gem': '💎', 'zap': '⚡' };
+
+const toDisplayUrl = (path: string | null): string | null => {
+  if (!path) return null;
+  if (path.startsWith('http')) return path;
+  const mediaBaseUrl = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
+  return mediaBaseUrl ? `${mediaBaseUrl}${path}` : path;
+};
 
 interface WorkbenchViewProps {
   initialFileUrl?: string | null;
@@ -92,6 +116,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [selectedAssetUrl, setSelectedAssetUrl] = useState<string | null>(initialFileUrl || null);
   const [lastUploadedUrl, setLastUploadedUrl] = useState<string | null>(initialFileUrl || null);
 
+  // Draft restore / autosave
+  const [isRestoring, setIsRestoring] = useState(true);
+  const [pendingTemplateId, setPendingTemplateId] = useState<string | null>(null);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestSnapshotRef = useRef<WorkbenchSnapshot | null>(null);
+  const canAutoSaveRef = useRef(false);
+  const skipTemplateDurationSyncRef = useRef(false);
+
   // Config State
   const [genPrompt, setGenPrompt] = useState('');
   const [genDuration, setGenDuration] = useState<number>(selectedTemplate?.duration || 10);
@@ -119,8 +151,201 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   // --- Effects ---
   useEffect(() => {
     // Reset or update duration when template changes
-    if (selectedTemplate) setGenDuration(selectedTemplate.duration);
-  }, [selectedTemplate]);
+    if (!selectedTemplate) return;
+
+    // When we apply a restored template, keep the duration we restored from the snapshot.
+    if (skipTemplateDurationSyncRef.current) {
+      skipTemplateDurationSyncRef.current = false;
+      return;
+    }
+
+    // During draft restore we may set duration from snapshot; don't override it.
+    if (!isRestoring) setGenDuration(selectedTemplate.duration);
+  }, [selectedTemplate, isRestoring]);
+
+  // Keep a ref so unmount flush doesn't depend on hook dependency arrays.
+  useEffect(() => {
+    canAutoSaveRef.current = !!user?.id && !isRestoring;
+  }, [user?.id, isRestoring]);
+
+  // 1) Restore draft when entering workbench (mount) or after login
+  useEffect(() => {
+    let cancelled = false;
+
+    const restoreDraft = async () => {
+      setIsRestoring(true);
+
+      if (!user?.id) {
+        setIsRestoring(false);
+        return;
+      }
+
+      try {
+        const res = await videoApi.getDraft();
+        if (cancelled) return;
+
+        const snap = (res && res.code === 0 ? res.data?.snapshot : null) as Partial<WorkbenchSnapshot> | null;
+        if (snap && typeof snap === 'object') {
+          // Asset
+          const assetUrl = typeof snap.asset_url === 'string' ? snap.asset_url : null;
+          const displayUrl = toDisplayUrl(assetUrl);
+          setLastUploadedUrl(assetUrl);
+          setUploadedFile(displayUrl);
+          setSelectedAssetUrl(displayUrl);
+          setSelectedFileObj(null); // can't restore File
+
+          // Config
+          if (typeof snap.file_name === 'string') setFileName(snap.file_name);
+          if (snap.asset_source === 'product' || snap.asset_source === 'preference' || snap.asset_source === null) {
+            setSelectedAssetSource(snap.asset_source);
+          }
+          if (typeof snap.prompt === 'string') setGenPrompt(snap.prompt);
+          if (typeof snap.duration === 'number') setGenDuration(snap.duration);
+          if (snap.sound === 'on' || snap.sound === 'off') setSoundSetting(snap.sound);
+          if (typeof snap.script_count === 'number') setScriptVariantCount(snap.script_count);
+
+          // Scripts
+          if (Array.isArray(snap.script_pages) && snap.script_pages.length > 0) {
+            const pages = snap.script_pages as ScriptPage[];
+            const rawIdx = typeof snap.active_page_index === 'number' ? snap.active_page_index : 0;
+            const idx = Math.min(Math.max(rawIdx, 0), pages.length - 1);
+            setScriptPages(pages);
+            setActiveScriptPage(idx);
+            setScripts(pages[idx]?.scripts || []);
+          }
+
+          // Template (may arrive before templateList is loaded)
+          if (typeof snap.template_id === 'string' && snap.template_id) {
+            setPendingTemplateId(snap.template_id);
+          } else if (snap.template_id === null) {
+            onSelectTemplate(null);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to restore workbench draft:", err);
+      } finally {
+        if (cancelled) return;
+
+        // If an asset is passed in (e.g. "Use in Workbench"), it should override the restored asset.
+        if (initialFileUrl) {
+          setUploadedFile(initialFileUrl);
+          setSelectedAssetUrl(initialFileUrl);
+          setLastUploadedUrl(initialFileUrl);
+          if (initialFileName) setFileName(initialFileName);
+          setSelectedFileObj(null);
+          setSelectedAssetSource(initialAssetSource || 'preference');
+          setGeneratedVideoUrl(null);
+        }
+
+        setIsRestoring(false);
+      }
+    };
+
+    restoreDraft();
+
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally only tied to auth identity; template selection is handled in a separate effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  // Apply restored template once templates are available
+  useEffect(() => {
+    if (!pendingTemplateId) return;
+
+    // If user already selected something manually, don't override.
+    if (selectedTemplate?.id) {
+      setPendingTemplateId(null);
+      return;
+    }
+
+    const tpl = templateList.find(t => t.id === pendingTemplateId);
+    if (tpl) {
+      skipTemplateDurationSyncRef.current = true;
+      onSelectTemplate(tpl);
+      setPendingTemplateId(null);
+    }
+  }, [pendingTemplateId, selectedTemplate?.id, templateList, onSelectTemplate]);
+
+  // Keep a best-effort "latest snapshot" for debounce + unmount flush.
+  const normalizedScriptPages: ScriptPage[] = (scriptPages || []).map((p, idx) =>
+    idx === activeScriptPage ? { ...p, scripts } : p
+  );
+  latestSnapshotRef.current = {
+    version: 1,
+    asset_url: lastUploadedUrl || selectedAssetUrl || null,
+    file_name: fileName,
+    asset_source: selectedAssetSource,
+    prompt: genPrompt,
+    duration: genDuration,
+    sound: soundSetting,
+    script_count: scriptVariantCount,
+    template_id: (selectedTemplate?.id as string | undefined) || null,
+    script_pages: normalizedScriptPages,
+    active_page_index: activeScriptPage,
+    timestamp: Date.now(),
+  };
+
+  // 2) Auto-save (debounced)
+  useEffect(() => {
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    if (!user?.id || isRestoring) return;
+
+    autoSaveTimerRef.current = setTimeout(() => {
+      const snapshot = latestSnapshotRef.current;
+      if (!snapshot) return;
+      videoApi.saveDraft(snapshot).catch((e) => console.warn("Auto-save draft failed:", e));
+    }, 1500);
+
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, [
+    user?.id,
+    isRestoring,
+    lastUploadedUrl,
+    selectedAssetUrl,
+    fileName,
+    selectedAssetSource,
+    genPrompt,
+    genDuration,
+    soundSetting,
+    scriptVariantCount,
+    selectedTemplate?.id,
+    scripts,
+    scriptPages,
+    activeScriptPage,
+  ]);
+
+  // 3) Flush on unmount (e.g. leaving workbench tab) so we don't lose the last edits due to debounce cleanup
+  useEffect(() => {
+    return () => {
+      if (!canAutoSaveRef.current) return;
+      const snapshot = latestSnapshotRef.current;
+      if (!snapshot) return;
+      videoApi.saveDraft(snapshot).catch(() => {});
+    };
+  }, []);
+
+  // 4) Best-effort save on page refresh/close (covers "F5" / tab close cases better than debounce alone)
+  useEffect(() => {
+    const handler = () => {
+      if (!canAutoSaveRef.current) return;
+      const snapshot = latestSnapshotRef.current;
+      if (!snapshot) return;
+
+      try {
+        const body = new Blob([JSON.stringify({ snapshot })], { type: 'application/json' });
+        navigator.sendBeacon('/api/projects/draft/', body);
+      } catch {
+        // ignore
+      }
+    };
+
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, []);
 
   // Duration Logic
   const currentScriptDuration = scripts.reduce((total, s) => {

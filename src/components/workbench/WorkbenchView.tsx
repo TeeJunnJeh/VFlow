@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal, ChevronDown, 
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
-  MonitorPlay, Film, SkipBack, Play, SkipForward, FileJson
+  MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -106,6 +106,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const { tasks, addTask } = useTasks();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scriptFileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   // --- Local State ---
   const [uploadedFile, setUploadedFile] = useState<string | null>(initialFileUrl || null);
@@ -140,6 +141,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
 
+  // Video Player State
+  const [isPlaying, setIsPlaying] = useState(false);
+
   // Script State
   const buildDemoScripts = () => ([
     { id: 1, shot: '1', type: 'Medium', dur: '2s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio },
@@ -168,6 +172,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     // During draft restore we may set duration from snapshot; don't override it.
     if (!isRestoring) setGenDuration(selectedTemplate.duration);
   }, [selectedTemplate, isRestoring]);
+
+  // When the preview video changes, reset play state until we receive onPlay/onPause from the new element.
+  useEffect(() => {
+    setIsPlaying(false);
+  }, [generatedVideoUrl]);
 
   // Keep a ref so unmount flush doesn't depend on hook dependency arrays.
   useEffect(() => {
@@ -868,6 +877,33 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
     };
 
+  // --- Video Controls ---
+  const toggleVideoPlay = () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (video.paused || video.ended) {
+      const p = video.play();
+      // play() can reject (autoplay / permissions). Avoid unhandled promise rejection.
+      if (p && typeof (p as Promise<void>).catch === 'function') p.catch(() => setIsPlaying(false));
+    } else {
+      video.pause();
+    }
+  };
+
+  const skipVideoTime = (seconds: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const next = Math.max(0, video.currentTime + seconds);
+    // duration may be NaN/Infinity until metadata is loaded (or for live streams).
+    if (Number.isFinite(video.duration) && video.duration > 0) {
+      video.currentTime = Math.min(next, video.duration);
+    } else {
+      video.currentTime = next;
+    }
+  };
+
   // --- Render Sections ---
   
   const renderLeftColumn = () => (
@@ -1121,13 +1157,54 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             <div className="glass-panel flex-1 rounded-2xl p-1 relative flex flex-col overflow-hidden">
                 <div className="flex-1 bg-black rounded-xl relative overflow-hidden group flex items-center justify-center">
                     {generatedVideoUrl ? (
-                        <video src={generatedVideoUrl} controls autoPlay loop className="w-full h-full object-contain" />
+                        <video
+                          ref={videoRef}
+                          src={generatedVideoUrl}
+                          controls
+                          autoPlay
+                          loop
+                          className="w-full h-full object-contain"
+                          onPlay={() => setIsPlaying(true)}
+                          onPause={() => setIsPlaying(false)}
+                        />
                     ) : (
                         <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Submitting…' : t.wb_waiting}</p></div>
                     )}
                 </div>
                 <div className="h-14 flex items-center justify-between px-4 border-t border-white/5 bg-zinc-900/50">
-                    <div className="flex gap-4"><button className="text-zinc-400 hover:text-white"><SkipBack className="w-4 h-4" /></button><button className="text-white hover:text-orange-500"><Play className="w-4 h-4 fill-current" /></button><button className="text-zinc-400 hover:text-white"><SkipForward className="w-4 h-4" /></button></div>
+                    <div className="flex gap-4">
+                      <button
+                        type="button"
+                        onClick={() => skipVideoTime(-1)}
+                        disabled={!generatedVideoUrl}
+                        title="Rewind 1s"
+                        className={`text-zinc-400 hover:text-white active:scale-95 transition ${!generatedVideoUrl ? 'opacity-40 cursor-not-allowed hover:text-zinc-400 active:scale-100' : ''}`}
+                      >
+                        <SkipBack className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={toggleVideoPlay}
+                        disabled={!generatedVideoUrl}
+                        title={isPlaying ? 'Pause' : 'Play'}
+                        className={`text-white hover:text-orange-500 active:scale-95 transition ${!generatedVideoUrl ? 'opacity-40 cursor-not-allowed hover:text-white active:scale-100' : ''}`}
+                      >
+                        {isPlaying ? (
+                          <Pause className="w-4 h-4" />
+                        ) : (
+                          <Play className="w-4 h-4 fill-current" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => skipVideoTime(1)}
+                        disabled={!generatedVideoUrl}
+                        title="Forward 1s"
+                        className={`text-zinc-400 hover:text-white active:scale-95 transition ${!generatedVideoUrl ? 'opacity-40 cursor-not-allowed hover:text-zinc-400 active:scale-100' : ''}`}
+                      >
+                        <SkipForward className="w-4 h-4" />
+                      </button>
+                    </div>
                 </div>
             </div>
             

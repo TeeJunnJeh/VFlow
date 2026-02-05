@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  FolderPlus, Upload, Loader2, Folder, Plus, Eye, MoreHorizontal, X, CheckCircle 
+  FolderPlus, Upload, Loader2, Folder, Eye, X, CheckCircle, Circle
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { assetsApi, type Asset, type AssetFolder } from '../../services/assets';
@@ -39,6 +39,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   
   // UI State
   const [openFolderMenuId, setOpenFolderMenuId] = useState<string | null>(null);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
   
   // --- Modal States ---
   
@@ -52,7 +54,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
   // 2. Move Asset
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
-  const [moveAsset, setMoveAsset] = useState<Asset | null>(null);
+  const [moveAssets, setMoveAssets] = useState<Asset[]>([]);
   const [moveFolders, setMoveFolders] = useState<AssetFolder[]>([]);
   const [moveTargetFolderId, setMoveTargetFolderId] = useState<string | null>(null);
   const [isMoveDropdownOpen, setIsMoveDropdownOpen] = useState(false);
@@ -78,21 +80,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
   const assetInputRef = useRef<HTMLInputElement>(null);
 
-  // --- Effects ---
-  useEffect(() => {
-    loadData();
-    // Close menus when tab changes
-    setOpenFolderMenuId(null); 
-  }, [activeAssetTab, currentFolderId]);
-
-  useEffect(() => {
-    if (isFolderModalOpen) {
-       setTimeout(() => folderNameInputRef.current?.focus(), 50);
-    }
-  }, [isFolderModalOpen]);
-
   // --- API Loaders ---
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
       const [assets, folderData] = await Promise.all([
@@ -107,7 +96,29 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [activeAssetTab, currentFolderId]);
+
+  // --- Effects ---
+  useEffect(() => {
+    void loadData();
+    // Close menus when tab changes
+    setOpenFolderMenuId(null); 
+    // Reset selection when scope changes
+    setIsSelectionMode(false);
+    setSelectedAssetIds(new Set());
+  }, [loadData]);
+
+  useEffect(() => {
+    if (isFolderModalOpen) {
+       setTimeout(() => folderNameInputRef.current?.focus(), 50);
+    }
+  }, [isFolderModalOpen]);
+
+  useEffect(() => {
+    if (!isSelectionMode && selectedAssetIds.size > 0) {
+      setSelectedAssetIds(new Set());
+    }
+  }, [isSelectionMode, selectedAssetIds.size]);
 
   const handleAssetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -122,6 +133,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       alert(`Successfully uploaded ${files.length} files!`); 
       
     } catch (err) {
+      console.error(err);
       alert("Error uploading files");
     } finally {
       setIsUploading(false);
@@ -134,8 +146,33 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       await assetsApi.deleteAsset(id);
       setAssetList(prev => prev.filter(a => a.id !== id));
     } catch (err) {
+      console.error(err);
       alert("Failed to delete asset");
     }
+  };
+
+  const exitSelectionMode = () => {
+    setIsSelectionMode(false);
+    setSelectedAssetIds(new Set());
+  };
+
+
+  const toggleAssetSelection = (assetId: string) => {
+    setSelectedAssetIds(prev => {
+      const next = new Set(prev);
+      if (next.has(assetId)) next.delete(assetId);
+      else next.add(assetId);
+      return next;
+    });
+  };
+
+  const selectAllVisibleAssets = () => {
+    const visible = assetList.filter(a => a.type === activeAssetTab);
+    setSelectedAssetIds(new Set(visible.map(a => a.id)));
+  };
+
+  const deselectAllVisibleAssets = () => {
+    setSelectedAssetIds(new Set());
   };
 
   // --- Folder Handlers ---
@@ -169,6 +206,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       await loadData();
       setIsFolderModalOpen(false);
     } catch (err) {
+      console.error(err);
       alert("Failed to save folder");
     } finally {
       setIsSavingFolder(false);
@@ -180,8 +218,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       await assetsApi.deleteFolder(folder.id);
       if (currentFolderId === folder.id) setCurrentFolderId(null);
       await loadData();
-    } catch (err: any) {
-      const msg = err?.message || "Failed to delete folder";
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err || "Failed to delete folder");
       if (msg.toLowerCase().includes('not empty')) {
         alert(t.assets_folder_not_empty_hint);
       } else {
@@ -193,17 +231,28 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   };
 
   // --- Move Handlers ---
-  const openMoveDialog = async (asset: Asset) => {
-    setMoveAsset(asset);
-    setMoveTargetFolderId(asset.folder_id ?? null);
+  const openMoveDialog = async (assets: Asset[], defaultTargetFolderId?: string | null) => {
+    setMoveAssets(assets);
+    setMoveTargetFolderId(defaultTargetFolderId ?? null);
     setIsMoveModalOpen(true);
     setIsMoveDropdownOpen(false);
     try {
       const folders = await assetsApi.getAllFolders(activeAssetTab);
       setMoveFolders(folders);
     } catch (err) {
+      console.error(err);
       alert("Failed to load folders for move");
     }
+  };
+
+  const openSingleMoveDialog = (asset: Asset) => {
+    void openMoveDialog([asset], asset.folder_id ?? null);
+  };
+
+  const openBatchMoveDialog = () => {
+    const selected = assetList.filter(a => selectedAssetIds.has(a.id));
+    if (selected.length === 0) return;
+    void openMoveDialog(selected, currentFolderId ?? null);
   };
 
   const beginDragAsset = (asset: Asset, e: React.DragEvent) => {
@@ -264,6 +313,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       await assetsApi.moveAsset(draggingAsset.id, targetFolderId);
       await loadData();
     } catch (err) {
+      console.error(err);
       alert("Failed to move asset");
     } finally {
       endDragAsset();
@@ -271,13 +321,26 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   };
 
   const handleConfirmMove = async () => {
-    if (!moveAsset) return;
+    if (moveAssets.length === 0) return;
     setIsMovingAsset(true);
     try {
-      await assetsApi.moveAsset(moveAsset.id, moveTargetFolderId);
+      const results = await Promise.allSettled(
+        moveAssets.map(a => {
+          const from = a.folder_id ?? null;
+          const to = moveTargetFolderId ?? null;
+          if (from === to) return Promise.resolve(null);
+          return assetsApi.moveAsset(a.id, moveTargetFolderId);
+        })
+      );
+
+      const failed = results.filter(r => r.status === 'rejected');
+      if (failed.length > 0) alert("Failed to move some assets");
       await loadData();
       setIsMoveModalOpen(false);
+      setSelectedAssetIds(new Set());
+      if (isSelectionMode) setIsSelectionMode(false);
     } catch (err) {
+      console.error(err);
       alert("Failed to move asset");
     } finally {
       setIsMovingAsset(false);
@@ -335,6 +398,10 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
      return mediaBaseUrl ? `${mediaBaseUrl}${path}` : path;
   };
 
+  const visibleAssets = assetList.filter(a => a.type === activeAssetTab);
+  const selectedCount = selectedAssetIds.size;
+  const isAllVisibleSelected = visibleAssets.length > 0 && visibleAssets.every(a => selectedAssetIds.has(a.id));
+
   return (
     <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300" onClick={() => setOpenFolderMenuId(null)}>
        {draggingAsset && (
@@ -344,8 +411,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               <div className="mt-1 text-sm font-bold text-white flex items-center gap-2">
                 {isDragMoving && <Loader2 className="w-4 h-4 animate-spin" />}
                 <span className="truncate">
-                  {(() => {
-                    const dragTitle = (t as any).assets_drag_move_title || t.assets_move_title;
+                   {(() => {
+                    const dragTitle = t.assets_drag_move_title;
                     if (isDragOverRoot) return `${dragTitle} ${t.assets_move_root}`;
                     if (dragOverFolderId) {
                       const found =
@@ -392,22 +459,22 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
           </div>
           
           {/* Breadcrumb */}
-          <div className="flex items-center gap-2 text-xs text-zinc-500 mb-4">
-             <button
-               onClick={() => setCurrentFolderId(null)}
-               onDragOver={dragOverRoot}
-               onDragEnter={dragOverRoot}
+           <div className="flex items-center gap-2 text-xs text-zinc-500 mb-4">
+              <button
+                onClick={() => setCurrentFolderId(null)}
+                onDragOver={dragOverRoot}
+                onDragEnter={dragOverRoot}
                onDragLeave={() => setIsDragOverRoot(false)}
                onDrop={(e) => dropMoveTo(null, e)}
                className={`hover:text-white ${currentFolderId === null ? 'text-white' : ''} ${draggingAsset && isDragOverRoot ? 'text-white' : ''}`}
              >
                {t.assets_root}
              </button>
-             {folderBreadcrumb.map(folder => (
-                <div key={folder.id} className="flex items-center gap-2">
-                  <span>/</span>
-                  <button
-                    onClick={() => setCurrentFolderId(folder.id)}
+              {folderBreadcrumb.map(folder => (
+                 <div key={folder.id} className="flex items-center gap-2">
+                   <span>/</span>
+                   <button
+                     onClick={() => setCurrentFolderId(folder.id)}
                     onDragOver={(e) => dragOverFolder(folder.id, e)}
                     onDragEnter={(e) => dragOverFolder(folder.id, e)}
                     onDragLeave={() => { if (dragOverFolderId === folder.id) setDragOverFolderId(null); }}
@@ -416,11 +483,80 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                   >
                     {folder.name}
                   </button>
-                </div>
-             ))}
-          </div>
+                 </div>
+              ))}
+           </div>
 
-          <div className="flex-1 overflow-y-auto custom-scroll">
+           {/* Selection Toolbar */}
+           <div className="flex items-center justify-between mb-4">
+             <div className="text-[11px] text-zinc-500">
+               {isSelectionMode ? (
+                 <span>
+                   {selectedCount} {t.assets_selected}
+                 </span>
+               ) : (
+                 <span />
+               )}
+             </div>
+             <div className="flex items-center gap-2">
+               {!isSelectionMode ? (
+                 <button
+                   onClick={() => setIsSelectionMode(true)}
+                   className="bg-zinc-800 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-zinc-700 transition flex items-center gap-2"
+                 >
+                   <CheckCircle className="w-4 h-4" /> {t.assets_select}
+                 </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={isAllVisibleSelected ? deselectAllVisibleAssets : selectAllVisibleAssets}
+                      disabled={visibleAssets.length === 0}
+                      className="bg-zinc-900 text-zinc-200 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-zinc-800 transition disabled:opacity-50"
+                    >
+                      {isAllVisibleSelected ? t.assets_deselect_all : t.assets_select_all}
+                    </button>
+                    <button
+                      onClick={openBatchMoveDialog}
+                      disabled={selectedCount === 0}
+                     className="bg-orange-600 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-orange-500 transition disabled:opacity-50"
+                   >
+                     {t.assets_move_asset}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (selectedCount === 0) return;
+                        openConfirmModal({
+                          title: t.assets_confirm_delete_asset,
+                          message: `${selectedCount} ${t.assets_items}\n\n${t.assets_confirm_body_irreversible}`,
+                          danger: true,
+                          onConfirm: async () => {
+                            const ids = Array.from(selectedAssetIds);
+                            const results = await Promise.allSettled(ids.map(id => assetsApi.deleteAsset(id)));
+                            const failed = results.filter(r => r.status === 'rejected');
+                            if (failed.length > 0) alert("Failed to delete some assets");
+                            await loadData();
+                            setSelectedAssetIds(new Set());
+                            setIsSelectionMode(false);
+                          }
+                        });
+                      }}
+                      disabled={selectedCount === 0}
+                      className="bg-red-600 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-red-500 transition disabled:opacity-50"
+                    >
+                      {t.assets_delete}
+                    </button>
+                    <button
+                      onClick={exitSelectionMode}
+                      className="bg-zinc-800 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-zinc-700 transition"
+                   >
+                     {t.assets_done}
+                   </button>
+                 </>
+               )}
+             </div>
+           </div>
+
+           <div className="flex-1 overflow-y-auto custom-scroll">
              {isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-zinc-500" /></div> : (
                 <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-6">
                    {/* Folders */}
@@ -448,32 +584,56 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                          <div className="w-14 h-14 rounded-full bg-zinc-800 flex items-center justify-center group-hover:scale-110 transition"><Folder className="w-6 h-6 text-zinc-400 group-hover:text-orange-500" /></div>
                          <span className="text-xs font-bold text-zinc-300 truncate max-w-[120px]">{folder.name}</span>
                       </div>
-                   ))}
-                   
-                   {/* Assets */}
-                   {assetList.filter(a => a.type === activeAssetTab).map(asset => (
-                      <div
-                        key={asset.id}
-                        className={`glass-card rounded-2xl p-2 group relative ${draggingAsset?.id === asset.id ? 'opacity-60' : ''}`}
-                        draggable
-                        onDragStart={(e) => beginDragAsset(asset, e)}
-                        onDragEnd={endDragAsset}
-                      >
-                         <div className="aspect-[3/4] bg-zinc-800 rounded-xl overflow-hidden relative cursor-zoom-in" onClick={() => { setAssetPreview(asset); setIsAssetPreviewOpen(true); }}>
+                    ))}
+                    
+                    {/* Assets */}
+                    {visibleAssets.map(asset => {
+                      const isSelected = selectedAssetIds.has(asset.id);
+                      return (
+                        <div
+                          key={asset.id}
+                          className={`glass-card rounded-2xl p-2 group relative ${draggingAsset?.id === asset.id ? 'opacity-60' : ''} ${isSelectionMode && isSelected ? 'ring-2 ring-orange-500/70' : ''}`}
+                          draggable={!isSelectionMode}
+                          onDragStart={isSelectionMode ? undefined : (e) => beginDragAsset(asset, e)}
+                          onDragEnd={isSelectionMode ? undefined : endDragAsset}
+                        >
+                          {isSelectionMode && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); toggleAssetSelection(asset.id); }}
+                              className="absolute top-3 left-3 z-20 w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 flex items-center justify-center text-white transition"
+                              aria-label="Select asset"
+                            >
+                              {isSelected ? <CheckCircle className="w-5 h-5 text-orange-400" /> : <Circle className="w-5 h-5 text-white/70" />}
+                            </button>
+                          )}
+                          <div
+                            className={`aspect-[3/4] bg-zinc-800 rounded-xl overflow-hidden relative ${isSelectionMode ? 'cursor-pointer' : 'cursor-zoom-in'}`}
+                            onClick={() => {
+                              if (isSelectionMode) {
+                                toggleAssetSelection(asset.id);
+                                return;
+                              }
+                              setAssetPreview(asset);
+                              setIsAssetPreviewOpen(true);
+                            }}
+                          >
                             {asset.file_url ? <img src={getDisplayUrl(asset.file_url) || ASSET_PLACEHOLDER_DATA_URL} className="w-full h-full object-cover" alt={asset.name} onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }} /> : <div className="absolute inset-0 flex items-center justify-center text-zinc-600">No Preview</div>}
                             <div className="absolute bottom-3 left-3"><p className="text-xs font-bold text-white truncate w-24">{asset.name}</p></div>
-                         </div>
-                         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-2xl flex flex-col items-center justify-center gap-2">
-                            <button onClick={(e) => { e.stopPropagation(); onSelectAsset(asset); }} className="bg-white text-black px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition">{t.assets_use_in_workbench}</button>
-                            <button onClick={(e) => { e.stopPropagation(); setAssetPreview(asset); setIsAssetPreviewOpen(true); }} className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition flex items-center gap-2"><Eye className="w-3.5 h-3.5" /> {t.assets_view_image}</button>
-                            <button onClick={(e) => { e.stopPropagation(); openMoveDialog(asset); }} className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition">{t.assets_move_asset}</button>
-                            <button onClick={(e) => { e.stopPropagation(); openConfirmModal({ title: t.assets_confirm_delete_asset, message: `${asset.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => deleteAssetById(asset.id) }); }} className="text-red-400 text-xs hover:text-red-300">{t.assets_delete}</button>
-                         </div>
-                      </div>
-                   ))}
-                </div>
-             )}
-          </div>
+                          </div>
+                          {!isSelectionMode && (
+                            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-2xl flex flex-col items-center justify-center gap-2">
+                              <button onClick={(e) => { e.stopPropagation(); onSelectAsset(asset); }} className="bg-white text-black px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition">{t.assets_use_in_workbench}</button>
+                              <button onClick={(e) => { e.stopPropagation(); setAssetPreview(asset); setIsAssetPreviewOpen(true); }} className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition flex items-center gap-2"><Eye className="w-3.5 h-3.5" /> {t.assets_view_image}</button>
+                              <button onClick={(e) => { e.stopPropagation(); openSingleMoveDialog(asset); }} className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition">{t.assets_move_asset}</button>
+                              <button onClick={(e) => { e.stopPropagation(); openConfirmModal({ title: t.assets_confirm_delete_asset, message: `${asset.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => deleteAssetById(asset.id) }); }} className="text-red-400 text-xs hover:text-red-300">{t.assets_delete}</button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                 </div>
+              )}
+           </div>
        </div>
 
        {/* --- MODALS --- */}
@@ -509,8 +669,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
         {isMoveModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6" onClick={() => setIsMoveModalOpen(false)}>
             <div className="w-full max-w-md glass-panel rounded-2xl p-6 border border-white/10" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4"><h3 className="text-sm font-bold text-zinc-200">{t.assets_move_title}</h3><button className="text-zinc-400 hover:text-white" onClick={() => setIsMoveModalOpen(false)}><X className="w-5 h-5"/></button></div>
-              <div className="text-xs text-zinc-500 mb-3 truncate">{moveAsset?.name}</div>
+              <div className="flex items-center justify-between mb-4"><h3 className="text-sm font-bold text-zinc-200">{moveAssets.length > 1 ? t.assets_move_items_title : t.assets_move_title}</h3><button className="text-zinc-400 hover:text-white" onClick={() => setIsMoveModalOpen(false)}><X className="w-5 h-5"/></button></div>
+              <div className="text-xs text-zinc-500 mb-3 truncate">{moveAssets.length === 1 ? moveAssets[0]?.name : `${moveAssets.length} ${t.assets_items}`}</div>
               <div className="relative">
                 <button className={`w-full bg-black/30 text-zinc-200 text-sm rounded-lg border px-3 py-2 flex items-center justify-between focus:outline-none transition ${isMoveDropdownOpen ? 'border-orange-500/60' : 'border-white/10 hover:border-white/20'}`} onClick={() => setIsMoveDropdownOpen(v => !v)}>
                   <span className="truncate">{(() => { if (!moveTargetFolderId) return t.assets_move_root; const found = moveFolders.find(f => f.id === moveTargetFolderId); return found?.name || t.assets_move_root; })()}</span>

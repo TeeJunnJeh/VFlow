@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Flame, Gem, Zap, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Flame, Gem, Zap, ChevronDown, Camera, Sparkles, Utensils, Cpu, Eye, Film, Box, Wand2, PencilLine } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { type Template, templatesApi } from '../../services/templates';
 import { useAuth } from '../../context/AuthContext';
@@ -24,6 +24,20 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
   const [customCategory, setCustomCategory] = useState('');
   const [isCustomStyle, setIsCustomStyle] = useState(false);
   const [customStyle, setCustomStyle] = useState('');
+  const categoryChoices = [
+    { value: 'camera', label: t.opt_cat_camera, Icon: Camera },
+    { value: 'beauty', label: t.opt_cat_beauty, Icon: Sparkles },
+    { value: 'food', label: t.opt_cat_food, Icon: Utensils },
+    { value: 'electronics', label: t.opt_cat_digital, Icon: Cpu },
+    { value: '__custom__', label: t.opt_cat_custom, Icon: PencilLine },
+  ];
+  const styleChoices = [
+    { value: 'realistic', label: t.opt_style_real, Icon: Eye },
+    { value: 'cinematic', label: t.opt_style_cine, Icon: Film },
+    { value: '3d', label: t.opt_style_3d, Icon: Box },
+    { value: 'anime', label: t.opt_style_anime, Icon: Wand2 },
+    { value: '__custom__', label: t.opt_style_custom, Icon: PencilLine },
+  ];
 
   const [editorForm, setEditorForm] = useState<Template>({
     name: 'New Template',
@@ -122,29 +136,38 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                 {/* Category Selection */}
                 <div className="space-y-2">
                     <label className="text-sm font-bold text-zinc-400">{t.editor_label_category}</label>
-                    <div className="relative">
-                        <select 
-                            value={isCustomCategory ? '__custom__' : editorForm.product_category} 
-                            onChange={e => { 
-                                const value = e.target.value; 
-                                if (value === '__custom__') { 
-                                    setIsCustomCategory(true); 
-                                    setEditorForm({ ...editorForm, product_category: customCategory }); 
-                                } else { 
-                                    setIsCustomCategory(false); 
-                                    setCustomCategory(''); 
-                                    setEditorForm({ ...editorForm, product_category: value }); 
-                                } 
-                            }} 
-                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer"
-                        >
-                            <option value="camera">{t.opt_cat_camera}</option>
-                            <option value="beauty">{t.opt_cat_beauty}</option>
-                            <option value="food">{t.opt_cat_food}</option>
-                            <option value="electronics">{t.opt_cat_digital}</option>
-                            <option value="__custom__">{t.opt_cat_custom}</option>
-                        </select>
-                        <ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-zinc-500 pointer-events-none" />
+                    <div className="grid grid-cols-2 gap-3">
+                        {categoryChoices.map(({ value, label, Icon }) => {
+                          const selected = isCustomCategory ? value === '__custom__' : editorForm.product_category === value;
+                          return (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => {
+                                if (value === '__custom__') {
+                                  setIsCustomCategory(true);
+                                  setEditorForm({ ...editorForm, product_category: customCategory });
+                                } else {
+                                  setIsCustomCategory(false);
+                                  setCustomCategory('');
+                                  setEditorForm({ ...editorForm, product_category: value });
+                                }
+                              }}
+                              className={`group flex items-center gap-2 rounded-xl border px-3 py-3 text-left text-sm transition ${
+                                selected
+                                  ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 shadow-[0_0_0_1px_rgba(249,115,22,0.2)]'
+                                  : 'border-white/10 bg-black/30 text-zinc-300 hover:border-white/30 hover:bg-white/5'
+                              }`}
+                            >
+                              <span className={`flex h-8 w-8 items-center justify-center rounded-lg border text-xs ${
+                                selected ? 'border-orange-500/50 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-zinc-900/60 text-zinc-400'
+                              }`}>
+                                <Icon className="h-4 w-4" />
+                              </span>
+                              <span className="font-semibold">{label}</span>
+                            </button>
+                          );
+                        })}
                     </div>
                     {isCustomCategory && (
                         <input 
@@ -164,29 +187,38 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                 {/* Style Selection */}
                 <div className="space-y-2">
                     <label className="text-sm font-bold text-zinc-400">{t.editor_label_style}</label>
-                    <div className="relative">
-                        <select 
-                            value={isCustomStyle ? '__custom__' : editorForm.visual_style} 
-                            onChange={e => { 
-                                const value = e.target.value; 
-                                if (value === '__custom__') { 
-                                    setIsCustomStyle(true); 
-                                    setEditorForm({ ...editorForm, visual_style: customStyle }); 
-                                } else { 
-                                    setIsCustomStyle(false); 
-                                    setCustomStyle(''); 
-                                    setEditorForm({ ...editorForm, visual_style: value }); 
-                                } 
-                            }} 
-                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white appearance-none cursor-pointer"
-                        >
-                            <option value="realistic">{t.opt_style_real}</option>
-                            <option value="cinematic">{t.opt_style_cine}</option>
-                            <option value="3d">{t.opt_style_3d}</option>
-                            <option value="anime">{t.opt_style_anime}</option>
-                            <option value="__custom__">{t.opt_style_custom}</option>
-                        </select>
-                        <ChevronDown className="absolute right-4 top-3.5 w-4 h-4 text-zinc-500 pointer-events-none" />
+                    <div className="grid grid-cols-2 gap-3">
+                        {styleChoices.map(({ value, label, Icon }) => {
+                          const selected = isCustomStyle ? value === '__custom__' : editorForm.visual_style === value;
+                          return (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => {
+                                if (value === '__custom__') {
+                                  setIsCustomStyle(true);
+                                  setEditorForm({ ...editorForm, visual_style: customStyle });
+                                } else {
+                                  setIsCustomStyle(false);
+                                  setCustomStyle('');
+                                  setEditorForm({ ...editorForm, visual_style: value });
+                                }
+                              }}
+                              className={`group flex items-center gap-2 rounded-xl border px-3 py-3 text-left text-sm transition ${
+                                selected
+                                  ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 shadow-[0_0_0_1px_rgba(249,115,22,0.2)]'
+                                  : 'border-white/10 bg-black/30 text-zinc-300 hover:border-white/30 hover:bg-white/5'
+                              }`}
+                            >
+                              <span className={`flex h-8 w-8 items-center justify-center rounded-lg border text-xs ${
+                                selected ? 'border-orange-500/50 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-zinc-900/60 text-zinc-400'
+                              }`}>
+                                <Icon className="h-4 w-4" />
+                              </span>
+                              <span className="font-semibold">{label}</span>
+                            </button>
+                          );
+                        })}
                     </div>
                     {isCustomStyle && (
                         <input 

@@ -160,6 +160,11 @@ export const translations = {
     tpl_card_tiktok: "TikTok Viral",
     tpl_card_product: "High-End Product",
     tpl_btn_edit: "Edit Config",
+    tpl_meta_category: "Category",
+    tpl_meta_style: "Style",
+    tpl_meta_ratio: "Ratio",
+    tpl_meta_duration: "Duration",
+    tpl_meta_shots: "Shots",
 
     // --- EDITOR VIEW ---
     editor_title: "Edit Template",
@@ -371,6 +376,11 @@ export const translations = {
     tpl_card_tiktok: "抖音爆款",
     tpl_card_product: "高端产品展示",
     tpl_btn_edit: "编辑配置",
+    tpl_meta_category: "品类",
+    tpl_meta_style: "风格",
+    tpl_meta_ratio: "比例",
+    tpl_meta_duration: "时长",
+    tpl_meta_shots: "镜头数",
 
     editor_title: "编辑模版配置",
     editor_subtitle: "配置各项参数预设，保存后可在工作台直接调用",
@@ -586,6 +596,11 @@ export const translations = {
     tpl_card_tiktok: "TikTok Viral",
     tpl_card_product: "Produk Mewah",
     tpl_btn_edit: "Edit Konfigurasi",
+    tpl_meta_category: "Kategori",
+    tpl_meta_style: "Gaya",
+    tpl_meta_ratio: "Nisbah",
+    tpl_meta_duration: "Tempoh",
+    tpl_meta_shots: "Syot",
 
     // Editor
     editor_title: "Edit Templat",
@@ -803,6 +818,11 @@ export const translations = {
     tpl_card_tiktok: "TikTok Viral",
     tpl_card_product: "Sản phẩm cao cấp",
     tpl_btn_edit: "Sửa cấu hình",
+    tpl_meta_category: "Danh mục",
+    tpl_meta_style: "Phong cách",
+    tpl_meta_ratio: "Tỷ lệ",
+    tpl_meta_duration: "Thời lượng",
+    tpl_meta_shots: "Số cảnh",
 
     // Editor
     editor_title: "Chỉnh sửa mẫu",
@@ -1021,6 +1041,11 @@ export const translations = {
     tpl_card_tiktok: "틱톡 바이럴",
     tpl_card_product: "하이엔드 제품",
     tpl_btn_edit: "구성 편집",
+    tpl_meta_category: "카테고리",
+    tpl_meta_style: "스타일",
+    tpl_meta_ratio: "비율",
+    tpl_meta_duration: "길이",
+    tpl_meta_shots: "샷 수",
 
     // Editor
     editor_title: "템플릿 편집",

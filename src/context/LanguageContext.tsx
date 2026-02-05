@@ -31,7 +31,7 @@ export const LanguageProvider = ({ children }: { children: React.ReactNode }) =>
   const value = {
     language,
     setLanguage,
-    t: translations[language] || translations['en'] // Fallback to EN if missing
+    t: { ...(translations['en'] as any), ...((translations as any)[language] || {}) } as typeof translations['en'] // Fallback per-key to EN
   };
 
   return (

@@ -2,13 +2,14 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal, ChevronDown, 
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
-  MonitorPlay, Film, SkipBack, Play, SkipForward, FileJson
+  MonitorPlay, Film, SkipBack, Play, SkipForward, FileJson, Send
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { useTasks } from '../../context/TaskContext';
 import { videoApi } from '../../services/video';
 import { assetsApi } from '../../services/assets';
+import { tiktokApi } from '../../services/tiktok';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { type Template } from '../../services/templates';
 
@@ -91,6 +92,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   // We use this to display the URL if provided initially
   const [selectedAssetUrl, setSelectedAssetUrl] = useState<string | null>(initialFileUrl || null);
   const [lastUploadedUrl, setLastUploadedUrl] = useState<string | null>(initialFileUrl || null);
+  const [lastGeneratedProjectId, setLastGeneratedProjectId] = useState<string | null>(null);
+  const [previewProjectId, setPreviewProjectId] = useState<string | null>(null);
 
   // Config State
   const [genPrompt, setGenPrompt] = useState('');
@@ -101,6 +104,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   // Processing State
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
+  const [isPostingTikTok, setIsPostingTikTok] = useState(false);
 
   // Script State
   const buildDemoScripts = () => ([
@@ -115,12 +119,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [assetQueue, setAssetQueue] = useState<QueuedAsset[]>([]);
   const [scriptQueue, setScriptQueue] = useState<QueuedScript[]>([]);
   const [generatedBatch, setGeneratedBatch] = useState<Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }>>([]);
+  const [selectedQueueAssetId, setSelectedQueueAssetId] = useState<string | null>(null);
 
   // --- Effects ---
   useEffect(() => {
     // Reset or update duration when template changes
     if (selectedTemplate) setGenDuration(selectedTemplate.duration);
   }, [selectedTemplate]);
+
+  useEffect(() => {
+    if (!generatedVideoUrl) return;
+    const matched = tasks.find(t => (t.result?.video_url || t.result?.url) === generatedVideoUrl);
+    if (matched?.projectId) setPreviewProjectId(matched.projectId);
+  }, [generatedVideoUrl, tasks]);
 
   // Duration Logic
   const currentScriptDuration = scripts.reduce((total, s) => {
@@ -129,6 +140,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const isDurationValid = Math.abs(currentScriptDuration - genDuration) < 0.1;
   const isReuseReady = assetQueue.length > 0 && scriptQueue.length > 0;
   const expectedBatchCount = isReuseReady ? assetQueue.length * scriptQueue.length : 0;
+  const hasCurrentAsset = Boolean(uploadedFile || selectedAssetUrl || selectedFileObj);
 
   // --- Handlers ---
   const handleWorkbenchUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -146,11 +158,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const removeUpload = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (uploadedFile) {
+      URL.revokeObjectURL(uploadedFile);
+    }
     setUploadedFile(null);
     setSelectedFileObj(null);
     setFileName('');
     setSelectedAssetUrl(null);
     setLastUploadedUrl(null);
+    setSelectedAssetSource(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const handleDurationChange = (id: number, newValue: string) => {
@@ -205,10 +224,31 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         uploadedPath: null
       }
     ]));
+
+    setUploadedFile(null);
+    setSelectedFileObj(null);
+    setFileName('');
+    setSelectedAssetUrl(null);
+    setSelectedAssetSource(null);
+    setLastUploadedUrl(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const removeAssetFromQueue = (id: string) => {
     setAssetQueue(prev => prev.filter(a => a.id !== id));
+    setSelectedQueueAssetId(prev => (prev === id ? null : prev));
+  };
+
+  const selectAssetFromQueue = (asset: QueuedAsset) => {
+    setSelectedQueueAssetId(asset.id);
+    setUploadedFile(asset.previewUrl || null);
+    setFileName(asset.name || '');
+    setSelectedFileObj(asset.fileObj || null);
+    setSelectedAssetUrl(asset.assetUrl || null);
+    setSelectedAssetSource(asset.source || null);
+    setGeneratedVideoUrl(null);
   };
 
   const addCurrentScriptToQueue = () => {
@@ -502,16 +542,127 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const handleGenerateVideo = async () => {
       // 1. Batch Generation (Reuse Queue)
       if (assetQueue.length > 0 || scriptQueue.length > 0) {
-        // ... (Keep the batch logic provided in the previous step) ...
-        // (If you haven't added the batch logic from the previous answer yet, make sure to include it here)
+        if (assetQueue.length === 0 || scriptQueue.length === 0) {
+          alert("批量生成需要同时加入素材队列和脚本队列");
+          return;
+        }
+        if (!user?.id) {
+          alert("请先登录");
+          return;
+        }
+
+        setIsGenerating(true);
+        setGeneratedVideoUrl(null);
+
+        try {
+          const batchItems: Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }> = [];
+
+          // 1) 处理素材：上传或复用已有路径
+          const preparedAssets = await Promise.all(assetQueue.map(async (asset) => {
+            let apiPath = asset.uploadedPath || asset.assetUrl || null;
+
+            if (!apiPath && asset.fileObj) {
+              const uploadResp = await assetsApi.uploadAsset(asset.fileObj, 'product');
+              let rawPath = null;
+              if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
+                rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
+              } else {
+                rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
+              }
+              if (!rawPath) throw new Error("素材上传后未返回路径");
+              apiPath = rawPath;
+
+              // 记录已上传路径，避免重复上传
+              setAssetQueue(prev => prev.map(a => a.id === asset.id ? { ...a, uploadedPath: apiPath } : a));
+            }
+
+            if (!apiPath) throw new Error(`无法获取素材路径：${asset.name}`);
+
+            return { ...asset, apiPath };
+          }));
+
+          // 2) 逐条提交任务（素材 × 脚本）
+          for (const asset of preparedAssets) {
+            for (const scriptPack of scriptQueue) {
+              const combinedScriptPrompt = scriptPack.scripts.map(s => {
+                const audioMarker = s.audio ? `【音频|【[旁白]】${s.audio}】` : '';
+                return `${s.visual || ''} ${audioMarker}`.trim();
+              }).join(' ');
+
+              let newProjectId: string | undefined;
+              if (selectedTemplate?.id) {
+                const cloneResp = await videoApi.cloneProject(selectedTemplate.id);
+                newProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
+                if (!newProjectId) throw new Error('Failed to clone project');
+              } else {
+                const createResp = await videoApi.createProject(user.id, {
+                  title: `${asset.name} × ${scriptPack.name}`,
+                  aspect_ratio: '9:16',
+                  script_content: {
+                    duration: scriptPack.duration, 
+                    shots: scriptPack.scripts
+                  }
+                });
+                newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
+                if (!newProjectId) throw new Error('Failed to create project');
+              }
+
+              const payload = {
+                prompt: combinedScriptPrompt,
+                project_id: newProjectId,
+                duration: scriptPack.duration,
+                image_path: (asset as any).apiPath,
+                sound: soundSetting,
+                asset_source: asset.source,
+              };
+
+              const genResp = await videoApi.generate(payload);
+              const taskId = genResp?.data?.task_id || genResp?.task_id;
+              const projectId = genResp?.data?.project_id || newProjectId;
+
+              if (genResp?.code === 0 && taskId) {
+                addTask({
+                  id: taskId,
+                  projectId: String(projectId),
+                  type: 'video_generation',
+                  status: 'processing',
+                  name: `${asset.name} × ${scriptPack.name}`,
+                  thumbnail: asset.previewUrl || undefined,
+                  createdAt: Date.now(),
+                });
+
+                batchItems.push({
+                  id: `${asset.id}-${scriptPack.id}-${taskId}`,
+                  assetName: asset.name,
+                  scriptName: scriptPack.name,
+                  taskId,
+                });
+              } else {
+                console.warn('Batch generation response invalid', genResp);
+              }
+            }
+          }
+
+          if (batchItems.length > 0) {
+            setGeneratedBatch(prev => [...batchItems, ...prev]);
+            alert(`批量任务已提交，共 ${batchItems.length} 个`);
+          } else {
+            alert('批量提交完成，但未返回有效任务ID');
+          }
+        } catch (err: any) {
+          alert(`批量生成失败：${err?.message || '未知错误'}`);
+        } finally {
+          setIsGenerating(false);
+        }
+
         return;
       }
 
       // 2. Single Video Generation
       if (!selectedFileObj && !selectedAssetUrl && !uploadedFile) return alert("Please upload a reference image first!");
       if (scripts.length === 0) return alert("Please generate or add scripts first!");
-      if (!selectedTemplate?.id) return alert("Please select a Template from the Config panel first!");
       if (!isDurationValid) return alert(`Total script duration (${currentScriptDuration}s) must match requested duration (${genDuration}s)!`);
+      if (!selectedTemplate?.id && !user?.id) return alert("请先登录");
 
       setIsGenerating(true);
       setGeneratedVideoUrl(null); 
@@ -547,11 +698,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             return `${s.visual || ''} ${audioMarker}`.trim();
         }).join(' ');
 
-        // Clone Project & Generate
-        const cloneResp = await videoApi.cloneProject(selectedTemplate.id);
-        const newProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
-        
-        if (!newProjectId) throw new Error('Failed to clone project');
+        // Clone Project (if template selected) or Create Project from scripts
+        let newProjectId: string | undefined;
+        if (selectedTemplate?.id) {
+          const cloneResp = await videoApi.cloneProject(selectedTemplate.id);
+          newProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
+          if (!newProjectId) throw new Error('Failed to clone project');
+        } else {
+          const createResp = await videoApi.createProject(user!.id, {
+            title: fileName || 'Video',
+            aspect_ratio: selectedTemplate?.aspect_ratio || '9:16',
+            script_content: {
+              duration: genDuration,
+              shots: scripts
+            }
+          });
+          newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
+          if (!newProjectId) throw new Error('Failed to create project');
+        }
 
         const payload = {
           prompt: combinedScriptPrompt,
@@ -574,10 +738,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             projectId: String(projectId),
             type: 'video_generation',
             status: 'processing',
-            name: `${selectedTemplate.name || 'Video'} (${String(projectId).slice(0, 6)})`,
+            name: `${selectedTemplate?.name || 'Video'} (${String(projectId).slice(0, 6)})`,
             thumbnail: uploadedFile || undefined,
             createdAt: Date.now(),
           });
+          setLastGeneratedProjectId(String(projectId));
           alert("任务已提交到后台运行，您可以继续修改参数生成下一个！");
         } else {
           alert("提交成功，但未返回任务ID。");
@@ -588,6 +753,42 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           setIsGenerating(false);
       }
     };
+
+  const handlePublishToTikTok = async () => {
+    if (!generatedVideoUrl) {
+      alert('请先生成并预览视频');
+      return;
+    }
+
+    const targetProjectId = previewProjectId || lastGeneratedProjectId;
+    if (!targetProjectId) {
+      alert('未找到视频对应的项目ID，请稍后重试');
+      return;
+    }
+
+    setIsPostingTikTok(true);
+    try {
+      const status = await tiktokApi.getStatus();
+      if (!status?.data?.authorized) {
+        const authUrl = await tiktokApi.getAuthUrl(targetProjectId);
+        window.location.href = authUrl;
+        return;
+      }
+
+      const result = await tiktokApi.publishDraft(targetProjectId);
+      if (result.requiresAuth) {
+        const authUrl = result.authUrl || await tiktokApi.getAuthUrl(targetProjectId);
+        window.location.href = authUrl;
+        return;
+      }
+
+      alert('已上传到TikTok草稿箱，请在App中查看并发布');
+    } catch (err: any) {
+      alert(err?.message || '上传失败');
+    } finally {
+      setIsPostingTikTok(false);
+    }
+  };
 
   // --- Render Sections ---
   
@@ -630,10 +831,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
             <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
                {assetQueue.length === 0 ? <div className="text-[10px] text-zinc-600">暂无素材</div> : assetQueue.map(item => (
-                  <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
+                  <div
+                    key={item.id}
+                    onClick={() => selectAssetFromQueue(item)}
+                    className={`flex items-center gap-2 rounded-lg p-2 border cursor-pointer transition ${selectedQueueAssetId === item.id ? 'bg-orange-500/10 border-orange-500/30' : 'bg-black/30 border-white/5 hover:bg-white/5'}`}
+                  >
                      <div className="w-8 h-8 rounded bg-zinc-800 overflow-hidden shrink-0">{item.previewUrl && <img src={item.previewUrl} className="w-full h-full object-cover"/>}</div>
                      <div className="flex-1 min-w-0"><div className="text-[10px] text-zinc-200 truncate">{item.name}</div></div>
-                     <button onClick={() => removeAssetFromQueue(item.id)}><X className="w-3 h-3 text-zinc-600 hover:text-red-400" /></button>
+                     <button
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         removeAssetFromQueue(item.id);
+                       }}
+                     >
+                       <X className="w-3 h-3 text-zinc-600 hover:text-red-400" />
+                     </button>
                   </div>
                ))}
             </div>
@@ -667,7 +879,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       </div>
 
       {/* Config Panel (Restored Controls) */}
-      <div className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${!uploadedFile && !lastUploadedUrl ? 'opacity-50 pointer-events-none' : ''}`}>
+      <div className="flex flex-col gap-3 flex-1 transition-opacity duration-500">
         <div className="flex justify-between items-center"><h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><SlidersHorizontal className="w-3 h-3" /> {t.wb_config_title}</h2></div>
         <div className="glass-panel rounded-xl p-5 flex flex-col gap-5">
            {/* Template Selector */}
@@ -675,14 +887,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_template_label}</label>
               <div className="relative">
                 <select 
-                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-orange-500 font-bold focus:outline-none focus:border-orange-500 transition appearance-none cursor-pointer hover:bg-white/5"
-                    value={selectedTemplate?.id || ""}
-                    onChange={(e) => onSelectTemplate(templateList.find(t => t.id === e.target.value) || null)}
+                  className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-orange-500 font-bold focus:outline-none focus:border-orange-500 transition appearance-none cursor-pointer hover:bg-white/5"
+                  value={String(selectedTemplate?.id || "")}
+                  onChange={(e) => onSelectTemplate(templateList.find(t => String(t.id || '') === e.target.value) || null)}
                 >
                   <option value="">{t.wb_config_custom}</option>
-                  {templateList.map(tpl => (
-                      <option key={tpl.id} value={tpl.id}>{ICON_EMOJI_MAP[tpl.icon] || '🔥'} {tpl.name}</option>
-                  ))}
+                    {templateList.map(tpl => (
+                      <option key={tpl.id} value={String(tpl.id || '')}>{ICON_EMOJI_MAP[tpl.icon] || '🔥'} {tpl.name}</option>
+                    ))}
                 </select>
                 <ChevronDown className="w-3 h-3 text-zinc-500 absolute right-3 top-2.5 pointer-events-none" />
               </div>
@@ -692,7 +904,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
            <hr className="border-white/5" />
            <div>
               <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_prompt_label}</label>
-              <textarea className="w-full bg-black/40 text-xs text-zinc-300 p-3 rounded-lg border border-white/10 focus:border-orange-500 focus:outline-none resize-none min-h-[80px]" placeholder={t.wb_config_prompt_placeholder} value={genPrompt} onChange={(e) => setGenPrompt(e.target.value)} />
+              <textarea
+               disabled={!hasCurrentAsset}
+               className={`w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-none min-h-[80px] ${!hasCurrentAsset ? 'text-zinc-500 cursor-not-allowed opacity-60' : 'text-zinc-300 focus:border-orange-500 focus:outline-none'}`}
+               placeholder={t.wb_config_prompt_placeholder}
+               value={genPrompt}
+               onChange={(e) => setGenPrompt(e.target.value)}
+              />
            </div>
 
            <div>
@@ -720,7 +938,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
            </div>
            
-           <button onClick={handleGenerateScripts} disabled={isGeneratingScript} className="w-full bg-white text-black py-3 rounded-xl font-bold text-xs hover:bg-orange-500 hover:text-white transition shadow-lg shadow-white/5 mt-2 flex items-center justify-center gap-2 group">
+            <button onClick={handleGenerateScripts} disabled={isGeneratingScript || !hasCurrentAsset} className={`w-full py-3 rounded-xl font-bold text-xs transition shadow-lg shadow-white/5 mt-2 flex items-center justify-center gap-2 group ${isGeneratingScript || !hasCurrentAsset ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed' : 'bg-white text-black hover:bg-orange-500 hover:text-white'}`}>
               {isGeneratingScript ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />} 
               {isGeneratingScript ? 'Generating...' : t.wb_btn_gen_scripts}
            </button>
@@ -850,6 +1068,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 <div className="h-14 flex items-center justify-between px-4 border-t border-white/5 bg-zinc-900/50">
                     <div className="flex gap-4"><button className="text-zinc-400 hover:text-white"><SkipBack className="w-4 h-4" /></button><button className="text-white hover:text-orange-500"><Play className="w-4 h-4 fill-current" /></button><button className="text-zinc-400 hover:text-white"><SkipForward className="w-4 h-4" /></button></div>
                 </div>
+            </div>
+
+            <div className="glass-panel rounded-2xl p-3 border border-white/5 flex items-center justify-between">
+              <div className="text-[10px] text-zinc-500 uppercase tracking-widest">TikTok Draft</div>
+              <button
+                onClick={handlePublishToTikTok}
+                disabled={!generatedVideoUrl || isPostingTikTok}
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border border-white/10 ${(!generatedVideoUrl || isPostingTikTok) ? 'opacity-40 cursor-not-allowed text-zinc-500' : 'text-white bg-gradient-to-r from-purple-600 to-orange-500 hover:brightness-110'}`}
+              >
+                {isPostingTikTok ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                {isPostingTikTok ? t.wb_tiktok_uploading : t.wb_btn_tiktok_draft}
+              </button>
             </div>
             
             {/* Batch Results Panel (Restored) */}

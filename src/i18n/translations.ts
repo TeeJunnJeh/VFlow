@@ -118,6 +118,8 @@ export const translations = {
     wb_publish_title: "Publish",
     wb_publish_sync: "Auto-Sync",
     wb_btn_post: "Post",
+    wb_btn_tiktok_draft: "Post to TikTok Draft",
+    wb_tiktok_uploading: "Uploading...",
 
     // --- ASSETS VIEW ---
     assets_title: "Asset Hub",
@@ -330,6 +332,8 @@ export const translations = {
     wb_publish_title: "一键发布",
     wb_publish_sync: "自动同步",
     wb_btn_post: "发布",
+    wb_btn_tiktok_draft: "一键发布到TikTok草稿",
+    wb_tiktok_uploading: "上传中...",
 
     assets_title: "素材库",
     assets_subtitle: "管理模特、商品及场景素材",

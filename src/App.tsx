@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { tiktokApi } from './services/tiktok';
 import { AnimatePresence } from 'framer-motion';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TaskProvider } from './context/TaskContext';
@@ -60,6 +61,32 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
  */
 const AnimatedRoutes = () => {
     const location = useLocation();
+
+    React.useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const code = params.get('code');
+        const state = params.get('state');
+        const error = params.get('error');
+        const errorDescription = params.get('error_description');
+
+        if (!code && !error) return;
+
+        (async () => {
+            try {
+                await tiktokApi.completeAuth({
+                    code,
+                    state,
+                    error,
+                    error_description: errorDescription,
+                });
+                alert('TikTok 授权成功，正在上传草稿');
+            } catch (err: any) {
+                alert(`TikTok 授权失败：${err?.message || '未知错误'}`);
+            } finally {
+                window.history.replaceState({}, document.title, location.pathname);
+            }
+        })();
+    }, [location.pathname, location.search]);
 
     return (
         /**

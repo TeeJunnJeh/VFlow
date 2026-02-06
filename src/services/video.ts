@@ -19,6 +19,35 @@ function getCookie(name: string) {
 }
 
 export const videoApi = {
+  // 0. Create Project (non-template)
+  createProject: async (userId: string | number, payload: any) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/users/${userId}/project`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      let errorMsg = '创建项目失败';
+      try {
+        const errData = await response.json();
+        errorMsg = errData.message || JSON.stringify(errData);
+      } catch (e) {
+        errorMsg = `Server Error: ${response.status} ${response.statusText}`;
+      }
+      throw new Error(errorMsg);
+    }
+
+    return await response.json();
+  },
+
   // 0. Clone Project (for reuse batch generation)
   cloneProject: async (projectId: string) => {
     const csrftoken = getCookie('csrftoken');

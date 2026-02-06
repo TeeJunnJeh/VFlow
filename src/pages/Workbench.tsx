@@ -125,6 +125,27 @@ const Workbench = () => {
       window.history.replaceState({}, document.title);
     }
   }, [location]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tiktok = params.get('tiktok');
+    const message = params.get('message');
+    const code = params.get('code');
+    const state = params.get('state');
+
+    /* logic moved to App.tsx to avoid duplicate execution
+    if (code && state) { ... } 
+    */
+
+    if (tiktok) {
+      if (tiktok === 'success') {
+        alert('TikTok 授权成功');
+      } else {
+        alert(`TikTok 授权失败：${message || '未知错误'}`);
+      }
+      window.history.replaceState({}, document.title, location.pathname);
+    }
+  }, [location.pathname, location.search]);
   
   const handleTaskPreview = (url: string) => {
     setGeneratedVideoUrl(url);
@@ -150,7 +171,7 @@ const Workbench = () => {
         <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-orange-900/10 to-transparent pointer-events-none z-0" />
         
         {/* Router Switch */}
-        {activeView === 'workbench' && (
+        <div className={activeView === 'workbench' ? 'flex-1 h-full min-h-0' : 'hidden'}>
           <WorkbenchView 
             initialFileUrl={selectedAssetForWorkbench?.url}
             initialFileName={selectedAssetForWorkbench?.name}
@@ -161,7 +182,7 @@ const Workbench = () => {
             generatedVideoUrl={generatedVideoUrl}
             setGeneratedVideoUrl={setGeneratedVideoUrl}
           />
-        )}
+        </div>
 
         {activeView === 'assets' && (
           <AssetsView 

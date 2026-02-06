@@ -113,6 +113,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [fileName, setFileName] = useState(initialFileName || '');
   const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null);
   const [selectedAssetSource, setSelectedAssetSource] = useState<'product' | 'preference' | null>(initialAssetSource || null);
+  const [isDragUploadActive, setIsDragUploadActive] = useState(false);
   // We use this to display the URL if provided initially
   const [selectedAssetUrl, setSelectedAssetUrl] = useState<string | null>(initialFileUrl || null);
   const [lastUploadedUrl, setLastUploadedUrl] = useState<string | null>(initialFileUrl || null);
@@ -444,6 +445,38 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (err) {
       alert(`${err}\n\n支持格式：${formatHint}`);
       if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setUploadedFile(url);
+    setFileName(file.name);
+    setSelectedFileObj(file);
+    setSelectedAssetSource('product');
+    setSelectedAssetUrl(null);
+    setGeneratedVideoUrl(null);
+  };
+
+  const handleUploadDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types?.includes('Files')) return;
+    e.preventDefault();
+    setIsDragUploadActive(true);
+  };
+
+  const handleUploadDragLeave = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types?.includes('Files')) return;
+    e.preventDefault();
+    setIsDragUploadActive(false);
+  };
+
+  const handleUploadDrop = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types?.includes('Files')) return;
+    e.preventDefault();
+    setIsDragUploadActive(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    const err = validateUploadFile(file);
+    if (err) {
+      alert(`${err}\n\n支持格式：${formatHint}`);
       return;
     }
     const url = URL.createObjectURL(file);
@@ -934,7 +967,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       {/* Upload Section */}
       <div className="flex flex-col gap-3">
         <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
-        <div onClick={() => fileInputRef.current?.click()} className={`glass-panel rounded-xl p-1 border-2 border-dashed border-zinc-800 hover:border-orange-500/50 transition-colors h-32 relative group cursor-pointer ${uploadedFile ? 'border-none' : ''}`}>
+        <div
+          onClick={() => fileInputRef.current?.click()}
+          onDragOver={handleUploadDragOver}
+          onDragEnter={handleUploadDragOver}
+          onDragLeave={handleUploadDragLeave}
+          onDrop={handleUploadDrop}
+          className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors h-32 relative group cursor-pointer ${uploadedFile ? 'border-none' : ''} ${isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50'}`}
+        >
+          {isDragUploadActive && (
+            <div className="absolute inset-1 rounded-lg border border-dashed border-orange-500/60 bg-orange-500/10 pointer-events-none" />
+          )}
           <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*,audio/*" onChange={handleWorkbenchUpload} />
           {!uploadedFile ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center z-10">

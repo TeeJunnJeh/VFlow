@@ -54,6 +54,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [activeAssetTab, setActiveAssetTab] = useState<AssetType>('product');
   const [isUploading, setIsUploading] = useState(false);
+  const [isDragUploadActive, setIsDragUploadActive] = useState(false);
   
   // UI State
   const [openFolderMenuId, setOpenFolderMenuId] = useState<string | null>(null);
@@ -138,9 +139,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     }
   }, [isSelectionMode, selectedAssetIds.size]);
 
-  const handleAssetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+  const uploadFiles = async (files: FileList | File[]) => {
     const errors: string[] = [];
     const validFiles: File[] = [];
     Array.from(files).forEach(file => {
@@ -149,25 +148,46 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       else validFiles.push(file);
     });
     if (errors.length > 0) alert(`${errors.join('\n')}\n\n支持格式：${formatHint}`);
-    if (validFiles.length === 0) {
-      if (assetInputRef.current) assetInputRef.current.value = '';
-      return;
-    }
+    if (validFiles.length === 0) return;
     setIsUploading(true);
     try {
       const uploadTasks = validFiles.map(file => assetsApi.uploadAsset(file, activeAssetTab, currentFolderId));
       await Promise.all(uploadTasks);
       await loadData();
-      
-      // --- RESTORED SUCCESS ALERT ---
       alert(`Successfully uploaded ${validFiles.length} files!`); 
-      
     } catch (err) {
       console.error(err);
       alert("Error uploading files");
     } finally {
       setIsUploading(false);
-      if (assetInputRef.current) assetInputRef.current.value = '';
+    }
+  };
+
+  const handleAssetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    await uploadFiles(files);
+    if (assetInputRef.current) assetInputRef.current.value = '';
+  };
+
+  const handleUploadDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types?.includes('Files')) return;
+    e.preventDefault();
+    setIsDragUploadActive(true);
+  };
+
+  const handleUploadDragLeave = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types?.includes('Files')) return;
+    e.preventDefault();
+    setIsDragUploadActive(false);
+  };
+
+  const handleUploadDrop = async (e: React.DragEvent) => {
+    if (!e.dataTransfer.types?.includes('Files')) return;
+    e.preventDefault();
+    setIsDragUploadActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      await uploadFiles(e.dataTransfer.files);
     }
   };
 
@@ -433,7 +453,19 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const isAllVisibleSelected = visibleAssets.length > 0 && visibleAssets.every(a => selectedAssetIds.has(a.id));
 
   return (
-    <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300" onClick={() => setOpenFolderMenuId(null)}>
+    <div
+      className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300 relative"
+      onClick={() => setOpenFolderMenuId(null)}
+      onDragOver={handleUploadDragOver}
+      onDragEnter={handleUploadDragOver}
+      onDragLeave={handleUploadDragLeave}
+      onDrop={handleUploadDrop}
+    >
+       {isDragUploadActive && (
+         <div className="absolute inset-0 z-[120] rounded-3xl border-2 border-dashed border-orange-500/60 bg-orange-500/10 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+           <div className="text-sm font-bold text-orange-200">拖拽文件到此处上传</div>
+         </div>
+       )}
        {draggingAsset && (
           <div className="fixed inset-0 z-[105] pointer-events-none bg-black/10">
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 glass-panel border border-white/10 rounded-2xl px-4 py-3 shadow-xl max-w-[calc(100vw-2rem)]">

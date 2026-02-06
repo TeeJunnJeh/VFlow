@@ -811,16 +811,16 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
         {isMoveModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6" onClick={() => setIsMoveModalOpen(false)}>
             <div className="w-full max-w-sm glass-panel rounded-2xl p-6 border border-white/10" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4"><h3 className="text-sm font-bold text-zinc-200">{moveAssets.length > 1 ? t.assets_move_items_title : t.assets_move_title}</h3><button className="text-zinc-400 hover:text-white" onClick={() => setIsMoveModalOpen(false)}><X className="w-5 h-5"/></button></div>
+              <div className="flex items-center justify-between mb-4"><h3 className="text-sm font-bold text-zinc-200">{moveFolder ? t.assets_move_folder_title : (moveAssets.length > 1 ? t.assets_move_items_title : t.assets_move_title)}</h3><button className="text-zinc-400 hover:text-white" onClick={() => setIsMoveModalOpen(false)}><X className="w-5 h-5"/></button></div>
               <div className="text-xs text-zinc-500 mb-3 truncate">{moveSubjectLabel}</div>
               <div className="relative">
-                <button className={`w-full bg-black/30 text-zinc-200 text-sm rounded-lg border px-3 py-2 flex items-center justify-between focus:outline-none transition ${isMoveDropdownOpen ? 'border-orange-500/60' : 'border-white/10 hover:border-white/20'}`} onClick={() => setIsMoveDropdownOpen(v => !v)}>
+                <button className={`w-full bg-black/30 text-zinc-200 text-[13px] rounded-lg border px-3 py-2 flex items-center justify-between focus:outline-none transition ${isMoveDropdownOpen ? 'border-orange-500/60' : 'border-white/10 hover:border-white/20'}`} onClick={() => setIsMoveDropdownOpen(v => !v)}>
                   <span className="truncate">{(() => { if (!moveTargetFolderId) return t.assets_move_root; const found = moveFolders.find(f => f.id === moveTargetFolderId); return found?.name || t.assets_move_root; })()}</span>
                   <ChevronDown className={`w-4 h-4 shrink-0 transition ${isMoveDropdownOpen ? 'rotate-180 text-orange-400' : 'text-zinc-400'}`} />
                 </button>
                 {isMoveDropdownOpen && (
                   <div className="absolute mt-2 w-full max-h-64 overflow-auto custom-scroll rounded-lg border border-white/10 bg-zinc-950/90 backdrop-blur-sm shadow-xl z-[120] pr-2">
-                    <button className={`w-full text-left px-3 py-2 text-sm hover:bg-white/5 ${moveTargetFolderId === null ? 'text-white' : 'text-zinc-200'}`} onClick={() => { setMoveTargetFolderId(null); setIsMoveDropdownOpen(false); }}>{t.assets_move_root}</button>
+                    <button className={`w-full text-left px-3 py-2 text-[13px] hover:bg-white/5 ${moveTargetFolderId === null ? 'text-white' : 'text-zinc-200'}`} onClick={() => { setMoveTargetFolderId(null); setIsMoveDropdownOpen(false); }}>{t.assets_move_root}</button>
                     {(moveFoldersByParent.get(null) || [])
                       .filter(f => !moveFolder || !invalidMoveTargetIds.has(f.id))
                       .map(f => {
@@ -837,7 +837,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           return (
                             <div key={node.id}>
                               <div
-                                className={`w-full px-3 py-2 text-sm flex items-center justify-between select-none ${
+                                className={`w-full px-3 py-2 text-[13px] flex items-center justify-between select-none ${
                                   isSelected ? 'bg-white/5 text-white' : `hover:bg-white/5 ${depthText}`
                                 }`}
                                 style={{ paddingLeft: 12 + depth * 14 }}

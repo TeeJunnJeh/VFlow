@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal, ChevronDown, 
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
-  MonitorPlay, Film, SkipBack, Play, SkipForward, FileJson, Send
+  MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -47,6 +47,23 @@ type QueuedScript = {
   duration: number;
 };
 
+// What we persist to the backend for cross-refresh / cross-device restore.
+// Keep it JSON-serializable (no File / Blob / functions).
+type WorkbenchSnapshot = {
+  version: 1;
+  asset_url: string | null; // URL or "/media/..." path (backend accepts both)
+  file_name: string;
+  asset_source: 'product' | 'preference' | null;
+  prompt: string;
+  duration: number;
+  sound: 'on' | 'off';
+  script_count: number;
+  template_id: string | null;
+  script_pages: ScriptPage[];
+  active_page_index: number;
+  timestamp: number; // client timestamp (ms)
+};
+
 // Helper constants
 const RATIO_TO_RES: Record<string, string> = {
   '16:9': '1280*720',
@@ -56,6 +73,13 @@ const RATIO_TO_RES: Record<string, string> = {
 };
 
 const ICON_EMOJI_MAP: Record<string, string> = { 'flame': '🔥', 'gem': '💎', 'zap': '⚡' };
+
+const toDisplayUrl = (path: string | null): string | null => {
+  if (!path) return null;
+  if (path.startsWith('http')) return path;
+  const mediaBaseUrl = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
+  return mediaBaseUrl ? `${mediaBaseUrl}${path}` : path;
+};
 
 interface WorkbenchViewProps {
   initialFileUrl?: string | null;
@@ -83,17 +107,33 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const { tasks, addTask } = useTasks();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scriptFileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   // --- Local State ---
   const [uploadedFile, setUploadedFile] = useState<string | null>(initialFileUrl || null);
   const [fileName, setFileName] = useState(initialFileName || '');
   const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null);
   const [selectedAssetSource, setSelectedAssetSource] = useState<'product' | 'preference' | null>(initialAssetSource || null);
+  const [isDragUploadActive, setIsDragUploadActive] = useState(false);
   // We use this to display the URL if provided initially
   const [selectedAssetUrl, setSelectedAssetUrl] = useState<string | null>(initialFileUrl || null);
   const [lastUploadedUrl, setLastUploadedUrl] = useState<string | null>(initialFileUrl || null);
   const [lastGeneratedProjectId, setLastGeneratedProjectId] = useState<string | null>(null);
   const [previewProjectId, setPreviewProjectId] = useState<string | null>(null);
+
+  // Draft restore / autosave
+  const [isRestoring, setIsRestoring] = useState(true);
+  const [pendingTemplateId, setPendingTemplateId] = useState<string | null>(null);
+  // Track whether we actually restored a draft snapshot this session.
+  // If true, we must NOT auto-pick a template (draft selection has priority, including "Custom Config").
+  const [wasDraftRestored, setWasDraftRestored] = useState(false);
+  // One-shot guard: don't keep forcing a template after the user intentionally switches back to "Custom Config".
+  const hasAutoSelectedTemplateRef = useRef(false);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestSnapshotRef = useRef<WorkbenchSnapshot | null>(null);
+  const canAutoSaveRef = useRef(false);
+  const skipTemplateDurationSyncRef = useRef(false);
+  const restoredDraftRef = useRef(false);
 
   // Config State
   const [genPrompt, setGenPrompt] = useState('');
@@ -105,6 +145,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
+
+  // Video Player State
+  const [isPlaying, setIsPlaying] = useState(false);
 
   // Script State
   const buildDemoScripts = () => ([
@@ -124,8 +167,254 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   // --- Effects ---
   useEffect(() => {
     // Reset or update duration when template changes
-    if (selectedTemplate) setGenDuration(selectedTemplate.duration);
-  }, [selectedTemplate]);
+    if (!selectedTemplate) return;
+
+    // When we apply a restored template, keep the duration we restored from the snapshot.
+    if (skipTemplateDurationSyncRef.current) {
+      skipTemplateDurationSyncRef.current = false;
+      return;
+    }
+
+    // During draft restore we may set duration from snapshot; don't override it.
+    if (!isRestoring) setGenDuration(selectedTemplate.duration);
+  }, [selectedTemplate, isRestoring]);
+
+  // When the preview video changes, reset play state until we receive onPlay/onPause from the new element.
+  useEffect(() => {
+    setIsPlaying(false);
+  }, [generatedVideoUrl]);
+
+  // Keep a ref so unmount flush doesn't depend on hook dependency arrays.
+  useEffect(() => {
+    canAutoSaveRef.current = !!user?.id && !isRestoring;
+  }, [user?.id, isRestoring]);
+
+  // 1) Restore draft when entering workbench (mount) or after login
+  useEffect(() => {
+    let cancelled = false;
+
+    const restoreDraft = async () => {
+      setIsRestoring(true);
+      restoredDraftRef.current = false;
+
+      if (!user?.id) {
+        setIsRestoring(false);
+        return;
+      }
+
+      let restored = false;
+
+      try {
+        const res = await videoApi.getDraft();
+        if (cancelled) return;
+
+        const snap = (res && res.code === 0 ? res.data?.snapshot : null) as Partial<WorkbenchSnapshot> | null;
+        if (snap && typeof snap === 'object') {
+          restoredDraftRef.current = true;
+          // Asset
+          const assetUrl = typeof snap.asset_url === 'string' ? snap.asset_url : null;
+          const displayUrl = toDisplayUrl(assetUrl);
+          setLastUploadedUrl(assetUrl);
+          setUploadedFile(displayUrl);
+          setSelectedAssetUrl(displayUrl);
+          setSelectedFileObj(null); // can't restore File
+
+          // Config
+          if (typeof snap.file_name === 'string') setFileName(snap.file_name);
+          if (snap.asset_source === 'product' || snap.asset_source === 'preference' || snap.asset_source === null) {
+            setSelectedAssetSource(snap.asset_source);
+          }
+          if (typeof snap.prompt === 'string') setGenPrompt(snap.prompt);
+          if (typeof snap.duration === 'number') setGenDuration(snap.duration);
+          if (snap.sound === 'on' || snap.sound === 'off') setSoundSetting(snap.sound);
+          if (typeof snap.script_count === 'number') setScriptVariantCount(snap.script_count);
+
+          // Scripts
+          if (Array.isArray(snap.script_pages) && snap.script_pages.length > 0) {
+            const pages = snap.script_pages as ScriptPage[];
+            const rawIdx = typeof snap.active_page_index === 'number' ? snap.active_page_index : 0;
+            const idx = Math.min(Math.max(rawIdx, 0), pages.length - 1);
+            setScriptPages(pages);
+            setActiveScriptPage(idx);
+            setScripts(pages[idx]?.scripts || []);
+          }
+
+          // Template (may arrive before templateList is loaded)
+          if (typeof snap.template_id === 'string' && snap.template_id) {
+            setPendingTemplateId(snap.template_id);
+          } else if (snap.template_id === null) {
+            onSelectTemplate(null);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to restore workbench draft:", err);
+      } finally {
+        if (cancelled) return;
+
+        setWasDraftRestored(restored);
+
+        // If an asset is passed in (e.g. "Use in Workbench"), it should override the restored asset.
+        if (initialFileUrl) {
+          setUploadedFile(initialFileUrl);
+          setSelectedAssetUrl(initialFileUrl);
+          setLastUploadedUrl(initialFileUrl);
+          if (initialFileName) setFileName(initialFileName);
+          setSelectedFileObj(null);
+          setSelectedAssetSource(initialAssetSource || 'preference');
+          setGeneratedVideoUrl(null);
+        }
+
+        setIsRestoring(false);
+      }
+    };
+
+    restoreDraft();
+
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally only tied to auth identity; template selection is handled in a separate effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  // Apply restored template once templates are available
+  useEffect(() => {
+    if (!pendingTemplateId) return;
+    if (isRestoring) return;
+
+    // If user already selected something manually, don't override.
+    if (selectedTemplate?.id) {
+      setPendingTemplateId(null);
+      return;
+    }
+
+    const tpl = templateList.find(t => t.id === pendingTemplateId);
+    if (tpl) {
+      skipTemplateDurationSyncRef.current = true;
+      onSelectTemplate(tpl);
+      setPendingTemplateId(null);
+      return;
+    }
+
+    // Template was deleted or otherwise unavailable. Clear pending so we can fall back.
+    if (templateList.length > 0) setPendingTemplateId(null);
+  }, [pendingTemplateId, isRestoring, selectedTemplate?.id, templateList, onSelectTemplate]);
+
+  // If user has templates, "Custom Config" is not a valid/meaningful option:
+  // - Hide it in the dropdown (render logic below)
+  // - Ensure we always have a real template selected (default to the first)
+  // - Don't interrupt draft restore (pendingTemplateId) or in-progress restore
+  useEffect(() => {
+    if (isRestoring) return;
+    if (pendingTemplateId) return;
+    if (templateList.length === 0) return;
+
+    const selectedId = selectedTemplate?.id;
+    const isValidSelection = !!selectedId && templateList.some(t => t.id === selectedId);
+    if (isValidSelection) return;
+
+    // If we just restored a draft snapshot (that may have been "Custom Config"),
+    // preserve the restored duration instead of syncing to template default.
+    if (restoredDraftRef.current) skipTemplateDurationSyncRef.current = true;
+
+    onSelectTemplate(templateList[0]);
+  }, [templateList, selectedTemplate?.id, pendingTemplateId, isRestoring, onSelectTemplate]);
+
+  // Default template selection:
+  // - If user has templates and there's NO restored draft, default to the first template (not "Custom Config").
+  // - If user has no templates, keep showing "Custom Config".
+  useEffect(() => {
+    if (isRestoring) return;
+    if (wasDraftRestored) return;
+    if (!templateList || templateList.length === 0) return;
+    if (selectedTemplate?.id) return;
+    if (hasAutoSelectedTemplateRef.current) return;
+
+    const first = templateList.find((tpl) => !!tpl.id) || null;
+    if (!first) return;
+
+    onSelectTemplate(first);
+    hasAutoSelectedTemplateRef.current = true;
+  }, [isRestoring, wasDraftRestored, templateList, selectedTemplate?.id, onSelectTemplate]);
+
+  // Keep a best-effort "latest snapshot" for debounce + unmount flush.
+  const normalizedScriptPages: ScriptPage[] = (scriptPages || []).map((p, idx) =>
+    idx === activeScriptPage ? { ...p, scripts } : p
+  );
+  latestSnapshotRef.current = {
+    version: 1,
+    asset_url: lastUploadedUrl || selectedAssetUrl || null,
+    file_name: fileName,
+    asset_source: selectedAssetSource,
+    prompt: genPrompt,
+    duration: genDuration,
+    sound: soundSetting,
+    script_count: scriptVariantCount,
+    template_id: (selectedTemplate?.id as string | undefined) || null,
+    script_pages: normalizedScriptPages,
+    active_page_index: activeScriptPage,
+    timestamp: Date.now(),
+  };
+
+  // 2) Auto-save (debounced)
+  useEffect(() => {
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    if (!user?.id || isRestoring) return;
+
+    autoSaveTimerRef.current = setTimeout(() => {
+      const snapshot = latestSnapshotRef.current;
+      if (!snapshot) return;
+      videoApi.saveDraft(snapshot).catch((e) => console.warn("Auto-save draft failed:", e));
+    }, 1500);
+
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, [
+    user?.id,
+    isRestoring,
+    lastUploadedUrl,
+    selectedAssetUrl,
+    fileName,
+    selectedAssetSource,
+    genPrompt,
+    genDuration,
+    soundSetting,
+    scriptVariantCount,
+    selectedTemplate?.id,
+    scripts,
+    scriptPages,
+    activeScriptPage,
+  ]);
+
+  // 3) Flush on unmount (e.g. leaving workbench tab) so we don't lose the last edits due to debounce cleanup
+  useEffect(() => {
+    return () => {
+      if (!canAutoSaveRef.current) return;
+      const snapshot = latestSnapshotRef.current;
+      if (!snapshot) return;
+      videoApi.saveDraft(snapshot).catch(() => {});
+    };
+  }, []);
+
+  // 4) Best-effort save on page refresh/close (covers "F5" / tab close cases better than debounce alone)
+  useEffect(() => {
+    const handler = () => {
+      if (!canAutoSaveRef.current) return;
+      const snapshot = latestSnapshotRef.current;
+      if (!snapshot) return;
+
+      try {
+        const body = new Blob([JSON.stringify({ snapshot })], { type: 'application/json' });
+        navigator.sendBeacon('/api/projects/draft/', body);
+      } catch {
+        // ignore
+      }
+    };
+
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, []);
 
   useEffect(() => {
     if (!generatedVideoUrl) return;
@@ -141,19 +430,74 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const isReuseReady = assetQueue.length > 0 && scriptQueue.length > 0;
   const expectedBatchCount = isReuseReady ? assetQueue.length * scriptQueue.length : 0;
   const hasCurrentAsset = Boolean(uploadedFile || selectedAssetUrl || selectedFileObj);
+  const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
+  const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
+  const VIDEO_EXTS = ['mp4', 'mov', 'mkv', 'webm', 'avi'];
+  const AUDIO_EXTS = ['mp3', 'wav', 'flac'];
+  const imageFormats = IMAGE_EXTS.join('/');
+  const videoFormats = VIDEO_EXTS.join('/');
+  const audioFormats = AUDIO_EXTS.join('/');
+  const formatHint = `图片(${imageFormats}) 视频(${videoFormats}) 音频(${audioFormats}) · ≤1GB`;
+
+  const validateUploadFile = (file: File) => {
+    if (file.size > MAX_UPLOAD_BYTES) return `文件过大：${file.name}（>1GB）`;
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const isImage = file.type.startsWith('image/') || IMAGE_EXTS.includes(ext);
+    const isVideo = file.type.startsWith('video/') || VIDEO_EXTS.includes(ext);
+    const isAudio = file.type.startsWith('audio/') || AUDIO_EXTS.includes(ext);
+    if (!isImage && !isVideo && !isAudio) return `格式不支持：${file.name}`;
+    return null;
+  };
 
   // --- Handlers ---
   const handleWorkbenchUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setUploadedFile(url);
-      setFileName(file.name);
-      setSelectedFileObj(file);
-      setSelectedAssetSource('product');
-      setSelectedAssetUrl(null);
-      setGeneratedVideoUrl(null);
+    if (!file) return;
+    const err = validateUploadFile(file);
+    if (err) {
+      alert(`${err}\n\n支持格式：${formatHint}`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
     }
+    const url = URL.createObjectURL(file);
+    setUploadedFile(url);
+    setFileName(file.name);
+    setSelectedFileObj(file);
+    setSelectedAssetSource('product');
+    setSelectedAssetUrl(null);
+    setGeneratedVideoUrl(null);
+  };
+
+  const handleUploadDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types?.includes('Files')) return;
+    e.preventDefault();
+    setIsDragUploadActive(true);
+  };
+
+  const handleUploadDragLeave = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types?.includes('Files')) return;
+    e.preventDefault();
+    setIsDragUploadActive(false);
+  };
+
+  const handleUploadDrop = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types?.includes('Files')) return;
+    e.preventDefault();
+    setIsDragUploadActive(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    const err = validateUploadFile(file);
+    if (err) {
+      alert(`${err}\n\n支持格式：${formatHint}`);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setUploadedFile(url);
+    setFileName(file.name);
+    setSelectedFileObj(file);
+    setSelectedAssetSource('product');
+    setSelectedAssetUrl(null);
+    setGeneratedVideoUrl(null);
   };
 
   const removeUpload = (e: React.MouseEvent) => {
@@ -838,6 +1182,30 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       alert(err?.message || '上传失败');
     } finally {
       setIsPostingTikTok(false);
+  // --- Video Controls ---
+  const toggleVideoPlay = () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (video.paused || video.ended) {
+      const p = video.play();
+      // play() can reject (autoplay / permissions). Avoid unhandled promise rejection.
+      if (p && typeof (p as Promise<void>).catch === 'function') p.catch(() => setIsPlaying(false));
+    } else {
+      video.pause();
+    }
+  };
+
+  const skipVideoTime = (seconds: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const next = Math.max(0, video.currentTime + seconds);
+    // duration may be NaN/Infinity until metadata is loaded (or for live streams).
+    if (Number.isFinite(video.duration) && video.duration > 0) {
+      video.currentTime = Math.min(next, video.duration);
+    } else {
+      video.currentTime = next;
     }
   };
 
@@ -848,12 +1216,44 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       {/* Upload Section */}
       <div className="flex flex-col gap-3">
         <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
-        <div onClick={() => fileInputRef.current?.click()} className={`glass-panel rounded-xl p-1 border-2 border-dashed border-zinc-800 hover:border-orange-500/50 transition-colors h-32 relative group cursor-pointer ${uploadedFile ? 'border-none' : ''}`}>
-          <input type="file" ref={fileInputRef} className="hidden" onChange={handleWorkbenchUpload} />
+        <div
+          onClick={() => fileInputRef.current?.click()}
+          onDragOver={handleUploadDragOver}
+          onDragEnter={handleUploadDragOver}
+          onDragLeave={handleUploadDragLeave}
+          onDrop={handleUploadDrop}
+          className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors h-32 relative group cursor-pointer ${uploadedFile ? 'border-none' : ''} ${isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50'}`}
+        >
+          {isDragUploadActive && (
+            <div className="absolute inset-1 rounded-lg border border-dashed border-orange-500/60 bg-orange-500/10 pointer-events-none" />
+          )}
+          <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*,audio/*" onChange={handleWorkbenchUpload} />
           {!uploadedFile ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none">
+            <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
               <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition duration-300"><Plus className="w-4 h-4 text-zinc-500 group-hover:text-orange-500" /></div>
               <p className="text-[10px] font-medium text-zinc-400">{t.wb_upload_click}</p>
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[10px] text-zinc-300">
+                <span className="text-zinc-500">支持上传</span>
+                <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
+                  图片
+                  <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
+                    {imageFormats}
+                  </span>
+                </span>
+                <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
+                  视频
+                  <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
+                    {videoFormats}
+                  </span>
+                </span>
+                <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
+                  音频
+                  <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
+                    {audioFormats}
+                  </span>
+                </span>
+                <span className="text-zinc-400">≤ 1GB</span>
+              </div>
             </div>
           ) : (
             <div className="absolute inset-0 bg-zinc-900 rounded-lg overflow-hidden group/preview">
@@ -937,16 +1337,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
            <div>
               <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_template_label}</label>
               <div className="relative">
-                <select 
-                  className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-orange-500 font-bold focus:outline-none focus:border-orange-500 transition appearance-none cursor-pointer hover:bg-white/5"
-                  value={String(selectedTemplate?.id || "")}
-                  onChange={(e) => onSelectTemplate(templateList.find(t => String(t.id || '') === e.target.value) || null)}
-                >
-                  <option value="">{t.wb_config_custom}</option>
-                    {templateList.map(tpl => (
-                      <option key={tpl.id} value={String(tpl.id || '')}>{ICON_EMOJI_MAP[tpl.icon] || '🔥'} {tpl.name}</option>
-                    ))}
-                </select>
+	                <select 
+	                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-orange-500 font-bold focus:outline-none focus:border-orange-500 transition appearance-none cursor-pointer hover:bg-white/5"
+	                    value={selectedTemplate?.id || ""}
+	                    onChange={(e) => onSelectTemplate(templateList.find(t => t.id === e.target.value) || null)}
+	                >
+	                  {templateList.length === 0 && <option value="">{t.wb_config_custom}</option>}
+	                  {templateList.map(tpl => (
+	                      <option key={tpl.id} value={tpl.id}>{ICON_EMOJI_MAP[tpl.icon] || '🔥'} {tpl.name}</option>
+	                  ))}
+	                </select>
                 <ChevronDown className="w-3 h-3 text-zinc-500 absolute right-3 top-2.5 pointer-events-none" />
               </div>
            </div>
@@ -1111,13 +1511,54 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             <div className="glass-panel flex-1 rounded-2xl p-1 relative flex flex-col overflow-hidden">
                 <div className="flex-1 bg-black rounded-xl relative overflow-hidden group flex items-center justify-center">
                     {generatedVideoUrl ? (
-                        <video src={generatedVideoUrl} controls autoPlay loop className="w-full h-full object-contain" />
+                        <video
+                          ref={videoRef}
+                          src={generatedVideoUrl}
+                          controls
+                          autoPlay
+                          loop
+                          className="w-full h-full object-contain"
+                          onPlay={() => setIsPlaying(true)}
+                          onPause={() => setIsPlaying(false)}
+                        />
                     ) : (
                         <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Submitting…' : t.wb_waiting}</p></div>
                     )}
                 </div>
                 <div className="h-14 flex items-center justify-between px-4 border-t border-white/5 bg-zinc-900/50">
-                    <div className="flex gap-4"><button className="text-zinc-400 hover:text-white"><SkipBack className="w-4 h-4" /></button><button className="text-white hover:text-orange-500"><Play className="w-4 h-4 fill-current" /></button><button className="text-zinc-400 hover:text-white"><SkipForward className="w-4 h-4" /></button></div>
+                    <div className="flex gap-4">
+                      <button
+                        type="button"
+                        onClick={() => skipVideoTime(-1)}
+                        disabled={!generatedVideoUrl}
+                        title="Rewind 1s"
+                        className={`text-zinc-400 hover:text-white active:scale-95 transition ${!generatedVideoUrl ? 'opacity-40 cursor-not-allowed hover:text-zinc-400 active:scale-100' : ''}`}
+                      >
+                        <SkipBack className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={toggleVideoPlay}
+                        disabled={!generatedVideoUrl}
+                        title={isPlaying ? 'Pause' : 'Play'}
+                        className={`text-white hover:text-orange-500 active:scale-95 transition ${!generatedVideoUrl ? 'opacity-40 cursor-not-allowed hover:text-white active:scale-100' : ''}`}
+                      >
+                        {isPlaying ? (
+                          <Pause className="w-4 h-4" />
+                        ) : (
+                          <Play className="w-4 h-4 fill-current" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => skipVideoTime(1)}
+                        disabled={!generatedVideoUrl}
+                        title="Forward 1s"
+                        className={`text-zinc-400 hover:text-white active:scale-95 transition ${!generatedVideoUrl ? 'opacity-40 cursor-not-allowed hover:text-zinc-400 active:scale-100' : ''}`}
+                      >
+                        <SkipForward className="w-4 h-4" />
+                      </button>
+                    </div>
                 </div>
             </div>
 

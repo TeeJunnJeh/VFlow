@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  FolderPlus, Upload, Loader2, Folder, Plus, Eye, MoreHorizontal, X, CheckCircle 
+  FolderPlus, Upload, Loader2, Folder, Eye, X, CheckCircle, Circle, ChevronDown, ChevronRight
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { assetsApi, type Asset, type AssetFolder } from '../../services/assets';
@@ -22,6 +22,30 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   setCurrentFolderId 
 }) => {
   const { t } = useLanguage();
+  const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
+  const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
+  const VIDEO_EXTS = ['mp4', 'mov', 'mkv', 'webm', 'avi'];
+  const AUDIO_EXTS = ['mp3', 'wav', 'flac'];
+  const imageFormats = IMAGE_EXTS.join('/');
+  const videoFormats = VIDEO_EXTS.join('/');
+  const audioFormats = AUDIO_EXTS.join('/');
+  const formatHint = `图片：${imageFormats}\n视频：${videoFormats}\n音频：${audioFormats}\n大小：≤1GB`;
+
+  const validateUploadFile = (file: File) => {
+    if (file.size > MAX_UPLOAD_BYTES) return `文件过大：${file.name}（>1GB）`;
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const isImage = file.type.startsWith('image/') || IMAGE_EXTS.includes(ext);
+    const isVideo = file.type.startsWith('video/') || VIDEO_EXTS.includes(ext);
+    const isAudio = file.type.startsWith('audio/') || AUDIO_EXTS.includes(ext);
+    if (!isImage && !isVideo && !isAudio) return `格式不支持：${file.name}`;
+    return null;
+  };
+
+  const assetTabLabel: Record<AssetType, string> = {
+    model: t.assets_tab_models,
+    product: t.assets_tab_products,
+    scene: t.assets_tab_scenes
+  };
   
   // Data State
   const [assetList, setAssetList] = useState<Asset[]>([]);
@@ -30,9 +54,12 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [activeAssetTab, setActiveAssetTab] = useState<AssetType>('product');
   const [isUploading, setIsUploading] = useState(false);
+  const [isDragUploadActive, setIsDragUploadActive] = useState(false);
   
   // UI State
   const [openFolderMenuId, setOpenFolderMenuId] = useState<string | null>(null);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
   
   // --- Modal States ---
   
@@ -46,11 +73,19 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
   // 2. Move Asset
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
-  const [moveAsset, setMoveAsset] = useState<Asset | null>(null);
+  const [moveAssets, setMoveAssets] = useState<Asset[]>([]);
+  const [moveFolder, setMoveFolder] = useState<AssetFolder | null>(null);
   const [moveFolders, setMoveFolders] = useState<AssetFolder[]>([]);
   const [moveTargetFolderId, setMoveTargetFolderId] = useState<string | null>(null);
   const [isMoveDropdownOpen, setIsMoveDropdownOpen] = useState(false);
   const [isMovingAsset, setIsMovingAsset] = useState(false);
+  const [moveExpandedFolderIds, setMoveExpandedFolderIds] = useState<Set<string>>(new Set());
+
+  // 2.5 Drag & Drop (Move Asset)
+  const [draggingAsset, setDraggingAsset] = useState<Asset | null>(null);
+  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+  const [isDragOverRoot, setIsDragOverRoot] = useState(false);
+  const [isDragMoving, setIsDragMoving] = useState(false);
 
   // 3. Confirm Dialog
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -66,21 +101,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
   const assetInputRef = useRef<HTMLInputElement>(null);
 
-  // --- Effects ---
-  useEffect(() => {
-    loadData();
-    // Close menus when tab changes
-    setOpenFolderMenuId(null); 
-  }, [activeAssetTab, currentFolderId]);
-
-  useEffect(() => {
-    if (isFolderModalOpen) {
-       setTimeout(() => folderNameInputRef.current?.focus(), 50);
-    }
-  }, [isFolderModalOpen]);
-
   // --- API Loaders ---
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
       const [assets, folderData] = await Promise.all([
@@ -95,25 +117,79 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     } finally {
       setIsLoading(false);
     }
+  }, [activeAssetTab, currentFolderId]);
+
+  // --- Effects ---
+  useEffect(() => {
+    void loadData();
+    // Close menus when tab changes
+    setOpenFolderMenuId(null); 
+    // Reset selection when scope changes
+    setIsSelectionMode(false);
+    setSelectedAssetIds(new Set());
+  }, [loadData]);
+
+  useEffect(() => {
+    if (isFolderModalOpen) {
+       setTimeout(() => folderNameInputRef.current?.focus(), 50);
+    }
+  }, [isFolderModalOpen]);
+
+  useEffect(() => {
+    if (!isSelectionMode && selectedAssetIds.size > 0) {
+      setSelectedAssetIds(new Set());
+    }
+  }, [isSelectionMode, selectedAssetIds.size]);
+
+  const uploadFiles = async (files: FileList | File[]) => {
+    const errors: string[] = [];
+    const validFiles: File[] = [];
+    Array.from(files).forEach(file => {
+      const err = validateUploadFile(file);
+      if (err) errors.push(err);
+      else validFiles.push(file);
+    });
+    if (errors.length > 0) alert(`${errors.join('\n')}\n\n支持格式：${formatHint}`);
+    if (validFiles.length === 0) return;
+    setIsUploading(true);
+    try {
+      const uploadTasks = validFiles.map(file => assetsApi.uploadAsset(file, activeAssetTab, currentFolderId));
+      await Promise.all(uploadTasks);
+      await loadData();
+      alert(`Successfully uploaded ${validFiles.length} files!`); 
+    } catch (err) {
+      console.error(err);
+      alert("Error uploading files");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleAssetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    setIsUploading(true);
-    try {
-      const uploadTasks = Array.from(files).map(file => assetsApi.uploadAsset(file, activeAssetTab, currentFolderId));
-      await Promise.all(uploadTasks);
-      await loadData();
-      
-      // --- RESTORED SUCCESS ALERT ---
-      alert(`Successfully uploaded ${files.length} files!`); 
-      
-    } catch (err) {
-      alert("Error uploading files");
-    } finally {
-      setIsUploading(false);
-      if (assetInputRef.current) assetInputRef.current.value = '';
+    await uploadFiles(files);
+    if (assetInputRef.current) assetInputRef.current.value = '';
+  };
+
+  const handleUploadDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types?.includes('Files')) return;
+    e.preventDefault();
+    setIsDragUploadActive(true);
+  };
+
+  const handleUploadDragLeave = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types?.includes('Files')) return;
+    e.preventDefault();
+    setIsDragUploadActive(false);
+  };
+
+  const handleUploadDrop = async (e: React.DragEvent) => {
+    if (!e.dataTransfer.types?.includes('Files')) return;
+    e.preventDefault();
+    setIsDragUploadActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      await uploadFiles(e.dataTransfer.files);
     }
   };
 
@@ -122,8 +198,33 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       await assetsApi.deleteAsset(id);
       setAssetList(prev => prev.filter(a => a.id !== id));
     } catch (err) {
+      console.error(err);
       alert("Failed to delete asset");
     }
+  };
+
+  const exitSelectionMode = () => {
+    setIsSelectionMode(false);
+    setSelectedAssetIds(new Set());
+  };
+
+
+  const toggleAssetSelection = (assetId: string) => {
+    setSelectedAssetIds(prev => {
+      const next = new Set(prev);
+      if (next.has(assetId)) next.delete(assetId);
+      else next.add(assetId);
+      return next;
+    });
+  };
+
+  const selectAllVisibleAssets = () => {
+    const visible = assetList.filter(a => a.type === activeAssetTab);
+    setSelectedAssetIds(new Set(visible.map(a => a.id)));
+  };
+
+  const deselectAllVisibleAssets = () => {
+    setSelectedAssetIds(new Set());
   };
 
   // --- Folder Handlers ---
@@ -157,6 +258,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       await loadData();
       setIsFolderModalOpen(false);
     } catch (err) {
+      console.error(err);
       alert("Failed to save folder");
     } finally {
       setIsSavingFolder(false);
@@ -168,8 +270,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       await assetsApi.deleteFolder(folder.id);
       if (currentFolderId === folder.id) setCurrentFolderId(null);
       await loadData();
-    } catch (err: any) {
-      const msg = err?.message || "Failed to delete folder";
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err || "Failed to delete folder");
       if (msg.toLowerCase().includes('not empty')) {
         alert(t.assets_folder_not_empty_hint);
       } else {
@@ -181,51 +283,180 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   };
 
   // --- Move Handlers ---
-  const openMoveDialog = async (asset: Asset) => {
-    setMoveAsset(asset);
-    setMoveTargetFolderId(asset.folder_id ?? null);
+  const computeExpandedForTarget = (folders: AssetFolder[], targetFolderId: string | null) => {
+    if (!targetFolderId) return new Set<string>();
+    const parentById = new Map<string, string | null>();
+    for (const f of folders) parentById.set(f.id, f.parent_id ?? null);
+
+    const expanded = new Set<string>();
+    const visited = new Set<string>();
+
+    let cur = parentById.get(targetFolderId) ?? null;
+    while (cur) {
+      if (visited.has(cur)) break;
+      visited.add(cur);
+      expanded.add(cur);
+      cur = parentById.get(cur) ?? null;
+    }
+    return expanded;
+  };
+
+  const openMoveDialog = async (assets: Asset[], defaultTargetFolderId?: string | null) => {
+    setMoveAssets(assets);
+    setMoveFolder(null);
+    setMoveTargetFolderId(defaultTargetFolderId ?? null);
     setIsMoveModalOpen(true);
     setIsMoveDropdownOpen(false);
+    setMoveExpandedFolderIds(new Set());
     try {
       const folders = await assetsApi.getAllFolders(activeAssetTab);
       setMoveFolders(folders);
+      setMoveExpandedFolderIds(computeExpandedForTarget(folders, defaultTargetFolderId ?? null));
     } catch (err) {
+      console.error(err);
       alert("Failed to load folders for move");
     }
   };
 
+  const openSingleMoveDialog = (asset: Asset) => {
+    void openMoveDialog([asset], asset.folder_id ?? null);
+  };
+
+  const openFolderMoveDialog = async (folder: AssetFolder) => {
+    setMoveAssets([]);
+    setMoveFolder(folder);
+    setMoveTargetFolderId(folder.parent_id ?? null);
+    setIsMoveModalOpen(true);
+    setIsMoveDropdownOpen(false);
+    setMoveExpandedFolderIds(new Set());
+    try {
+      const folders = await assetsApi.getAllFolders(activeAssetTab);
+      setMoveFolders(folders);
+      setMoveExpandedFolderIds(computeExpandedForTarget(folders, folder.parent_id ?? null));
+    } catch (err) {
+      console.error(err);
+      alert("Failed to load folders for move");
+    }
+  };
+
+  const openBatchMoveDialog = () => {
+    const selected = assetList.filter(a => selectedAssetIds.has(a.id));
+    if (selected.length === 0) return;
+    void openMoveDialog(selected, currentFolderId ?? null);
+  };
+
+  const beginDragAsset = (asset: Asset, e: React.DragEvent) => {
+    setDraggingAsset(asset);
+    setDragOverFolderId(null);
+    setIsDragOverRoot(false);
+    try {
+      e.dataTransfer.setData('text/plain', asset.id);
+      e.dataTransfer.effectAllowed = 'move';
+    } catch {
+      // ignore
+    }
+  };
+
+  const endDragAsset = () => {
+    setDraggingAsset(null);
+    setDragOverFolderId(null);
+    setIsDragOverRoot(false);
+    setIsDragMoving(false);
+  };
+
+  const dragOverFolder = (folderId: string, e: React.DragEvent) => {
+    if (!draggingAsset || isDragMoving) return;
+    e.preventDefault();
+    setIsDragOverRoot(false);
+    setDragOverFolderId(folderId);
+    try {
+      e.dataTransfer.dropEffect = 'move';
+    } catch {
+      // ignore
+    }
+  };
+
+  const dragOverRoot = (e: React.DragEvent) => {
+    if (!draggingAsset || isDragMoving) return;
+    e.preventDefault();
+    setDragOverFolderId(null);
+    setIsDragOverRoot(true);
+    try {
+      e.dataTransfer.dropEffect = 'move';
+    } catch {
+      // ignore
+    }
+  };
+
+  const dropMoveTo = async (folderId: string | null, e: React.DragEvent) => {
+    if (!draggingAsset || isDragMoving) return;
+    e.preventDefault();
+
+    const targetFolderId = folderId;
+    if ((draggingAsset.folder_id ?? null) === targetFolderId) {
+      endDragAsset();
+      return;
+    }
+
+    setIsDragMoving(true);
+    try {
+      await assetsApi.moveAsset(draggingAsset.id, targetFolderId);
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to move asset");
+    } finally {
+      endDragAsset();
+    }
+  };
+
   const handleConfirmMove = async () => {
-    if (!moveAsset) return;
+    if (moveAssets.length === 0 && !moveFolder) return;
     setIsMovingAsset(true);
     try {
-      await assetsApi.moveAsset(moveAsset.id, moveTargetFolderId);
+      if (moveFolder) {
+        const from = moveFolder.parent_id ?? null;
+        const to = moveTargetFolderId ?? null;
+        if (from !== to) {
+          await assetsApi.moveFolder(moveFolder.id, to);
+          await loadData();
+        }
+        setIsMoveModalOpen(false);
+        return;
+      }
+
+      const results = await Promise.allSettled(
+        moveAssets.map(a => {
+          const from = a.folder_id ?? null;
+          const to = moveTargetFolderId ?? null;
+          if (from === to) return Promise.resolve(null);
+          return assetsApi.moveAsset(a.id, moveTargetFolderId);
+        })
+      );
+
+      const failed = results.filter(r => r.status === 'rejected');
+      if (failed.length > 0) alert("Failed to move some assets");
       await loadData();
       setIsMoveModalOpen(false);
+      setSelectedAssetIds(new Set());
+      if (isSelectionMode) setIsSelectionMode(false);
     } catch (err) {
+      console.error(err);
       alert("Failed to move asset");
     } finally {
       setIsMovingAsset(false);
     }
   };
 
-  const buildFolderOptions = (folders: AssetFolder[]) => {
+  const buildFolderTree = (folders: AssetFolder[]) => {
     const byParent = new Map<string | null, AssetFolder[]>();
     for (const f of folders) {
       const key = f.parent_id ?? null;
       if (!byParent.has(key)) byParent.set(key, []);
-      byParent.get(key)?.push(f);
+      byParent.get(key)!.push(f);
     }
-    const out: Array<{ id: string; label: string }> = [];
-    const walk = (parentId: string | null, depth: number) => {
-      const children = byParent.get(parentId) || [];
-      for (const child of children) {
-        const prefix = depth > 0 ? `${'--'.repeat(depth)} ` : '';
-        out.push({ id: child.id, label: `${prefix}${child.name}` });
-        walk(child.id, depth + 1);
-      }
-    };
-    walk(null, 0);
-    return out;
+    for (const list of byParent.values()) list.sort((a, b) => a.name.localeCompare(b.name));
+    return byParent;
   };
 
   // --- Confirm Modal Helpers ---
@@ -259,17 +490,93 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
      return mediaBaseUrl ? `${mediaBaseUrl}${path}` : path;
   };
 
+  const visibleAssets = assetList.filter(a => a.type === activeAssetTab);
+  const selectedCount = selectedAssetIds.size;
+  const isAllVisibleSelected = visibleAssets.length > 0 && visibleAssets.every(a => selectedAssetIds.has(a.id));
+
+  const moveSubjectLabel = moveFolder
+    ? moveFolder.name
+    : (moveAssets.length === 1 ? moveAssets[0]?.name : `${moveAssets.length} ${t.assets_items}`);
+
+  const moveFoldersByParent = buildFolderTree(moveFolders);
+
+  const invalidMoveTargetIds = (() => {
+    if (!moveFolder) return new Set<string>();
+    const invalid = new Set<string>([moveFolder.id]);
+    const stack = [moveFolder.id];
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      const children = moveFoldersByParent.get(cur) || [];
+      for (const child of children) {
+        if (invalid.has(child.id)) continue;
+        invalid.add(child.id);
+        stack.push(child.id);
+      }
+    }
+    return invalid;
+  })();
+
+  const toggleMoveExpanded = (folderId: string) => {
+    setMoveExpandedFolderIds(prev => {
+      const next = new Set(prev);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  };
+
   return (
-    <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300" onClick={() => setOpenFolderMenuId(null)}>
+    <div
+      className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300 relative"
+      onClick={() => setOpenFolderMenuId(null)}
+      onDragOver={handleUploadDragOver}
+      onDragEnter={handleUploadDragOver}
+      onDragLeave={handleUploadDragLeave}
+      onDrop={handleUploadDrop}
+    >
+       {isDragUploadActive && (
+         <div className="absolute inset-0 z-[120] rounded-3xl border-2 border-dashed border-orange-500/60 bg-orange-500/10 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+           <div className="text-sm font-bold text-orange-200">拖拽文件到此处上传</div>
+         </div>
+       )}
+       {draggingAsset && (
+          <div className="fixed inset-0 z-[105] pointer-events-none bg-black/10">
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 glass-panel border border-white/10 rounded-2xl px-4 py-3 shadow-xl max-w-[calc(100vw-2rem)]">
+              <div className="text-xs text-zinc-300 truncate">{draggingAsset.name}</div>
+              <div className="mt-1 text-sm font-bold text-white flex items-center gap-2">
+                {isDragMoving && <Loader2 className="w-4 h-4 animate-spin" />}
+                <span className="truncate">
+                   {(() => {
+                    const dragTitle = t.assets_drag_move_title;
+                    if (isDragOverRoot) return `${dragTitle} ${t.assets_move_root}`;
+                    if (dragOverFolderId) {
+                      const found =
+                        folderList.find(f => f.id === dragOverFolderId) ||
+                        folderBreadcrumb.find(f => f.id === dragOverFolderId);
+                      if (found?.name) return `${dragTitle} ${found.name}`;
+                    }
+                    return dragTitle;
+                  })()}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
        <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
           <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.assets_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.assets_subtitle}</p></div>
           <div className="flex gap-3 items-center">
              <LanguageSwitcher />
              <button onClick={openCreateFolderModal} className="bg-zinc-800 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-zinc-700 transition flex items-center gap-2"><FolderPlus className="w-4 h-4" /> {t.assets_btn_new_folder}</button>
-             <button onClick={() => assetInputRef.current?.click()} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20" disabled={isUploading}>
-                {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} {t.assets_btn_upload}
-             </button>
-             <input type="file" ref={assetInputRef} className="hidden" multiple onChange={handleAssetUpload} />
+             <div className="relative group">
+               <button onClick={() => assetInputRef.current?.click()} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20" disabled={isUploading}>
+                  {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} {t.assets_btn_upload}
+               </button>
+               <div className="absolute right-0 top-12 z-50 w-max max-w-[360px] rounded-xl border border-white/10 bg-zinc-900/95 px-3 py-2 text-[10px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover:opacity-100 hover:opacity-100">
+                 <div className="text-[11px] font-bold text-white mb-1">支持格式</div>
+                 <div className="whitespace-pre-line text-zinc-300 leading-relaxed">{formatHint}</div>
+               </div>
+             </div>
+             <input type="file" ref={assetInputRef} className="hidden" multiple accept="image/*,video/*,audio/*" onChange={handleAssetUpload} />
           </div>
        </header>
 
@@ -277,54 +584,198 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
           {/* Tabs */}
           <div className="flex gap-4 mb-8 border-b border-white/5 pb-2">
              {(['model', 'product', 'scene'] as AssetType[]).map(type => (
-                <button key={type} onClick={() => setActiveAssetTab(type)} className={`text-sm font-bold px-6 py-2 rounded-full transition ${activeAssetTab === type ? 'bg-white text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>{type.toUpperCase()}</button>
+                <button
+                  key={type}
+                  onClick={() => {
+                    if (type === activeAssetTab) return;
+                    setActiveAssetTab(type);
+                    setCurrentFolderId(null);
+                    setFolderBreadcrumb([]);
+                  }}
+                  className={`text-sm font-bold px-6 py-2 rounded-full transition ${activeAssetTab === type ? 'bg-white text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}
+                >
+                  {assetTabLabel[type] || type.toUpperCase()}
+                </button>
              ))}
           </div>
           
           {/* Breadcrumb */}
-          <div className="flex items-center gap-2 text-xs text-zinc-500 mb-4">
-             <button onClick={() => setCurrentFolderId(null)} className={`hover:text-white ${currentFolderId === null ? 'text-white' : ''}`}>{t.assets_root}</button>
-             {folderBreadcrumb.map(folder => (
-                <div key={folder.id} className="flex items-center gap-2"><span>/</span><button onClick={() => setCurrentFolderId(folder.id)} className={`hover:text-white ${currentFolderId === folder.id ? 'text-white' : ''}`}>{folder.name}</button></div>
-             ))}
-          </div>
+           <div className="flex items-center gap-2 text-xs text-zinc-500 mb-4">
+              <button
+                onClick={() => setCurrentFolderId(null)}
+                onDragOver={dragOverRoot}
+                onDragEnter={dragOverRoot}
+               onDragLeave={() => setIsDragOverRoot(false)}
+               onDrop={(e) => dropMoveTo(null, e)}
+               className={`hover:text-white ${currentFolderId === null ? 'text-white' : ''} ${draggingAsset && isDragOverRoot ? 'text-white' : ''}`}
+             >
+               {t.assets_root}
+             </button>
+              {folderBreadcrumb.map(folder => (
+                 <div key={folder.id} className="flex items-center gap-2">
+                   <span>/</span>
+                   <button
+                     onClick={() => setCurrentFolderId(folder.id)}
+                    onDragOver={(e) => dragOverFolder(folder.id, e)}
+                    onDragEnter={(e) => dragOverFolder(folder.id, e)}
+                    onDragLeave={() => { if (dragOverFolderId === folder.id) setDragOverFolderId(null); }}
+                    onDrop={(e) => dropMoveTo(folder.id, e)}
+                    className={`hover:text-white ${currentFolderId === folder.id ? 'text-white' : ''} ${draggingAsset && dragOverFolderId === folder.id ? 'text-white underline decoration-orange-500/80' : ''}`}
+                  >
+                    {folder.name}
+                  </button>
+                 </div>
+              ))}
+           </div>
 
-          <div className="flex-1 overflow-y-auto custom-scroll">
+           {/* Selection Toolbar */}
+           <div className="flex items-center justify-between mb-4">
+             <div className="text-[11px] text-zinc-500">
+               {isSelectionMode ? (
+                 <span>
+                   {selectedCount} {t.assets_selected}
+                 </span>
+               ) : (
+                 <span />
+               )}
+             </div>
+             <div className="flex items-center gap-2">
+               {!isSelectionMode ? (
+                 <button
+                   onClick={() => setIsSelectionMode(true)}
+                   className="bg-zinc-800 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-zinc-700 transition flex items-center gap-2"
+                 >
+                   <CheckCircle className="w-4 h-4" /> {t.assets_select}
+                 </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={isAllVisibleSelected ? deselectAllVisibleAssets : selectAllVisibleAssets}
+                      disabled={visibleAssets.length === 0}
+                      className="bg-zinc-900 text-zinc-200 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-zinc-800 transition disabled:opacity-50"
+                    >
+                      {isAllVisibleSelected ? t.assets_deselect_all : t.assets_select_all}
+                    </button>
+                    <button
+                      onClick={openBatchMoveDialog}
+                      disabled={selectedCount === 0}
+                     className="bg-orange-600 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-orange-500 transition disabled:opacity-50"
+                   >
+                     {t.assets_move_asset}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (selectedCount === 0) return;
+                        openConfirmModal({
+                          title: t.assets_confirm_delete_asset,
+                          message: `${selectedCount} ${t.assets_items}\n\n${t.assets_confirm_body_irreversible}`,
+                          danger: true,
+                          onConfirm: async () => {
+                            const ids = Array.from(selectedAssetIds);
+                            const results = await Promise.allSettled(ids.map(id => assetsApi.deleteAsset(id)));
+                            const failed = results.filter(r => r.status === 'rejected');
+                            if (failed.length > 0) alert("Failed to delete some assets");
+                            await loadData();
+                            setSelectedAssetIds(new Set());
+                            setIsSelectionMode(false);
+                          }
+                        });
+                      }}
+                      disabled={selectedCount === 0}
+                      className="bg-red-600 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-red-500 transition disabled:opacity-50"
+                    >
+                      {t.assets_delete}
+                    </button>
+                    <button
+                      onClick={exitSelectionMode}
+                      className="bg-zinc-800 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-zinc-700 transition"
+                   >
+                     {t.assets_done}
+                   </button>
+                 </>
+               )}
+             </div>
+           </div>
+
+           <div className="flex-1 overflow-y-auto custom-scroll">
              {isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-zinc-500" /></div> : (
                 <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-6">
                    {/* Folders */}
                    {folderList.map(folder => (
-                      <div key={folder.id} onClick={() => setCurrentFolderId(folder.id)} className="glass-card rounded-2xl aspect-[3/4] border border-zinc-800 flex flex-col items-center justify-center gap-3 cursor-pointer hover:border-orange-500/50 hover:bg-zinc-900/50 transition group relative">
+                      <div
+                        key={folder.id}
+                        onClick={() => setCurrentFolderId(folder.id)}
+                        onDragOver={(e) => dragOverFolder(folder.id, e)}
+                        onDragEnter={(e) => dragOverFolder(folder.id, e)}
+                        onDragLeave={() => { if (dragOverFolderId === folder.id) setDragOverFolderId(null); }}
+                        onDrop={(e) => dropMoveTo(folder.id, e)}
+                        className={`glass-card rounded-2xl aspect-[3/4] border flex flex-col items-center justify-center gap-3 cursor-pointer transition group relative ${
+                          draggingAsset ? 'border-zinc-700/80' : 'border-zinc-800 hover:border-orange-500/50 hover:bg-zinc-900/50'
+                        } ${
+                          draggingAsset && dragOverFolderId === folder.id ? 'ring-2 ring-orange-500/70 scale-[1.02] bg-zinc-900/50' : ''
+                        }`}
+                      >
                          <button onClick={(e) => { e.stopPropagation(); setOpenFolderMenuId(prev => (prev === folder.id ? null : folder.id)); }} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/30 hover:bg-black/50 flex items-center justify-center text-zinc-300 hover:text-white z-20">...</button>
                          {openFolderMenuId === folder.id && (
                              <div onClick={(e) => e.stopPropagation()} className="absolute top-10 right-2 bg-zinc-900/90 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden text-xs z-50 min-w-[140px]">
                                  <button className="w-full text-left px-3 py-2 hover:bg-white/5 text-zinc-200" onClick={() => handleRenameFolder(folder)}>{t.assets_folder_menu_rename}</button>
+                                 <button className="w-full text-left px-3 py-2 hover:bg-white/5 text-zinc-200" onClick={() => { setOpenFolderMenuId(null); void openFolderMoveDialog(folder); }}>{t.assets_move_asset}</button>
                                  <button className="w-full text-left px-3 py-2 hover:bg-white/5 text-red-300" onClick={() => { setOpenFolderMenuId(null); openConfirmModal({ title: t.assets_confirm_delete_folder, message: `${folder.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => handleDeleteFolder(folder) }); }}>{t.assets_folder_menu_delete}</button>
                              </div>
                          )}
                          <div className="w-14 h-14 rounded-full bg-zinc-800 flex items-center justify-center group-hover:scale-110 transition"><Folder className="w-6 h-6 text-zinc-400 group-hover:text-orange-500" /></div>
                          <span className="text-xs font-bold text-zinc-300 truncate max-w-[120px]">{folder.name}</span>
                       </div>
-                   ))}
-                   
-                   {/* Assets */}
-                   {assetList.filter(a => a.type === activeAssetTab).map(asset => (
-                      <div key={asset.id} className="glass-card rounded-2xl p-2 group relative">
-                         <div className="aspect-[3/4] bg-zinc-800 rounded-xl overflow-hidden relative cursor-zoom-in" onClick={() => { setAssetPreview(asset); setIsAssetPreviewOpen(true); }}>
+                    ))}
+                    
+                    {/* Assets */}
+                    {visibleAssets.map(asset => {
+                      const isSelected = selectedAssetIds.has(asset.id);
+                      return (
+                        <div
+                          key={asset.id}
+                          className={`glass-card rounded-2xl p-2 group relative ${draggingAsset?.id === asset.id ? 'opacity-60' : ''} ${isSelectionMode && isSelected ? 'ring-2 ring-orange-500/70' : ''}`}
+                          draggable={!isSelectionMode}
+                          onDragStart={isSelectionMode ? undefined : (e) => beginDragAsset(asset, e)}
+                          onDragEnd={isSelectionMode ? undefined : endDragAsset}
+                        >
+                          {isSelectionMode && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); toggleAssetSelection(asset.id); }}
+                              className="absolute top-3 left-3 z-20 w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 flex items-center justify-center text-white transition"
+                              aria-label="Select asset"
+                            >
+                              {isSelected ? <CheckCircle className="w-5 h-5 text-orange-400" /> : <Circle className="w-5 h-5 text-white/70" />}
+                            </button>
+                          )}
+                          <div
+                            className={`aspect-[3/4] bg-zinc-800 rounded-xl overflow-hidden relative ${isSelectionMode ? 'cursor-pointer' : 'cursor-zoom-in'}`}
+                            onClick={() => {
+                              if (isSelectionMode) {
+                                toggleAssetSelection(asset.id);
+                                return;
+                              }
+                              setAssetPreview(asset);
+                              setIsAssetPreviewOpen(true);
+                            }}
+                          >
                             {asset.file_url ? <img src={getDisplayUrl(asset.file_url) || ASSET_PLACEHOLDER_DATA_URL} className="w-full h-full object-cover" alt={asset.name} onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }} /> : <div className="absolute inset-0 flex items-center justify-center text-zinc-600">No Preview</div>}
                             <div className="absolute bottom-3 left-3"><p className="text-xs font-bold text-white truncate w-24">{asset.name}</p></div>
-                         </div>
-                         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-2xl flex flex-col items-center justify-center gap-2">
-                            <button onClick={(e) => { e.stopPropagation(); onSelectAsset(asset); }} className="bg-white text-black px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition">{t.assets_use_in_workbench}</button>
-                            <button onClick={(e) => { e.stopPropagation(); setAssetPreview(asset); setIsAssetPreviewOpen(true); }} className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition flex items-center gap-2"><Eye className="w-3.5 h-3.5" /> {t.assets_view_image}</button>
-                            <button onClick={(e) => { e.stopPropagation(); openMoveDialog(asset); }} className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition">{t.assets_move_asset}</button>
-                            <button onClick={(e) => { e.stopPropagation(); openConfirmModal({ title: t.assets_confirm_delete_asset, message: `${asset.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => deleteAssetById(asset.id) }); }} className="text-red-400 text-xs hover:text-red-300">{t.assets_delete}</button>
-                         </div>
-                      </div>
-                   ))}
-                </div>
-             )}
-          </div>
+                          </div>
+                          {!isSelectionMode && (
+                            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-2xl flex flex-col items-center justify-center gap-2">
+                              <button onClick={(e) => { e.stopPropagation(); onSelectAsset(asset); }} className="bg-white text-black px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition">{t.assets_use_in_workbench}</button>
+                              <button onClick={(e) => { e.stopPropagation(); setAssetPreview(asset); setIsAssetPreviewOpen(true); }} className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition flex items-center gap-2"><Eye className="w-3.5 h-3.5" /> {t.assets_view_image}</button>
+                              <button onClick={(e) => { e.stopPropagation(); openSingleMoveDialog(asset); }} className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition">{t.assets_move_asset}</button>
+                              <button onClick={(e) => { e.stopPropagation(); openConfirmModal({ title: t.assets_confirm_delete_asset, message: `${asset.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => deleteAssetById(asset.id) }); }} className="text-red-400 text-xs hover:text-red-300">{t.assets_delete}</button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                 </div>
+              )}
+           </div>
        </div>
 
        {/* --- MODALS --- */}
@@ -359,17 +810,58 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
         {/* 3. Move Asset Modal */}
         {isMoveModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6" onClick={() => setIsMoveModalOpen(false)}>
-            <div className="w-full max-w-md glass-panel rounded-2xl p-6 border border-white/10" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4"><h3 className="text-sm font-bold text-zinc-200">{t.assets_move_title}</h3><button className="text-zinc-400 hover:text-white" onClick={() => setIsMoveModalOpen(false)}><X className="w-5 h-5"/></button></div>
-              <div className="text-xs text-zinc-500 mb-3 truncate">{moveAsset?.name}</div>
+            <div className="w-full max-w-sm glass-panel rounded-2xl p-6 border border-white/10" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4"><h3 className="text-sm font-bold text-zinc-200">{moveFolder ? t.assets_move_folder_title : (moveAssets.length > 1 ? t.assets_move_items_title : t.assets_move_title)}</h3><button className="text-zinc-400 hover:text-white" onClick={() => setIsMoveModalOpen(false)}><X className="w-5 h-5"/></button></div>
+              <div className="text-xs text-zinc-500 mb-3 truncate">{moveSubjectLabel}</div>
               <div className="relative">
-                <button className={`w-full bg-black/30 text-zinc-200 text-sm rounded-lg border px-3 py-2 flex items-center justify-between focus:outline-none transition ${isMoveDropdownOpen ? 'border-orange-500/60' : 'border-white/10 hover:border-white/20'}`} onClick={() => setIsMoveDropdownOpen(v => !v)}>
+                <button className={`w-full bg-black/30 text-zinc-200 text-[13px] rounded-lg border px-3 py-2 flex items-center justify-between focus:outline-none transition ${isMoveDropdownOpen ? 'border-orange-500/60' : 'border-white/10 hover:border-white/20'}`} onClick={() => setIsMoveDropdownOpen(v => !v)}>
                   <span className="truncate">{(() => { if (!moveTargetFolderId) return t.assets_move_root; const found = moveFolders.find(f => f.id === moveTargetFolderId); return found?.name || t.assets_move_root; })()}</span>
+                  <ChevronDown className={`w-4 h-4 shrink-0 transition ${isMoveDropdownOpen ? 'rotate-180 text-orange-400' : 'text-zinc-400'}`} />
                 </button>
                 {isMoveDropdownOpen && (
-                  <div className="absolute mt-2 w-full max-h-64 overflow-auto rounded-lg border border-white/10 bg-zinc-950/90 backdrop-blur-sm shadow-xl z-[120]">
-                    <button className={`w-full text-left px-3 py-2 text-sm hover:bg-white/5 ${moveTargetFolderId === null ? 'text-white' : 'text-zinc-200'}`} onClick={() => { setMoveTargetFolderId(null); setIsMoveDropdownOpen(false); }}>{t.assets_move_root}</button>
-                    {buildFolderOptions(moveFolders).map(opt => (<button key={opt.id} className={`w-full text-left px-3 py-2 text-sm hover:bg-white/5 ${moveTargetFolderId === opt.id ? 'text-white' : 'text-zinc-200'}`} onClick={() => { setMoveTargetFolderId(opt.id); setIsMoveDropdownOpen(false); }}>{opt.label}</button>))}
+                  <div className="absolute mt-2 w-full max-h-64 overflow-auto custom-scroll rounded-lg border border-white/10 bg-zinc-950/90 backdrop-blur-sm shadow-xl z-[120] pr-2">
+                    <button className={`w-full text-left px-3 py-2 text-[13px] hover:bg-white/5 ${moveTargetFolderId === null ? 'text-white' : 'text-zinc-200'}`} onClick={() => { setMoveTargetFolderId(null); setIsMoveDropdownOpen(false); }}>{t.assets_move_root}</button>
+                    {(moveFoldersByParent.get(null) || [])
+                      .filter(f => !moveFolder || !invalidMoveTargetIds.has(f.id))
+                      .map(f => {
+                        const renderNode = (node: AssetFolder, depth: number): React.ReactNode => {
+                          if (moveFolder && invalidMoveTargetIds.has(node.id)) return null;
+                          const childrenAll = moveFoldersByParent.get(node.id) || [];
+                          const children = moveFolder ? childrenAll.filter(c => !invalidMoveTargetIds.has(c.id)) : childrenAll;
+                          const hasChildren = children.length > 0;
+                          const isExpanded = moveExpandedFolderIds.has(node.id);
+                          const isSelected = moveTargetFolderId === node.id;
+                          const depthText =
+                            depth === 0 ? 'text-zinc-200' : depth === 1 ? 'text-zinc-300' : 'text-zinc-400';
+
+                          return (
+                            <div key={node.id}>
+                              <div
+                                className={`w-full px-3 py-2 text-[13px] flex items-center justify-between select-none ${
+                                  isSelected ? 'bg-white/5 text-white' : `hover:bg-white/5 ${depthText}`
+                                }`}
+                                style={{ paddingLeft: 12 + depth * 14 }}
+                                onClick={() => { setMoveTargetFolderId(node.id); setIsMoveDropdownOpen(false); }}
+                              >
+                                <span className="truncate">{node.name}</span>
+                                {hasChildren && (
+                                  <button
+                                    type="button"
+                                    className="ml-2 w-6 h-6 rounded-md hover:bg-white/5 text-zinc-400 hover:text-white flex items-center justify-center"
+                                    onClick={(e) => { e.stopPropagation(); toggleMoveExpanded(node.id); }}
+                                    aria-label={isExpanded ? 'Collapse folder' : 'Expand folder'}
+                                  >
+                                    {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                                  </button>
+                                )}
+                              </div>
+                              {hasChildren && isExpanded && children.map(c => renderNode(c, depth + 1))}
+                            </div>
+                          );
+                        };
+
+                        return renderNode(f, 0);
+                      })}
                   </div>
                 )}
               </div>

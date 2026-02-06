@@ -137,5 +137,50 @@ export const videoApi = {
     }
     
     return await response.json();
-  }
+  },
+
+  // 3. Workbench Draft (cross-refresh/cross-device state)
+  getDraft: async () => {
+    const response = await fetch(`${API_BASE_URL}/draft/`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    // Allow "no draft" / unauthenticated without throwing
+    if (!response.ok) return null;
+
+    return await response.json();
+  },
+
+  saveDraft: async (snapshot: any) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/draft/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ snapshot }),
+    });
+
+    if (!response.ok) {
+      let errorMsg = 'Failed to save draft';
+      try {
+        const errData = await response.json();
+        errorMsg = errData.message || JSON.stringify(errData);
+      } catch (e) {
+        errorMsg = `Server Error: ${response.status} ${response.statusText}`;
+      }
+      throw new Error(errorMsg);
+    }
+
+    return await response.json();
+  },
 };

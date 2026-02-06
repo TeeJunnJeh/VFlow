@@ -318,5 +318,22 @@ export const assetsApi = {
 
     if (!response.ok) throw new Error(await readApiError(response));
     return await response.json();
-  }
+  },
+
+  moveFolder: async (folderId: string, parentId: string | null) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/folders/${folderId}/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ parent_id: parentId }),
+    });
+
+    if (!response.ok) throw new Error(await readApiError(response));
+    return await response.json();
+  },
 };

@@ -20,7 +20,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView }) =
   const InternalNav = ({ icon: Icon, view, label }: { icon: any, view: ViewType, label: string }) => (
     <div 
       onClick={() => setActiveView(view)} 
-      className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${activeView === view ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-white'}`} 
+      className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${activeView === view ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300'}`} 
       title={label}
     >
       <Icon className={`w-5 h-5 transition-all ${activeView === view ? 'stroke-[2.5px]' : ''}`} />

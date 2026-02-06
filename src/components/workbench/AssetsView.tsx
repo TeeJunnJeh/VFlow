@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  FolderPlus, Upload, Loader2, Folder, Eye, X, CheckCircle, Circle
+  FolderPlus, Upload, Loader2, Folder, Eye, X, CheckCircle, Circle, ChevronDown, ChevronRight
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { assetsApi, type Asset, type AssetFolder } from '../../services/assets';
@@ -55,10 +55,12 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   // 2. Move Asset
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
   const [moveAssets, setMoveAssets] = useState<Asset[]>([]);
+  const [moveFolder, setMoveFolder] = useState<AssetFolder | null>(null);
   const [moveFolders, setMoveFolders] = useState<AssetFolder[]>([]);
   const [moveTargetFolderId, setMoveTargetFolderId] = useState<string | null>(null);
   const [isMoveDropdownOpen, setIsMoveDropdownOpen] = useState(false);
   const [isMovingAsset, setIsMovingAsset] = useState(false);
+  const [moveExpandedFolderIds, setMoveExpandedFolderIds] = useState<Set<string>>(new Set());
 
   // 2.5 Drag & Drop (Move Asset)
   const [draggingAsset, setDraggingAsset] = useState<Asset | null>(null);
@@ -231,14 +233,35 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   };
 
   // --- Move Handlers ---
+  const computeExpandedForTarget = (folders: AssetFolder[], targetFolderId: string | null) => {
+    if (!targetFolderId) return new Set<string>();
+    const parentById = new Map<string, string | null>();
+    for (const f of folders) parentById.set(f.id, f.parent_id ?? null);
+
+    const expanded = new Set<string>();
+    const visited = new Set<string>();
+
+    let cur = parentById.get(targetFolderId) ?? null;
+    while (cur) {
+      if (visited.has(cur)) break;
+      visited.add(cur);
+      expanded.add(cur);
+      cur = parentById.get(cur) ?? null;
+    }
+    return expanded;
+  };
+
   const openMoveDialog = async (assets: Asset[], defaultTargetFolderId?: string | null) => {
     setMoveAssets(assets);
+    setMoveFolder(null);
     setMoveTargetFolderId(defaultTargetFolderId ?? null);
     setIsMoveModalOpen(true);
     setIsMoveDropdownOpen(false);
+    setMoveExpandedFolderIds(new Set());
     try {
       const folders = await assetsApi.getAllFolders(activeAssetTab);
       setMoveFolders(folders);
+      setMoveExpandedFolderIds(computeExpandedForTarget(folders, defaultTargetFolderId ?? null));
     } catch (err) {
       console.error(err);
       alert("Failed to load folders for move");
@@ -247,6 +270,23 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
   const openSingleMoveDialog = (asset: Asset) => {
     void openMoveDialog([asset], asset.folder_id ?? null);
+  };
+
+  const openFolderMoveDialog = async (folder: AssetFolder) => {
+    setMoveAssets([]);
+    setMoveFolder(folder);
+    setMoveTargetFolderId(folder.parent_id ?? null);
+    setIsMoveModalOpen(true);
+    setIsMoveDropdownOpen(false);
+    setMoveExpandedFolderIds(new Set());
+    try {
+      const folders = await assetsApi.getAllFolders(activeAssetTab);
+      setMoveFolders(folders);
+      setMoveExpandedFolderIds(computeExpandedForTarget(folders, folder.parent_id ?? null));
+    } catch (err) {
+      console.error(err);
+      alert("Failed to load folders for move");
+    }
   };
 
   const openBatchMoveDialog = () => {
@@ -321,9 +361,20 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   };
 
   const handleConfirmMove = async () => {
-    if (moveAssets.length === 0) return;
+    if (moveAssets.length === 0 && !moveFolder) return;
     setIsMovingAsset(true);
     try {
+      if (moveFolder) {
+        const from = moveFolder.parent_id ?? null;
+        const to = moveTargetFolderId ?? null;
+        if (from !== to) {
+          await assetsApi.moveFolder(moveFolder.id, to);
+          await loadData();
+        }
+        setIsMoveModalOpen(false);
+        return;
+      }
+
       const results = await Promise.allSettled(
         moveAssets.map(a => {
           const from = a.folder_id ?? null;
@@ -347,24 +398,15 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     }
   };
 
-  const buildFolderOptions = (folders: AssetFolder[]) => {
+  const buildFolderTree = (folders: AssetFolder[]) => {
     const byParent = new Map<string | null, AssetFolder[]>();
     for (const f of folders) {
       const key = f.parent_id ?? null;
       if (!byParent.has(key)) byParent.set(key, []);
-      byParent.get(key)?.push(f);
+      byParent.get(key)!.push(f);
     }
-    const out: Array<{ id: string; label: string }> = [];
-    const walk = (parentId: string | null, depth: number) => {
-      const children = byParent.get(parentId) || [];
-      for (const child of children) {
-        const prefix = depth > 0 ? `${'--'.repeat(depth)} ` : '';
-        out.push({ id: child.id, label: `${prefix}${child.name}` });
-        walk(child.id, depth + 1);
-      }
-    };
-    walk(null, 0);
-    return out;
+    for (const list of byParent.values()) list.sort((a, b) => a.name.localeCompare(b.name));
+    return byParent;
   };
 
   // --- Confirm Modal Helpers ---
@@ -401,6 +443,37 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const visibleAssets = assetList.filter(a => a.type === activeAssetTab);
   const selectedCount = selectedAssetIds.size;
   const isAllVisibleSelected = visibleAssets.length > 0 && visibleAssets.every(a => selectedAssetIds.has(a.id));
+
+  const moveSubjectLabel = moveFolder
+    ? moveFolder.name
+    : (moveAssets.length === 1 ? moveAssets[0]?.name : `${moveAssets.length} ${t.assets_items}`);
+
+  const moveFoldersByParent = buildFolderTree(moveFolders);
+
+  const invalidMoveTargetIds = (() => {
+    if (!moveFolder) return new Set<string>();
+    const invalid = new Set<string>([moveFolder.id]);
+    const stack = [moveFolder.id];
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      const children = moveFoldersByParent.get(cur) || [];
+      for (const child of children) {
+        if (invalid.has(child.id)) continue;
+        invalid.add(child.id);
+        stack.push(child.id);
+      }
+    }
+    return invalid;
+  })();
+
+  const toggleMoveExpanded = (folderId: string) => {
+    setMoveExpandedFolderIds(prev => {
+      const next = new Set(prev);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  };
 
   return (
     <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300" onClick={() => setOpenFolderMenuId(null)}>
@@ -578,6 +651,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                          {openFolderMenuId === folder.id && (
                              <div onClick={(e) => e.stopPropagation()} className="absolute top-10 right-2 bg-zinc-900/90 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden text-xs z-50 min-w-[140px]">
                                  <button className="w-full text-left px-3 py-2 hover:bg-white/5 text-zinc-200" onClick={() => handleRenameFolder(folder)}>{t.assets_folder_menu_rename}</button>
+                                 <button className="w-full text-left px-3 py-2 hover:bg-white/5 text-zinc-200" onClick={() => { setOpenFolderMenuId(null); void openFolderMoveDialog(folder); }}>{t.assets_move_asset}</button>
                                  <button className="w-full text-left px-3 py-2 hover:bg-white/5 text-red-300" onClick={() => { setOpenFolderMenuId(null); openConfirmModal({ title: t.assets_confirm_delete_folder, message: `${folder.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => handleDeleteFolder(folder) }); }}>{t.assets_folder_menu_delete}</button>
                              </div>
                          )}
@@ -668,17 +742,58 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
         {/* 3. Move Asset Modal */}
         {isMoveModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6" onClick={() => setIsMoveModalOpen(false)}>
-            <div className="w-full max-w-md glass-panel rounded-2xl p-6 border border-white/10" onClick={(e) => e.stopPropagation()}>
+            <div className="w-full max-w-sm glass-panel rounded-2xl p-6 border border-white/10" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-4"><h3 className="text-sm font-bold text-zinc-200">{moveAssets.length > 1 ? t.assets_move_items_title : t.assets_move_title}</h3><button className="text-zinc-400 hover:text-white" onClick={() => setIsMoveModalOpen(false)}><X className="w-5 h-5"/></button></div>
-              <div className="text-xs text-zinc-500 mb-3 truncate">{moveAssets.length === 1 ? moveAssets[0]?.name : `${moveAssets.length} ${t.assets_items}`}</div>
+              <div className="text-xs text-zinc-500 mb-3 truncate">{moveSubjectLabel}</div>
               <div className="relative">
                 <button className={`w-full bg-black/30 text-zinc-200 text-sm rounded-lg border px-3 py-2 flex items-center justify-between focus:outline-none transition ${isMoveDropdownOpen ? 'border-orange-500/60' : 'border-white/10 hover:border-white/20'}`} onClick={() => setIsMoveDropdownOpen(v => !v)}>
                   <span className="truncate">{(() => { if (!moveTargetFolderId) return t.assets_move_root; const found = moveFolders.find(f => f.id === moveTargetFolderId); return found?.name || t.assets_move_root; })()}</span>
+                  <ChevronDown className={`w-4 h-4 shrink-0 transition ${isMoveDropdownOpen ? 'rotate-180 text-orange-400' : 'text-zinc-400'}`} />
                 </button>
                 {isMoveDropdownOpen && (
-                  <div className="absolute mt-2 w-full max-h-64 overflow-auto rounded-lg border border-white/10 bg-zinc-950/90 backdrop-blur-sm shadow-xl z-[120]">
+                  <div className="absolute mt-2 w-full max-h-64 overflow-auto custom-scroll rounded-lg border border-white/10 bg-zinc-950/90 backdrop-blur-sm shadow-xl z-[120] pr-2">
                     <button className={`w-full text-left px-3 py-2 text-sm hover:bg-white/5 ${moveTargetFolderId === null ? 'text-white' : 'text-zinc-200'}`} onClick={() => { setMoveTargetFolderId(null); setIsMoveDropdownOpen(false); }}>{t.assets_move_root}</button>
-                    {buildFolderOptions(moveFolders).map(opt => (<button key={opt.id} className={`w-full text-left px-3 py-2 text-sm hover:bg-white/5 ${moveTargetFolderId === opt.id ? 'text-white' : 'text-zinc-200'}`} onClick={() => { setMoveTargetFolderId(opt.id); setIsMoveDropdownOpen(false); }}>{opt.label}</button>))}
+                    {(moveFoldersByParent.get(null) || [])
+                      .filter(f => !moveFolder || !invalidMoveTargetIds.has(f.id))
+                      .map(f => {
+                        const renderNode = (node: AssetFolder, depth: number): React.ReactNode => {
+                          if (moveFolder && invalidMoveTargetIds.has(node.id)) return null;
+                          const childrenAll = moveFoldersByParent.get(node.id) || [];
+                          const children = moveFolder ? childrenAll.filter(c => !invalidMoveTargetIds.has(c.id)) : childrenAll;
+                          const hasChildren = children.length > 0;
+                          const isExpanded = moveExpandedFolderIds.has(node.id);
+                          const isSelected = moveTargetFolderId === node.id;
+                          const depthText =
+                            depth === 0 ? 'text-zinc-200' : depth === 1 ? 'text-zinc-300' : 'text-zinc-400';
+
+                          return (
+                            <div key={node.id}>
+                              <div
+                                className={`w-full px-3 py-2 text-sm flex items-center justify-between select-none ${
+                                  isSelected ? 'bg-white/5 text-white' : `hover:bg-white/5 ${depthText}`
+                                }`}
+                                style={{ paddingLeft: 12 + depth * 14 }}
+                                onClick={() => { setMoveTargetFolderId(node.id); setIsMoveDropdownOpen(false); }}
+                              >
+                                <span className="truncate">{node.name}</span>
+                                {hasChildren && (
+                                  <button
+                                    type="button"
+                                    className="ml-2 w-6 h-6 rounded-md hover:bg-white/5 text-zinc-400 hover:text-white flex items-center justify-center"
+                                    onClick={(e) => { e.stopPropagation(); toggleMoveExpanded(node.id); }}
+                                    aria-label={isExpanded ? 'Collapse folder' : 'Expand folder'}
+                                  >
+                                    {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                                  </button>
+                                )}
+                              </div>
+                              {hasChildren && isExpanded && children.map(c => renderNode(c, depth + 1))}
+                            </div>
+                          );
+                        };
+
+                        return renderNode(f, 0);
+                      })}
                   </div>
                 )}
               </div>

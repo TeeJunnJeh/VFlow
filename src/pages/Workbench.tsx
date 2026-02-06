@@ -68,6 +68,28 @@ const Workbench = () => {
     } catch (err) { console.error(err); }
   };
 
+  useEffect(() => {
+    setSelectedTemplate((prev) => {
+      const prevId = prev?.id;
+      if (!prevId) return prev;
+
+      const latest = templateList.find((t) => t.id === prevId);
+      if (!latest) return null;
+
+      const isSame =
+        latest.name === prev.name &&
+        latest.icon === prev.icon &&
+        latest.product_category === prev.product_category &&
+        latest.visual_style === prev.visual_style &&
+        latest.aspect_ratio === prev.aspect_ratio &&
+        latest.duration === prev.duration &&
+        latest.shot_number === prev.shot_number &&
+        (latest.custom_config ?? '') === (prev.custom_config ?? '');
+
+      return isSame ? prev : latest;
+    });
+  }, [templateList]);
+
   // --- Event Handlers ---
 
   const handleAssetSelect = (asset: any) => {

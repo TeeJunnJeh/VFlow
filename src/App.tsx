@@ -69,21 +69,52 @@ const AnimatedRoutes = () => {
         const error = params.get('error');
         const errorDescription = params.get('error_description');
 
+        // Only process if we have an OAuth callback (code or error present)
         if (!code && !error) return;
+
+        // 防止重复处理 - 使用 ref 标记
+        if ((window as any).__tiktok_callback_processing) {
+            console.log('[TikTok OAuth] Already processing callback, skipping...');
+            return;
+        }
+        (window as any).__tiktok_callback_processing = true;
+
+        // Log for debugging
+        console.log('[TikTok OAuth] Detected callback params:', { code: !!code, state: !!state, error });
+
+        // 立即清除URL参数，防止多次触发
+        window.history.replaceState({}, document.title, location.pathname);
 
         (async () => {
             try {
-                await tiktokApi.completeAuth({
+                // Validate required params before calling API
+                if (error) {
+                    throw new Error(errorDescription || error || '授权被拒绝');
+                }
+                if (!code || !state) {
+                    throw new Error('授权参数不完整');
+                }
+
+                console.log('[TikTok OAuth] Calling completeAuth...');
+                const result = await tiktokApi.completeAuth({
                     code,
                     state,
-                    error,
-                    error_description: errorDescription,
+                    error: error || undefined,
+                    error_description: errorDescription || undefined,
                 });
-                alert('TikTok 授权成功，正在上传草稿');
+                console.log('[TikTok OAuth] completeAuth success:', result);
+
+                // 显示成功消息，告知用户视频已上传到哪个账号
+                if (result?.message) {
+                    alert(result.message);
+                } else {
+                    alert('TikTok 授权成功，视频已上传到草稿箱');
+                }
             } catch (err: any) {
+                console.error('[TikTok OAuth] Error:', err);
                 alert(`TikTok 授权失败：${err?.message || '未知错误'}`);
             } finally {
-                window.history.replaceState({}, document.title, location.pathname);
+                (window as any).__tiktok_callback_processing = false;
             }
         })();
     }, [location.pathname, location.search]);

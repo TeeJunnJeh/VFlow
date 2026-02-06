@@ -17,14 +17,27 @@ function getCookie(name: string) {
 
 export const tiktokApi = {
   completeAuth: async (params: { code: string; state: string; error?: string; error_description?: string }) => {
+    console.log('[tiktokApi.completeAuth] Starting with params:', {
+      hasCode: !!params.code,
+      hasState: !!params.state,
+      error: params.error
+    });
+
     if (params.error) {
       throw new Error(params.error_description || params.error);
     }
+
+    if (!params.code || !params.state) {
+      throw new Error('Missing required OAuth parameters');
+    }
+
     const queryString = new URLSearchParams({
         code: params.code,
         state: params.state
     }).toString();
-    
+
+    console.log('[tiktokApi.completeAuth] Calling callback API...');
+
     const response = await fetch(`${API_BASE_URL}/callback/?${queryString}`, {
       method: 'GET',
       headers: {
@@ -34,11 +47,16 @@ export const tiktokApi = {
       credentials: 'include',
     });
 
+    console.log('[tiktokApi.completeAuth] Response status:', response.status);
+
     if (!response.ok) {
         const err = await response.json().catch(() => ({}));
+        console.error('[tiktokApi.completeAuth] Error response:', err);
         throw new Error(err.message || 'TikTok 授权失败');
     }
-    return await response.json();
+    const result = await response.json();
+    console.log('[tiktokApi.completeAuth] Success:', result);
+    return result;
   },
 
   getAuthUrl: async (projectId?: string) => {
@@ -111,5 +129,25 @@ export const tiktokApi = {
       publishId: json?.data?.publish_id as string | undefined,
       message: json?.message as string | undefined,
     };
+  },
+
+  revokeAuth: async () => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/revoke/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err?.message || '取消授权失败');
+    }
+
+    return await response.json();
   },
 };

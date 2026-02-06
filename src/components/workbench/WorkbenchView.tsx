@@ -768,13 +768,64 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     setIsPostingTikTok(true);
     try {
-      const status = await tiktokApi.getStatus();
-      if (!status?.data?.authorized) {
+      // 尝试检查授权状态
+      let isAuthorized = false;
+      let tiktokUserInfo = null;
+      try {
+        const status = await tiktokApi.getStatus();
+        isAuthorized = status?.data?.authorized || false;
+        tiktokUserInfo = status?.data?.tiktok_user || null;
+      } catch (err: any) {
+        // 如果 getStatus 失败（401 等），说明需要授权，继续跳转到授权页面
+        console.log('[TikTok] Status check failed, need authorization:', err);
+        isAuthorized = false;
+      }
+
+      // 如果未授权，跳转到授权页面
+      if (!isAuthorized) {
         const authUrl = await tiktokApi.getAuthUrl(targetProjectId);
         window.location.href = authUrl;
         return;
       }
 
+      // 显示当前授权的TikTok账号，让用户确认
+      let confirmMessage = '确认上传视频到TikTok草稿箱？\n\n';
+      if (tiktokUserInfo && tiktokUserInfo.display_name) {
+        confirmMessage += `当前授权账号: ${tiktokUserInfo.display_name}\n\n`;
+        confirmMessage += '点击"确定"继续上传，点击"取消"可切换账号';
+      } else {
+        confirmMessage += '视频将上传到已授权的TikTok账号\n\n';
+        confirmMessage += '点击"取消"可切换账号';
+      }
+
+      const userConfirmed = confirm(confirmMessage);
+      if (!userConfirmed) {
+        // 用户点击了取消，询问是否要切换账号
+        const switchAccount = confirm(
+          '是否要切换TikTok账号？\n\n' +
+          '点击"确定"后：\n' +
+          '1. 系统将取消当前授权\n' +
+          '2. 跳转到TikTok授权页面\n' +
+          '3. 如需切换到其他账号，请在TikTok页面先退出当前账号，再登录新账号\n' +
+          '4. 授权成功后视频将自动上传到新账号的草稿箱'
+        );
+        if (switchAccount) {
+          try {
+            await tiktokApi.revokeAuth();
+            // 取消授权成功，跳转到授权页面
+            alert('当前授权已取消，即将跳转到TikTok授权页面。\n\n如需切换账号，请在TikTok页面先退出当前账号。');
+            const authUrl = await tiktokApi.getAuthUrl(targetProjectId);
+            window.location.href = authUrl;
+            return;
+          } catch (err: any) {
+            alert(err?.message || '切换账号失败');
+          }
+        }
+        setIsPostingTikTok(false);
+        return;
+      }
+
+      // 已授权，尝试发布
       const result = await tiktokApi.publishDraft(targetProjectId);
       if (result.requiresAuth) {
         const authUrl = result.authUrl || await tiktokApi.getAuthUrl(targetProjectId);

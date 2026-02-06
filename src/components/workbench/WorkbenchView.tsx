@@ -417,19 +417,42 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const isDurationValid = Math.abs(currentScriptDuration - genDuration) < 0.1;
   const isReuseReady = assetQueue.length > 0 && scriptQueue.length > 0;
   const expectedBatchCount = isReuseReady ? assetQueue.length * scriptQueue.length : 0;
+  const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
+  const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
+  const VIDEO_EXTS = ['mp4', 'mov', 'mkv', 'webm', 'avi'];
+  const AUDIO_EXTS = ['mp3', 'wav', 'flac'];
+  const imageFormats = IMAGE_EXTS.join('/');
+  const videoFormats = VIDEO_EXTS.join('/');
+  const audioFormats = AUDIO_EXTS.join('/');
+  const formatHint = `图片(${imageFormats}) 视频(${videoFormats}) 音频(${audioFormats}) · ≤1GB`;
+
+  const validateUploadFile = (file: File) => {
+    if (file.size > MAX_UPLOAD_BYTES) return `文件过大：${file.name}（>1GB）`;
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const isImage = file.type.startsWith('image/') || IMAGE_EXTS.includes(ext);
+    const isVideo = file.type.startsWith('video/') || VIDEO_EXTS.includes(ext);
+    const isAudio = file.type.startsWith('audio/') || AUDIO_EXTS.includes(ext);
+    if (!isImage && !isVideo && !isAudio) return `格式不支持：${file.name}`;
+    return null;
+  };
 
   // --- Handlers ---
   const handleWorkbenchUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setUploadedFile(url);
-      setFileName(file.name);
-      setSelectedFileObj(file);
-      setSelectedAssetSource('product');
-      setSelectedAssetUrl(null);
-      setGeneratedVideoUrl(null);
+    if (!file) return;
+    const err = validateUploadFile(file);
+    if (err) {
+      alert(`${err}\n\n支持格式：${formatHint}`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
     }
+    const url = URL.createObjectURL(file);
+    setUploadedFile(url);
+    setFileName(file.name);
+    setSelectedFileObj(file);
+    setSelectedAssetSource('product');
+    setSelectedAssetUrl(null);
+    setGeneratedVideoUrl(null);
   };
 
   const removeUpload = (e: React.MouseEvent) => {
@@ -912,11 +935,33 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       <div className="flex flex-col gap-3">
         <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
         <div onClick={() => fileInputRef.current?.click()} className={`glass-panel rounded-xl p-1 border-2 border-dashed border-zinc-800 hover:border-orange-500/50 transition-colors h-32 relative group cursor-pointer ${uploadedFile ? 'border-none' : ''}`}>
-          <input type="file" ref={fileInputRef} className="hidden" onChange={handleWorkbenchUpload} />
+          <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*,audio/*" onChange={handleWorkbenchUpload} />
           {!uploadedFile ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none">
+            <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
               <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition duration-300"><Plus className="w-4 h-4 text-zinc-500 group-hover:text-orange-500" /></div>
               <p className="text-[10px] font-medium text-zinc-400">{t.wb_upload_click}</p>
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[10px] text-zinc-300">
+                <span className="text-zinc-500">支持上传</span>
+                <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
+                  图片
+                  <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
+                    {imageFormats}
+                  </span>
+                </span>
+                <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
+                  视频
+                  <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
+                    {videoFormats}
+                  </span>
+                </span>
+                <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
+                  音频
+                  <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
+                    {audioFormats}
+                  </span>
+                </span>
+                <span className="text-zinc-400">≤ 1GB</span>
+              </div>
             </div>
           ) : (
             <div className="absolute inset-0 bg-zinc-900 rounded-lg overflow-hidden group/preview">

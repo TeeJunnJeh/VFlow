@@ -22,6 +22,24 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   setCurrentFolderId 
 }) => {
   const { t } = useLanguage();
+  const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
+  const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
+  const VIDEO_EXTS = ['mp4', 'mov', 'mkv', 'webm', 'avi'];
+  const AUDIO_EXTS = ['mp3', 'wav', 'flac'];
+  const imageFormats = IMAGE_EXTS.join('/');
+  const videoFormats = VIDEO_EXTS.join('/');
+  const audioFormats = AUDIO_EXTS.join('/');
+  const formatHint = `图片：${imageFormats}\n视频：${videoFormats}\n音频：${audioFormats}\n大小：≤1GB`;
+
+  const validateUploadFile = (file: File) => {
+    if (file.size > MAX_UPLOAD_BYTES) return `文件过大：${file.name}（>1GB）`;
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const isImage = file.type.startsWith('image/') || IMAGE_EXTS.includes(ext);
+    const isVideo = file.type.startsWith('video/') || VIDEO_EXTS.includes(ext);
+    const isAudio = file.type.startsWith('audio/') || AUDIO_EXTS.includes(ext);
+    if (!isImage && !isVideo && !isAudio) return `格式不支持：${file.name}`;
+    return null;
+  };
 
   const assetTabLabel: Record<AssetType, string> = {
     model: t.assets_tab_models,
@@ -123,14 +141,26 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const handleAssetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    const errors: string[] = [];
+    const validFiles: File[] = [];
+    Array.from(files).forEach(file => {
+      const err = validateUploadFile(file);
+      if (err) errors.push(err);
+      else validFiles.push(file);
+    });
+    if (errors.length > 0) alert(`${errors.join('\n')}\n\n支持格式：${formatHint}`);
+    if (validFiles.length === 0) {
+      if (assetInputRef.current) assetInputRef.current.value = '';
+      return;
+    }
     setIsUploading(true);
     try {
-      const uploadTasks = Array.from(files).map(file => assetsApi.uploadAsset(file, activeAssetTab, currentFolderId));
+      const uploadTasks = validFiles.map(file => assetsApi.uploadAsset(file, activeAssetTab, currentFolderId));
       await Promise.all(uploadTasks);
       await loadData();
       
       // --- RESTORED SUCCESS ALERT ---
-      alert(`Successfully uploaded ${files.length} files!`); 
+      alert(`Successfully uploaded ${validFiles.length} files!`); 
       
     } catch (err) {
       console.error(err);
@@ -432,10 +462,16 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
           <div className="flex gap-3 items-center">
              <LanguageSwitcher />
              <button onClick={openCreateFolderModal} className="bg-zinc-800 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-zinc-700 transition flex items-center gap-2"><FolderPlus className="w-4 h-4" /> {t.assets_btn_new_folder}</button>
-             <button onClick={() => assetInputRef.current?.click()} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20" disabled={isUploading}>
-                {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} {t.assets_btn_upload}
-             </button>
-             <input type="file" ref={assetInputRef} className="hidden" multiple onChange={handleAssetUpload} />
+             <div className="relative group">
+               <button onClick={() => assetInputRef.current?.click()} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20" disabled={isUploading}>
+                  {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} {t.assets_btn_upload}
+               </button>
+               <div className="absolute right-0 top-12 z-50 w-max max-w-[360px] rounded-xl border border-white/10 bg-zinc-900/95 px-3 py-2 text-[10px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover:opacity-100 hover:opacity-100">
+                 <div className="text-[11px] font-bold text-white mb-1">支持格式</div>
+                 <div className="whitespace-pre-line text-zinc-300 leading-relaxed">{formatHint}</div>
+               </div>
+             </div>
+             <input type="file" ref={assetInputRef} className="hidden" multiple accept="image/*,video/*,audio/*" onChange={handleAssetUpload} />
           </div>
        </header>
 

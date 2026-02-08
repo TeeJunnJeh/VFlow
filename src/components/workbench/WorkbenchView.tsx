@@ -1182,6 +1182,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       alert(err?.message || '上传失败');
     } finally {
       setIsPostingTikTok(false);
+	}
+  };
   // --- Video Controls ---
   const toggleVideoPlay = () => {
     const video = videoRef.current;

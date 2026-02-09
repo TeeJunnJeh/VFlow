@@ -155,7 +155,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     { id: 2, shot: '2', type: 'Detail', dur: '2s', visual: t.demo_shot2_visual, audio: t.demo_shot2_audio }
   ]);
   const [scripts, setScripts] = useState<ScriptItem[]>(buildDemoScripts);
-  const [scriptPages, setScriptPages] = useState<ScriptPage[]>(() => ([{ id: 'page-1', name: '脚本 1', scripts: buildDemoScripts() }]));
+  const [scriptPages, setScriptPages] = useState<ScriptPage[]>(() => ([{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: buildDemoScripts() }]));
   const [activeScriptPage, setActiveScriptPage] = useState(0);
 
   // Queue State
@@ -606,7 +606,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
 
     const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const name = `脚本 ${scriptQueue.length + 1}`;
+    const name = `${t.wb_script_page_prefix} ${scriptQueue.length + 1}`;
     // Deep copy scripts
     const copiedScripts = scripts.map(s => ({ ...s }));
 
@@ -716,28 +716,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (Array.isArray(data.script_contents)) {
           return data.script_contents.map((sc: any, idx: number) => ({
             id: `page-${idx + 1}`,
-            name: `脚本 ${idx + 1}`,
+            name: `${t.wb_script_page_prefix} ${idx + 1}`,
             scripts: buildScriptsFromShots(sc?.shots || [])
           }));
         }
         if (Array.isArray(data.script_variants)) {
           return data.script_variants.map((variant: any, idx: number) => ({
             id: `page-${idx + 1}`,
-            name: `脚本 ${idx + 1}`,
+            name: `${t.wb_script_page_prefix} ${idx + 1}`,
             scripts: buildScriptsFromShots(variant?.script_content?.shots || variant?.shots || [])
           }));
         }
         if (Array.isArray(data.variants)) {
           return data.variants.map((variant: any, idx: number) => ({
             id: `page-${idx + 1}`,
-            name: `脚本 ${idx + 1}`,
+            name: `${t.wb_script_page_prefix} ${idx + 1}`,
             scripts: buildScriptsFromShots(variant?.script_content?.shots || variant?.shots || [])
           }));
         }
         if (data.script_content?.shots) {
           return [{
             id: 'page-1',
-            name: '脚本 1',
+            name: `${t.wb_script_page_prefix} 1`,
             scripts: buildScriptsFromShots(data.script_content.shots)
           }];
         }
@@ -1235,26 +1235,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition duration-300"><Plus className="w-4 h-4 text-zinc-500 group-hover:text-orange-500" /></div>
               <p className="text-[10px] font-medium text-zinc-400">{t.wb_upload_click}</p>
               <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[10px] text-zinc-300">
-                <span className="text-zinc-500">支持上传</span>
+                <span className="text-zinc-500">{t.wb_upload_support}</span>
                 <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
-                  图片
+                  {t.wb_upload_image}
                   <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
                     {imageFormats}
                   </span>
                 </span>
                 <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
-                  视频
+                  {t.wb_upload_video}
                   <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
                     {videoFormats}
                   </span>
                 </span>
                 <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
-                  音频
+                  {t.wb_upload_audio}
                   <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
                     {audioFormats}
                   </span>
                 </span>
-                <span className="text-zinc-400">≤ 1GB</span>
+                <span className="text-zinc-400">{t.wb_upload_max_size}</span>
               </div>
             </div>
           ) : (
@@ -1269,21 +1269,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       {/* Reuse Queues Section (Restored Buttons) */}
       <div className="flex flex-col gap-3">
-         <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> 复用队列</h2>
+         <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> {t.wb_reuse_queue}</h2>
          <div className="glass-panel rounded-xl p-4 flex flex-col gap-4">
             {/* Asset Queue */}
             <div className="flex items-center justify-between">
-              <div className="text-[10px] text-zinc-400 font-bold uppercase">素材队列</div>
+              <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_asset_queue}</div>
               <button
                 onClick={addCurrentAssetToQueue}
                 disabled={!uploadedFile && !selectedAssetUrl}
                 className={`text-[10px] px-2 py-1 rounded border border-white/10 ${!uploadedFile && !selectedAssetUrl ? 'text-zinc-600' : 'text-orange-500 hover:bg-white/5'}`}
               >
-                加入素材队列
+                {t.wb_add_asset_queue}
               </button>
             </div>
             <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
-               {assetQueue.length === 0 ? <div className="text-[10px] text-zinc-600">暂无素材</div> : assetQueue.map(item => (
+               {assetQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_assets}</div> : assetQueue.map(item => (
                   <div
                     key={item.id}
                     onClick={() => selectAssetFromQueue(item)}
@@ -1305,16 +1305,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
             {/* Script Queue */}
             <div className="flex items-center justify-between">
-              <div className="text-[10px] text-zinc-400 font-bold uppercase">脚本队列</div>
+              <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_script_queue}</div>
               <button
                 onClick={addCurrentScriptToQueue}
                 className="text-[10px] px-2 py-1 rounded border border-white/10 text-orange-500 hover:bg-white/5"
               >
-                加入脚本队列
+                {t.wb_add_script_queue}
               </button>
             </div>
             <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
-               {scriptQueue.length === 0 ? <div className="text-[10px] text-zinc-600">暂无脚本</div> : scriptQueue.map(item => (
+               {scriptQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_scripts}</div> : scriptQueue.map(item => (
                   <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
                      <div className="flex-1 min-w-0">
                        <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
@@ -1326,7 +1326,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
 
             <div className="text-[10px] text-zinc-500 pt-2 border-t border-white/5">
-               预计生成：{assetQueue.length} × {scriptQueue.length} = {expectedBatchCount}
+               {t.wb_estimated_generate}: {assetQueue.length} × {scriptQueue.length} = {expectedBatchCount}
             </div>
          </div>
       </div>
@@ -1384,10 +1384,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
            </div>
 
            <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">生成脚本数量</label>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_script_count_label}</label>
               <div className="flex items-center gap-2 bg-black/40 p-2 rounded-lg border border-white/5">
                 <input type="number" min={1} max={10} value={scriptVariantCount} onChange={(e) => setScriptVariantCount(Number(e.target.value))} className="w-16 bg-transparent text-xs text-zinc-200 focus:outline-none text-center" />
-                <span className="text-[10px] text-zinc-500">份</span>
+                <span className="text-[10px] text-zinc-500">{t.wb_script_count_unit}</span>
               </div>
            </div>
            
@@ -1459,7 +1459,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </button>
                 
                 <div className="text-[10px] text-zinc-400 border border-white/10 px-2 py-0.5 rounded">
-                  脚本 {activeScriptPage + 1} / {Math.max(scriptPages.length, 1)}
+                  {t.wb_script_page_prefix} {activeScriptPage + 1} / {Math.max(scriptPages.length, 1)}
                 </div>
                 
                 <button 
@@ -1565,7 +1565,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
 
             <div className="glass-panel rounded-2xl p-3 border border-white/5 flex items-center justify-between">
-              <div className="text-[10px] text-zinc-500 uppercase tracking-widest">TikTok Draft</div>
+              <div className="text-[10px] text-zinc-500 uppercase tracking-widest">{t.wb_tiktok_draft_title}</div>
               <button
                 onClick={handlePublishToTikTok}
                 disabled={!generatedVideoUrl || isPostingTikTok}
@@ -1578,8 +1578,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             
             {/* Batch Results Panel (Restored) */}
             <div className="glass-panel rounded-2xl p-4 border border-white/5 max-h-56 overflow-y-auto custom-scroll">
-               <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3">批量生成结果</div>
-               {generatedBatch.length === 0 ? <div className="text-[10px] text-zinc-600">暂无结果</div> : <div className="space-y-2">{generatedBatch.map(item => { const task = tasks.find(t => t.id === item.taskId); const status = task?.status; const url = task?.result?.video_url || task?.result?.url; return (<div key={item.id} className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>{status === 'success' && url ? (<button onClick={() => setGeneratedVideoUrl(url)} className="text-orange-400 hover:text-orange-300 transition">预览</button>) : status === 'failed' ? (<span className="text-red-400">失败</span>) : (<span className="text-zinc-500">生成中…</span>)}</div>); })}</div>}
+               <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3">{t.wb_batch_results}</div>
+               {generatedBatch.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_batch_no_results}</div> : <div className="space-y-2">{generatedBatch.map(item => { const task = tasks.find(t => t.id === item.taskId); const status = task?.status; const url = task?.result?.video_url || task?.result?.url; return (<div key={item.id} className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>{status === 'success' && url ? (<button onClick={() => setGeneratedVideoUrl(url)} className="text-orange-400 hover:text-orange-300 transition">预览</button>) : status === 'failed' ? (<span className="text-red-400">失败</span>) : (<span className="text-zinc-500">生成中…</span>)}</div>); })}</div>}
             </div>
         </div>
       </div>

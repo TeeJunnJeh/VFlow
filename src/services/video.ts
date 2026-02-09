@@ -18,9 +18,66 @@ function getCookie(name: string) {
   return cookieValue;
 }
 
+export type HistoryProjectStatus = 'DRAFT' | 'PENDING' | 'PROCESSING' | 'SUCCESS' | 'FAILED';
+
+export interface HistoryProject {
+  id: string;
+  title: string;
+  status: HistoryProjectStatus;
+  cover_url: string | null;
+  video_url: string | null;
+  duration: number;
+  created_at: string;
+  updated_at: string;
+  platform_stats?: Record<string, unknown>;
+  config_snapshot?: {
+    category: string;
+    style: string;
+    ratio: string;
+  };
+}
+
+type ApiEnvelope<T> = {
+  code?: number;
+  message?: string;
+  error?: string;
+  data?: T;
+} & Record<string, unknown>;
+
+const asRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== 'object') return null;
+  return value as Record<string, unknown>;
+};
+
+async function readApiError(response: Response): Promise<string> {
+  const contentType = response.headers.get('content-type') || '';
+
+  if (contentType.includes('application/json')) {
+    try {
+      const json: unknown = await response.json();
+      const rec = asRecord(json);
+      const msg = rec ? (rec.message ?? rec.error) : null;
+      if (typeof msg === 'string' && msg.trim()) return msg;
+      return 'Request failed';
+    } catch (err) {
+      void err;
+    }
+  }
+
+  try {
+    const text = await response.text();
+    const compact = text.replace(/\s+/g, ' ').trim();
+    return compact ? compact.slice(0, 200) : 'Request failed';
+  } catch (err) {
+    void err;
+  }
+
+  return response.statusText || 'Request failed';
+}
+
 export const videoApi = {
   // 0. Create Project (non-template)
-  createProject: async (userId: string | number, payload: any) => {
+  createProject: async (userId: string | number, payload: unknown) => {
     const csrftoken = getCookie('csrftoken');
 
     const response = await fetch(`${API_BASE_URL}/users/${userId}/project`, {
@@ -39,7 +96,7 @@ export const videoApi = {
       try {
         const errData = await response.json();
         errorMsg = errData.message || JSON.stringify(errData);
-      } catch (e) {
+      } catch {
         errorMsg = `Server Error: ${response.status} ${response.statusText}`;
       }
       throw new Error(errorMsg);
@@ -67,7 +124,7 @@ export const videoApi = {
       try {
         const errData = await response.json();
         errorMsg = errData.message || JSON.stringify(errData);
-      } catch (e) {
+      } catch {
         errorMsg = `Server Error: ${response.status} ${response.statusText}`;
       }
       throw new Error(errorMsg);
@@ -77,9 +134,9 @@ export const videoApi = {
   },
 
   // 1. Generate Video
-  generate: async (payload: any) => {
+  generate: async (payload: unknown) => {
     const csrftoken = getCookie('csrftoken');
-    
+
     // FIX: Added trailing slash '/' at the end
     // WAS: `${API_BASE_URL}/generate_video`
     // NOW: `${API_BASE_URL}/generate_video/`
@@ -88,9 +145,9 @@ export const videoApi = {
       headers: {
         'Content-Type': 'application/json',
         'X-CSRFToken': csrftoken || '',
-        'X-Requested-With': 'XMLHttpRequest', 
+        'X-Requested-With': 'XMLHttpRequest',
       },
-      credentials: 'include', 
+      credentials: 'include',
       body: JSON.stringify(payload),
     });
 
@@ -99,8 +156,8 @@ export const videoApi = {
       try {
         const errData = await response.json();
         errorMsg = errData.message || JSON.stringify(errData);
-      } catch (e) {
-        errorMsg = `Server Error: ${response.status} ${response.statusText}`; 
+      } catch {
+        errorMsg = `Server Error: ${response.status} ${response.statusText}`;
       }
       throw new Error(errorMsg);
     }
@@ -109,33 +166,33 @@ export const videoApi = {
   },
 
   // 2. Generate Script
-  generateScript: async (userId: string | number, payload: any) => {
+  generateScript: async (userId: string | number, payload: unknown) => {
     const csrftoken = getCookie('csrftoken');
-    
-    // Ensure this path matches your backend. 
+
+    // Ensure this path matches your backend.
     // If this starts 404ing too, try adding a slash here as well.
-    const response = await fetch(`${API_BASE_URL}/users/${userId}/generate-script`, { 
+    const response = await fetch(`${API_BASE_URL}/users/${userId}/generate-script`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRFToken': csrftoken || '',
         'X-Requested-With': 'XMLHttpRequest',
       },
-      credentials: 'include', 
+      credentials: 'include',
       body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
-        let errorMsg = 'Script generation failed';
-        try {
-            const errData = await response.json();
-            errorMsg = errData.message || JSON.stringify(errData);
-        } catch (e) {
-            errorMsg = await response.text();
-        }
-        throw new Error(errorMsg);
+      let errorMsg = 'Script generation failed';
+      try {
+        const errData = await response.json();
+        errorMsg = errData.message || JSON.stringify(errData);
+      } catch {
+        errorMsg = await response.text();
+      }
+      throw new Error(errorMsg);
     }
-    
+
     return await response.json();
   },
 
@@ -156,7 +213,7 @@ export const videoApi = {
     return await response.json();
   },
 
-  saveDraft: async (snapshot: any) => {
+  saveDraft: async (snapshot: unknown) => {
     const csrftoken = getCookie('csrftoken');
 
     const response = await fetch(`${API_BASE_URL}/draft/`, {
@@ -175,7 +232,7 @@ export const videoApi = {
       try {
         const errData = await response.json();
         errorMsg = errData.message || JSON.stringify(errData);
-      } catch (e) {
+      } catch {
         errorMsg = `Server Error: ${response.status} ${response.statusText}`;
       }
       throw new Error(errorMsg);
@@ -183,4 +240,63 @@ export const videoApi = {
 
     return await response.json();
   },
+
+  // 4. History list
+  getHistory: async (): Promise<HistoryProject[]> => {
+    const response = await fetch(`${API_BASE_URL}/history/`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw new Error(await readApiError(response));
+    }
+
+    // If session is invalid, Django may redirect to /accounts/login (HTML).
+    if (response.redirected) throw new Error('Unauthorized');
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) throw new Error('Unexpected response');
+
+    const json = (await response.json()) as ApiEnvelope<HistoryProject[]>;
+    if (json?.code !== undefined && json.code !== 0) {
+      throw new Error((json?.message || 'Failed to fetch history') as string);
+    }
+    const data = json?.data;
+    return Array.isArray(data) ? data : [];
+  },
+
+  // 5. Delete project (physical delete)
+  deleteProject: async (projectId: string): Promise<boolean> => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/${projectId}/`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw new Error(await readApiError(response));
+    }
+
+    if (response.redirected) throw new Error('Unauthorized');
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) return true;
+
+    const json = (await response.json()) as ApiEnvelope<unknown>;
+    if (json?.code !== undefined && json.code !== 0) {
+      throw new Error((json?.message || 'Failed to delete project') as string);
+    }
+
+    return true;
+  },
 };
+

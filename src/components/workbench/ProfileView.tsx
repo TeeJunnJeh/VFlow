@@ -1,8 +1,9 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Edit3, User as UserIcon, Settings2, LogOut, Flame, Gem, Zap } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { authApi } from '../../services/auth';
+import { billingApi } from '../../services/billing';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 
 interface ProfileViewProps {
@@ -16,6 +17,43 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [isEditingNickname, setIsEditingNickname] = useState(false);
   const [newNickname, setNewNickname] = useState(user?.name || '');
+  const [billingItems, setBillingItems] = useState<any[]>([]);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
+  const [showBilling, setShowBilling] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setBillingLoading(false);
+      return;
+    }
+    let alive = true;
+    setBillingLoading(true);
+    setBillingError(null);
+
+    billingApi
+      .listTransactions(8, 0)
+      .then((res) => {
+        if (!alive) return;
+        const items = res?.data?.items || [];
+        setBillingItems(items);
+        if (typeof res?.data?.balance === 'number' && res.data.balance !== user?.credits) {
+          updateUser({ credits: res.data.balance });
+        }
+      })
+      .catch((err) => {
+        if (!alive) return;
+        setBillingError(err?.message || 'Failed to load billing');
+      })
+      .finally(() => {
+        if (!alive) return;
+        setBillingLoading(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [user?.id, user?.credits]);
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -114,7 +152,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                {/* Background Glow Effect */}
                <div className={`absolute top-0 right-0 w-[400px] h-[400px] blur-[120px] rounded-full transition-all duration-1000 ${user?.plan === 'pro' ? 'bg-orange-500/10' : user?.plan === 'plus' ? 'bg-indigo-500/10' : 'bg-zinc-500/5'}`} />
                
-               <div className="flex flex-col md:flex-row items-center md:items-start gap-12 relative z-10 w-full">
+               <div className="relative z-10 w-full" style={{ perspective: 1400 }}>
+                 <div
+                   className="relative w-full transition-transform duration-700"
+                   style={{ transformStyle: 'preserve-3d', transform: showBilling ? 'rotateY(180deg)' : 'rotateY(0deg)' }}
+                 >
+                   {/* FRONT: Profile */}
+                   <div className="flex flex-col md:flex-row items-center md:items-start gap-12 w-full" style={{ backfaceVisibility: 'hidden' }}>
                   
                   {/* LEFT COLUMN: Avatar & Name */}
                   <div className="flex flex-col items-center gap-6 w-48 shrink-0">
@@ -163,7 +207,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                                     {user?.plan === 'pro' ? '∞' : (user?.credits || 0)} <span className="text-[10px] not-italic text-zinc-500 font-bold uppercase ml-1">{t.v_points || 'V-Points'}</span>
                                 </div>
                             </div>
-                            <div className="text-xs font-bold text-zinc-600 mb-1">LIMIT: {user?.plan === 'pro' ? '∞' : user?.plan === 'plus' ? 500 : 100} V</div>
+                            <div className="flex items-center gap-3">
+                              <div className="text-xs font-bold text-zinc-600 mb-1">LIMIT: {user?.plan === 'pro' ? '∞' : user?.plan === 'plus' ? 500 : 100} V</div>
+                              <button
+                                onClick={() => setShowBilling(true)}
+                                className="text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full border border-white/10 text-zinc-300 hover:text-white hover:border-white/20 transition"
+                              >
+                                {t.profile_billing_title || '账单明细'}
+                              </button>
+                            </div>
                         </div>
                         <div className="h-4 w-full bg-zinc-900 rounded-full border border-white/5 p-1 overflow-hidden">
                             <div className={`h-full rounded-full transition-all duration-1000 ease-out relative ${user?.plan === 'pro' ? 'bg-gradient-to-r from-purple-600 via-orange-500 to-yellow-400' : user?.plan === 'plus' ? 'bg-gradient-to-r from-blue-700 via-indigo-500 to-cyan-400' : 'bg-gradient-to-r from-zinc-700 via-zinc-500 to-emerald-500/50'}`} style={{ width: `${user?.plan === 'pro' ? 100 : Math.min(((user?.credits || 0) / (user?.plan === 'plus' ? 500 : 100)) * 100, 100)}%` }}>
@@ -172,6 +224,62 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                         </div>
                      </div>
                   </div>
+               </div>
+
+                   {/* BACK: Billing */}
+                   <div
+                     className="absolute inset-0 w-full h-full"
+                     style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
+                   >
+                     <div className="flex flex-col h-full">
+                       <div className="flex items-center justify-between mb-6">
+                         <div>
+                           <h3 className="text-2xl font-bold tracking-tight text-white">
+                             {t.profile_billing_title || '账单明细'}
+                           </h3>
+                           <p className="text-xs text-zinc-500">{t.profile_billing_recent || 'recent'}</p>
+                         </div>
+                         <button
+                           onClick={() => setShowBilling(false)}
+                           className="text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full border border-white/10 text-zinc-300 hover:text-white hover:border-white/20 transition"
+                         >
+                           {t.profile_back || '返回'}
+                         </button>
+                       </div>
+
+                       <div className="flex-1 bg-white/2 rounded-2xl p-6 border border-white/5 shadow-inner overflow-y-auto">
+                         {billingLoading && (
+                           <div className="text-xs text-zinc-500">Loading...</div>
+                         )}
+                         {!billingLoading && billingError && (
+                           <div className="text-xs text-red-400">{billingError}</div>
+                         )}
+                         {!billingLoading && !billingError && billingItems.length === 0 && (
+                           <div className="text-xs text-zinc-500">{t.profile_billing_empty || '暂无账单记录'}</div>
+                         )}
+                         {!billingLoading && !billingError && billingItems.length > 0 && (
+                           <div className="space-y-3">
+                             {billingItems.map((tx: any) => (
+                               <div key={tx.id} className="flex items-center justify-between text-sm border-b border-white/5 pb-3">
+                                 <div className="flex flex-col">
+                                   <span className="text-zinc-200 font-semibold">
+                                     {tx.description || tx.type_label || tx.type}
+                                   </span>
+                                   <span className="text-[11px] text-zinc-600">
+                                     {tx.created_at ? new Date(tx.created_at).toLocaleString() : ''}
+                                   </span>
+                                 </div>
+                                 <div className={`text-base font-black ${tx.amount > 0 ? 'text-emerald-400' : 'text-orange-400'}`}>
+                                   {tx.amount > 0 ? '+' : ''}{tx.amount}
+                                 </div>
+                               </div>
+                             ))}
+                           </div>
+                         )}
+                       </div>
+                     </div>
+                   </div>
+                 </div>
                </div>
                
                <hr className="mt-6 mb-6 border-white/5" />

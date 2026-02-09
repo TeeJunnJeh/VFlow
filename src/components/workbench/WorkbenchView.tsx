@@ -697,6 +697,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       console.log("📜 Generating Script with payload:", payload);
 
       const response = await videoApi.generateScript(user.id, payload);
+      if (response?.data?.balance !== undefined) {
+        updateUser({ credits: response.data.balance });
+      }
       
       console.log("✅ Script Generated:", response);
 
@@ -961,6 +964,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               };
 
               const genResp = await videoApi.generate(payload);
+              if (genResp?.data?.balance !== undefined) {
+                updateUser({ credits: genResp.data.balance });
+              }
               const taskId = genResp?.data?.task_id || genResp?.task_id;
               const projectId = genResp?.data?.project_id || newProjectId;
 
@@ -1073,6 +1079,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         console.log("🚀 Sending Generation Request:", payload);
 
         const genResp = await videoApi.generate(payload);
+        if (genResp?.data?.balance !== undefined) {
+          updateUser({ credits: genResp.data.balance });
+        }
         const taskId = genResp?.data?.task_id || genResp?.task_id;
         const projectId = genResp?.data?.project_id || newProjectId;
 

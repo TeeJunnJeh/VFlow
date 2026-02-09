@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Plus, ArrowRight, Trash2, Zap, Gem, Flame } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { templatesApi, type Template } from '../../services/templates';
@@ -60,7 +60,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
           <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.tpl_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.tpl_subtitle}</p></div>
           <div className="flex items-center gap-3"><LanguageSwitcher /><button onClick={onCreateTemplate} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20"><Plus className="w-4 h-4" /> {t.tpl_btn_new}</button></div>
        </header>
-       <div className="flex-1 overflow-y-auto p-10">
+       <div className="flex-1 overflow-y-auto p-10 custom-scroll">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
              {templateList.map(tpl => (
                 <div key={tpl.id} className={`glass-card rounded-2xl p-6 relative group overflow-hidden border-t-4 flex flex-col justify-between h-96 ${tpl.icon === 'gem' ? 'border-t-orange-500' : 'border-t-purple-500'}`}>

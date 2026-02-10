@@ -206,6 +206,7 @@ export const translations = {
     // --- HISTORY VIEW ---
     hist_title: "History",
     hist_subtitle: "Archive of generated projects",
+    hist_empty: "No history found.",
 
     // Editor Labels
     editor_label_category: "PRODUCT CATEGORY",
@@ -449,6 +450,7 @@ export const translations = {
 
     hist_title: "历史记录",
     hist_subtitle: "查看过往生成的视频项目",
+    hist_empty: "暂无历史记录",
 
     editor_label_category: "产品品类",
     editor_label_style: "视觉风格",
@@ -700,6 +702,7 @@ export const translations = {
     // History
     hist_title: "Sejarah",
     hist_subtitle: "Arkib projek yang dijana",
+    hist_empty: "Tiada sejarah ditemui.",
 
     editor_label_category: "KATEGORI PRODUK",
     editor_label_style: "GAYA VISUAL",
@@ -951,6 +954,7 @@ export const translations = {
     // History
     hist_title: "Lịch sử",
     hist_subtitle: "Lưu trữ các dự án đã tạo",
+    hist_empty: "Không tìm thấy lịch sử.",
 
     editor_label_category: "DANH MỤC SẢN PHẨM",
     editor_label_style: "PHONG CÁCH HÌNH ẢNH",
@@ -1205,6 +1209,7 @@ export const translations = {
     // History
     hist_title: "히스토리",
     hist_subtitle: "생성된 프로젝트 아카이브",
+    hist_empty: "히스토리가 없습니다.",
 
     editor_label_category: "제품 카테고리",
     editor_label_style: "비주얼 스타일",

@@ -221,7 +221,7 @@ export const HistoryView = () => {
           ) : projects.length === 0 ? (
             <div className="text-center py-20 text-zinc-500">
               <Video className="w-12 h-12 mx-auto mb-4 opacity-20" />
-              <p>No history found.</p>
+              <p>{t.hist_empty}</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">

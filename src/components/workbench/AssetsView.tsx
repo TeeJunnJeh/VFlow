@@ -763,11 +763,13 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                             <div className="absolute bottom-3 left-3"><p className="text-xs font-bold text-white truncate w-24">{asset.name}</p></div>
                           </div>
                           {!isSelectionMode && (
-                            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-2xl flex flex-col items-center justify-center gap-2">
-                              <button onClick={(e) => { e.stopPropagation(); onSelectAsset(asset); }} className="bg-white text-black px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition">{t.assets_use_in_workbench}</button>
-                              <button onClick={(e) => { e.stopPropagation(); setAssetPreview(asset); setIsAssetPreviewOpen(true); }} className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition flex items-center gap-2"><Eye className="w-3.5 h-3.5" /> {t.assets_view_image}</button>
-                              <button onClick={(e) => { e.stopPropagation(); openSingleMoveDialog(asset); }} className="bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition">{t.assets_move_asset}</button>
-                              <button onClick={(e) => { e.stopPropagation(); openConfirmModal({ title: t.assets_confirm_delete_asset, message: `${asset.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => deleteAssetById(asset.id) }); }} className="text-red-400 text-xs hover:text-red-300">{t.assets_delete}</button>
+                            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-2xl flex flex-col items-center justify-center gap-2 p-4">
+                              <button onClick={(e) => { e.stopPropagation(); onSelectAsset(asset); }} className="w-full bg-white text-black py-2 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition shadow-lg">{t.assets_use_in_workbench}</button>
+                              <button onClick={(e) => { e.stopPropagation(); setAssetPreview(asset); setIsAssetPreviewOpen(true); }} className="w-full bg-zinc-700 text-white py-2 rounded-lg text-xs font-bold hover:bg-zinc-600 transition flex items-center justify-center gap-2"><Eye className="w-3.5 h-3.5" /> {t.assets_view_image}</button>
+                              <div className="flex w-full gap-2">
+                                <button onClick={(e) => { e.stopPropagation(); openSingleMoveDialog(asset); }} className="flex-1 bg-zinc-700 text-white py-2 rounded-lg text-xs font-bold hover:bg-zinc-600 transition">{t.assets_move_asset}</button>
+                                <button onClick={(e) => { e.stopPropagation(); openConfirmModal({ title: t.assets_confirm_delete_asset, message: `${asset.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => deleteAssetById(asset.id) }); }} className="flex-1 bg-zinc-800 text-red-400 py-2 rounded-lg text-xs font-bold hover:bg-red-500 hover:text-white transition">{t.assets_delete}</button>
+                              </div>
                             </div>
                           )}
                         </div>

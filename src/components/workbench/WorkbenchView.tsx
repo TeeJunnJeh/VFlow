@@ -58,6 +58,7 @@ type WorkbenchSnapshot = {
   duration: number;
   sound: 'on' | 'off';
   script_count: number;
+  target_language: string;
   template_id: string | null;
   script_pages: ScriptPage[];
   active_page_index: number;
@@ -73,6 +74,16 @@ const RATIO_TO_RES: Record<string, string> = {
 };
 
 const ICON_EMOJI_MAP: Record<string, string> = { 'flame': '🔥', 'gem': '💎', 'zap': '⚡' };
+
+const TARGET_LANGUAGE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'en', label: 'English' },
+  { value: 'zh', label: '中文' },
+  { value: 'es', label: 'Español' },
+  { value: 'ja', label: '日本語' },
+  { value: 'ko', label: '한국어' },
+  { value: 'ms', label: 'Bahasa Melayu' },
+  { value: 'vi', label: 'Tiếng Việt' },
+];
 
 const toDisplayUrl = (path: string | null): string | null => {
   if (!path) return null;
@@ -102,7 +113,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   generatedVideoUrl,
   setGeneratedVideoUrl
 }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { user } = useAuth();
   const { tasks, addTask } = useTasks();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -140,6 +151,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [genDuration, setGenDuration] = useState<number>(selectedTemplate?.duration || 10);
   const [soundSetting, setSoundSetting] = useState<'on' | 'off'>('on');
   const [scriptVariantCount, setScriptVariantCount] = useState<number>(1);
+  const [targetLanguage, setTargetLanguage] = useState<string>('en');
   
   // Processing State
   const [isGenerating, setIsGenerating] = useState(false);
@@ -228,6 +240,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           if (typeof snap.duration === 'number') setGenDuration(snap.duration);
           if (snap.sound === 'on' || snap.sound === 'off') setSoundSetting(snap.sound);
           if (typeof snap.script_count === 'number') setScriptVariantCount(snap.script_count);
+          if (typeof snap.target_language === 'string') setTargetLanguage(snap.target_language);
 
           // Scripts
           if (Array.isArray(snap.script_pages) && snap.script_pages.length > 0) {
@@ -350,6 +363,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     duration: genDuration,
     sound: soundSetting,
     script_count: scriptVariantCount,
+    target_language: targetLanguage,
     template_id: (selectedTemplate?.id as string | undefined) || null,
     script_pages: normalizedScriptPages,
     active_page_index: activeScriptPage,
@@ -381,6 +395,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     genDuration,
     soundSetting,
     scriptVariantCount,
+    targetLanguage,
     selectedTemplate?.id,
     scripts,
     scriptPages,
@@ -678,6 +693,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         visual_style: style,
         aspect_ratio: resolution,
         script_count: scriptVariantCount,
+
+        // Tell backend which language to use for script generation (UI language)
+        user_language: language,
+        // Persist target audience language in payload for future backend extensions
+        target_language: targetLanguage,
         
         script_content: {
             duration: duration,
@@ -958,6 +978,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 image_path: (asset as any).apiPath,
                 sound: soundSetting,
                 asset_source: asset.source,
+                user_language: language,
+                target_language: targetLanguage,
               };
 
               const genResp = await videoApi.generate(payload);
@@ -1067,7 +1089,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           duration: genDuration,
           image_path: apiPath, 
           sound: soundSetting,
-          asset_source: selectedAssetSource
+          asset_source: selectedAssetSource,
+          user_language: language,
+          target_language: targetLanguage,
         };
 
         console.log("🚀 Sending Generation Request:", payload);
@@ -1389,6 +1413,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 <input type="number" min={1} max={10} value={scriptVariantCount} onChange={(e) => setScriptVariantCount(Number(e.target.value))} className="w-16 bg-transparent text-xs text-zinc-200 focus:outline-none text-center" />
                 <span className="text-[10px] text-zinc-500">{t.wb_script_count_unit}</span>
               </div>
+           </div>
+
+           <div>
+             <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">Target Audience Language</label>
+             <div className="relative">
+               <select
+                 className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition appearance-none cursor-pointer hover:bg-white/5"
+                 value={targetLanguage}
+                 onChange={(e) => setTargetLanguage(e.target.value)}
+               >
+                 {TARGET_LANGUAGE_OPTIONS.map((opt) => (
+                   <option key={opt.value} value={opt.value}>
+                     {opt.label}
+                   </option>
+                 ))}
+               </select>
+               <ChevronDown className="w-3 h-3 text-zinc-500 absolute right-3 top-2.5 pointer-events-none" />
+             </div>
            </div>
            
             <button onClick={handleGenerateScripts} disabled={isGeneratingScript || !hasCurrentAsset} className={`w-full py-3 rounded-xl font-bold text-xs transition shadow-lg shadow-white/5 mt-2 flex items-center justify-center gap-2 group ${isGeneratingScript || !hasCurrentAsset ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed' : 'bg-white text-black hover:bg-orange-500 hover:text-white'}`}>

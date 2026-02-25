@@ -580,7 +580,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
           </div>
        </header>
 
-       <div className="flex-1 flex flex-col p-10 overflow-hidden">
+       <div className="flex-1 flex flex-col px-10 pt-4 pb-10 overflow-hidden">
           {/* Tabs */}
           <div className="flex gap-4 mb-8 border-b border-white/5 pb-2">
              {(['model', 'product', 'scene'] as AssetType[]).map(type => (
@@ -599,103 +599,101 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
              ))}
           </div>
           
-          {/* Breadcrumb */}
-           <div className="flex items-center gap-2 text-xs text-zinc-500 mb-4">
-              <button
-                onClick={() => setCurrentFolderId(null)}
-                onDragOver={dragOverRoot}
-                onDragEnter={dragOverRoot}
-               onDragLeave={() => setIsDragOverRoot(false)}
-               onDrop={(e) => dropMoveTo(null, e)}
-               className={`hover:text-white ${currentFolderId === null ? 'text-white' : ''} ${draggingAsset && isDragOverRoot ? 'text-white' : ''}`}
-             >
-               {t.assets_root}
-             </button>
-              {folderBreadcrumb.map(folder => (
-                 <div key={folder.id} className="flex items-center gap-2">
-                   <span>/</span>
-                   <button
-                     onClick={() => setCurrentFolderId(folder.id)}
-                    onDragOver={(e) => dragOverFolder(folder.id, e)}
-                    onDragEnter={(e) => dragOverFolder(folder.id, e)}
-                    onDragLeave={() => { if (dragOverFolderId === folder.id) setDragOverFolderId(null); }}
-                    onDrop={(e) => dropMoveTo(folder.id, e)}
-                    className={`hover:text-white ${currentFolderId === folder.id ? 'text-white' : ''} ${draggingAsset && dragOverFolderId === folder.id ? 'text-white underline decoration-orange-500/80' : ''}`}
-                  >
-                    {folder.name}
-                  </button>
-                 </div>
-              ))}
-           </div>
+           {/* Breadcrumb */}
+            <div className="flex items-center justify-between gap-4 mb-4">
+              <div className="flex items-center gap-2 text-xs text-zinc-500 min-w-0">
+                <button
+                  onClick={() => setCurrentFolderId(null)}
+                  onDragOver={dragOverRoot}
+                  onDragEnter={dragOverRoot}
+                  onDragLeave={() => setIsDragOverRoot(false)}
+                  onDrop={(e) => dropMoveTo(null, e)}
+                  className={`hover:text-white ${currentFolderId === null ? 'text-white' : ''} ${draggingAsset && isDragOverRoot ? 'text-white' : ''}`}
+                >
+                  {t.assets_root}
+                </button>
+                {folderBreadcrumb.map(folder => (
+                  <div key={folder.id} className="flex items-center gap-2 min-w-0">
+                    <span>/</span>
+                    <button
+                      onClick={() => setCurrentFolderId(folder.id)}
+                      onDragOver={(e) => dragOverFolder(folder.id, e)}
+                      onDragEnter={(e) => dragOverFolder(folder.id, e)}
+                      onDragLeave={() => { if (dragOverFolderId === folder.id) setDragOverFolderId(null); }}
+                      onDrop={(e) => dropMoveTo(folder.id, e)}
+                      className={`hover:text-white truncate ${currentFolderId === folder.id ? 'text-white' : ''} ${draggingAsset && dragOverFolderId === folder.id ? 'text-white underline decoration-orange-500/80' : ''}`}
+                    >
+                      {folder.name}
+                    </button>
+                  </div>
+                ))}
+              </div>
 
-           {/* Selection Toolbar */}
-           <div className="flex items-center justify-between mb-4">
-             <div className="text-[11px] text-zinc-500">
-               {isSelectionMode ? (
-                 <span>
-                   {selectedCount} {t.assets_selected}
-                 </span>
-               ) : (
-                 <span />
-               )}
-             </div>
-             <div className="flex items-center gap-2">
-               {!isSelectionMode ? (
-                 <button
-                   onClick={() => setIsSelectionMode(true)}
-                   className="bg-zinc-800 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-zinc-700 transition flex items-center gap-2"
-                 >
-                   <CheckCircle className="w-4 h-4" /> {t.assets_select}
-                 </button>
-                ) : (
-                  <>
-                    <button
-                      onClick={isAllVisibleSelected ? deselectAllVisibleAssets : selectAllVisibleAssets}
-                      disabled={visibleAssets.length === 0}
-                      className="bg-zinc-900 text-zinc-200 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-zinc-800 transition disabled:opacity-50"
-                    >
-                      {isAllVisibleSelected ? t.assets_deselect_all : t.assets_select_all}
-                    </button>
-                    <button
-                      onClick={openBatchMoveDialog}
-                      disabled={selectedCount === 0}
-                     className="bg-orange-600 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-orange-500 transition disabled:opacity-50"
-                   >
-                     {t.assets_move_asset}
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (selectedCount === 0) return;
-                        openConfirmModal({
-                          title: t.assets_confirm_delete_asset,
-                          message: `${selectedCount} ${t.assets_items}\n\n${t.assets_confirm_body_irreversible}`,
-                          danger: true,
-                          onConfirm: async () => {
-                            const ids = Array.from(selectedAssetIds);
-                            const results = await Promise.allSettled(ids.map(id => assetsApi.deleteAsset(id)));
-                            const failed = results.filter(r => r.status === 'rejected');
-                            if (failed.length > 0) alert("Failed to delete some assets");
-                            await loadData();
-                            setSelectedAssetIds(new Set());
-                            setIsSelectionMode(false);
-                          }
-                        });
-                      }}
-                      disabled={selectedCount === 0}
-                      className="bg-red-600 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-red-500 transition disabled:opacity-50"
-                    >
-                      {t.assets_delete}
-                    </button>
-                    <button
-                      onClick={exitSelectionMode}
-                      className="bg-zinc-800 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-zinc-700 transition"
-                   >
-                     {t.assets_done}
-                   </button>
-                 </>
-               )}
-             </div>
-           </div>
+              {!isSelectionMode && (
+                <button
+                  onClick={() => setIsSelectionMode(true)}
+                  className="bg-zinc-800 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-zinc-700 transition flex items-center gap-2 shrink-0"
+                >
+                  <CheckCircle className="w-4 h-4" /> {t.assets_select}
+                </button>
+              )}
+            </div>
+
+            {/* Selection Toolbar */}
+            {isSelectionMode && (
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-[11px] text-zinc-500">
+                  <span>
+                    {selectedCount} {t.assets_selected}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={isAllVisibleSelected ? deselectAllVisibleAssets : selectAllVisibleAssets}
+                    disabled={visibleAssets.length === 0}
+                    className="bg-zinc-900 text-zinc-200 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-zinc-800 transition disabled:opacity-50"
+                  >
+                    {isAllVisibleSelected ? t.assets_deselect_all : t.assets_select_all}
+                  </button>
+                  <button
+                    onClick={openBatchMoveDialog}
+                    disabled={selectedCount === 0}
+                    className="bg-orange-600 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-orange-500 transition disabled:opacity-50"
+                  >
+                    {t.assets_move_asset}
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (selectedCount === 0) return;
+                      openConfirmModal({
+                        title: t.assets_confirm_delete_asset,
+                        message: `${selectedCount} ${t.assets_items}\n\n${t.assets_confirm_body_irreversible}`,
+                        danger: true,
+                        onConfirm: async () => {
+                          const ids = Array.from(selectedAssetIds);
+                          const results = await Promise.allSettled(ids.map(id => assetsApi.deleteAsset(id)));
+                          const failed = results.filter(r => r.status === 'rejected');
+                          if (failed.length > 0) alert("Failed to delete some assets");
+                          await loadData();
+                          setSelectedAssetIds(new Set());
+                          setIsSelectionMode(false);
+                        }
+                      });
+                    }}
+                    disabled={selectedCount === 0}
+                    className="bg-red-600 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-red-500 transition disabled:opacity-50"
+                  >
+                    {t.assets_delete}
+                  </button>
+                  <button
+                    onClick={exitSelectionMode}
+                    className="bg-zinc-800 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-zinc-700 transition"
+                  >
+                    {t.assets_done}
+                  </button>
+                </div>
+              </div>
+            )}
 
            <div className="flex-1 overflow-y-auto custom-scroll">
              {isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-zinc-500" /></div> : (

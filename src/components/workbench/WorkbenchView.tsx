@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
-  UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal, ChevronDown, 
+  UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal, 
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send
 } from 'lucide-react';
@@ -11,6 +11,7 @@ import { videoApi } from '../../services/video';
 import { assetsApi } from '../../services/assets';
 import { tiktokApi } from '../../services/tiktok';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
+import { DropdownSelect } from '../common/DropdownSelect';
 import { type Template } from '../../services/templates';
 
 
@@ -1363,17 +1364,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
            <div>
               <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_template_label}</label>
               <div className="relative">
-	                <select 
-	                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-orange-500 font-bold focus:outline-none focus:border-orange-500 transition appearance-none cursor-pointer hover:bg-white/5"
-	                    value={selectedTemplate?.id || ""}
-	                    onChange={(e) => onSelectTemplate(templateList.find(t => t.id === e.target.value) || null)}
-	                >
-	                  {templateList.length === 0 && <option value="">{t.wb_config_custom}</option>}
-	                  {templateList.map(tpl => (
-	                      <option key={tpl.id} value={tpl.id}>{ICON_EMOJI_MAP[tpl.icon] || '🔥'} {tpl.name}</option>
-	                  ))}
-	                </select>
-                <ChevronDown className="w-3 h-3 text-zinc-500 absolute right-3 top-2.5 pointer-events-none" />
+	                <DropdownSelect
+	                  value={selectedTemplate?.id || ''}
+	                  options={
+	                    templateList.length === 0
+	                      ? [{ value: '', label: t.wb_config_custom }]
+	                      : templateList.flatMap((tpl) =>
+	                          tpl.id
+	                            ? [
+	                                {
+	                                  value: tpl.id,
+	                                  label: `${ICON_EMOJI_MAP[tpl.icon] || '🔥'} ${tpl.name}`
+	                                }
+	                              ]
+	                            : []
+	                        )
+	                  }
+	                  onChange={(id) => onSelectTemplate(templateList.find((t) => t.id === id) || null)}
+	                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-orange-500 font-bold focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+	                  labelClassName=""
+	                  iconClassName="w-3 h-3 text-zinc-500"
+	                  optionClassName="text-xs"
+	                />
               </div>
            </div>
 
@@ -1415,23 +1427,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
            </div>
 
-           <div>
-             <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">Target Audience Language</label>
-             <div className="relative">
-               <select
-                 className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition appearance-none cursor-pointer hover:bg-white/5"
-                 value={targetLanguage}
-                 onChange={(e) => setTargetLanguage(e.target.value)}
-               >
-                 {TARGET_LANGUAGE_OPTIONS.map((opt) => (
-                   <option key={opt.value} value={opt.value}>
-                     {opt.label}
-                   </option>
-                 ))}
-               </select>
-               <ChevronDown className="w-3 h-3 text-zinc-500 absolute right-3 top-2.5 pointer-events-none" />
-             </div>
-           </div>
+            <div>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">Target Audience Language</label>
+              <DropdownSelect
+                value={targetLanguage}
+                options={TARGET_LANGUAGE_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+                onChange={setTargetLanguage}
+                buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                labelClassName=""
+                iconClassName="w-3 h-3 text-zinc-500"
+                optionClassName="text-xs"
+              />
+            </div>
            
             <button onClick={handleGenerateScripts} disabled={isGeneratingScript || !hasCurrentAsset} className={`w-full py-3 rounded-xl font-bold text-xs transition shadow-lg shadow-white/5 mt-2 flex items-center justify-center gap-2 group ${isGeneratingScript || !hasCurrentAsset ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed' : 'bg-white text-black hover:bg-orange-500 hover:text-white'}`}>
               {isGeneratingScript ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />} 

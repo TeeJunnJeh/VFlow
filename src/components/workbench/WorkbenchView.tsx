@@ -76,14 +76,23 @@ const RATIO_TO_RES: Record<string, string> = {
 
 const ICON_EMOJI_MAP: Record<string, string> = { 'flame': '🔥', 'gem': '💎', 'zap': '⚡' };
 
-const TARGET_LANGUAGE_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'en', label: 'English' },
-  { value: 'zh', label: '中文' },
-  { value: 'es', label: 'Español' },
-  { value: 'ja', label: '日本語' },
-  { value: 'ko', label: '한국어' },
-  { value: 'ms', label: 'Bahasa Melayu' },
-  { value: 'vi', label: 'Tiếng Việt' },
+type LangLabelKey =
+  | 'lang_en'
+  | 'lang_zh'
+  | 'lang_es'
+  | 'lang_ja'
+  | 'lang_ko'
+  | 'lang_ms'
+  | 'lang_vi';
+
+const TARGET_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: LangLabelKey }> = [
+  { value: 'en', labelKey: 'lang_en' },
+  { value: 'zh', labelKey: 'lang_zh' },
+  { value: 'es', labelKey: 'lang_es' },
+  { value: 'ja', labelKey: 'lang_ja' },
+  { value: 'ko', labelKey: 'lang_ko' },
+  { value: 'ms', labelKey: 'lang_ms' },
+  { value: 'vi', labelKey: 'lang_vi' },
 ];
 
 const toDisplayUrl = (path: string | null): string | null => {
@@ -1428,10 +1437,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
            </div>
 
             <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">Target Audience Language</label>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_target_audience_language}</label>
               <DropdownSelect
                 value={targetLanguage}
-                options={TARGET_LANGUAGE_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+                options={TARGET_LANGUAGE_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
                 onChange={setTargetLanguage}
                 buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
                 labelClassName=""

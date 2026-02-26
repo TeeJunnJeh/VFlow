@@ -118,6 +118,15 @@ export const translations = {
     wb_config_audio_on: "On",
     wb_config_audio_off: "Off",
     wb_btn_gen_scripts: "Generate Scripts",
+    wb_target_audience_language: "Target Audience Language",
+
+    lang_en: "English",
+    lang_zh: "Chinese",
+    lang_es: "Spanish",
+    lang_ja: "Japanese",
+    lang_ko: "Korean",
+    lang_ms: "Malay",
+    lang_vi: "Vietnamese",
 
     // Middle Col
     wb_col_scripts: "Scripts",
@@ -368,6 +377,15 @@ export const translations = {
     wb_config_audio_on: "开启",
     wb_config_audio_off: "关闭",
     wb_btn_gen_scripts: "生成分镜脚本",
+    wb_target_audience_language: "目标受众语言",
+
+    lang_en: "英语",
+    lang_zh: "中文",
+    lang_es: "西班牙语",
+    lang_ja: "日语",
+    lang_ko: "韩语",
+    lang_ms: "马来语",
+    lang_vi: "越南语",
 
     wb_col_scripts: "分镜脚本",
     wb_btn_gen_video: "生成视频",
@@ -617,6 +635,15 @@ export const translations = {
     wb_config_audio_on: "On",
     wb_config_audio_off: "Off",
     wb_btn_gen_scripts: "Jana Skrip",
+    wb_target_audience_language: "Bahasa Sasaran Audiens",
+
+    lang_en: "Inggeris",
+    lang_zh: "Cina",
+    lang_es: "Sepanyol",
+    lang_ja: "Jepun",
+    lang_ko: "Korea",
+    lang_ms: "Melayu",
+    lang_vi: "Vietnam",
 
     wb_col_scripts: "Skrip",
     wb_btn_gen_video: "Jana Video",
@@ -869,6 +896,15 @@ export const translations = {
     wb_config_audio_on: "Bật",
     wb_config_audio_off: "Tắt",
     wb_btn_gen_scripts: "Tạo kịch bản",
+    wb_target_audience_language: "Ngôn ngữ đối tượng mục tiêu",
+
+    lang_en: "Tiếng Anh",
+    lang_zh: "Tiếng Trung",
+    lang_es: "Tiếng Tây Ban Nha",
+    lang_ja: "Tiếng Nhật",
+    lang_ko: "Tiếng Hàn",
+    lang_ms: "Tiếng Mã Lai",
+    lang_vi: "Tiếng Việt",
 
     wb_col_scripts: "Kịch bản",
     wb_btn_gen_video: "Tạo Video",
@@ -1131,6 +1167,15 @@ export const translations = {
     wb_config_audio_on: "켜짐",
     wb_config_audio_off: "꺼짐",
     wb_btn_gen_scripts: "스크립트 생성",
+    wb_target_audience_language: "타겟 언어",
+
+    lang_en: "영어",
+    lang_zh: "중국어",
+    lang_es: "스페인어",
+    lang_ja: "일본어",
+    lang_ko: "한국어",
+    lang_ms: "말레이어",
+    lang_vi: "베트남어",
 
     wb_col_scripts: "스크립트",
     wb_btn_gen_video: "비디오 생성",

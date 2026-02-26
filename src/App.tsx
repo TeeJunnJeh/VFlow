@@ -8,6 +8,8 @@ import { LanguageProvider } from './context/LanguageContext';
 import LoginPage from './pages/Login';
 import LandingPage from './pages/Landing';
 import Workbench from './pages/Workbench';
+import TermsOfServicePage from './pages/TermsOfService';
+import PrivacyPolicyPage from './pages/PrivacyPolicy';
 
 /**
  * [新增] 访客路由封装 (GuestRoute)
@@ -166,15 +168,24 @@ const AnimatedRoutes = () => {
 
 function App() {
     return (
-        <AuthProvider>
-            <TaskProvider>
-                <LanguageProvider>
-                    <BrowserRouter>
-                        <AnimatedRoutes />
-                    </BrowserRouter>
-                </LanguageProvider>
-            </TaskProvider>
-        </AuthProvider>
+        <LanguageProvider>
+            <BrowserRouter>
+                <Routes>
+                    <Route path="/terms-of-service" element={<TermsOfServicePage />} />
+                    <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+                    <Route
+                        path="/*"
+                        element={
+                            <AuthProvider>
+                                <TaskProvider>
+                                    <AnimatedRoutes />
+                                </TaskProvider>
+                            </AuthProvider>
+                        }
+                    />
+                </Routes>
+            </BrowserRouter>
+        </LanguageProvider>
     );
 }
 

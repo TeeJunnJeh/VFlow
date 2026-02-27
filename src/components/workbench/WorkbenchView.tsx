@@ -1484,18 +1484,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                  <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
                   <button 
                     onClick={handleDownloadScripts} 
-                    className="p-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition" 
-                    title="Export Scripts (JSON)"
+                    className="flex items-center gap-1.5 px-2 py-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition" 
+                    title={t.wb_export_scripts}
                   >
                     <FileDown className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-medium">{t.wb_export_scripts}</span>
                   </button>
                   
                   <button 
                     onClick={() => scriptFileInputRef.current?.click()} 
-                    className="p-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition" 
-                    title="Import Scripts (JSON)"
+                    className="flex items-center gap-1.5 px-2 py-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition" 
+                    title={t.wb_import_scripts}
                   >
                     <FileUp className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-medium">{t.wb_import_scripts}</span>
                   </button>
                   
                   <input 

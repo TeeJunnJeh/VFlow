@@ -130,6 +130,8 @@ export const translations = {
 
     // Middle Col
     wb_col_scripts: "Scripts",
+    wb_export_scripts: "Export",
+    wb_import_scripts: "Import",
     wb_btn_gen_video: "Generate Video",
     wb_shot: "Shot",
     wb_visual: "Visual",
@@ -388,6 +390,8 @@ export const translations = {
     lang_vi: "越南语",
 
     wb_col_scripts: "分镜脚本",
+    wb_export_scripts: "导出",
+    wb_import_scripts: "导入",
     wb_btn_gen_video: "生成视频",
     wb_shot: "镜头",
     wb_visual: "画面描述",
@@ -646,6 +650,8 @@ export const translations = {
     lang_vi: "Vietnam",
 
     wb_col_scripts: "Skrip",
+    wb_export_scripts: "Eksport",
+    wb_import_scripts: "Import",
     wb_btn_gen_video: "Jana Video",
     wb_shot: "Syot",
     wb_visual: "Visual",
@@ -907,6 +913,8 @@ export const translations = {
     lang_vi: "Tiếng Việt",
 
     wb_col_scripts: "Kịch bản",
+    wb_export_scripts: "Xuất",
+    wb_import_scripts: "Nhập",
     wb_btn_gen_video: "Tạo Video",
     wb_shot: "Cảnh",
     wb_visual: "Hình ảnh",
@@ -1178,6 +1186,8 @@ export const translations = {
     lang_vi: "베트남어",
 
     wb_col_scripts: "스크립트",
+    wb_export_scripts: "내보내기",
+    wb_import_scripts: "가져오기",
     wb_btn_gen_video: "비디오 생성",
     wb_shot: "샷",
     wb_visual: "시각적 설명",

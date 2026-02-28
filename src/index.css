@@ -32,6 +32,25 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+/* --- Asset card helpers (theme-aware) --- */
+.asset-thumb-fade {
+  background: linear-gradient(
+    to bottom,
+    rgba(39, 39, 42, 0) 0%,
+    rgba(39, 39, 42, 0.25) 45%,
+    rgba(39, 39, 42, 0.75) 78%,
+    rgba(39, 39, 42, 1) 100%
+  );
+}
+.asset-meta-name {
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+}
+.asset-meta-size {
+  color: rgba(255, 255, 255, 0.75);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+}
+
 /* Custom Scrollbars */
 .custom-scroll::-webkit-scrollbar { width: 4px; }
 .custom-scroll::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); }
@@ -117,6 +136,23 @@ body {
 .theme-light .glass-card {
   background: rgba(0,0,0,0.03);
   border-color: rgba(15,23,42,0.06);
+}
+.theme-light .asset-thumb-fade {
+  background: linear-gradient(
+    to bottom,
+    rgba(241, 245, 249, 0) 0%,
+    rgba(241, 245, 249, 0.3) 45%,
+    rgba(241, 245, 249, 0.8) 78%,
+    rgba(241, 245, 249, 1) 100%
+  );
+}
+.theme-light .asset-meta-name {
+  color: #0f172a;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.9);
+}
+.theme-light .asset-meta-size {
+  color: #475569;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.9);
 }
 .theme-light .text-zinc-400 { color: #475569; }
 .theme-light .text-zinc-300 { color: #64748b; }

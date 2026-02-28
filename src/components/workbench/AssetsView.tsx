@@ -767,12 +767,12 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                             ) : (
                               <div className="absolute inset-0 flex items-center justify-center text-zinc-600">No Preview</div>
                             )}
-                            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-b from-transparent via-zinc-800/20 to-zinc-800/65" />
+                            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 asset-thumb-fade" />
                             <div className="absolute bottom-1 left-2.5 right-2.5">
-                              <div className="text-xs font-bold text-white truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.85)]" title={asset.name}>
+                              <div className="text-xs font-bold truncate asset-meta-name" title={asset.name}>
                                 {asset.name}
                               </div>
-                              <div className="text-[11px] text-white/80 drop-shadow-[0_1px_2px_rgba(0,0,0,0.85)]">
+                              <div className="text-[11px] asset-meta-size">
                                 {asset.size}
                               </div>
                             </div>

@@ -732,7 +732,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       return (
                         <div
                           key={asset.id}
-                          className={`glass-card rounded-2xl p-2 group relative ${draggingAsset?.id === asset.id ? 'opacity-60' : ''} ${isSelectionMode && isSelected ? 'ring-2 ring-orange-500/70' : ''}`}
+                          className={`glass-card rounded-2xl p-2 group relative aspect-[3/4] ${draggingAsset?.id === asset.id ? 'opacity-60' : ''} ${isSelectionMode && isSelected ? 'ring-2 ring-orange-500/70' : ''}`}
                           draggable={!isSelectionMode}
                           onDragStart={isSelectionMode ? undefined : (e) => beginDragAsset(asset, e)}
                           onDragEnd={isSelectionMode ? undefined : endDragAsset}
@@ -747,7 +747,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                             </button>
                           )}
                           <div
-                            className={`aspect-[3/4] bg-zinc-800 rounded-xl overflow-hidden relative ${isSelectionMode ? 'cursor-pointer' : 'cursor-zoom-in'}`}
+                            className={`w-full h-full bg-zinc-800 rounded-xl overflow-hidden relative ${isSelectionMode ? 'cursor-pointer' : 'cursor-zoom-in'}`}
                             onClick={() => {
                               if (isSelectionMode) {
                                 toggleAssetSelection(asset.id);
@@ -757,8 +757,25 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                               setIsAssetPreviewOpen(true);
                             }}
                           >
-                            {asset.file_url ? <img src={getDisplayUrl(asset.file_url) || ASSET_PLACEHOLDER_DATA_URL} className="w-full h-full object-cover" alt={asset.name} onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }} /> : <div className="absolute inset-0 flex items-center justify-center text-zinc-600">No Preview</div>}
-                            <div className="absolute bottom-3 left-3"><p className="text-xs font-bold text-white truncate w-24">{asset.name}</p></div>
+                            {asset.file_url ? (
+                              <img
+                                src={getDisplayUrl(asset.file_url) || ASSET_PLACEHOLDER_DATA_URL}
+                                className="absolute inset-0 w-full h-full object-cover"
+                                alt={asset.name}
+                                onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }}
+                              />
+                            ) : (
+                              <div className="absolute inset-0 flex items-center justify-center text-zinc-600">No Preview</div>
+                            )}
+                            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-b from-transparent via-zinc-800/20 to-zinc-800/65" />
+                            <div className="absolute bottom-1 left-2.5 right-2.5">
+                              <div className="text-xs font-bold text-white truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.85)]" title={asset.name}>
+                                {asset.name}
+                              </div>
+                              <div className="text-[11px] text-white/80 drop-shadow-[0_1px_2px_rgba(0,0,0,0.85)]">
+                                {asset.size}
+                              </div>
+                            </div>
                           </div>
                           {!isSelectionMode && (
                             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-2xl flex flex-col items-center justify-center gap-2 p-4">

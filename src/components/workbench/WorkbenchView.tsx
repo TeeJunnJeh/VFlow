@@ -2,11 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal, 
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
-  MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send
+  MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { useTasks } from '../../context/TaskContext';
+import { useWorkbenchModel } from '../../context/WorkbenchModelContext';
 import { videoApi } from '../../services/video';
 import { assetsApi } from '../../services/assets';
 import { tiktokApi } from '../../services/tiktok';
@@ -126,6 +127,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const { t, language } = useLanguage();
   const { user } = useAuth();
   const { tasks, addTask } = useTasks();
+  const { model: selectedModel, setModel: setSelectedModel } = useWorkbenchModel();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scriptFileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -1247,8 +1249,84 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   // --- Render Sections ---
   
-  const renderLeftColumn = () => (
+  const isSora2Like = selectedModel === 'sora2' || selectedModel === 'kling';
+
+  const renderLeftColumn = () => {
+    const segmentBase =
+      'group/seg relative flex-1 py-2.5 rounded-lg text-[11px] tracking-tight font-bold transition select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60';
+    const activeSegment = 'bg-gradient-to-r from-purple-600 to-orange-500 text-white shadow-lg shadow-orange-500/15';
+    const inactiveSegment = 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5';
+
+    const tooltipBase =
+      'pointer-events-none absolute top-full mt-2 w-[260px] rounded-2xl border border-white/10 bg-zinc-950/90 p-4 text-left opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition group-hover/seg:opacity-100 group-focus-visible/seg:opacity-100 z-[200]';
+
+    const tooltipAlignClass = (align: 'left' | 'center' | 'right') => {
+      if (align === 'left') return 'left-0 translate-x-0';
+      if (align === 'right') return 'right-0 left-auto translate-x-0';
+      return 'left-1/2 -translate-x-1/2';
+    };
+
+    const tooltip = (desc: string, align: 'left' | 'center' | 'right' = 'center') => (
+      <div className={`${tooltipBase} ${tooltipAlignClass(align)}`}>
+        <div className="text-xs font-bold text-white/90">{t.wb_model_tooltip_title}</div>
+        <div className="mt-2 text-[11px] leading-relaxed text-zinc-200/80">{desc}</div>
+      </div>
+    );
+
+    const modelSelector = (
+      <div className="flex flex-col gap-3">
+        <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+          <Cpu className="w-3 h-3" /> {t.wb_model_title}
+        </h2>
+        <div className="glass-panel rounded-xl p-1 border border-white/10 bg-black/20 relative z-[90]">
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              aria-pressed={selectedModel === 'kling'}
+              onClick={() => setSelectedModel('kling')}
+              className={`${segmentBase} ${language === 'zh' ? 'text-[11px]' : ''} ${selectedModel === 'kling' ? activeSegment : inactiveSegment}`}
+            >
+              {language === 'zh' ? '可灵2.5Turbo' : 'Kling2.5Turbo'}
+              {tooltip(t.wb_model_tip_sora_kling, 'left')}
+            </button>
+            <button
+              type="button"
+              aria-pressed={selectedModel === 'sora2'}
+              onClick={() => setSelectedModel('sora2')}
+              className={`${segmentBase} ${selectedModel === 'sora2' ? activeSegment : inactiveSegment}`}
+            >
+              Sora 2
+              {tooltip(t.wb_model_tip_sora_kling, 'center')}
+            </button>
+            <button
+              type="button"
+              aria-pressed={selectedModel === 'seedance2.0'}
+              onClick={() => setSelectedModel('seedance2.0')}
+              className={`${segmentBase} ${selectedModel === 'seedance2.0' ? activeSegment : inactiveSegment}`}
+            >
+              Seedance 2.0
+              {tooltip(t.wb_model_tip_seedance, 'right')}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+
+    if (!isSora2Like) {
+      return (
+        <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto custom-scroll pr-1">
+          {modelSelector}
+          <div className="glass-panel rounded-xl p-4 border border-white/10 bg-black/20">
+            <div className="text-xs font-bold text-zinc-300">{t.wb_model_seedance_soon_title}</div>
+            <div className="mt-1 text-[10px] text-zinc-500 leading-relaxed">{t.wb_model_seedance_soon_desc}</div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
     <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto custom-scroll pr-1">
+      {modelSelector}
       {/* Upload Section */}
       <div className="flex flex-col gap-3">
         <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
@@ -1457,6 +1535,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       </div>
     </div>
   );
+  };
 
   return (
     <div className="flex flex-col h-full z-10 animate-in fade-in zoom-in-95 duration-300">
@@ -1474,7 +1553,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       <div className="flex-1 flex overflow-hidden p-6 gap-6">
         {renderLeftColumn()}
         
-        {/* Middle Column: Scripts */}
+        {isSora2Like ? (
         <div className="flex-auto flex flex-col gap-3 h-full min-w-[300px]">
            <div className="flex justify-between items-center shrink-0 h-[32px]">
               <div className="flex items-center gap-3">
@@ -1569,6 +1648,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
            </div>
         </div>
+        ) : (
+          <div className="flex-auto flex flex-col gap-3 h-full min-w-[300px]">
+            <div className="h-full flex flex-col items-center justify-center text-zinc-500 border-2 border-dashed border-zinc-800 rounded-2xl bg-black/20">
+              <Clapperboard className="w-10 h-10 mb-3 opacity-40" />
+              <div className="text-xs font-bold text-zinc-300">{t.wb_model_seedance_soon_title}</div>
+              <div className="mt-1 text-[10px] text-zinc-500 text-center px-6 leading-relaxed">
+                {t.wb_model_seedance_soon_desc}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Right Column: Preview & Results */}
         <div className="w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full">

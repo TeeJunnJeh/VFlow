@@ -12,6 +12,7 @@ import { ProfileView } from '../components/workbench/ProfileView';
 import { Sidebar } from '../components/workbench/Sidebar'; // Remove ViewType from here
 import type { ViewType } from '../components/workbench/types'; // Import ViewType from the new file
 import { useLocation } from 'react-router-dom';
+import { WorkbenchModelProvider } from '../context/WorkbenchModelContext';
 
 // Helper to get display URL for asset passing
 const getDisplayUrl = (path: string | null): string | null => {
@@ -161,7 +162,8 @@ const Workbench = () => {
   }, [activeView, selectedAssetForWorkbench]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#050505] text-zinc-100 font-sans">
+    <WorkbenchModelProvider>
+      <div className="flex h-screen overflow-hidden bg-[#050505] text-zinc-100 font-sans">
       
       {/* 1. Sidebar */}
       <Sidebar activeView={activeView} setActiveView={setActiveView} />
@@ -216,7 +218,8 @@ const Workbench = () => {
         {/* 3. Floating Widget */}
         <TaskQueueWidget onPreview={handleTaskPreview} />
       </main>
-    </div>
+      </div>
+    </WorkbenchModelProvider>
   );
 };
 

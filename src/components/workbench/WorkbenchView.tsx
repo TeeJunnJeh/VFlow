@@ -1258,7 +1258,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const inactiveSegment = 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5';
 
     const tooltipBase =
-      'pointer-events-none absolute top-full mt-2 w-[260px] rounded-2xl border border-white/10 bg-zinc-950/90 p-4 text-left opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition group-hover/seg:opacity-100 group-focus-visible/seg:opacity-100 z-[200]';
+      'pointer-events-none absolute top-full mt-2 w-[250px] rounded-2xl border border-white/25 bg-zinc-950/90 p-3 text-left opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition group-hover/seg:opacity-100 group-focus-visible/seg:opacity-100 z-[200]';
 
     const tooltipAlignClass = (align: 'left' | 'center' | 'right') => {
       if (align === 'left') return 'left-0 translate-x-0';
@@ -1268,8 +1268,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const tooltip = (desc: string, align: 'left' | 'center' | 'right' = 'center') => (
       <div className={`${tooltipBase} ${tooltipAlignClass(align)}`}>
-        <div className="text-xs font-bold text-white/90">{t.wb_model_tooltip_title}</div>
-        <div className="mt-2 text-[11px] leading-relaxed text-zinc-200/80">{desc}</div>
+        <div className="text-[11px] font-bold text-white/90">{t.wb_model_tooltip_title}</div>
+        <div className="mt-1 text-[10px] leading-relaxed text-zinc-200/80">{desc}</div>
       </div>
     );
 

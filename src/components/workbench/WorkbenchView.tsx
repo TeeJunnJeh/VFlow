@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal, 
+import {
+  UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Video, Lock, Info, Check, Sparkles
@@ -80,13 +80,13 @@ const RATIO_TO_RES: Record<string, string> = {
 const ICON_EMOJI_MAP: Record<string, string> = { 'flame': '🔥', 'gem': '💎', 'zap': '⚡' };
 
 type LangLabelKey =
-  | 'lang_en'
-  | 'lang_zh'
-  | 'lang_es'
-  | 'lang_ja'
-  | 'lang_ko'
-  | 'lang_ms'
-  | 'lang_vi';
+    | 'lang_en'
+    | 'lang_zh'
+    | 'lang_es'
+    | 'lang_ja'
+    | 'lang_ko'
+    | 'lang_ms'
+    | 'lang_vi';
 
 const TARGET_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: LangLabelKey }> = [
   { value: 'en', labelKey: 'lang_en' },
@@ -98,6 +98,13 @@ const TARGET_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: LangLabelKey }> 
   { value: 'vi', labelKey: 'lang_vi' },
 ];
 
+const toDisplayUrl = (path: string | null): string | null => {
+  if (!path) return null;
+  if (path.startsWith('http')) return path;
+  const mediaBaseUrl = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
+  return mediaBaseUrl ? `${mediaBaseUrl}${path}` : path;
+};
+
 interface WorkbenchViewProps {
   initialFileUrl?: string | null;
   initialFileName?: string;
@@ -107,18 +114,20 @@ interface WorkbenchViewProps {
   selectedTemplate: Template | null;
   generatedVideoUrl: string | null;
   setGeneratedVideoUrl: (url: string | null) => void;
+  onExportToServer?: (data: any) => Promise<void>;
 }
 
 export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
-  initialFileUrl,
-  initialFileName,
-  initialAssetSource,
-  templateList,
-  onSelectTemplate,
-  selectedTemplate,
-  generatedVideoUrl,
-  setGeneratedVideoUrl
-}) => {
+                                                              initialFileUrl,
+                                                              initialFileName,
+                                                              initialAssetSource,
+                                                              templateList,
+                                                              onSelectTemplate,
+                                                              selectedTemplate,
+                                                              generatedVideoUrl,
+                                                              setGeneratedVideoUrl,
+                                                              onExportToServer // ★ 接收新增的 prop
+                                                            }) => {
   const { t, language } = useLanguage();
   const { user } = useAuth();
   const { tasks, addTask } = useTasks();
@@ -167,6 +176,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
+  const [isExporting, setIsExporting] = useState(false); 
 
   // Video Player State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -342,6 +352,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [isRestoring, wasDraftRestored, templateList, selectedTemplate?.id, onSelectTemplate]);
 
   // Keep a best-effort "latest snapshot" for debounce + unmount flush.
+  const normalizedScriptPages: ScriptPage[] = (scriptPages || []).map((p, idx) =>
+      idx === activeScriptPage ? { ...p, scripts } : p
+  );
   latestSnapshotRef.current = {
     version: 1,
     template_id: (selectedTemplate?.id as string | undefined) || null,
@@ -505,12 +518,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const updateScripts = (newScripts: ScriptItem[]) => {
-     setScripts(newScripts);
-     setScriptPages(prev => {
-        const next = [...prev];
-        next[activeScriptPage] = { ...next[activeScriptPage], scripts: newScripts };
-        return next;
-     });
+    setScripts(newScripts);
+    setScriptPages(prev => {
+      const next = [...prev];
+      next[activeScriptPage] = { ...next[activeScriptPage], scripts: newScripts };
+      return next;
+    });
   };
 
   const addScript = () => {
@@ -603,9 +616,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   // --- API Handlers ---
- const handleGenerateScripts = async () => {
+  const handleGenerateScripts = async () => {
     if (!user?.id) return alert("Please log in first");
-    
+
     setIsGeneratingScript(true);
 
     try {
@@ -615,12 +628,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       if (selectedFileObj) {
         console.log("🚀 Uploading reference image for script...");
         const uploadResp = await assetsApi.uploadAsset(selectedFileObj, 'product');
-        
+
         let rawPath = null;
         if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
-            rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
+          rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
         } else {
-            rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
+          rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
         }
 
         if (rawPath) {
@@ -636,7 +649,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       // 2. Prepare Payload (Robust)
       const promptText = genPrompt || "产品推广";
-      
+
       // Values from Selected Template or Default
       const category = selectedTemplate?.product_category || "相机";
       const style = selectedTemplate?.visual_style || "写实";
@@ -650,9 +663,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         // Root level prompt for backend safety
         user_prompt: promptText,
         prompt: promptText,
-        input: promptText, 
+        input: promptText,
 
-        product_category: category, 
+        product_category: category,
         visual_style: style,
         aspect_ratio: resolution,
         script_count: scriptVariantCount,
@@ -661,17 +674,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         user_language: language,
         // Persist target audience language in payload for future backend extensions
         target_language: targetLanguage,
-        
+
         script_content: {
-            duration: duration,
-            shot_number: shots,
-            custom: selectedTemplate?.custom_config || "突出夜景拍摄",
-            // Inner level prompt
-            input: promptText,
-            prompt: promptText,
-            user_prompt: promptText,
-            script_count: scriptVariantCount,
-            shots: [] 
+          duration: duration,
+          shot_number: shots,
+          custom: selectedTemplate?.custom_config || "突出夜景拍摄",
+          // Inner level prompt
+          input: promptText,
+          prompt: promptText,
+          user_prompt: promptText,
+          script_count: scriptVariantCount,
+          shots: []
         },
         product_image_path: imagePath || "http://1.95.137.119:8001/media/uploads/default.jpg",
         asset_source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference')
@@ -680,17 +693,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       console.log("📜 Generating Script with payload:", payload);
 
       const response = await videoApi.generateScript(user.id, payload);
-      
+
       console.log("✅ Script Generated:", response);
 
       // 3. Helper to parse response
       const buildScriptsFromShots = (shots: any[]) => shots.map((shot: any) => ({
         id: shot.shot_index,
         shot: shot.shot_index.toString(),
-        type: 'General', 
+        type: 'General',
         dur: `${shot.duration_sec}s`,
         visual: shot.visual,
-        audio: shot.audio || shot.voiceover || shot.beat 
+        audio: shot.audio || shot.voiceover || shot.beat
       }));
 
       // 4. Handle various response formats from API
@@ -744,9 +757,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       console.error("Script Gen Error:", err);
       let msg = err.message;
       try {
-          const jsonPart = err.message.substring(err.message.indexOf('{'));
-          const parsed = JSON.parse(jsonPart);
-          if (parsed.message) msg = parsed.message;
+        const jsonPart = err.message.substring(err.message.indexOf('{'));
+        const parsed = JSON.parse(jsonPart);
+        if (parsed.message) msg = parsed.message;
       } catch (e) {}
       alert(`Script Generation Failed: ${msg}`);
     } finally {
@@ -756,22 +769,34 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   // --- Script Import / Export Functions ---
 
-  const handleDownloadScripts = () => {
-    if (scripts.length === 0) return alert("No scripts to download!");
-    
-    // Create JSON blob
-    const dataStr = JSON.stringify(scripts, null, 2);
-    const blob = new Blob([dataStr], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    
-    // Trigger download
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `scripts_${new Date().toISOString().slice(0,10)}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+  const handleExportScripts = async () => {
+    if (scripts.length === 0) return alert("No scripts to export!");
+
+    setIsExporting(true);
+
+    try {
+      const dataStr = JSON.stringify(scripts, null, 2);
+      const blob = new Blob([dataStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `scripts_${new Date().toISOString().slice(0,10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      // 上传到服务器 (如果父组件传了这个方法 且 启用了 Supabase)
+      const enableSupabase = import.meta.env.VITE_ENABLE_SUPABASE === 'true';
+      if (onExportToServer && enableSupabase) {
+        await onExportToServer(scripts);
+      }
+    } catch (error) {
+      console.error('Export error:', error);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleUploadScripts = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -782,30 +807,30 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     reader.onload = (event) => {
       try {
         const parsed = JSON.parse(event.target?.result as string);
-        
+
         // Validation: Check if array and has some expected fields
         if (Array.isArray(parsed) && parsed.length > 0 && ('visual' in parsed[0] || 'shot' in parsed[0])) {
-           const validScripts = parsed.map((item: any, idx: number) => ({
-             id: item.id || Date.now() + idx,
-             shot: item.shot || (idx + 1).toString(),
-             type: item.type || 'General',
-             dur: item.dur || '2s',
-             visual: item.visual || '',
-             audio: item.audio || ''
-           }));
-           // Update state
-           setScripts(validScripts);
-           setScriptPages(prev => {
-             const next = [...prev];
-             next[activeScriptPage] = { ...next[activeScriptPage], scripts: validScripts };
-             return next;
-           });
-           
-           // Optional: Update duration config to match imported script
-           const newTotal = validScripts.reduce((acc: number, s: any) => acc + (parseFloat(s.dur.replace('s','')) || 0), 0);
-           if (Math.abs(newTotal - genDuration) > 0.5) {
-               setGenDuration(Math.ceil(newTotal));
-           }
+          const validScripts = parsed.map((item: any, idx: number) => ({
+            id: item.id || Date.now() + idx,
+            shot: item.shot || (idx + 1).toString(),
+            type: item.type || 'General',
+            dur: item.dur || '2s',
+            visual: item.visual || '',
+            audio: item.audio || ''
+          }));
+          // Update state
+          setScripts(validScripts);
+          setScriptPages(prev => {
+            const next = [...prev];
+            next[activeScriptPage] = { ...next[activeScriptPage], scripts: validScripts };
+            return next;
+          });
+
+          // Optional: Update duration config to match imported script
+          const newTotal = validScripts.reduce((acc: number, s: any) => acc + (parseFloat(s.dur.replace('s','')) || 0), 0);
+          if (Math.abs(newTotal - genDuration) > 0.5) {
+            setGenDuration(Math.ceil(newTotal));
+          }
         } else {
           alert("Invalid script format. Please upload a valid JSON file.");
         }
@@ -822,12 +847,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   // --- Script Pagination Handler ---
   const handleScriptPageChange = (nextIndex: number) => {
     if (nextIndex < 0 || nextIndex >= scriptPages.length) return;
-    
+
     // 1. Save current scripts to the current page before leaving
     setScriptPages(prev => {
-        const next = [...prev];
-        next[activeScriptPage] = { ...next[activeScriptPage], scripts: scripts };
-        return next;
+      const next = [...prev];
+      next[activeScriptPage] = { ...next[activeScriptPage], scripts: scripts };
+      return next;
     });
 
     // 2. Change Page Index
@@ -851,7 +876,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   useEffect(() => {
     // Only update if we are still looking at the default demo scripts (ID 1 & 2)
     const isDemo = scripts.length === 2 && scripts[0].id === 1 && scripts[1].id === 2;
-    
+
     if (isDemo) {
       const newDemo = buildDemoScripts();
       setScripts(newDemo);
@@ -859,7 +884,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         const next = [...prev];
         // Safely update the current page with translated scripts
         if (next[0]) {
-            next[0] = { ...next[0], scripts: newDemo };
+          next[0] = { ...next[0], scripts: newDemo };
         }
         return next;
       });
@@ -867,72 +892,72 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [t]); // Re-run when language (t) changes
 
   const handleGenerateVideo = async () => {
-      // 1. Batch Generation (Reuse Queue)
-      if (assetQueue.length > 0 || scriptQueue.length > 0) {
-        if (assetQueue.length === 0 || scriptQueue.length === 0) {
-          alert("批量生成需要同时加入素材队列和脚本队列");
-          return;
-        }
-        if (!user?.id) {
-          alert("请先登录");
-          return;
-        }
+    // 1. Batch Generation (Reuse Queue)
+    if (assetQueue.length > 0 || scriptQueue.length > 0) {
+      if (assetQueue.length === 0 || scriptQueue.length === 0) {
+        alert("批量生成需要同时加入素材队列和脚本队列");
+        return;
+      }
+      if (!user?.id) {
+        alert("请先登录");
+        return;
+      }
 
-        setIsGenerating(true);
-        setGeneratedVideoUrl(null);
+      setIsGenerating(true);
+      setGeneratedVideoUrl(null);
 
-        try {
-          const batchItems: Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }> = [];
+      try {
+        const batchItems: Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }> = [];
 
-          // 1) 处理素材：上传或复用已有路径
-          const preparedAssets = await Promise.all(assetQueue.map(async (asset) => {
-            let apiPath = asset.uploadedPath || asset.assetUrl || null;
+        // 1) 处理素材：上传或复用已有路径
+        const preparedAssets = await Promise.all(assetQueue.map(async (asset) => {
+          let apiPath = asset.uploadedPath || asset.assetUrl || null;
 
-            if (!apiPath && asset.fileObj) {
-              const uploadResp = await assetsApi.uploadAsset(asset.fileObj, 'product');
-              let rawPath = null;
-              if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
-                rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
-              } else {
-                rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
-              }
-              if (!rawPath) throw new Error("素材上传后未返回路径");
-              apiPath = rawPath;
-
-              // 记录已上传路径，避免重复上传
-              setAssetQueue(prev => prev.map(a => a.id === asset.id ? { ...a, uploadedPath: apiPath } : a));
+          if (!apiPath && asset.fileObj) {
+            const uploadResp = await assetsApi.uploadAsset(asset.fileObj, 'product');
+            let rawPath = null;
+            if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
+              rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
+            } else {
+              rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
             }
+            if (!rawPath) throw new Error("素材上传后未返回路径");
+            apiPath = rawPath;
 
-            if (!apiPath) throw new Error(`无法获取素材路径：${asset.name}`);
+            // 记录已上传路径，避免重复上传
+            setAssetQueue(prev => prev.map(a => a.id === asset.id ? { ...a, uploadedPath: apiPath } : a));
+          }
 
-            return { ...asset, apiPath };
-          }));
+          if (!apiPath) throw new Error(`无法获取素材路径：${asset.name}`);
 
-          // 2) 逐条提交任务（素材 × 脚本）
-          for (const asset of preparedAssets) {
-            for (const scriptPack of scriptQueue) {
-              const combinedScriptPrompt = scriptPack.scripts.map(s => {
-                const audioMarker = s.audio ? `【音频|【[旁白]】${s.audio}】` : '';
-                return `${s.visual || ''} ${audioMarker}`.trim();
-              }).join(' ');
+          return { ...asset, apiPath };
+        }));
 
-              let newProjectId: string | undefined;
-              if (selectedTemplate?.id) {
-                const cloneResp = await videoApi.cloneProject(selectedTemplate.id);
-                newProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
-                if (!newProjectId) throw new Error('Failed to clone project');
-              } else {
-                const createResp = await videoApi.createProject(user.id, {
-                  title: `${asset.name} × ${scriptPack.name}`,
-                  aspect_ratio: '9:16',
-                  script_content: {
-                    duration: scriptPack.duration, 
-                    shots: scriptPack.scripts
-                  }
-                });
-                newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
-                if (!newProjectId) throw new Error('Failed to create project');
-              }
+        // 2) 逐条提交任务（素材 × 脚本）
+        for (const asset of preparedAssets) {
+          for (const scriptPack of scriptQueue) {
+            const combinedScriptPrompt = scriptPack.scripts.map(s => {
+              const audioMarker = s.audio ? `【音频|【[旁白]】${s.audio}】` : '';
+              return `${s.visual || ''} ${audioMarker}`.trim();
+            }).join(' ');
+
+            let newProjectId: string | undefined;
+            if (selectedTemplate?.id) {
+              const cloneResp = await videoApi.cloneProject(selectedTemplate.id);
+              newProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
+              if (!newProjectId) throw new Error('Failed to clone project');
+            } else {
+              const createResp = await videoApi.createProject(user.id, {
+                title: `${asset.name} × ${scriptPack.name}`,
+                aspect_ratio: '9:16',
+                script_content: {
+                  duration: scriptPack.duration,
+                  shots: scriptPack.scripts
+                }
+              });
+              newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
+              if (!newProjectId) throw new Error('Failed to create project');
+            }
 
               const payload = {
                 model: backendModel,
@@ -947,106 +972,106 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
               };
 
-              const genResp = await videoApi.generate(payload);
-              const taskId = genResp?.data?.task_id || genResp?.task_id;
-              const projectId = genResp?.data?.project_id || newProjectId;
+            const genResp = await videoApi.generate(payload);
+            const taskId = genResp?.data?.task_id || genResp?.task_id;
+            const projectId = genResp?.data?.project_id || newProjectId;
 
-              if (genResp?.code === 0 && taskId) {
-                addTask({
-                  id: taskId,
-                  projectId: String(projectId),
-                  type: 'video_generation',
-                  status: 'processing',
-                  name: `${asset.name} × ${scriptPack.name}`,
-                  thumbnail: asset.previewUrl || undefined,
-                  createdAt: Date.now(),
-                });
+            if (genResp?.code === 0 && taskId) {
+              addTask({
+                id: taskId,
+                projectId: String(projectId),
+                type: 'video_generation',
+                status: 'processing',
+                name: `${asset.name} × ${scriptPack.name}`,
+                thumbnail: asset.previewUrl || undefined,
+                createdAt: Date.now(),
+              });
 
-                batchItems.push({
-                  id: `${asset.id}-${scriptPack.id}-${taskId}`,
-                  assetName: asset.name,
-                  scriptName: scriptPack.name,
-                  taskId,
-                });
-              } else {
-                console.warn('Batch generation response invalid', genResp);
-              }
+              batchItems.push({
+                id: `${asset.id}-${scriptPack.id}-${taskId}`,
+                assetName: asset.name,
+                scriptName: scriptPack.name,
+                taskId,
+              });
+            } else {
+              console.warn('Batch generation response invalid', genResp);
             }
           }
-
-          if (batchItems.length > 0) {
-            setGeneratedBatch(prev => [...batchItems, ...prev]);
-            alert(`批量任务已提交，共 ${batchItems.length} 个`);
-          } else {
-            alert('批量提交完成，但未返回有效任务ID');
-          }
-        } catch (err: any) {
-          alert(`批量生成失败：${err?.message || '未知错误'}`);
-        } finally {
-          setIsGenerating(false);
         }
 
-        return;
+        if (batchItems.length > 0) {
+          setGeneratedBatch(prev => [...batchItems, ...prev]);
+          alert(`批量任务已提交，共 ${batchItems.length} 个`);
+        } else {
+          alert('批量提交完成，但未返回有效任务ID');
+        }
+      } catch (err: any) {
+        alert(`批量生成失败：${err?.message || '未知错误'}`);
+      } finally {
+        setIsGenerating(false);
       }
 
-      // 2. Single Video Generation
-      if (!selectedFileObj && !selectedAssetUrl && !uploadedFile) return alert("Please upload a reference image first!");
-      if (scripts.length === 0) return alert("Please generate or add scripts first!");
-      if (!isDurationValid) return alert(`Total script duration (${currentScriptDuration}s) must match requested duration (${genDuration}s)!`);
-      if (!selectedTemplate?.id && !user?.id) return alert("请先登录");
+      return;
+    }
 
-      setIsGenerating(true);
-      setGeneratedVideoUrl(null); 
+    // 2. Single Video Generation
+    if (!selectedFileObj && !selectedAssetUrl && !uploadedFile) return alert("Please upload a reference image first!");
+    if (scripts.length === 0) return alert("Please generate or add scripts first!");
+    if (!isDurationValid) return alert(`Total script duration (${currentScriptDuration}s) must match requested duration (${genDuration}s)!`);
+    if (!selectedTemplate?.id && !user?.id) return alert("请先登录");
 
-      try {
-        // --- FIX: Real Image Path Extraction Logic ---
-        let apiPath = lastUploadedUrl; 
-        
-        if (!apiPath && selectedFileObj) {
-            console.log("🚀 Uploading reference image...");
-            const uploadResp = await assetsApi.uploadAsset(selectedFileObj, 'product');
-            
-            let rawPath = null;
-            if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
-                rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
-            } else {
-                rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
-            }
-            
-            if (!rawPath) throw new Error("Could not retrieve image path from upload response");
-            
-            setLastUploadedUrl(rawPath);
-            apiPath = rawPath;
-        } else if (!apiPath && selectedAssetUrl) {
-            apiPath = selectedAssetUrl;
-        }
+    setIsGenerating(true);
+    setGeneratedVideoUrl(null);
 
-        if (!apiPath) throw new Error("Could not determine image path");
+    try {
+      // --- FIX: Real Image Path Extraction Logic ---
+      let apiPath = lastUploadedUrl;
 
-        // Combine Scripts
-        const combinedScriptPrompt = scripts.map(s => {
-            const audioMarker = s.audio ? `【音频|【[旁白]】${s.audio}】` : '';
-            return `${s.visual || ''} ${audioMarker}`.trim();
-        }).join(' ');
+      if (!apiPath && selectedFileObj) {
+        console.log("🚀 Uploading reference image...");
+        const uploadResp = await assetsApi.uploadAsset(selectedFileObj, 'product');
 
-        // Clone Project (if template selected) or Create Project from scripts
-        let newProjectId: string | undefined;
-        if (selectedTemplate?.id) {
-          const cloneResp = await videoApi.cloneProject(selectedTemplate.id);
-          newProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
-          if (!newProjectId) throw new Error('Failed to clone project');
+        let rawPath = null;
+        if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
+          rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
         } else {
-          const createResp = await videoApi.createProject(user!.id, {
-            title: fileName || 'Video',
-            aspect_ratio: selectedTemplate?.aspect_ratio || '9:16',
-            script_content: {
-              duration: genDuration,
-              shots: scripts
-            }
-          });
-          newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
-          if (!newProjectId) throw new Error('Failed to create project');
+          rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
         }
+
+        if (!rawPath) throw new Error("Could not retrieve image path from upload response");
+
+        setLastUploadedUrl(rawPath);
+        apiPath = rawPath;
+      } else if (!apiPath && selectedAssetUrl) {
+        apiPath = selectedAssetUrl;
+      }
+
+      if (!apiPath) throw new Error("Could not determine image path");
+
+      // Combine Scripts
+      const combinedScriptPrompt = scripts.map(s => {
+        const audioMarker = s.audio ? `【音频|【[旁白]】${s.audio}】` : '';
+        return `${s.visual || ''} ${audioMarker}`.trim();
+      }).join(' ');
+
+      // Clone Project (if template selected) or Create Project from scripts
+      let newProjectId: string | undefined;
+      if (selectedTemplate?.id) {
+        const cloneResp = await videoApi.cloneProject(selectedTemplate.id);
+        newProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
+        if (!newProjectId) throw new Error('Failed to clone project');
+      } else {
+        const createResp = await videoApi.createProject(user!.id, {
+          title: fileName || 'Video',
+          aspect_ratio: selectedTemplate?.aspect_ratio || '9:16',
+          script_content: {
+            duration: genDuration,
+            shots: scripts
+          }
+        });
+        newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
+        if (!newProjectId) throw new Error('Failed to create project');
+      }
 
         const payload = {
           model: backendModel,
@@ -1061,33 +1086,33 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
         };
 
-        console.log("🚀 Sending Generation Request:", payload);
+      console.log("🚀 Sending Generation Request:", payload);
 
-        const genResp = await videoApi.generate(payload);
-        const taskId = genResp?.data?.task_id || genResp?.task_id;
-        const projectId = genResp?.data?.project_id || newProjectId;
+      const genResp = await videoApi.generate(payload);
+      const taskId = genResp?.data?.task_id || genResp?.task_id;
+      const projectId = genResp?.data?.project_id || newProjectId;
 
-        if (genResp?.code === 0 && taskId) {
-          addTask({
-            id: taskId,
-            projectId: String(projectId),
-            type: 'video_generation',
-            status: 'processing',
-            name: `${selectedTemplate?.name || 'Video'} (${String(projectId).slice(0, 6)})`,
-            thumbnail: uploadedFile || undefined,
-            createdAt: Date.now(),
-          });
-          setLastGeneratedProjectId(String(projectId));
-          alert("任务已提交到后台运行，您可以继续修改参数生成下一个！");
-        } else {
-          alert("提交成功，但未返回任务ID。");
-        }
-      } catch (err: any) {
-          alert(`Error: ${err.message || 'Generation failed'}`);
-      } finally {
-          setIsGenerating(false);
+      if (genResp?.code === 0 && taskId) {
+        addTask({
+          id: taskId,
+          projectId: String(projectId),
+          type: 'video_generation',
+          status: 'processing',
+          name: `${selectedTemplate?.name || 'Video'} (${String(projectId).slice(0, 6)})`,
+          thumbnail: uploadedFile || undefined,
+          createdAt: Date.now(),
+        });
+        setLastGeneratedProjectId(String(projectId));
+        alert("任务已提交到后台运行，您可以继续修改参数生成下一个！");
+      } else {
+        alert("提交成功，但未返回任务ID。");
       }
-    };
+    } catch (err: any) {
+      alert(`Error: ${err.message || 'Generation failed'}`);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   const handlePublishToTikTok = async () => {
     if (!generatedVideoUrl) {
@@ -1137,12 +1162,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       if (!userConfirmed) {
         // 用户点击了取消，询问是否要切换账号
         const switchAccount = confirm(
-          '是否要切换TikTok账号？\n\n' +
-          '点击"确定"后：\n' +
-          '1. 系统将取消当前授权\n' +
-          '2. 跳转到TikTok授权页面\n' +
-          '3. 如需切换到其他账号，请在TikTok页面先退出当前账号，再登录新账号\n' +
-          '4. 授权成功后视频将自动上传到新账号的草稿箱'
+            '是否要切换TikTok账号？\n\n' +
+            '点击"确定"后：\n' +
+            '1. 系统将取消当前授权\n' +
+            '2. 跳转到TikTok授权页面\n' +
+            '3. 如需切换到其他账号，请在TikTok页面先退出当前账号，再登录新账号\n' +
+            '4. 授权成功后视频将自动上传到新账号的草稿箱'
         );
         if (switchAccount) {
           try {
@@ -1173,7 +1198,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       alert(err?.message || '上传失败');
     } finally {
       setIsPostingTikTok(false);
-	}
+    }
   };
   // --- Video Controls ---
   const toggleVideoPlay = () => {
@@ -1237,7 +1262,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const inactiveSegment = 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5';
 
     const tooltipBase =
-      'pointer-events-none absolute top-full mt-2 w-[250px] rounded-2xl border border-white/25 bg-zinc-950/90 p-3 text-left opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition group-hover/seg:opacity-100 group-focus-visible/seg:opacity-100 z-[200]';
+        'pointer-events-none absolute top-full mt-2 w-[250px] rounded-2xl border border-white/25 bg-zinc-950/90 p-3 text-left opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition group-hover/seg:opacity-100 group-focus-visible/seg:opacity-100 z-[200]';
 
     const tooltipAlignClass = (align: 'left' | 'center' | 'right') => {
       if (align === 'left') return 'left-0 translate-x-0';
@@ -1246,10 +1271,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
 
     const tooltip = (desc: string, align: 'left' | 'center' | 'right' = 'center') => (
-      <div className={`${tooltipBase} ${tooltipAlignClass(align)}`}>
-        <div className="text-[11px] font-bold text-white/90">{t.wb_model_tooltip_title}</div>
-        <div className="mt-1 text-[10px] leading-relaxed text-zinc-200/80">{desc}</div>
-      </div>
+        <div className={`${tooltipBase} ${tooltipAlignClass(align)}`}>
+          <div className="text-[11px] font-bold text-white/90">{t.wb_model_tooltip_title}</div>
+          <div className="mt-1 text-[10px] leading-relaxed text-zinc-200/80">{desc}</div>
+        </div>
     );
 
     const legacyModelSelector = (
@@ -1265,7 +1290,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               onClick={() => setSelectedModel('kling')}
               className={`${segmentBase} ${language === 'zh' ? 'text-[10px]' : ''} ${selectedModel === 'kling' ? activeSegment : inactiveSegment}`}
             >
-              {language === 'zh' ? '可灵2.5Turbo' : 'Kling2.5Turbo'}
+              {language === 'zh' ? '可灵2.6' : 'Kling2.6'}
               {tooltip(t.wb_model_tip_sora_kling, 'left')}
             </button>
             <button
@@ -1328,7 +1353,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }> = [
       {
         id: 'kling',
-        title: language === 'zh' ? '可灵 2.5Turbo' : 'Kling 2.5Turbo',
+        title: language === 'zh' ? '可灵 v2.6' : 'Kling v2.6',
         desc: t.wb_model_kling_desc,
         rate: 20,
         Icon: Zap,
@@ -1551,98 +1576,98 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 <span className="text-zinc-500">{t.wb_upload_support}</span>
                 <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
                   {t.wb_upload_image}
-                  <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
+                        <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
                     {imageFormats}
                   </span>
                 </span>
-                <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
+                      <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
                   {t.wb_upload_video}
-                  <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
+                        <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
                     {videoFormats}
                   </span>
                 </span>
-                <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
+                      <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
                   {t.wb_upload_audio}
-                  <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
+                        <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
                     {audioFormats}
                   </span>
                 </span>
-                <span className="text-zinc-400">{t.wb_upload_max_size}</span>
+                      <span className="text-zinc-400">{t.wb_upload_max_size}</span>
+                    </div>
+                  </div>
+              ) : (
+                  <div className="absolute inset-0 bg-zinc-900 rounded-lg overflow-hidden group/preview">
+                    <img src={uploadedFile} className="w-full h-full object-cover opacity-80" alt="Preview" />
+                    <div className="absolute top-2 right-2 opacity-0 group-hover/preview:opacity-100 transition"><button onClick={removeUpload} className="p-1.5 bg-black/50 hover:bg-red-500 rounded-md text-white transition"><X className="w-3 h-3" /></button></div>
+                    <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent"><p className="text-[10px] text-white truncate">{fileName}</p><p className="text-[10px] text-green-400 flex items-center gap-1"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p></div>
+                  </div>
+              )}
+            </div>
+          </div>
+
+          {/* Reuse Queues Section (Restored Buttons) */}
+          <div className="flex flex-col gap-3">
+            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> {t.wb_reuse_queue}</h2>
+            <div className="glass-panel rounded-xl p-4 flex flex-col gap-4">
+              {/* Asset Queue */}
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_asset_queue}</div>
+                <button
+                    onClick={addCurrentAssetToQueue}
+                    disabled={!uploadedFile && !selectedAssetUrl}
+                    className={`text-[10px] px-2 py-1 rounded border border-white/10 ${!uploadedFile && !selectedAssetUrl ? 'text-zinc-600' : 'text-orange-500 hover:bg-white/5'}`}
+                >
+                  {t.wb_add_asset_queue}
+                </button>
+              </div>
+              <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
+                {assetQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_assets}</div> : assetQueue.map(item => (
+                    <div
+                        key={item.id}
+                        onClick={() => selectAssetFromQueue(item)}
+                        className={`flex items-center gap-2 rounded-lg p-2 border cursor-pointer transition ${selectedQueueAssetId === item.id ? 'bg-orange-500/10 border-orange-500/30' : 'bg-black/30 border-white/5 hover:bg-white/5'}`}
+                    >
+                      <div className="w-8 h-8 rounded bg-zinc-800 overflow-hidden shrink-0">{item.previewUrl && <img src={item.previewUrl} className="w-full h-full object-cover"/>}</div>
+                      <div className="flex-1 min-w-0"><div className="text-[10px] text-zinc-200 truncate">{item.name}</div></div>
+                      <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeAssetFromQueue(item.id);
+                          }}
+                      >
+                        <X className="w-3 h-3 text-zinc-600 hover:text-red-400" />
+                      </button>
+                    </div>
+                ))}
+              </div>
+
+              {/* Script Queue */}
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_script_queue}</div>
+                <button
+                    onClick={addCurrentScriptToQueue}
+                    className="text-[10px] px-2 py-1 rounded border border-white/10 text-orange-500 hover:bg-white/5"
+                >
+                  {t.wb_add_script_queue}
+                </button>
+              </div>
+              <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
+                {scriptQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_scripts}</div> : scriptQueue.map(item => (
+                    <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
+                        <div className="text-[9px] text-zinc-500">{item.scripts.length} shots</div>
+                      </div>
+                      <button onClick={() => removeScriptFromQueue(item.id)}><X className="w-3 h-3 text-zinc-600 hover:text-red-400" /></button>
+                    </div>
+                ))}
+              </div>
+
+              <div className="text-[10px] text-zinc-500 pt-2 border-t border-white/5">
+                {t.wb_estimated_generate}: {assetQueue.length} × {scriptQueue.length} = {expectedBatchCount}
               </div>
             </div>
-          ) : (
-            <div className="absolute inset-0 bg-zinc-900 rounded-lg overflow-hidden group/preview">
-              <img src={uploadedFile} className="w-full h-full object-cover opacity-80" alt="Preview" />
-              <div className="absolute top-2 right-2 opacity-0 group-hover/preview:opacity-100 transition"><button onClick={removeUpload} className="p-1.5 bg-black/50 hover:bg-red-500 rounded-md text-white transition"><X className="w-3 h-3" /></button></div>
-              <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent"><p className="text-[10px] text-white truncate">{fileName}</p><p className="text-[10px] text-green-400 flex items-center gap-1"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p></div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Reuse Queues Section (Restored Buttons) */}
-      <div className="flex flex-col gap-3">
-         <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> {t.wb_reuse_queue}</h2>
-         <div className="glass-panel rounded-xl p-4 flex flex-col gap-4">
-            {/* Asset Queue */}
-            <div className="flex items-center justify-between">
-              <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_asset_queue}</div>
-              <button
-                onClick={addCurrentAssetToQueue}
-                disabled={!uploadedFile && !selectedAssetUrl}
-                className={`text-[10px] px-2 py-1 rounded border border-white/10 ${!uploadedFile && !selectedAssetUrl ? 'text-zinc-600' : 'text-orange-500 hover:bg-white/5'}`}
-              >
-                {t.wb_add_asset_queue}
-              </button>
-            </div>
-            <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
-               {assetQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_assets}</div> : assetQueue.map(item => (
-                  <div
-                    key={item.id}
-                    onClick={() => selectAssetFromQueue(item)}
-                    className={`flex items-center gap-2 rounded-lg p-2 border cursor-pointer transition ${selectedQueueAssetId === item.id ? 'bg-orange-500/10 border-orange-500/30' : 'bg-black/30 border-white/5 hover:bg-white/5'}`}
-                  >
-                     <div className="w-8 h-8 rounded bg-zinc-800 overflow-hidden shrink-0">{item.previewUrl && <img src={item.previewUrl} className="w-full h-full object-cover"/>}</div>
-                     <div className="flex-1 min-w-0"><div className="text-[10px] text-zinc-200 truncate">{item.name}</div></div>
-                     <button
-                       onClick={(e) => {
-                         e.stopPropagation();
-                         removeAssetFromQueue(item.id);
-                       }}
-                     >
-                       <X className="w-3 h-3 text-zinc-600 hover:text-red-400" />
-                     </button>
-                  </div>
-               ))}
-            </div>
-
-            {/* Script Queue */}
-            <div className="flex items-center justify-between">
-              <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_script_queue}</div>
-              <button
-                onClick={addCurrentScriptToQueue}
-                className="text-[10px] px-2 py-1 rounded border border-white/10 text-orange-500 hover:bg-white/5"
-              >
-                {t.wb_add_script_queue}
-              </button>
-            </div>
-            <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
-               {scriptQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_scripts}</div> : scriptQueue.map(item => (
-                  <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
-                     <div className="flex-1 min-w-0">
-                       <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
-                       <div className="text-[9px] text-zinc-500">{item.scripts.length} shots</div>
-                     </div>
-                     <button onClick={() => removeScriptFromQueue(item.id)}><X className="w-3 h-3 text-zinc-600 hover:text-red-400" /></button>
-                  </div>
-               ))}
-            </div>
-
-            <div className="text-[10px] text-zinc-500 pt-2 border-t border-white/5">
-               {t.wb_estimated_generate}: {assetQueue.length} × {scriptQueue.length} = {expectedBatchCount}
-            </div>
-         </div>
-      </div>
+          </div>
 
       {/* Config Panel (Restored Controls) */}
       <div className="flex flex-col gap-3 flex-1 transition-opacity duration-500">
@@ -1698,79 +1723,79 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
              )}
            </div>
 
-           {/* Restored Inputs: Prompt, Duration, Audio, Count */}
-           <hr className="border-white/5" />
-           <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_prompt_label}</label>
-              <textarea
-               disabled={!hasCurrentAsset}
-               className={`w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-none min-h-[80px] ${!hasCurrentAsset ? 'text-zinc-500 cursor-not-allowed opacity-60' : 'text-zinc-300 focus:border-orange-500 focus:outline-none'}`}
-               placeholder={t.wb_config_prompt_placeholder}
-               value={genPrompt}
-               onChange={(e) => setGenPrompt(e.target.value)}
-              />
-           </div>
-
-           <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
-              <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
-                {[5, 10, 15].map(d => (
-                  <button key={d} onClick={() => setGenDuration(d)} className={`flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${genDuration === d ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:bg-zinc-800'}`}>{d}s</button>
-                ))}
+              {/* Restored Inputs: Prompt, Duration, Audio, Count */}
+              <hr className="border-white/5" />
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_prompt_label}</label>
+                <textarea
+                    disabled={!hasCurrentAsset}
+                    className={`w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-none min-h-[80px] ${!hasCurrentAsset ? 'text-zinc-500 cursor-not-allowed opacity-60' : 'text-zinc-300 focus:border-orange-500 focus:outline-none'}`}
+                    placeholder={t.wb_config_prompt_placeholder}
+                    value={genPrompt}
+                    onChange={(e) => setGenPrompt(e.target.value)}
+                />
               </div>
-           </div>
 
-           <div>
-             <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_audio}</label>
-             <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
-                <button onClick={() => setSoundSetting('on')} className={`flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'on' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:bg-zinc-800'}`}>{t.wb_config_audio_on}</button>
-                <button onClick={() => setSoundSetting('off')} className={`flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'off' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:bg-zinc-800'}`}>{t.wb_config_audio_off}</button>
-             </div>
-           </div>
-
-           <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_script_count_label}</label>
-              <div className="flex items-center gap-2 bg-black/40 p-2 rounded-lg border border-white/5">
-                <input type="number" min={1} max={10} value={scriptVariantCount} onChange={(e) => setScriptVariantCount(Number(e.target.value))} className="w-16 bg-transparent text-xs text-zinc-200 focus:outline-none text-center" />
-                <span className="text-[10px] text-zinc-500">{t.wb_script_count_unit}</span>
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
+                <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
+                  {[5, 10, 15].map(d => (
+                      <button key={d} onClick={() => setGenDuration(d)} className={`flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${genDuration === d ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:bg-zinc-800'}`}>{d}s</button>
+                  ))}
+                </div>
               </div>
-           </div>
 
-            <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_target_audience_language}</label>
-              <DropdownSelect
-                value={targetLanguage}
-                options={TARGET_LANGUAGE_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
-                onChange={setTargetLanguage}
-                buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
-                labelClassName=""
-                iconClassName="w-3 h-3 text-zinc-500"
-                optionClassName="text-xs"
-              />
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_audio}</label>
+                <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
+                  <button onClick={() => setSoundSetting('on')} className={`flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'on' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:bg-zinc-800'}`}>{t.wb_config_audio_on}</button>
+                  <button onClick={() => setSoundSetting('off')} className={`flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'off' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:bg-zinc-800'}`}>{t.wb_config_audio_off}</button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_script_count_label}</label>
+                <div className="flex items-center gap-2 bg-black/40 p-2 rounded-lg border border-white/5">
+                  <input type="number" min={1} max={10} value={scriptVariantCount} onChange={(e) => setScriptVariantCount(Number(e.target.value))} className="w-16 bg-transparent text-xs text-zinc-200 focus:outline-none text-center" />
+                  <span className="text-[10px] text-zinc-500">{t.wb_script_count_unit}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_target_audience_language}</label>
+                <DropdownSelect
+                    value={targetLanguage}
+                    options={TARGET_LANGUAGE_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
+                    onChange={setTargetLanguage}
+                    buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                    labelClassName=""
+                    iconClassName="w-3 h-3 text-zinc-500"
+                    optionClassName="text-xs"
+                />
+              </div>
+
+              <button onClick={handleGenerateScripts} disabled={isGeneratingScript || !hasCurrentAsset} className={`w-full py-3 rounded-xl font-bold text-xs transition shadow-lg shadow-white/5 mt-2 flex items-center justify-center gap-2 group ${isGeneratingScript || !hasCurrentAsset ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed' : 'bg-white text-black hover:bg-orange-500 hover:text-white'}`}>
+                {isGeneratingScript ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />}
+                {isGeneratingScript ? 'Generating...' : t.wb_btn_gen_scripts}
+              </button>
             </div>
-           
-            <button onClick={handleGenerateScripts} disabled={isGeneratingScript || !hasCurrentAsset} className={`w-full py-3 rounded-xl font-bold text-xs transition shadow-lg shadow-white/5 mt-2 flex items-center justify-center gap-2 group ${isGeneratingScript || !hasCurrentAsset ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed' : 'bg-white text-black hover:bg-orange-500 hover:text-white'}`}>
-              {isGeneratingScript ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />} 
-              {isGeneratingScript ? 'Generating...' : t.wb_btn_gen_scripts}
-           </button>
+          </div>
         </div>
-      </div>
-    </div>
-  );
+    );
   };
 
   return (
-    <div className="flex flex-col h-full z-10 animate-in fade-in zoom-in-95 duration-300">
-      <header className="flex justify-between items-center px-8 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm shrink-0 relative z-50">
-        <div className="flex items-center gap-4">
-          <h1 className="text-xl font-bold tracking-tight text-white">Project_Alpha_01</h1>
-          <span className="px-2 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-400 border border-white/5">{t.wb_header_draft}</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="text-xs text-zinc-500">{t.wb_header_save}</div>
-          <LanguageSwitcher />
-        </div>
-      </header>
+      <div className="flex flex-col h-full z-10 animate-in fade-in zoom-in-95 duration-300">
+        <header className="flex justify-between items-center px-8 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm shrink-0 relative z-50">
+          <div className="flex items-center gap-4">
+            <h1 className="text-xl font-bold tracking-tight text-white">Project_Alpha_01</h1>
+            <span className="px-2 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-400 border border-white/5">{t.wb_header_draft}</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="text-xs text-zinc-500">{t.wb_header_save}</div>
+            <LanguageSwitcher />
+          </div>
+        </header>
 
       <div className="flex-1 flex overflow-hidden p-6 gap-6">
         {renderLeftColumn()}
@@ -1778,16 +1803,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         <div className="flex-auto flex flex-col gap-3 h-full min-w-[300px]">
            <div className="flex justify-between items-center shrink-0 h-[32px]">
               <div className="flex items-center gap-3">
-                 <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-[1.1em] h-[1.1em] shrink-0" /> {t.wb_col_scripts}</h2>
+                 <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
                  <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{currentScriptDuration.toFixed(1)}s / {genDuration}s</div>
                  {/* Icons for script handling */}
                  <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
                   <button 
-                    onClick={handleDownloadScripts} 
-                    className="flex items-center gap-1.5 px-2 py-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition" 
+                    onClick={handleExportScripts}
+                    disabled={isExporting}
+                    className={`flex items-center gap-1.5 px-2 py-1 rounded transition ${isExporting ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
                     title={t.wb_export_scripts}
                   >
-                    <FileDown className="w-3.5 h-3.5" />
+                    {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
                     <span className="text-[10px] font-medium">{t.wb_export_scripts}</span>
                   </button>
                   
@@ -1850,15 +1876,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 <span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.type}</span>
                                 <input type="number" step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
                                 <span className="text-[10px] text-zinc-500">s</span>
+                              </div>
+                              <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
                             </div>
-                            <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
-                        </div>
-                        <div className="grid grid-cols-1 gap-3">
-                            <div className="flex flex-col gap-1.5">
+                            <div className="grid grid-cols-1 gap-3">
+                              <div className="flex flex-col gap-1.5">
                                 <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_visual}</p>
                                 <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll" value={script.visual} onChange={(e) => { const ns = [...scripts]; ns[index].visual = e.target.value; updateScripts(ns); }} />
-                            </div>
-                            <div className="flex flex-col gap-1.5">
+                              </div>
+                              <div className="flex flex-col gap-1.5">
                                 <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
                                 <input type="text" className="w-full bg-black/20 text-xs text-zinc-400 p-3 rounded-lg border border-white/5 italic focus:border-white/20 transition-colors outline-none" value={script.audio} onChange={(e) => { const ns = [...scripts]; ns[index].audio = e.target.value; updateScripts(ns); }} />
                             </div>
@@ -1870,85 +1896,85 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
            </div>
         </div>
 
-        {/* Right Column: Preview & Results */}
-        <div className="w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full">
+          {/* Right Column: Preview & Results */}
+          <div className="w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full">
             <div className="flex justify-between items-end shrink-0 h-[32px]">
-               <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-3 h-3" /> {t.wb_col_preview}</h2>
+              <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-3 h-3" /> {t.wb_col_preview}</h2>
             </div>
             {/* Video Player */}
             <div className="glass-panel flex-1 rounded-2xl p-1 relative flex flex-col overflow-hidden">
-                <div className="flex-1 bg-black rounded-xl relative overflow-hidden group flex items-center justify-center">
-                    {generatedVideoUrl ? (
-                        <video
-                          ref={videoRef}
-                          src={generatedVideoUrl}
-                          controls
-                          autoPlay
-                          loop
-                          className="w-full h-full object-contain"
-                          onPlay={() => setIsPlaying(true)}
-                          onPause={() => setIsPlaying(false)}
-                        />
+              <div className="flex-1 bg-black rounded-xl relative overflow-hidden group flex items-center justify-center">
+                {generatedVideoUrl ? (
+                    <video
+                        ref={videoRef}
+                        src={generatedVideoUrl}
+                        controls
+                        autoPlay
+                        loop
+                        className="w-full h-full object-contain"
+                        onPlay={() => setIsPlaying(true)}
+                        onPause={() => setIsPlaying(false)}
+                    />
+                ) : (
+                    <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Submitting…' : t.wb_waiting}</p></div>
+                )}
+              </div>
+              <div className="h-14 flex items-center justify-between px-4 border-t border-white/5 bg-zinc-900/50">
+                <div className="flex gap-4">
+                  <button
+                      type="button"
+                      onClick={() => skipVideoTime(-1)}
+                      disabled={!generatedVideoUrl}
+                      title="Rewind 1s"
+                      className={`text-zinc-400 hover:text-white active:scale-95 transition ${!generatedVideoUrl ? 'opacity-40 cursor-not-allowed hover:text-zinc-400 active:scale-100' : ''}`}
+                  >
+                    <SkipBack className="w-4 h-4" />
+                  </button>
+                  <button
+                      type="button"
+                      onClick={toggleVideoPlay}
+                      disabled={!generatedVideoUrl}
+                      title={isPlaying ? 'Pause' : 'Play'}
+                      className={`text-white hover:text-orange-500 active:scale-95 transition ${!generatedVideoUrl ? 'opacity-40 cursor-not-allowed hover:text-white active:scale-100' : ''}`}
+                  >
+                    {isPlaying ? (
+                        <Pause className="w-4 h-4" />
                     ) : (
-                        <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Submitting…' : t.wb_waiting}</p></div>
+                        <Play className="w-4 h-4 fill-current" />
                     )}
+                  </button>
+                  <button
+                      type="button"
+                      onClick={() => skipVideoTime(1)}
+                      disabled={!generatedVideoUrl}
+                      title="Forward 1s"
+                      className={`text-zinc-400 hover:text-white active:scale-95 transition ${!generatedVideoUrl ? 'opacity-40 cursor-not-allowed hover:text-zinc-400 active:scale-100' : ''}`}
+                  >
+                    <SkipForward className="w-4 h-4" />
+                  </button>
                 </div>
-                <div className="h-14 flex items-center justify-between px-4 border-t border-white/5 bg-zinc-900/50">
-                    <div className="flex gap-4">
-                      <button
-                        type="button"
-                        onClick={() => skipVideoTime(-1)}
-                        disabled={!generatedVideoUrl}
-                        title="Rewind 1s"
-                        className={`text-zinc-400 hover:text-white active:scale-95 transition ${!generatedVideoUrl ? 'opacity-40 cursor-not-allowed hover:text-zinc-400 active:scale-100' : ''}`}
-                      >
-                        <SkipBack className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={toggleVideoPlay}
-                        disabled={!generatedVideoUrl}
-                        title={isPlaying ? 'Pause' : 'Play'}
-                        className={`text-white hover:text-orange-500 active:scale-95 transition ${!generatedVideoUrl ? 'opacity-40 cursor-not-allowed hover:text-white active:scale-100' : ''}`}
-                      >
-                        {isPlaying ? (
-                          <Pause className="w-4 h-4" />
-                        ) : (
-                          <Play className="w-4 h-4 fill-current" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => skipVideoTime(1)}
-                        disabled={!generatedVideoUrl}
-                        title="Forward 1s"
-                        className={`text-zinc-400 hover:text-white active:scale-95 transition ${!generatedVideoUrl ? 'opacity-40 cursor-not-allowed hover:text-zinc-400 active:scale-100' : ''}`}
-                      >
-                        <SkipForward className="w-4 h-4" />
-                      </button>
-                    </div>
-                </div>
+              </div>
             </div>
 
             <div className="glass-panel rounded-2xl p-3 border border-white/5 flex items-center justify-between">
               <div className="text-[10px] text-zinc-500 uppercase tracking-widest">{t.wb_tiktok_draft_title}</div>
               <button
-                onClick={handlePublishToTikTok}
-                disabled={!generatedVideoUrl || isPostingTikTok}
-                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border border-white/10 ${(!generatedVideoUrl || isPostingTikTok) ? 'opacity-40 cursor-not-allowed text-zinc-500' : 'text-white bg-gradient-to-r from-purple-600 to-orange-500 hover:brightness-110'}`}
+                  onClick={handlePublishToTikTok}
+                  disabled={!generatedVideoUrl || isPostingTikTok}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border border-white/10 ${(!generatedVideoUrl || isPostingTikTok) ? 'opacity-40 cursor-not-allowed text-zinc-500' : 'text-white bg-gradient-to-r from-purple-600 to-orange-500 hover:brightness-110'}`}
               >
                 {isPostingTikTok ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                 {isPostingTikTok ? t.wb_tiktok_uploading : t.wb_btn_tiktok_draft}
               </button>
             </div>
-            
+
             {/* Batch Results Panel (Restored) */}
             <div className="glass-panel rounded-2xl p-4 border border-white/5 max-h-56 overflow-y-auto custom-scroll">
-               <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3">{t.wb_batch_results}</div>
-               {generatedBatch.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_batch_no_results}</div> : <div className="space-y-2">{generatedBatch.map(item => { const task = tasks.find(t => t.id === item.taskId); const status = task?.status; const url = task?.result?.video_url || task?.result?.url; return (<div key={item.id} className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>{status === 'success' && url ? (<button onClick={() => setGeneratedVideoUrl(url)} className="text-orange-400 hover:text-orange-300 transition">预览</button>) : status === 'failed' ? (<span className="text-red-400">失败</span>) : (<span className="text-zinc-500">生成中…</span>)}</div>); })}</div>}
+              <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3">{t.wb_batch_results}</div>
+              {generatedBatch.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_batch_no_results}</div> : <div className="space-y-2">{generatedBatch.map(item => { const task = tasks.find(t => t.id === item.taskId); const status = task?.status; const url = task?.result?.video_url || task?.result?.url; return (<div key={item.id} className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>{status === 'success' && url ? (<button onClick={() => setGeneratedVideoUrl(url)} className="text-orange-400 hover:text-orange-300 transition">预览</button>) : status === 'failed' ? (<span className="text-red-400">失败</span>) : (<span className="text-zinc-500">生成中…</span>)}</div>); })}</div>}
             </div>
+          </div>
         </div>
       </div>
-    </div>
   );
 };

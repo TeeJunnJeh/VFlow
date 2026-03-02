@@ -1,4 +1,10 @@
-// src/services/assets.ts
+import { createClient } from '@supabase/supabase-js';
+
+// --- Supabase 配置 ---
+// 建议在生产环境中将这些放在 .env 文件里
+const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || '你的本地_API_URL';
+const SUPABASE_ANON_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '你的本地_ANON_KEY';
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // Use the proxy path configured in vite.config.ts for API calls
 const API_BASE_URL = '/api/assets';
@@ -11,9 +17,9 @@ const MEDIA_BASE_URL = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
 export interface Asset {
   id: string;
   name: string;
-  type: 'model' | 'product' | 'scene'; 
-  file_url: string;    
-  thumbnail?: string;  
+  type: 'model' | 'product' | 'scene';
+  file_url: string;
+  thumbnail?: string;
   size: string;
   status: 'ready' | 'processing' | 'failed';
   created_at: string;
@@ -82,11 +88,11 @@ export const assetsApi = {
       const query = search.toString();
       const response = await fetch(`${API_BASE_URL}/list/${query ? `?${query}` : ''}`, {
         method: 'GET',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest', 
+          'X-Requested-With': 'XMLHttpRequest',
         },
-        credentials: 'include', 
+        credentials: 'include',
       });
 
       if (response.status === 401 || response.status === 403) {
@@ -95,7 +101,7 @@ export const assetsApi = {
       }
 
       if (!response.ok) throw new Error('Failed to fetch assets');
-      
+
       const json = await response.json();
       // Be robust across backend variants (some deployments wrap in `data`, some may return `assets`).
       const backendData: BackendAsset[] = (json.data || json.assets || json.results || []) as BackendAsset[];
@@ -104,13 +110,13 @@ export const assetsApi = {
       return backendData.map(item => {
         // Some backends may return `url`, `file_url`, or `path` for the file location.
         const rawUrl =
-          (item as any).url ||
-          (item as any).file_url ||
-          (item as any).fileUrl ||
-          (item as any).path ||
-          '';
+            (item as any).url ||
+            (item as any).file_url ||
+            (item as any).fileUrl ||
+            (item as any).path ||
+            '';
 
-        // If the URL is relative (e.g. "/media/uploads..."), optionally prepend a configured base URL.
+        // If the URL is relative (e.g. "/media/vFlowuploads..."), optionally prepend a configured base URL.
         // Otherwise keep it relative so it can be served by current origin (or Vite proxy in dev).
         let fullUrl = rawUrl;
         if (fullUrl && fullUrl.startsWith('/') && MEDIA_BASE_URL) {
@@ -121,7 +127,7 @@ export const assetsApi = {
           id: item.id.toString(),
           name: item.display_name,
           type: item.type.toLowerCase() as 'model' | 'product' | 'scene',
-          file_url: fullUrl, 
+          file_url: fullUrl,
           size: (item.meta_data.size_bytes / 1024 / 1024).toFixed(2) + ' MB',
           status: 'ready',
           created_at: item.created_at,
@@ -135,11 +141,35 @@ export const assetsApi = {
     }
   },
 
-  // 2. CREATE (Upload)
+  // 2. CREATE (Upload) - 双重上传逻辑
   uploadAsset: async (file: File, type: string, folderId?: string | null) => {
+
+    // --- 动作 1：静默上传到 Supabase Storage ---
+    try {
+      console.log('🚀 [Supabase] 开始上传到存储桶...');
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${type.toLowerCase()}/${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+          .from('vFlowuploads') // 你的存储桶名称
+          .upload(fileName, file);
+
+      if (uploadError) {
+        console.error('❌ [Supabase] 上传失败:', uploadError.message);
+      } else {
+        const { data: publicUrlData } = supabase.storage.from('vFlowuploads').getPublicUrl(fileName);
+        console.log('✅ [Supabase] 上传成功！公开链接是:', publicUrlData.publicUrl);
+        // 注意：因为后端不改，这里拿到的 publicUrl 只是在前端打印验证，不会存入数据库
+      }
+    } catch (err) {
+      console.error('⚠️ [Supabase] 流程出错:', err);
+    }
+
+    // --- 动作 2：按老规矩发送真实文件给 Django 后端 ---
+    console.log('🚀 [Django] 开始发送物理文件给后端...');
     const formData = new FormData();
-    formData.append('file', file);
-    formData.append('type', type.toUpperCase()); 
+    formData.append('file', file); // 你的后端依然在等这个名为 'file' 的二进制数据
+    formData.append('type', type.toUpperCase());
     formData.append('display_name', file.name);
     if (folderId !== undefined) formData.append('folder_id', folderId ?? '');
 
@@ -152,12 +182,15 @@ export const assetsApi = {
           'X-CSRFToken': csrftoken || '',
           'X-Requested-With': 'XMLHttpRequest',
         },
-        credentials: 'include', 
-        body: formData, 
+        credentials: 'include',
+        body: formData,
       });
 
-      if (!response.ok) throw new Error('Upload failed');
-      return await response.json();
+      if (!response.ok) throw new Error('后端处理失败');
+      const result = await response.json();
+      console.log('✅ [Django] 后端保存成功:', result);
+      return result;
+
     } catch (error) {
       console.error("Upload Error:", error);
       throw error;

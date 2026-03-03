@@ -90,7 +90,7 @@ export const translations = {
     // Left Col
     wb_model_title: "Model Selection",
     wb_model_seedance_soon_title: "Seedance2.0 (Coming Soon)",
-    wb_model_seedance_soon_desc: "Seedance2.0 UI is not connected yet. Switch back to sora2 to continue.",
+    wb_model_seedance_soon_desc: "Seedance2.0 UI is not connected yet. Switch back to Sora 2 / Kling2.5Turbo to continue.",
     wb_model_tooltip_title: "Supported",
     wb_model_tip_sora_kling: "Upload an image as the first frame; supports text prompts and storyboard/script descriptions.",
     wb_model_tip_seedance: "Upload image/video/audio as reference; supports text prompts.",
@@ -357,7 +357,7 @@ export const translations = {
 
     wb_model_title: "模型选择",
     wb_model_seedance_soon_title: "Seedance2.0（敬请期待）",
-    wb_model_seedance_soon_desc: "Seedance2.0 的界面与 API 暂未接入；请先切回 sora2 继续使用当前工作台功能。",
+    wb_model_seedance_soon_desc: "Seedance2.0 的界面与 API 暂未接入；请先切回 Sora 2 / 可灵2.5Turbo 继续使用当前工作台功能。",
     wb_model_tooltip_title: "支持模态",
     wb_model_tip_sora_kling: "可上传图片作为首帧，支持文本与分镜描述生成；",
     wb_model_tip_seedance: "可上传图片、视频、音频作为参考，支持文本描述生成。",
@@ -623,7 +623,7 @@ export const translations = {
 
     wb_model_title: "Pilihan Model",
     wb_model_seedance_soon_title: "Seedance2.0 (Akan Datang)",
-    wb_model_seedance_soon_desc: "UI Seedance2.0 belum disambungkan. Tukar kembali ke sora2 untuk teruskan.",
+    wb_model_seedance_soon_desc: "UI Seedance2.0 belum disambungkan. Tukar kembali ke Sora 2 / Kling2.5Turbo untuk teruskan.",
     wb_model_tooltip_title: "Disokong",
     wb_model_tip_sora_kling: "Muat naik imej sebagai bingkai pertama; sokong teks dan deskripsi storyboard/skrip.",
     wb_model_tip_seedance: "Muat naik imej/video/audio sebagai rujukan; sokong teks.",
@@ -892,7 +892,7 @@ export const translations = {
 
     wb_model_title: "Chọn mô hình",
     wb_model_seedance_soon_title: "Seedance2.0 (Sắp ra mắt)",
-    wb_model_seedance_soon_desc: "Giao diện Seedance2.0 chưa được tích hợp. Hãy chuyển về sora2 để tiếp tục.",
+    wb_model_seedance_soon_desc: "Giao diện Seedance2.0 chưa được tích hợp. Hãy chuyển về Sora 2 / Kling2.5Turbo để tiếp tục.",
     wb_model_tooltip_title: "Hỗ trợ",
     wb_model_tip_sora_kling: "Tải lên ảnh làm khung hình đầu; hỗ trợ mô tả bằng văn bản và storyboard/kịch bản.",
     wb_model_tip_seedance: "Tải lên ảnh/video/âm thanh làm tham chiếu; hỗ trợ mô tả văn bản.",
@@ -1171,7 +1171,7 @@ export const translations = {
 
     wb_model_title: "모델 선택",
     wb_model_seedance_soon_title: "Seedance2.0 (준비 중)",
-    wb_model_seedance_soon_desc: "Seedance2.0 UI는 아직 연결되지 않았습니다. 계속하려면 sora2로 전환하세요.",
+    wb_model_seedance_soon_desc: "Seedance2.0 UI는 아직 연결되지 않았습니다. 계속하려면 Sora 2 / Kling2.5Turbo로 전환하세요.",
     wb_model_tooltip_title: "지원",
     wb_model_tip_sora_kling: "첫 프레임으로 이미지 업로드 가능; 텍스트 프롬프트와 스토리보드/스크립트 설명을 지원합니다.",
     wb_model_tip_seedance: "이미지/비디오/오디오를 참고로 업로드 가능; 텍스트 설명을 지원합니다.",

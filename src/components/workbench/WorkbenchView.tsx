@@ -696,6 +696,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const shots = selectedTemplate?.shot_number || 5;
 
       const payload = {
+        model: backendModel,
         // Root level prompt for backend safety
         user_prompt: promptText,
         prompt: promptText,
@@ -984,6 +985,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               }
 
               const payload = {
+                model: backendModel,
                 prompt: combinedScriptPrompt,
                 project_id: newProjectId,
                 duration: scriptPack.duration,
@@ -1096,6 +1098,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         }
 
         const payload = {
+          model: backendModel,
           prompt: combinedScriptPrompt,
           project_id: newProjectId,
           duration: genDuration,
@@ -1249,11 +1252,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   // --- Render Sections ---
   
-  const isSora2Like = selectedModel === 'sora2' || selectedModel === 'kling';
+  const isSora2Like = selectedModel === 'sora2' || selectedModel === 'sora2pro' || selectedModel === 'kling';
+  const backendModel =
+    selectedModel === 'sora2pro'
+      ? 'sora-2-pro'
+      : selectedModel === 'sora2'
+        ? 'sora-2'
+        : selectedModel === 'kling'
+          ? 'kling-v2-6'
+          : 'seedance-2.0';
 
   const renderLeftColumn = () => {
     const segmentBase =
-      'group/seg relative flex-1 py-2.5 rounded-lg text-[11px] tracking-tight font-bold transition select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60';
+      'group/seg relative flex-1 py-2.5 rounded-lg text-[10px] tracking-tight font-bold transition select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60';
     const activeSegment = 'bg-gradient-to-r from-purple-600 to-orange-500 text-white shadow-lg shadow-orange-500/15';
     const inactiveSegment = 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5';
 
@@ -1284,7 +1295,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               type="button"
               aria-pressed={selectedModel === 'kling'}
               onClick={() => setSelectedModel('kling')}
-              className={`${segmentBase} ${language === 'zh' ? 'text-[11px]' : ''} ${selectedModel === 'kling' ? activeSegment : inactiveSegment}`}
+              className={`${segmentBase} ${language === 'zh' ? 'text-[10px]' : ''} ${selectedModel === 'kling' ? activeSegment : inactiveSegment}`}
             >
               {language === 'zh' ? '可灵2.5Turbo' : 'Kling2.5Turbo'}
               {tooltip(t.wb_model_tip_sora_kling, 'left')}
@@ -1296,6 +1307,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               className={`${segmentBase} ${selectedModel === 'sora2' ? activeSegment : inactiveSegment}`}
             >
               Sora 2
+              {tooltip(t.wb_model_tip_sora_kling, 'center')}
+            </button>
+            <button
+              type="button"
+              aria-pressed={selectedModel === 'sora2pro'}
+              onClick={() => setSelectedModel('sora2pro')}
+              className={`${segmentBase} ${selectedModel === 'sora2pro' ? activeSegment : inactiveSegment}`}
+            >
+              Sora 2 Pro
               {tooltip(t.wb_model_tip_sora_kling, 'center')}
             </button>
             <button
@@ -1314,7 +1334,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     if (!isSora2Like) {
       return (
-        <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto custom-scroll pr-1">
+        <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
           {modelSelector}
           <div className="glass-panel rounded-xl p-4 border border-white/10 bg-black/20">
             <div className="text-xs font-bold text-zinc-300">{t.wb_model_seedance_soon_title}</div>
@@ -1325,7 +1345,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
 
     return (
-    <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto custom-scroll pr-1">
+    <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
       {modelSelector}
       {/* Upload Section */}
       <div className="flex flex-col gap-3">

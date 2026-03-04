@@ -54,17 +54,7 @@ type QueuedScript = {
 // Keep it JSON-serializable (no File / Blob / functions).
 type WorkbenchSnapshot = {
   version: 1;
-  asset_url: string | null; // URL or "/media/..." path (backend accepts both)
-  file_name: string;
-  asset_source: 'product' | 'preference' | null;
-  prompt: string;
-  duration: number;
-  sound: 'on' | 'off';
-  script_count: number;
-  target_language: string;
   template_id: string | null;
-  script_pages: ScriptPage[];
-  active_page_index: number;
   timestamp: number; // client timestamp (ms)
 };
 
@@ -249,35 +239,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         const snap = (res && res.code === 0 ? res.data?.snapshot : null) as Partial<WorkbenchSnapshot> | null;
         if (snap && typeof snap === 'object') {
           restoredDraftRef.current = true;
-          // Asset
-          const assetUrl = typeof snap.asset_url === 'string' ? snap.asset_url : null;
-          const displayUrl = toDisplayUrl(assetUrl);
-          setLastUploadedUrl(assetUrl);
-          setUploadedFile(displayUrl);
-          setSelectedAssetUrl(displayUrl);
-          setSelectedFileObj(null); // can't restore File
-
-          // Config
-          if (typeof snap.file_name === 'string') setFileName(snap.file_name);
-          if (snap.asset_source === 'product' || snap.asset_source === 'preference' || snap.asset_source === null) {
-            setSelectedAssetSource(snap.asset_source);
-          }
-          if (typeof snap.prompt === 'string') setGenPrompt(snap.prompt);
-          if (typeof snap.duration === 'number') setGenDuration(snap.duration);
-          if (snap.sound === 'on' || snap.sound === 'off') setSoundSetting(snap.sound);
-          if (typeof snap.script_count === 'number') setScriptVariantCount(snap.script_count);
-          if (typeof snap.target_language === 'string') setTargetLanguage(snap.target_language);
-
-          // Scripts
-          if (Array.isArray(snap.script_pages) && snap.script_pages.length > 0) {
-            const pages = snap.script_pages as ScriptPage[];
-            const rawIdx = typeof snap.active_page_index === 'number' ? snap.active_page_index : 0;
-            const idx = Math.min(Math.max(rawIdx, 0), pages.length - 1);
-            setScriptPages(pages);
-            setActiveScriptPage(idx);
-            setScripts(pages[idx]?.scripts || []);
-          }
-
+          restored = true;
           // Template (may arrive before templateList is loaded)
           if (typeof snap.template_id === 'string' && snap.template_id) {
             setPendingTemplateId(snap.template_id);
@@ -291,17 +253,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (cancelled) return;
 
         setWasDraftRestored(restored);
-
-        // If an asset is passed in (e.g. "Use in Workbench"), it should override the restored asset.
-        if (initialFileUrl) {
-          setUploadedFile(initialFileUrl);
-          setSelectedAssetUrl(initialFileUrl);
-          setLastUploadedUrl(initialFileUrl);
-          if (initialFileName) setFileName(initialFileName);
-          setSelectedFileObj(null);
-          setSelectedAssetSource(initialAssetSource || 'preference');
-          setGeneratedVideoUrl(null);
-        }
 
         setIsRestoring(false);
       }
@@ -377,22 +328,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [isRestoring, wasDraftRestored, templateList, selectedTemplate?.id, onSelectTemplate]);
 
   // Keep a best-effort "latest snapshot" for debounce + unmount flush.
-  const normalizedScriptPages: ScriptPage[] = (scriptPages || []).map((p, idx) =>
-    idx === activeScriptPage ? { ...p, scripts } : p
-  );
   latestSnapshotRef.current = {
     version: 1,
-    asset_url: lastUploadedUrl || selectedAssetUrl || null,
-    file_name: fileName,
-    asset_source: selectedAssetSource,
-    prompt: genPrompt,
-    duration: genDuration,
-    sound: soundSetting,
-    script_count: scriptVariantCount,
-    target_language: targetLanguage,
     template_id: (selectedTemplate?.id as string | undefined) || null,
-    script_pages: normalizedScriptPages,
-    active_page_index: activeScriptPage,
     timestamp: Date.now(),
   };
 
@@ -410,23 +348,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     };
-  }, [
-    user?.id,
-    isRestoring,
-    lastUploadedUrl,
-    selectedAssetUrl,
-    fileName,
-    selectedAssetSource,
-    genPrompt,
-    genDuration,
-    soundSetting,
-    scriptVariantCount,
-    targetLanguage,
-    selectedTemplate?.id,
-    scripts,
-    scriptPages,
-    activeScriptPage,
-  ]);
+  }, [user?.id, isRestoring, selectedTemplate?.id]);
 
   // 3) Flush on unmount (e.g. leaving workbench tab) so we don't lose the last edits due to debounce cleanup
   useEffect(() => {

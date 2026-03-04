@@ -213,6 +213,26 @@ body {
 .theme-light .bg-zinc-800, .theme-light .bg-zinc-700, .theme-light .bg-black { background-color: #ffffff !important; color: #0f172a !important; }
 .theme-light .hover\:bg-zinc-700:hover { background-color: #f1f5f9 !important; }
 
+/* Workbench: creation mode toggle (swap hover/non-hover visuals in light mode) */
+.theme-light .creation-mode-toggle button {
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+.theme-light .creation-mode-toggle button[aria-pressed="true"] {
+  background-color: #ffffff !important;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06) !important;
+}
+.theme-light .creation-mode-toggle button[aria-pressed="false"]:hover {
+  background-color: #ffffff !important;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06) !important;
+}
+
+/* Workbench: model card check circle in light mode */
+.theme-light .model-check--inactive {
+  border-color: rgba(15, 23, 42, 0.35) !important;
+}
+
 /* Template icon square (w-12 h-12 bg-zinc-800/80) -> make pale */
 .theme-light .w-12.h-12[class*="bg-zinc-800"] { background-color: #ffffff !important; color: #0f172a !important; border-color: rgba(15,23,42,0.06) !important; }
 

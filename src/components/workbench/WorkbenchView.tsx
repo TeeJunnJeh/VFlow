@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal, 
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
-  MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu
+  MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
+  Zap, Layers, Video, Lock, Info, Check, Sparkles
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -66,6 +67,17 @@ type WorkbenchSnapshot = {
   active_page_index: number;
   timestamp: number; // client timestamp (ms)
 };
+
+const SoraStarIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+    <path
+      d="M12 2.5l2.2 7.3 7.3 2.2-7.3 2.2-2.2 7.3-2.2-7.3-7.3-2.2 7.3-2.2L12 2.5Z"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
 
 // Helper constants
 const RATIO_TO_RES: Record<string, string> = {
@@ -164,6 +176,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [soundSetting, setSoundSetting] = useState<'on' | 'off'>('on');
   const [scriptVariantCount, setScriptVariantCount] = useState<number>(1);
   const [targetLanguage, setTargetLanguage] = useState<string>('en');
+  const [creationMode, setCreationMode] = useState<'fast' | 'replay'>('fast');
+  const lastFastModelRef = useRef<'kling' | 'sora2' | 'sora2pro' | 'seedance2.0'>('kling');
   
   // Processing State
   const [isGenerating, setIsGenerating] = useState(false);
@@ -1252,7 +1266,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   // --- Render Sections ---
   
-  const isSora2Like = selectedModel === 'sora2' || selectedModel === 'sora2pro' || selectedModel === 'kling';
+  useEffect(() => {
+    if (creationMode !== 'fast') return;
+    if (
+      selectedModel === 'kling' ||
+      selectedModel === 'sora2' ||
+      selectedModel === 'sora2pro' ||
+      selectedModel === 'seedance2.0'
+    ) {
+      lastFastModelRef.current = selectedModel;
+    }
+  }, [creationMode, selectedModel]);
+
+  useEffect(() => {
+    if (creationMode !== 'replay') return;
+    if (selectedModel !== 'seedance2.0') setSelectedModel('seedance2.0');
+  }, [creationMode, selectedModel, setSelectedModel]);
+
   const backendModel =
     selectedModel === 'sora2pro'
       ? 'sora-2-pro'
@@ -1284,7 +1314,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       </div>
     );
 
-    const modelSelector = (
+    const legacyModelSelector = (
       <div className="flex flex-col gap-3">
         <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
           <Cpu className="w-3 h-3" /> {t.wb_model_title}
@@ -1332,21 +1362,234 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       </div>
     );
 
-    if (!isSora2Like) {
+    const handleSetCreationMode = (next: 'fast' | 'replay') => {
+      if (next === creationMode) return;
+      if (next === 'replay') {
+        if (
+          selectedModel === 'kling' ||
+          selectedModel === 'sora2' ||
+          selectedModel === 'sora2pro' ||
+          selectedModel === 'seedance2.0'
+        ) {
+          lastFastModelRef.current = selectedModel;
+        }
+        setCreationMode('replay');
+        setSelectedModel('seedance2.0');
+        return;
+      }
+      setCreationMode('fast');
+      setSelectedModel(lastFastModelRef.current || 'kling');
+    };
+
+    const modelOptions: Array<{
+      id: 'kling' | 'sora2' | 'sora2pro' | 'seedance2.0';
+      title: string;
+      desc: string;
+      rate: number;
+      Icon: React.ComponentType<{ className?: string }>;
+    }> = [
+      {
+        id: 'kling',
+        title: language === 'zh' ? '可灵 2.5Turbo' : 'Kling 2.5Turbo',
+        desc: t.wb_model_kling_desc,
+        rate: 20,
+        Icon: Zap,
+      },
+      {
+        id: 'sora2',
+        title: 'Sora 2',
+        desc: t.wb_model_sora2_desc,
+        rate: 100,
+        Icon: SoraStarIcon,
+      },
+      {
+        id: 'sora2pro',
+        title: 'Sora 2 Pro',
+        desc: t.wb_model_sora2pro_desc,
+        rate: 150,
+        Icon: Sparkles,
+      },
+      {
+        id: 'seedance2.0',
+        title: 'Seedance 2.0',
+        desc: t.wb_model_seedance_desc,
+        rate: 50,
+        Icon: Video,
+      },
+    ];
+
+    const renderModelCard = (opt: typeof modelOptions[number]) => {
+      const active = selectedModel === opt.id;
+      const locked = creationMode === 'fast' && opt.id === 'seedance2.0';
       return (
-        <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
-          {modelSelector}
-          <div className="glass-panel rounded-xl p-4 border border-white/10 bg-black/20">
-            <div className="text-xs font-bold text-zinc-300">{t.wb_model_seedance_soon_title}</div>
-            <div className="mt-1 text-[10px] text-zinc-500 leading-relaxed">{t.wb_model_seedance_soon_desc}</div>
+        <button
+          key={opt.id}
+          type="button"
+          onClick={() => {
+            if (locked) return;
+            setSelectedModel(opt.id);
+          }}
+          disabled={locked}
+          className={[
+            'w-full text-left rounded-2xl border p-3 transition flex items-center gap-4',
+            'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+            active
+              ? 'border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10'
+              : 'border-white/10 bg-black/20 hover:bg-white/5',
+            locked ? 'cursor-not-allowed opacity-70' : '',
+          ].join(' ')}
+          aria-pressed={active}
+        >
+          <div
+            className={[
+              'w-10 h-10 rounded-2xl flex items-center justify-center shrink-0',
+              active
+                ? 'bg-orange-500/20 border border-orange-500/30'
+                : 'bg-zinc-900/60 border border-white/10',
+            ].join(' ')}
+          >
+            <opt.Icon className={active ? 'w-5 h-5 text-orange-500' : 'w-5 h-5 text-zinc-400'} />
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="text-[12px] font-black tracking-wide text-zinc-200 truncate">{opt.title}</div>
+            <div
+              className={
+                language === 'zh'
+                  ? 'mt-1 text-[9px] font-medium text-zinc-400 truncate'
+                  : 'mt-1 text-[8px] font-medium text-zinc-400 whitespace-normal break-words leading-snug'
+              }
+            >
+              {opt.desc}
+            </div>
+          </div>
+          {locked ? (
+            <Lock className="w-4 h-4 text-zinc-400 shrink-0" aria-hidden="true" />
+          ) : (
+          <div className="flex flex-col items-center gap-2 shrink-0">
+            <div
+              className={[
+                'model-check w-4 h-4 rounded-full border flex items-center justify-center',
+                active ? 'border-orange-500 bg-orange-500' : 'model-check--inactive border-white/25 bg-transparent',
+              ].join(' ')}
+              aria-hidden="true"
+            >
+              {active ? <Check className="w-2.5 h-2.5 text-white" /> : null}
+            </div>
+            <div
+              className={[
+                'text-[8px] whitespace-nowrap',
+                active ? 'font-bold text-orange-500' : 'font-medium text-zinc-500',
+              ].join(' ')}
+            >
+              {opt.rate}{t.wb_vpoints_per_sec}
+            </div>
+          </div>
+          )}
+        </button>
+      );
+    };
+
+    const modelSelector = (
+      <div className="flex flex-col gap-6">
+        <div>
+          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
+            <Wand2 className="w-3 h-3" /> {t.wb_creation_mode_title}
+          </h2>
+          <div className="creation-mode-toggle mx-3 rounded-2xl bg-white/5 border border-white/10 p-1 flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => handleSetCreationMode('fast')}
+              aria-pressed={creationMode === 'fast'}
+              className={[
+                'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                creationMode === 'fast'
+                  ? 'bg-white text-zinc-900 shadow-md'
+                  : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
+              ].join(' ')}
+            >
+              <Zap className={creationMode === 'fast' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
+              <span className="text-[12px]">{t.wb_creation_mode_fast}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSetCreationMode('replay')}
+              aria-pressed={creationMode === 'replay'}
+              className={[
+                'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                creationMode === 'replay'
+                  ? 'bg-white text-zinc-900 shadow-md'
+                  : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
+              ].join(' ')}
+            >
+              <Layers className={creationMode === 'replay' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
+              <span className="text-[12px]">{t.wb_creation_mode_replay}</span>
+            </button>
           </div>
         </div>
-      );
-    }
+
+        {creationMode === 'fast' ? (
+          <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
+            <div className="mb-3">
+              <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                <ArrowRight className="w-3 h-3 text-zinc-500" />
+                {t.wb_render_power_title}
+              </h2>
+            </div>
+            <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
+          </div>
+        ) : (
+          <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
+            <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+              <ArrowRight className="w-3 h-3 text-zinc-500" />
+              {t.wb_recommend_engine_title}
+            </h2>
+            <div className="w-full text-left rounded-2xl border border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10 p-4 flex items-center gap-4">
+              <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-orange-500/20 border border-orange-500/30">
+                <Video className="w-5 h-5 text-orange-400" />
+              </div>
+              <div className="flex-1 min-w-0"> 
+                <div className={language === 'vi' ? 'flex items-center gap-1.5' : 'flex items-center gap-2'}> 
+                  <div className="text-[12px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div> 
+                  <span
+                    className={[
+                      'rounded-full font-black bg-emerald-500 text-black whitespace-nowrap shrink-0',
+                      language === 'vi' ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-0.5 text-[10px]',
+                    ].join(' ')}
+                  > 
+                    {t.wb_engine_dedicated} 
+                  </span> 
+                </div> 
+                <div 
+                  className={ 
+                    language === 'zh' 
+                      ? 'mt-1 text-[9px] font-medium text-zinc-400 truncate' 
+                      : 'mt-1 text-[8px] font-medium text-zinc-400 whitespace-normal break-words leading-snug' 
+                  } 
+                > 
+                  {t.wb_recommend_engine_desc} 
+                </div> 
+              </div> 
+              <Lock className="w-4 h-4 text-zinc-500 shrink-0" aria-hidden="true" /> 
+            </div> 
+
+            <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 flex items-start gap-2">
+              <Info className="w-3 h-3 text-zinc-400 mt-0.5 shrink-0" />
+              <div className="text-[10px] font-normal text-zinc-400 leading-relaxed">
+                {t.wb_replay_seedance_only}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
 
     return (
     <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
       {modelSelector}
+      {false && legacyModelSelector}
       {/* Upload Section */}
       <div className="flex flex-col gap-3">
         <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
@@ -1573,7 +1816,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       <div className="flex-1 flex overflow-hidden p-6 gap-6">
         {renderLeftColumn()}
         
-        {isSora2Like ? (
         <div className="flex-auto flex flex-col gap-3 h-full min-w-[300px]">
            <div className="flex justify-between items-center shrink-0 h-[32px]">
               <div className="flex items-center gap-3">
@@ -1668,17 +1910,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
            </div>
         </div>
-        ) : (
-          <div className="flex-auto flex flex-col gap-3 h-full min-w-[300px]">
-            <div className="h-full flex flex-col items-center justify-center text-zinc-500 border-2 border-dashed border-zinc-800 rounded-2xl bg-black/20">
-              <Clapperboard className="w-10 h-10 mb-3 opacity-40" />
-              <div className="text-xs font-bold text-zinc-300">{t.wb_model_seedance_soon_title}</div>
-              <div className="mt-1 text-[10px] text-zinc-500 text-center px-6 leading-relaxed">
-                {t.wb_model_seedance_soon_desc}
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Right Column: Preview & Results */}
         <div className="w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full">

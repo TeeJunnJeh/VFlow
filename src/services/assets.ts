@@ -7,6 +7,22 @@ const API_BASE_URL = '/api/assets';
 // In development, keep it empty so Vite's `/media` proxy works.
 const MEDIA_BASE_URL = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
 
+function toDisplayUrl(pathOrUrl: string | null | undefined): string {
+  if (!pathOrUrl) return '';
+  const raw = String(pathOrUrl).trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+
+  // Normalize relative paths like "media/..." -> "/media/..." so Vite proxy works.
+  const normalized = raw.startsWith('/') ? raw : `/${raw}`;
+
+  // If a base URL is configured (prod), prepend it for media paths.
+  if (MEDIA_BASE_URL && normalized.startsWith('/media/')) {
+    return `${MEDIA_BASE_URL}${normalized}`;
+  }
+  return normalized;
+}
+
 // Frontend Interface
 export interface Asset {
   id: string;
@@ -110,12 +126,7 @@ export const assetsApi = {
           (item as any).path ||
           '';
 
-        // If the URL is relative (e.g. "/media/uploads..."), optionally prepend a configured base URL.
-        // Otherwise keep it relative so it can be served by current origin (or Vite proxy in dev).
-        let fullUrl = rawUrl;
-        if (fullUrl && fullUrl.startsWith('/') && MEDIA_BASE_URL) {
-          fullUrl = `${MEDIA_BASE_URL}${fullUrl}`;
-        }
+        const fullUrl = toDisplayUrl(rawUrl);
 
         return {
           id: item.id.toString(),
@@ -157,7 +168,13 @@ export const assetsApi = {
       });
 
       if (!response.ok) throw new Error('Upload failed');
-      return await response.json();
+      const json = await response.json();
+
+      // Normalize common backend shapes so callers can reliably use `resp.data`.
+      // Backend currently returns: { assets: [{ id, name, url }], ... }
+      // Some other deployments may return: { data: { ... } }
+      const data = (json?.data || (Array.isArray(json?.assets) ? json.assets[0] : null) || json?.asset || null) as any;
+      return data ? { ...json, data } : json;
     } catch (error) {
       console.error("Upload Error:", error);
       throw error;

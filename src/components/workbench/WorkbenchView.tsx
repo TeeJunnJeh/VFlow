@@ -98,13 +98,6 @@ const TARGET_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: LangLabelKey }> 
   { value: 'vi', labelKey: 'lang_vi' },
 ];
 
-const toDisplayUrl = (path: string | null): string | null => {
-  if (!path) return null;
-  if (path.startsWith('http')) return path;
-  const mediaBaseUrl = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
-  return mediaBaseUrl ? `${mediaBaseUrl}${path}` : path;
-};
-
 interface WorkbenchViewProps {
   initialFileUrl?: string | null;
   initialFileName?: string;
@@ -168,6 +161,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [targetLanguage, setTargetLanguage] = useState<string>('en');
   const [creationMode, setCreationMode] = useState<'fast' | 'replay'>('fast');
   const lastFastModelRef = useRef<'kling' | 'sora2' | 'sora2pro' | 'seedance2.0'>('kling');
+  const templateModelAsset = selectedTemplate?.default_model_asset ?? null;
   
   // Processing State
   const [isGenerating, setIsGenerating] = useState(false);
@@ -193,9 +187,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [selectedQueueAssetId, setSelectedQueueAssetId] = useState<string | null>(null);
 
   // --- Effects ---
+
+  // Inject an asset from the Asset Library ("用于工作台") into the workbench.
+  // Because WorkbenchView is permanently mounted (shown/hidden via CSS), the
+  // useState initial values for initialFileUrl are set only once at mount. We
+  // need a useEffect that watches the prop and updates internal state whenever
+  // a new asset URL is pushed in from the parent.
+  useEffect(() => {
+    if (!initialFileUrl) return;
+    setUploadedFile(initialFileUrl);
+    setSelectedAssetUrl(initialFileUrl);
+    setLastUploadedUrl(initialFileUrl);
+    setSelectedFileObj(null);
+    if (initialFileName) setFileName(initialFileName);
+    if (initialAssetSource) setSelectedAssetSource(initialAssetSource);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFileUrl]);
+
   useEffect(() => {
     // Reset or update duration when template changes
-    if (!selectedTemplate) return;
+    if (!selectedTemplate) {
+      return;
+    }
 
     // When we apply a restored template, keep the duration we restored from the snapshot.
     if (skipTemplateDurationSyncRef.current) {
@@ -205,6 +218,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     // During draft restore we may set duration from snapshot; don't override it.
     if (!isRestoring) setGenDuration(selectedTemplate.duration);
+
   }, [selectedTemplate, isRestoring]);
 
   // When the preview video changes, reset play state until we receive onPlay/onPause from the new element.
@@ -930,6 +944,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 asset_source: asset.source,
                 user_language: language,
                 target_language: targetLanguage,
+                model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
               };
 
               const genResp = await videoApi.generate(payload);
@@ -1043,6 +1058,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           asset_source: selectedAssetSource,
           user_language: language,
           target_language: targetLanguage,
+          model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
         };
 
         console.log("🚀 Sending Generation Request:", payload);
@@ -1659,6 +1675,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 	                  optionClassName="text-xs"
 	                />
               </div>
+           </div>
+
+           {/* Default Model Asset – selectable dropdown, refreshes on open */}
+           <div>
+             <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_model_label}</label>
+             {templateModelAsset ? (
+               <div className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2">
+                 <div className="flex items-center gap-2">
+                   <img
+                     src={templateModelAsset.url}
+                     alt={templateModelAsset.display_name}
+                     className="w-6 h-6 rounded-md object-cover border border-white/10 shrink-0"
+                   />
+                   <span className="text-xs text-zinc-200 font-bold truncate">{templateModelAsset.display_name}</span>
+                 </div>
+               </div>
+             ) : (
+               <div className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-400 font-bold">
+                 {t.wb_config_model_smart}
+               </div>
+             )}
            </div>
 
            {/* Restored Inputs: Prompt, Duration, Audio, Count */}

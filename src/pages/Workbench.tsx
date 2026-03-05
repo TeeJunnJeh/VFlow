@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { templatesApi, type Template } from '../services/templates';
@@ -17,9 +17,11 @@ import { WorkbenchModelProvider } from '../context/WorkbenchModelContext';
 // Helper to get display URL for asset passing
 const getDisplayUrl = (path: string | null): string | null => {
   if (!path) return null;
-  if (path.startsWith('http')) return path;
+  if (/^https?:\/\//i.test(path) || path.startsWith('data:') || path.startsWith('blob:')) return path;
   const mediaBaseUrl = import.meta.env.VITE_MEDIA_BASE_URL || '';
-  return mediaBaseUrl ? `${mediaBaseUrl}${path}` : path;
+  const normalized = path.startsWith('/') ? path : `/${path}`;
+  if (mediaBaseUrl && normalized.startsWith('/media/')) return `${mediaBaseUrl}${normalized}`;
+  return normalized;
 };
 
 const Workbench = () => {
@@ -85,7 +87,10 @@ const Workbench = () => {
         latest.aspect_ratio === prev.aspect_ratio &&
         latest.duration === prev.duration &&
         latest.shot_number === prev.shot_number &&
-        (latest.custom_config ?? '') === (prev.custom_config ?? '');
+        (latest.custom_config ?? '') === (prev.custom_config ?? '') &&
+        (latest.default_model_asset?.id ?? null) === (prev.default_model_asset?.id ?? null) &&
+        (latest.default_model_asset?.display_name ?? '') === (prev.default_model_asset?.display_name ?? '') &&
+        (latest.default_model_asset?.url ?? '') === (prev.default_model_asset?.url ?? '');
 
       return isSame ? prev : latest;
     });

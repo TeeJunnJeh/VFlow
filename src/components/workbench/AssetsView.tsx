@@ -525,6 +525,28 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     });
   };
 
+  // Returns the full path of the current move target folder, e.g. "FolderA / SubB"
+  // const getMoveTargetDisplayPath = () => {
+  //   if (!moveTargetFolderId) return t.assets_move_root;
+  //   if (moveFolders.length === 0) return '...';
+  //   const parentMap = new Map<string, string | null>();
+  //   const nameMap = new Map<string, string>();
+  //   for (const f of moveFolders) {
+  //     parentMap.set(f.id, f.parent_id ?? null);
+  //     nameMap.set(f.id, f.name);
+  //   }
+  //   const parts: string[] = [];
+  //   let cur: string | null = moveTargetFolderId;
+  //   const visited = new Set<string>();
+  //   while (cur && !visited.has(cur)) {
+  //     visited.add(cur);
+  //     const name = nameMap.get(cur);
+  //     if (name) parts.unshift(name);
+  //     cur = parentMap.get(cur) ?? null;
+  //   }
+  //   return parts.length > 0 ? parts.join(' / ') : t.assets_move_root;
+  // };
+
   return (
     <div
       className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300 relative"
@@ -853,25 +875,26 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
                           return (
                             <div key={node.id}>
-                              <div
-                                className={`w-full px-3 py-2 text-[13px] flex items-center justify-between select-none ${
-                                  isSelected ? 'bg-white/5 text-white' : `hover:bg-white/5 ${depthText}`
+                              <button
+                                type="button"
+                                className={`w-full text-left px-3 py-2 text-[13px] flex items-center justify-between select-none ${
+                                  isSelected ? 'bg-orange-500/15 text-white font-medium' : `hover:bg-white/5 ${depthText}`
                                 }`}
                                 style={{ paddingLeft: 12 + depth * 14 }}
                                 onClick={() => { setMoveTargetFolderId(node.id); setIsMoveDropdownOpen(false); }}
                               >
                                 <span className="truncate">{node.name}</span>
                                 {hasChildren && (
-                                  <button
-                                    type="button"
-                                    className="ml-2 w-6 h-6 rounded-md hover:bg-white/5 text-zinc-400 hover:text-white flex items-center justify-center"
+                                  <span
+                                    role="button"
+                                    className="ml-2 w-6 h-6 rounded-md hover:bg-white/5 text-zinc-400 hover:text-white flex items-center justify-center shrink-0"
                                     onClick={(e) => { e.stopPropagation(); toggleMoveExpanded(node.id); }}
                                     aria-label={isExpanded ? 'Collapse folder' : 'Expand folder'}
                                   >
                                     {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                                  </button>
+                                  </span>
                                 )}
-                              </div>
+                              </button>
                               {hasChildren && isExpanded && children.map(c => renderNode(c, depth + 1))}
                             </div>
                           );

@@ -1303,7 +1303,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   onClick={() => setSelectedModel('kling')}
                   className={`${segmentBase} ${language === 'zh' ? 'text-[11px]' : ''} ${selectedModel === 'kling' ? activeSegment : inactiveSegment}`}
               >
-                {language === 'zh' ? '可灵2.5Turbo' : 'Kling2.5Turbo'}
+                {language === 'zh' ? '可灵v2.6' : 'Kling-v2.6'}
                 {tooltip(t.wb_model_tip_sora_kling, 'left')}
               </button>
               <button

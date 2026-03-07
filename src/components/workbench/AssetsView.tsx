@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  FolderPlus, Upload, Loader2, Folder, Eye, X, CheckCircle, Circle, ChevronDown, ChevronRight
+  FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { assetsApi, type Asset, type AssetFolder } from '../../services/assets';
@@ -60,6 +60,15 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [openFolderMenuId, setOpenFolderMenuId] = useState<string | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
+
+  // Inline rename (asset)
+  const [renamingAssetId, setRenamingAssetId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [isSavingRename, setIsSavingRename] = useState(false);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const renameIgnoreBlurRef = useRef(false);
+  const suppressPreviewClickUntilRef = useRef<number>(0);
+  const suppressDragUntilRef = useRef<number>(0);
   
   // --- Modal States ---
   
@@ -141,6 +150,17 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     }
   }, [isSelectionMode, selectedAssetIds.size]);
 
+  useEffect(() => {
+    if (!renamingAssetId) return;
+    const timer = window.setTimeout(() => {
+      const el = renameInputRef.current;
+      if (!el) return;
+      el.focus();
+      el.select();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [renamingAssetId]);
+
   const uploadFiles = async (files: FileList | File[]) => {
     const errors: string[] = [];
     const validFiles: File[] = [];
@@ -200,6 +220,42 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     } catch (err) {
       console.error(err);
       alert("Failed to delete asset");
+    }
+  };
+
+  const beginRenameAsset = (asset: Asset) => {
+    setRenamingAssetId(asset.id);
+    setRenameDraft(asset.name || '');
+  };
+
+  const cancelRenameAsset = () => {
+    setRenamingAssetId(null);
+    setRenameDraft('');
+    setIsSavingRename(false);
+    renameIgnoreBlurRef.current = false;
+  };
+
+  const commitRenameAsset = async (asset: Asset) => {
+    if (isSavingRename) return;
+    const nextName = renameDraft.trim();
+    if (!nextName || nextName === asset.name) {
+      cancelRenameAsset();
+      return;
+    }
+
+    setIsSavingRename(true);
+    renameIgnoreBlurRef.current = true;
+    try {
+      const resp = await assetsApi.renameAsset(asset.id, nextName);
+      const serverName = (resp?.display_name || resp?.name || nextName) as string;
+      setAssetList(prev => prev.map(a => (a.id === asset.id ? { ...a, name: serverName } : a)));
+      cancelRenameAsset();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to rename asset");
+      cancelRenameAsset();
+    } finally {
+      renameIgnoreBlurRef.current = false;
     }
   };
 
@@ -525,6 +581,28 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     });
   };
 
+  // Returns the full path of the current move target folder, e.g. "FolderA / SubB"
+  // const getMoveTargetDisplayPath = () => {
+  //   if (!moveTargetFolderId) return t.assets_move_root;
+  //   if (moveFolders.length === 0) return '...';
+  //   const parentMap = new Map<string, string | null>();
+  //   const nameMap = new Map<string, string>();
+  //   for (const f of moveFolders) {
+  //     parentMap.set(f.id, f.parent_id ?? null);
+  //     nameMap.set(f.id, f.name);
+  //   }
+  //   const parts: string[] = [];
+  //   let cur: string | null = moveTargetFolderId;
+  //   const visited = new Set<string>();
+  //   while (cur && !visited.has(cur)) {
+  //     visited.add(cur);
+  //     const name = nameMap.get(cur);
+  //     if (name) parts.unshift(name);
+  //     cur = parentMap.get(cur) ?? null;
+  //   }
+  //   return parts.length > 0 ? parts.join(' / ') : t.assets_move_root;
+  // };
+
   return (
     <div
       className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300 relative"
@@ -733,8 +811,14 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                         <div
                           key={asset.id}
                           className={`glass-card rounded-2xl p-2 group relative aspect-[3/4] ${draggingAsset?.id === asset.id ? 'opacity-60' : ''} ${isSelectionMode && isSelected ? 'ring-2 ring-orange-500/70' : ''}`}
-                          draggable={!isSelectionMode}
-                          onDragStart={isSelectionMode ? undefined : (e) => beginDragAsset(asset, e)}
+                          draggable={!isSelectionMode && renamingAssetId !== asset.id}
+                          onDragStart={isSelectionMode ? undefined : (e) => {
+                            if (renamingAssetId || Date.now() < suppressDragUntilRef.current) {
+                              e.preventDefault();
+                              return;
+                            }
+                            beginDragAsset(asset, e);
+                          }}
                           onDragEnd={isSelectionMode ? undefined : endDragAsset}
                         >
                           {isSelectionMode && (
@@ -749,6 +833,11 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           <div
                             className={`w-full h-full bg-zinc-800 rounded-xl overflow-hidden relative ${isSelectionMode ? 'cursor-pointer' : 'cursor-zoom-in'}`}
                             onClick={() => {
+                              if (Date.now() < suppressPreviewClickUntilRef.current) {
+                                suppressPreviewClickUntilRef.current = 0;
+                                return;
+                              }
+                              if (renamingAssetId === asset.id) return;
                               if (isSelectionMode) {
                                 toggleAssetSelection(asset.id);
                                 return;
@@ -768,25 +857,85 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                               <div className="absolute inset-0 flex items-center justify-center text-zinc-600">No Preview</div>
                             )}
                             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 asset-thumb-fade" />
-                            <div className="absolute bottom-1 left-2.5 right-2.5">
-                              <div className="text-xs font-bold truncate asset-meta-name" title={asset.name}>
-                                {asset.name}
+
+                            {/* Info bar (always on top) */}
+                            <div className="absolute bottom-1 left-2.5 right-2.5 z-30 pointer-events-auto">
+                              <div className="flex items-center gap-1.5">
+                                {renamingAssetId === asset.id ? (
+                                  <input
+                                    ref={renameInputRef}
+                                    value={renameDraft}
+                                    disabled={isSavingRename}
+                                    className="min-w-0 flex-1 bg-black/40 text-zinc-100 text-xs font-bold rounded-md border border-white/10 px-2 py-1 focus:outline-none focus:border-orange-500/50"
+                                    onChange={(e) => setRenameDraft(e.target.value)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onMouseDown={(e) => {
+                                      e.stopPropagation();
+                                      suppressDragUntilRef.current = Date.now() + 500;
+                                    }}
+                                    onDragStart={(e) => e.preventDefault()}
+                                    onBlur={() => {
+                                      if (renameIgnoreBlurRef.current) return;
+                                      // Prevent the click that caused blur from also opening preview.
+                                      suppressPreviewClickUntilRef.current = Date.now() + 350;
+                                      void commitRenameAsset(asset);
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        void commitRenameAsset(asset);
+                                      }
+                                      if (e.key === 'Escape') {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        cancelRenameAsset();
+                                      }
+                                    }}
+                                  />
+                                ) : (
+                                  <div
+                                    className="min-w-0 flex items-center gap-1 cursor-text"
+                                    title={asset.name}
+                                    onMouseDown={(e) => {
+                                      e.stopPropagation();
+                                      suppressDragUntilRef.current = Date.now() + 500;
+                                    }}
+                                    onClick={(e) => { e.stopPropagation(); beginRenameAsset(asset); }}
+                                  >
+                                    <span className="min-w-0 truncate text-xs font-bold asset-meta-name hover:underline decoration-white/30">
+                                      {asset.name}
+                                    </span>
+                                    {renamingAssetId !== asset.id && !isSelectionMode && (
+                                      <button
+                                        type="button"
+                                        aria-label={t.assets_folder_menu_rename}
+                                        title={t.assets_folder_menu_rename}
+                                        className="shrink-0 rounded-md p-1 text-zinc-200/80 hover:text-white hover:bg-white/10 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition"
+                                        onClick={(e) => { e.stopPropagation(); beginRenameAsset(asset); }}
+                                      >
+                                        <Pencil className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                               <div className="text-[11px] asset-meta-size">
                                 {asset.size}
                               </div>
                             </div>
-                          </div>
-                          {!isSelectionMode && (
-                            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-2xl flex flex-col items-center justify-center gap-2 p-4">
-                              <button onClick={(e) => { e.stopPropagation(); onSelectAsset(asset); }} className="w-full bg-white text-black py-2 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition shadow-lg">{t.assets_use_in_workbench}</button>
-                              <button onClick={(e) => { e.stopPropagation(); setAssetPreview(asset); setIsAssetPreviewOpen(true); }} className="w-full bg-zinc-700 text-white py-2 rounded-lg text-xs font-bold hover:bg-zinc-600 transition flex items-center justify-center gap-2"><Eye className="w-3.5 h-3.5" /> {t.assets_view_image}</button>
-                              <div className="flex w-full gap-2">
-                                <button onClick={(e) => { e.stopPropagation(); openSingleMoveDialog(asset); }} className="flex-1 bg-zinc-700 text-white py-2 rounded-lg text-xs font-bold hover:bg-zinc-600 transition">{t.assets_move_asset}</button>
-                                <button onClick={(e) => { e.stopPropagation(); openConfirmModal({ title: t.assets_confirm_delete_asset, message: `${asset.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => deleteAssetById(asset.id) }); }} className="flex-1 bg-zinc-800 text-red-400 py-2 rounded-lg text-xs font-bold hover:bg-red-500 hover:text-white transition">{t.assets_delete}</button>
+
+                            {/* Hover actions (under info bar) */}
+                            {!isSelectionMode && (
+                              <div className="absolute inset-0 z-10 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-xl flex flex-col items-center justify-center gap-2 py-4 px-2">
+                                <button onClick={(e) => { e.stopPropagation(); onSelectAsset(asset); }} className="w-full bg-white text-black py-2 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition shadow-lg">{t.assets_use_in_workbench}</button>
+                                <div className="flex w-full gap-2">
+                                  <button onClick={(e) => { e.stopPropagation(); openSingleMoveDialog(asset); }} className="flex-1 bg-zinc-700 text-white py-2 rounded-lg text-xs font-bold hover:bg-zinc-600 transition">{t.assets_move_asset}</button>
+                                  <button onClick={(e) => { e.stopPropagation(); openConfirmModal({ title: t.assets_confirm_delete_asset, message: `${asset.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => deleteAssetById(asset.id) }); }} className="flex-1 bg-zinc-800 text-red-400 py-2 rounded-lg text-xs font-bold hover:bg-red-500 hover:text-white transition">{t.assets_delete}</button>
+                                </div>
                               </div>
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -800,10 +949,15 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
        {/* 1. Preview Modal */}
        {isAssetPreviewOpen && assetPreview && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6" onClick={() => setIsAssetPreviewOpen(false)}>
-            <div className="glass-panel rounded-2xl p-4 md:p-6 border border-white/10 w-auto max-w-[calc(100vw-3rem)]" onClick={(e) => e.stopPropagation()}>
+            <div className="glass-panel rounded-2xl p-4 md:p-6 border border-white/10 w-auto max-w-[calc(100vw-3rem)] max-h-[calc(100vh-3rem)] overflow-auto">
               <div className="flex items-center justify-between gap-4 mb-4"><div className="min-w-0"><h3 className="text-sm font-bold text-zinc-200">{t.assets_preview_title}</h3><div className="text-xs text-zinc-500 truncate">{assetPreview.name}</div></div><button className="text-zinc-400 hover:text-white" onClick={() => setIsAssetPreviewOpen(false)}><X className="w-5 h-5"/></button></div>
               <div className="flex items-center justify-center">
-                 <img src={getDisplayUrl(assetPreview.file_url) || ASSET_PLACEHOLDER_DATA_URL} alt={assetPreview.name} className="block rounded-lg" style={{ maxWidth: 'calc(100vw - 6rem)', maxHeight: '72vh', width: 'auto', height: 'auto' }} onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }} />
+                 <img
+                   src={getDisplayUrl(assetPreview.file_url) || ASSET_PLACEHOLDER_DATA_URL}
+                   alt={assetPreview.name}
+                   className="block rounded-lg max-w-full max-h-[calc(100vh-10rem)] object-contain"
+                   onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }}
+                 />
               </div>
             </div>
           </div>
@@ -853,25 +1007,26 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
                           return (
                             <div key={node.id}>
-                              <div
-                                className={`w-full px-3 py-2 text-[13px] flex items-center justify-between select-none ${
-                                  isSelected ? 'bg-white/5 text-white' : `hover:bg-white/5 ${depthText}`
+                              <button
+                                type="button"
+                                className={`w-full text-left px-3 py-2 text-[13px] flex items-center justify-between select-none ${
+                                  isSelected ? 'bg-orange-500/15 text-white font-medium' : `hover:bg-white/5 ${depthText}`
                                 }`}
                                 style={{ paddingLeft: 12 + depth * 14 }}
                                 onClick={() => { setMoveTargetFolderId(node.id); setIsMoveDropdownOpen(false); }}
                               >
                                 <span className="truncate">{node.name}</span>
                                 {hasChildren && (
-                                  <button
-                                    type="button"
-                                    className="ml-2 w-6 h-6 rounded-md hover:bg-white/5 text-zinc-400 hover:text-white flex items-center justify-center"
+                                  <span
+                                    role="button"
+                                    className="ml-2 w-6 h-6 rounded-md hover:bg-white/5 text-zinc-400 hover:text-white flex items-center justify-center shrink-0"
                                     onClick={(e) => { e.stopPropagation(); toggleMoveExpanded(node.id); }}
                                     aria-label={isExpanded ? 'Collapse folder' : 'Expand folder'}
                                   >
                                     {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                                  </button>
+                                  </span>
                                 )}
-                              </div>
+                              </button>
                               {hasChildren && isExpanded && children.map(c => renderNode(c, depth + 1))}
                             </div>
                           );

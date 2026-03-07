@@ -10,6 +10,7 @@ type DropdownSelectProps = {
   value: string;
   options: DropdownSelectOption[];
   onChange: (value: string) => void;
+  onOpen?: () => void;
   placeholder?: React.ReactNode;
   disabled?: boolean;
   buttonClassName?: string;
@@ -23,6 +24,7 @@ export const DropdownSelect: React.FC<DropdownSelectProps> = ({
   value,
   options,
   onChange,
+  onOpen,
   placeholder = 'Select…',
   disabled = false,
   buttonClassName = '',
@@ -49,7 +51,7 @@ export const DropdownSelect: React.FC<DropdownSelectProps> = ({
       <button
         type="button"
         disabled={disabled}
-        onClick={() => setIsOpen((v) => !v)}
+        onClick={() => { const next = !isOpen; setIsOpen(next); if (next && onOpen) onOpen(); }}
         className={`relative w-full focus:outline-none transition ${
           disabled ? 'opacity-60 cursor-not-allowed' : ''
         } ${buttonClassName}`}

@@ -204,7 +204,25 @@ export const assetsApi = {
     }
   },
 
-  // 4. FOLDERS
+  // 4. RENAME (Asset)
+  renameAsset: async (assetId: string, displayName: string) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/${assetId}/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ display_name: displayName }),
+    });
+
+    if (!response.ok) throw new Error(await readApiError(response));
+    return await response.json();
+  },
+
+  // 5. FOLDERS
   getFolders: async (params: { type: 'model' | 'product' | 'scene'; parentId: string | null }) => {
     const search = new URLSearchParams();
     search.set('type', params.type.toUpperCase());

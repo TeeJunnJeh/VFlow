@@ -13,22 +13,6 @@ const API_BASE_URL = '/api/assets';
 // In development, keep it empty so Vite's `/media` proxy works.
 const MEDIA_BASE_URL = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
 
-function toDisplayUrl(pathOrUrl: string | null | undefined): string {
-  if (!pathOrUrl) return '';
-  const raw = String(pathOrUrl).trim();
-  if (!raw) return '';
-  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
-
-  // Normalize relative paths like "media/..." -> "/media/..." so Vite proxy works.
-  const normalized = raw.startsWith('/') ? raw : `/${raw}`;
-
-  // If a base URL is configured (prod), prepend it for media paths.
-  if (MEDIA_BASE_URL && normalized.startsWith('/media/')) {
-    return `${MEDIA_BASE_URL}${normalized}`;
-  }
-  return normalized;
-}
-
 // Frontend Interface
 export interface Asset {
   id: string;
@@ -138,7 +122,6 @@ export const assetsApi = {
         if (fullUrl && fullUrl.startsWith('/') && MEDIA_BASE_URL) {
           fullUrl = `${MEDIA_BASE_URL}${fullUrl}`;
         }
-        const fullUrl = toDisplayUrl(rawUrl);
 
         return {
           id: item.id.toString(),
@@ -208,14 +191,6 @@ export const assetsApi = {
       console.log('✅ [Django] 后端保存成功:', result);
       return result;
 
-      if (!response.ok) throw new Error('Upload failed');
-      const json = await response.json();
-
-      // Normalize common backend shapes so callers can reliably use `resp.data`.
-      // Backend currently returns: { assets: [{ id, name, url }], ... }
-      // Some other deployments may return: { data: { ... } }
-      const data = (json?.data || (Array.isArray(json?.assets) ? json.assets[0] : null) || json?.asset || null) as any;
-      return data ? { ...json, data } : json;
     } catch (error) {
       console.error("Upload Error:", error);
       throw error;
@@ -245,25 +220,7 @@ export const assetsApi = {
     }
   },
 
-  // 4. RENAME (Asset)
-  renameAsset: async (assetId: string, displayName: string) => {
-    const csrftoken = getCookie('csrftoken');
-    const response = await fetch(`${API_BASE_URL}/${assetId}/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': csrftoken || '',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      credentials: 'include',
-      body: JSON.stringify({ display_name: displayName }),
-    });
-
-    if (!response.ok) throw new Error(await readApiError(response));
-    return await response.json();
-  },
-
-  // 5. FOLDERS
+  // 4. FOLDERS
   getFolders: async (params: { type: 'model' | 'product' | 'scene'; parentId: string | null }) => {
     const search = new URLSearchParams();
     search.set('type', params.type.toUpperCase());

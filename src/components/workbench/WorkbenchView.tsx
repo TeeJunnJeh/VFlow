@@ -2,8 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
-  MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
-  Zap, Layers, Video, Lock, Info, Check, Sparkles
+  MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -54,20 +53,19 @@ type QueuedScript = {
 // Keep it JSON-serializable (no File / Blob / functions).
 type WorkbenchSnapshot = {
   version: 1;
+  asset_url: string | null; // URL or "/media/..." path (backend accepts both)
+  file_name: string;
+  asset_source: 'product' | 'preference' | null;
+  prompt: string;
+  duration: number;
+  sound: 'on' | 'off';
+  script_count: number;
+  target_language: string;
   template_id: string | null;
+  script_pages: ScriptPage[];
+  active_page_index: number;
   timestamp: number; // client timestamp (ms)
 };
-
-const SoraStarIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
-    <path
-      d="M12 2.5l2.2 7.3 7.3 2.2-7.3 2.2-2.2 7.3-2.2-7.3-7.3-2.2 7.3-2.2L12 2.5Z"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
 
 // Helper constants
 const RATIO_TO_RES: Record<string, string> = {
@@ -170,10 +168,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [scriptVariantCount, setScriptVariantCount] = useState<number>(1);
   const [targetLanguage, setTargetLanguage] = useState<string>('en');
 
-  const [creationMode, setCreationMode] = useState<'fast' | 'replay'>('fast');
-  const lastFastModelRef = useRef<'kling' | 'sora2' | 'sora2pro' | 'seedance2.0'>('kling');
-  const templateModelAsset = selectedTemplate?.default_model_asset ?? null;
-  
   // Processing State
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
@@ -199,28 +193,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [selectedQueueAssetId, setSelectedQueueAssetId] = useState<string | null>(null);
 
   // --- Effects ---
-
-  // Inject an asset from the Asset Library ("用于工作台") into the workbench.
-  // Because WorkbenchView is permanently mounted (shown/hidden via CSS), the
-  // useState initial values for initialFileUrl are set only once at mount. We
-  // need a useEffect that watches the prop and updates internal state whenever
-  // a new asset URL is pushed in from the parent.
-  useEffect(() => {
-    if (!initialFileUrl) return;
-    setUploadedFile(initialFileUrl);
-    setSelectedAssetUrl(initialFileUrl);
-    setLastUploadedUrl(initialFileUrl);
-    setSelectedFileObj(null);
-    if (initialFileName) setFileName(initialFileName);
-    if (initialAssetSource) setSelectedAssetSource(initialAssetSource);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialFileUrl]);
-
   useEffect(() => {
     // Reset or update duration when template changes
-    if (!selectedTemplate) {
-      return;
-    }
+    if (!selectedTemplate) return;
 
     // When we apply a restored template, keep the duration we restored from the snapshot.
     if (skipTemplateDurationSyncRef.current) {
@@ -230,7 +205,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     // During draft restore we may set duration from snapshot; don't override it.
     if (!isRestoring) setGenDuration(selectedTemplate.duration);
-
   }, [selectedTemplate, isRestoring]);
 
   // When the preview video changes, reset play state until we receive onPlay/onPause from the new element.
@@ -265,7 +239,35 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         const snap = (res && res.code === 0 ? res.data?.snapshot : null) as Partial<WorkbenchSnapshot> | null;
         if (snap && typeof snap === 'object') {
           restoredDraftRef.current = true;
-          restored = true;
+          // Asset
+          const assetUrl = typeof snap.asset_url === 'string' ? snap.asset_url : null;
+          const displayUrl = toDisplayUrl(assetUrl);
+          setLastUploadedUrl(assetUrl);
+          setUploadedFile(displayUrl);
+          setSelectedAssetUrl(displayUrl);
+          setSelectedFileObj(null); // can't restore File
+
+          // Config
+          if (typeof snap.file_name === 'string') setFileName(snap.file_name);
+          if (snap.asset_source === 'product' || snap.asset_source === 'preference' || snap.asset_source === null) {
+            setSelectedAssetSource(snap.asset_source);
+          }
+          if (typeof snap.prompt === 'string') setGenPrompt(snap.prompt);
+          if (typeof snap.duration === 'number') setGenDuration(snap.duration);
+          if (snap.sound === 'on' || snap.sound === 'off') setSoundSetting(snap.sound);
+          if (typeof snap.script_count === 'number') setScriptVariantCount(snap.script_count);
+          if (typeof snap.target_language === 'string') setTargetLanguage(snap.target_language);
+
+          // Scripts
+          if (Array.isArray(snap.script_pages) && snap.script_pages.length > 0) {
+            const pages = snap.script_pages as ScriptPage[];
+            const rawIdx = typeof snap.active_page_index === 'number' ? snap.active_page_index : 0;
+            const idx = Math.min(Math.max(rawIdx, 0), pages.length - 1);
+            setScriptPages(pages);
+            setActiveScriptPage(idx);
+            setScripts(pages[idx]?.scripts || []);
+          }
+
           // Template (may arrive before templateList is loaded)
           if (typeof snap.template_id === 'string' && snap.template_id) {
             setPendingTemplateId(snap.template_id);
@@ -279,6 +281,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (cancelled) return;
 
         setWasDraftRestored(restored);
+
+        // If an asset is passed in (e.g. "Use in Workbench"), it should override the restored asset.
+        if (initialFileUrl) {
+          setUploadedFile(initialFileUrl);
+          setSelectedAssetUrl(initialFileUrl);
+          setLastUploadedUrl(initialFileUrl);
+          if (initialFileName) setFileName(initialFileName);
+          setSelectedFileObj(null);
+          setSelectedAssetSource(initialAssetSource || 'preference');
+          setGeneratedVideoUrl(null);
+        }
 
         setIsRestoring(false);
       }
@@ -359,7 +372,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   );
   latestSnapshotRef.current = {
     version: 1,
+    asset_url: lastUploadedUrl || selectedAssetUrl || null,
+    file_name: fileName,
+    asset_source: selectedAssetSource,
+    prompt: genPrompt,
+    duration: genDuration,
+    sound: soundSetting,
+    script_count: scriptVariantCount,
+    target_language: targetLanguage,
     template_id: (selectedTemplate?.id as string | undefined) || null,
+    script_pages: normalizedScriptPages,
+    active_page_index: activeScriptPage,
     timestamp: Date.now(),
   };
 
@@ -377,7 +400,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     };
-  }, [user?.id, isRestoring, selectedTemplate?.id]);
+  }, [
+    user?.id,
+    isRestoring,
+    lastUploadedUrl,
+    selectedAssetUrl,
+    fileName,
+    selectedAssetSource,
+    genPrompt,
+    genDuration,
+    soundSetting,
+    scriptVariantCount,
+    targetLanguage,
+    selectedTemplate?.id,
+    scripts,
+    scriptPages,
+    activeScriptPage,
+  ]);
 
   // 3) Flush on unmount (e.g. leaving workbench tab) so we don't lose the last edits due to debounce cleanup
   useEffect(() => {
@@ -661,7 +700,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const shots = selectedTemplate?.shot_number || 5;
 
       const payload = {
-        model: backendModel,
         // Root level prompt for backend safety
         user_prompt: promptText,
         prompt: promptText,
@@ -903,125 +941,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       if (!user?.id) {
         alert("请先登录");
-      // 1. Batch Generation (Reuse Queue)
-      if (assetQueue.length > 0 || scriptQueue.length > 0) {
-        if (assetQueue.length === 0 || scriptQueue.length === 0) {
-          alert("批量生成需要同时加入素材队列和脚本队列");
-          return;
-        }
-        if (!user?.id) {
-          alert("请先登录");
-          return;
-        }
-
-        setIsGenerating(true);
-        setGeneratedVideoUrl(null);
-
-        try {
-          const batchItems: Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }> = [];
-
-          // 1) 处理素材：上传或复用已有路径
-          const preparedAssets = await Promise.all(assetQueue.map(async (asset) => {
-            let apiPath = asset.uploadedPath || asset.assetUrl || null;
-
-            if (!apiPath && asset.fileObj) {
-              const uploadResp = await assetsApi.uploadAsset(asset.fileObj, 'product');
-              let rawPath = null;
-              if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
-                rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
-              } else {
-                rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
-              }
-              if (!rawPath) throw new Error("素材上传后未返回路径");
-              apiPath = rawPath;
-
-              // 记录已上传路径，避免重复上传
-              setAssetQueue(prev => prev.map(a => a.id === asset.id ? { ...a, uploadedPath: apiPath } : a));
-            }
-
-            if (!apiPath) throw new Error(`无法获取素材路径：${asset.name}`);
-
-            return { ...asset, apiPath };
-          }));
-
-          // 2) 逐条提交任务（素材 × 脚本）
-          for (const asset of preparedAssets) {
-            for (const scriptPack of scriptQueue) {
-              const combinedScriptPrompt = scriptPack.scripts.map(s => {
-                const audioMarker = s.audio ? `【音频|【[旁白]】${s.audio}】` : '';
-                return `${s.visual || ''} ${audioMarker}`.trim();
-              }).join(' ');
-
-              let newProjectId: string | undefined;
-              if (selectedTemplate?.id) {
-                const cloneResp = await videoApi.cloneProject(selectedTemplate.id);
-                newProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
-                if (!newProjectId) throw new Error('Failed to clone project');
-              } else {
-                const createResp = await videoApi.createProject(user.id, {
-                  title: `${asset.name} × ${scriptPack.name}`,
-                  aspect_ratio: '9:16',
-                  script_content: {
-                    duration: scriptPack.duration, 
-                    shots: scriptPack.scripts
-                  }
-                });
-                newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
-                if (!newProjectId) throw new Error('Failed to create project');
-              }
-
-              const payload = {
-                model: backendModel,
-                prompt: combinedScriptPrompt,
-                project_id: newProjectId,
-                duration: scriptPack.duration,
-                image_path: (asset as any).apiPath,
-                sound: soundSetting,
-                asset_source: asset.source,
-                user_language: language,
-                target_language: targetLanguage,
-                model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
-              };
-
-              const genResp = await videoApi.generate(payload);
-              const taskId = genResp?.data?.task_id || genResp?.task_id;
-              const projectId = genResp?.data?.project_id || newProjectId;
-
-              if (genResp?.code === 0 && taskId) {
-                addTask({
-                  id: taskId,
-                  projectId: String(projectId),
-                  type: 'video_generation',
-                  status: 'processing',
-                  name: `${asset.name} × ${scriptPack.name}`,
-                  thumbnail: asset.previewUrl || undefined,
-                  createdAt: Date.now(),
-                });
-
-                batchItems.push({
-                  id: `${asset.id}-${scriptPack.id}-${taskId}`,
-                  assetName: asset.name,
-                  scriptName: scriptPack.name,
-                  taskId,
-                });
-              } else {
-                console.warn('Batch generation response invalid', genResp);
-              }
-            }
-          }
-
-          if (batchItems.length > 0) {
-            setGeneratedBatch(prev => [...batchItems, ...prev]);
-            alert(`批量任务已提交，共 ${batchItems.length} 个`);
-          } else {
-            alert('批量提交完成，但未返回有效任务ID');
-          }
-        } catch (err: any) {
-          alert(`批量生成失败：${err?.message || '未知错误'}`);
-        } finally {
-          setIsGenerating(false);
-        }
-
         return;
       }
 
@@ -1122,37 +1041,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (batchItems.length > 0) {
           setGeneratedBatch(prev => [...batchItems, ...prev]);
           alert(`批量任务已提交，共 ${batchItems.length} 个`);
-        const payload = {
-          model: backendModel,
-          prompt: combinedScriptPrompt,
-          project_id: newProjectId,
-          duration: genDuration,
-          image_path: apiPath, 
-          sound: soundSetting,
-          asset_source: selectedAssetSource,
-          user_language: language,
-          target_language: targetLanguage,
-          model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
-        };
-
-        console.log("🚀 Sending Generation Request:", payload);
-
-        const genResp = await videoApi.generate(payload);
-        const taskId = genResp?.data?.task_id || genResp?.task_id;
-        const projectId = genResp?.data?.project_id || newProjectId;
-
-        if (genResp?.code === 0 && taskId) {
-          addTask({
-            id: taskId,
-            projectId: String(projectId),
-            type: 'video_generation',
-            status: 'processing',
-            name: `${selectedTemplate?.name || 'Video'} (${String(projectId).slice(0, 6)})`,
-            thumbnail: uploadedFile || undefined,
-            createdAt: Date.now(),
-          });
-          setLastGeneratedProjectId(String(projectId));
-          alert("任务已提交到后台运行，您可以继续修改参数生成下一个！");
         } else {
           alert('批量提交完成，但未返回有效任务ID');
         }
@@ -1383,36 +1271,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const renderLeftColumn = () => {
     const segmentBase =
         'group/seg relative flex-1 py-2.5 rounded-lg text-[11px] tracking-tight font-bold transition select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60';
-  
-  useEffect(() => {
-    if (creationMode !== 'fast') return;
-    if (
-      selectedModel === 'kling' ||
-      selectedModel === 'sora2' ||
-      selectedModel === 'sora2pro' ||
-      selectedModel === 'seedance2.0'
-    ) {
-      lastFastModelRef.current = selectedModel;
-    }
-  }, [creationMode, selectedModel]);
-
-  useEffect(() => {
-    if (creationMode !== 'replay') return;
-    if (selectedModel !== 'seedance2.0') setSelectedModel('seedance2.0');
-  }, [creationMode, selectedModel, setSelectedModel]);
-
-  const backendModel =
-    selectedModel === 'sora2pro'
-      ? 'sora-2-pro'
-      : selectedModel === 'sora2'
-        ? 'sora-2'
-        : selectedModel === 'kling'
-          ? 'kling-v2-6'
-          : 'seedance-2.0';
-
-  const renderLeftColumn = () => {
-    const segmentBase =
-      'group/seg relative flex-1 py-2.5 rounded-lg text-[10px] tracking-tight font-bold transition select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60';
     const activeSegment = 'bg-gradient-to-r from-purple-600 to-orange-500 text-white shadow-lg shadow-orange-500/15';
     const inactiveSegment = 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5';
 
@@ -1467,112 +1325,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 {tooltip(t.wb_model_tip_seedance, 'right')}
               </button>
             </div>
-    const legacyModelSelector = (
-      <div className="flex flex-col gap-3">
-        <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-          <Cpu className="w-3 h-3" /> {t.wb_model_title}
-        </h2>
-        <div className="glass-panel rounded-xl p-1 border border-white/10 bg-black/20 relative z-[90]">
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              aria-pressed={selectedModel === 'kling'}
-              onClick={() => setSelectedModel('kling')}
-              className={`${segmentBase} ${language === 'zh' ? 'text-[10px]' : ''} ${selectedModel === 'kling' ? activeSegment : inactiveSegment}`}
-            >
-              {language === 'zh' ? '可灵2.5Turbo' : 'Kling2.5Turbo'}
-              {tooltip(t.wb_model_tip_sora_kling, 'left')}
-            </button>
-            <button
-              type="button"
-              aria-pressed={selectedModel === 'sora2'}
-              onClick={() => setSelectedModel('sora2')}
-              className={`${segmentBase} ${selectedModel === 'sora2' ? activeSegment : inactiveSegment}`}
-            >
-              Sora 2
-              {tooltip(t.wb_model_tip_sora_kling, 'center')}
-            </button>
-            <button
-              type="button"
-              aria-pressed={selectedModel === 'sora2pro'}
-              onClick={() => setSelectedModel('sora2pro')}
-              className={`${segmentBase} ${selectedModel === 'sora2pro' ? activeSegment : inactiveSegment}`}
-            >
-              Sora 2 Pro
-              {tooltip(t.wb_model_tip_sora_kling, 'center')}
-            </button>
-            <button
-              type="button"
-              aria-pressed={selectedModel === 'seedance2.0'}
-              onClick={() => setSelectedModel('seedance2.0')}
-              className={`${segmentBase} ${selectedModel === 'seedance2.0' ? activeSegment : inactiveSegment}`}
-            >
-              Seedance 2.0
-              {tooltip(t.wb_model_tip_seedance, 'right')}
-            </button>
           </div>
         </div>
     );
 
-    const handleSetCreationMode = (next: 'fast' | 'replay') => {
-      if (next === creationMode) return;
-      if (next === 'replay') {
-        if (
-          selectedModel === 'kling' ||
-          selectedModel === 'sora2' ||
-          selectedModel === 'sora2pro' ||
-          selectedModel === 'seedance2.0'
-        ) {
-          lastFastModelRef.current = selectedModel;
-        }
-        setCreationMode('replay');
-        setSelectedModel('seedance2.0');
-        return;
-      }
-      setCreationMode('fast');
-      setSelectedModel(lastFastModelRef.current || 'kling');
-    };
-
-    const modelOptions: Array<{
-      id: 'kling' | 'sora2' | 'sora2pro' | 'seedance2.0';
-      title: string;
-      desc: string;
-      rate: number;
-      Icon: React.ComponentType<{ className?: string }>;
-    }> = [
-      {
-        id: 'kling',
-        title: language === 'zh' ? '可灵 2.5Turbo' : 'Kling 2.5Turbo',
-        desc: t.wb_model_kling_desc,
-        rate: 20,
-        Icon: Zap,
-      },
-      {
-        id: 'sora2',
-        title: 'Sora 2',
-        desc: t.wb_model_sora2_desc,
-        rate: 100,
-        Icon: SoraStarIcon,
-      },
-      {
-        id: 'sora2pro',
-        title: 'Sora 2 Pro',
-        desc: t.wb_model_sora2pro_desc,
-        rate: 150,
-        Icon: Sparkles,
-      },
-      {
-        id: 'seedance2.0',
-        title: 'Seedance 2.0',
-        desc: t.wb_model_seedance_desc,
-        rate: 50,
-        Icon: Video,
-      },
-    ];
-
-    const renderModelCard = (opt: typeof modelOptions[number]) => {
-      const active = selectedModel === opt.id;
-      const locked = creationMode === 'fast' && opt.id === 'seedance2.0';
+    if (!isSora2Like) {
       return (
           <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto custom-scroll pr-1">
             {modelSelector}
@@ -1609,196 +1366,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[10px] text-zinc-300">
                       <span className="text-zinc-500">{t.wb_upload_support}</span>
                       <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
-        <button
-          key={opt.id}
-          type="button"
-          onClick={() => {
-            if (locked) return;
-            setSelectedModel(opt.id);
-          }}
-          disabled={locked}
-          className={[
-            'w-full text-left rounded-2xl border p-3 transition flex items-center gap-4',
-            'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
-            active
-              ? 'border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10'
-              : 'border-white/10 bg-black/20 hover:bg-white/5',
-            locked ? 'cursor-not-allowed opacity-70' : '',
-          ].join(' ')}
-          aria-pressed={active}
-        >
-          <div
-            className={[
-              'w-10 h-10 rounded-2xl flex items-center justify-center shrink-0',
-              active
-                ? 'bg-orange-500/20 border border-orange-500/30'
-                : 'bg-zinc-900/60 border border-white/10',
-            ].join(' ')}
-          >
-            <opt.Icon className={active ? 'w-5 h-5 text-orange-500' : 'w-5 h-5 text-zinc-400'} />
-          </div>
-
-          <div className="flex-1 min-w-0">
-            <div className="text-[12px] font-black tracking-wide text-zinc-200 truncate">{opt.title}</div>
-            <div
-              className={
-                language === 'zh'
-                  ? 'mt-1 text-[9px] font-medium text-zinc-400 truncate'
-                  : 'mt-1 text-[8px] font-medium text-zinc-400 whitespace-normal break-words leading-snug'
-              }
-            >
-              {opt.desc}
-            </div>
-          </div>
-          {locked ? (
-            <Lock className="w-4 h-4 text-zinc-400 shrink-0" aria-hidden="true" />
-          ) : (
-          <div className="flex flex-col items-center gap-2 shrink-0">
-            <div
-              className={[
-                'model-check w-4 h-4 rounded-full border flex items-center justify-center',
-                active ? 'border-orange-500 bg-orange-500' : 'model-check--inactive border-white/25 bg-transparent',
-              ].join(' ')}
-              aria-hidden="true"
-            >
-              {active ? <Check className="w-2.5 h-2.5 text-white" /> : null}
-            </div>
-            <div
-              className={[
-                'text-[8px] whitespace-nowrap',
-                active ? 'font-bold text-orange-500' : 'font-medium text-zinc-500',
-              ].join(' ')}
-            >
-              {opt.rate}{t.wb_vpoints_per_sec}
-            </div>
-          </div>
-          )}
-        </button>
-      );
-    };
-
-    const modelSelector = (
-      <div className="flex flex-col gap-6">
-        <div>
-          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
-            <Wand2 className="w-3 h-3" /> {t.wb_creation_mode_title}
-          </h2>
-          <div className="creation-mode-toggle mx-3 rounded-2xl bg-white/5 border border-white/10 p-1 flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => handleSetCreationMode('fast')}
-              aria-pressed={creationMode === 'fast'}
-              className={[
-                'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
-                'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
-                creationMode === 'fast'
-                  ? 'bg-white text-zinc-900 shadow-md'
-                  : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
-              ].join(' ')}
-            >
-              <Zap className={creationMode === 'fast' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
-              <span className="text-[12px]">{t.wb_creation_mode_fast}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSetCreationMode('replay')}
-              aria-pressed={creationMode === 'replay'}
-              className={[
-                'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
-                'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
-                creationMode === 'replay'
-                  ? 'bg-white text-zinc-900 shadow-md'
-                  : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
-              ].join(' ')}
-            >
-              <Layers className={creationMode === 'replay' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
-              <span className="text-[12px]">{t.wb_creation_mode_replay}</span>
-            </button>
-          </div>
-        </div>
-
-        {creationMode === 'fast' ? (
-          <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
-            <div className="mb-3">
-              <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                <ArrowRight className="w-3 h-3 text-zinc-500" />
-                {t.wb_render_power_title}
-              </h2>
-            </div>
-            <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
-          </div>
-        ) : (
-          <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
-            <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-              <ArrowRight className="w-3 h-3 text-zinc-500" />
-              {t.wb_recommend_engine_title}
-            </h2>
-            <div className="w-full text-left rounded-2xl border border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10 p-4 flex items-center gap-4">
-              <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-orange-500/20 border border-orange-500/30">
-                <Video className="w-5 h-5 text-orange-400" />
-              </div>
-              <div className="flex-1 min-w-0"> 
-                <div className={language === 'vi' ? 'flex items-center gap-1.5' : 'flex items-center gap-2'}> 
-                  <div className="text-[12px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div> 
-                  <span
-                    className={[
-                      'rounded-full font-black bg-emerald-500 text-black whitespace-nowrap shrink-0',
-                      language === 'vi' ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-0.5 text-[10px]',
-                    ].join(' ')}
-                  > 
-                    {t.wb_engine_dedicated} 
-                  </span> 
-                </div> 
-                <div 
-                  className={ 
-                    language === 'zh' 
-                      ? 'mt-1 text-[9px] font-medium text-zinc-400 truncate' 
-                      : 'mt-1 text-[8px] font-medium text-zinc-400 whitespace-normal break-words leading-snug' 
-                  } 
-                > 
-                  {t.wb_recommend_engine_desc} 
-                </div> 
-              </div> 
-              <Lock className="w-4 h-4 text-zinc-500 shrink-0" aria-hidden="true" /> 
-            </div> 
-
-            <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 flex items-start gap-2">
-              <Info className="w-3 h-3 text-zinc-400 mt-0.5 shrink-0" />
-              <div className="text-[10px] font-normal text-zinc-400 leading-relaxed">
-                {t.wb_replay_seedance_only}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-
-    return (
-    <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
-      {modelSelector}
-      {false && legacyModelSelector}
-      {/* Upload Section */}
-      <div className="flex flex-col gap-3">
-        <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
-        <div
-          onClick={() => fileInputRef.current?.click()}
-          onDragOver={handleUploadDragOver}
-          onDragEnter={handleUploadDragOver}
-          onDragLeave={handleUploadDragLeave}
-          onDrop={handleUploadDrop}
-          className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors h-32 relative group cursor-pointer ${uploadedFile ? 'border-none' : ''} ${isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50'}`}
-        >
-          {isDragUploadActive && (
-            <div className="absolute inset-1 rounded-lg border border-dashed border-orange-500/60 bg-orange-500/10 pointer-events-none" />
-          )}
-          <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*,audio/*" onChange={handleWorkbenchUpload} />
-          {!uploadedFile ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
-              <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition duration-300"><Plus className="w-4 h-4 text-zinc-500 group-hover:text-orange-500" /></div>
-              <p className="text-[10px] font-medium text-zinc-400">{t.wb_upload_click}</p>
-              <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[10px] text-zinc-300">
-                <span className="text-zinc-500">{t.wb_upload_support}</span>
-                <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
                   {t.wb_upload_image}
                         <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
                     {imageFormats}
@@ -1862,47 +1429,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         <X className="w-3 h-3 text-zinc-600 hover:text-red-400" />
                       </button>
                     </div>
-           </div>
-
-           {/* Default Model Asset – selectable dropdown, refreshes on open */}
-           <div>
-             <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_model_label}</label>
-             {templateModelAsset ? (
-               <div className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2">
-                 <div className="flex items-center gap-2">
-                   <img
-                     src={templateModelAsset.url}
-                     alt={templateModelAsset.display_name}
-                     className="w-6 h-6 rounded-md object-cover border border-white/10 shrink-0"
-                   />
-                   <span className="text-xs text-zinc-200 font-bold truncate">{templateModelAsset.display_name}</span>
-                 </div>
-               </div>
-             ) : (
-               <div className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-400 font-bold">
-                 {t.wb_config_model_smart}
-               </div>
-             )}
-           </div>
-
-           {/* Restored Inputs: Prompt, Duration, Audio, Count */}
-           <hr className="border-white/5" />
-           <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_prompt_label}</label>
-              <textarea
-               disabled={!hasCurrentAsset}
-               className={`w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-none min-h-[80px] ${!hasCurrentAsset ? 'text-zinc-500 cursor-not-allowed opacity-60' : 'text-zinc-300 focus:border-orange-500 focus:outline-none'}`}
-               placeholder={t.wb_config_prompt_placeholder}
-               value={genPrompt}
-               onChange={(e) => setGenPrompt(e.target.value)}
-              />
-           </div>
-
-           <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
-              <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
-                {[5, 10, 15].map(d => (
-                  <button key={d} onClick={() => setGenDuration(d)} className={`flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${genDuration === d ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:bg-zinc-800'}`}>{d}s</button>
                 ))}
               </div>
 
@@ -1963,53 +1489,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       labelClassName=""
                       iconClassName="w-3 h-3 text-zinc-500"
                       optionClassName="text-xs"
-  return (
-    <div className="flex flex-col h-full z-10 animate-in fade-in zoom-in-95 duration-300">
-      <header className="flex justify-between items-center px-8 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm shrink-0 relative z-50">
-        <div className="flex items-center gap-4">
-          <h1 className="text-xl font-bold tracking-tight text-white">Project_Alpha_01</h1>
-          <span className="px-2 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-400 border border-white/5">{t.wb_header_draft}</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="text-xs text-zinc-500">{t.wb_header_save}</div>
-          <LanguageSwitcher />
-        </div>
-      </header>
-
-      <div className="flex-1 flex overflow-hidden p-6 gap-6">
-        {renderLeftColumn()}
-        
-        <div className="flex-auto flex flex-col gap-3 h-full min-w-[300px]">
-           <div className="flex justify-between items-center shrink-0 h-[32px]">
-              <div className="flex items-center gap-3">
-                 <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-[1.1em] h-[1.1em] shrink-0" /> {t.wb_col_scripts}</h2>
-                 <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{currentScriptDuration.toFixed(1)}s / {genDuration}s</div>
-                 {/* Icons for script handling */}
-                 <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
-                  <button 
-                    onClick={handleDownloadScripts} 
-                    className="flex items-center gap-1.5 px-2 py-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition" 
-                    title={t.wb_export_scripts}
-                  >
-                    <FileDown className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-medium">{t.wb_export_scripts}</span>
-                  </button>
-                  
-                  <button 
-                    onClick={() => scriptFileInputRef.current?.click()} 
-                    className="flex items-center gap-1.5 px-2 py-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition" 
-                    title={t.wb_import_scripts}
-                  >
-                    <FileUp className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-medium">{t.wb_import_scripts}</span>
-                  </button>
-                  
-                  <input 
-                    type="file" 
-                    ref={scriptFileInputRef} 
-                    className="hidden" 
-                    accept=".json" 
-                    onChange={handleUploadScripts} 
                   />
                 </div>
               </div>
@@ -2200,13 +1679,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </div>
               </div>
           )}
-                        </div>
-                    </div>
-                  ))
-              )}
-              <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
-           </div>
-        </div>
 
           {/* Right Column: Preview & Results */}
           <div className="w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full">

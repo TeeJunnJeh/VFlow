@@ -125,20 +125,33 @@ export const assetsApi = {
       // Map Backend Data -> Frontend Data
       return backendData.map(item => {
         // Some backends may return `url`, `file_url`, or `path` for the file location.
+        // Prefer explicit `file_url` (backend-hosted path). Some backends may also
+        // expose `url` pointing to external storage (e.g. Supabase). Prefer the
+        // backend-served `file_url` when available to avoid using unreachable
+        // external hosts in development.
         const rawUrl =
-            (item as any).url ||
-            (item as any).file_url ||
-            (item as any).fileUrl ||
-            (item as any).path ||
-            '';
+          (item as any).file_url ||
+          (item as any).fileUrl ||
+          (item as any).url ||
+          (item as any).path ||
+          '';
 
         const fullUrl = toDisplayUrl(rawUrl);
+
+        // Determine media kind so UI chooses <video> vs <img>
+        const lowerType = String(item.type || '').toLowerCase();
+        const rawPathLower = String(rawUrl).split('?')[0].toLowerCase();
+        let mediaKind: Asset['media_kind'] = 'file';
+        if (lowerType === 'motion' || /\.(mp4|mov|mkv|webm|avi)$/.test(rawPathLower)) mediaKind = 'video';
+        else if (/\.(jpg|jpeg|png|webp|gif)$/.test(rawPathLower)) mediaKind = 'image';
+        else if (/\.(mp3|wav|flac)$/.test(rawPathLower)) mediaKind = 'audio';
 
         return {
           id: item.id.toString(),
           name: item.display_name,
           type: item.type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion',
           file_url: fullUrl,
+          media_kind: mediaKind,
           size: (item.meta_data.size_bytes / 1024 / 1024).toFixed(2) + ' MB',
           status: 'ready',
           created_at: item.created_at,
@@ -154,26 +167,32 @@ export const assetsApi = {
 
   // 2. CREATE (Upload) - 双重上传逻辑
   uploadAsset: async (file: File, type: string, folderId?: string | null) => {
+    // --- 动作 1：可选地静默上传到 Supabase Storage ---
+    const ENABLE_SUPABASE = String((import.meta as any).env?.VITE_ENABLE_SUPABASE || '').toLowerCase();
+    const useSupabase = ENABLE_SUPABASE === '1' || ENABLE_SUPABASE === 'true' || ENABLE_SUPABASE === 'yes';
 
-    // --- 动作 1：静默上传到 Supabase Storage ---
-    try {
-      console.log('🚀 [Supabase] 开始上传到存储桶...');
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${type.toLowerCase()}/${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+    if (useSupabase) {
+      try {
+        console.log('🚀 [Supabase] 开始上传到存储桶...');
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${type.toLowerCase()}/${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
 
-      const { error: uploadError } = await supabase.storage
-          .from('vFlowuploads') // 你的存储桶名称
-          .upload(fileName, file);
+        const { error: uploadError } = await supabase.storage
+            .from('vFlowuploads') // 你的存储桶名称
+            .upload(fileName, file);
 
-      if (uploadError) {
-        console.error('❌ [Supabase] 上传失败:', uploadError.message);
-      } else {
-        const { data: publicUrlData } = supabase.storage.from('vFlowuploads').getPublicUrl(fileName);
-        console.log('✅ [Supabase] 上传成功！公开链接是:', publicUrlData.publicUrl);
-        // 注意：因为后端不改，这里拿到的 publicUrl 只是在前端打印验证，不会存入数据库
+        if (uploadError) {
+          console.error('❌ [Supabase] 上传失败:', uploadError.message);
+        } else {
+          const { data: publicUrlData } = supabase.storage.from('vFlowuploads').getPublicUrl(fileName);
+          console.log('✅ [Supabase] 上传成功！公开链接是:', publicUrlData.publicUrl);
+          // 注意：因为后端不改，这里拿到的 publicUrl 只是在前端打印验证，不会存入数据库
+        }
+      } catch (err) {
+        console.error('⚠️ [Supabase] 流程出错:', err);
       }
-    } catch (err) {
-      console.error('⚠️ [Supabase] 流程出错:', err);
+    } else {
+      console.log('ℹ️ Supabase upload disabled by VITE_ENABLE_SUPABASE flag');
     }
 
     // --- 动作 2：发送真实文件给 Django 后端 ---

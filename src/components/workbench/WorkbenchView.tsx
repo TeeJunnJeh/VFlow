@@ -1039,7 +1039,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
 
     // 2. Single Video Generation
-    if (!selectedFileObj && !selectedAssetUrl && !uploadedFile) return alert("Please upload a reference asset first!");
+    // Allow generation when a template is selected even if no local/remote asset was uploaded.
+    if (!selectedTemplate?.id && !selectedFileObj && !selectedAssetUrl && !uploadedFile) return alert("Please upload a reference asset or select a template first!");
     if (scripts.length === 0) return alert("Please generate or add scripts first!");
     if (!isDurationValid) return alert(`Total script duration (${currentScriptDuration}s) must match requested duration (${genDuration}s)!`);
     if (!selectedTemplate?.id && !user?.id) return alert("请先登录");
@@ -1071,7 +1072,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         apiPath = selectedAssetUrl;
       }
 
-      if (!apiPath) throw new Error("Could not determine image path");
+      // It's valid to generate from a template or pure text-only prompt without an explicit image path.
+      // If we don't have an apiPath, proceed and let the backend decide (it may use model_asset_id or pure-text generation).
 
       // Combine Scripts
       const combinedScriptPrompt = scripts.map(s => {
@@ -1658,7 +1660,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         className={`flex items-center gap-2 rounded-lg p-2 border cursor-pointer transition ${selectedQueueAssetId === item.id ? 'bg-orange-500/10 border-orange-500/30' : 'bg-black/30 border-white/5 hover:bg-white/5'}`}
                     >
                       <div className="w-8 h-8 rounded bg-zinc-800 overflow-hidden shrink-0">
-                        {item.previewUrl && (item.mediaKind === 'video' ? <video src={item.previewUrl} className="w-full h-full object-cover" muted playsInline /> : <img src={item.previewUrl} className="w-full h-full object-cover"/>)}
+                        {item.previewUrl && (item.mediaKind === 'video' ? (
+                          <video src={item.previewUrl} className="w-full h-full object-cover" muted playsInline />
+                        ) : (
+                          <img src={item.previewUrl} className="w-full h-full object-cover" />
+                        ))}
                       </div>
                       <div className="flex-1 min-w-0"><div className="text-[10px] text-zinc-200 truncate">{item.name}</div></div>
                       <button
@@ -1909,7 +1915,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <ArrowRight className="w-3 h-3" />
                 </button>
             </div>
-              <button onClick={handleGenerateVideo} disabled={isGenerating || (!isReuseReady && (!uploadedFile || !isDurationValid))} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
+              <button onClick={handleGenerateVideo} disabled={isGenerating || (!isReuseReady && (!(selectedTemplate?.id || hasCurrentAsset) || !isDurationValid))} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
                   {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}{isGenerating ? 'Generating...' : t.wb_btn_gen_video}
               </button>
            </div>
@@ -1958,19 +1964,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             <div className="glass-panel flex-1 rounded-2xl p-1 relative flex flex-col overflow-hidden">
               <div className="flex-1 bg-black rounded-xl relative overflow-hidden group flex items-center justify-center">
                 {generatedVideoUrl ? (
-                    <video
-                        ref={videoRef}
-                        src={generatedVideoUrl}
-                        controls
-                        autoPlay
-                        loop
-                        className="w-full h-full object-contain"
+                  <video
+                    ref={videoRef}
+                    src={generatedVideoUrl}
+                    controls
+                    autoPlay
+                    loop
+                    className="w-full h-full object-contain"
                         onPlay={() => setIsPlaying(true)}
                         onPause={() => setIsPlaying(false)}
-                    />
+                  />
                 ) : (
-                    <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Submitting…' : t.wb_waiting}</p></div>
+                  <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Submitting…' : t.wb_waiting}</p></div>
                 )}
+                
               </div>
               <div className="h-14 flex items-center justify-between px-4 border-t border-white/5 bg-zinc-900/50">
                 <div className="flex gap-4">

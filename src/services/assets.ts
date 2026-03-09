@@ -32,9 +32,10 @@ function toDisplayUrl(pathOrUrl: string | null | undefined): string {
 export interface Asset {
   id: string;
   name: string;
-  type: 'model' | 'product' | 'scene';
+  type: 'model' | 'product' | 'scene' | 'motion';
   file_url: string;
   thumbnail?: string;
+  media_kind?: 'image' | 'video' | 'audio' | 'file';
   size: string;
   status: 'ready' | 'processing' | 'failed';
   created_at: string;
@@ -62,7 +63,7 @@ export interface AssetFolder {
   id: string;
   name: string;
   parent_id: string | null;
-  asset_type: 'model' | 'product' | 'scene';
+  asset_type: 'model' | 'product' | 'scene' | 'motion';
   created_at?: string;
 }
 
@@ -93,7 +94,7 @@ async function readApiError(response: Response): Promise<string> {
 
 export const assetsApi = {
   // 1. GET List
-  getAssets: async (params?: { type?: 'model' | 'product' | 'scene'; folderId?: string | null }): Promise<Asset[]> => {
+  getAssets: async (params?: { type?: 'model' | 'product' | 'scene' | 'motion'; folderId?: string | null }): Promise<Asset[]> => {
     try {
       const search = new URLSearchParams();
       if (params?.type) search.set('type', params.type.toUpperCase());
@@ -136,7 +137,7 @@ export const assetsApi = {
         return {
           id: item.id.toString(),
           name: item.display_name,
-          type: item.type.toLowerCase() as 'model' | 'product' | 'scene',
+          type: item.type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion',
           file_url: fullUrl,
           size: (item.meta_data.size_bytes / 1024 / 1024).toFixed(2) + ' MB',
           status: 'ready',
@@ -252,7 +253,7 @@ export const assetsApi = {
   },
 
   // 5. FOLDERS
-  getFolders: async (params: { type: 'model' | 'product' | 'scene'; parentId: string | null }) => {
+  getFolders: async (params: { type: 'model' | 'product' | 'scene' | 'motion'; parentId: string | null }) => {
     const search = new URLSearchParams();
     search.set('type', params.type.toUpperCase());
     search.set('parent_id', params.parentId ?? '');
@@ -275,19 +276,19 @@ export const assetsApi = {
         id: item.id.toString(),
         name: item.name,
         parent_id: item.parent_id ? item.parent_id.toString() : null,
-        asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene',
+        asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion',
         created_at: item.created_at
       })),
       breadcrumb: breadcrumb.map(item => ({
         id: item.id.toString(),
         name: item.name,
         parent_id: item.parent_id ? item.parent_id.toString() : null,
-        asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene'
+        asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion'
       }))
     };
   },
 
-  getAllFolders: async (type: 'model' | 'product' | 'scene') => {
+  getAllFolders: async (type: 'model' | 'product' | 'scene' | 'motion') => {
     const search = new URLSearchParams();
     search.set('type', type.toUpperCase());
     search.set('all', '1');
@@ -308,12 +309,12 @@ export const assetsApi = {
       id: item.id.toString(),
       name: item.name,
       parent_id: item.parent_id ? item.parent_id.toString() : null,
-      asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene',
+      asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion',
       created_at: item.created_at
     })) as AssetFolder[];
   },
 
-  createFolder: async (name: string, type: 'model' | 'product' | 'scene', parentId: string | null) => {
+  createFolder: async (name: string, type: 'model' | 'product' | 'scene' | 'motion', parentId: string | null) => {
     const csrftoken = getCookie('csrftoken');
     const response = await fetch(`${API_BASE_URL}/folders/`, {
       method: 'POST',

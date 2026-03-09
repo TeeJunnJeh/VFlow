@@ -40,6 +40,7 @@ type QueuedAsset = {
   fileObj?: File | null;
   assetUrl?: string | null;
   source: 'product' | 'preference';
+  mediaKind?: 'image' | 'video' | 'audio' | 'file';
   uploadedPath?: string | null;
 };
 
@@ -78,6 +79,20 @@ const RATIO_TO_RES: Record<string, string> = {
 };
 
 const ICON_EMOJI_MAP: Record<string, string> = { 'flame': '🔥', 'gem': '💎', 'zap': '⚡' };
+
+const inferMediaKind = (value: { name?: string | null; url?: string | null; type?: string | null; file?: File | null }): 'image' | 'video' | 'audio' | 'file' => {
+  if (value.type === 'motion') return 'video';
+  const file = value.file;
+  if (file?.type?.startsWith('image/')) return 'image';
+  if (file?.type?.startsWith('video/')) return 'video';
+  if (file?.type?.startsWith('audio/')) return 'audio';
+
+  const raw = String(value.name || value.url || '').split('?', 1)[0].toLowerCase();
+  if (/\.(jpg|jpeg|png|webp|gif)$/.test(raw)) return 'image';
+  if (/\.(mp4|mov|mkv|webm|avi)$/.test(raw)) return 'video';
+  if (/\.(mp3|wav|flac)$/.test(raw)) return 'audio';
+  return 'file';
+};
 
 type LangLabelKey =
     | 'lang_en'
@@ -171,6 +186,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [creationMode, setCreationMode] = useState<'fast' | 'replay'>('fast');
   const lastFastModelRef = useRef<'kling' | 'sora2' | 'sora2pro' | 'seedance2.0'>('kling');
   const templateModelAsset = selectedTemplate?.default_model_asset ?? null;
+  const templateMotionAsset = selectedTemplate?.default_motion_asset ?? null;
+  const currentAssetMediaKind = inferMediaKind({ name: fileName, url: selectedAssetUrl || uploadedFile, file: selectedFileObj });
   
   // Processing State
   const [isGenerating, setIsGenerating] = useState(false);
@@ -453,7 +470,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setUploadedFile(url);
     setFileName(file.name);
     setSelectedFileObj(file);
-    setSelectedAssetSource('product');
+    setSelectedAssetSource(file.type.startsWith('video/') ? 'preference' : 'product');
     setSelectedAssetUrl(null);
     setGeneratedVideoUrl(null);
   };
@@ -485,7 +502,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setUploadedFile(url);
     setFileName(file.name);
     setSelectedFileObj(file);
-    setSelectedAssetSource('product');
+    setSelectedAssetSource(file.type.startsWith('video/') ? 'preference' : 'product');
     setSelectedAssetUrl(null);
     setGeneratedVideoUrl(null);
   };
@@ -545,6 +562,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const previewUrl = uploadedFile || selectedAssetUrl || null;
     const name = fileName || '未命名素材';
+    const mediaKind = inferMediaKind({ name, url: previewUrl, file: selectedFileObj });
 
     setAssetQueue(prev => ([
       ...prev,
@@ -555,6 +573,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         fileObj: selectedFileObj,
         assetUrl: selectedAssetUrl,
         source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference'),
+        mediaKind,
         uploadedPath: null
       }
     ]));
@@ -623,12 +642,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     try {
       let imagePath = "";
+      const scriptAssetIsImage = currentAssetMediaKind === 'image';
 
       // 1. Upload Image (if one is selected but not yet uploaded)
-      if (selectedFileObj) {
+      if (selectedFileObj && scriptAssetIsImage) {
         console.log("🚀 Uploading reference image for script...");
         const uploadResp = await assetsApi.uploadAsset(selectedFileObj, 'product');
-
+        
         let rawPath = null;
         if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
           rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
@@ -641,7 +661,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           // Send raw path directly to backend (backend will handle URL vs path)
           imagePath = rawPath;
         }
-      } else if (selectedAssetUrl) {
+      } else if (selectedAssetUrl && scriptAssetIsImage) {
         setLastUploadedUrl(selectedAssetUrl);
         // Send raw URL directly to backend
         imagePath = selectedAssetUrl;
@@ -686,7 +706,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           script_count: scriptVariantCount,
           shots: []
         },
-        product_image_path: imagePath || "http://1.95.137.119:8001/media/uploads/default.jpg",
+        ...(imagePath ? { product_image_path: imagePath } : {}),
         asset_source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference')
       };
 
@@ -914,8 +934,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           let apiPath = asset.uploadedPath || asset.assetUrl || null;
 
           if (!apiPath && asset.fileObj) {
-            const uploadResp = await assetsApi.uploadAsset(asset.fileObj, 'product');
-            let rawPath = null;
+              const uploadType = asset.mediaKind === 'video' ? 'motion' : 'product';
+              const uploadResp = await assetsApi.uploadAsset(asset.fileObj, uploadType);
+              let rawPath = null;
             if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
               rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
             } else {
@@ -964,12 +985,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 prompt: combinedScriptPrompt,
                 project_id: newProjectId,
                 duration: scriptPack.duration,
-                image_path: (asset as any).apiPath,
+                ...(asset.mediaKind === 'video'
+                  ? { motion_video_path: (asset as any).apiPath }
+                  : { image_path: (asset as any).apiPath }),
                 sound: soundSetting,
                 asset_source: asset.source,
                 user_language: language,
                 target_language: targetLanguage,
                 model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
+                motion_asset_id: asset.mediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
               };
 
             const genResp = await videoApi.generate(payload);
@@ -1015,7 +1039,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
 
     // 2. Single Video Generation
-    if (!selectedFileObj && !selectedAssetUrl && !uploadedFile) return alert("Please upload a reference image first!");
+    if (!selectedFileObj && !selectedAssetUrl && !uploadedFile) return alert("Please upload a reference asset first!");
     if (scripts.length === 0) return alert("Please generate or add scripts first!");
     if (!isDurationValid) return alert(`Total script duration (${currentScriptDuration}s) must match requested duration (${genDuration}s)!`);
     if (!selectedTemplate?.id && !user?.id) return alert("请先登录");
@@ -1025,23 +1049,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     try {
       // --- FIX: Real Image Path Extraction Logic ---
-      let apiPath = lastUploadedUrl;
-
+      let apiPath = lastUploadedUrl; 
+      const uploadType = currentAssetMediaKind === 'video' ? 'motion' : 'product';
+      
       if (!apiPath && selectedFileObj) {
-        console.log("🚀 Uploading reference image...");
-        const uploadResp = await assetsApi.uploadAsset(selectedFileObj, 'product');
+          console.log("🚀 Uploading reference image...");
+        const uploadResp = await assetsApi.uploadAsset(selectedFileObj, uploadType);
+          
+          let rawPath = null;
+          if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
+            rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
+          } else {
+            rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
+          }
 
-        let rawPath = null;
-        if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
-          rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
-        } else {
-          rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
-        }
+          if (!rawPath) throw new Error("Could not retrieve image path from upload response");
 
-        if (!rawPath) throw new Error("Could not retrieve image path from upload response");
-
-        setLastUploadedUrl(rawPath);
-        apiPath = rawPath;
+          setLastUploadedUrl(rawPath);
+          apiPath = rawPath;
       } else if (!apiPath && selectedAssetUrl) {
         apiPath = selectedAssetUrl;
       }
@@ -1078,12 +1103,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           prompt: combinedScriptPrompt,
           project_id: newProjectId,
           duration: genDuration,
-          image_path: apiPath, 
+          ...(currentAssetMediaKind === 'video' ? { motion_video_path: apiPath } : { image_path: apiPath }),
           sound: soundSetting,
           asset_source: selectedAssetSource,
           user_language: language,
           target_language: targetLanguage,
           model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
+          motion_asset_id: currentAssetMediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
         };
 
       console.log("🚀 Sending Generation Request:", payload);
@@ -1597,7 +1623,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
               ) : (
                   <div className="absolute inset-0 bg-zinc-900 rounded-lg overflow-hidden group/preview">
-                    <img src={uploadedFile} className="w-full h-full object-cover opacity-80" alt="Preview" />
+                    {currentAssetMediaKind === 'video' ? (
+                      <video src={uploadedFile} className="w-full h-full object-cover opacity-80" muted playsInline />
+                    ) : (
+                      <img src={uploadedFile} className="w-full h-full object-cover opacity-80" alt="Preview" />
+                    )}
                     <div className="absolute top-2 right-2 opacity-0 group-hover/preview:opacity-100 transition"><button onClick={removeUpload} className="p-1.5 bg-black/50 hover:bg-red-500 rounded-md text-white transition"><X className="w-3 h-3" /></button></div>
                     <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent"><p className="text-[10px] text-white truncate">{fileName}</p><p className="text-[10px] text-green-400 flex items-center gap-1"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p></div>
                   </div>
@@ -1627,7 +1657,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         onClick={() => selectAssetFromQueue(item)}
                         className={`flex items-center gap-2 rounded-lg p-2 border cursor-pointer transition ${selectedQueueAssetId === item.id ? 'bg-orange-500/10 border-orange-500/30' : 'bg-black/30 border-white/5 hover:bg-white/5'}`}
                     >
-                      <div className="w-8 h-8 rounded bg-zinc-800 overflow-hidden shrink-0">{item.previewUrl && <img src={item.previewUrl} className="w-full h-full object-cover"/>}</div>
+                      <div className="w-8 h-8 rounded bg-zinc-800 overflow-hidden shrink-0">
+                        {item.previewUrl && (item.mediaKind === 'video' ? <video src={item.previewUrl} className="w-full h-full object-cover" muted playsInline /> : <img src={item.previewUrl} className="w-full h-full object-cover"/>)}
+                      </div>
                       <div className="flex-1 min-w-0"><div className="text-[10px] text-zinc-200 truncate">{item.name}</div></div>
                       <button
                           onClick={(e) => {
@@ -1719,6 +1751,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
              ) : (
                <div className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-400 font-bold">
                  {t.wb_config_model_smart}
+               </div>
+             )}
+           </div>
+
+           <div>
+             <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_motion_label || '参考动作'}</label>
+             {templateMotionAsset ? (
+               <div className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2">
+                 <div className="flex items-center gap-2">
+                   <video
+                     src={templateMotionAsset.url}
+                     className="w-8 h-8 rounded-md object-cover border border-white/10 shrink-0"
+                     muted
+                     playsInline
+                   />
+                   <span className="text-xs text-zinc-200 font-bold truncate">{templateMotionAsset.display_name}</span>
+                 </div>
+               </div>
+             ) : (
+               <div className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-400 font-bold">
+                 {t.wb_config_motion_empty || '未绑定动作参考'}
                </div>
              )}
            </div>

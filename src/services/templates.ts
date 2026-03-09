@@ -21,6 +21,14 @@ export interface ModelAsset {
   type: string;
 }
 
+// --- Motion Asset (for default_motion_asset field on templates) ---
+export interface MotionAsset {
+  id: number;
+  display_name: string;
+  url: string;
+  type: string;
+}
+
 interface ApiTemplate {
   id: string;
   title: string;
@@ -34,6 +42,7 @@ interface ApiTemplate {
     shot_number: number;
   };
   default_model_asset: ModelAsset | null;
+  default_motion_asset: MotionAsset | null;
   created_at: string;
 }
 
@@ -51,6 +60,10 @@ export interface Template {
   default_model_asset?: ModelAsset | null;
   /** Sent to API when creating/updating – the model asset ID (null = smart match) */
   default_model_asset_id?: number | null;
+  /** Populated from API response – the bound default motion asset object */
+  default_motion_asset?: MotionAsset | null;
+  /** Sent to API when creating/updating – the motion asset ID (null = smart match) */
+  default_motion_asset_id?: number | null;
 }
 
 const ICON_MAP: Record<string, number> = { 'flame': 1, 'gem': 2, 'zap': 3 };
@@ -60,6 +73,11 @@ const mapApiToFrontend = (item: ApiTemplate): Template => {
   let model_asset = item.default_model_asset ?? null;
   if (model_asset && model_asset.url) {
     model_asset = { ...model_asset, url: toDisplayUrl(model_asset.url) };
+  }
+  
+  let motion_asset = item.default_motion_asset ?? null;
+  if (motion_asset && motion_asset.url) {
+    motion_asset = { ...motion_asset, url: toDisplayUrl(motion_asset.url) };
   }
   
   return {
@@ -73,6 +91,7 @@ const mapApiToFrontend = (item: ApiTemplate): Template => {
     shot_number: item.script_content.shot_number,
     custom_config: item.script_content.custom,
     default_model_asset: model_asset,
+    default_motion_asset: motion_asset,
   };
 };
 
@@ -90,6 +109,9 @@ const mapFrontendToApi = (tpl: Template) => ({
   // Only include when the caller has set a value (undefined = don't change, null = clear)
   ...(tpl.default_model_asset_id !== undefined
     ? { default_model_asset_id: tpl.default_model_asset_id }
+    : {}),
+  ...(tpl.default_motion_asset_id !== undefined
+    ? { default_motion_asset_id: tpl.default_motion_asset_id }
     : {}),
 });
 

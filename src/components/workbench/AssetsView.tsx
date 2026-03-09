@@ -6,7 +6,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { assetsApi, type Asset, type AssetFolder } from '../../services/assets';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 
-type AssetType = 'model' | 'product' | 'scene';
+type AssetType = 'model' | 'product' | 'scene' | 'motion';
 
 interface AssetsViewProps {
   onSelectAsset: (asset: Asset) => void;
@@ -44,7 +44,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const assetTabLabel: Record<AssetType, string> = {
     model: t.assets_tab_models,
     product: t.assets_tab_products,
-    scene: t.assets_tab_scenes
+    scene: t.assets_tab_scenes,
+    motion: t.assets_tab_motion
   };
   
   // Data State
@@ -661,7 +662,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
        <div className="flex-1 flex flex-col px-10 pt-4 pb-10 overflow-hidden">
           {/* Tabs */}
           <div className="flex gap-4 mb-8 border-b border-white/5 pb-2">
-             {(['model', 'product', 'scene'] as AssetType[]).map(type => (
+             {(['model', 'product', 'scene', 'motion'] as AssetType[]).map(type => (
                 <button
                   key={type}
                   onClick={() => {
@@ -846,7 +847,15 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                               setIsAssetPreviewOpen(true);
                             }}
                           >
-                            {asset.file_url ? (
+                            {asset.file_url && asset.media_kind === 'video' ? (
+                              <video
+                                src={getDisplayUrl(asset.file_url) || undefined}
+                                className="absolute inset-0 w-full h-full object-cover"
+                                muted
+                                playsInline
+                                preload="metadata"
+                              />
+                            ) : asset.file_url ? (
                               <img
                                 src={getDisplayUrl(asset.file_url) || ASSET_PLACEHOLDER_DATA_URL}
                                 className="absolute inset-0 w-full h-full object-cover"
@@ -952,12 +961,23 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
             <div className="glass-panel rounded-2xl p-4 md:p-6 border border-white/10 w-auto max-w-[calc(100vw-3rem)] max-h-[calc(100vh-3rem)] overflow-auto">
               <div className="flex items-center justify-between gap-4 mb-4"><div className="min-w-0"><h3 className="text-sm font-bold text-zinc-200">{t.assets_preview_title}</h3><div className="text-xs text-zinc-500 truncate">{assetPreview.name}</div></div><button className="text-zinc-400 hover:text-white" onClick={() => setIsAssetPreviewOpen(false)}><X className="w-5 h-5"/></button></div>
               <div className="flex items-center justify-center">
-                 <img
-                   src={getDisplayUrl(assetPreview.file_url) || ASSET_PLACEHOLDER_DATA_URL}
-                   alt={assetPreview.name}
-                   className="block rounded-lg max-w-full max-h-[calc(100vh-10rem)] object-contain"
-                   onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }}
-                 />
+                 {assetPreview.media_kind === 'video' ? (
+                   <video
+                     src={getDisplayUrl(assetPreview.file_url) || undefined}
+                     className="block rounded-lg max-w-full max-h-[calc(100vh-10rem)] object-contain"
+                     controls
+                     autoPlay
+                     loop
+                     playsInline
+                   />
+                 ) : (
+                   <img
+                     src={getDisplayUrl(assetPreview.file_url) || ASSET_PLACEHOLDER_DATA_URL}
+                     alt={assetPreview.name}
+                     className="block rounded-lg max-w-full max-h-[calc(100vh-10rem)] object-contain"
+                     onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }}
+                   />
+                 )}
               </div>
             </div>
           </div>

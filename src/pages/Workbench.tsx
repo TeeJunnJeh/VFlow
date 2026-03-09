@@ -91,7 +91,10 @@ const Workbench = () => {
         (latest.custom_config ?? '') === (prev.custom_config ?? '') &&
         (latest.default_model_asset?.id ?? null) === (prev.default_model_asset?.id ?? null) &&
         (latest.default_model_asset?.display_name ?? '') === (prev.default_model_asset?.display_name ?? '') &&
-        (latest.default_model_asset?.url ?? '') === (prev.default_model_asset?.url ?? '');
+        (latest.default_model_asset?.url ?? '') === (prev.default_model_asset?.url ?? '') &&
+        (latest.default_motion_asset?.id ?? null) === (prev.default_motion_asset?.id ?? null) &&
+        (latest.default_motion_asset?.display_name ?? '') === (prev.default_motion_asset?.display_name ?? '') &&
+        (latest.default_motion_asset?.url ?? '') === (prev.default_motion_asset?.url ?? '');
 
       return isSame ? prev : latest;
     });

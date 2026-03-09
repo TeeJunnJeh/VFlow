@@ -69,6 +69,11 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
   const [showFullPreview, setShowFullPreview] = useState(false);
   const modelFileInputRef = useRef<HTMLInputElement>(null);
 
+  const [selectedMotionId, setSelectedMotionId] = useState<number | null | undefined>(undefined);
+  const [uploadedMotionPreview, setUploadedMotionPreview] = useState<{ url: string; name: string } | null>(null);
+  const [isUploadingMotion, setIsUploadingMotion] = useState(false);
+  const motionFileInputRef = useRef<HTMLInputElement>(null);
+
   const handleModelImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -89,6 +94,26 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
     }
   };
 
+  const handleMotionVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setIsUploadingMotion(true);
+    try {
+      const resp = await assetsApi.uploadAsset(file, 'motion');
+      const data: any = (resp as any)?.data || (Array.isArray((resp as any)?.assets) ? (resp as any).assets[0] : null) || resp;
+      const rawUrl: string = data?.url || data?.file_url || data?.path || '';
+      const fullUrl = toDisplayUrl(rawUrl);
+      const idNum = data?.id !== undefined && data?.id !== null ? Number(data.id) : null;
+      setSelectedMotionId(Number.isFinite(idNum as any) ? (idNum as number) : null);
+      setUploadedMotionPreview({ url: fullUrl, name: data?.display_name || data?.name || file.name });
+    } catch {
+      alert('Failed to upload motion video');
+    } finally {
+      setIsUploadingMotion(false);
+    }
+  };
+
   // --- MISSING LOGIC RESTORED HERE ---
   useEffect(() => {
     if (initialData) {
@@ -103,6 +128,17 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
         setUploadedModelPreview({ url: fullUrl, name });
       } else {
         setUploadedModelPreview(null);
+      }
+
+      setSelectedMotionId(initialData.default_motion_asset?.id ?? initialData.default_motion_asset_id ?? null);
+      if (initialData.default_motion_asset) {
+        const asset: any = initialData.default_motion_asset;
+        const rawUrl: string = asset?.url || asset?.file_url || asset?.path || '';
+        const fullUrl = toDisplayUrl(rawUrl);
+        const name = asset?.display_name || asset?.name || asset?.file_name || 'motion';
+        setUploadedMotionPreview({ url: fullUrl, name });
+      } else {
+        setUploadedMotionPreview(null);
       }
 
       // Check if Category is custom
@@ -123,7 +159,9 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
        setIsCustomStyle(false);
        setCustomStyle('');
       setSelectedModelId(null);
+      setSelectedMotionId(null);
        setUploadedModelPreview(null);
+       setUploadedMotionPreview(null);
        setEditorForm({
         name: 'New Template',
         icon: 'flame',
@@ -145,6 +183,9 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
         ...editorForm,
         ...(selectedModelId !== undefined
           ? { default_model_asset_id: selectedModelId ?? null }
+          : {}),
+        ...(selectedMotionId !== undefined
+          ? { default_motion_asset_id: selectedMotionId ?? null }
           : {}),
       };
       if (initialData?.id) {
@@ -384,6 +425,65 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                       <>
                         <UserSquare2 className="w-5 h-5" />
                         <span className="text-xs font-bold">{t.editor_model_upload_btn}</span>
+                      </>
+                    )}
+                  </button>
+                )}
+            </div>
+
+            <div className="space-y-2">
+                <label className="text-sm font-bold text-zinc-400 flex items-center gap-2">
+                  <Film className="w-4 h-4" />
+                  {t.editor_label_motion || '默认动作视频'}
+                </label>
+                <input
+                  ref={motionFileInputRef}
+                  type="file"
+                  accept="video/*"
+                  className="hidden"
+                  onChange={handleMotionVideoUpload}
+                />
+                {uploadedMotionPreview ? (
+                  <div className="flex items-center gap-3 p-3 bg-black/30 border border-white/10 rounded-xl">
+                    <video src={uploadedMotionPreview.url} className="w-16 h-12 rounded-lg object-cover border border-white/10 shrink-0" muted playsInline />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-zinc-200 truncate">{uploadedMotionPreview.name}</p>
+                      <p className="text-[10px] text-zinc-500 uppercase">MOTION</p>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        type="button"
+                        disabled={isUploadingMotion}
+                        onClick={() => motionFileInputRef.current?.click()}
+                        className="text-[10px] text-orange-400 hover:text-orange-300 font-bold px-2 py-1 rounded bg-orange-500/10 hover:bg-orange-500/20 transition disabled:opacity-50"
+                      >
+                        {isUploadingMotion ? (t.editor_motion_uploading || '上传中...') : (t.editor_motion_change || '更换')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedMotionId(null); setUploadedMotionPreview(null); }}
+                        className="text-[10px] text-zinc-500 hover:text-red-400 font-bold px-2 py-1 rounded bg-white/5 hover:bg-red-500/10 transition"
+                      >
+                        {t.editor_motion_clear || '移除'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={isUploadingMotion}
+                    onClick={() => motionFileInputRef.current?.click()}
+                    className="w-full flex items-center justify-center gap-2 py-8 border-2 border-dashed border-white/10 rounded-xl text-zinc-500 hover:border-orange-500/50 hover:text-orange-400 hover:bg-orange-500/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isUploadingMotion ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-zinc-500 border-t-orange-500 rounded-full animate-spin" />
+                        <span className="text-xs font-bold">{t.editor_motion_uploading || '上传中...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Film className="w-5 h-5" />
+                        <span className="text-xs font-bold">{t.editor_motion_upload_btn || '上传动作视频'}</span>
                       </>
                     )}
                   </button>

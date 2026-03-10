@@ -12,7 +12,7 @@ export async function uploadFile(file: File): Promise<string | null> {
   const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
   const filePath = `public/${fileName}`;
 
-  const { data, error } = await supabase.storage
+  const { error } = await supabase.storage
     .from('uploads') // 替换为你的 bucket 名称
     .upload(filePath, file);
 

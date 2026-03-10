@@ -113,13 +113,6 @@ const TARGET_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: LangLabelKey }> 
   { value: 'vi', labelKey: 'lang_vi' },
 ];
 
-const toDisplayUrl = (path: string | null): string | null => {
-  if (!path) return null;
-  if (path.startsWith('http')) return path;
-  const mediaBaseUrl = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
-  return mediaBaseUrl ? `${mediaBaseUrl}${path}` : path;
-};
-
 interface WorkbenchViewProps {
   initialFileUrl?: string | null;
   initialFileName?: string;
@@ -369,9 +362,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [isRestoring, wasDraftRestored, templateList, selectedTemplate?.id, onSelectTemplate]);
 
   // Keep a best-effort "latest snapshot" for debounce + unmount flush.
-  const normalizedScriptPages: ScriptPage[] = (scriptPages || []).map((p, idx) =>
-      idx === activeScriptPage ? { ...p, scripts } : p
-  );
   latestSnapshotRef.current = {
     version: 1,
     template_id: (selectedTemplate?.id as string | undefined) || null,
@@ -808,7 +798,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       URL.revokeObjectURL(url);
 
       // 上传到服务器 (如果父组件传了这个方法 且 启用了 Supabase)
-      const enableSupabase = import.meta.env.VITE_ENABLE_SUPABASE === 'true';
+      // const enableSupabase = import.meta.env.VITE_ENABLE_SUPABASE === 'true';
+      const enableSupabase = false;
       if (onExportToServer && enableSupabase) {
         await onExportToServer(scripts);
       }

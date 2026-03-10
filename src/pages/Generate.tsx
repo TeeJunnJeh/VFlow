@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Wand2, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import { api } from '../services/api';
 import { useLocation } from 'react-router-dom';

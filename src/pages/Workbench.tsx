@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useLanguage } from '../context/LanguageContext';
 import { templatesApi, type Template } from '../services/templates';
 import { assetsApi } from '../services/assets';
 

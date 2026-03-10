@@ -168,8 +168,9 @@ export const assetsApi = {
   // 2. CREATE (Upload) - 双重上传逻辑
   uploadAsset: async (file: File, type: string, folderId?: string | null) => {
     // --- 动作 1：可选地静默上传到 Supabase Storage ---
-    const ENABLE_SUPABASE = String((import.meta as any).env?.VITE_ENABLE_SUPABASE || '').toLowerCase();
-    const useSupabase = ENABLE_SUPABASE === '1' || ENABLE_SUPABASE === 'true' || ENABLE_SUPABASE === 'yes';
+    // const ENABLE_SUPABASE = String((import.meta as any).env?.VITE_ENABLE_SUPABASE || '').toLowerCase();
+    // const useSupabase = ENABLE_SUPABASE === '1' || ENABLE_SUPABASE === 'true' || ENABLE_SUPABASE === 'yes';
+    const useSupabase = false; // 暂时关闭 Supabase 上传功能，等后端改好再打开
 
     if (useSupabase) {
       try {

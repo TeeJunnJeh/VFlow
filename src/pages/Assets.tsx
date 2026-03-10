@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { LayoutTemplate, Image, Star, Plus } from 'lucide-react';
 import { api } from '../services/api';
-import { Asset } from '../types';
+import type { Asset } from '../types';
 import { useNavigate } from 'react-router-dom';
 
 // 1. Add type definition for TabButtonProps

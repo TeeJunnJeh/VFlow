@@ -6,18 +6,6 @@ import { useLanguage } from '../../context/LanguageContext';
 import { assetsApi, type Asset, type AssetFolder } from '../../services/assets';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 
-// Helper to normalize media URLs for display (matches other files)
-const getDisplayUrl = (path: string | null | undefined): string | null => {
-  if (!path) return null;
-  const raw = String(path).trim();
-  if (!raw) return null;
-  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
-  const mediaBaseUrl = import.meta.env.VITE_MEDIA_BASE_URL || '';
-  const normalized = raw.startsWith('/') ? raw : `/${raw}`;
-  if (mediaBaseUrl && normalized.startsWith('/media/')) return `${mediaBaseUrl}${normalized}`;
-  return normalized;
-};
-
 type AssetType = 'model' | 'product' | 'scene' | 'motion';
 
 interface AssetsViewProps {

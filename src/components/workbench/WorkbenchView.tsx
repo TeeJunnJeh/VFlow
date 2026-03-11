@@ -3,7 +3,7 @@ import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
-  Zap, Layers, Video, Lock, Info, Check, Sparkles, Bug
+  Zap, Layers, Video, Lock, Info, Check, Sparkles
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -251,7 +251,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
   const [isExporting, setIsExporting] = useState(false); 
-  const [isDebugModalOpen, setIsDebugModalOpen] = useState(false);
   const [isPreparingDebug, setIsPreparingDebug] = useState(false);
   const [isSendingDebug, setIsSendingDebug] = useState(false);
   const [debugPayloadText, setDebugPayloadText] = useState('');
@@ -549,6 +548,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       target_language: targetLanguage,
       model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
       motion_asset_id: currentAssetMediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
+      ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
     };
 
     if (apiPath) {
@@ -622,7 +622,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return previewResp.data;
   };
 
-  const handleOpenDebugModal = async () => {
+  const handlePrepareDebug = async () => {
     if (isBatchDebugMode) {
       alert(t.wb_debug_batch_unsupported);
       return;
@@ -640,16 +640,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
-    setIsDebugModalOpen(true);
     setIsPreparingDebug(true);
     setDebugPreview(null);
 
     try {
+      const projectId = await ensureSingleProjectId();
       const payload = await buildSingleGeneratePayload();
+      payload.project_id = projectId;
       const preview = await refreshDebugPreview(payload as Record<string, unknown>);
       setDebugPayloadText(JSON.stringify(preview.request_payload || payload, null, 2));
     } catch (err: any) {
-      setIsDebugModalOpen(false);
       alert(err?.message || 'Failed to prepare debug payload');
     } finally {
       setIsPreparingDebug(false);
@@ -697,7 +697,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setGeneratedVideoUrl(null);
     try {
       await submitSingleGeneration(parsed);
-      setIsDebugModalOpen(false);
     } catch (err: any) {
       alert(`Error: ${err.message || 'Generation failed'}`);
     } finally {
@@ -2140,6 +2139,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             onReload={loadPromptLabTemplates}
             overrides={promptOverrides}
             onChangeOverrides={setPromptOverrides}
+            debug={{
+              isPreparing: isPreparingDebug,
+              isSending: isSendingDebug,
+              payloadText: debugPayloadText,
+              onChangePayloadText: setDebugPayloadText,
+              preview: debugPreview,
+              onPrepare: handlePrepareDebug,
+              onRefresh: handleRefreshDebugPreview,
+              onSend: handleSendDebugPayload,
+            }}
             onClose={() => setIsPromptLabOpen(false)}
           />
         )}
@@ -2204,10 +2213,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </button>
             </div>
               <div className="flex items-center gap-2">
-                <button onClick={handleOpenDebugModal} disabled={isGenerating || isPreparingDebug || isSendingDebug || isBatchDebugMode || (!isReuseReady && (!(selectedTemplate?.id || hasCurrentAsset) || !isDurationValid))} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition flex items-center gap-2 border border-white/10 ${isGenerating || isPreparingDebug || isSendingDebug || isBatchDebugMode || (!isReuseReady && (!(selectedTemplate?.id || hasCurrentAsset) || !isDurationValid)) ? 'bg-zinc-800/80 text-zinc-500 cursor-not-allowed' : 'bg-white/5 text-zinc-100 hover:bg-white/10 hover:border-white/20'}`}>
-                  {isPreparingDebug ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bug className="w-4 h-4" />}
-                  {t.wb_btn_debug_video}
-                </button>
               <button onClick={handleGenerateVideo} disabled={isGenerating || (!isReuseReady && (!(selectedTemplate?.id || hasCurrentAsset) || !isDurationValid))} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
                   {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}{isGenerating ? 'Generating...' : t.wb_btn_gen_video}
               </button>
@@ -2330,64 +2335,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           </div>
         </div>
 
-        {isDebugModalOpen && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setIsDebugModalOpen(false)}>
-            <div className="w-full max-w-5xl max-h-[90vh] rounded-3xl border border-white/10 bg-zinc-950 shadow-2xl shadow-black/40 overflow-hidden" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-white/10 bg-white/5">
-                <div>
-                  <div className="text-lg font-black text-white flex items-center gap-2">
-                    <Bug className="w-5 h-5 text-orange-400" />
-                    {t.wb_debug_title}
-                  </div>
-                  <div className="mt-1 text-xs text-zinc-400">{t.wb_debug_subtitle}</div>
-                </div>
-                <button onClick={() => setIsDebugModalOpen(false)} className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/5 transition">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-0 max-h-[calc(90vh-160px)] overflow-hidden">
-                <div className="p-5 border-b xl:border-b-0 xl:border-r border-white/10 flex flex-col min-h-[320px]">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="text-[11px] font-bold tracking-widest uppercase text-zinc-500">{t.wb_debug_request}</div>
-                    <button onClick={handleRefreshDebugPreview} disabled={isPreparingDebug || isSendingDebug} className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition ${isPreparingDebug || isSendingDebug ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' : 'bg-white/5 text-zinc-200 hover:bg-white/10'}`}>
-                      {isPreparingDebug ? t.wb_debug_loading : t.wb_debug_refresh}
-                    </button>
-                  </div>
-                  <textarea
-                    value={debugPayloadText}
-                    onChange={(e) => setDebugPayloadText(e.target.value)}
-                    spellCheck={false}
-                    className="flex-1 min-h-[320px] w-full rounded-2xl border border-white/10 bg-black/30 p-4 text-xs text-zinc-200 font-mono leading-6 resize-none focus:outline-none focus:border-orange-500/60 custom-scroll"
-                  />
-                </div>
-
-                <div className="p-5 flex flex-col min-h-[320px]">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="text-[11px] font-bold tracking-widest uppercase text-zinc-500">{t.wb_debug_model_preview}</div>
-                    {debugPreview && (
-                      <div className="flex items-center gap-2 text-[10px] text-zinc-400">
-                        <span className="px-2 py-1 rounded-full border border-white/10 bg-white/5">{debugPreview.task_type}</span>
-                        <span className="px-2 py-1 rounded-full border border-white/10 bg-white/5">{debugPreview.api_method}</span>
-                      </div>
-                    )}
-                  </div>
-                  <pre className="flex-1 min-h-[320px] rounded-2xl border border-white/10 bg-black/30 p-4 text-xs text-zinc-300 font-mono leading-6 overflow-auto custom-scroll whitespace-pre-wrap break-all">{isPreparingDebug && !debugPreview ? t.wb_debug_loading : JSON.stringify(debugPreview?.model_request || {}, null, 2)}</pre>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-white/10 bg-white/5">
-                <button onClick={() => setIsDebugModalOpen(false)} disabled={isSendingDebug} className="px-4 py-2 rounded-xl text-sm font-bold text-zinc-300 bg-white/5 border border-white/10 hover:bg-white/10 transition disabled:opacity-50 disabled:cursor-not-allowed">
-                  {t.wb_debug_close}
-                </button>
-                <button onClick={handleSendDebugPayload} disabled={isPreparingDebug || isSendingDebug} className={`px-4 py-2 rounded-xl text-sm font-bold text-white flex items-center gap-2 transition ${isPreparingDebug || isSendingDebug ? 'bg-zinc-700 cursor-not-allowed' : 'bg-gradient-to-r from-purple-600 to-orange-500 hover:brightness-110'}`}>
-                  {isSendingDebug ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  {t.wb_debug_send}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
   );
 };

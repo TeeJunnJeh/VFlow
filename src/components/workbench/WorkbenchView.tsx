@@ -3,13 +3,13 @@ import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
-  Zap, Layers, Video, Lock, Info, Check, Sparkles
+  Zap, Layers, Video, Lock, Info, Check, Sparkles, Bug
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { useTasks } from '../../context/TaskContext';
 import { useWorkbenchModel } from '../../context/WorkbenchModelContext';
-import { videoApi } from '../../services/video';
+import { videoApi, type GeneratePreviewData } from '../../services/video';
 import { assetsApi } from '../../services/assets';
 import { tiktokApi } from '../../services/tiktok';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
@@ -49,6 +49,23 @@ type QueuedScript = {
   name: string;
   scripts: ScriptItem[];
   duration: number;
+};
+
+type GeneratePayload = {
+  model: string;
+  prompt: string;
+  duration: number;
+  sound: 'on' | 'off';
+  project_id?: string;
+  image_path?: string | null;
+  motion_video_path?: string | null;
+  asset_source?: 'product' | 'preference' | null;
+  user_language: string;
+  target_language: string;
+  model_asset_id: string | number | null;
+  motion_asset_id: string | number | null;
+  negative_prompt?: string;
+  [key: string]: unknown;
 };
 
 // What we persist to the backend for cross-refresh / cross-device restore.
@@ -187,6 +204,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
   const [isExporting, setIsExporting] = useState(false); 
+  const [isDebugModalOpen, setIsDebugModalOpen] = useState(false);
+  const [isPreparingDebug, setIsPreparingDebug] = useState(false);
+  const [isSendingDebug, setIsSendingDebug] = useState(false);
+  const [debugPayloadText, setDebugPayloadText] = useState('');
+  const [debugPreview, setDebugPreview] = useState<GeneratePreviewData | null>(null);
 
   // Video Player State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -435,6 +457,206 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const videoFormats = VIDEO_EXTS.join('/');
   const audioFormats = AUDIO_EXTS.join('/');
   const formatHint = `图片(${imageFormats}) 视频(${videoFormats}) 音频(${audioFormats}) · ≤1GB`;
+  const isBatchDebugMode = assetQueue.length > 0 || scriptQueue.length > 0;
+
+  const extractUploadedAssetPath = (uploadResp: any): string | null => {
+    if (uploadResp?.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
+      return uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path || null;
+    }
+    return uploadResp?.url || uploadResp?.file_url || uploadResp?.path || uploadResp?.data?.url || null;
+  };
+
+  const buildCombinedScriptPrompt = (inputScripts: ScriptItem[]) => (
+    inputScripts.map((script) => {
+      const audioMarker = script.audio ? `【音频|【[旁白]】${script.audio}】` : '';
+      return `${script.visual || ''} ${audioMarker}`.trim();
+    }).join(' ')
+  );
+
+  const resolveCurrentSingleAssetPath = async () => {
+    let apiPath = lastUploadedUrl;
+
+    if (!apiPath && selectedFileObj) {
+      const uploadType = currentAssetMediaKind === 'video' ? 'motion' : 'product';
+      const uploadResp = await assetsApi.uploadAsset(selectedFileObj, uploadType);
+      const rawPath = extractUploadedAssetPath(uploadResp);
+      if (!rawPath) throw new Error('Could not retrieve asset path from upload response');
+      setLastUploadedUrl(rawPath);
+      apiPath = rawPath;
+    } else if (!apiPath && selectedAssetUrl) {
+      apiPath = selectedAssetUrl;
+    }
+
+    return apiPath;
+  };
+
+  const buildSingleGeneratePayload = async (): Promise<GeneratePayload> => {
+    const apiPath = await resolveCurrentSingleAssetPath();
+    const payload: GeneratePayload = {
+      model: backendModel,
+      prompt: buildCombinedScriptPrompt(scripts),
+      duration: genDuration,
+      sound: soundSetting,
+      asset_source: selectedAssetSource,
+      user_language: language,
+      target_language: targetLanguage,
+      model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
+      motion_asset_id: currentAssetMediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
+    };
+
+    if (apiPath) {
+      if (currentAssetMediaKind === 'video') payload.motion_video_path = apiPath;
+      else payload.image_path = apiPath;
+    }
+
+    return payload;
+  };
+
+  const ensureSingleProjectId = async () => {
+    if (selectedTemplate?.id) {
+      const cloneResp = await videoApi.cloneProject(selectedTemplate.id);
+      const clonedProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
+      if (!clonedProjectId) throw new Error('Failed to clone project');
+      return String(clonedProjectId);
+    }
+
+    if (!user?.id) throw new Error('请先登录');
+
+    const createResp = await videoApi.createProject(user.id, {
+      title: fileName || 'Video',
+      aspect_ratio: selectedTemplate?.aspect_ratio || '9:16',
+      script_content: {
+        duration: genDuration,
+        shots: scripts,
+      }
+    });
+
+    const createdProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
+    if (!createdProjectId) throw new Error('Failed to create project');
+    return String(createdProjectId);
+  };
+
+  const submitSingleGeneration = async (inputPayload: GeneratePayload) => {
+    const projectId = inputPayload.project_id ? String(inputPayload.project_id) : await ensureSingleProjectId();
+    const requestPayload: GeneratePayload = {
+      ...inputPayload,
+      project_id: projectId,
+    };
+
+    console.log('🚀 Sending Generation Request:', requestPayload);
+
+    const genResp = await videoApi.generate(requestPayload);
+    const taskId = genResp?.data?.task_id || genResp?.task_id;
+
+    if (genResp?.code === 0 && taskId) {
+      addTask({
+        id: taskId,
+        projectId,
+        type: 'video_generation',
+        status: 'processing',
+        name: `${selectedTemplate?.name || 'Video'} (${projectId.slice(0, 6)})`,
+        thumbnail: uploadedFile || undefined,
+        createdAt: Date.now(),
+      });
+      setLastGeneratedProjectId(projectId);
+      alert('任务已提交到后台运行，您可以继续修改参数生成下一个！');
+      return;
+    }
+
+    alert('提交成功，但未返回任务ID。');
+  };
+
+  const refreshDebugPreview = async (payload: Record<string, unknown>) => {
+    const previewResp = await videoApi.previewGenerate(payload);
+    if (previewResp.code !== 0 || !previewResp.data) {
+      throw new Error(previewResp.message || 'Failed to preview generation payload');
+    }
+    setDebugPreview(previewResp.data);
+    return previewResp.data;
+  };
+
+  const handleOpenDebugModal = async () => {
+    if (isBatchDebugMode) {
+      alert(t.wb_debug_batch_unsupported);
+      return;
+    }
+    if (!selectedTemplate?.id && !selectedFileObj && !selectedAssetUrl && !uploadedFile) {
+      alert('Please upload a reference asset or select a template first!');
+      return;
+    }
+    if (scripts.length === 0) {
+      alert('Please generate or add scripts first!');
+      return;
+    }
+    if (!isDurationValid) {
+      alert(`Total script duration (${currentScriptDuration}s) must match requested duration (${genDuration}s)!`);
+      return;
+    }
+
+    setIsDebugModalOpen(true);
+    setIsPreparingDebug(true);
+    setDebugPreview(null);
+
+    try {
+      const payload = await buildSingleGeneratePayload();
+      const preview = await refreshDebugPreview(payload as Record<string, unknown>);
+      setDebugPayloadText(JSON.stringify(preview.request_payload || payload, null, 2));
+    } catch (err: any) {
+      setIsDebugModalOpen(false);
+      alert(err?.message || 'Failed to prepare debug payload');
+    } finally {
+      setIsPreparingDebug(false);
+    }
+  };
+
+  const handleRefreshDebugPreview = async () => {
+    let parsed: Record<string, unknown>;
+    try {
+      const next = JSON.parse(debugPayloadText);
+      if (!next || typeof next !== 'object' || Array.isArray(next)) {
+        throw new Error(t.wb_debug_invalid_json);
+      }
+      parsed = next as Record<string, unknown>;
+    } catch {
+      alert(t.wb_debug_invalid_json);
+      return;
+    }
+
+    setIsPreparingDebug(true);
+    try {
+      const preview = await refreshDebugPreview(parsed);
+      setDebugPayloadText(JSON.stringify(preview.request_payload || parsed, null, 2));
+    } catch (err: any) {
+      alert(err?.message || 'Failed to refresh preview');
+    } finally {
+      setIsPreparingDebug(false);
+    }
+  };
+
+  const handleSendDebugPayload = async () => {
+    let parsed: GeneratePayload;
+    try {
+      const next = JSON.parse(debugPayloadText);
+      if (!next || typeof next !== 'object' || Array.isArray(next)) {
+        throw new Error(t.wb_debug_invalid_json);
+      }
+      parsed = next as GeneratePayload;
+    } catch {
+      alert(t.wb_debug_invalid_json);
+      return;
+    }
+
+    setIsSendingDebug(true);
+    setGeneratedVideoUrl(null);
+    try {
+      await submitSingleGeneration(parsed);
+      setIsDebugModalOpen(false);
+    } catch (err: any) {
+      alert(`Error: ${err.message || 'Generation failed'}`);
+    } finally {
+      setIsSendingDebug(false);
+    }
+  };
 
   const validateUploadFile = (file: File) => {
     if (file.size > MAX_UPLOAD_BYTES) return `文件过大：${file.name}（>1GB）`;
@@ -1040,92 +1262,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setGeneratedVideoUrl(null);
 
     try {
-      // --- FIX: Real Image Path Extraction Logic ---
-      let apiPath = lastUploadedUrl; 
-      const uploadType = currentAssetMediaKind === 'video' ? 'motion' : 'product';
-      
-      if (!apiPath && selectedFileObj) {
-          console.log("🚀 Uploading reference image...");
-        const uploadResp = await assetsApi.uploadAsset(selectedFileObj, uploadType);
-          
-          let rawPath = null;
-          if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
-            rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
-          } else {
-            rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
-          }
-
-          if (!rawPath) throw new Error("Could not retrieve image path from upload response");
-
-          setLastUploadedUrl(rawPath);
-          apiPath = rawPath;
-      } else if (!apiPath && selectedAssetUrl) {
-        apiPath = selectedAssetUrl;
-      }
-
-      // It's valid to generate from a template or pure text-only prompt without an explicit image path.
-      // If we don't have an apiPath, proceed and let the backend decide (it may use model_asset_id or pure-text generation).
-
-      // Combine Scripts
-      const combinedScriptPrompt = scripts.map(s => {
-        const audioMarker = s.audio ? `【音频|【[旁白]】${s.audio}】` : '';
-        return `${s.visual || ''} ${audioMarker}`.trim();
-      }).join(' ');
-
-      // Clone Project (if template selected) or Create Project from scripts
-      let newProjectId: string | undefined;
-      if (selectedTemplate?.id) {
-        const cloneResp = await videoApi.cloneProject(selectedTemplate.id);
-        newProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
-        if (!newProjectId) throw new Error('Failed to clone project');
-      } else {
-        const createResp = await videoApi.createProject(user!.id, {
-          title: fileName || 'Video',
-          aspect_ratio: selectedTemplate?.aspect_ratio || '9:16',
-          script_content: {
-            duration: genDuration,
-            shots: scripts
-          }
-        });
-        newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
-        if (!newProjectId) throw new Error('Failed to create project');
-      }
-
-        const payload = {
-          model: backendModel,
-          prompt: combinedScriptPrompt,
-          project_id: newProjectId,
-          duration: genDuration,
-          ...(currentAssetMediaKind === 'video' ? { motion_video_path: apiPath } : { image_path: apiPath }),
-          sound: soundSetting,
-          asset_source: selectedAssetSource,
-          user_language: language,
-          target_language: targetLanguage,
-          model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
-          motion_asset_id: currentAssetMediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
-        };
-
-      console.log("🚀 Sending Generation Request:", payload);
-
-      const genResp = await videoApi.generate(payload);
-      const taskId = genResp?.data?.task_id || genResp?.task_id;
-      const projectId = genResp?.data?.project_id || newProjectId;
-
-      if (genResp?.code === 0 && taskId) {
-        addTask({
-          id: taskId,
-          projectId: String(projectId),
-          type: 'video_generation',
-          status: 'processing',
-          name: `${selectedTemplate?.name || 'Video'} (${String(projectId).slice(0, 6)})`,
-          thumbnail: uploadedFile || undefined,
-          createdAt: Date.now(),
-        });
-        setLastGeneratedProjectId(String(projectId));
-        alert("任务已提交到后台运行，您可以继续修改参数生成下一个！");
-      } else {
-        alert("提交成功，但未返回任务ID。");
-      }
+      const payload = await buildSingleGeneratePayload();
+      await submitSingleGeneration(payload);
     } catch (err: any) {
       alert(`Error: ${err.message || 'Generation failed'}`);
     } finally {
@@ -1906,9 +2044,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <ArrowRight className="w-3 h-3" />
                 </button>
             </div>
+              <div className="flex items-center gap-2">
+                <button onClick={handleOpenDebugModal} disabled={isGenerating || isPreparingDebug || isSendingDebug || isBatchDebugMode || (!isReuseReady && (!(selectedTemplate?.id || hasCurrentAsset) || !isDurationValid))} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition flex items-center gap-2 border border-white/10 ${isGenerating || isPreparingDebug || isSendingDebug || isBatchDebugMode || (!isReuseReady && (!(selectedTemplate?.id || hasCurrentAsset) || !isDurationValid)) ? 'bg-zinc-800/80 text-zinc-500 cursor-not-allowed' : 'bg-white/5 text-zinc-100 hover:bg-white/10 hover:border-white/20'}`}>
+                  {isPreparingDebug ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bug className="w-4 h-4" />}
+                  {t.wb_btn_debug_video}
+                </button>
               <button onClick={handleGenerateVideo} disabled={isGenerating || (!isReuseReady && (!(selectedTemplate?.id || hasCurrentAsset) || !isDurationValid))} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
                   {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}{isGenerating ? 'Generating...' : t.wb_btn_gen_video}
               </button>
+              </div>
            </div>
            
            <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
@@ -2026,6 +2170,65 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
           </div>
         </div>
+
+        {isDebugModalOpen && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setIsDebugModalOpen(false)}>
+            <div className="w-full max-w-5xl max-h-[90vh] rounded-3xl border border-white/10 bg-zinc-950 shadow-2xl shadow-black/40 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-white/10 bg-white/5">
+                <div>
+                  <div className="text-lg font-black text-white flex items-center gap-2">
+                    <Bug className="w-5 h-5 text-orange-400" />
+                    {t.wb_debug_title}
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-400">{t.wb_debug_subtitle}</div>
+                </div>
+                <button onClick={() => setIsDebugModalOpen(false)} className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/5 transition">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-0 max-h-[calc(90vh-160px)] overflow-hidden">
+                <div className="p-5 border-b xl:border-b-0 xl:border-r border-white/10 flex flex-col min-h-[320px]">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-[11px] font-bold tracking-widest uppercase text-zinc-500">{t.wb_debug_request}</div>
+                    <button onClick={handleRefreshDebugPreview} disabled={isPreparingDebug || isSendingDebug} className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition ${isPreparingDebug || isSendingDebug ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' : 'bg-white/5 text-zinc-200 hover:bg-white/10'}`}>
+                      {isPreparingDebug ? t.wb_debug_loading : t.wb_debug_refresh}
+                    </button>
+                  </div>
+                  <textarea
+                    value={debugPayloadText}
+                    onChange={(e) => setDebugPayloadText(e.target.value)}
+                    spellCheck={false}
+                    className="flex-1 min-h-[320px] w-full rounded-2xl border border-white/10 bg-black/30 p-4 text-xs text-zinc-200 font-mono leading-6 resize-none focus:outline-none focus:border-orange-500/60 custom-scroll"
+                  />
+                </div>
+
+                <div className="p-5 flex flex-col min-h-[320px]">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-[11px] font-bold tracking-widest uppercase text-zinc-500">{t.wb_debug_model_preview}</div>
+                    {debugPreview && (
+                      <div className="flex items-center gap-2 text-[10px] text-zinc-400">
+                        <span className="px-2 py-1 rounded-full border border-white/10 bg-white/5">{debugPreview.task_type}</span>
+                        <span className="px-2 py-1 rounded-full border border-white/10 bg-white/5">{debugPreview.api_method}</span>
+                      </div>
+                    )}
+                  </div>
+                  <pre className="flex-1 min-h-[320px] rounded-2xl border border-white/10 bg-black/30 p-4 text-xs text-zinc-300 font-mono leading-6 overflow-auto custom-scroll whitespace-pre-wrap break-all">{isPreparingDebug && !debugPreview ? t.wb_debug_loading : JSON.stringify(debugPreview?.model_request || {}, null, 2)}</pre>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-white/10 bg-white/5">
+                <button onClick={() => setIsDebugModalOpen(false)} disabled={isSendingDebug} className="px-4 py-2 rounded-xl text-sm font-bold text-zinc-300 bg-white/5 border border-white/10 hover:bg-white/10 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                  {t.wb_debug_close}
+                </button>
+                <button onClick={handleSendDebugPayload} disabled={isPreparingDebug || isSendingDebug} className={`px-4 py-2 rounded-xl text-sm font-bold text-white flex items-center gap-2 transition ${isPreparingDebug || isSendingDebug ? 'bg-zinc-700 cursor-not-allowed' : 'bg-gradient-to-r from-purple-600 to-orange-500 hover:brightness-110'}`}>
+                  {isSendingDebug ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  {t.wb_debug_send}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
   );
 };

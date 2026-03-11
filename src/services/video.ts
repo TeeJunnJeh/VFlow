@@ -44,6 +44,15 @@ type ApiEnvelope<T> = {
   data?: T;
 } & Record<string, unknown>;
 
+export type GeneratePreviewData = {
+  request_payload: Record<string, unknown>;
+  model_request: Record<string, unknown>;
+  task_type: string;
+  api_method: string;
+  project_id?: string | null;
+  resolved_assets?: Record<string, unknown>;
+};
+
 const asRecord = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== 'object') return null;
   return value as Record<string, unknown>;
@@ -153,6 +162,34 @@ export const videoApi = {
 
     if (!response.ok) {
       let errorMsg = 'Video generation failed';
+      try {
+        const errData = await response.json();
+        errorMsg = errData.message || JSON.stringify(errData);
+      } catch {
+        errorMsg = `Server Error: ${response.status} ${response.statusText}`;
+      }
+      throw new Error(errorMsg);
+    }
+
+    return await response.json();
+  },
+
+  previewGenerate: async (payload: unknown): Promise<ApiEnvelope<GeneratePreviewData>> => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/generate_video/preview`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      let errorMsg = 'Preview generation request failed';
       try {
         const errData = await response.json();
         errorMsg = errData.message || JSON.stringify(errData);

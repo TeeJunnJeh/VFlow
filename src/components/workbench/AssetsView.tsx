@@ -671,7 +671,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                     setCurrentFolderId(null);
                     setFolderBreadcrumb([]);
                   }}
-                  className={`text-sm font-bold px-6 py-2 rounded-full transition ${activeAssetTab === type ? 'bg-white text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}
+                  className={`asset-type-tab text-sm font-bold px-6 py-2 rounded-full transition ${activeAssetTab === type ? 'asset-type-tab--active' : 'asset-type-tab--inactive'}`}
                 >
                   {assetTabLabel[type] || type.toUpperCase()}
                 </button>

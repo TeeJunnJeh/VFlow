@@ -2064,7 +2064,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
                 <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
                   {[5, 10, 15].map(d => (
-                      <button key={d} onClick={() => setGenDuration(d)} className={`flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${genDuration === d ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:bg-zinc-800'}`}>{d}s</button>
+                      <button key={d} onClick={() => setGenDuration(d)} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${genDuration === d ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{d}s</button>
                   ))}
                 </div>
               </div>

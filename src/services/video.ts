@@ -85,6 +85,25 @@ async function readApiError(response: Response): Promise<string> {
 }
 
 export const videoApi = {
+  // Debug: fetch backend prompt templates (for prompt tuning UI)
+  getPromptTemplates: async () => {
+    const response = await fetch(`${API_BASE_URL}/prompt-templates/`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const msg = await readApiError(response);
+      throw new Error(msg);
+    }
+
+    return await response.json();
+  },
+
   // 0. Create Project (non-template)
   createProject: async (userId: string | number, payload: unknown) => {
     const csrftoken = getCookie('csrftoken');

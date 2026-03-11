@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
@@ -12,9 +12,19 @@ import { useWorkbenchModel } from '../../context/WorkbenchModelContext';
 import { videoApi, type GeneratePreviewData } from '../../services/video';
 import { assetsApi } from '../../services/assets';
 import { tiktokApi } from '../../services/tiktok';
+import {
+  PromptLabWindow,
+  buildBackendPromptOverrides,
+  loadPromptOverrides,
+  type PromptOverrides,
+  type PromptStepTemplate,
+  type PromptTemplatesResponse,
+} from './PromptLabWindow';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { type Template } from '../../services/templates';
+
+const ENABLE_PROMPT_LAB = true;
 
 
 // Types specific to Workbench View
@@ -160,6 +170,43 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scriptFileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  // --- Prompt Lab (temporary, removable) ---
+  const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
+  const [promptTemplates, setPromptTemplates] = useState<PromptStepTemplate[]>([]);
+  const [promptOverrides, setPromptOverrides] = useState<PromptOverrides>(() =>
+    ENABLE_PROMPT_LAB ? loadPromptOverrides() : {}
+  );
+  const [promptTemplatesLoading, setPromptTemplatesLoading] = useState(false);
+  const [promptTemplatesError, setPromptTemplatesError] = useState<string | null>(null);
+  const promptOverridesPayload = useMemo(
+    () => (ENABLE_PROMPT_LAB ? buildBackendPromptOverrides(promptOverrides) : null),
+    [promptOverrides]
+  );
+
+  const loadPromptLabTemplates = async () => {
+    if (!ENABLE_PROMPT_LAB) return;
+    if (promptTemplatesLoading) return;
+    setPromptTemplatesError(null);
+    setPromptTemplatesLoading(true);
+    try {
+      const resp: PromptTemplatesResponse = await videoApi.getPromptTemplates();
+      const steps = resp?.data?.steps;
+      if (Array.isArray(steps)) setPromptTemplates(steps);
+    } catch (err: any) {
+      console.warn('[PromptLab] failed to load templates:', err);
+      setPromptTemplatesError(String(err?.message || err || '加载失败'));
+    } finally {
+      setPromptTemplatesLoading(false);
+    }
+  };
+
+  const openPromptLab = async () => {
+    if (!ENABLE_PROMPT_LAB) return;
+    setIsPromptLabOpen(true);
+    if (promptTemplates.length > 0) return;
+    await loadPromptLabTemplates();
+  };
 
   // --- Local State ---
   const [uploadedFile, setUploadedFile] = useState<string | null>(initialFileUrl || null);
@@ -919,7 +966,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           shots: []
         },
         ...(imagePath ? { product_image_path: imagePath } : {}),
-        asset_source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference')
+        asset_source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference'),
+        ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
       };
 
       console.log("📜 Generating Script with payload:", payload);
@@ -1207,6 +1255,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 target_language: targetLanguage,
                 model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
                 motion_asset_id: asset.mediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
+                ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
               };
 
             const genResp = await videoApi.generate(payload);
@@ -1264,6 +1313,94 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     try {
       const payload = await buildSingleGeneratePayload();
       await submitSingleGeneration(payload);
+      /*
+      let apiPath = lastUploadedUrl; 
+      const uploadType = currentAssetMediaKind === 'video' ? 'motion' : 'product';
+      
+      if (!apiPath && selectedFileObj) {
+          console.log("🚀 Uploading reference image...");
+        const uploadResp = await assetsApi.uploadAsset(selectedFileObj, uploadType);
+          
+          let rawPath = null;
+          if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
+            rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
+          } else {
+            rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
+          }
+
+          if (!rawPath) throw new Error("Could not retrieve image path from upload response");
+
+          setLastUploadedUrl(rawPath);
+          apiPath = rawPath;
+      } else if (!apiPath && selectedAssetUrl) {
+        apiPath = selectedAssetUrl;
+      }
+
+      // It's valid to generate from a template or pure text-only prompt without an explicit image path.
+      // If we don't have an apiPath, proceed and let the backend decide (it may use model_asset_id or pure-text generation).
+
+      // Combine Scripts
+      const combinedScriptPrompt = scripts.map(s => {
+        const audioMarker = s.audio ? `【音频|【[旁白]】${s.audio}】` : '';
+        return `${s.visual || ''} ${audioMarker}`.trim();
+      }).join(' ');
+
+      // Clone Project (if template selected) or Create Project from scripts
+      let newProjectId: string | undefined;
+      if (selectedTemplate?.id) {
+        const cloneResp = await videoApi.cloneProject(selectedTemplate.id);
+        newProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
+        if (!newProjectId) throw new Error('Failed to clone project');
+      } else {
+        const createResp = await videoApi.createProject(user!.id, {
+          title: fileName || 'Video',
+          aspect_ratio: selectedTemplate?.aspect_ratio || '9:16',
+          script_content: {
+            duration: genDuration,
+            shots: scripts
+          }
+        });
+        newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
+        if (!newProjectId) throw new Error('Failed to create project');
+      }
+
+        const payload = {
+          model: backendModel,
+          prompt: combinedScriptPrompt,
+          project_id: newProjectId,
+          duration: genDuration,
+          ...(currentAssetMediaKind === 'video' ? { motion_video_path: apiPath } : { image_path: apiPath }),
+          sound: soundSetting,
+          asset_source: selectedAssetSource,
+          user_language: language,
+          target_language: targetLanguage,
+          model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
+          motion_asset_id: currentAssetMediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
+          ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
+        };
+
+      console.log("🚀 Sending Generation Request:", payload);
+
+      const genResp = await videoApi.generate(payload);
+      const taskId = genResp?.data?.task_id || genResp?.task_id;
+      const projectId = genResp?.data?.project_id || newProjectId;
+
+      if (genResp?.code === 0 && taskId) {
+        addTask({
+          id: taskId,
+          projectId: String(projectId),
+          type: 'video_generation',
+          status: 'processing',
+          name: `${selectedTemplate?.name || 'Video'} (${String(projectId).slice(0, 6)})`,
+          thumbnail: uploadedFile || undefined,
+          createdAt: Date.now(),
+        });
+        setLastGeneratedProjectId(String(projectId));
+        alert("任务已提交到后台运行，您可以继续修改参数生成下一个！");
+      } else {
+        alert("提交成功，但未返回任务ID。");
+      }
+      */
     } catch (err: any) {
       alert(`Error: ${err.message || 'Generation failed'}`);
     } finally {
@@ -1978,12 +2115,34 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-bold tracking-tight text-white">Project_Alpha_01</h1>
             <span className="px-2 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-400 border border-white/5">{t.wb_header_draft}</span>
+            {ENABLE_PROMPT_LAB && (
+              <button
+                onClick={openPromptLab}
+                className="flex items-center gap-1.5 px-2 py-1 rounded border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
+                title="查看/编辑内置 prompts（临时功能）"
+              >
+                <FileJson className="w-3.5 h-3.5" />
+                <span className="text-[10px] font-bold">Prompt</span>
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-4">
             <div className="text-xs text-zinc-500">{t.wb_header_save}</div>
             <LanguageSwitcher />
           </div>
         </header>
+
+        {ENABLE_PROMPT_LAB && isPromptLabOpen && (
+          <PromptLabWindow
+            templates={promptTemplates}
+            loading={promptTemplatesLoading}
+            error={promptTemplatesError}
+            onReload={loadPromptLabTemplates}
+            overrides={promptOverrides}
+            onChangeOverrides={setPromptOverrides}
+            onClose={() => setIsPromptLabOpen(false)}
+          />
+        )}
 
       <div className="flex-1 flex overflow-hidden p-6 gap-6">
         {renderLeftColumn()}

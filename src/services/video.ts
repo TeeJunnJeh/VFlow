@@ -30,6 +30,8 @@ export interface HistoryProject {
   created_at: string;
   updated_at: string;
   platform_stats?: Record<string, unknown>;
+  request_payload?: Record<string, unknown> | null;
+  model_request?: Record<string, unknown> | null;
   config_snapshot?: {
     category: string;
     style: string;

@@ -29,15 +29,15 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const imageFormats = IMAGE_EXTS.join('/');
   const videoFormats = VIDEO_EXTS.join('/');
   const audioFormats = AUDIO_EXTS.join('/');
-  const formatHint = `图片：${imageFormats}\n视频：${videoFormats}\n音频：${audioFormats}\n大小：≤1GB`;
+  const formatHint = `${t.wb_upload_image}: ${imageFormats}\n${t.wb_upload_video}: ${videoFormats}\n${t.wb_upload_audio}: ${audioFormats}\n${t.wb_upload_max_size}`;
 
   const validateUploadFile = (file: File) => {
-    if (file.size > MAX_UPLOAD_BYTES) return `文件过大：${file.name}（>1GB）`;
+    if (file.size > MAX_UPLOAD_BYTES) return `${t.assets_upload_error_too_large}: ${file.name} (>1GB)`;
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
     const isImage = file.type.startsWith('image/') || IMAGE_EXTS.includes(ext);
     const isVideo = file.type.startsWith('video/') || VIDEO_EXTS.includes(ext);
     const isAudio = file.type.startsWith('audio/') || AUDIO_EXTS.includes(ext);
-    if (!isImage && !isVideo && !isAudio) return `格式不支持：${file.name}`;
+    if (!isImage && !isVideo && !isAudio) return `${t.assets_upload_error_unsupported}: ${file.name}`;
     return null;
   };
 
@@ -170,7 +170,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       if (err) errors.push(err);
       else validFiles.push(file);
     });
-    if (errors.length > 0) alert(`${errors.join('\n')}\n\n支持格式：${formatHint}`);
+    if (errors.length > 0) alert(`${errors.join('\n')}\n\n${t.assets_upload_formats_title}:\n${formatHint}`);
     if (validFiles.length === 0) return;
     setIsUploading(true);
     try {
@@ -615,7 +615,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     >
        {isDragUploadActive && (
          <div className="absolute inset-0 z-[120] rounded-3xl border-2 border-dashed border-orange-500/60 bg-orange-500/10 backdrop-blur-sm flex items-center justify-center pointer-events-none">
-           <div className="text-sm font-bold text-orange-200">拖拽文件到此处上传</div>
+           <div className="text-sm font-bold text-orange-200">{t.assets_upload_drop_here}</div>
          </div>
        )}
        {draggingAsset && (
@@ -651,7 +651,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                   {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} {t.assets_btn_upload}
                </button>
                <div className="absolute right-0 top-12 z-50 w-max max-w-[360px] rounded-xl border border-white/10 bg-zinc-900/95 px-3 py-2 text-[10px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover:opacity-100 hover:opacity-100">
-                 <div className="text-[11px] font-bold text-white mb-1">支持格式</div>
+                 <div className="text-[11px] font-bold text-white mb-1">{t.assets_upload_formats_title}</div>
                  <div className="whitespace-pre-line text-zinc-300 leading-relaxed">{formatHint}</div>
                </div>
              </div>

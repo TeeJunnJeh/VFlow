@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Flame, Gem, Zap, ChevronDown, Camera, Sparkles, Utensils, Cpu, Eye, Film, Box, Wand2, PencilLine, UserSquare2, Maximize2, X } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { AppDialog } from '../common/AppDialog';
 import { type Template, templatesApi } from '../../services/templates';
 import { assetsApi } from '../../services/assets';
 import { useAuth } from '../../context/AuthContext';
@@ -73,6 +74,15 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
   const [uploadedMotionPreview, setUploadedMotionPreview] = useState<{ url: string; name: string } | null>(null);
   const [isUploadingMotion, setIsUploadingMotion] = useState(false);
   const motionFileInputRef = useRef<HTMLInputElement>(null);
+  // Info dialog state to replace native alert()
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const [infoTitle, setInfoTitle] = useState('');
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const openInfo = (title: string, message: string | null = null) => {
+    setInfoTitle(title || '');
+    setInfoMessage(message || null);
+    setIsInfoOpen(true);
+  };
 
   const handleModelImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -88,7 +98,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
       setSelectedModelId(Number.isFinite(idNum as any) ? (idNum as number) : null);
       setUploadedModelPreview({ url: fullUrl, name: data?.display_name || data?.name || file.name });
     } catch {
-      alert('Failed to upload model image');
+      openInfo('Error', 'Failed to upload model image');
     } finally {
       setIsUploadingModel(false);
     }
@@ -108,7 +118,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
       setSelectedMotionId(Number.isFinite(idNum as any) ? (idNum as number) : null);
       setUploadedMotionPreview({ url: fullUrl, name: data?.display_name || data?.name || file.name });
     } catch {
-      alert('Failed to upload motion video');
+      openInfo('Error', 'Failed to upload motion video');
     } finally {
       setIsUploadingMotion(false);
     }
@@ -176,7 +186,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
   }, [initialData]);
 
   const handleSave = async () => {
-    if (!user?.id) return alert("Please log in");
+    if (!user?.id) { openInfo('Notice', 'Please log in'); return; }
     try {
       // Attach model asset id (null = smart match, undefined = not changed)
       const payload: Template = {
@@ -195,7 +205,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
       }
       onSaveSuccess();
     } catch (err) {
-      alert("Failed to save");
+      openInfo('Error', 'Failed to save');
     }
   };
 
@@ -208,6 +218,11 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
         </div>
         <LanguageSwitcher />
       </div>
+      {isInfoOpen && (
+        <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={() => setIsInfoOpen(false)} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>OK</button></>}>
+          <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
+        </AppDialog>
+      )}
       <div className="flex-1 overflow-y-auto p-10 max-w-5xl mx-auto w-full custom-scroll">
          <div className="glass-panel p-8 rounded-3xl border border-white/10 space-y-8">
             <div className="grid grid-cols-2 gap-8">

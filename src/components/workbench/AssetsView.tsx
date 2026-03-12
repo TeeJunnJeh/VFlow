@@ -105,6 +105,16 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [confirmIsWorking, setConfirmIsWorking] = useState(false);
   const confirmActionRef = useRef<null | (() => Promise<void> | void)>(null);
 
+  // Info dialog state (replace native alert)
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const [infoTitle, setInfoTitle] = useState('');
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const openInfo = (title: string, message: string | null = null) => {
+    setInfoTitle(title || '');
+    setInfoMessage(message || null);
+    setIsInfoOpen(true);
+  };
+
   // 4. Preview
   const [isAssetPreviewOpen, setIsAssetPreviewOpen] = useState(false);
   const [assetPreview, setAssetPreview] = useState<Asset | null>(null);
@@ -170,17 +180,17 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       if (err) errors.push(err);
       else validFiles.push(file);
     });
-    if (errors.length > 0) alert(`${errors.join('\n')}\n\n${t.assets_upload_formats_title}:\n${formatHint}`);
+    if (errors.length > 0) openInfo((t as any).assets_upload_formats_title || 'Upload error', `${errors.join('\n')}\n\n${(t as any).assets_upload_formats_title}:\n${formatHint}`);
     if (validFiles.length === 0) return;
     setIsUploading(true);
     try {
       const uploadTasks = validFiles.map(file => assetsApi.uploadAsset(file, activeAssetTab, currentFolderId));
       await Promise.all(uploadTasks);
       await loadData();
-      alert(`Successfully uploaded ${validFiles.length} files!`); 
+      openInfo((t as any).assets_upload_success_title || 'Upload complete', `Successfully uploaded ${validFiles.length} files!`);
     } catch (err) {
       console.error(err);
-      alert("Error uploading files");
+      openInfo((t as any).assets_upload_failed || 'Upload failed', String(err instanceof Error ? err.message : err));
     } finally {
       setIsUploading(false);
     }
@@ -220,7 +230,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       setAssetList(prev => prev.filter(a => a.id !== id));
     } catch (err) {
       console.error(err);
-      alert("Failed to delete asset");
+      openInfo((t as any).assets_delete_failed || 'Failed to delete asset', String(err instanceof Error ? err.message : err));
     }
   };
 
@@ -253,7 +263,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       cancelRenameAsset();
     } catch (err) {
       console.error(err);
-      alert("Failed to rename asset");
+      openInfo((t as any).assets_rename_failed || 'Failed to rename asset', String(err instanceof Error ? err.message : err));
       cancelRenameAsset();
     } finally {
       renameIgnoreBlurRef.current = false;
@@ -316,7 +326,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       setIsFolderModalOpen(false);
     } catch (err) {
       console.error(err);
-      alert("Failed to save folder");
+      openInfo((t as any).assets_save_folder_failed || 'Failed to save folder', String(err instanceof Error ? err.message : err));
     } finally {
       setIsSavingFolder(false);
     }
@@ -330,9 +340,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err || "Failed to delete folder");
       if (msg.toLowerCase().includes('not empty')) {
-        alert(t.assets_folder_not_empty_hint);
+        openInfo(t.assets_folder_not_empty_hint || 'Folder not empty', t.assets_folder_not_empty_hint);
       } else {
-        alert(msg);
+        openInfo((t as any).assets_delete_failed || 'Failed to delete folder', msg);
       }
     } finally {
         setOpenFolderMenuId(null);
@@ -371,7 +381,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       setMoveExpandedFolderIds(computeExpandedForTarget(folders, defaultTargetFolderId ?? null));
     } catch (err) {
       console.error(err);
-      alert("Failed to load folders for move");
+      openInfo((t as any).assets_load_folders_failed || 'Failed to load folders', String(err instanceof Error ? err.message : err));
     }
   };
 
@@ -392,7 +402,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       setMoveExpandedFolderIds(computeExpandedForTarget(folders, folder.parent_id ?? null));
     } catch (err) {
       console.error(err);
-      alert("Failed to load folders for move");
+      openInfo((t as any).assets_load_folders_failed || 'Failed to load folders', String(err instanceof Error ? err.message : err));
     }
   };
 
@@ -461,7 +471,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       await loadData();
     } catch (err) {
       console.error(err);
-      alert("Failed to move asset");
+      openInfo((t as any).assets_move_failed || 'Failed to move asset', String(err instanceof Error ? err.message : err));
     } finally {
       endDragAsset();
     }
@@ -492,14 +502,14 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       );
 
       const failed = results.filter(r => r.status === 'rejected');
-      if (failed.length > 0) alert("Failed to move some assets");
+      if (failed.length > 0) openInfo((t as any).assets_move_some_failed || 'Failed to move some assets', `Failed to move ${failed.length} assets`);
       await loadData();
       setIsMoveModalOpen(false);
       setSelectedAssetIds(new Set());
       if (isSelectionMode) setIsSelectionMode(false);
     } catch (err) {
       console.error(err);
-      alert("Failed to move asset");
+      openInfo((t as any).assets_move_failed || 'Failed to move asset', String(err instanceof Error ? err.message : err));
     } finally {
       setIsMovingAsset(false);
     }
@@ -641,6 +651,16 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
             </div>
           </div>
         )}
+        {/* Info Dialog (replacement for alert) */}
+        {isInfoOpen && (
+          <div className="fixed inset-0 z-[116] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6" onClick={() => setIsInfoOpen(false)}>
+            <div className="w-full max-w-md glass-panel rounded-2xl p-6 border border-white/10" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4"><h3 className="text-sm font-bold text-zinc-200">{infoTitle || (t as any).assets_info_title || 'Notice'}</h3><button className="text-zinc-400 hover:text-white" onClick={() => setIsInfoOpen(false)}><X className="w-5 h-5"/></button></div>
+              {infoMessage && <div className="text-sm text-zinc-300 whitespace-pre-line">{infoMessage}</div>}
+              {/* 取消按钮已移除 */}
+            </div>
+          </div>
+        )}
        <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
           <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.assets_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.assets_subtitle}</p></div>
           <div className="flex gap-3 items-center">
@@ -752,7 +772,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           const ids = Array.from(selectedAssetIds);
                           const results = await Promise.allSettled(ids.map(id => assetsApi.deleteAsset(id)));
                           const failed = results.filter(r => r.status === 'rejected');
-                          if (failed.length > 0) alert("Failed to delete some assets");
+                          if (failed.length > 0) openInfo((t as any).assets_delete_failed || 'Failed to delete some assets', `Failed to delete ${failed.length} assets`);
                           await loadData();
                           setSelectedAssetIds(new Set());
                           setIsSelectionMode(false);
@@ -991,7 +1011,6 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               <label className="block text-xs text-zinc-500 mb-2">{t.assets_name_label}</label>
               <input ref={folderNameInputRef} className="w-full bg-black/30 text-zinc-200 text-sm rounded-lg border border-white/10 px-3 py-2 focus:outline-none focus:border-orange-500/50" value={folderNameInput} onChange={(e) => setFolderNameInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submitFolderModal(); if (e.key === 'Escape') setIsFolderModalOpen(false); }} placeholder={t.assets_new_folder_prompt} />
               <div className="flex justify-end gap-3 mt-5">
-                <button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsFolderModalOpen(false)}>{t.assets_move_cancel}</button>
                 <button className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-500 disabled:opacity-60" onClick={submitFolderModal} disabled={isSavingFolder}>{folderModalMode === 'create' ? t.assets_btn_new_folder : t.assets_save}</button>
               </div>
             </div>
@@ -1058,7 +1077,6 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                 )}
               </div>
               <div className="flex justify-end gap-3 mt-5">
-                <button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsMoveModalOpen(false)}>{t.assets_move_cancel}</button>
                 <button className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-500 disabled:opacity-60" onClick={handleConfirmMove} disabled={isMovingAsset}>{t.assets_move_confirm}</button>
               </div>
             </div>
@@ -1072,7 +1090,6 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               <div className="flex items-center justify-between mb-4"><h3 className="text-sm font-bold text-zinc-200">{confirmTitle || t.assets_confirm_title}</h3><button className="text-zinc-400 hover:text-white" onClick={() => setIsConfirmModalOpen(false)}><X className="w-5 h-5"/></button></div>
               {confirmMessage && <div className="text-sm text-zinc-300 whitespace-pre-line">{confirmMessage}</div>}
               <div className="flex justify-end gap-3 mt-5">
-                <button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700 disabled:opacity-60" onClick={() => setIsConfirmModalOpen(false)} disabled={confirmIsWorking}>{t.assets_move_cancel}</button>
                 <button className={`px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-60 ${confirmIsDanger ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-orange-600 hover:bg-orange-500 text-white'}`} onClick={runConfirmAction} disabled={confirmIsWorking}>{confirmIsWorking ? '...' : t.assets_delete}</button>
               </div>
             </div>

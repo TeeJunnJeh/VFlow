@@ -23,6 +23,7 @@ import {
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { type Template } from '../../services/templates';
+import { AppDialog } from '../common/AppDialog';
 
 const ENABLE_PROMPT_LAB = true;
 
@@ -258,6 +259,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   // Video Player State
   const [isPlaying, setIsPlaying] = useState(false);
+  // Info dialog state to replace native alert()
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const [infoTitle, setInfoTitle] = useState('');
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const openInfo = (title: string, message: string | null = null) => {
+    setInfoTitle(title || '');
+    setInfoMessage(message || null);
+    setIsInfoOpen(true);
+  };
+  // Confirm dialog helper (returns a Promise<boolean>)
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [confirmTitle, setConfirmTitle] = useState('');
+  const [confirmMessage, setConfirmMessage] = useState('');
+  const confirmResolveRef = useRef<((v: boolean) => void) | null>(null);
+  const openConfirm = (title: string, message: string) => {
+    return new Promise<boolean>((resolve) => {
+      confirmResolveRef.current = resolve;
+      setConfirmTitle(title || '');
+      setConfirmMessage(message || '');
+      setIsConfirmOpen(true);
+    });
+  };
 
   // Script State
   const buildDemoScripts = () => ([
@@ -606,11 +629,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         createdAt: Date.now(),
       });
       setLastGeneratedProjectId(projectId);
-      alert('任务已提交到后台运行，您可以继续修改参数生成下一个！');
+      openInfo('Success', '任务已提交到后台运行，您可以继续修改参数生成下一个！');
       return;
     }
 
-    alert('提交成功，但未返回任务ID。');
+    openInfo('Notice', '提交成功，但未返回任务ID。');
   };
 
   const refreshDebugPreview = async (payload: Record<string, unknown>) => {
@@ -624,19 +647,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const handlePrepareDebug = async () => {
     if (isBatchDebugMode) {
-      alert(t.wb_debug_batch_unsupported);
+      openInfo('Notice', t.wb_debug_batch_unsupported);
       return;
     }
     if (!selectedTemplate?.id && !selectedFileObj && !selectedAssetUrl && !uploadedFile) {
-      alert('Please upload a reference asset or select a template first!');
+      openInfo('Notice', 'Please upload a reference asset or select a template first!');
       return;
     }
     if (scripts.length === 0) {
-      alert('Please generate or add scripts first!');
+      openInfo('Notice', 'Please generate or add scripts first!');
       return;
     }
     if (!isDurationValid) {
-      alert(`Total script duration (${currentScriptDuration}s) must match requested duration (${genDuration}s)!`);
+      openInfo('Warning', `Total script duration (${currentScriptDuration}s) must match requested duration (${genDuration}s)!`);
       return;
     }
 
@@ -650,7 +673,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const preview = await refreshDebugPreview(payload as Record<string, unknown>);
       setDebugPayloadText(JSON.stringify(preview.request_payload || payload, null, 2));
     } catch (err: any) {
-      alert(err?.message || 'Failed to prepare debug payload');
+      openInfo('Error', String(err?.message || 'Failed to prepare debug payload'));
     } finally {
       setIsPreparingDebug(false);
     }
@@ -665,7 +688,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       parsed = next as Record<string, unknown>;
     } catch {
-      alert(t.wb_debug_invalid_json);
+      openInfo('Error', t.wb_debug_invalid_json);
       return;
     }
 
@@ -674,7 +697,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const preview = await refreshDebugPreview(parsed);
       setDebugPayloadText(JSON.stringify(preview.request_payload || parsed, null, 2));
     } catch (err: any) {
-      alert(err?.message || 'Failed to refresh preview');
+      openInfo('Error', String(err?.message || 'Failed to refresh preview'));
     } finally {
       setIsPreparingDebug(false);
     }
@@ -689,7 +712,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       parsed = next as GeneratePayload;
     } catch {
-      alert(t.wb_debug_invalid_json);
+      openInfo('Error', t.wb_debug_invalid_json);
       return;
     }
 
@@ -698,7 +721,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     try {
       await submitSingleGeneration(parsed);
     } catch (err: any) {
-      alert(`Error: ${err.message || 'Generation failed'}`);
+      openInfo('Error', `Error: ${err.message || 'Generation failed'}`);
     } finally {
       setIsSendingDebug(false);
     }
@@ -720,7 +743,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!file) return;
     const err = validateUploadFile(file);
     if (err) {
-      alert(`${err}\n\n支持格式：${formatHint}`);
+      openInfo('Invalid file', `${err}\n\n支持格式：${formatHint}`);
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
@@ -753,7 +776,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!file) return;
     const err = validateUploadFile(file);
     if (err) {
-      alert(`${err}\n\n支持格式：${formatHint}`);
+      openInfo('Invalid file', `${err}\n\n支持格式：${formatHint}`);
       return;
     }
     const url = URL.createObjectURL(file);
@@ -814,7 +837,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   // --- Queue Handlers ---
   const addCurrentAssetToQueue = () => {
     if (!selectedFileObj && !selectedAssetUrl && !uploadedFile) {
-      alert('请先选择或上传素材');
+      openInfo('Notice', '请先选择或上传素材');
       return;
     }
     const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -864,11 +887,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const addCurrentScriptToQueue = () => {
     if (scripts.length === 0) {
-      alert('请先生成或添加脚本');
+      openInfo('Notice', '请先生成或添加脚本');
       return;
     }
     if (!isDurationValid) {
-      alert(`脚本总时长(${currentScriptDuration.toFixed(1)}s)需要与配置时长(${genDuration}s)一致`);
+      openInfo('Warning', `脚本总时长(${currentScriptDuration.toFixed(1)}s)需要与配置时长(${genDuration}s)一致`);
       return;
     }
 
@@ -894,7 +917,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   // --- API Handlers ---
   const handleGenerateScripts = async () => {
-    if (!user?.id) return alert("Please log in first");
+    if (!user?.id) { openInfo('Notice', 'Please log in first'); return; }
 
     setIsGeneratingScript(true);
 
@@ -1026,10 +1049,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           setActiveScriptPage(0);
           setScripts(pages[0].scripts);
         } else {
-          alert("Script generation completed but returned unexpected data.");
+          openInfo('Notice', "Script generation completed but returned unexpected data.");
         }
       } else {
-        alert("Script generation completed but returned unexpected data.");
+        openInfo('Notice', "Script generation completed but returned unexpected data.");
       }
 
     } catch (err: any) {
@@ -1040,7 +1063,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         const parsed = JSON.parse(jsonPart);
         if (parsed.message) msg = parsed.message;
       } catch (e) {}
-      alert(`Script Generation Failed: ${msg}`);
+      openInfo('Error', `Script Generation Failed: ${msg}`);
     } finally {
       setIsGeneratingScript(false);
     }
@@ -1049,7 +1072,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   // --- Script Import / Export Functions ---
 
   const handleExportScripts = async () => {
-    if (scripts.length === 0) return alert("No scripts to export!");
+    if (scripts.length === 0) { openInfo('Notice', 'No scripts to export!'); return; }
 
     setIsExporting(true);
 
@@ -1112,11 +1135,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             setGenDuration(Math.ceil(newTotal));
           }
         } else {
-          alert("Invalid script format. Please upload a valid JSON file.");
+          openInfo('Invalid file', 'Invalid script format. Please upload a valid JSON file.');
         }
       } catch (err) {
         console.error(err);
-        alert("Failed to parse script file.");
+        openInfo('Error', 'Failed to parse script file.');
       }
     };
     reader.readAsText(file);
@@ -1175,13 +1198,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     // 1. Batch Generation (Reuse Queue)
     if (assetQueue.length > 0 || scriptQueue.length > 0) {
       if (assetQueue.length === 0 || scriptQueue.length === 0) {
-        alert("批量生成需要同时加入素材队列和脚本队列");
-        return;
-      }
-      if (!user?.id) {
-        alert("请先登录");
-        return;
-      }
+          openInfo('Notice', "批量生成需要同时加入素材队列和脚本队列");
+          return;
+        }
+        if (!user?.id) {
+          openInfo('Notice', "请先登录");
+          return;
+        }
 
       setIsGenerating(true);
       setGeneratedVideoUrl(null);
@@ -1286,12 +1309,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
         if (batchItems.length > 0) {
           setGeneratedBatch(prev => [...batchItems, ...prev]);
-          alert(`批量任务已提交，共 ${batchItems.length} 个`);
+          openInfo('Success', `批量任务已提交，共 ${batchItems.length} 个`);
         } else {
-          alert('批量提交完成，但未返回有效任务ID');
+          openInfo('Notice', '批量提交完成，但未返回有效任务ID');
         }
       } catch (err: any) {
-        alert(`批量生成失败：${err?.message || '未知错误'}`);
+        openInfo('Error', `批量生成失败：${err?.message || '未知错误'}`);
       } finally {
         setIsGenerating(false);
       }
@@ -1301,10 +1324,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     // 2. Single Video Generation
     // Allow generation when a template is selected even if no local/remote asset was uploaded.
-    if (!selectedTemplate?.id && !selectedFileObj && !selectedAssetUrl && !uploadedFile) return alert("Please upload a reference asset or select a template first!");
-    if (scripts.length === 0) return alert("Please generate or add scripts first!");
-    if (!isDurationValid) return alert(`Total script duration (${currentScriptDuration}s) must match requested duration (${genDuration}s)!`);
-    if (!selectedTemplate?.id && !user?.id) return alert("请先登录");
+    if (!selectedTemplate?.id && !selectedFileObj && !selectedAssetUrl && !uploadedFile) { openInfo('Notice', 'Please upload a reference asset or select a template first!'); return; }
+    if (scripts.length === 0) { openInfo('Notice', 'Please generate or add scripts first!'); return; }
+    if (!isDurationValid) { openInfo('Warning', `Total script duration (${currentScriptDuration}s) must match requested duration (${genDuration}s)!`); return; }
+    if (!selectedTemplate?.id && !user?.id) { openInfo('Notice', '请先登录'); return; }
 
     setIsGenerating(true);
     setGeneratedVideoUrl(null);
@@ -1395,13 +1418,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           createdAt: Date.now(),
         });
         setLastGeneratedProjectId(String(projectId));
-        alert("任务已提交到后台运行，您可以继续修改参数生成下一个！");
+        openInfo('Success', '任务已提交到后台运行，您可以继续修改参数生成下一个！');
       } else {
-        alert("提交成功，但未返回任务ID。");
+        openInfo('Notice', '提交成功，但未返回任务ID。');
       }
       */
     } catch (err: any) {
-      alert(`Error: ${err.message || 'Generation failed'}`);
+      openInfo('Error', `Error: ${err.message || 'Generation failed'}`);
     } finally {
       setIsGenerating(false);
     }
@@ -1409,13 +1432,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const handlePublishToTikTok = async () => {
     if (!generatedVideoUrl) {
-      alert('请先生成并预览视频');
+      openInfo('Notice', '请先生成并预览视频');
       return;
     }
 
     const targetProjectId = previewProjectId || lastGeneratedProjectId;
     if (!targetProjectId) {
-      alert('未找到视频对应的项目ID，请稍后重试');
+      openInfo('Notice', '未找到视频对应的项目ID，请稍后重试');
       return;
     }
 
@@ -1451,27 +1474,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         confirmMessage += '点击"取消"可切换账号';
       }
 
-      const userConfirmed = confirm(confirmMessage);
+      const userConfirmed = await openConfirm('Upload to TikTok', confirmMessage);
       if (!userConfirmed) {
         // 用户点击了取消，询问是否要切换账号
-        const switchAccount = confirm(
-            '是否要切换TikTok账号？\n\n' +
-            '点击"确定"后：\n' +
-            '1. 系统将取消当前授权\n' +
-            '2. 跳转到TikTok授权页面\n' +
-            '3. 如需切换到其他账号，请在TikTok页面先退出当前账号，再登录新账号\n' +
-            '4. 授权成功后视频将自动上传到新账号的草稿箱'
+        const switchAccount = await openConfirm(
+            'Switch TikTok Account',
+            '是否要切换TikTok账号？\n\n点击"确定"后：\n1. 系统将取消当前授权\n2. 跳转到TikTok授权页面\n3. 如需切换到其他账号，请在TikTok页面先退出当前账号，再登录新账号\n4. 授权成功后视频将自动上传到新账号的草稿箱'
         );
         if (switchAccount) {
           try {
             await tiktokApi.revokeAuth();
             // 取消授权成功，跳转到授权页面
-            alert('当前授权已取消，即将跳转到TikTok授权页面。\n\n如需切换账号，请在TikTok页面先退出当前账号。');
+            openInfo('Notice', '当前授权已取消，即将跳转到TikTok授权页面。\n\n如需切换账号，请在TikTok页面先退出当前账号。');
             const authUrl = await tiktokApi.getAuthUrl(targetProjectId);
             window.location.href = authUrl;
             return;
           } catch (err: any) {
-            alert(err?.message || '切换账号失败');
+            openInfo('Error', err?.message || '切换账号失败');
           }
         }
         setIsPostingTikTok(false);
@@ -1486,9 +1505,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         return;
       }
 
-      alert('已上传到TikTok草稿箱，请在App中查看并发布');
+      openInfo('Success', '已上传到TikTok草稿箱，请在App中查看并发布');
     } catch (err: any) {
-      alert(err?.message || '上传失败');
+      openInfo('Error', err?.message || '上传失败');
     } finally {
       setIsPostingTikTok(false);
     }
@@ -2151,6 +2170,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             }}
             onClose={() => setIsPromptLabOpen(false)}
           />
+        )}
+
+        {isInfoOpen && (
+          <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={() => setIsInfoOpen(false)} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>OK</button></>}>
+            <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
+          </AppDialog>
+        )}
+        {isConfirmOpen && (
+          <AppDialog
+            isOpen={isConfirmOpen}
+            title={confirmTitle || 'Confirm'}
+            onClose={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}
+            footer={
+              <>
+                <button className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}>Cancel</button>
+                <button className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(true); confirmResolveRef.current = null; } }}>OK</button>
+              </>
+            }
+          >
+            <div className="whitespace-pre-line text-sm text-zinc-300">{confirmMessage}</div>
+          </AppDialog>
         )}
 
       <div className="flex-1 flex overflow-hidden p-6 gap-6">

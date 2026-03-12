@@ -4,6 +4,7 @@ import { templatesApi, type Template } from '../services/templates';
 import { assetsApi } from '../services/assets';
 
 import { TaskQueueWidget } from '../components/workbench/TaskQueueWidget';
+import { AppDialog } from '../components/common/AppDialog';
 import { WorkbenchView } from '../components/workbench/WorkbenchView';
 import { AssetsView } from '../components/workbench/AssetsView';
 import { TemplatesView } from '../components/workbench/TemplatesView';
@@ -111,11 +112,15 @@ const Workbench = () => {
 
       if (result) {
         console.log('✅ 同步服务器成功:', result);
-        alert('导出并保存到云端成功！');
+        setInfoTitle('Success');
+        setInfoMessage('导出并保存到云端成功！');
+        setIsInfoOpen(true);
       }
     } catch (error) {
       console.error('❌ 导出到服务器失败:', error);
-      alert('保存失败，请检查控制台网络报错。');
+      setInfoTitle('Error');
+      setInfoMessage('保存失败，请检查控制台网络报错。');
+      setIsInfoOpen(true);
     }
   };
 
@@ -154,13 +159,22 @@ const Workbench = () => {
 
     if (tiktok) {
       if (tiktok === 'success') {
-        alert('TikTok 授权成功');
+        setInfoTitle('Success');
+        setInfoMessage('TikTok 授权成功');
+        setIsInfoOpen(true);
       } else {
-        alert(`TikTok 授权失败：${message || '未知错误'}`);
+        setInfoTitle('Error');
+        setInfoMessage(`TikTok 授权失败：${message || '未知错误'}`);
+        setIsInfoOpen(true);
       }
       window.history.replaceState({}, document.title, location.pathname);
     }
   }, [location.pathname, location.search]);
+
+  // Info dialog for this page
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const [infoTitle, setInfoTitle] = useState('');
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
   const handleTaskPreview = (url: string) => {
     setGeneratedVideoUrl(url);
@@ -226,6 +240,11 @@ const Workbench = () => {
             {activeView === 'profile' && <ProfileView theme={theme} setTheme={setTheme} />}
 
             <TaskQueueWidget onPreview={handleTaskPreview} />
+            {isInfoOpen && (
+              <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={() => setIsInfoOpen(false)} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>OK</button></>}>
+                <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
+              </AppDialog>
+            )}
           </main>
         </div>
       </WorkbenchModelProvider>

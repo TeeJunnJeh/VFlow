@@ -57,11 +57,19 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
       refreshTemplates();
     } catch (e) {
       void e;
-      window.alert(t.tpl_delete_failed);
+      // show in-app dialog for error (use existing translation key)
+      setInfoTitle(t.tpl_delete_failed || 'Failed to delete template');
+      setInfoMessage(t.tpl_delete_failed || 'Failed to delete template');
+      setIsInfoOpen(true);
     } finally {
       setDeletingId(prev => (prev === id ? null : prev));
     }
   };
+
+  // Info modal state
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const [infoTitle, setInfoTitle] = useState('');
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
   return (
     <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -127,6 +135,18 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
            <div className="mt-2 text-zinc-400">{t.tpl_delete_confirm_message}</div>
          </div>
        </AppDialog>
+      <AppDialog
+        isOpen={isInfoOpen}
+        title={infoTitle || 'Notice'}
+        onClose={() => setIsInfoOpen(false)}
+        footer={
+          <>
+            <button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>{t.assets_move_cancel}</button>
+          </>
+        }
+      >
+        <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
+      </AppDialog>
     </div>
   );
 };

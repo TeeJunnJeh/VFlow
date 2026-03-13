@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Edit3, User as UserIcon, Settings2, LogOut, Flame, Gem, Zap } from 'lucide-react';
+import { Edit3, User as UserIcon, Settings2, LogOut, Flame, Gem, Zap, KeyRound } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { authApi } from '../../services/auth';
@@ -18,7 +18,44 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [isEditingNickname, setIsEditingNickname] = useState(false);
   const [newNickname, setNewNickname] = useState(user?.name || '');
+  const [showBilling, setShowBilling] = useState(false);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
+  const [billingItems, setBillingItems] = useState<any[]>([]);
+  const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [nextPassword, setNextPassword] = useState('');
+  const [confirmNextPassword, setConfirmNextPassword] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const requiresCurrentPassword = user?.hasPassword === true;
   const { isInfoOpen, setIsInfoOpen, infoTitle, infoMessage, openInfo } = useProfileInfo();
+
+  useEffect(() => {
+    if (!showBilling) return;
+
+    let cancelled = false;
+    const loadBilling = async () => {
+      setBillingLoading(true);
+      setBillingError(null);
+      try {
+        const res = await billingApi.listTransactions(20, 0);
+        if (cancelled) return;
+        const items = res?.data?.items;
+        setBillingItems(Array.isArray(items) ? items : []);
+      } catch (err: any) {
+        if (cancelled) return;
+        setBillingItems([]);
+        setBillingError(err?.message || 'Failed to load billing');
+      } finally {
+        if (!cancelled) setBillingLoading(false);
+      }
+    };
+
+    loadBilling();
+    return () => {
+      cancelled = true;
+    };
+  }, [showBilling]);
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -42,6 +79,44 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
 
   const handleUseDefaultAvatar = async () => {
     updateUser({ avatar: '' });
+  };
+
+  const resetPasswordForm = () => {
+    setCurrentPassword('');
+    setNextPassword('');
+    setConfirmNextPassword('');
+  };
+
+  const handleChangePassword = async () => {
+    if (requiresCurrentPassword && !currentPassword) {
+      openInfo('Error', '请填写当前密码');
+      return;
+    }
+    if (!nextPassword) {
+      openInfo('Error', '请输入新密码');
+      return;
+    }
+    if (nextPassword !== confirmNextPassword) {
+      openInfo('Error', '两次输入的新密码不一致');
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      await authApi.changePassword({
+        currentPassword,
+        newPassword: nextPassword,
+        confirmPassword: confirmNextPassword,
+      });
+      updateUser({ hasPassword: true });
+      setIsPasswordDialogOpen(false);
+      resetPasswordForm();
+      openInfo('Success', '密码修改成功');
+    } catch (err: any) {
+      openInfo('Error', err?.message || '修改密码失败');
+    } finally {
+      setIsChangingPassword(false);
+    }
   };
 
   return (
@@ -176,7 +251,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                               <div className="text-xs font-bold text-zinc-600 mb-1">LIMIT: {user?.plan === 'pro' ? '∞' : user?.plan === 'plus' ? 500 : 100} V</div>
                               <button
                                 onClick={() => setShowBilling(true)}
-                                className="text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full border border-white/10 text-zinc-300 hover:text-white hover:border-white/20 transition"
+                                className="text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full border border-cyan-400/40 text-cyan-100 bg-cyan-500/20 hover:bg-cyan-500/30 shadow-[0_0_20px_rgba(34,211,238,0.22)] hover:shadow-[0_0_24px_rgba(34,211,238,0.35)] transition"
                               >
                                 {t.profile_billing_title || '账单明细'}
                               </button>
@@ -206,7 +281,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                          </div>
                          <button
                            onClick={() => setShowBilling(false)}
-                           className="text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full border border-white/10 text-zinc-300 hover:text-white hover:border-white/20 transition"
+                           className="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border border-cyan-400/30 text-cyan-100/90 bg-cyan-500/10 hover:bg-cyan-500/20 transition"
                          >
                            {t.profile_back || '返回'}
                          </button>
@@ -219,28 +294,39 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                          {!billingLoading && billingError && (
                            <div className="text-xs text-red-400">{billingError}</div>
                          )}
-                         {!billingLoading && !billingError && billingItems.length === 0 && (
-                           <div className="text-xs text-zinc-500">{t.profile_billing_empty || '暂无账单记录'}</div>
-                         )}
-                         {!billingLoading && !billingError && billingItems.length > 0 && (
-                           <div className="space-y-3">
-                             {billingItems.map((tx: any) => (
-                               <div key={tx.id} className="flex items-center justify-between text-sm border-b border-white/5 pb-3">
-                                 <div className="flex flex-col">
-                                   <span className="text-zinc-200 font-semibold">
-                                     {tx.description || tx.type_label || tx.type}
-                                   </span>
-                                   <span className="text-[11px] text-zinc-600">
-                                     {tx.created_at ? new Date(tx.created_at).toLocaleString() : ''}
-                                   </span>
-                                 </div>
-                                 <div className={`text-base font-black ${tx.amount > 0 ? 'text-emerald-400' : 'text-orange-400'}`}>
-                                   {tx.amount > 0 ? '+' : ''}{tx.amount}
-                                 </div>
-                               </div>
-                             ))}
-                           </div>
-                         )}
+                        {!billingLoading && !billingError && (
+                          <div className="space-y-3">
+                            {billingItems.length > 0 ? (
+                              billingItems.map((tx: any) => (
+                                <div key={tx.id} className="flex items-center justify-between text-sm border-b border-white/5 pb-3">
+                                  <div className="flex flex-col">
+                                    <span className="text-zinc-200 font-semibold">
+                                      {tx.description || tx.type_label || tx.type}
+                                    </span>
+                                    <span className="text-[11px] text-zinc-600">
+                                      {tx.created_at ? new Date(tx.created_at).toLocaleString() : ''}
+                                    </span>
+                                  </div>
+                                  <div className={`text-base font-black ${tx.amount > 0 ? 'text-emerald-400' : 'text-orange-400'}`}>
+                                    {tx.amount > 0 ? '+' : ''}{tx.amount}
+                                  </div>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 p-4 flex items-center justify-between">
+                                <div className="flex flex-col">
+                                  <span className="text-sm font-semibold text-cyan-100">
+                                    {t.profile_billing_empty || '暂无消费记录'}
+                                  </span>
+                                  <span className="text-[11px] text-cyan-100/60">
+                                    {t.profile_billing_recent || 'recent'}
+                                  </span>
+                                </div>
+                                <div className="text-lg font-black text-cyan-200">0</div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                        </div>
                      </div>
                    </div>
@@ -250,7 +336,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                <hr className="mt-6 mb-6 border-white/5" />
                
                {/* Footer Buttons */}
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-12">
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pb-12">
                   <div onClick={async () => { const newTheme = theme === 'dark' ? 'light' : 'dark'; setTheme(newTheme); try { const res = await authApi.updateProfile({ theme: newTheme }); updateUser({ theme: res.data.theme }); } catch (err) { console.error("Failed to save theme preference", err); } }} className="flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/item cursor-pointer shadow-sm hover:shadow-orange-500/5">
                       <div className="flex items-center gap-4">
                           <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/item:text-orange-500 transition-colors"><Settings2 className="w-6 h-6" /></div>
@@ -259,8 +345,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                               <div className="text-xs text-zinc-600 mt-0.5 uppercase tracking-widest font-black">{theme === 'dark' ? t.profile_theme_dark : t.profile_theme_light}</div>
                           </div>
                       </div>
-                      <div className={`w-5 h-5 text-zinc-700 transition-transform ${theme === 'light' ? 'rotate-180' : ''}`}><Settings2 className="w-5 h-5"/></div>
                   </div>
+
+                  <button onClick={() => setIsPasswordDialogOpen(true)} className="w-full flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/password shadow-sm hover:shadow-orange-500/5">
+                      <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/password:text-orange-500 transition-colors"><KeyRound className="w-6 h-6" /></div>
+                          <div className="text-left">
+                              <div className="text-base font-bold text-white">修改密码</div>
+                              <div className="text-xs text-zinc-600 mt-0.5">支持密码登录账号管理</div>
+                          </div>
+                      </div>
+                  </button>
                   
                   <button onClick={logout} className="w-full flex items-center justify-between p-6 rounded-2xl bg-red-500/5 hover:bg-red-500/10 transition group/logout border border-red-500/10 hover:border-red-500/20">
                       <div className="flex items-center gap-4">
@@ -270,12 +365,70 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                               <div className="text-xs text-red-500/60 mt-0.5">{t.sign_out_subtitle || 'Sign out of current account'}</div>
                           </div>
                       </div>
-                      <LogOut className="w-5 h-5 text-red-500/30 group-hover:text-red-500 group-hover:translate-x-1 transition-all" />
                   </button>
                </div>
             </div>
          </div>
       </div>
+       {isPasswordDialogOpen && (
+         <AppDialog
+           isOpen={isPasswordDialogOpen}
+           title="修改密码"
+           onClose={() => {
+             setIsPasswordDialogOpen(false);
+             resetPasswordForm();
+           }}
+           footer={
+             <>
+               <button
+                 className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
+                 onClick={() => {
+                   setIsPasswordDialogOpen(false);
+                   resetPasswordForm();
+                 }}
+               >
+                 取消
+               </button>
+               <button
+                 className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-bold border border-white/10 hover:bg-zinc-800 hover:border-white/20 disabled:opacity-60"
+                 onClick={handleChangePassword}
+                 disabled={isChangingPassword}
+               >
+                 {isChangingPassword ? '提交中...' : '确认修改'}
+               </button>
+             </>
+           }
+         >
+           <div className="space-y-3">
+             {!requiresCurrentPassword && (
+               <p className="text-xs text-zinc-500">首次设置密码，无需填写当前密码。</p>
+             )}
+             {requiresCurrentPassword && (
+               <input
+                 type="password"
+                 value={currentPassword}
+                 onChange={(e) => setCurrentPassword(e.target.value)}
+                 placeholder="当前密码"
+                 className="w-full bg-zinc-900/80 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-white/30"
+               />
+             )}
+               <input
+                 type="password"
+                 value={nextPassword}
+                 onChange={(e) => setNextPassword(e.target.value)}
+                 placeholder="新密码"
+                 className="w-full bg-zinc-900/80 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-white/30"
+               />
+               <input
+                 type="password"
+                 value={confirmNextPassword}
+                 onChange={(e) => setConfirmNextPassword(e.target.value)}
+                 placeholder="确认新密码"
+                 className="w-full bg-zinc-900/80 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-white/30"
+               />
+           </div>
+         </AppDialog>
+       )}
        {isInfoOpen && (
          <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={() => setIsInfoOpen(false)} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>OK</button></>}>
            <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>

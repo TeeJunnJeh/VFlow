@@ -140,7 +140,7 @@ const AnimatedRoutes = () => {
          * 2. 只有当 LandingPage 完全卸载后，LoginPage 才会入场。
          * 3. 这配合 TransitionOverlay 的全屏闪光，可以实现无缝的视觉“白转暗”或“光影穿梭”感。
          */
-        <AnimatePresence mode="wait">
+        <AnimatePresence mode="sync" initial={false}>
             <Routes location={location} key={location.pathname}>
                 {/* 
                    首页：使用 GuestRoute 包裹。

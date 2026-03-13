@@ -3,6 +3,15 @@
 // Use the proxy path configured in vite.config.ts
 const API_BASE_URL = '/api/auth'; 
 
+const extractErrorMessage = async (response: Response, fallback: string) => {
+  try {
+    const errorData = await response.json();
+    return errorData?.message || errorData?.error || fallback;
+  } catch (e) {
+    return fallback;
+  }
+};
+
 export const authApi = {
   // 1. Send Verification Code
   sendCode: async (phoneNumber: string) => {
@@ -14,8 +23,7 @@ export const authApi = {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to send code');
+        throw new Error(await extractErrorMessage(response, 'Failed to send code'));
       }
       return await response.json();
     } catch (error) {
@@ -38,13 +46,48 @@ export const authApi = {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Invalid code or login failed');
+        throw new Error(await extractErrorMessage(response, 'Invalid code or login failed'));
       }
       return await response.json(); 
     } catch (error) {
       throw error;
     }
+  },
+
+  loginWithPassword: async (identifier: string, password: string) => {
+    const response = await fetch(`${API_BASE_URL}/password-login/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ identifier, password }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await extractErrorMessage(response, 'Login failed'));
+    }
+    return await response.json();
+  },
+
+  registerWithPassword: async (payload: {
+    identifier: string;
+    password: string;
+    confirmPassword?: string;
+  }) => {
+    const response = await fetch(`${API_BASE_URL}/password-register/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        identifier: payload.identifier,
+        password: payload.password,
+        confirm_password: payload.confirmPassword || '',
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await extractErrorMessage(response, 'Register failed'));
+    }
+    return await response.json();
   },
 
   // NEW: Get Current User Info
@@ -69,6 +112,31 @@ export const authApi = {
     } catch (error) {
       throw error;
     }
+  },
+
+  changePassword: async (payload: {
+    currentPassword?: string;
+    newPassword: string;
+    confirmPassword?: string;
+  }) => {
+    const response = await fetch(`${API_BASE_URL}/change-password/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        current_password: payload.currentPassword || '',
+        new_password: payload.newPassword,
+        confirm_password: payload.confirmPassword || '',
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await extractErrorMessage(response, 'Failed to change password'));
+    }
+    return await response.json();
   },
 
   // 4. Update Profile (Avatar/Name/Theme/Tier/Credits)

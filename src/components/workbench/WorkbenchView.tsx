@@ -3,7 +3,7 @@ import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
-  Zap, Layers, Video, Lock, Info, Check, Sparkles
+  Zap, Layers, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -87,6 +87,118 @@ type WorkbenchSnapshot = {
   version: 1;
   template_id: string | null;
   timestamp: number; // client timestamp (ms)
+};
+
+type ProjectWorkspaceState = {
+  fileName: string;
+  uploadedFile: string | null;
+  selectedAssetUrl: string | null;
+  lastUploadedUrl: string | null;
+  selectedAssetSource: 'product' | 'preference' | null;
+  genPrompt: string;
+  genDuration: number;
+  soundSetting: 'on' | 'off';
+  scriptVariantCount: number;
+  targetLanguage: string;
+  creationMode: 'fast' | 'replay';
+  scripts: ScriptItem[];
+  scriptPages: ScriptPage[];
+  activeScriptPage: number;
+  assetQueue: QueuedAsset[];
+  scriptQueue: QueuedScript[];
+  selectedTemplateId: string | null;
+  selectedModelId: string | null;
+  generatedVideoUrl: string | null;
+};
+
+type LocalProjectMeta = {
+  id: string;
+  name: string;
+  updatedAt: number;
+};
+
+type LocalProjectStore = {
+  currentProjectId: string;
+  projects: LocalProjectMeta[];
+  workspaces: Record<string, ProjectWorkspaceState>;
+};
+
+const LOCAL_PROJECT_STORE_KEY = 'vflow_workbench_projects_v1';
+const DEFAULT_PROJECT_NAME = 'Project_Alpha_01';
+
+const createWorkspaceState = (params?: {
+  scripts?: ScriptItem[];
+  scriptPagePrefix?: string;
+}): ProjectWorkspaceState => ({
+  fileName: '',
+  uploadedFile: null,
+  selectedAssetUrl: null,
+  lastUploadedUrl: null,
+  selectedAssetSource: null,
+  genPrompt: '',
+  genDuration: 10,
+  soundSetting: 'on',
+  scriptVariantCount: 1,
+  targetLanguage: 'en',
+  creationMode: 'fast',
+  scripts: params?.scripts || [],
+  scriptPages: [{
+    id: 'page-1',
+    name: `${params?.scriptPagePrefix || 'Script'} 1`,
+    scripts: params?.scripts || [],
+  }],
+  activeScriptPage: 0,
+  assetQueue: [],
+  scriptQueue: [],
+  selectedTemplateId: null,
+  selectedModelId: null,
+  generatedVideoUrl: null,
+});
+
+const createDefaultProjectStore = (): LocalProjectStore => {
+  const projectId = 'project_alpha_01';
+  return {
+    currentProjectId: projectId,
+    projects: [{ id: projectId, name: DEFAULT_PROJECT_NAME, updatedAt: Date.now() }],
+    workspaces: {},
+  };
+};
+
+const loadLocalProjectStore = (): LocalProjectStore => {
+  try {
+    const raw = localStorage.getItem(LOCAL_PROJECT_STORE_KEY);
+    if (!raw) return createDefaultProjectStore();
+    const parsed = JSON.parse(raw) as Partial<LocalProjectStore>;
+    if (!parsed || typeof parsed !== 'object') return createDefaultProjectStore();
+    if (!Array.isArray(parsed.projects) || parsed.projects.length === 0) return createDefaultProjectStore();
+    const currentProjectId = typeof parsed.currentProjectId === 'string' && parsed.currentProjectId
+      ? parsed.currentProjectId
+      : parsed.projects[0].id;
+    return {
+      currentProjectId,
+      projects: parsed.projects as LocalProjectMeta[],
+      workspaces: (parsed.workspaces as Record<string, ProjectWorkspaceState>) || {},
+    };
+  } catch {
+    return createDefaultProjectStore();
+  }
+};
+
+const ensureUniqueProjectName = (rawName: string, projects: LocalProjectMeta[], excludeId?: string): string => {
+  const baseName = (rawName || '').trim() || 'Project';
+  const names = new Set(
+    projects
+      .filter((project) => project.id !== excludeId)
+      .map((project) => project.name.toLowerCase())
+  );
+  if (!names.has(baseName.toLowerCase())) return baseName;
+  let suffix = 1;
+  let nextName = `${baseName}(${suffix})`;
+  while (names.has(nextName.toLowerCase())) {
+    suffix += 1;
+    nextName = `${baseName}(${suffix})`;
+  }
+  return nextName;
 };
 
 const SoraStarIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -303,6 +415,160 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [scriptQueue, setScriptQueue] = useState<QueuedScript[]>([]);
   const [generatedBatch, setGeneratedBatch] = useState<Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }>>([]);
   const [selectedQueueAssetId, setSelectedQueueAssetId] = useState<string | null>(null);
+  const [projectStore, setProjectStore] = useState<LocalProjectStore>(() => loadLocalProjectStore());
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [projectSearch, setProjectSearch] = useState('');
+  const [projectActionMenuId, setProjectActionMenuId] = useState<string | null>(null);
+  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
+  const [renamingProjectName, setRenamingProjectName] = useState('');
+  const [isHeaderProjectEditing, setIsHeaderProjectEditing] = useState(false);
+  const [headerProjectNameDraft, setHeaderProjectNameDraft] = useState('');
+  const [deleteProjectTarget, setDeleteProjectTarget] = useState<LocalProjectMeta | null>(null);
+  const projectMenuRef = useRef<HTMLDivElement | null>(null);
+  const projectMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const isApplyingProjectWorkspaceRef = useRef(false);
+  const currentProject = useMemo(
+    () => projectStore.projects.find((project) => project.id === projectStore.currentProjectId) || null,
+    [projectStore.currentProjectId, projectStore.projects]
+  );
+
+  const projectUiText = useMemo(() => ({
+    listTooltip: t.wb_project_list_tooltip,
+    switchTitle: t.wb_project_switch_title,
+    searchPlaceholder: t.wb_project_search_placeholder,
+    recent: t.wb_project_recent,
+    empty: t.wb_project_empty,
+    newProject: t.wb_project_new,
+    manageProjects: t.wb_project_manage,
+    manageSoon: t.wb_project_manage_placeholder,
+    rename: t.wb_project_rename,
+    delete: t.wb_project_delete,
+    deleteTitle: t.wb_project_delete_confirm_title,
+    deleteDesc: t.wb_project_delete_confirm_desc,
+    cancel: t.wb_project_cancel,
+    defaultProjectName: t.wb_project_default_name,
+    justNow: t.wb_project_time_just_now,
+    yesterday: t.wb_project_time_yesterday,
+    minutesAgo: t.wb_project_time_minutes_ago,
+    hoursAgo: t.wb_project_time_hours_ago,
+    daysAgo: t.wb_project_time_days_ago,
+    currentTag: t.wb_project_current_tag,
+  }), [t]);
+
+  const compactTimeLanguages = new Set(['zh', 'ko']);
+  const useCompactTime = compactTimeLanguages.has(language);
+  const sortedProjects = useMemo(
+    () => [...projectStore.projects].sort((a, b) => b.updatedAt - a.updatedAt),
+    [projectStore.projects]
+  );
+  const filteredProjects = useMemo(() => {
+    const keyword = projectSearch.trim().toLowerCase();
+    if (!keyword) return sortedProjects;
+    return sortedProjects.filter((project) => project.name.toLowerCase().includes(keyword));
+  }, [projectSearch, sortedProjects]);
+
+  const formatProjectLastEdited = (updatedAt: number) => {
+    const deltaMs = Date.now() - updatedAt;
+    const minuteMs = 60 * 1000;
+    const hourMs = 60 * minuteMs;
+    const dayMs = 24 * hourMs;
+    if (deltaMs < 5 * minuteMs) return projectUiText.justNow;
+    if (deltaMs < hourMs) {
+      const minutes = Math.max(1, Math.floor(deltaMs / minuteMs));
+      return useCompactTime ? `${minutes}${projectUiText.minutesAgo}` : `${minutes} ${projectUiText.minutesAgo}`;
+    }
+    if (deltaMs < dayMs) {
+      const hours = Math.max(1, Math.floor(deltaMs / hourMs));
+      return useCompactTime ? `${hours}${projectUiText.hoursAgo}` : `${hours} ${projectUiText.hoursAgo}`;
+    }
+    if (deltaMs < dayMs * 2) return projectUiText.yesterday;
+    const days = Math.max(2, Math.floor(deltaMs / dayMs));
+    return useCompactTime ? `${days}${projectUiText.daysAgo}` : `${days} ${projectUiText.daysAgo}`;
+  };
+
+  const applyWorkspaceState = (workspace: ProjectWorkspaceState) => {
+    isApplyingProjectWorkspaceRef.current = true;
+    setFileName(workspace.fileName || '');
+    setUploadedFile(workspace.uploadedFile || null);
+    setSelectedAssetUrl(workspace.selectedAssetUrl || null);
+    setLastUploadedUrl(workspace.lastUploadedUrl || null);
+    setSelectedAssetSource(workspace.selectedAssetSource || null);
+    setSelectedFileObj(null);
+    setGenPrompt(workspace.genPrompt || '');
+    setGenDuration(typeof workspace.genDuration === 'number' ? workspace.genDuration : 10);
+    setSoundSetting(workspace.soundSetting || 'on');
+    setScriptVariantCount(typeof workspace.scriptVariantCount === 'number' ? workspace.scriptVariantCount : 1);
+    setTargetLanguage(workspace.targetLanguage || 'en');
+    setCreationMode(workspace.creationMode || 'fast');
+    setScripts(Array.isArray(workspace.scripts) ? workspace.scripts : []);
+    setScriptPages(Array.isArray(workspace.scriptPages) && workspace.scriptPages.length > 0 ? workspace.scriptPages : [{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: [] }]);
+    setActiveScriptPage(typeof workspace.activeScriptPage === 'number' ? workspace.activeScriptPage : 0);
+    setAssetQueue(Array.isArray(workspace.assetQueue) ? workspace.assetQueue : []);
+    setScriptQueue(Array.isArray(workspace.scriptQueue) ? workspace.scriptQueue : []);
+    setGeneratedVideoUrl(workspace.generatedVideoUrl || null);
+
+    if (workspace.selectedTemplateId) {
+      const matchedTemplate = templateList.find((tpl) => tpl.id === workspace.selectedTemplateId) || null;
+      onSelectTemplate(matchedTemplate);
+    } else {
+      onSelectTemplate(null);
+    }
+    if (workspace.selectedModelId) setSelectedModel(workspace.selectedModelId as any);
+    setTimeout(() => {
+      isApplyingProjectWorkspaceRef.current = false;
+    }, 0);
+  };
+
+  const beginHeaderRename = () => {
+    if (!currentProject) return;
+    setIsHeaderProjectEditing(true);
+    setHeaderProjectNameDraft(currentProject.name);
+  };
+
+  const commitProjectRename = (projectId: string, nameDraft: string) => {
+    setProjectStore((prev) => {
+      const nextName = ensureUniqueProjectName(nameDraft, prev.projects, projectId);
+      return {
+        ...prev,
+        projects: prev.projects.map((project) => (
+          project.id === projectId ? { ...project, name: nextName, updatedAt: Date.now() } : project
+        )),
+      };
+    });
+  };
+
+  const switchProject = (projectId: string) => {
+    if (projectId === projectStore.currentProjectId) {
+      setProjectMenuOpen(false);
+      return;
+    }
+    setProjectStore((prev) => ({ ...prev, currentProjectId: projectId }));
+    setProjectMenuOpen(false);
+    setProjectActionMenuId(null);
+    setRenamingProjectId(null);
+  };
+
+  const createNewProject = () => {
+    const projectId = `project_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+    const demoScripts = buildDemoScripts();
+    setProjectStore((prev) => {
+      const projectName = ensureUniqueProjectName(projectUiText.defaultProjectName, prev.projects);
+      const nextWorkspace = createWorkspaceState({
+        scripts: demoScripts,
+        scriptPagePrefix: t.wb_script_page_prefix,
+      });
+      return {
+        currentProjectId: projectId,
+        projects: [{ id: projectId, name: projectName, updatedAt: Date.now() }, ...prev.projects],
+        workspaces: {
+          ...prev.workspaces,
+          [projectId]: nextWorkspace,
+        },
+      };
+    });
+    setProjectMenuOpen(false);
+    setProjectActionMenuId(null);
+  };
   const injectedAssetSignaturesRef = useRef<Set<string>>(new Set());
 
   // --- Effects ---
@@ -341,9 +607,105 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         uploadedPath: initialFileUrl,
       }
     ]));
-  }, [initialAssetSource, initialFileName, initialFileUrl]);
+  }, [initialAssetSource, initialFileName, initialFileUrl]); 
 
   useEffect(() => {
+    const currentProjectId = projectStore.currentProjectId;
+    const workspace = projectStore.workspaces[currentProjectId];
+    if (workspace) {
+      applyWorkspaceState(workspace);
+      return;
+    }
+    applyWorkspaceState(createWorkspaceState({
+      scripts: buildDemoScripts(),
+      scriptPagePrefix: t.wb_script_page_prefix,
+    }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectStore.currentProjectId, templateList, t.wb_script_page_prefix, t.demo_shot1_visual, t.demo_shot1_audio, t.demo_shot2_visual, t.demo_shot2_audio]);
+
+  useEffect(() => {
+    localStorage.setItem(LOCAL_PROJECT_STORE_KEY, JSON.stringify(projectStore));
+  }, [projectStore]);
+
+  useEffect(() => {
+    if (isApplyingProjectWorkspaceRef.current) return;
+    if (!projectStore.currentProjectId) return;
+
+    const currentProjectId = projectStore.currentProjectId;
+    const workspace: ProjectWorkspaceState = {
+      fileName,
+      uploadedFile,
+      selectedAssetUrl,
+      lastUploadedUrl,
+      selectedAssetSource,
+      genPrompt,
+      genDuration,
+      soundSetting,
+      scriptVariantCount,
+      targetLanguage,
+      creationMode,
+      scripts,
+      scriptPages,
+      activeScriptPage,
+      assetQueue,
+      scriptQueue,
+      selectedTemplateId: selectedTemplate?.id || null,
+      selectedModelId: (selectedModel as string) || null,
+      generatedVideoUrl,
+    };
+
+    setProjectStore((prev) => {
+      const prevWorkspace = prev.workspaces[currentProjectId];
+      if (JSON.stringify(prevWorkspace) === JSON.stringify(workspace)) return prev;
+      return {
+        ...prev,
+        projects: prev.projects.map((project) => (
+          project.id === currentProjectId ? { ...project, updatedAt: Date.now() } : project
+        )),
+        workspaces: {
+          ...prev.workspaces,
+          [currentProjectId]: workspace,
+        },
+      };
+    });
+  }, [
+    projectStore.currentProjectId,
+    fileName,
+    uploadedFile,
+    selectedAssetUrl,
+    lastUploadedUrl,
+    selectedAssetSource,
+    genPrompt,
+    genDuration,
+    soundSetting,
+    scriptVariantCount,
+    targetLanguage,
+    creationMode,
+    scripts,
+    scriptPages,
+    activeScriptPage,
+    assetQueue,
+    scriptQueue,
+    selectedTemplate?.id,
+    selectedModel,
+    generatedVideoUrl,
+  ]);
+
+  useEffect(() => {
+    const onClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      const withinMenu = projectMenuRef.current?.contains(target);
+      const withinButton = projectMenuButtonRef.current?.contains(target);
+      if (!withinMenu && !withinButton) {
+        setProjectMenuOpen(false);
+        setProjectActionMenuId(null);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, []);
+
+  useEffect(() => { 
     // Reset or update duration when template changes
     if (!selectedTemplate) {
       return;
@@ -2279,7 +2641,175 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       <div className="flex flex-col h-full z-10 animate-in fade-in zoom-in-95 duration-300">
         <header className="flex justify-between items-center px-8 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm shrink-0 relative z-50">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold tracking-tight text-white">Project_Alpha_01</h1>
+            <div className="relative">
+              <button
+                ref={projectMenuButtonRef}
+                type="button"
+                title={projectUiText.listTooltip}
+                onClick={() => {
+                  setProjectMenuOpen((prev) => !prev);
+                  setProjectActionMenuId(null);
+                }}
+                className="p-2 rounded-md border border-white/10 text-zinc-300 hover:text-white hover:border-white/30 hover:bg-white/10 transition"
+              >
+                <List className="w-4 h-4" />
+              </button>
+
+              {projectMenuOpen && (
+                <div
+                  ref={projectMenuRef}
+                  className="absolute top-11 left-0 w-[360px] rounded-xl border border-white/10 bg-zinc-950/95 backdrop-blur-xl shadow-2xl shadow-black/60 p-3 text-sm"
+                >
+                  <div className="text-sm font-bold text-zinc-100 px-2 pb-2">{projectUiText.switchTitle}</div>
+                  <div className="px-2">
+                    <input
+                      value={projectSearch}
+                      onChange={(e) => setProjectSearch(e.target.value)}
+                      placeholder={projectUiText.searchPlaceholder}
+                      className="w-full rounded-lg border border-white/10 bg-black/40 text-zinc-200 text-xs px-3 py-2 outline-none focus:border-orange-500"
+                    />
+                  </div>
+                  <div className="h-px bg-white/10 my-3" />
+                  <div className="px-2 pb-1 text-[11px] uppercase tracking-widest text-zinc-500">{projectUiText.recent}</div>
+                  <div className="max-h-64 overflow-y-auto custom-scroll pr-1">
+                    {filteredProjects.length === 0 && (
+                      <div className="px-2 py-3 text-xs text-zinc-500">{projectUiText.empty}</div>
+                    )}
+                    {filteredProjects.map((project) => {
+                      const isCurrent = project.id === projectStore.currentProjectId;
+                      const isRenaming = renamingProjectId === project.id;
+                      return (
+                        <div key={project.id} className="group relative flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5">
+                          <button
+                            type="button"
+                            onClick={() => switchProject(project.id)}
+                            className="flex-1 min-w-0 text-left"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="w-12 shrink-0">
+                                {isCurrent ? (
+                                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-md bg-orange-500 text-black text-[10px] font-black">
+                                    {projectUiText.currentTag}
+                                  </span>
+                                ) : null}
+                              </span>
+                              {isRenaming ? (
+                                <input
+                                  autoFocus
+                                  value={renamingProjectName}
+                                  onClick={(event) => event.stopPropagation()}
+                                  onChange={(event) => setRenamingProjectName(event.target.value)}
+                                  onBlur={() => {
+                                    commitProjectRename(project.id, renamingProjectName);
+                                    setRenamingProjectId(null);
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                      commitProjectRename(project.id, renamingProjectName);
+                                      setRenamingProjectId(null);
+                                    } else if (event.key === 'Escape') {
+                                      setRenamingProjectId(null);
+                                    }
+                                  }}
+                                  className="w-[180px] rounded border border-white/10 bg-black/40 text-zinc-100 text-xs px-2 py-1 outline-none focus:border-orange-500"
+                                />
+                              ) : (
+                                <span className="text-sm text-zinc-100 truncate">{project.name}</span>
+                              )}
+                              <span className="text-[11px] text-zinc-500 shrink-0">{formatProjectLastEdited(project.updatedAt)}</span>
+                            </div>
+                          </button>
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setProjectActionMenuId((prev) => (prev === project.id ? null : project.id));
+                              }}
+                              className="opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-400 hover:text-white hover:bg-white/10 transition"
+                            >
+                              <MoreHorizontal className="w-4 h-4" />
+                            </button>
+                            {projectActionMenuId === project.id && (
+                              <div className="absolute right-0 top-7 w-28 rounded-lg border border-white/10 bg-zinc-900 shadow-xl p-1 z-20">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setProjectActionMenuId(null);
+                                    setRenamingProjectId(project.id);
+                                    setRenamingProjectName(project.name);
+                                  }}
+                                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-zinc-200 hover:bg-white/10"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                  {projectUiText.rename}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setProjectActionMenuId(null);
+                                    setDeleteProjectTarget(project);
+                                  }}
+                                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-red-400 hover:bg-red-500/10"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  {projectUiText.delete}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="h-px bg-white/10 my-3" />
+                  <div className="flex items-center justify-end gap-2 px-2">
+                    <button
+                      type="button"
+                      onClick={createNewProject}
+                      className="text-xs px-2 py-1 rounded text-orange-400 hover:text-orange-300 hover:bg-orange-500/10"
+                    >
+                      + {projectUiText.newProject}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProjectMenuOpen(false);
+                        openInfo(projectUiText.manageProjects, projectUiText.manageSoon);
+                      }}
+                      className="text-xs px-2 py-1 rounded text-zinc-300 hover:text-white hover:bg-white/10"
+                    >
+                      {projectUiText.manageProjects}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            {isHeaderProjectEditing ? (
+              <input
+                autoFocus
+                value={headerProjectNameDraft}
+                onChange={(event) => setHeaderProjectNameDraft(event.target.value)}
+                onBlur={() => {
+                  if (currentProject) commitProjectRename(currentProject.id, headerProjectNameDraft);
+                  setIsHeaderProjectEditing(false);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    if (currentProject) commitProjectRename(currentProject.id, headerProjectNameDraft);
+                    setIsHeaderProjectEditing(false);
+                  } else if (event.key === 'Escape') {
+                    setIsHeaderProjectEditing(false);
+                  }
+                }}
+                className="text-xl font-bold tracking-tight text-white bg-transparent border-b border-white/30 focus:border-orange-500 outline-none min-w-[220px]"
+              />
+            ) : (
+              <h1 className="text-xl font-bold tracking-tight text-white cursor-text" onClick={beginHeaderRename}>
+                {currentProject?.name || DEFAULT_PROJECT_NAME}
+              </h1>
+            )}
             <span className="px-2 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-400 border border-white/5">{t.wb_header_draft}</span>
             {ENABLE_PROMPT_LAB && (
               <button
@@ -2338,6 +2868,56 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             }
           >
             <div className="whitespace-pre-line text-sm text-zinc-300">{confirmMessage}</div>
+          </AppDialog>
+        )}
+        {deleteProjectTarget && (
+          <AppDialog
+            isOpen={!!deleteProjectTarget}
+            title={projectUiText.deleteTitle}
+            onClose={() => setDeleteProjectTarget(null)}
+            footer={
+              <>
+                <button
+                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                  onClick={() => setDeleteProjectTarget(null)}
+                >
+                  {projectUiText.cancel}
+                </button>
+                <button
+                  className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500"
+                  onClick={() => {
+                    const target = deleteProjectTarget;
+                    if (!target) return;
+                    setProjectStore((prev) => {
+                      const remaining = prev.projects.filter((project) => project.id !== target.id);
+                      const nextProjects = remaining.length > 0
+                        ? remaining
+                        : [{ id: 'project_alpha_01', name: DEFAULT_PROJECT_NAME, updatedAt: Date.now() }];
+                      const nextCurrent = prev.currentProjectId === target.id ? nextProjects[0].id : prev.currentProjectId;
+                      const nextWorkspaces = { ...prev.workspaces };
+                      delete nextWorkspaces[target.id];
+                      if (!nextWorkspaces[nextCurrent]) {
+                        nextWorkspaces[nextCurrent] = createWorkspaceState({
+                          scripts: buildDemoScripts(),
+                          scriptPagePrefix: t.wb_script_page_prefix,
+                        });
+                      }
+                      return {
+                        currentProjectId: nextCurrent,
+                        projects: nextProjects,
+                        workspaces: nextWorkspaces,
+                      };
+                    });
+                    setDeleteProjectTarget(null);
+                    setProjectMenuOpen(false);
+                  }}
+                >
+                  {projectUiText.delete}
+                </button>
+              </>
+            }
+          >
+            <div className="whitespace-pre-line text-sm text-zinc-300">{projectUiText.deleteDesc}</div>
           </AppDialog>
         )}
         {isAssetLibraryOpen && (

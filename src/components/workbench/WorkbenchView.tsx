@@ -125,6 +125,27 @@ type LocalProjectStore = {
 
 const LOCAL_PROJECT_STORE_KEY = 'vflow_workbench_projects_v1';
 const DEFAULT_PROJECT_NAME = 'Project_Alpha_01';
+const MAX_PROJECT_NAME_LENGTH = 30;
+const PROJECT_ACTION_MENU_SAFE_GAP = 8;
+const PROJECT_LIST_BASE_MAX_HEIGHT = 256;
+const PROJECT_LIST_MAX_HEIGHT = 420;
+
+const estimateProjectNameWidthEm = (value: string): number => {
+  const text = value || '';
+  let units = 0;
+  for (const ch of text) {
+    if (/\s/.test(ch)) {
+      units += 0.35;
+      continue;
+    }
+    if (/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/.test(ch)) {
+      units += 1;
+      continue;
+    }
+    units += 0.62;
+  }
+  return units + 0.8;
+};
 
 const createWorkspaceState = (params?: {
   scripts?: ScriptItem[];
@@ -419,13 +440,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectSearch, setProjectSearch] = useState('');
   const [projectActionMenuId, setProjectActionMenuId] = useState<string | null>(null);
+  const [projectListExtraHeight, setProjectListExtraHeight] = useState(0);
+  const [isProjectManageMode, setIsProjectManageMode] = useState(false);
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  const [renameRetryState, setRenameRetryState] = useState<{ projectId: string; originalName: string } | null>(null);
+  const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
+  const [newProjectNameDraft, setNewProjectNameDraft] = useState('');
+  const [createProjectNameError, setCreateProjectNameError] = useState('');
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
   const [renamingProjectName, setRenamingProjectName] = useState('');
   const [isHeaderProjectEditing, setIsHeaderProjectEditing] = useState(false);
   const [headerProjectNameDraft, setHeaderProjectNameDraft] = useState('');
   const [deleteProjectTarget, setDeleteProjectTarget] = useState<LocalProjectMeta | null>(null);
+  const [deleteProjectIds, setDeleteProjectIds] = useState<string[]>([]);
   const projectMenuRef = useRef<HTMLDivElement | null>(null);
   const projectMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const projectListRef = useRef<HTMLDivElement | null>(null);
   const isApplyingProjectWorkspaceRef = useRef(false);
   const currentProject = useMemo(
     () => projectStore.projects.find((project) => project.id === projectStore.currentProjectId) || null,
@@ -441,10 +471,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     newProject: t.wb_project_new,
     manageProjects: t.wb_project_manage,
     manageSoon: t.wb_project_manage_placeholder,
+    manageCancel: t.wb_project_manage_cancel,
+    manageDelete: t.wb_project_manage_delete,
+    createTitle: t.wb_project_create_title,
+    createNameLabel: t.wb_project_create_name_label,
+    createNamePlaceholder: t.wb_project_create_name_placeholder,
+    createConfirm: t.wb_project_create_confirm,
     rename: t.wb_project_rename,
     delete: t.wb_project_delete,
     deleteTitle: t.wb_project_delete_confirm_title,
     deleteDesc: t.wb_project_delete_confirm_desc,
+    bulkDeleteTitle: t.wb_project_bulk_delete_confirm_title,
+    bulkDeleteDesc: t.wb_project_bulk_delete_confirm_desc,
     cancel: t.wb_project_cancel,
     defaultProjectName: t.wb_project_default_name,
     justNow: t.wb_project_time_just_now,
@@ -525,9 +563,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setHeaderProjectNameDraft(currentProject.name);
   };
 
-  const commitProjectRename = (projectId: string, nameDraft: string) => {
+  const commitProjectRename = (
+    projectId: string,
+    nameDraft: string,
+    options?: { keepEditingOnFail?: boolean; originalName?: string }
+  ) => {
+    const trimmedName = (nameDraft || '').trim();
+    if (trimmedName.length > MAX_PROJECT_NAME_LENGTH) {
+      const messageTpl = t.wb_project_name_too_long || 'Project name must be {max} characters or fewer';
+      if (options?.keepEditingOnFail) {
+        const fallbackName = options.originalName ?? projectStore.projects.find((p) => p.id === projectId)?.name ?? '';
+        setRenameRetryState({ projectId, originalName: fallbackName });
+      }
+      openInfo(
+        t.assets_confirm_title || 'Notice',
+        messageTpl.replace('{max}', String(MAX_PROJECT_NAME_LENGTH))
+      );
+      return false;
+    }
     setProjectStore((prev) => {
-      const nextName = ensureUniqueProjectName(nameDraft, prev.projects, projectId);
+      const nextName = ensureUniqueProjectName(trimmedName, prev.projects, projectId);
       return {
         ...prev,
         projects: prev.projects.map((project) => (
@@ -535,6 +590,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         )),
       };
     });
+    setRenameRetryState(null);
+    return true;
+  };
+
+  const closeInfoDialog = () => {
+    setIsInfoOpen(false);
+    if (renameRetryState) {
+      setProjectMenuOpen(true);
+      setRenamingProjectId(renameRetryState.projectId);
+      setRenamingProjectName(renameRetryState.originalName);
+      setProjectActionMenuId(null);
+      setRenameRetryState(null);
+    }
   };
 
   const switchProject = (projectId: string) => {
@@ -545,14 +613,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setProjectStore((prev) => ({ ...prev, currentProjectId: projectId }));
     setProjectMenuOpen(false);
     setProjectActionMenuId(null);
+    setIsProjectManageMode(false);
+    setSelectedProjectIds([]);
     setRenamingProjectId(null);
   };
 
-  const createNewProject = () => {
+  const createNewProject = (nameDraft?: string) => {
+    const rawName = (nameDraft || '').trim() || projectUiText.defaultProjectName;
+    if (rawName.length > MAX_PROJECT_NAME_LENGTH) {
+      const messageTpl = t.wb_project_name_too_long || 'Project name must be {max} characters or fewer';
+      setCreateProjectNameError(messageTpl.replace('{max}', String(MAX_PROJECT_NAME_LENGTH)));
+      return;
+    }
+    setCreateProjectNameError('');
     const projectId = `project_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
     const demoScripts = buildDemoScripts();
     setProjectStore((prev) => {
-      const projectName = ensureUniqueProjectName(projectUiText.defaultProjectName, prev.projects);
+      const projectName = ensureUniqueProjectName(rawName, prev.projects);
       const nextWorkspace = createWorkspaceState({
         scripts: demoScripts,
         scriptPagePrefix: t.wb_script_page_prefix,
@@ -568,6 +645,41 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     });
     setProjectMenuOpen(false);
     setProjectActionMenuId(null);
+    setIsProjectManageMode(false);
+    setSelectedProjectIds([]);
+    setIsCreateProjectOpen(false);
+    setNewProjectNameDraft('');
+    setCreateProjectNameError('');
+  };
+
+  const toggleProjectSelection = (projectId: string) => {
+    setSelectedProjectIds((prev) => (
+      prev.includes(projectId) ? prev.filter((id) => id !== projectId) : [...prev, projectId]
+    ));
+  };
+
+  const removeProjectsByIds = (ids: string[]) => {
+    const idSet = new Set(ids);
+    setProjectStore((prev) => {
+      const remaining = prev.projects.filter((project) => !idSet.has(project.id));
+      const nextProjects = remaining.length > 0
+        ? remaining
+        : [{ id: 'project_alpha_01', name: DEFAULT_PROJECT_NAME, updatedAt: Date.now() }];
+      const nextCurrent = idSet.has(prev.currentProjectId) ? nextProjects[0].id : prev.currentProjectId;
+      const nextWorkspaces = { ...prev.workspaces };
+      ids.forEach((id) => { delete nextWorkspaces[id]; });
+      if (!nextWorkspaces[nextCurrent]) {
+        nextWorkspaces[nextCurrent] = createWorkspaceState({
+          scripts: buildDemoScripts(),
+          scriptPagePrefix: t.wb_script_page_prefix,
+        });
+      }
+      return {
+        currentProjectId: nextCurrent,
+        projects: nextProjects,
+        workspaces: nextWorkspaces,
+      };
+    });
   };
   const injectedAssetSignaturesRef = useRef<Set<string>>(new Set());
 
@@ -704,6 +816,63 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (projectMenuOpen) return;
+    setRenamingProjectId(null);
+    setRenamingProjectName('');
+  }, [projectMenuOpen]);
+
+  useEffect(() => {
+    if (!projectActionMenuId) {
+      if (projectListExtraHeight !== 0) setProjectListExtraHeight(0);
+      return;
+    }
+
+    let cancelled = false;
+    const rafId = requestAnimationFrame(() => {
+      if (cancelled) return;
+      const listEl = projectListRef.current;
+      const menuEl = projectMenuRef.current?.querySelector('[data-project-action-menu="true"]') as HTMLElement | null;
+      if (!listEl || !menuEl) return;
+
+      const listRect = listEl.getBoundingClientRect();
+      const menuRect = menuEl.getBoundingClientRect();
+      const overflow = menuRect.bottom + PROJECT_ACTION_MENU_SAFE_GAP - listRect.bottom;
+      if (overflow <= 0) return;
+
+      const canGrowHeight = listEl.clientHeight + 1 < PROJECT_LIST_MAX_HEIGHT;
+      if (canGrowHeight) {
+        const targetExtra = Math.ceil(projectListExtraHeight + overflow + PROJECT_ACTION_MENU_SAFE_GAP);
+        if (targetExtra > projectListExtraHeight) {
+          setProjectListExtraHeight(targetExtra);
+        }
+        return;
+      }
+
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        const listEl2 = projectListRef.current;
+        const menuEl2 = projectMenuRef.current?.querySelector('[data-project-action-menu="true"]') as HTMLElement | null;
+        if (!listEl2 || !menuEl2) return;
+
+        const listRect2 = listEl2.getBoundingClientRect();
+        const menuRect2 = menuEl2.getBoundingClientRect();
+        const remaining = menuRect2.bottom + PROJECT_ACTION_MENU_SAFE_GAP - listRect2.bottom;
+        if (remaining > 0) {
+          const maxScrollable2 = Math.max(0, listEl2.scrollHeight - listEl2.clientHeight - listEl2.scrollTop);
+          if (maxScrollable2 > 0) {
+            listEl2.scrollBy({ top: Math.min(remaining, maxScrollable2), behavior: 'auto' });
+          }
+        }
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(rafId);
+    };
+  }, [projectActionMenuId, projectListExtraHeight]);
 
   useEffect(() => { 
     // Reset or update duration when template changes
@@ -2658,6 +2827,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               {projectMenuOpen && (
                 <div
                   ref={projectMenuRef}
+                  onMouseDown={(event) => {
+                    const target = event.target as HTMLElement;
+                    if (target.closest('[data-project-action-root="true"]')) return;
+                    setProjectActionMenuId(null);
+                  }}
                   className="absolute top-11 left-0 w-[360px] rounded-xl border border-white/10 bg-zinc-950/95 backdrop-blur-xl shadow-2xl shadow-black/60 p-3 text-sm"
                 >
                   <div className="text-sm font-bold text-zinc-100 px-2 pb-2">{projectUiText.switchTitle}</div>
@@ -2670,8 +2844,36 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     />
                   </div>
                   <div className="h-px bg-white/10 my-3" />
-                  <div className="px-2 pb-1 text-[11px] uppercase tracking-widest text-zinc-500">{projectUiText.recent}</div>
-                  <div className="max-h-64 overflow-y-auto custom-scroll pr-1">
+                  <div className="px-2 pb-1 flex items-center justify-between">
+                    <div className="text-[11px] uppercase tracking-widest text-zinc-500">{projectUiText.recent}</div>
+                    {isProjectManageMode && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsProjectManageMode(false);
+                            setSelectedProjectIds([]);
+                          }}
+                          className="text-[11px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10"
+                        >
+                          {projectUiText.manageCancel || projectUiText.cancel}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={selectedProjectIds.length === 0}
+                          onClick={() => setDeleteProjectIds(selectedProjectIds)}
+                          className={`text-[11px] px-2 py-1 rounded text-white ${selectedProjectIds.length === 0 ? 'bg-red-600/40 cursor-not-allowed' : 'bg-red-600 hover:bg-red-500'}`}
+                        >
+                          {projectUiText.manageDelete || projectUiText.delete}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div
+                    ref={projectListRef}
+                    className="overflow-y-auto custom-scroll pr-1"
+                    style={{ maxHeight: projectActionMenuId ? PROJECT_LIST_MAX_HEIGHT : PROJECT_LIST_BASE_MAX_HEIGHT }}
+                  >
                     {filteredProjects.length === 0 && (
                       <div className="px-2 py-3 text-xs text-zinc-500">{projectUiText.empty}</div>
                     )}
@@ -2682,13 +2884,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         <div key={project.id} className="group relative flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5">
                           <button
                             type="button"
-                            onClick={() => switchProject(project.id)}
+                            onClick={() => {
+                              if (isProjectManageMode) {
+                                toggleProjectSelection(project.id);
+                                return;
+                              }
+                              switchProject(project.id);
+                            }}
                             className="flex-1 min-w-0 text-left"
                           >
                             <div className="flex items-center gap-2">
-                              <span className="w-12 shrink-0">
+                              {isProjectManageMode && (
+                                <span
+                                  className={`w-4 h-4 rounded border shrink-0 inline-flex items-center justify-center ${selectedProjectIds.includes(project.id) ? 'bg-orange-500 border-orange-500 text-black' : 'border-white/30 text-transparent'}`}
+                                >
+                                  <Check className="w-3 h-3" />
+                                </span>
+                              )}
+                              <span className="shrink-0">
                                 {isCurrent ? (
-                                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-md bg-orange-500 text-black text-[10px] font-black">
+                                  <span className="inline-flex items-center justify-center whitespace-nowrap leading-none px-2 py-1 rounded-md bg-orange-500 text-black text-[10px] font-black">
                                     {projectUiText.currentTag}
                                   </span>
                                 ) : null}
@@ -2700,13 +2915,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                   onClick={(event) => event.stopPropagation()}
                                   onChange={(event) => setRenamingProjectName(event.target.value)}
                                   onBlur={() => {
-                                    commitProjectRename(project.id, renamingProjectName);
-                                    setRenamingProjectId(null);
+                                    const renameSuccess = commitProjectRename(project.id, renamingProjectName, {
+                                      keepEditingOnFail: true,
+                                      originalName: project.name,
+                                    });
+                                    if (renameSuccess) {
+                                      setRenamingProjectId(null);
+                                    } else {
+                                      setRenamingProjectName(project.name);
+                                    }
                                   }}
                                   onKeyDown={(event) => {
                                     if (event.key === 'Enter') {
-                                      commitProjectRename(project.id, renamingProjectName);
-                                      setRenamingProjectId(null);
+                                      const renameSuccess = commitProjectRename(project.id, renamingProjectName, {
+                                        keepEditingOnFail: true,
+                                        originalName: project.name,
+                                      });
+                                      if (renameSuccess) {
+                                        setRenamingProjectId(null);
+                                      } else {
+                                        setRenamingProjectName(project.name);
+                                      }
                                     } else if (event.key === 'Escape') {
                                       setRenamingProjectId(null);
                                     }
@@ -2719,19 +2948,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               <span className="text-[11px] text-zinc-500 shrink-0">{formatProjectLastEdited(project.updatedAt)}</span>
                             </div>
                           </button>
-                          <div className="relative">
+                          {!isProjectManageMode && <div className="relative" data-project-action-root="true">
                             <button
                               type="button"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                setProjectActionMenuId((prev) => (prev === project.id ? null : project.id));
+                                const nextId = project.id;
+                                const isClosing = projectActionMenuId === nextId;
+                                if (isClosing) {
+                                  setProjectActionMenuId(null);
+                                  return;
+                                }
+
+                                setProjectListExtraHeight(0);
+                                setProjectActionMenuId(nextId);
                               }}
                               className="opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-400 hover:text-white hover:bg-white/10 transition"
                             >
                               <MoreHorizontal className="w-4 h-4" />
                             </button>
                             {projectActionMenuId === project.id && (
-                              <div className="absolute right-0 top-7 w-28 rounded-lg border border-white/10 bg-zinc-900 shadow-xl p-1 z-20">
+                              <div data-project-action-menu="true" className="absolute right-0 top-7 w-28 rounded-lg border border-white/10 bg-zinc-900 shadow-xl p-1 z-20">
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -2757,17 +2994,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 </button>
                               </div>
                             )}
-                          </div>
+                          </div>}
                         </div>
                       );
                     })}
+                    {!isProjectManageMode && projectActionMenuId && projectListExtraHeight > 0 && (
+                      <div style={{ height: projectListExtraHeight }} aria-hidden />
+                    )}
                   </div>
 
                   <div className="h-px bg-white/10 my-3" />
                   <div className="flex items-center justify-end gap-2 px-2">
                     <button
                       type="button"
-                      onClick={createNewProject}
+                      onClick={() => {
+                        setNewProjectNameDraft(projectUiText.defaultProjectName);
+                        setCreateProjectNameError('');
+                        setIsCreateProjectOpen(true);
+                      }}
                       className="text-xs px-2 py-1 rounded text-orange-400 hover:text-orange-300 hover:bg-orange-500/10"
                     >
                       + {projectUiText.newProject}
@@ -2775,8 +3019,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        setProjectMenuOpen(false);
-                        openInfo(projectUiText.manageProjects, projectUiText.manageSoon);
+                        setIsProjectManageMode(true);
+                        setSelectedProjectIds([]);
+                        setProjectActionMenuId(null);
                       }}
                       className="text-xs px-2 py-1 rounded text-zinc-300 hover:text-white hover:bg-white/10"
                     >
@@ -2803,7 +3048,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     setIsHeaderProjectEditing(false);
                   }
                 }}
-                className="text-xl font-bold tracking-tight text-white bg-transparent border-b border-white/30 focus:border-orange-500 outline-none min-w-[220px]"
+                style={{ width: `${Math.max(1.2, Math.min(estimateProjectNameWidthEm(headerProjectNameDraft || currentProject?.name || ''), 22))}em` }}
+                className="text-xl font-bold tracking-tight text-white bg-transparent border-b border-white/30 focus:border-orange-500 outline-none"
               />
             ) : (
               <h1 className="text-xl font-bold tracking-tight text-white cursor-text" onClick={beginHeaderRename}>
@@ -2851,7 +3097,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         )}
 
         {isInfoOpen && (
-          <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={() => setIsInfoOpen(false)} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>OK</button></>}>
+          <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={closeInfoDialog} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={closeInfoDialog}>OK</button></>}>
             <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
           </AppDialog>
         )}
@@ -2888,26 +3134,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   onClick={() => {
                     const target = deleteProjectTarget;
                     if (!target) return;
-                    setProjectStore((prev) => {
-                      const remaining = prev.projects.filter((project) => project.id !== target.id);
-                      const nextProjects = remaining.length > 0
-                        ? remaining
-                        : [{ id: 'project_alpha_01', name: DEFAULT_PROJECT_NAME, updatedAt: Date.now() }];
-                      const nextCurrent = prev.currentProjectId === target.id ? nextProjects[0].id : prev.currentProjectId;
-                      const nextWorkspaces = { ...prev.workspaces };
-                      delete nextWorkspaces[target.id];
-                      if (!nextWorkspaces[nextCurrent]) {
-                        nextWorkspaces[nextCurrent] = createWorkspaceState({
-                          scripts: buildDemoScripts(),
-                          scriptPagePrefix: t.wb_script_page_prefix,
-                        });
-                      }
-                      return {
-                        currentProjectId: nextCurrent,
-                        projects: nextProjects,
-                        workspaces: nextWorkspaces,
-                      };
-                    });
+                    removeProjectsByIds([target.id]);
                     setDeleteProjectTarget(null);
                     setProjectMenuOpen(false);
                   }}
@@ -2918,6 +3145,88 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             }
           >
             <div className="whitespace-pre-line text-sm text-zinc-300">{projectUiText.deleteDesc}</div>
+          </AppDialog>
+        )}
+        {deleteProjectIds.length > 0 && (
+          <AppDialog
+            isOpen={deleteProjectIds.length > 0}
+            title={projectUiText.bulkDeleteTitle || projectUiText.deleteTitle}
+            onClose={() => setDeleteProjectIds([])}
+            footer={
+              <>
+                <button
+                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                  onClick={() => setDeleteProjectIds([])}
+                >
+                  {projectUiText.cancel}
+                </button>
+                <button
+                  className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500"
+                  onClick={() => {
+                    removeProjectsByIds(deleteProjectIds);
+                    setDeleteProjectIds([]);
+                    setSelectedProjectIds([]);
+                    setIsProjectManageMode(false);
+                  }}
+                >
+                  {projectUiText.delete}
+                </button>
+              </>
+            }
+          >
+            <div className="whitespace-pre-line text-sm text-zinc-300">{projectUiText.bulkDeleteDesc || projectUiText.deleteDesc}</div>
+          </AppDialog>
+        )}
+        {isCreateProjectOpen && (
+          <AppDialog
+            isOpen={isCreateProjectOpen}
+            title={projectUiText.createTitle || projectUiText.newProject}
+            onClose={() => {
+              setIsCreateProjectOpen(false);
+              setCreateProjectNameError('');
+            }}
+            footer={
+              <>
+                <button
+                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                  onClick={() => {
+                    setIsCreateProjectOpen(false);
+                    setCreateProjectNameError('');
+                  }}
+                >
+                  {projectUiText.cancel}
+                </button>
+                <button
+                  className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
+                  onClick={() => createNewProject(newProjectNameDraft)}
+                >
+                  {projectUiText.createConfirm || projectUiText.newProject}
+                </button>
+              </>
+            }
+          >
+            <div className="space-y-2">
+              <div className="text-sm text-zinc-300">{projectUiText.createNameLabel || t.assets_name_label || 'Name'}</div>
+              <input
+                autoFocus
+                value={newProjectNameDraft}
+                onChange={(e) => {
+                  const nextName = e.target.value;
+                  setNewProjectNameDraft(nextName);
+                  if (createProjectNameError && nextName.trim().length <= MAX_PROJECT_NAME_LENGTH) {
+                    setCreateProjectNameError('');
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') createNewProject(newProjectNameDraft);
+                }}
+                placeholder={projectUiText.createNamePlaceholder || projectUiText.defaultProjectName}
+                className={`w-full rounded-lg border bg-black/40 text-zinc-100 px-3 py-2 text-sm outline-none focus:border-orange-500 ${createProjectNameError ? 'border-red-500' : 'border-white/10'}`}
+              />
+              {createProjectNameError && (
+                <div className="text-xs text-red-400">{createProjectNameError}</div>
+              )}
+            </div>
           </AppDialog>
         )}
         {isAssetLibraryOpen && (

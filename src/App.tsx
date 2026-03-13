@@ -2,12 +2,15 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { tiktokApi } from './services/tiktok';
 import { AnimatePresence } from 'framer-motion';
+import { AppDialog } from './components/common/AppDialog';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TaskProvider } from './context/TaskContext';
 import { LanguageProvider } from './context/LanguageContext';
 import LoginPage from './pages/Login';
 import LandingPage from './pages/Landing';
 import Workbench from './pages/Workbench';
+import TermsOfServicePage from './pages/TermsOfService';
+import PrivacyPolicyPage from './pages/PrivacyPolicy';
 
 /**
  * [新增] 访客路由封装 (GuestRoute)
@@ -106,18 +109,29 @@ const AnimatedRoutes = () => {
 
                 // 显示成功消息，告知用户视频已上传到哪个账号
                 if (result?.message) {
-                    alert(result.message);
+                    setInfoTitle('Success');
+                    setInfoMessage(String(result.message));
+                    setIsInfoOpen(true);
                 } else {
-                    alert('TikTok 授权成功，视频已上传到草稿箱');
+                    setInfoTitle('Success');
+                    setInfoMessage('TikTok 授权成功，视频已上传到草稿箱');
+                    setIsInfoOpen(true);
                 }
             } catch (err: any) {
                 console.error('[TikTok OAuth] Error:', err);
-                alert(`TikTok 授权失败：${err?.message || '未知错误'}`);
+                setInfoTitle('Error');
+                setInfoMessage(`TikTok 授权失败：${err?.message || '未知错误'}`);
+                setIsInfoOpen(true);
             } finally {
                 (window as any).__tiktok_callback_processing = false;
             }
         })();
     }, [location.pathname, location.search]);
+
+    // Info dialog state to replace alert()
+    const [isInfoOpen, setIsInfoOpen] = React.useState(false);
+    const [infoTitle, setInfoTitle] = React.useState('');
+    const [infoMessage, setInfoMessage] = React.useState<string | null>(null);
 
     return (
         /**
@@ -160,21 +174,35 @@ const AnimatedRoutes = () => {
                 {/* 兜底重定向 */}
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
+            {isInfoOpen && (
+                <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={() => setIsInfoOpen(false)} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>OK</button></>}>
+                    <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
+                </AppDialog>
+            )}
         </AnimatePresence>
     );
 };
 
 function App() {
     return (
-        <AuthProvider>
-            <TaskProvider>
-                <LanguageProvider>
-                    <BrowserRouter>
-                        <AnimatedRoutes />
-                    </BrowserRouter>
-                </LanguageProvider>
-            </TaskProvider>
-        </AuthProvider>
+        <LanguageProvider>
+            <BrowserRouter>
+                <Routes>
+                    <Route path="/terms-of-service" element={<TermsOfServicePage />} />
+                    <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+                    <Route
+                        path="/*"
+                        element={
+                            <AuthProvider>
+                                <TaskProvider>
+                                    <AnimatedRoutes />
+                                </TaskProvider>
+                            </AuthProvider>
+                        }
+                    />
+                </Routes>
+            </BrowserRouter>
+        </LanguageProvider>
     );
 }
 

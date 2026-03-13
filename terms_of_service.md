@@ -1,0 +1,100 @@
+Terms of Service for VFlow
+==========================
+
+### Acceptance of the Terms
+--------------------------
+
+By accessing or using the VFlow platform (the "Service"), you agree to be bound by these Terms of Service ("Terms"). VFlow provides tools that use artificial‑intelligence (AI) models (e.g., Sora) to generate short videos for e‑commerce and upload them to TikTok or other third‑party platforms. These Terms form a legally binding contract between you and the provider of VFlow (“we,” “us” or “our”). If you are accessing the Service on behalf of a business or other legal entity, you represent that you have authority to bind that entity and that “you” refers to the entity as well. TikTok’s own terms emphasise that a user’s access or use of its services constitutes acceptance of its terms; similarly, by using VFlow you accept these Terms. If you do not agree with the Terms, please do not use the Service.
+
+We may update these Terms from time to time. TikTok notifies users of material changes and updates the “Last Updated” date. Likewise, we will post the revised Terms on our website and update the effective date. Your continued use of the Service after changes become effective constitutes acceptance of the new Terms.
+
+### Description of the Service
+-----------------------------
+
+VFlow is an AI‑driven platform that allows users to:
+
+1.  Upload or input product information, scripts, images or other materials ("User Inputs").
+    
+2.  Use AI models such as Sora to generate synthetic videos featuring products, scenes or voices. The AI output may be wholly synthetic or may significantly modify user‑provided materials. TikTok defines AI‑generated content as media created or modified by AI and requires that such content be labeled when it includes realistic images, audio or video; accordingly, VFlow provides labeling options for AI‑generated videos to facilitate compliance.
+    
+3.  Publish or schedule the AI‑generated videos directly to TikTok through VFlow’s integration. When uploading to TikTok, you must comply with TikTok’s Community Guidelines and its policies on AI content. TikTok prohibits AI‑generated content that depicts fake authoritative sources, crisis events, or falsely shows public figures or individuals under 18 without permission. VFlow may refuse to upload or may remove content that violates such policies.
+    
+
+VFlow is primarily intended for business users who want to create promotional videos for products and services. The Service may evolve over time; features may be added or removed, and we may impose limits on usage.
+
+### Eligibility and Accounts
+---------------------------
+
+You must be at least 13 years old (or the minimum age of digital consent in your jurisdiction) to use VFlow, and if you are under 18 you must have permission from a parent or guardian. To use certain features, you must create an account by providing accurate and up‑to‑date information. TikTok’s Terms require users to maintain current details and keep their password confidential; similarly, you must safeguard your VFlow account credentials and notify us immediately of any unauthorized use. You are responsible for all activities that occur under your account.
+
+If you create an account on behalf of a business, you represent that you have authority to bind the business and that your business will be legally and financially responsible for actions taken through your account, as TikTok’s Terms require.
+
+### User Inputs and AI‑Generated Content
+---------------------------------------
+
+#### User Inputs
+
+You retain ownership of any User Inputs you provide to the Service. By uploading User Inputs, you warrant that you have the necessary rights, permissions and consents to use the materials and to permit us and our service providers (including AI model providers) to process them. TikTok’s Terms state that users own their content but must have the necessary permissions for any content uploaded and that User Content is considered non‑confidential and non‑proprietary; similarly, we treat User Inputs as non‑confidential.
+
+You grant us a non‑exclusive, worldwide, royalty‑free license to use, modify, process, reproduce, display and transmit your User Inputs for the purpose of providing and improving the Service. This includes sharing the Inputs with our AI providers and uploading the resulting videos to TikTok or other platforms. You also grant us the right to generate derivative works (AI‑generated videos) from your Inputs. This license terminates when you delete your Inputs from your account, except to the extent we have already used your Inputs to generate content or have retained backups.
+
+#### AI‑Generated Content and License to Us
+
+When you use VFlow’s AI models, the resulting videos may incorporate content from your Inputs and may include synthetic characters, voices or scenes. TikTok explains that AI‑generated content includes videos or images depicting individuals doing or saying things they did not do, or altering their appearance. By using the Service, you acknowledge that AI‑generated videos are created algorithmically and may contain inaccuracies or fictional elements. Generative AI outputs may not always be accurate or true; you are responsible for reviewing and verifying any output before publishing it. You must label AI‑generated videos as required by TikTok and any applicable law.
+
+You own any copyright or proprietary rights in the AI‑generated videos you create through VFlow, subject to your ownership of the underlying Inputs and any third‑party materials (e.g., music) embedded. However, similar to TikTok’s license to User Content, you grant us an irrevocable, non‑exclusive, worldwide, royalty‑free, perpetual license to host, modify, display, distribute, and transmit the AI‑generated videos for purposes of operating and improving our Service, including uploading them to TikTok and allowing our other users and third parties to view or access them. We may also use your business name, user name, image, and logo to identify you as the source of content, similar to TikTok’s right to use your name and likeness.
+
+#### TikTok Integration
+
+When you connect your TikTok account to VFlow, we may act on your behalf to post videos or manage content. TikTok’s Terms note that you must comply with its own content standards and that you may post your User Content to third‑party platforms. You are solely responsible for ensuring that your videos (including AI‑generated elements) comply with TikTok’s Terms of Service, Community Guidelines and AI‑content policies. VFlow is not liable for any removal, restriction or penalties imposed by TikTok.
+
+### Prohibited Conduct
+---------------------
+
+You agree not to:
+
+1.  Submit any User Inputs or generate content that infringes third‑party rights, including intellectual property, privacy, publicity or contractual rights. TikTok prohibits using content where users do not have proper rights and requires that any uploaded content be lawful. If you use music or images from third parties, you must obtain all necessary licences.
+    
+2.  Generate or post videos that depict individuals without their consent or that misrepresent factual events. TikTok prohibits AI‑generated content that shows fake crisis events, impersonates public figures or uses the likeness of minors without permission.
+    
+3.  Use the Service for unlawful, fraudulent, defamatory, harassing or obscene purposes; or to disseminate hateful, discriminatory or abusive content. TikTok’s Terms forbid intimidation, harassment and discrimination; VFlow adopts similar standards.
+    
+4.  Interfere with or disrupt the Service, attempt to reverse engineer our software or AI models, or bypass any security measures. TikTok prohibits reverse engineering, unauthorized use, automated scripts and interference with services. VFlow similarly prohibits such conduct.
+    
+5.  Input confidential or personally identifiable information (PII) about yourself or others into the AI prompts. Privacy researchers warn that generative AI inputs may be used as training data, that users may overshare personal information, and that it is unclear what data is retained or shared. Therefore, you should avoid including sensitive personal data (e.g., health, financial information, government IDs) in prompts.
+    
+
+We may suspend or terminate your access to the Service without notice if you violate these Terms or if we deem your activities to pose a risk to us or others.
+
+### Intellectual Property
+------------------------
+
+All rights, title and interest in the VFlow Service, including software, logos, trademarks, graphics and AI models, are owned by us or our licensors. TikTok similarly states that TikTok content is owned or licensed by TikTok. Nothing in these Terms grants you any rights to our intellectual property except for the limited license to use the Service under these Terms. You may not copy, modify, distribute, sell or lease any part of our Service or reverse engineer our software.
+
+### Disclaimer of Warranties and Limitation of Liability
+-------------------------------------------------------
+
+VFlow is provided "as is" and "as available." We make no warranties regarding the accuracy, reliability or fitness for a particular purpose of AI‑generated content. AI models may occasionally generate inaccurate or misleading output. You acknowledge that your use of the Service and any content is at your own risk. To the fullest extent permitted by law, we exclude all warranties and liability for any loss or damage arising from your use of the Service, including but not limited to direct, indirect, incidental, consequential or punitive damages.
+
+We do not control and are not responsible for content posted on TikTok or third‑party platforms. TikTok notes that content on its Services is not verified and that users view such content at their own risk. VFlow similarly disclaims responsibility for third‑party content. Our total liability to you for any claims arising out of or relating to the Service will not exceed the greater of US $100 or the amount you paid to use the Service in the twelve months preceding the claim.
+
+### Indemnification
+------------------
+
+You agree to indemnify and hold harmless VFlow, its affiliates, directors, officers, employees and agents from any claims, damages, liabilities, and expenses arising from your use of the Service, your User Inputs or AI‑generated content, your violation of these Terms, or your infringement of any third‑party rights. TikTok’s Terms require users to indemnify TikTok for breach of warranties; similarly, you will be responsible for any loss or damage we suffer due to your breach.
+
+### Termination
+--------------
+
+We may suspend or terminate your access to the Service at any time with or without cause. You may delete your account at any time. If you terminate your account, we will delete your User Inputs and AI‑generated videos from our active systems, subject to our data retention policies. Some copies may remain in archived or backup storage for a limited period. Sections of these Terms that by their nature should survive termination (e.g., licenses, indemnity, disclaimer, and limitation of liability) will continue to apply.
+
+### Governing Law and Dispute Resolution
+----------------------------------------
+
+These Terms are governed by the laws of the jurisdiction where VFlow’s operator is incorporated, without regard to conflict‑of‑laws principles. Any disputes will be resolved through negotiation in good faith. If a dispute cannot be resolved, it will be submitted to binding arbitration or a court of competent jurisdiction as provided in supplemental terms. You waive any right to participate in class actions.
+
+### Contact Information
+-----------------------
+
+If you have questions about these Terms or need to report a violation, please contact us via the contact information provided on our website.
+

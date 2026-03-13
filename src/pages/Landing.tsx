@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import { useLanguage } from '../context/LanguageContext';
 import { LanguageSwitcher } from '../components/common/LanguageSwitcher';
 import TransitionOverlay from '../components/common/TransitionOverlay';
@@ -41,7 +41,7 @@ const LandingPage = () => {
   };
 
   // 标题文字交错入场
-  const titleContainer = {
+  const titleContainer: Variants = {
     hidden: { opacity: 0 },
     show: {
       opacity: 1,
@@ -49,9 +49,9 @@ const LandingPage = () => {
     }
   };
 
-  const titleItem = {
+  const titleItem: Variants = {
     hidden: { y: 40, opacity: 0 },
-    show: { y: 0, opacity: 1, transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] } }
+    show: { y: 0, opacity: 1, transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] as const } }
   };
 
   return (

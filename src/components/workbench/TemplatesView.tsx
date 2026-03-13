@@ -1,9 +1,10 @@
-import React from 'react';
-import { Plus, ArrowRight, Trash2, Zap, Gem, Flame } from 'lucide-react';
+import React, { useState } from 'react';
+import { Plus, ArrowRight, Trash2, Zap, Gem, Flame, Loader2 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { templatesApi, type Template } from '../../services/templates';
 import { useAuth } from '../../context/AuthContext';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
+import { AppDialog } from '../common/AppDialog';
 
 interface TemplatesViewProps {
   templateList: Template[];
@@ -20,6 +21,8 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
 }) => {
   const { t } = useLanguage();
   const { user } = useAuth();
+  const [deleteTarget, setDeleteTarget] = useState<Template | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const categoryLabels: Record<string, string> = {
     camera: t.opt_cat_camera,
     beauty: t.opt_cat_beauty,
@@ -45,14 +48,28 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
     Number.isFinite(value) ? value : '-';
 
   const handleDelete = async (id: string) => {
-    if (!user?.id || !confirm('Are you sure?')) return;
+    if (!user?.id) return;
+
+    setDeletingId(id);
     try {
       await templatesApi.deleteTemplate(user.id, id);
+      setDeleteTarget(null);
       refreshTemplates();
     } catch (e) {
-      alert("Failed to delete");
+      void e;
+      // show in-app dialog for error (use existing translation key)
+      setInfoTitle(t.tpl_delete_failed || 'Failed to delete template');
+      setInfoMessage(t.tpl_delete_failed || 'Failed to delete template');
+      setIsInfoOpen(true);
+    } finally {
+      setDeletingId(prev => (prev === id ? null : prev));
     }
   };
+
+  // Info modal state
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const [infoTitle, setInfoTitle] = useState('');
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
   return (
     <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -68,7 +85,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
                    <div className="relative z-10">
                       <div className="flex justify-between items-start mb-6">
                          <div className="w-12 h-12 rounded-xl bg-zinc-800/80 border border-white/5 flex items-center justify-center text-white shadow-lg">{tpl.icon === 'gem' ? <Gem className="w-6 h-6" /> : (tpl.icon === 'zap' ? <Zap className="w-6 h-6"/> : <Flame className="w-6 h-6"/>)}</div>
-                         <button onClick={() => handleDelete(tpl.id!)}><Trash2 className="w-4 h-4 text-zinc-600 hover:text-red-500" /></button>
+                         <button onClick={() => setDeleteTarget(tpl)}><Trash2 className="w-4 h-4 text-zinc-600 hover:text-red-500" /></button>
                       </div>
                       <h3 className="text-xl font-bold text-white mb-1">{tpl.name}</h3>
                       <p className="text-xs text-zinc-500 mb-6 font-mono capitalize">{displayCategory(tpl.product_category)} • {displayStyle(tpl.visual_style)}</p>
@@ -85,6 +102,51 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
              ))}
           </div>
        </div>
+
+       <AppDialog
+         isOpen={!!deleteTarget}
+         title={t.tpl_delete_confirm_title}
+         onClose={() => {
+           if (deletingId) return;
+           setDeleteTarget(null);
+         }}
+       footer={
+         <>
+           <button
+             className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700 disabled:opacity-60"
+             onClick={() => setDeleteTarget(null)}
+             disabled={!!deletingId}
+           >
+             {t.assets_move_cancel}
+           </button>
+           <button
+             className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500 disabled:opacity-60 flex items-center gap-2"
+             onClick={() => deleteTarget?.id && void handleDelete(deleteTarget.id)}
+             disabled={!deleteTarget?.id || !!deletingId}
+           >
+             {deletingId ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+             {t.assets_delete}
+           </button>
+         </>
+       }
+       >
+         <div className="whitespace-pre-line">
+           <div className="font-medium text-zinc-100">{deleteTarget?.name || '-'}</div>
+           <div className="mt-2 text-zinc-400">{t.tpl_delete_confirm_message}</div>
+         </div>
+       </AppDialog>
+      <AppDialog
+        isOpen={isInfoOpen}
+        title={infoTitle || 'Notice'}
+        onClose={() => setIsInfoOpen(false)}
+        footer={
+          <>
+            <button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>{t.assets_move_cancel}</button>
+          </>
+        }
+      >
+        <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
+      </AppDialog>
     </div>
   );
 };

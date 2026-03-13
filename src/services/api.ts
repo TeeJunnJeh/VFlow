@@ -1,11 +1,11 @@
-import { VideoTask, Asset } from '../types';
+import type { VideoTask, Asset } from '../types';
 
 // Mock delay helper
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export const api = {
   // Generate Video
-  generateVideo: async (prompt: string, options: any): Promise<{ taskId: string }> => {
+  generateVideo: async (_prompt: string, _options: any): Promise<{ taskId: string }> => {
     await delay(1500); // Simulate network
     return { taskId: Math.random().toString(36).substr(2, 9) };
   },

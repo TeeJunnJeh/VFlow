@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Wand2, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import { api } from '../services/api';
+import { AppDialog } from '../components/common/AppDialog';
 import { useLocation } from 'react-router-dom';
 
 const GeneratePage = () => {
@@ -20,13 +21,19 @@ const GeneratePage = () => {
       await api.generateVideo(prompt, options);
       // In a real app, you'd probably redirect to history or show a success toast here
       setPrompt(''); 
-      alert('Task started successfully!');
+      setInfoTitle('Success');
+      setInfoMessage('Task started successfully!');
+      setIsInfoOpen(true);
     } catch (error) {
       console.error(error);
     } finally {
       setIsProcessing(false);
     }
   };
+
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const [infoTitle, setInfoTitle] = useState('');
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
   return (
     <div className="max-w-4xl mx-auto py-10 px-6">
@@ -113,6 +120,11 @@ const GeneratePage = () => {
           </button>
         </div>
       </div>
+      {isInfoOpen && (
+        <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={() => setIsInfoOpen(false)} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>OK</button></>}>
+          <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
+        </AppDialog>
+      )}
     </div>
   );
 };

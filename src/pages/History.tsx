@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Play, Repeat, Trash2, Loader2, Maximize2 } from 'lucide-react';
 import { api } from '../services/api';
-import { VideoTask } from '../types';
+import type { VideoTask } from '../types';
 import { useNavigate } from 'react-router-dom';
 
 const HistoryPage = () => {

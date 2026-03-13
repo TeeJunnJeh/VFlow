@@ -1,9 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Flame, Gem, Zap, ChevronDown, Camera, Sparkles, Utensils, Cpu, Eye, Film, Box, Wand2, PencilLine } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ArrowLeft, Flame, Gem, Zap, ChevronDown, Camera, Sparkles, Utensils, Cpu, Eye, Film, Box, Wand2, PencilLine, UserSquare2, Maximize2, X } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { AppDialog } from '../common/AppDialog';
 import { type Template, templatesApi } from '../../services/templates';
+import { assetsApi } from '../../services/assets';
 import { useAuth } from '../../context/AuthContext';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
+
+const toDisplayUrl = (pathOrUrl: string | null | undefined): string => {
+  if (!pathOrUrl) return '';
+  const raw = String(pathOrUrl).trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+  const normalized = raw.startsWith('/') ? raw : `/${raw}`;
+  const mediaBase: string = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
+  if (mediaBase && normalized.startsWith('/media/')) return `${mediaBase}${normalized}`;
+  return normalized;
+};
 
 interface EditorViewProps {
   initialData: Template | null;
@@ -50,10 +63,93 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
     custom_config: ''
   });
 
+  // --- Model Asset State (upload-based) ---
+  const [selectedModelId, setSelectedModelId] = useState<number | null | undefined>(undefined); // undefined = not yet initialised
+  const [uploadedModelPreview, setUploadedModelPreview] = useState<{ url: string; name: string } | null>(null);
+  const [isUploadingModel, setIsUploadingModel] = useState(false);
+  const [showFullPreview, setShowFullPreview] = useState(false);
+  const modelFileInputRef = useRef<HTMLInputElement>(null);
+
+  const [selectedMotionId, setSelectedMotionId] = useState<number | null | undefined>(undefined);
+  const [uploadedMotionPreview, setUploadedMotionPreview] = useState<{ url: string; name: string } | null>(null);
+  const [isUploadingMotion, setIsUploadingMotion] = useState(false);
+  const motionFileInputRef = useRef<HTMLInputElement>(null);
+  // Info dialog state to replace native alert()
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const [infoTitle, setInfoTitle] = useState('');
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const openInfo = (title: string, message: string | null = null) => {
+    setInfoTitle(title || '');
+    setInfoMessage(message || null);
+    setIsInfoOpen(true);
+  };
+
+  const handleModelImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = ''; // reset so same file can be re-selected
+    setIsUploadingModel(true);
+    try {
+      const resp = await assetsApi.uploadAsset(file, 'model');
+      const data: any = (resp as any)?.data || (Array.isArray((resp as any)?.assets) ? (resp as any).assets[0] : null) || resp;
+      const rawUrl: string = data?.url || data?.file_url || data?.path || '';
+      const fullUrl = toDisplayUrl(rawUrl);
+      const idNum = data?.id !== undefined && data?.id !== null ? Number(data.id) : null;
+      setSelectedModelId(Number.isFinite(idNum as any) ? (idNum as number) : null);
+      setUploadedModelPreview({ url: fullUrl, name: data?.display_name || data?.name || file.name });
+    } catch {
+      openInfo('Error', 'Failed to upload model image');
+    } finally {
+      setIsUploadingModel(false);
+    }
+  };
+
+  const handleMotionVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setIsUploadingMotion(true);
+    try {
+      const resp = await assetsApi.uploadAsset(file, 'motion');
+      const data: any = (resp as any)?.data || (Array.isArray((resp as any)?.assets) ? (resp as any).assets[0] : null) || resp;
+      const rawUrl: string = data?.url || data?.file_url || data?.path || '';
+      const fullUrl = toDisplayUrl(rawUrl);
+      const idNum = data?.id !== undefined && data?.id !== null ? Number(data.id) : null;
+      setSelectedMotionId(Number.isFinite(idNum as any) ? (idNum as number) : null);
+      setUploadedMotionPreview({ url: fullUrl, name: data?.display_name || data?.name || file.name });
+    } catch {
+      openInfo('Error', 'Failed to upload motion video');
+    } finally {
+      setIsUploadingMotion(false);
+    }
+  };
+
   // --- MISSING LOGIC RESTORED HERE ---
   useEffect(() => {
     if (initialData) {
       setEditorForm(initialData);
+      // Initialise model selection from existing template data
+      setSelectedModelId(initialData.default_model_asset?.id ?? initialData.default_model_asset_id ?? null);
+      if (initialData.default_model_asset) {
+        const asset: any = initialData.default_model_asset;
+        const rawUrl: string = asset?.url || asset?.file_url || asset?.path || '';
+        const fullUrl = toDisplayUrl(rawUrl);
+        const name = asset?.display_name || asset?.name || asset?.file_name || 'model';
+        setUploadedModelPreview({ url: fullUrl, name });
+      } else {
+        setUploadedModelPreview(null);
+      }
+
+      setSelectedMotionId(initialData.default_motion_asset?.id ?? initialData.default_motion_asset_id ?? null);
+      if (initialData.default_motion_asset) {
+        const asset: any = initialData.default_motion_asset;
+        const rawUrl: string = asset?.url || asset?.file_url || asset?.path || '';
+        const fullUrl = toDisplayUrl(rawUrl);
+        const name = asset?.display_name || asset?.name || asset?.file_name || 'motion';
+        setUploadedMotionPreview({ url: fullUrl, name });
+      } else {
+        setUploadedMotionPreview(null);
+      }
 
       // Check if Category is custom
       const cat = initialData.product_category || 'camera';
@@ -72,6 +168,10 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
        setCustomCategory('');
        setIsCustomStyle(false);
        setCustomStyle('');
+      setSelectedModelId(null);
+      setSelectedMotionId(null);
+       setUploadedModelPreview(null);
+       setUploadedMotionPreview(null);
        setEditorForm({
         name: 'New Template',
         icon: 'flame',
@@ -86,16 +186,26 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
   }, [initialData]);
 
   const handleSave = async () => {
-    if (!user?.id) return alert("Please log in");
+    if (!user?.id) { openInfo('Notice', 'Please log in'); return; }
     try {
+      // Attach model asset id (null = smart match, undefined = not changed)
+      const payload: Template = {
+        ...editorForm,
+        ...(selectedModelId !== undefined
+          ? { default_model_asset_id: selectedModelId ?? null }
+          : {}),
+        ...(selectedMotionId !== undefined
+          ? { default_motion_asset_id: selectedMotionId ?? null }
+          : {}),
+      };
       if (initialData?.id) {
-        await templatesApi.updateTemplate(user.id, initialData.id, editorForm);
+        await templatesApi.updateTemplate(user.id, initialData.id, payload);
       } else {
-        await templatesApi.addTemplate(user.id, editorForm);
+        await templatesApi.addTemplate(user.id, payload);
       }
       onSaveSuccess();
     } catch (err) {
-      alert("Failed to save");
+      openInfo('Error', 'Failed to save');
     }
   };
 
@@ -108,6 +218,11 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
         </div>
         <LanguageSwitcher />
       </div>
+      {isInfoOpen && (
+        <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={() => setIsInfoOpen(false)} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>OK</button></>}>
+          <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
+        </AppDialog>
+      )}
       <div className="flex-1 overflow-y-auto p-10 max-w-5xl mx-auto w-full custom-scroll">
          <div className="glass-panel p-8 rounded-3xl border border-white/10 space-y-8">
             <div className="grid grid-cols-2 gap-8">
@@ -256,6 +371,139 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                 <label className="text-sm font-bold text-zinc-400">{t.editor_label_custom}</label>
                 <textarea value={editorForm.custom_config} onChange={e => setEditorForm({...editorForm, custom_config: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-orange-500 focus:outline-none transition text-white resize-none h-24" placeholder={t.editor_ph_custom}></textarea>
             </div>
+
+            {/* Default Model Asset Picker – Upload */}
+            <div className="space-y-2">
+                <label className="text-sm font-bold text-zinc-400 flex items-center gap-2">
+                  <UserSquare2 className="w-4 h-4" />
+                  {t.editor_label_model}
+                </label>
+                <input
+                  ref={modelFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleModelImageUpload}
+                />
+                {uploadedModelPreview ? (
+                  <div className="flex items-center gap-3 p-3 bg-black/30 border border-white/10 rounded-xl">
+                    <div 
+                      className="relative group cursor-pointer shrink-0"
+                      onClick={() => setShowFullPreview(true)}
+                    >
+                      <img 
+                        src={uploadedModelPreview.url} 
+                        alt={uploadedModelPreview.name} 
+                        className="w-12 h-12 rounded-lg object-cover border border-white/10" 
+                      />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
+                        <Maximize2 className="w-4 h-4 text-white" />
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-zinc-200 truncate">{uploadedModelPreview.name}</p>
+                      <p className="text-[10px] text-zinc-500 uppercase">MODEL</p>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        type="button"
+                        disabled={isUploadingModel}
+                        onClick={() => modelFileInputRef.current?.click()}
+                        className="text-[10px] text-orange-400 hover:text-orange-300 font-bold px-2 py-1 rounded bg-orange-500/10 hover:bg-orange-500/20 transition disabled:opacity-50"
+                      >
+                        {isUploadingModel ? (
+                          <span className="flex items-center gap-1"><span className="w-3 h-3 border border-zinc-500 border-t-orange-400 rounded-full animate-spin inline-block" />{t.editor_model_uploading}</span>
+                        ) : t.editor_model_change}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedModelId(null); setUploadedModelPreview(null); }}
+                        className="text-[10px] text-zinc-500 hover:text-red-400 font-bold px-2 py-1 rounded bg-white/5 hover:bg-red-500/10 transition"
+                      >
+                        {t.editor_model_clear}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={isUploadingModel}
+                    onClick={() => modelFileInputRef.current?.click()}
+                    className="w-full flex items-center justify-center gap-2 py-8 border-2 border-dashed border-white/10 rounded-xl text-zinc-500 hover:border-orange-500/50 hover:text-orange-400 hover:bg-orange-500/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isUploadingModel ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-zinc-500 border-t-orange-500 rounded-full animate-spin" />
+                        <span className="text-xs font-bold">{t.editor_model_uploading}</span>
+                      </>
+                    ) : (
+                      <>
+                        <UserSquare2 className="w-5 h-5" />
+                        <span className="text-xs font-bold">{t.editor_model_upload_btn}</span>
+                      </>
+                    )}
+                  </button>
+                )}
+            </div>
+
+            <div className="space-y-2">
+                <label className="text-sm font-bold text-zinc-400 flex items-center gap-2">
+                  <Film className="w-4 h-4" />
+                  {t.editor_label_motion || '默认动作视频'}
+                </label>
+                <input
+                  ref={motionFileInputRef}
+                  type="file"
+                  accept="video/*"
+                  className="hidden"
+                  onChange={handleMotionVideoUpload}
+                />
+                {uploadedMotionPreview ? (
+                  <div className="flex items-center gap-3 p-3 bg-black/30 border border-white/10 rounded-xl">
+                    <video src={uploadedMotionPreview.url} className="w-16 h-12 rounded-lg object-cover border border-white/10 shrink-0" muted playsInline />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-zinc-200 truncate">{uploadedMotionPreview.name}</p>
+                      <p className="text-[10px] text-zinc-500 uppercase">MOTION</p>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        type="button"
+                        disabled={isUploadingMotion}
+                        onClick={() => motionFileInputRef.current?.click()}
+                        className="text-[10px] text-orange-400 hover:text-orange-300 font-bold px-2 py-1 rounded bg-orange-500/10 hover:bg-orange-500/20 transition disabled:opacity-50"
+                      >
+                        {isUploadingMotion ? (t.editor_motion_uploading || '上传中...') : (t.editor_motion_change || '更换')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedMotionId(null); setUploadedMotionPreview(null); }}
+                        className="text-[10px] text-zinc-500 hover:text-red-400 font-bold px-2 py-1 rounded bg-white/5 hover:bg-red-500/10 transition"
+                      >
+                        {t.editor_motion_clear || '移除'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={isUploadingMotion}
+                    onClick={() => motionFileInputRef.current?.click()}
+                    className="w-full flex items-center justify-center gap-2 py-8 border-2 border-dashed border-white/10 rounded-xl text-zinc-500 hover:border-orange-500/50 hover:text-orange-400 hover:bg-orange-500/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isUploadingMotion ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-zinc-500 border-t-orange-500 rounded-full animate-spin" />
+                        <span className="text-xs font-bold">{t.editor_motion_uploading || '上传中...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Film className="w-5 h-5" />
+                        <span className="text-xs font-bold">{t.editor_motion_upload_btn || '上传动作视频'}</span>
+                      </>
+                    )}
+                  </button>
+                )}
+            </div>
             
             <hr className="border-white/5" />
             
@@ -265,6 +513,32 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
             </div>
          </div>
       </div>
+
+      {/* Full Image Preview Modal */}
+      {showFullPreview && uploadedModelPreview && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 animate-in fade-in duration-200 p-10 cursor-zoom-out"
+          onClick={() => setShowFullPreview(false)}
+        >
+          <button 
+            className="absolute top-10 right-10 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition text-white"
+            onClick={(e) => { e.stopPropagation(); setShowFullPreview(false); }}
+          >
+            <X className="w-6 h-6" />
+          </button>
+          
+          <img 
+            src={uploadedModelPreview.url} 
+            alt={uploadedModelPreview.name}
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          />
+          
+          <div className="absolute bottom-10 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-white text-sm font-bold">
+            {uploadedModelPreview.name}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

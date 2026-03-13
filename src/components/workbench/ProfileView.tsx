@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { authApi } from '../../services/auth';
 import { billingApi } from '../../services/billing';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
+import { AppDialog } from '../common/AppDialog';
 
 interface ProfileViewProps {
   theme: 'dark' | 'light';
@@ -17,43 +18,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [isEditingNickname, setIsEditingNickname] = useState(false);
   const [newNickname, setNewNickname] = useState(user?.name || '');
-  const [billingItems, setBillingItems] = useState<any[]>([]);
-  const [billingLoading, setBillingLoading] = useState(false);
-  const [billingError, setBillingError] = useState<string | null>(null);
-  const [showBilling, setShowBilling] = useState(false);
-
-  useEffect(() => {
-    if (!user?.id) {
-      setBillingLoading(false);
-      return;
-    }
-    let alive = true;
-    setBillingLoading(true);
-    setBillingError(null);
-
-    billingApi
-      .listTransactions(8, 0)
-      .then((res) => {
-        if (!alive) return;
-        const items = res?.data?.items || [];
-        setBillingItems(items);
-        if (typeof res?.data?.balance === 'number' && res.data.balance !== user?.credits) {
-          updateUser({ credits: res.data.balance });
-        }
-      })
-      .catch((err) => {
-        if (!alive) return;
-        setBillingError(err?.message || 'Failed to load billing');
-      })
-      .finally(() => {
-        if (!alive) return;
-        setBillingLoading(false);
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, [user?.id, user?.credits]);
+  const { isInfoOpen, setIsInfoOpen, infoTitle, infoMessage, openInfo } = useProfileInfo();
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -61,17 +26,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
       try {
         const res = await authApi.updateProfile({ avatar: file });
         if (res.data?.avatar) updateUser({ avatar: res.data.avatar });
-      } catch (err) { alert("Failed to upload"); }
+      } catch (err) { openInfo('Error', 'Failed to upload'); }
     }
   };
 
   const handleUpdateName = async () => {
      setIsEditingNickname(false);
      if (newNickname.trim() && newNickname.trim() !== user?.name) {
-        try {
-           const res = await authApi.updateProfile({ name: newNickname.trim() });
-           updateUser({ name: res.data.name });
-        } catch (e) { alert("Error updating name"); }
+          try {
+            const res = await authApi.updateProfile({ name: newNickname.trim() });
+            updateUser({ name: res.data.name });
+          } catch (e) { openInfo('Error', 'Error updating name'); }
      }
   };
 
@@ -110,7 +75,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                       else if (res.data.tier === 'ENTERPRISE') resolvedPlan = 'pro'; 
                       updateUser({ plan: resolvedPlan, credits: res.data.balance }); 
                     } catch (err) { 
-                      alert("Failed to update plan via debug"); 
+                      openInfo('Error', 'Failed to update plan via debug'); 
                     } 
                   }} 
                   className={`px-2 py-0.5 rounded text-[9px] font-bold border transition ${user?.plan === p ? 'bg-orange-500/20 border-orange-500/50 text-orange-500' : 'bg-transparent border-white/5 text-zinc-500 hover:text-white'}`}
@@ -125,14 +90,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                 type="number" 
                 className="w-12 bg-zinc-800 text-[10px] px-1 py-0.5 rounded text-white border border-white/10 outline-none focus:border-orange-500" 
                 defaultValue={100} 
-                onKeyDown={async (e) => { 
+                    onKeyDown={async (e) => { 
                   if (e.key === 'Enter') { 
                     const val = Number((e.currentTarget as HTMLInputElement).value); 
                     try { 
                       const res = await authApi.updateProfile({ credits: val }); 
                       updateUser({ credits: res.data.balance }); 
                     } catch (err) { 
-                      alert("Failed to update credits via debug"); 
+                      openInfo('Error', 'Failed to update credits via debug'); 
                     } 
                   } 
                 }} 
@@ -311,6 +276,24 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
             </div>
          </div>
       </div>
+       {isInfoOpen && (
+         <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={() => setIsInfoOpen(false)} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>OK</button></>}>
+           <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
+         </AppDialog>
+       )}
     </div>
   );
 };
+
+  // Info dialog state/hooks
+  function useProfileInfo() {
+    const [isInfoOpen, setIsInfoOpen] = React.useState(false);
+    const [infoTitle, setInfoTitle] = React.useState('');
+    const [infoMessage, setInfoMessage] = React.useState<string | null>(null);
+    const openInfo = (title: string, message: string | null = null) => {
+      setInfoTitle(title || '');
+      setInfoMessage(message || null);
+      setIsInfoOpen(true);
+    };
+    return { isInfoOpen, setIsInfoOpen, infoTitle, infoMessage, openInfo };
+  }

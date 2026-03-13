@@ -88,6 +88,10 @@ export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const pollOnce = async () => {
+    const normalizeStatus = (status: TaskStatus): TaskStatus => {
+      return status === 'pending' ? 'processing' : status;
+    };
+
     const activeTasks = tasksRef.current.filter(t => t.status === 'pending' || t.status === 'processing');
     if (activeTasks.length === 0) {
       stopPolling();
@@ -110,11 +114,12 @@ export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
 
         if (json?.code !== 0 || !json?.data) return null;
 
-        const remoteStatus = (json.data.status ?? '').toString().toLowerCase() as TaskStatus;
-        if (!remoteStatus) return null;
+        const remoteStatusRaw = (json.data.status ?? '').toString().toLowerCase() as TaskStatus;
+        if (!remoteStatusRaw) return null;
+        const remoteStatus = normalizeStatus(remoteStatusRaw);
 
         const result = json.data.result;
-        if (remoteStatus !== task.status || result !== task.result) {
+        if (remoteStatus !== normalizeStatus(task.status)) {
           return { id: task.id, status: remoteStatus, result };
         }
       } catch (e) {

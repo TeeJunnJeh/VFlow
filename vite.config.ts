@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+const backendProxyTarget = process.env.VFLOW_BACKEND_PROXY_TARGET || 'http://localhost:8001'
+
 export default defineConfig({
   //base: '/VFlow/',
   plugins: [react()],
@@ -8,18 +10,18 @@ export default defineConfig({
     host: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8001',
+        target: backendProxyTarget,
         changeOrigin: true,
         secure: false,
         cookieDomainRewrite: { "*": "" }
       },
       '/media': {
-        target: 'http://localhost:8001',
+        target: backendProxyTarget,
         changeOrigin: true,
         secure: false,
       },
       '/accounts': {
-        target: 'http://localhost:8001',
+        target: backendProxyTarget,
         changeOrigin: true,
         secure: false,
       }

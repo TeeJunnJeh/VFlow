@@ -15,6 +15,11 @@ const LoginPage = () => {
   // --- 业务状态 ---
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
+  const [authMode, setAuthMode] = useState<'phone' | 'password'>('phone');
+  const [isRegister, setIsRegister] = useState(false);
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   // --- UI 交互状态 ---
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -65,17 +70,33 @@ const LoginPage = () => {
     setError('');
 
     try {
-      if (!phone || !otp) throw new Error(t.login_error_missing_fields);
-      if (phone.length !== 11) throw new Error(t.login_error_invalid_phone);
-      if (otp !== '1234' && otp !== '8888') throw new Error(t.login_error_invalid_otp);
-
       // 1. 标记正在提交 (这会防止下方的自动跳转拦截逻辑生效)
       setIsSubmitting(true);
-      
-      const data = await authApi.loginWithPhone(phone, otp);
+
+      let data: any;
+      let loginIdentifier = '';
+      if (authMode === 'phone') {
+        if (!phone || !otp) throw new Error(t.login_error_missing_fields);
+        if (phone.length !== 11) throw new Error(t.login_error_invalid_phone);
+        data = await authApi.loginWithPhone(phone, otp);
+        loginIdentifier = phone;
+      } else {
+        if (!identifier || !password) throw new Error('请输入账号和密码');
+        if (isRegister) {
+          if (password !== confirmPassword) throw new Error('两次输入的密码不一致');
+          data = await authApi.registerWithPassword({
+            identifier,
+            password,
+            confirmPassword,
+          });
+        } else {
+          data = await authApi.loginWithPassword(identifier, password);
+        }
+        loginIdentifier = identifier;
+      }
       
       // 2. 更新 Context 状态 (此时 user 变为非空)
-      await login(phone, data);
+      await login(loginIdentifier, data);
 
       // 3. 触发成功动画状态
       setIsLoginSuccess(true);
@@ -110,7 +131,12 @@ const LoginPage = () => {
   }
 
   return (
-      <div className="min-h-screen w-full flex bg-[#050505] text-white overflow-hidden font-sans relative">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0, transition: { duration: 0.2 } }}
+        className="min-h-screen w-full flex bg-[#050505] text-white overflow-hidden font-sans relative"
+      >
 
         {/* --- 全屏登录成功动画层 --- */}
         <AnimatePresence>
@@ -198,56 +224,119 @@ const LoginPage = () => {
               )}
             </AnimatePresence>
 
-            <div className="mb-10 relative border-b border-white/10">
-              <div className="pb-4 text-base font-bold text-white uppercase tracking-wider">
+            <div className="mb-8 grid grid-cols-2 gap-2 p-1 rounded-xl border border-white/10 bg-white/[0.02]">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('phone');
+                  setIsRegister(false);
+                  setError('');
+                }}
+                className={`py-2 text-sm font-bold rounded-lg transition ${authMode === 'phone' ? 'bg-violet-500/25 text-white border border-violet-500/40' : 'text-zinc-400 hover:text-zinc-200'}`}
+              >
                 {t.login_tab_phone}
-                <div className="absolute bottom-0 left-0 w-24 h-0.5 bg-violet-500 shadow-[0_0_15px_rgba(139,92,246,1)]" />
-              </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('password');
+                  setError('');
+                }}
+                className={`py-2 text-sm font-bold rounded-lg transition ${authMode === 'password' ? 'bg-violet-500/25 text-white border border-violet-500/40' : 'text-zinc-400 hover:text-zinc-200'}`}
+              >
+                密码登录/注册
+              </button>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="space-y-6">
-                <div className="bg-[#0a0a0a] rounded-xl border border-white/10 flex items-center p-1 focus-within:border-violet-500/60 transition-all duration-300">
-                  <div className="px-5 py-3 text-gray-400 border-r border-white/10 text-sm font-bold">+86</div>
-                  <input
-                      type="text"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder={t.login_input_phone}
-                      className="flex-1 bg-transparent text-white text-sm px-4 py-3 outline-none"
-                  />
+              {authMode === 'phone' ? (
+                <div className="space-y-6">
+                  <div className="bg-[#0a0a0a] rounded-xl border border-white/10 flex items-center p-1 focus-within:border-violet-500/60 transition-all duration-300">
+                    <div className="px-5 py-3 text-gray-400 border-r border-white/10 text-sm font-bold">+86</div>
+                    <input
+                        type="text"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder={t.login_input_phone}
+                        className="flex-1 bg-transparent text-white text-sm px-4 py-3 outline-none"
+                    />
+                  </div>
+                  <div className="bg-[#0a0a0a] rounded-xl border border-white/10 flex items-center p-1 focus-within:border-violet-500/60 transition-all duration-300">
+                    <input
+                        type="text"
+                        value={otp}
+                        onChange={(e) => setOtp(e.target.value)}
+                        placeholder={t.login_input_code}
+                        className="flex-1 bg-transparent text-white text-sm px-4 py-3 outline-none tracking-[0.2em]"
+                        maxLength={6}
+                    />
+                    <button
+                        type="button"
+                        onClick={handleSendCode}
+                        disabled={isSendingCode || countdown > 0 || phone.length !== 11}
+                        className="mr-1 px-5 py-2 rounded-lg text-xs font-bold transition-all bg-white/5 text-gray-300 disabled:opacity-20 border border-white/5"
+                    >
+                      {isSendingCode ? <Loader2 className="animate-spin" size={14} /> : countdown > 0 ? `${countdown}s` : t.login_btn_get_code}
+                    </button>
+                  </div>
                 </div>
-                <div className="bg-[#0a0a0a] rounded-xl border border-white/10 flex items-center p-1 focus-within:border-violet-500/60 transition-all duration-300">
-                  <input
-                      type="text"
-                      value={otp}
-                      onChange={(e) => setOtp(e.target.value)}
-                      placeholder={t.login_input_code}
-                      className="flex-1 bg-transparent text-white text-sm px-4 py-3 outline-none tracking-[0.2em]"
-                      maxLength={6}
-                  />
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-[#0a0a0a] rounded-xl border border-white/10 flex items-center p-1 focus-within:border-violet-500/60 transition-all duration-300">
+                    <input
+                        type="text"
+                        value={identifier}
+                        onChange={(e) => setIdentifier(e.target.value)}
+                        placeholder="请输入账号（用户名或手机号）"
+                        className="flex-1 bg-transparent text-white text-sm px-4 py-3 outline-none"
+                    />
+                  </div>
+                  <div className="bg-[#0a0a0a] rounded-xl border border-white/10 flex items-center p-1 focus-within:border-violet-500/60 transition-all duration-300">
+                    <input
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder={t.login_input_password}
+                        className="flex-1 bg-transparent text-white text-sm px-4 py-3 outline-none"
+                    />
+                  </div>
+                  {isRegister && (
+                    <>
+                      <div className="bg-[#0a0a0a] rounded-xl border border-white/10 flex items-center p-1 focus-within:border-violet-500/60 transition-all duration-300">
+                        <input
+                            type="password"
+                            value={confirmPassword}
+                            onChange={(e) => setConfirmPassword(e.target.value)}
+                            placeholder="请再次输入密码"
+                            className="flex-1 bg-transparent text-white text-sm px-4 py-3 outline-none"
+                        />
+                      </div>
+                    </>
+                  )}
                   <button
-                      type="button"
-                      onClick={handleSendCode}
-                      disabled={isSendingCode || countdown > 0 || phone.length !== 11}
-                      className="mr-1 px-5 py-2 rounded-lg text-xs font-bold transition-all bg-white/5 text-gray-300 disabled:opacity-20 border border-white/5"
+                    type="button"
+                    onClick={() => {
+                      setIsRegister(!isRegister);
+                      setError('');
+                    }}
+                    className="text-xs text-violet-300 hover:text-violet-200 transition font-bold"
                   >
-                    {isSendingCode ? <Loader2 className="animate-spin" size={14} /> : countdown > 0 ? `${countdown}s` : t.login_btn_get_code}
+                    {isRegister ? '已有账号，去登录' : '没有账号，去注册'}
                   </button>
                 </div>
-              </div>
+              )}
 
               <button
                   type="submit"
                   disabled={isSubmitting || isLoginSuccess}
                   className="w-full bg-[#111] hover:bg-violet-600/10 text-white font-black py-4 rounded-xl transition-all duration-500 border border-white/10 hover:border-violet-500 flex items-center justify-center mt-10 text-sm tracking-widest hover:shadow-[0_0_30px_rgba(139,92,246,0.2)]"
               >
-                {isSubmitting ? <Loader2 className="animate-spin" size={20} /> : t.login_btn_start}
+                {isSubmitting ? <Loader2 className="animate-spin" size={20} /> : authMode === 'phone' ? t.login_btn_start : (isRegister ? '注册并登录' : '密码登录')}
               </button>
             </form>
           </div>
         </div>
-      </div>
+      </motion.div>
   );
 };
 

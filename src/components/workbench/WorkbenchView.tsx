@@ -1,16 +1,16 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
-  Zap, Layers, Video, Lock, Info, Check, Sparkles
+  Zap, Layers, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { useTasks } from '../../context/TaskContext';
 import { useWorkbenchModel } from '../../context/WorkbenchModelContext';
-import { videoApi, type GeneratePreviewData } from '../../services/video';
-import { assetsApi } from '../../services/assets';
+import { videoApi, VideoApiError, type GeneratePreviewData } from '../../services/video';
+import { assetsApi, type Asset as LibraryAsset } from '../../services/assets';
 import { tiktokApi } from '../../services/tiktok';
 import {
   PromptLabWindow,
@@ -51,6 +51,8 @@ type QueuedAsset = {
   fileObj?: File | null;
   assetUrl?: string | null;
   source: 'product' | 'preference';
+  materialType?: AssetLibraryTab;
+  isPrimaryFrame?: boolean;
   mediaKind?: 'image' | 'video' | 'audio' | 'file';
   uploadedPath?: string | null;
 };
@@ -61,6 +63,8 @@ type QueuedScript = {
   scripts: ScriptItem[];
   duration: number;
 };
+
+type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion';
 
 type GeneratePayload = {
   model: string;
@@ -79,12 +83,149 @@ type GeneratePayload = {
   [key: string]: unknown;
 };
 
+type ActionRequired = {
+  type?: string;
+  prompt?: string;
+  request_flag?: string | null;
+} | null;
+
 // What we persist to the backend for cross-refresh / cross-device restore.
 // Keep it JSON-serializable (no File / Blob / functions).
 type WorkbenchSnapshot = {
   version: 1;
   template_id: string | null;
   timestamp: number; // client timestamp (ms)
+};
+
+type ProjectWorkspaceState = {
+  fileName: string;
+  uploadedFile: string | null;
+  selectedAssetUrl: string | null;
+  lastUploadedUrl: string | null;
+  selectedAssetSource: 'product' | 'preference' | null;
+  genPrompt: string;
+  genDuration: number;
+  soundSetting: 'on' | 'off';
+  scriptVariantCount: number;
+  targetLanguage: string;
+  creationMode: 'fast' | 'replay';
+  scripts: ScriptItem[];
+  scriptPages: ScriptPage[];
+  activeScriptPage: number;
+  assetQueue: QueuedAsset[];
+  scriptQueue: QueuedScript[];
+  selectedTemplateId: string | null;
+  selectedModelId: string | null;
+  generatedVideoUrl: string | null;
+};
+
+type LocalProjectMeta = {
+  id: string;
+  name: string;
+  updatedAt: number;
+};
+
+type LocalProjectStore = {
+  currentProjectId: string;
+  projects: LocalProjectMeta[];
+  workspaces: Record<string, ProjectWorkspaceState>;
+};
+
+const LOCAL_PROJECT_STORE_KEY = 'vflow_workbench_projects_v1';
+const DEFAULT_PROJECT_NAME = 'Project_Alpha_01';
+const MAX_PROJECT_NAME_LENGTH = 30;
+const PROJECT_ACTION_MENU_RESERVED_SPACE = 60;
+
+const estimateProjectNameWidthEm = (value: string): number => {
+  const text = value || '';
+  let units = 0;
+  for (const ch of text) {
+    if (/\s/.test(ch)) {
+      units += 0.35;
+      continue;
+    }
+    if (/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/.test(ch)) {
+      units += 1;
+      continue;
+    }
+    units += 0.62;
+  }
+  return units + 0.8;
+};
+
+const createWorkspaceState = (params?: {
+  scripts?: ScriptItem[];
+  scriptPagePrefix?: string;
+}): ProjectWorkspaceState => ({
+  fileName: '',
+  uploadedFile: null,
+  selectedAssetUrl: null,
+  lastUploadedUrl: null,
+  selectedAssetSource: null,
+  genPrompt: '',
+  genDuration: 10,
+  soundSetting: 'on',
+  scriptVariantCount: 1,
+  targetLanguage: 'en',
+  creationMode: 'fast',
+  scripts: params?.scripts || [],
+  scriptPages: [{
+    id: 'page-1',
+    name: `${params?.scriptPagePrefix || 'Script'} 1`,
+    scripts: params?.scripts || [],
+  }],
+  activeScriptPage: 0,
+  assetQueue: [],
+  scriptQueue: [],
+  selectedTemplateId: null,
+  selectedModelId: null,
+  generatedVideoUrl: null,
+});
+
+const createDefaultProjectStore = (): LocalProjectStore => {
+  const projectId = 'project_alpha_01';
+  return {
+    currentProjectId: projectId,
+    projects: [{ id: projectId, name: DEFAULT_PROJECT_NAME, updatedAt: Date.now() }],
+    workspaces: {},
+  };
+};
+
+const loadLocalProjectStore = (): LocalProjectStore => {
+  try {
+    const raw = localStorage.getItem(LOCAL_PROJECT_STORE_KEY);
+    if (!raw) return createDefaultProjectStore();
+    const parsed = JSON.parse(raw) as Partial<LocalProjectStore>;
+    if (!parsed || typeof parsed !== 'object') return createDefaultProjectStore();
+    if (!Array.isArray(parsed.projects) || parsed.projects.length === 0) return createDefaultProjectStore();
+    const currentProjectId = typeof parsed.currentProjectId === 'string' && parsed.currentProjectId
+      ? parsed.currentProjectId
+      : parsed.projects[0].id;
+    return {
+      currentProjectId,
+      projects: parsed.projects as LocalProjectMeta[],
+      workspaces: (parsed.workspaces as Record<string, ProjectWorkspaceState>) || {},
+    };
+  } catch {
+    return createDefaultProjectStore();
+  }
+};
+
+const ensureUniqueProjectName = (rawName: string, projects: LocalProjectMeta[], excludeId?: string): string => {
+  const baseName = (rawName || '').trim() || 'Project';
+  const names = new Set(
+    projects
+      .filter((project) => project.id !== excludeId)
+      .map((project) => project.name.toLowerCase())
+  );
+  if (!names.has(baseName.toLowerCase())) return baseName;
+  let suffix = 1;
+  let nextName = `${baseName}(${suffix})`;
+  while (names.has(nextName.toLowerCase())) {
+    suffix += 1;
+    nextName = `${baseName}(${suffix})`;
+  }
+  return nextName;
 };
 
 const SoraStarIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -107,6 +248,7 @@ const RATIO_TO_RES: Record<string, string> = {
 };
 
 const ICON_EMOJI_MAP: Record<string, string> = { 'flame': '🔥', 'gem': '💎', 'zap': '⚡' };
+const USER_CANCELLED_ADAPT = '__USER_CANCELLED_IMAGE_ADAPT__';
 
 const inferMediaKind = (value: { name?: string | null; url?: string | null; type?: string | null; file?: File | null }): 'image' | 'video' | 'audio' | 'file' => {
   if (value.type === 'motion') return 'video';
@@ -130,6 +272,8 @@ type LangLabelKey =
     | 'lang_ko'
     | 'lang_ms'
     | 'lang_vi';
+
+type GuideStepKey = 'mode' | 'upload' | 'config' | 'scripts' | 'preview';
 
 const TARGET_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: LangLabelKey }> = [
   { value: 'en', labelKey: 'lang_en' },
@@ -171,6 +315,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scriptFileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const modeSectionRef = useRef<HTMLDivElement | null>(null);
+  const uploadSectionRef = useRef<HTMLDivElement | null>(null);
+  const configSectionRef = useRef<HTMLDivElement | null>(null);
+  const scriptsSectionRef = useRef<HTMLDivElement | null>(null);
+  const previewSectionRef = useRef<HTMLDivElement | null>(null);
 
   // --- Prompt Lab (temporary, removable) ---
   const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
@@ -180,10 +329,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   );
   const [promptTemplatesLoading, setPromptTemplatesLoading] = useState(false);
   const [promptTemplatesError, setPromptTemplatesError] = useState<string | null>(null);
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [guideStepIndex, setGuideStepIndex] = useState(0);
+  const [guidePanelStyle, setGuidePanelStyle] = useState<React.CSSProperties>({});
   const promptOverridesPayload = useMemo(
     () => (ENABLE_PROMPT_LAB ? buildBackendPromptOverrides(promptOverrides) : null),
     [promptOverrides]
   );
+  const guideSteps = useMemo<Array<{ key: GuideStepKey; title: string; description: string }>>(() => ([
+    { key: 'mode', title: '创作模式：选择模型', description: '先在左侧创作模式选择模型，确定本次生成使用的能力。' },
+    { key: 'upload', title: '素材上传：切换首帧图/参考图', description: '上传素材后，在图片右上角按钮切换为首帧图或参考图。' },
+    { key: 'config', title: '配置：选择模板与脚本参数', description: '在配置区快速选择模板，并调整时长、音频和脚本相关设置。' },
+    { key: 'scripts', title: '分镜脚本：时长要匹配', description: '分镜里所有镜头秒数之和，需要与配置总时长一致。' },
+    { key: 'preview', title: '预览：查看生成视频', description: '生成完成后，在预览区查看并播放最终视频。' },
+  ]), []);
 
   const loadPromptLabTemplates = async () => {
     if (!ENABLE_PROMPT_LAB) return;
@@ -220,6 +379,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [lastUploadedUrl, setLastUploadedUrl] = useState<string | null>(initialFileUrl || null);
   const [lastGeneratedProjectId, setLastGeneratedProjectId] = useState<string | null>(null);
   const [previewProjectId, setPreviewProjectId] = useState<string | null>(null);
+  const [isAssetLibraryOpen, setIsAssetLibraryOpen] = useState(false);
+  const [assetLibraryTab, setAssetLibraryTab] = useState<AssetLibraryTab>('product');
+  const [assetLibraryItems, setAssetLibraryItems] = useState<LibraryAsset[]>([]);
+  const [assetLibraryLoading, setAssetLibraryLoading] = useState(false);
+  const [assetLibraryError, setAssetLibraryError] = useState<string | null>(null);
 
   // Draft restore / autosave
   const [isRestoring, setIsRestoring] = useState(true);
@@ -294,8 +458,258 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   // Queue State
   const [assetQueue, setAssetQueue] = useState<QueuedAsset[]>([]);
   const [scriptQueue, setScriptQueue] = useState<QueuedScript[]>([]);
+  const [pendingUploadFiles, setPendingUploadFiles] = useState<File[]>([]);
+  const [isUploadTypeDialogOpen, setIsUploadTypeDialogOpen] = useState(false);
+  const [pendingUploadType, setPendingUploadType] = useState<AssetLibraryTab>('product');
+  const [currentMaterialType, setCurrentMaterialType] = useState<AssetLibraryTab | null>(null);
   const [generatedBatch, setGeneratedBatch] = useState<Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }>>([]);
   const [selectedQueueAssetId, setSelectedQueueAssetId] = useState<string | null>(null);
+  const [projectStore, setProjectStore] = useState<LocalProjectStore>(() => loadLocalProjectStore());
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [projectSearch, setProjectSearch] = useState('');
+  const [projectActionMenuId, setProjectActionMenuId] = useState<string | null>(null);
+  const [isProjectManageMode, setIsProjectManageMode] = useState(false);
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  const [renameRetryState, setRenameRetryState] = useState<{ projectId: string; originalName: string } | null>(null);
+  const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
+  const [newProjectNameDraft, setNewProjectNameDraft] = useState('');
+  const [createProjectNameError, setCreateProjectNameError] = useState('');
+  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
+  const [renamingProjectName, setRenamingProjectName] = useState('');
+  const [isHeaderProjectEditing, setIsHeaderProjectEditing] = useState(false);
+  const [headerProjectNameDraft, setHeaderProjectNameDraft] = useState('');
+  const [deleteProjectTarget, setDeleteProjectTarget] = useState<LocalProjectMeta | null>(null);
+  const [deleteProjectIds, setDeleteProjectIds] = useState<string[]>([]);
+  const projectMenuRef = useRef<HTMLDivElement | null>(null);
+  const projectMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const projectActionMenuIdRef = useRef<string | null>(null);
+  const projectListRef = useRef<HTMLDivElement | null>(null);
+  const isApplyingProjectWorkspaceRef = useRef(false);
+  const currentProject = useMemo(
+    () => projectStore.projects.find((project) => project.id === projectStore.currentProjectId) || null,
+    [projectStore.currentProjectId, projectStore.projects]
+  );
+
+  const projectUiText = useMemo(() => ({
+    listTooltip: t.wb_project_list_tooltip,
+    switchTitle: t.wb_project_switch_title,
+    searchPlaceholder: t.wb_project_search_placeholder,
+    recent: t.wb_project_recent,
+    empty: t.wb_project_empty,
+    newProject: t.wb_project_new,
+    manageProjects: t.wb_project_manage,
+    manageSoon: t.wb_project_manage_placeholder,
+    manageCancel: t.wb_project_manage_cancel,
+    manageDelete: t.wb_project_manage_delete,
+    createTitle: t.wb_project_create_title,
+    createNameLabel: t.wb_project_create_name_label,
+    createNamePlaceholder: t.wb_project_create_name_placeholder,
+    createConfirm: t.wb_project_create_confirm,
+    rename: t.wb_project_rename,
+    delete: t.wb_project_delete,
+    deleteTitle: t.wb_project_delete_confirm_title,
+    deleteDesc: t.wb_project_delete_confirm_desc,
+    bulkDeleteTitle: t.wb_project_bulk_delete_confirm_title,
+    bulkDeleteDesc: t.wb_project_bulk_delete_confirm_desc,
+    cancel: t.wb_project_cancel,
+    defaultProjectName: t.wb_project_default_name,
+    justNow: t.wb_project_time_just_now,
+    yesterday: t.wb_project_time_yesterday,
+    minutesAgo: t.wb_project_time_minutes_ago,
+    hoursAgo: t.wb_project_time_hours_ago,
+    daysAgo: t.wb_project_time_days_ago,
+    currentTag: t.wb_project_current_tag,
+  }), [t]);
+
+  const compactTimeLanguages = new Set(['zh', 'ko']);
+  const useCompactTime = compactTimeLanguages.has(language);
+  const sortedProjects = useMemo(
+    () => [...projectStore.projects].sort((a, b) => b.updatedAt - a.updatedAt),
+    [projectStore.projects]
+  );
+  const filteredProjects = useMemo(() => {
+    const keyword = projectSearch.trim().toLowerCase();
+    if (!keyword) return sortedProjects;
+    return sortedProjects.filter((project) => project.name.toLowerCase().includes(keyword));
+  }, [projectSearch, sortedProjects]);
+
+  const formatProjectLastEdited = (updatedAt: number) => {
+    const deltaMs = Date.now() - updatedAt;
+    const minuteMs = 60 * 1000;
+    const hourMs = 60 * minuteMs;
+    const dayMs = 24 * hourMs;
+    if (deltaMs < 5 * minuteMs) return projectUiText.justNow;
+    if (deltaMs < hourMs) {
+      const minutes = Math.max(1, Math.floor(deltaMs / minuteMs));
+      return useCompactTime ? `${minutes}${projectUiText.minutesAgo}` : `${minutes} ${projectUiText.minutesAgo}`;
+    }
+    if (deltaMs < dayMs) {
+      const hours = Math.max(1, Math.floor(deltaMs / hourMs));
+      return useCompactTime ? `${hours}${projectUiText.hoursAgo}` : `${hours} ${projectUiText.hoursAgo}`;
+    }
+    if (deltaMs < dayMs * 2) return projectUiText.yesterday;
+    const days = Math.max(2, Math.floor(deltaMs / dayMs));
+    return useCompactTime ? `${days}${projectUiText.daysAgo}` : `${days} ${projectUiText.daysAgo}`;
+  };
+
+  const applyWorkspaceState = (workspace: ProjectWorkspaceState) => {
+    isApplyingProjectWorkspaceRef.current = true;
+    setFileName(workspace.fileName || '');
+    setUploadedFile(workspace.uploadedFile || null);
+    setSelectedAssetUrl(workspace.selectedAssetUrl || null);
+    setLastUploadedUrl(workspace.lastUploadedUrl || null);
+    setSelectedAssetSource(workspace.selectedAssetSource || null);
+    setSelectedFileObj(null);
+    setGenPrompt(workspace.genPrompt || '');
+    setGenDuration(typeof workspace.genDuration === 'number' ? workspace.genDuration : 10);
+    setSoundSetting(workspace.soundSetting || 'on');
+    setScriptVariantCount(typeof workspace.scriptVariantCount === 'number' ? workspace.scriptVariantCount : 1);
+    setTargetLanguage(workspace.targetLanguage || 'en');
+    setCreationMode(workspace.creationMode || 'fast');
+    setScripts(Array.isArray(workspace.scripts) ? workspace.scripts : []);
+    setScriptPages(Array.isArray(workspace.scriptPages) && workspace.scriptPages.length > 0 ? workspace.scriptPages : [{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: [] }]);
+    setActiveScriptPage(typeof workspace.activeScriptPage === 'number' ? workspace.activeScriptPage : 0);
+    setAssetQueue(Array.isArray(workspace.assetQueue) ? workspace.assetQueue : []);
+    setScriptQueue(Array.isArray(workspace.scriptQueue) ? workspace.scriptQueue : []);
+    setGeneratedVideoUrl(workspace.generatedVideoUrl || null);
+
+    if (workspace.selectedTemplateId) {
+      const matchedTemplate = templateList.find((tpl) => tpl.id === workspace.selectedTemplateId) || null;
+      onSelectTemplate(matchedTemplate);
+    } else {
+      onSelectTemplate(null);
+    }
+    if (workspace.selectedModelId) setSelectedModel(workspace.selectedModelId as any);
+    setTimeout(() => {
+      isApplyingProjectWorkspaceRef.current = false;
+    }, 0);
+  };
+
+  const beginHeaderRename = () => {
+    if (!currentProject) return;
+    setIsHeaderProjectEditing(true);
+    setHeaderProjectNameDraft(currentProject.name);
+  };
+
+  const commitProjectRename = (
+    projectId: string,
+    nameDraft: string,
+    options?: { keepEditingOnFail?: boolean; originalName?: string }
+  ) => {
+    const trimmedName = (nameDraft || '').trim();
+    if (trimmedName.length > MAX_PROJECT_NAME_LENGTH) {
+      const messageTpl = t.wb_project_name_too_long || 'Project name must be {max} characters or fewer';
+      if (options?.keepEditingOnFail) {
+        const fallbackName = options.originalName ?? projectStore.projects.find((p) => p.id === projectId)?.name ?? '';
+        setRenameRetryState({ projectId, originalName: fallbackName });
+      }
+      openInfo(
+        t.assets_confirm_title || 'Notice',
+        messageTpl.replace('{max}', String(MAX_PROJECT_NAME_LENGTH))
+      );
+      return false;
+    }
+    setProjectStore((prev) => {
+      const nextName = ensureUniqueProjectName(trimmedName, prev.projects, projectId);
+      return {
+        ...prev,
+        projects: prev.projects.map((project) => (
+          project.id === projectId ? { ...project, name: nextName, updatedAt: Date.now() } : project
+        )),
+      };
+    });
+    setRenameRetryState(null);
+    return true;
+  };
+
+  const closeInfoDialog = () => {
+    setIsInfoOpen(false);
+    if (renameRetryState) {
+      setProjectMenuOpen(true);
+      setRenamingProjectId(renameRetryState.projectId);
+      setRenamingProjectName(renameRetryState.originalName);
+      setProjectActionMenuId(null);
+      setRenameRetryState(null);
+    }
+  };
+
+  const switchProject = (projectId: string) => {
+    if (projectId === projectStore.currentProjectId) {
+      setProjectMenuOpen(false);
+      return;
+    }
+    setProjectStore((prev) => ({ ...prev, currentProjectId: projectId }));
+    setProjectMenuOpen(false);
+    setProjectActionMenuId(null);
+    setIsProjectManageMode(false);
+    setSelectedProjectIds([]);
+    setRenamingProjectId(null);
+  };
+
+  const createNewProject = (nameDraft?: string) => {
+    const rawName = (nameDraft || '').trim() || projectUiText.defaultProjectName;
+    if (rawName.length > MAX_PROJECT_NAME_LENGTH) {
+      const messageTpl = t.wb_project_name_too_long || 'Project name must be {max} characters or fewer';
+      setCreateProjectNameError(messageTpl.replace('{max}', String(MAX_PROJECT_NAME_LENGTH)));
+      return;
+    }
+    setCreateProjectNameError('');
+    const projectId = `project_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+    const demoScripts = buildDemoScripts();
+    setProjectStore((prev) => {
+      const projectName = ensureUniqueProjectName(rawName, prev.projects);
+      const nextWorkspace = createWorkspaceState({
+        scripts: demoScripts,
+        scriptPagePrefix: t.wb_script_page_prefix,
+      });
+      return {
+        currentProjectId: projectId,
+        projects: [{ id: projectId, name: projectName, updatedAt: Date.now() }, ...prev.projects],
+        workspaces: {
+          ...prev.workspaces,
+          [projectId]: nextWorkspace,
+        },
+      };
+    });
+    setProjectMenuOpen(false);
+    setProjectActionMenuId(null);
+    setIsProjectManageMode(false);
+    setSelectedProjectIds([]);
+    setIsCreateProjectOpen(false);
+    setNewProjectNameDraft('');
+    setCreateProjectNameError('');
+  };
+
+  const toggleProjectSelection = (projectId: string) => {
+    setSelectedProjectIds((prev) => (
+      prev.includes(projectId) ? prev.filter((id) => id !== projectId) : [...prev, projectId]
+    ));
+  };
+
+  const removeProjectsByIds = (ids: string[]) => {
+    const idSet = new Set(ids);
+    setProjectStore((prev) => {
+      const remaining = prev.projects.filter((project) => !idSet.has(project.id));
+      const nextProjects = remaining.length > 0
+        ? remaining
+        : [{ id: 'project_alpha_01', name: DEFAULT_PROJECT_NAME, updatedAt: Date.now() }];
+      const nextCurrent = idSet.has(prev.currentProjectId) ? nextProjects[0].id : prev.currentProjectId;
+      const nextWorkspaces = { ...prev.workspaces };
+      ids.forEach((id) => { delete nextWorkspaces[id]; });
+      if (!nextWorkspaces[nextCurrent]) {
+        nextWorkspaces[nextCurrent] = createWorkspaceState({
+          scripts: buildDemoScripts(),
+          scriptPagePrefix: t.wb_script_page_prefix,
+        });
+      }
+      return {
+        currentProjectId: nextCurrent,
+        projects: nextProjects,
+        workspaces: nextWorkspaces,
+      };
+    });
+  };
+  const injectedAssetSignaturesRef = useRef<Set<string>>(new Set());
 
   // --- Effects ---
 
@@ -306,16 +720,150 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   // a new asset URL is pushed in from the parent.
   useEffect(() => {
     if (!initialFileUrl) return;
+    const name = initialFileName || '未命名素材';
+    const source = initialAssetSource || 'preference';
+    const signature = `${initialFileUrl}::${name}`;
+
     setUploadedFile(initialFileUrl);
     setSelectedAssetUrl(initialFileUrl);
     setLastUploadedUrl(initialFileUrl);
     setSelectedFileObj(null);
-    if (initialFileName) setFileName(initialFileName);
-    if (initialAssetSource) setSelectedAssetSource(initialAssetSource);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialFileUrl]);
+    setFileName(name);
+    setSelectedAssetSource(source);
+
+    if (injectedAssetSignaturesRef.current.has(signature)) return;
+    injectedAssetSignaturesRef.current.add(signature);
+
+    setAssetQueue(prev => ([
+      ...prev,
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        name,
+        previewUrl: initialFileUrl,
+        fileObj: null,
+        assetUrl: initialFileUrl,
+        source,
+        materialType: source === 'preference' ? 'motion' : 'product',
+        isPrimaryFrame: source === 'product',
+        mediaKind: inferMediaKind({ name, url: initialFileUrl }),
+        uploadedPath: initialFileUrl,
+      }
+    ]));
+  }, [initialAssetSource, initialFileName, initialFileUrl]); 
 
   useEffect(() => {
+    const currentProjectId = projectStore.currentProjectId;
+    const workspace = projectStore.workspaces[currentProjectId];
+    if (workspace) {
+      applyWorkspaceState(workspace);
+      return;
+    }
+    applyWorkspaceState(createWorkspaceState({
+      scripts: buildDemoScripts(),
+      scriptPagePrefix: t.wb_script_page_prefix,
+    }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectStore.currentProjectId, templateList, t.wb_script_page_prefix, t.demo_shot1_visual, t.demo_shot1_audio, t.demo_shot2_visual, t.demo_shot2_audio]);
+
+  useEffect(() => {
+    localStorage.setItem(LOCAL_PROJECT_STORE_KEY, JSON.stringify(projectStore));
+  }, [projectStore]);
+
+  useEffect(() => {
+    if (isApplyingProjectWorkspaceRef.current) return;
+    if (!projectStore.currentProjectId) return;
+
+    const currentProjectId = projectStore.currentProjectId;
+    const workspace: ProjectWorkspaceState = {
+      fileName,
+      uploadedFile,
+      selectedAssetUrl,
+      lastUploadedUrl,
+      selectedAssetSource,
+      genPrompt,
+      genDuration,
+      soundSetting,
+      scriptVariantCount,
+      targetLanguage,
+      creationMode,
+      scripts,
+      scriptPages,
+      activeScriptPage,
+      assetQueue,
+      scriptQueue,
+      selectedTemplateId: selectedTemplate?.id || null,
+      selectedModelId: (selectedModel as string) || null,
+      generatedVideoUrl,
+    };
+
+    setProjectStore((prev) => {
+      const prevWorkspace = prev.workspaces[currentProjectId];
+      if (JSON.stringify(prevWorkspace) === JSON.stringify(workspace)) return prev;
+      return {
+        ...prev,
+        projects: prev.projects.map((project) => (
+          project.id === currentProjectId ? { ...project, updatedAt: Date.now() } : project
+        )),
+        workspaces: {
+          ...prev.workspaces,
+          [currentProjectId]: workspace,
+        },
+      };
+    });
+  }, [
+    projectStore.currentProjectId,
+    fileName,
+    uploadedFile,
+    selectedAssetUrl,
+    lastUploadedUrl,
+    selectedAssetSource,
+    genPrompt,
+    genDuration,
+    soundSetting,
+    scriptVariantCount,
+    targetLanguage,
+    creationMode,
+    scripts,
+    scriptPages,
+    activeScriptPage,
+    assetQueue,
+    scriptQueue,
+    selectedTemplate?.id,
+    selectedModel,
+    generatedVideoUrl,
+  ]);
+
+  useEffect(() => {
+    projectActionMenuIdRef.current = projectActionMenuId;
+  }, [projectActionMenuId]);
+
+  useEffect(() => {
+    const onClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      const withinMenu = projectMenuRef.current?.contains(target);
+      const withinButton = projectMenuButtonRef.current?.contains(target);
+      if (!withinMenu && !withinButton) {
+        if (projectActionMenuIdRef.current) {
+          setProjectActionMenuId(null);
+          return;
+        }
+        setProjectMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (projectMenuOpen) return;
+    setRenamingProjectId(null);
+    setRenamingProjectName('');
+    setIsProjectManageMode(false);
+    setSelectedProjectIds([]);
+    setProjectActionMenuId(null);
+  }, [projectMenuOpen]);
+
+  useEffect(() => { 
     // Reset or update duration when template changes
     if (!selectedTemplate) {
       return;
@@ -510,6 +1058,56 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (matched?.projectId) setPreviewProjectId(matched.projectId);
   }, [generatedVideoUrl, tasks]);
 
+  useEffect(() => {
+    if (!isAssetLibraryOpen) return;
+    let cancelled = false;
+
+    const loadAssetLibraryItems = async () => {
+      setAssetLibraryLoading(true);
+      setAssetLibraryError(null);
+      try {
+        const items = await assetsApi.getAssets({ type: assetLibraryTab, folderId: null });
+        if (!cancelled) setAssetLibraryItems(Array.isArray(items) ? items : []);
+      } catch (err: any) {
+        console.error('Failed to load asset library items:', err);
+        if (!cancelled) {
+          setAssetLibraryItems([]);
+          setAssetLibraryError(String(err?.message || '加载素材失败'));
+        }
+      } finally {
+        if (!cancelled) setAssetLibraryLoading(false);
+      }
+    };
+
+    void loadAssetLibraryItems();
+    return () => {
+      cancelled = true;
+    };
+  }, [assetLibraryTab, isAssetLibraryOpen]);
+
+  const openAssetLibraryPicker = () => {
+    setAssetLibraryTab(currentAssetMediaKind === 'video' ? 'motion' : 'product');
+    setIsAssetLibraryOpen(true);
+  };
+
+  const selectAssetFromLibraryPopup = (asset: LibraryAsset) => {
+    const assetUrl = asset.file_url || null;
+    if (!assetUrl) return;
+    const source: 'product' | 'preference' = asset.media_kind === 'video' ? 'preference' : 'product';
+
+    setUploadedFile(assetUrl);
+    setSelectedAssetUrl(assetUrl);
+    setLastUploadedUrl(assetUrl);
+    setSelectedFileObj(null);
+    setFileName(asset.name || '未命名素材');
+    setSelectedAssetSource(source);
+    setCurrentMaterialType(asset.media_kind === 'video' ? 'motion' : assetLibraryTab);
+    setSelectedQueueAssetId(null);
+    setGeneratedVideoUrl(null);
+    setAssetQueue(prev => prev.map(item => ({ ...item, isPrimaryFrame: false })));
+    setIsAssetLibraryOpen(false);
+  };
+
   // Duration Logic
   const currentScriptDuration = scripts.reduce((total, s) => {
     return total + (parseFloat(s.dur.replace('s', '')) || 0);
@@ -527,6 +1125,121 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const audioFormats = AUDIO_EXTS.join('/');
   const formatHint = `图片(${imageFormats}) 视频(${videoFormats}) 音频(${audioFormats}) · ≤1GB`;
   const isBatchDebugMode = assetQueue.length > 0 || scriptQueue.length > 0;
+  const materialTypeLabelMap: Record<AssetLibraryTab, string> = {
+    product: t.assets_tab_products || '商品',
+    model: t.assets_tab_models || '模特',
+    scene: t.assets_tab_scenes || '场景',
+    motion: t.assets_tab_motion || '动作',
+  };
+  const uploadDisplayAssets: QueuedAsset[] = useMemo(() => {
+    if (assetQueue.length > 0) return assetQueue;
+    if (!uploadedFile) return [];
+    return [{
+      id: 'current-upload',
+      name: fileName || '当前素材',
+      previewUrl: uploadedFile,
+      fileObj: selectedFileObj,
+      assetUrl: selectedAssetUrl,
+      source: selectedAssetSource || 'product',
+      materialType: currentMaterialType || (currentAssetMediaKind === 'video' ? 'motion' : 'product'),
+      isPrimaryFrame: selectedAssetSource === 'product',
+      mediaKind: currentAssetMediaKind,
+      uploadedPath: lastUploadedUrl,
+    }];
+  }, [
+    assetQueue,
+    currentAssetMediaKind,
+    currentMaterialType,
+    fileName,
+    lastUploadedUrl,
+    selectedAssetSource,
+    selectedAssetUrl,
+    selectedFileObj,
+    uploadedFile,
+  ]);
+  const activeGuideStep = isGuideOpen ? guideSteps[guideStepIndex] : null;
+  const isGuideFocused = (key: GuideStepKey) => activeGuideStep?.key === key;
+  const getGuideFocusClass = (key: GuideStepKey) => (
+    isGuideFocused(key)
+      ? 'relative z-[85] ring-2 ring-orange-400/80 ring-offset-2 ring-offset-black/60 shadow-[0_0_24px_rgba(251,146,60,0.35)] rounded-xl'
+      : ''
+  );
+
+  const getGuideTargetElement = useCallback(() => {
+    const map: Record<GuideStepKey, React.RefObject<HTMLDivElement | null>> = {
+      mode: modeSectionRef,
+      upload: uploadSectionRef,
+      config: configSectionRef,
+      scripts: scriptsSectionRef,
+      preview: previewSectionRef,
+    };
+    const key = guideSteps[guideStepIndex]?.key;
+    return key ? map[key]?.current || null : null;
+  }, [guideStepIndex, guideSteps]);
+
+  const updateGuidePanelPosition = useCallback(() => {
+    const target = getGuideTargetElement();
+    const viewportPadding = 12;
+    const panelWidth = Math.min(420, window.innerWidth - viewportPadding * 2);
+    const panelHeight = 330;
+
+    if (!target) {
+      setGuidePanelStyle({
+        width: `${panelWidth}px`,
+        left: `${Math.max(viewportPadding, Math.round((window.innerWidth - panelWidth) / 2))}px`,
+        top: `${Math.max(viewportPadding, Math.round((window.innerHeight - panelHeight) / 2))}px`,
+      });
+      return;
+    }
+
+    const rect = target.getBoundingClientRect();
+    let left = rect.right + 16;
+    if (left + panelWidth > window.innerWidth - viewportPadding) {
+      left = rect.left - panelWidth - 16;
+    }
+    if (left < viewportPadding) {
+      left = Math.max(viewportPadding, Math.round((window.innerWidth - panelWidth) / 2));
+    }
+
+    let top = rect.top;
+    if (top + panelHeight > window.innerHeight - viewportPadding) {
+      top = window.innerHeight - panelHeight - viewportPadding;
+    }
+    if (top < viewportPadding) {
+      top = viewportPadding;
+    }
+
+    setGuidePanelStyle({
+      width: `${panelWidth}px`,
+      left: `${Math.round(left)}px`,
+      top: `${Math.round(top)}px`,
+    });
+  }, [getGuideTargetElement]);
+
+  useEffect(() => {
+    if (!isGuideOpen) return;
+    const target = getGuideTargetElement();
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    }
+
+    const timer = window.setTimeout(() => {
+      updateGuidePanelPosition();
+    }, 260);
+
+    const onViewportChange = () => {
+      updateGuidePanelPosition();
+    };
+
+    window.addEventListener('scroll', onViewportChange, true);
+    window.addEventListener('resize', onViewportChange);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('scroll', onViewportChange, true);
+      window.removeEventListener('resize', onViewportChange);
+    };
+  }, [guideStepIndex, isGuideOpen, getGuideTargetElement, updateGuidePanelPosition]);
 
   const extractUploadedAssetPath = (uploadResp: any): string | null => {
     if (uploadResp?.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
@@ -546,8 +1259,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     let apiPath = lastUploadedUrl;
 
     if (!apiPath && selectedFileObj) {
-      const uploadType = currentAssetMediaKind === 'video' ? 'motion' : 'product';
-      const uploadResp = await assetsApi.uploadAsset(selectedFileObj, uploadType);
+      const uploadResp = await assetsApi.uploadTempAsset(selectedFileObj);
       const rawPath = extractUploadedAssetPath(uploadResp);
       if (!rawPath) throw new Error('Could not retrieve asset path from upload response');
       setLastUploadedUrl(rawPath);
@@ -615,7 +1327,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     console.log('🚀 Sending Generation Request:', requestPayload);
 
-    const genResp = await videoApi.generate(requestPayload);
+    const genResp = await generateWithAdaptiveImageConfirm(requestPayload);
     const taskId = genResp?.data?.task_id || genResp?.task_id;
 
     if (genResp?.code === 0 && taskId) {
@@ -634,6 +1346,48 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
 
     openInfo('Notice', '提交成功，但未返回任务ID。');
+  };
+
+  const getActionRequiredFromError = (err: unknown): ActionRequired => {
+    if (err instanceof VideoApiError) {
+      return err.actionRequired || null;
+    }
+    return null;
+  };
+
+  const generateWithAdaptiveImageConfirm = async (payload: GeneratePayload) => {
+    try {
+      return await videoApi.generate(payload);
+    } catch (err) {
+      const actionRequired = getActionRequiredFromError(err);
+      const requestFlagRaw = actionRequired?.request_flag;
+      const requestFlag = typeof requestFlagRaw === 'string' ? requestFlagRaw : null;
+      const supportedFlag = requestFlag === 'allow_image_resize' || requestFlag === 'allow_image_compress';
+
+      if (!supportedFlag || !requestFlag) {
+        throw err;
+      }
+
+      // Avoid infinite retry loops when backend still rejects after user confirmation.
+      if (payload[requestFlag]) {
+        throw err;
+      }
+
+      const prompt =
+        (typeof actionRequired?.prompt === 'string' && actionRequired.prompt.trim())
+          ? actionRequired.prompt.trim()
+          : (requestFlag === 'allow_image_resize'
+            ? '当前图片不满足最小分辨率要求，是否自动放大后继续？'
+            : '当前图片超过 10MB，是否自动压缩后继续？');
+
+      const confirmed = await openConfirm('Image Adjustment', prompt);
+      if (!confirmed) {
+        throw new Error(USER_CANCELLED_ADAPT);
+      }
+
+      const retriedPayload: GeneratePayload = { ...payload, [requestFlag]: true };
+      return await videoApi.generate(retriedPayload);
+    }
   };
 
   const refreshDebugPreview = async (payload: Record<string, unknown>) => {
@@ -738,22 +1492,112 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   // --- Handlers ---
-  const handleWorkbenchUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const err = validateUploadFile(file);
-    if (err) {
-      openInfo('Invalid file', `${err}\n\n支持格式：${formatHint}`);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+
+  const applySelectedUploadType = (files: File[], selectedType: AssetLibraryTab) => {
+    if (files.length === 0) return;
+
+    const createdItems: QueuedAsset[] = files.map((file, index) => {
+      const mediaKind = inferMediaKind({ name: file.name, file });
+      const source: QueuedAsset['source'] = mediaKind === 'video' ? 'preference' : 'product';
+      return {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${index}`,
+        name: file.name,
+        previewUrl: URL.createObjectURL(file),
+        fileObj: file,
+        assetUrl: null,
+        source,
+        materialType: selectedType,
+        isPrimaryFrame: index === 0 && mediaKind === 'image',
+        mediaKind,
+        uploadedPath: null,
+      };
+    });
+
+    const firstItem = createdItems[0];
+    setUploadedFile((prev) => {
+      if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+      return firstItem.previewUrl;
+    });
+    setFileName(firstItem.name);
+    setSelectedFileObj(firstItem.fileObj || null);
+    setSelectedAssetSource(firstItem.source);
+    setSelectedAssetUrl(null);
+    setSelectedQueueAssetId(firstItem.id);
+    setCurrentMaterialType(firstItem.materialType || null);
+    setGeneratedVideoUrl(null);
+    setLastUploadedUrl(null);
+
+    setAssetQueue(prev => {
+      const resetPrimary = prev.map(item => ({ ...item, isPrimaryFrame: false }));
+      return [...resetPrimary, ...createdItems];
+    });
+  };
+
+  const queueFilesWithTypePrompt = (files: File[]) => {
+    if (files.length === 0) return;
+
+    const errors: string[] = [];
+    const validFiles: File[] = [];
+    files.forEach((file) => {
+      const err = validateUploadFile(file);
+      if (err) errors.push(err);
+      else validFiles.push(file);
+    });
+
+    if (errors.length > 0) {
+      openInfo('Invalid file', `${errors.join('\n')}\n\n支持格式：${formatHint}`);
+    }
+    if (validFiles.length === 0) return;
+
+    setPendingUploadFiles(validFiles);
+    setPendingUploadType(validFiles[0].type.startsWith('video/') ? 'motion' : 'product');
+    setIsUploadTypeDialogOpen(true);
+  };
+
+  const confirmUploadTypeSelection = () => {
+    const files = [...pendingUploadFiles];
+    const type = pendingUploadType;
+    setIsUploadTypeDialogOpen(false);
+    setPendingUploadFiles([]);
+    if (files.length === 0) return;
+    applySelectedUploadType(files, type);
+  };
+
+  const cancelUploadTypeSelection = () => {
+    setIsUploadTypeDialogOpen(false);
+    setPendingUploadFiles([]);
+  };
+
+  const markQueueAssetAsPrimaryFrame = (targetId: string) => {
+    const target = assetQueue.find((item) => item.id === targetId);
+    if (!target) return;
+    if (target.mediaKind !== 'image') {
+      openInfo('Notice', '只有图片素材可设为首帧图');
       return;
     }
-    const url = URL.createObjectURL(file);
-    setUploadedFile(url);
-    setFileName(file.name);
-    setSelectedFileObj(file);
-    setSelectedAssetSource(file.type.startsWith('video/') ? 'preference' : 'product');
-    setSelectedAssetUrl(null);
-    setGeneratedVideoUrl(null);
+
+    setAssetQueue(prev => prev.map(item => ({
+      ...item,
+      isPrimaryFrame: item.id === targetId,
+      source: item.id === targetId ? 'product' : item.source,
+    })));
+    selectAssetFromQueue({ ...target, source: 'product', isPrimaryFrame: true });
+  };
+
+  const handleLocalFiles = (files: File[]) => {
+    queueFilesWithTypePrompt(files);
+  };
+
+  // const applyAssetSource = (nextSource: 'product' | 'preference') => {
+  //   setSelectedAssetSource(nextSource);
+  //   if (!selectedQueueAssetId) return;
+  //   setAssetQueue(prev => prev.map(asset => (asset.id === selectedQueueAssetId ? { ...asset, source: nextSource } : asset)));
+  // };
+
+  const handleWorkbenchUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    handleLocalFiles(files);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleUploadDragOver = (e: React.DragEvent) => {
@@ -772,24 +1616,44 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!e.dataTransfer.types?.includes('Files')) return;
     e.preventDefault();
     setIsDragUploadActive(false);
-    const file = e.dataTransfer.files?.[0];
-    if (!file) return;
-    const err = validateUploadFile(file);
-    if (err) {
-      openInfo('Invalid file', `${err}\n\n支持格式：${formatHint}`);
-      return;
-    }
-    const url = URL.createObjectURL(file);
-    setUploadedFile(url);
-    setFileName(file.name);
-    setSelectedFileObj(file);
-    setSelectedAssetSource(file.type.startsWith('video/') ? 'preference' : 'product');
-    setSelectedAssetUrl(null);
-    setGeneratedVideoUrl(null);
+    const files = Array.from(e.dataTransfer.files || []);
+    handleLocalFiles(files);
   };
 
-  const removeUpload = (e: React.MouseEvent) => {
+  const removeUpload = (e: React.MouseEvent, assetId?: string) => {
     e.stopPropagation();
+
+    const removeTargetId = assetId || selectedQueueAssetId;
+    if (removeTargetId) {
+      const nextQueue = assetQueue.filter((item) => item.id !== removeTargetId);
+      setAssetQueue(nextQueue);
+
+      const fallback = nextQueue[0] || null;
+      if (fallback) {
+        setSelectedQueueAssetId(fallback.id);
+        setUploadedFile(fallback.previewUrl || null);
+        setSelectedFileObj(fallback.fileObj || null);
+        setFileName(fallback.name || '');
+        setSelectedAssetUrl(fallback.assetUrl || null);
+        setSelectedAssetSource(fallback.source || null);
+        setCurrentMaterialType(fallback.materialType || null);
+      } else {
+        setSelectedQueueAssetId(null);
+        setUploadedFile(null);
+        setSelectedFileObj(null);
+        setFileName('');
+        setSelectedAssetUrl(null);
+        setLastUploadedUrl(null);
+        setSelectedAssetSource(null);
+        setCurrentMaterialType(null);
+      }
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      return;
+    }
+
     if (uploadedFile) {
       URL.revokeObjectURL(uploadedFile);
     }
@@ -799,6 +1663,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setSelectedAssetUrl(null);
     setLastUploadedUrl(null);
     setSelectedAssetSource(null);
+    setCurrentMaterialType(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -854,6 +1719,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         fileObj: selectedFileObj,
         assetUrl: selectedAssetUrl,
         source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference'),
+        materialType: currentAssetMediaKind === 'video' ? 'motion' : 'product',
+        isPrimaryFrame: false,
         mediaKind,
         uploadedPath: null
       }
@@ -882,6 +1749,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setSelectedFileObj(asset.fileObj || null);
     setSelectedAssetUrl(asset.assetUrl || null);
     setSelectedAssetSource(asset.source || null);
+    setCurrentMaterialType(asset.materialType || null);
     setGeneratedVideoUrl(null);
   };
 
@@ -928,7 +1796,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       // 1. Upload Image (if one is selected but not yet uploaded)
       if (selectedFileObj && scriptAssetIsImage) {
         console.log("🚀 Uploading reference image for script...");
-        const uploadResp = await assetsApi.uploadAsset(selectedFileObj, 'product');
+        const uploadResp = await assetsApi.uploadTempAsset(selectedFileObj);
         
         let rawPath = null;
         if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
@@ -995,7 +1863,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       console.log("📜 Generating Script with payload:", payload);
 
       const response = await videoApi.generateScript(user.id, payload);
-
       console.log("✅ Script Generated:", response);
 
       // 3. Helper to parse response
@@ -1194,18 +2061,50 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
   }, [t]); // Re-run when language (t) changes
 
-  const handleGenerateVideo = async () => {
-    // 1. Batch Generation (Reuse Queue)
+  const validateGenerateRequirements = () => {
+    const issues: string[] = [];
+
     if (assetQueue.length > 0 || scriptQueue.length > 0) {
       if (assetQueue.length === 0 || scriptQueue.length === 0) {
-          openInfo('Notice', "批量生成需要同时加入素材队列和脚本队列");
-          return;
-        }
-        if (!user?.id) {
-          openInfo('Notice', "请先登录");
-          return;
-        }
+        issues.push('复用队列：批量生成需要同时加入素材队列和脚本队列。');
+      }
+      if (!user?.id) {
+        issues.push('账号：请先登录后再发起批量生成。');
+      }
+      return issues;
+    }
 
+    if (!selectedTemplate?.id && !selectedFileObj && !selectedAssetUrl && !uploadedFile) {
+      issues.push('素材上传：请先上传素材，或先选择一个模板。');
+    }
+    if (scripts.length === 0) {
+      issues.push('分镜脚本：请先生成或添加脚本。');
+    }
+    if (!isDurationValid) {
+      issues.push(`分镜脚本：镜头总时长(${currentScriptDuration.toFixed(1)}s)需要与配置时长(${genDuration}s)一致。`);
+    }
+    if (!selectedTemplate?.id && !user?.id) {
+      issues.push('账号：请先登录。');
+    }
+
+    return issues;
+  };
+
+  const showGenerateValidationIssues = (issues: string[]) => {
+    if (issues.length === 0) return;
+    const details = issues.map((item, index) => `${index + 1}. ${item}`).join('\n');
+    openInfo('生成条件未满足', `请先修复以下问题：\n${details}`);
+  };
+
+  const handleGenerateVideo = async () => {
+    const issues = validateGenerateRequirements();
+    if (issues.length > 0) {
+      showGenerateValidationIssues(issues);
+      return;
+    }
+
+    // 1. Batch Generation (Reuse Queue)
+    if (assetQueue.length > 0 || scriptQueue.length > 0) {
       setIsGenerating(true);
       setGeneratedVideoUrl(null);
 
@@ -1217,8 +2116,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           let apiPath = asset.uploadedPath || asset.assetUrl || null;
 
           if (!apiPath && asset.fileObj) {
-              const uploadType = asset.mediaKind === 'video' ? 'motion' : 'product';
-              const uploadResp = await assetsApi.uploadAsset(asset.fileObj, uploadType);
+              const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
               let rawPath = null;
             if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
               rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
@@ -1251,6 +2149,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               newProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
               if (!newProjectId) throw new Error('Failed to clone project');
             } else {
+              if (!user?.id) throw new Error('请先登录');
               const createResp = await videoApi.createProject(user.id, {
                 title: `${asset.name} × ${scriptPack.name}`,
                 aspect_ratio: '9:16',
@@ -1280,7 +2179,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
               };
 
-            const genResp = await videoApi.generate(payload);
+            const genResp = await generateWithAdaptiveImageConfirm(payload);
             const taskId = genResp?.data?.task_id || genResp?.task_id;
             const projectId = genResp?.data?.project_id || newProjectId;
 
@@ -1313,8 +2212,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         } else {
           openInfo('Notice', '批量提交完成，但未返回有效任务ID');
         }
-      } catch (err: any) {
+    } catch (err: any) {
+      if (err?.message === USER_CANCELLED_ADAPT) {
+        openInfo('Notice', '已取消图片自动处理，批量生成已停止。');
+      } else {
         openInfo('Error', `批量生成失败：${err?.message || '未知错误'}`);
+      }
       } finally {
         setIsGenerating(false);
       }
@@ -1323,11 +2226,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
 
     // 2. Single Video Generation
-    // Allow generation when a template is selected even if no local/remote asset was uploaded.
-    if (!selectedTemplate?.id && !selectedFileObj && !selectedAssetUrl && !uploadedFile) { openInfo('Notice', 'Please upload a reference asset or select a template first!'); return; }
-    if (scripts.length === 0) { openInfo('Notice', 'Please generate or add scripts first!'); return; }
-    if (!isDurationValid) { openInfo('Warning', `Total script duration (${currentScriptDuration}s) must match requested duration (${genDuration}s)!`); return; }
-    if (!selectedTemplate?.id && !user?.id) { openInfo('Notice', '请先登录'); return; }
 
     setIsGenerating(true);
     setGeneratedVideoUrl(null);
@@ -1424,7 +2322,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       */
     } catch (err: any) {
-      openInfo('Error', `Error: ${err.message || 'Generation failed'}`);
+      if (err?.message === USER_CANCELLED_ADAPT) {
+        openInfo('Notice', '已取消图片自动处理，未提交任务。');
+      } else {
+        openInfo('Error', `Error: ${err.message || 'Generation failed'}`);
+      }
     } finally {
       setIsGenerating(false);
     }
@@ -1863,25 +2765,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     return (
     <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
-      {modelSelector}
+      <div ref={modeSectionRef} className={getGuideFocusClass('mode')}>
+        {modelSelector}
+      </div>
       {false && legacyModelSelector}
       {/* Upload Section */}
-      <div className="flex flex-col gap-3">
+      <div ref={uploadSectionRef} className={`flex flex-col gap-3 ${getGuideFocusClass('upload')}`}>
         <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
         <div
-          onClick={() => fileInputRef.current?.click()}
           onDragOver={handleUploadDragOver}
           onDragEnter={handleUploadDragOver}
           onDragLeave={handleUploadDragLeave}
           onDrop={handleUploadDrop}
-          className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors h-32 relative group cursor-pointer ${uploadedFile ? 'border-none' : ''} ${isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50'}`}
+          className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors min-h-32 relative group ${uploadDisplayAssets.length > 0 ? 'border-none' : ''} ${isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50'}`}
         >
           {isDragUploadActive && (
             <div className="absolute inset-1 rounded-lg border border-dashed border-orange-500/60 bg-orange-500/10 pointer-events-none" />
           )}
-          <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*,audio/*" onChange={handleWorkbenchUpload} />
-          {!uploadedFile ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
+          <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*,audio/*" multiple onChange={handleWorkbenchUpload} />
+          {uploadDisplayAssets.length === 0 ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center z-10 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
               <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition duration-300"><Plus className="w-4 h-4 text-zinc-500 group-hover:text-orange-500" /></div>
               <p className="text-[10px] font-medium text-zinc-400">{t.wb_upload_click}</p>
               <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[10px] text-zinc-300">
@@ -1908,17 +2811,98 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </div>
                   </div>
               ) : (
-                  <div className="absolute inset-0 bg-zinc-900 rounded-lg overflow-hidden group/preview">
-                    {currentAssetMediaKind === 'video' ? (
-                      <video src={uploadedFile} className="w-full h-full object-cover opacity-80" muted playsInline />
-                    ) : (
-                      <img src={uploadedFile} className="w-full h-full object-cover opacity-80" alt="Preview" />
-                    )}
-                    <div className="absolute top-2 right-2 opacity-0 group-hover/preview:opacity-100 transition"><button onClick={removeUpload} className="p-1.5 bg-black/50 hover:bg-red-500 rounded-md text-white transition"><X className="w-3 h-3" /></button></div>
-                    <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent"><p className="text-[10px] text-white truncate">{fileName}</p><p className="text-[10px] text-green-400 flex items-center gap-1"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p></div>
+                  <div className="rounded-lg bg-zinc-900/80 p-2">
+                    <div className="flex flex-col gap-2 max-h-72 overflow-y-auto custom-scroll pr-1">
+                      {uploadDisplayAssets.map((asset) => {
+                        const inQueue = assetQueue.find((item) => item.id === asset.id);
+                        const selected = selectedQueueAssetId ? selectedQueueAssetId === asset.id : uploadedFile === asset.previewUrl;
+                        return (
+                          <button
+                            key={asset.id}
+                            type="button"
+                            onClick={() => {
+                              if (inQueue) {
+                                selectAssetFromQueue(inQueue);
+                                return;
+                              }
+                              setUploadedFile(asset.previewUrl || null);
+                              setFileName(asset.name || '');
+                              setSelectedFileObj(asset.fileObj || null);
+                              setSelectedAssetUrl(asset.assetUrl || null);
+                              setSelectedAssetSource(asset.source || null);
+                              setCurrentMaterialType(asset.materialType || null);
+                              setSelectedQueueAssetId(null);
+                            }}
+                            className={`relative w-full h-24 rounded-md overflow-hidden border text-left transition ${selected ? 'border-orange-500/70 ring-1 ring-orange-500/50' : 'border-white/10 hover:border-white/20'}`}
+                          >
+                            {asset.previewUrl ? (asset.mediaKind === 'video' ? (
+                              <video src={asset.previewUrl} className="w-full h-full object-cover opacity-80" muted playsInline />
+                            ) : (
+                              <img src={asset.previewUrl} className="w-full h-full object-cover opacity-80" alt={asset.name} />
+                            )) : (
+                              <div className="w-full h-full flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
+                            )}
+                            <div className="absolute top-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-white/15 bg-black/60 text-zinc-100">
+                              {materialTypeLabelMap[asset.materialType || 'product']}
+                            </div>
+                            <div className="absolute top-1 right-1 flex items-center gap-1">
+                              {asset.mediaKind === 'image' && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const nextSource = (asset.source === 'product' || (!asset.source && selectedAssetSource === 'product')) ? 'preference' : 'product';
+                                    
+                                    if (inQueue) {
+                                      setAssetQueue(prev => prev.map(item => 
+                                        item.id === asset.id ? { ...item, source: nextSource } : item
+                                      ));
+                                    }
+                                    
+                                    if (selected) {
+                                      setSelectedAssetSource(nextSource);
+                                    }
+                                  }}
+                                  className={`rounded border px-1.5 py-0.5 text-[9px] font-bold transition ${(asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')) ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'}`}
+                                >
+                                  {(asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')) ? '首帧图' : '参考图'}
+                                </button>
+                              )}
+                              <button onClick={(e) => removeUpload(e, asset.id)} className="p-1 bg-black/50 hover:bg-red-500 rounded text-white transition"><X className="w-2.5 h-2.5" /></button>
+                            </div>
+                            <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent">
+                              <p className="text-[9px] text-white truncate">{asset.name}</p>
+                              {selected && <p className="text-[9px] text-green-400 flex items-center gap-1"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p>}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-              )}
+          )}
             </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                fileInputRef.current?.click();
+              }}
+              className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
+            >
+              从本地上传素材
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                openAssetLibraryPicker();
+              }}
+              className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
+            >
+              从素材库选择素材
+            </button>
           </div>
 
           {/* Reuse Queues Section (Restored Buttons) */}
@@ -1950,7 +2934,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           <img src={item.previewUrl} className="w-full h-full object-cover" />
                         ))}
                       </div>
-                      <div className="flex-1 min-w-0"><div className="text-[10px] text-zinc-200 truncate">{item.name}</div></div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-zinc-300">
+                            {materialTypeLabelMap[item.materialType || 'product']}
+                          </span>
+                          <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
+                        </div>
+                      </div>
+                      <label
+                        className={`shrink-0 flex items-center gap-1 text-[9px] px-1.5 py-1 rounded border transition ${item.mediaKind === 'image' ? 'border-white/10 text-zinc-300 hover:bg-white/5 cursor-pointer' : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}
+                        onClick={(e) => e.stopPropagation()}
+                        title={item.mediaKind === 'image' ? '选择此素材作为首帧图' : '仅图片可作为首帧图'}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!item.isPrimaryFrame}
+                          disabled={item.mediaKind !== 'image'}
+                          onChange={() => markQueueAssetAsPrimaryFrame(item.id)}
+                          className="accent-orange-500"
+                        />
+                        <span>首帧</span>
+                      </label>
                       <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1992,7 +2997,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           </div>
 
       {/* Config Panel (Restored Controls) */}
-      <div className="flex flex-col gap-3 flex-1 transition-opacity duration-500">
+      <div ref={configSectionRef} className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${getGuideFocusClass('config')}`}>
         <div className="flex justify-between items-center"><h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><SlidersHorizontal className="w-3 h-3" /> {t.wb_config_title}</h2></div>
         <div className="glass-panel rounded-xl p-5 flex flex-col gap-5">
            {/* Template Selector */}
@@ -2131,17 +3136,272 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       <div className="flex flex-col h-full z-10 animate-in fade-in zoom-in-95 duration-300">
         <header className="flex justify-between items-center px-8 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm shrink-0 relative z-50">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold tracking-tight text-white">Project_Alpha_01</h1>
+            <div className="relative">
+              <button
+                ref={projectMenuButtonRef}
+                type="button"
+                title={projectUiText.listTooltip}
+                onClick={() => {
+                  setProjectMenuOpen((prev) => !prev);
+                  setProjectActionMenuId(null);
+                }}
+                className="p-2 rounded-md border border-white/10 text-zinc-300 hover:text-white hover:border-white/30 hover:bg-white/10 transition"
+              >
+                <List className="w-4 h-4" />
+              </button>
+
+              {projectMenuOpen && (
+                <div
+                  ref={projectMenuRef}
+                  onMouseDown={(event) => {
+                    const target = event.target as HTMLElement;
+                    if (target.closest('[data-project-action-root="true"]')) return;
+                    setProjectActionMenuId(null);
+                  }}
+                  className="absolute top-11 left-0 w-[360px] rounded-xl border border-white/10 bg-zinc-950/95 backdrop-blur-xl shadow-2xl shadow-black/60 p-3 text-sm"
+                >
+                  <div className="text-sm font-bold text-zinc-100 px-2 pb-2">{projectUiText.switchTitle}</div>
+                  <div className="px-2">
+                    <input
+                      value={projectSearch}
+                      onChange={(e) => setProjectSearch(e.target.value)}
+                      placeholder={projectUiText.searchPlaceholder}
+                      className="w-full rounded-lg border border-white/10 bg-black/40 text-zinc-200 text-xs px-3 py-2 outline-none focus:border-orange-500"
+                    />
+                  </div>
+                  <div className="h-px bg-white/10 my-3" />
+                  <div className="px-2 pb-1 flex items-center justify-between">
+                    <div className="text-[11px] uppercase tracking-widest text-zinc-500">{projectUiText.recent}</div>
+                    {isProjectManageMode && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsProjectManageMode(false);
+                            setSelectedProjectIds([]);
+                          }}
+                          className="text-[11px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10"
+                        >
+                          {projectUiText.manageCancel || projectUiText.cancel}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={selectedProjectIds.length === 0}
+                          onClick={() => setDeleteProjectIds(selectedProjectIds)}
+                          className={`text-[11px] px-2 py-1 rounded text-white ${selectedProjectIds.length === 0 ? 'bg-red-600/40 cursor-not-allowed' : 'bg-red-600 hover:bg-red-500'}`}
+                        >
+                          {projectUiText.manageDelete || projectUiText.delete}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div
+                    ref={projectListRef}
+                    className="overflow-y-auto custom-scroll pr-1"
+                    style={{ maxHeight: 256, paddingBottom: PROJECT_ACTION_MENU_RESERVED_SPACE }}
+                  >
+                    {filteredProjects.length === 0 && (
+                      <div className="px-2 py-3 text-xs text-zinc-500">{projectUiText.empty}</div>
+                    )}
+                    {filteredProjects.map((project) => {
+                      const isCurrent = project.id === projectStore.currentProjectId;
+                      const isRenaming = renamingProjectId === project.id;
+                      return (
+                        <div key={project.id} className="project-menu-item-row group relative flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isProjectManageMode) {
+                                toggleProjectSelection(project.id);
+                                return;
+                              }
+                              switchProject(project.id);
+                            }}
+                            className="project-menu-item-btn flex-1 min-w-0 text-left bg-transparent border-0 appearance-none"
+                          >
+                            <div className="flex items-center gap-2">
+                              {isProjectManageMode && (
+                                <span
+                                  className={`w-4 h-4 rounded border shrink-0 inline-flex items-center justify-center ${selectedProjectIds.includes(project.id) ? 'bg-orange-500 border-orange-500 text-black' : 'border-white/30 text-transparent'}`}
+                                >
+                                  <Check className="w-3 h-3" />
+                                </span>
+                              )}
+                              <span className="shrink-0">
+                                {isCurrent ? (
+                                  <span className="inline-flex items-center justify-center whitespace-nowrap leading-none px-2 py-1 rounded-md bg-orange-500 text-black text-[10px] font-black">
+                                    {projectUiText.currentTag}
+                                  </span>
+                                ) : null}
+                              </span>
+                              {isRenaming ? (
+                                <input
+                                  autoFocus
+                                  value={renamingProjectName}
+                                  onClick={(event) => event.stopPropagation()}
+                                  onChange={(event) => setRenamingProjectName(event.target.value)}
+                                  onBlur={() => {
+                                    const renameSuccess = commitProjectRename(project.id, renamingProjectName, {
+                                      keepEditingOnFail: true,
+                                      originalName: project.name,
+                                    });
+                                    if (renameSuccess) {
+                                      setRenamingProjectId(null);
+                                    } else {
+                                      setRenamingProjectName(project.name);
+                                    }
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                      const renameSuccess = commitProjectRename(project.id, renamingProjectName, {
+                                        keepEditingOnFail: true,
+                                        originalName: project.name,
+                                      });
+                                      if (renameSuccess) {
+                                        setRenamingProjectId(null);
+                                      } else {
+                                        setRenamingProjectName(project.name);
+                                      }
+                                    } else if (event.key === 'Escape') {
+                                      setRenamingProjectId(null);
+                                    }
+                                  }}
+                                  className="w-[180px] rounded border border-white/10 bg-black/40 text-zinc-100 text-xs px-2 py-1 outline-none focus:border-orange-500"
+                                />
+                              ) : (
+                                <span className="text-sm text-zinc-100 truncate">{project.name}</span>
+                              )}
+                              <span className="text-[11px] text-zinc-500 shrink-0">{formatProjectLastEdited(project.updatedAt)}</span>
+                            </div>
+                          </button>
+                          {!isProjectManageMode && <div className="relative" data-project-action-root="true">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                const nextId = project.id;
+                                const isClosing = projectActionMenuId === nextId;
+                                if (isClosing) {
+                                  setProjectActionMenuId(null);
+                                  return;
+                                }
+
+                                setProjectActionMenuId(nextId);
+                              }}
+                              className="opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-400 hover:text-white hover:bg-white/10 transition"
+                            >
+                              <MoreHorizontal className="w-4 h-4" />
+                            </button>
+                            {projectActionMenuId === project.id && (
+                              <div data-project-action-menu="true" className="absolute right-0 top-7 w-28 rounded-lg border border-white/10 bg-zinc-900 shadow-xl p-1 z-20">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setProjectActionMenuId(null);
+                                    setRenamingProjectId(project.id);
+                                    setRenamingProjectName(project.name);
+                                  }}
+                                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-zinc-200 hover:bg-white/10"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                  {projectUiText.rename}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setProjectActionMenuId(null);
+                                    setDeleteProjectTarget(project);
+                                  }}
+                                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-red-400 hover:bg-red-500/10"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  {projectUiText.delete}
+                                </button>
+                              </div>
+                            )}
+                          </div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="h-px bg-white/10 my-3" />
+                  <div className="flex items-center justify-end gap-2 px-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewProjectNameDraft(projectUiText.defaultProjectName);
+                        setCreateProjectNameError('');
+                        setIsCreateProjectOpen(true);
+                      }}
+                      className="text-xs px-2 py-1 rounded text-orange-400 hover:text-orange-300 hover:bg-orange-500/10"
+                    >
+                      + {projectUiText.newProject}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsProjectManageMode(true);
+                        setSelectedProjectIds([]);
+                        setProjectActionMenuId(null);
+                      }}
+                      className="text-xs px-2 py-1 rounded text-zinc-300 hover:text-white hover:bg-white/10"
+                    >
+                      {projectUiText.manageProjects}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            {isHeaderProjectEditing ? (
+              <input
+                autoFocus
+                value={headerProjectNameDraft}
+                onChange={(event) => setHeaderProjectNameDraft(event.target.value)}
+                onBlur={() => {
+                  if (currentProject) commitProjectRename(currentProject.id, headerProjectNameDraft);
+                  setIsHeaderProjectEditing(false);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    if (currentProject) commitProjectRename(currentProject.id, headerProjectNameDraft);
+                    setIsHeaderProjectEditing(false);
+                  } else if (event.key === 'Escape') {
+                    setIsHeaderProjectEditing(false);
+                  }
+                }}
+                style={{ width: `${Math.max(1.2, Math.min(estimateProjectNameWidthEm(headerProjectNameDraft || currentProject?.name || ''), 22))}em` }}
+                className="text-xl font-bold tracking-tight text-white bg-transparent border-b border-white/30 focus:border-orange-500 outline-none"
+              />
+            ) : (
+              <h1 className="text-xl font-bold tracking-tight text-white cursor-text" onClick={beginHeaderRename}>
+                {currentProject?.name || DEFAULT_PROJECT_NAME}
+              </h1>
+            )}
             <span className="px-2 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-400 border border-white/5">{t.wb_header_draft}</span>
             {ENABLE_PROMPT_LAB && (
-              <button
-                onClick={openPromptLab}
-                className="flex items-center gap-1.5 px-2 py-1 rounded border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
-                title="查看/编辑内置 prompts（临时功能）"
-              >
-                <FileJson className="w-3.5 h-3.5" />
-                <span className="text-[10px] font-bold">Prompt</span>
-              </button>
+              <>
+                <button
+                  onClick={openPromptLab}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
+                  title="查看/编辑内置 prompts（临时功能）"
+                >
+                  <FileJson className="w-3.5 h-3.5" />
+                  <span className="text-[10px] font-bold">Prompt</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGuideStepIndex(0);
+                    setIsGuideOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 transition"
+                  title="查看新手引导"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span className="text-[10px] font-bold">新手引导</span>
+                </button>
+              </>
             )}
           </div>
           <div className="flex items-center gap-4">
@@ -2172,8 +3432,79 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           />
         )}
 
+        {isGuideOpen && (
+          <>
+            <div className="fixed inset-0 z-[70] bg-black/35 backdrop-blur-[1px]" onClick={() => setIsGuideOpen(false)} />
+            <div
+              className="fixed z-[90] rounded-2xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/60 p-4"
+              style={guidePanelStyle}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-base font-bold text-white">新手引导</div>
+                  <div className="mt-1 text-xs text-zinc-400">步骤 {guideStepIndex + 1} / {guideSteps.length}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsGuideOpen(false)}
+                  className="text-zinc-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="mt-3 rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-3">
+                <div className="text-sm font-bold text-orange-200">{activeGuideStep?.title}</div>
+                <div className="mt-2 text-sm text-zinc-100">{activeGuideStep?.description}</div>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {guideSteps.map((step, index) => (
+                  <button
+                    key={step.key}
+                    type="button"
+                    onClick={() => setGuideStepIndex(index)}
+                    className={`text-left rounded-lg border px-3 py-2 text-xs transition ${guideStepIndex === index ? 'border-orange-500/70 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-black/40 text-zinc-300 hover:bg-white/5'}`}
+                  >
+                    {index + 1}. {step.title}
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                  onClick={() => setIsGuideOpen(false)}
+                >
+                  关闭
+                </button>
+                <button
+                  className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={guideStepIndex <= 0}
+                  onClick={() => setGuideStepIndex((prev) => Math.max(0, prev - 1))}
+                >
+                  上一步
+                </button>
+                <button
+                  className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
+                  onClick={() => {
+                    if (guideStepIndex >= guideSteps.length - 1) {
+                      setIsGuideOpen(false);
+                      return;
+                    }
+                    setGuideStepIndex((prev) => Math.min(guideSteps.length - 1, prev + 1));
+                  }}
+                >
+                  {guideStepIndex >= guideSteps.length - 1 ? '完成' : '下一步'}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
         {isInfoOpen && (
-          <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={() => setIsInfoOpen(false)} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>OK</button></>}>
+          <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={closeInfoDialog} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={closeInfoDialog}>OK</button></>}>
             <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
           </AppDialog>
         )}
@@ -2192,11 +3523,239 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             <div className="whitespace-pre-line text-sm text-zinc-300">{confirmMessage}</div>
           </AppDialog>
         )}
+        {deleteProjectTarget && (
+          <AppDialog
+            isOpen={!!deleteProjectTarget}
+            title={projectUiText.deleteTitle}
+            onClose={() => setDeleteProjectTarget(null)}
+            footer={
+              <>
+                <button
+                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                  onClick={() => setDeleteProjectTarget(null)}
+                >
+                  {projectUiText.cancel}
+                </button>
+                <button
+                  className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500"
+                  onClick={() => {
+                    const target = deleteProjectTarget;
+                    if (!target) return;
+                    removeProjectsByIds([target.id]);
+                    setDeleteProjectTarget(null);
+                    setProjectMenuOpen(false);
+                  }}
+                >
+                  {projectUiText.delete}
+                </button>
+              </>
+            }
+          >
+            <div className="whitespace-pre-line text-sm text-zinc-300">{projectUiText.deleteDesc}</div>
+          </AppDialog>
+        )}
+        {deleteProjectIds.length > 0 && (
+          <AppDialog
+            isOpen={deleteProjectIds.length > 0}
+            title={projectUiText.bulkDeleteTitle || projectUiText.deleteTitle}
+            onClose={() => setDeleteProjectIds([])}
+            footer={
+              <>
+                <button
+                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                  onClick={() => setDeleteProjectIds([])}
+                >
+                  {projectUiText.cancel}
+                </button>
+                <button
+                  className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500"
+                  onClick={() => {
+                    removeProjectsByIds(deleteProjectIds);
+                    setDeleteProjectIds([]);
+                    setSelectedProjectIds([]);
+                    setIsProjectManageMode(false);
+                  }}
+                >
+                  {projectUiText.delete}
+                </button>
+              </>
+            }
+          >
+            <div className="whitespace-pre-line text-sm text-zinc-300">{projectUiText.bulkDeleteDesc || projectUiText.deleteDesc}</div>
+          </AppDialog>
+        )}
+        {isCreateProjectOpen && (
+          <AppDialog
+            isOpen={isCreateProjectOpen}
+            title={projectUiText.createTitle || projectUiText.newProject}
+            onClose={() => {
+              setIsCreateProjectOpen(false);
+              setCreateProjectNameError('');
+            }}
+            footer={
+              <>
+                <button
+                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                  onClick={() => {
+                    setIsCreateProjectOpen(false);
+                    setCreateProjectNameError('');
+                  }}
+                >
+                  {projectUiText.cancel}
+                </button>
+                <button
+                  className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
+                  onClick={() => createNewProject(newProjectNameDraft)}
+                >
+                  {projectUiText.createConfirm || projectUiText.newProject}
+                </button>
+              </>
+            }
+          >
+            <div className="space-y-2">
+              <div className="text-sm text-zinc-300">{projectUiText.createNameLabel || t.assets_name_label || 'Name'}</div>
+              <input
+                autoFocus
+                value={newProjectNameDraft}
+                onChange={(e) => {
+                  const nextName = e.target.value;
+                  setNewProjectNameDraft(nextName);
+                  if (createProjectNameError && nextName.trim().length <= MAX_PROJECT_NAME_LENGTH) {
+                    setCreateProjectNameError('');
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') createNewProject(newProjectNameDraft);
+                }}
+                placeholder={projectUiText.createNamePlaceholder || projectUiText.defaultProjectName}
+                className={`w-full rounded-lg border bg-black/40 text-zinc-100 px-3 py-2 text-sm outline-none focus:border-orange-500 ${createProjectNameError ? 'border-red-500' : 'border-white/10'}`}
+              />
+              {createProjectNameError && (
+                <div className="text-xs text-red-400">{createProjectNameError}</div>
+              )}
+            </div>
+          </AppDialog>
+        )}
+        {isUploadTypeDialogOpen && (
+          <AppDialog
+            isOpen={isUploadTypeDialogOpen}
+            title="请选择上传素材类别"
+            onClose={cancelUploadTypeSelection}
+            widthClassName="max-w-[min(92vw,700px)]"
+            footer={
+              <>
+                <button
+                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                  onClick={cancelUploadTypeSelection}
+                >
+                  取消
+                </button>
+                <button
+                  className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
+                  onClick={confirmUploadTypeSelection}
+                >
+                  确认并上传
+                </button>
+              </>
+            }
+          >
+            <div className="space-y-3 w-full">
+              <div className="text-sm text-zinc-300">本次将上传 {pendingUploadFiles.length} 个文件，请先选择它们所属的素材类别。</div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {(['product', 'model', 'scene', 'motion'] as AssetLibraryTab[]).map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => setPendingUploadType(type)}
+                    className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${pendingUploadType === type ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
+                  >
+                    {materialTypeLabelMap[type]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </AppDialog>
+        )}
+        {isAssetLibraryOpen && (
+          <AppDialog
+            isOpen={isAssetLibraryOpen}
+            titleClassName="text-lg"
+            title="从素材库选择"
+            onClose={() => setIsAssetLibraryOpen(false)}
+            widthClassName="max-w-[min(92vw,980px)]"
+            footer={
+              <>
+                <button
+                  className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
+                  onClick={() => setIsAssetLibraryOpen(false)}
+                >
+                  关闭
+                </button>
+              </>
+            }
+          >
+            <div className="w-full h-[62vh] max-h-[600px] min-h-[440px] flex flex-col gap-2.5">
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {([
+                  { value: 'product', label: t.assets_tab_products || '商品' },
+                  { value: 'model', label: t.assets_tab_models || '模特' },
+                  { value: 'scene', label: t.assets_tab_scenes || '场景' },
+                  { value: 'motion', label: t.assets_tab_motion || '动作' },
+                ] as Array<{ value: AssetLibraryTab; label: string }>).map((tab) => (
+                  <button
+                    key={tab.value}
+                    type="button"
+                    onClick={() => setAssetLibraryTab(tab.value)}
+                    className={`shrink-0 rounded-full border px-5 py-2 text-[14px] font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-1">
+                {assetLibraryLoading ? (
+                  <div className="h-52 flex items-center justify-center text-zinc-400">
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载中...
+                  </div>
+                ) : assetLibraryError ? (
+                  <div className="h-52 flex items-center justify-center text-red-300 text-sm">
+                    {assetLibraryError}
+                  </div>
+                ) : assetLibraryItems.length === 0 ? (
+                  <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">
+                    暂无素材
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-4 gap-2">
+                    {assetLibraryItems.map((asset) => (
+                      <button
+                        key={asset.id}
+                        type="button"
+                        onClick={() => selectAssetFromLibraryPopup(asset)}
+                        className="text-left rounded-lg border border-white/10 bg-black/30 p-1 hover:border-orange-500/50 hover:bg-white/5 transition"
+                      >
+                        <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
+                          {asset.media_kind === 'video' ? (
+                            <video src={asset.file_url} className="w-full h-full object-cover" muted playsInline />
+                          ) : (
+                            <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} />
+                          )}
+                        </div>
+                        <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{asset.name}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </AppDialog>
+        )}
 
       <div className="flex-1 flex overflow-hidden p-6 gap-6">
         {renderLeftColumn()}
         
-        <div className="flex-auto flex flex-col gap-3 h-full min-w-[300px]">
+        <div ref={scriptsSectionRef} className={`flex-auto flex flex-col gap-3 h-full min-w-[300px] ${getGuideFocusClass('scripts')}`}>
            <div className="flex justify-between items-center shrink-0 h-[32px]">
               <div className="flex items-center gap-3">
                  <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
@@ -2253,7 +3812,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </button>
             </div>
               <div className="flex items-center gap-2">
-              <button onClick={handleGenerateVideo} disabled={isGenerating || (!isReuseReady && (!(selectedTemplate?.id || hasCurrentAsset) || !isDurationValid))} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
+                <button onClick={handleGenerateVideo} disabled={isGenerating} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
                   {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}{isGenerating ? 'Generating...' : t.wb_btn_gen_video}
               </button>
               </div>
@@ -2295,7 +3854,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         </div>
 
           {/* Right Column: Preview & Results */}
-          <div className="w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full">
+          <div ref={previewSectionRef} className={`w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full ${getGuideFocusClass('preview')}`}>
             <div className="flex justify-between items-end shrink-0 h-[32px]">
               <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-3 h-3" /> {t.wb_col_preview}</h2>
             </div>
@@ -2378,3 +3937,4 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       </div>
   );
 };
+

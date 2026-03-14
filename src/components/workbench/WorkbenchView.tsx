@@ -51,6 +51,8 @@ type QueuedAsset = {
   fileObj?: File | null;
   assetUrl?: string | null;
   source: 'product' | 'preference';
+  materialType?: AssetLibraryTab;
+  isPrimaryFrame?: boolean;
   mediaKind?: 'image' | 'video' | 'audio' | 'file';
   uploadedPath?: string | null;
 };
@@ -434,6 +436,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   // Queue State
   const [assetQueue, setAssetQueue] = useState<QueuedAsset[]>([]);
   const [scriptQueue, setScriptQueue] = useState<QueuedScript[]>([]);
+  const [pendingUploadFiles, setPendingUploadFiles] = useState<File[]>([]);
+  const [isUploadTypeDialogOpen, setIsUploadTypeDialogOpen] = useState(false);
+  const [pendingUploadType, setPendingUploadType] = useState<AssetLibraryTab>('product');
+  const [currentMaterialType, setCurrentMaterialType] = useState<AssetLibraryTab | null>(null);
   const [generatedBatch, setGeneratedBatch] = useState<Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }>>([]);
   const [selectedQueueAssetId, setSelectedQueueAssetId] = useState<string | null>(null);
   const [projectStore, setProjectStore] = useState<LocalProjectStore>(() => loadLocalProjectStore());
@@ -715,6 +721,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         fileObj: null,
         assetUrl: initialFileUrl,
         source,
+        materialType: source === 'preference' ? 'motion' : 'product',
+        isPrimaryFrame: source === 'product',
         mediaKind: inferMediaKind({ name, url: initialFileUrl }),
         uploadedPath: initialFileUrl,
       }
@@ -1112,8 +1120,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setSelectedFileObj(null);
     setFileName(asset.name || '未命名素材');
     setSelectedAssetSource(source);
+    setCurrentMaterialType(asset.media_kind === 'video' ? 'motion' : assetLibraryTab);
     setSelectedQueueAssetId(null);
     setGeneratedVideoUrl(null);
+    setAssetQueue(prev => prev.map(item => ({ ...item, isPrimaryFrame: false })));
     setIsAssetLibraryOpen(false);
   };
 
@@ -1135,6 +1145,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const audioFormats = AUDIO_EXTS.join('/');
   const formatHint = `图片(${imageFormats}) 视频(${videoFormats}) 音频(${audioFormats}) · ≤1GB`;
   const isBatchDebugMode = assetQueue.length > 0 || scriptQueue.length > 0;
+  const materialTypeLabelMap: Record<AssetLibraryTab, string> = {
+    product: t.assets_tab_products || '商品',
+    model: t.assets_tab_models || '模特',
+    scene: t.assets_tab_scenes || '场景',
+    motion: t.assets_tab_motion || '动作',
+  };
+  const currentMaterialTypeValue: AssetLibraryTab = currentAssetMediaKind === 'video'
+    ? 'motion'
+    : (currentMaterialType || 'product');
 
   const extractUploadedAssetPath = (uploadResp: any): string | null => {
     if (uploadResp?.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
@@ -1154,8 +1173,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     let apiPath = lastUploadedUrl;
 
     if (!apiPath && selectedFileObj) {
-      const uploadType = currentAssetMediaKind === 'video' ? 'motion' : 'product';
-      const uploadResp = await assetsApi.uploadAsset(selectedFileObj, uploadType);
+      const uploadResp = await assetsApi.uploadTempAsset(selectedFileObj);
       const rawPath = extractUploadedAssetPath(uploadResp);
       if (!rawPath) throw new Error('Could not retrieve asset path from upload response');
       setLastUploadedUrl(rawPath);
@@ -1346,27 +1364,48 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   // --- Handlers ---
-  const addFilesToQueue = (files: File[]) => {
+
+  const applySelectedUploadType = (files: File[], selectedType: AssetLibraryTab) => {
     if (files.length === 0) return;
-    setAssetQueue(prev => ([
-      ...prev,
-      ...files.map(file => {
-        const source: QueuedAsset['source'] = file.type.startsWith('video/') ? 'preference' : 'product';
-        return {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          name: file.name,
-          previewUrl: URL.createObjectURL(file),
-          fileObj: file,
-          assetUrl: null,
-          source,
-          mediaKind: inferMediaKind({ name: file.name, file }),
-          uploadedPath: null,
-        };
-      })
-    ]));
+
+    const createdItems: QueuedAsset[] = files.map((file, index) => {
+      const mediaKind = inferMediaKind({ name: file.name, file });
+      const source: QueuedAsset['source'] = mediaKind === 'video' ? 'preference' : 'product';
+      return {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${index}`,
+        name: file.name,
+        previewUrl: URL.createObjectURL(file),
+        fileObj: file,
+        assetUrl: null,
+        source,
+        materialType: selectedType,
+        isPrimaryFrame: index === 0 && mediaKind === 'image',
+        mediaKind,
+        uploadedPath: null,
+      };
+    });
+
+    const firstItem = createdItems[0];
+    setUploadedFile((prev) => {
+      if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+      return firstItem.previewUrl;
+    });
+    setFileName(firstItem.name);
+    setSelectedFileObj(firstItem.fileObj || null);
+    setSelectedAssetSource(firstItem.source);
+    setSelectedAssetUrl(null);
+    setSelectedQueueAssetId(firstItem.id);
+    setCurrentMaterialType(firstItem.materialType || null);
+    setGeneratedVideoUrl(null);
+    setLastUploadedUrl(null);
+
+    setAssetQueue(prev => {
+      const resetPrimary = prev.map(item => ({ ...item, isPrimaryFrame: false }));
+      return [...resetPrimary, ...createdItems];
+    });
   };
 
-  const handleLocalFiles = (files: File[]) => {
+  const queueFilesWithTypePrompt = (files: File[]) => {
     if (files.length === 0) return;
 
     const errors: string[] = [];
@@ -1382,24 +1421,43 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
     if (validFiles.length === 0) return;
 
-    const [firstFile, ...remainingFiles] = validFiles;
-    const firstPreviewUrl = URL.createObjectURL(firstFile);
+    setPendingUploadFiles(validFiles);
+    setPendingUploadType(validFiles[0].type.startsWith('video/') ? 'motion' : 'product');
+    setIsUploadTypeDialogOpen(true);
+  };
 
-    setUploadedFile((prev) => {
-      if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
-      return firstPreviewUrl;
-    });
-    setFileName(firstFile.name);
-    setSelectedFileObj(firstFile);
-    setSelectedAssetSource(firstFile.type.startsWith('video/') ? 'preference' : 'product');
-    setSelectedAssetUrl(null);
-    setSelectedQueueAssetId(null);
-    setGeneratedVideoUrl(null);
-    setLastUploadedUrl(null);
+  const confirmUploadTypeSelection = () => {
+    const files = [...pendingUploadFiles];
+    const type = pendingUploadType;
+    setIsUploadTypeDialogOpen(false);
+    setPendingUploadFiles([]);
+    if (files.length === 0) return;
+    applySelectedUploadType(files, type);
+  };
 
-    if (remainingFiles.length > 0) {
-      addFilesToQueue(remainingFiles);
+  const cancelUploadTypeSelection = () => {
+    setIsUploadTypeDialogOpen(false);
+    setPendingUploadFiles([]);
+  };
+
+  const markQueueAssetAsPrimaryFrame = (targetId: string) => {
+    const target = assetQueue.find((item) => item.id === targetId);
+    if (!target) return;
+    if (target.mediaKind !== 'image') {
+      openInfo('Notice', '只有图片素材可设为首帧图');
+      return;
     }
+
+    setAssetQueue(prev => prev.map(item => ({
+      ...item,
+      isPrimaryFrame: item.id === targetId,
+      source: item.id === targetId ? 'product' : item.source,
+    })));
+    selectAssetFromQueue({ ...target, source: 'product', isPrimaryFrame: true });
+  };
+
+  const handleLocalFiles = (files: File[]) => {
+    queueFilesWithTypePrompt(files);
   };
 
   const applyAssetSource = (nextSource: 'product' | 'preference') => {
@@ -1445,6 +1503,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setSelectedAssetUrl(null);
     setLastUploadedUrl(null);
     setSelectedAssetSource(null);
+    setCurrentMaterialType(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -1500,6 +1559,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         fileObj: selectedFileObj,
         assetUrl: selectedAssetUrl,
         source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference'),
+        materialType: currentAssetMediaKind === 'video' ? 'motion' : 'product',
+        isPrimaryFrame: false,
         mediaKind,
         uploadedPath: null
       }
@@ -1528,6 +1589,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setSelectedFileObj(asset.fileObj || null);
     setSelectedAssetUrl(asset.assetUrl || null);
     setSelectedAssetSource(asset.source || null);
+    setCurrentMaterialType(asset.materialType || null);
     setGeneratedVideoUrl(null);
   };
 
@@ -1574,7 +1636,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       // 1. Upload Image (if one is selected but not yet uploaded)
       if (selectedFileObj && scriptAssetIsImage) {
         console.log("🚀 Uploading reference image for script...");
-        const uploadResp = await assetsApi.uploadAsset(selectedFileObj, 'product');
+        const uploadResp = await assetsApi.uploadTempAsset(selectedFileObj);
         
         let rawPath = null;
         if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
@@ -1862,8 +1924,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           let apiPath = asset.uploadedPath || asset.assetUrl || null;
 
           if (!apiPath && asset.fileObj) {
-              const uploadType = asset.mediaKind === 'video' ? 'motion' : 'product';
-              const uploadResp = await assetsApi.uploadAsset(asset.fileObj, uploadType);
+              const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
               let rawPath = null;
             if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
               rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
@@ -2559,7 +2620,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     ) : (
                       <img src={uploadedFile} className="w-full h-full object-cover opacity-80" alt="Preview" />
                     )}
-                    <div className="absolute top-2 right-2 opacity-0 group-hover/preview:opacity-100 transition"><button onClick={removeUpload} className="p-1.5 bg-black/50 hover:bg-red-500 rounded-md text-white transition"><X className="w-3 h-3" /></button></div>
+                    <div className="absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full border border-white/15 bg-black/60 text-zinc-100">
+                      {materialTypeLabelMap[currentMaterialTypeValue]}
+                    </div>
+                    <div className="absolute top-2 right-2 flex items-center gap-2">
+                      {currentAssetMediaKind === 'image' && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            applyAssetSource(selectedAssetSource === 'product' ? 'preference' : 'product');
+                          }}
+                          className={`rounded-md border px-2 py-1 text-[10px] font-bold transition ${selectedAssetSource === 'product' ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'}`}
+                        >
+                          {selectedAssetSource === 'product' ? '首帧图' : '参考图'}
+                        </button>
+                      )}
+                      <button onClick={removeUpload} className="p-1.5 bg-black/50 hover:bg-red-500 rounded-md text-white transition"><X className="w-3 h-3" /></button>
+                    </div>
                     <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent"><p className="text-[10px] text-white truncate">{fileName}</p><p className="text-[10px] text-green-400 flex items-center gap-1"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p></div>
                   </div>
           )}
@@ -2629,7 +2707,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           <img src={item.previewUrl} className="w-full h-full object-cover" />
                         ))}
                       </div>
-                      <div className="flex-1 min-w-0"><div className="text-[10px] text-zinc-200 truncate">{item.name}</div></div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-zinc-300">
+                            {materialTypeLabelMap[item.materialType || 'product']}
+                          </span>
+                          <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
+                        </div>
+                      </div>
+                      <label
+                        className={`shrink-0 flex items-center gap-1 text-[9px] px-1.5 py-1 rounded border transition ${item.mediaKind === 'image' ? 'border-white/10 text-zinc-300 hover:bg-white/5 cursor-pointer' : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}
+                        onClick={(e) => e.stopPropagation()}
+                        title={item.mediaKind === 'image' ? '选择此素材作为首帧图' : '仅图片可作为首帧图'}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!item.isPrimaryFrame}
+                          disabled={item.mediaKind !== 'image'}
+                          onChange={() => markQueueAssetAsPrimaryFrame(item.id)}
+                          className="accent-orange-500"
+                        />
+                        <span>首帧</span>
+                      </label>
                       <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -3229,11 +3328,51 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
           </AppDialog>
         )}
+        {isUploadTypeDialogOpen && (
+          <AppDialog
+            isOpen={isUploadTypeDialogOpen}
+            title="请选择上传素材类别"
+            onClose={cancelUploadTypeSelection}
+            footer={
+              <>
+                <button
+                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                  onClick={cancelUploadTypeSelection}
+                >
+                  取消
+                </button>
+                <button
+                  className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
+                  onClick={confirmUploadTypeSelection}
+                >
+                  确认并上传
+                </button>
+              </>
+            }
+          >
+            <div className="space-y-3 w-[min(80vw,560px)]">
+              <div className="text-sm text-zinc-300">本次将上传 {pendingUploadFiles.length} 个文件，请先选择它们所属的素材类别。</div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                {(['product', 'model', 'scene', 'motion'] as AssetLibraryTab[]).map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => setPendingUploadType(type)}
+                    className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${pendingUploadType === type ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
+                  >
+                    {materialTypeLabelMap[type]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </AppDialog>
+        )}
         {isAssetLibraryOpen && (
           <AppDialog
             isOpen={isAssetLibraryOpen}
             title="从素材库选择"
             onClose={() => setIsAssetLibraryOpen(false)}
+            widthClassName="max-w-[min(92vw,980px)]"
             footer={
               <>
                 <button
@@ -3245,7 +3384,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </>
             }
           >
-            <div className="w-[min(88vw,760px)] max-h-[70vh] flex flex-col gap-3">
+            <div className="w-full max-h-[70vh] flex flex-col gap-3">
               <div className="flex items-center gap-2 overflow-x-auto pb-1">
                 {([
                   { value: 'product', label: t.assets_tab_products || '商品' },
@@ -3284,14 +3423,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         key={asset.id}
                         type="button"
                         onClick={() => selectAssetFromLibraryPopup(asset)}
-                        className="text-left rounded-xl border border-white/10 bg-black/30 p-2 hover:border-orange-500/50 hover:bg-white/5 transition"
+                        className="text-left rounded-xl border border-white/10 bg-black/30 p-2 hover:border-orange-500/50 hover:bg-white/5 transition flex flex-col"
                       >
-                        <div className="w-full aspect-[4/3] rounded-lg overflow-hidden bg-zinc-800">
+                        <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
                           {asset.media_kind === 'video' ? (
                             <video src={asset.file_url} className="w-full h-full object-cover" muted playsInline />
                           ) : (
                             <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} />
                           )}
+                          <div className="absolute left-2 top-2 rounded-full border border-white/10 bg-black/50 px-1.5 py-0.5 text-[9px] text-zinc-100">
+                            {asset.media_kind === 'video' ? (t.assets_tab_motion || '动作') : materialTypeLabelMap[assetLibraryTab]}
+                          </div>
                         </div>
                         <div className="mt-2 text-xs font-bold text-zinc-200 truncate">{asset.name}</div>
                       </button>

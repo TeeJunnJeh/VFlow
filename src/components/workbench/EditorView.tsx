@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Flame, Gem, Zap, ChevronDown, Camera, Sparkles, Utensils, Cpu, Eye, Film, Box, Wand2, PencilLine, UserSquare2, Maximize2, X } from 'lucide-react';
+import { ArrowLeft, Flame, Gem, Zap, ChevronDown, Camera, Sparkles, Utensils, Cpu, Eye, Film, Box, Wand2, PencilLine, UserSquare2, Maximize2, X, Loader2 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { AppDialog } from '../common/AppDialog';
 import { type Template, templatesApi } from '../../services/templates';
-import { assetsApi } from '../../services/assets';
+import { assetsApi, type Asset as LibraryAsset } from '../../services/assets';
 import { useAuth } from '../../context/AuthContext';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 
@@ -74,6 +74,10 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
   const [uploadedMotionPreview, setUploadedMotionPreview] = useState<{ url: string; name: string } | null>(null);
   const [isUploadingMotion, setIsUploadingMotion] = useState(false);
   const motionFileInputRef = useRef<HTMLInputElement>(null);
+  const [assetPickerMode, setAssetPickerMode] = useState<'model' | 'motion' | null>(null);
+  const [assetPickerLoading, setAssetPickerLoading] = useState(false);
+  const [assetPickerError, setAssetPickerError] = useState<string | null>(null);
+  const [assetPickerItems, setAssetPickerItems] = useState<LibraryAsset[]>([]);
   // Info dialog state to replace native alert()
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [infoTitle, setInfoTitle] = useState('');
@@ -184,6 +188,66 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
       });
     }
   }, [initialData]);
+
+  useEffect(() => {
+    if (!assetPickerMode) return;
+    let cancelled = false;
+
+    const loadPickerItems = async () => {
+      setAssetPickerLoading(true);
+      setAssetPickerError(null);
+      try {
+        const nextType = assetPickerMode === 'model' ? 'model' : 'motion';
+        const items = await assetsApi.getAssets({ type: nextType, folderId: null });
+        if (!cancelled) {
+          const normalized = Array.isArray(items) ? items : [];
+          setAssetPickerItems(
+            normalized.filter((item) => (assetPickerMode === 'model' ? item.media_kind !== 'video' : item.media_kind === 'video'))
+          );
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setAssetPickerItems([]);
+          setAssetPickerError(String(err?.message || '加载素材失败'));
+        }
+      } finally {
+        if (!cancelled) setAssetPickerLoading(false);
+      }
+    };
+
+    void loadPickerItems();
+    return () => {
+      cancelled = true;
+    };
+  }, [assetPickerMode]);
+
+  const openAssetPicker = (mode: 'model' | 'motion') => {
+    setAssetPickerMode(mode);
+  };
+
+  const closeAssetPicker = () => {
+    setAssetPickerMode(null);
+    setAssetPickerItems([]);
+    setAssetPickerError(null);
+    setAssetPickerLoading(false);
+  };
+
+  const chooseAssetFromLibrary = (asset: LibraryAsset) => {
+    if (assetPickerMode === 'model') {
+      setSelectedModelId(Number(asset.id));
+      setUploadedModelPreview({
+        url: toDisplayUrl(asset.file_url),
+        name: asset.name || 'model',
+      });
+    } else if (assetPickerMode === 'motion') {
+      setSelectedMotionId(Number(asset.id));
+      setUploadedMotionPreview({
+        url: toDisplayUrl(asset.file_url),
+        name: asset.name || 'motion',
+      });
+    }
+    closeAssetPicker();
+  };
 
   const handleSave = async () => {
     if (!user?.id) { openInfo('Notice', 'Please log in'); return; }
@@ -417,6 +481,13 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                       </button>
                       <button
                         type="button"
+                        onClick={() => openAssetPicker('model')}
+                        className="text-[10px] text-zinc-300 hover:text-orange-300 font-bold px-2 py-1 rounded bg-white/5 hover:bg-orange-500/15 transition"
+                      >
+                        从素材库选
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => { setSelectedModelId(null); setUploadedModelPreview(null); }}
                         className="text-[10px] text-zinc-500 hover:text-red-400 font-bold px-2 py-1 rounded bg-white/5 hover:bg-red-500/10 transition"
                       >
@@ -425,24 +496,34 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                     </div>
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    disabled={isUploadingModel}
-                    onClick={() => modelFileInputRef.current?.click()}
-                    className="w-full flex items-center justify-center gap-2 py-8 border-2 border-dashed border-white/10 rounded-xl text-zinc-500 hover:border-orange-500/50 hover:text-orange-400 hover:bg-orange-500/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isUploadingModel ? (
-                      <>
-                        <span className="w-4 h-4 border-2 border-zinc-500 border-t-orange-500 rounded-full animate-spin" />
-                        <span className="text-xs font-bold">{t.editor_model_uploading}</span>
-                      </>
-                    ) : (
-                      <>
-                        <UserSquare2 className="w-5 h-5" />
-                        <span className="text-xs font-bold">{t.editor_model_upload_btn}</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={isUploadingModel}
+                      onClick={() => modelFileInputRef.current?.click()}
+                      className="w-full flex items-center justify-center gap-2 py-6 border-2 border-dashed border-white/10 rounded-xl text-zinc-500 hover:border-orange-500/50 hover:text-orange-400 hover:bg-orange-500/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isUploadingModel ? (
+                        <>
+                          <span className="w-4 h-4 border-2 border-zinc-500 border-t-orange-500 rounded-full animate-spin" />
+                          <span className="text-xs font-bold">{t.editor_model_uploading}</span>
+                        </>
+                      ) : (
+                        <>
+                          <UserSquare2 className="w-5 h-5" />
+                          <span className="text-xs font-bold">{t.editor_model_upload_btn}</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openAssetPicker('model')}
+                      className="w-full flex items-center justify-center gap-2 py-6 border border-white/10 rounded-xl text-zinc-300 hover:text-orange-300 hover:border-orange-500/50 hover:bg-orange-500/5 transition"
+                    >
+                      <UserSquare2 className="w-4 h-4" />
+                      <span className="text-xs font-bold">从素材库选择</span>
+                    </button>
+                  </div>
                 )}
             </div>
 
@@ -476,6 +557,13 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                       </button>
                       <button
                         type="button"
+                        onClick={() => openAssetPicker('motion')}
+                        className="text-[10px] text-zinc-300 hover:text-orange-300 font-bold px-2 py-1 rounded bg-white/5 hover:bg-orange-500/15 transition"
+                      >
+                        从素材库选
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => { setSelectedMotionId(null); setUploadedMotionPreview(null); }}
                         className="text-[10px] text-zinc-500 hover:text-red-400 font-bold px-2 py-1 rounded bg-white/5 hover:bg-red-500/10 transition"
                       >
@@ -484,24 +572,34 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                     </div>
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    disabled={isUploadingMotion}
-                    onClick={() => motionFileInputRef.current?.click()}
-                    className="w-full flex items-center justify-center gap-2 py-8 border-2 border-dashed border-white/10 rounded-xl text-zinc-500 hover:border-orange-500/50 hover:text-orange-400 hover:bg-orange-500/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isUploadingMotion ? (
-                      <>
-                        <span className="w-4 h-4 border-2 border-zinc-500 border-t-orange-500 rounded-full animate-spin" />
-                        <span className="text-xs font-bold">{t.editor_motion_uploading || '上传中...'}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Film className="w-5 h-5" />
-                        <span className="text-xs font-bold">{t.editor_motion_upload_btn || '上传动作视频'}</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={isUploadingMotion}
+                      onClick={() => motionFileInputRef.current?.click()}
+                      className="w-full flex items-center justify-center gap-2 py-6 border-2 border-dashed border-white/10 rounded-xl text-zinc-500 hover:border-orange-500/50 hover:text-orange-400 hover:bg-orange-500/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isUploadingMotion ? (
+                        <>
+                          <span className="w-4 h-4 border-2 border-zinc-500 border-t-orange-500 rounded-full animate-spin" />
+                          <span className="text-xs font-bold">{t.editor_motion_uploading || '上传中...'}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Film className="w-5 h-5" />
+                          <span className="text-xs font-bold">{t.editor_motion_upload_btn || '上传动作视频'}</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openAssetPicker('motion')}
+                      className="w-full flex items-center justify-center gap-2 py-6 border border-white/10 rounded-xl text-zinc-300 hover:text-orange-300 hover:border-orange-500/50 hover:bg-orange-500/5 transition"
+                    >
+                      <Film className="w-4 h-4" />
+                      <span className="text-xs font-bold">从素材库选择</span>
+                    </button>
+                  </div>
                 )}
             </div>
             
@@ -538,6 +636,59 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
             {uploadedModelPreview.name}
           </div>
         </div>
+      )}
+
+      {assetPickerMode && (
+        <AppDialog
+          isOpen={!!assetPickerMode}
+          title={assetPickerMode === 'model' ? '从素材库选择模特' : '从素材库选择动作'}
+          onClose={closeAssetPicker}
+          footer={
+            <>
+              <button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={closeAssetPicker}>关闭</button>
+            </>
+          }
+        >
+          <div className="w-[min(86vw,760px)] max-h-[70vh] flex flex-col gap-3">
+            <div className="text-xs text-zinc-400">
+              {assetPickerMode === 'model' ? '选择一个模特素材作为模板默认模特。' : '选择一个动作素材作为模板默认参考动作。'}
+            </div>
+            <div className="min-h-[220px] max-h-[52vh] overflow-y-auto custom-scroll pr-1">
+              {assetPickerLoading ? (
+                <div className="h-52 flex items-center justify-center text-zinc-400">
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载中...
+                </div>
+              ) : assetPickerError ? (
+                <div className="h-52 flex items-center justify-center text-red-300 text-sm">{assetPickerError}</div>
+              ) : assetPickerItems.length === 0 ? (
+                <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">暂无可用素材</div>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {assetPickerItems.map((asset) => (
+                    <button
+                      key={asset.id}
+                      type="button"
+                      onClick={() => chooseAssetFromLibrary(asset)}
+                      className="text-left rounded-xl border border-white/10 bg-black/30 p-2 hover:border-orange-500/50 hover:bg-white/5 transition flex flex-col"
+                    >
+                      <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
+                        {asset.media_kind === 'video' ? (
+                          <video src={asset.file_url} className="w-full h-full object-cover" muted playsInline />
+                        ) : (
+                          <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} />
+                        )}
+                        <div className="absolute left-2 top-2 rounded-full border border-white/10 bg-black/50 px-1.5 py-0.5 text-[9px] text-zinc-100">
+                          {assetPickerMode === 'model' ? '模特' : '动作'}
+                        </div>
+                      </div>
+                      <div className="mt-2 text-xs font-bold text-zinc-200 truncate">{asset.name}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </AppDialog>
       )}
     </div>
   );

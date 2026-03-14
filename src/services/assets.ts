@@ -231,6 +231,26 @@ export const assetsApi = {
     }
   },
 
+  // 2.1 TEMP UPLOAD (non-library): upload file and return media path without creating DigitalAsset records.
+  uploadTempAsset: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/temp-upload/`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: formData,
+    });
+
+    if (!response.ok) throw new Error(await readApiError(response));
+    return await response.json();
+  },
+
   // 3. DELETE
   deleteAsset: async (assetId: string) => {
     const csrftoken = getCookie('csrftoken');

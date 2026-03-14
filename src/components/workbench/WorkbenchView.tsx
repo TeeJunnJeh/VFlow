@@ -1588,11 +1588,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     queueFilesWithTypePrompt(files);
   };
 
-  const applyAssetSource = (nextSource: 'product' | 'preference') => {
-    setSelectedAssetSource(nextSource);
-    if (!selectedQueueAssetId) return;
-    setAssetQueue(prev => prev.map(asset => (asset.id === selectedQueueAssetId ? { ...asset, source: nextSource } : asset)));
-  };
+  // const applyAssetSource = (nextSource: 'product' | 'preference') => {
+  //   setSelectedAssetSource(nextSource);
+  //   if (!selectedQueueAssetId) return;
+  //   setAssetQueue(prev => prev.map(asset => (asset.id === selectedQueueAssetId ? { ...asset, source: nextSource } : asset)));
+  // };
 
   const handleWorkbenchUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);

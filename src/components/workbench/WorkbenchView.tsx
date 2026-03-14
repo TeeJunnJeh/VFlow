@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
@@ -9,13 +9,8 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { useTasks } from '../../context/TaskContext';
 import { useWorkbenchModel } from '../../context/WorkbenchModelContext';
-<<<<<<< HEAD
-import { videoApi, type GeneratePreviewData } from '../../services/video';
-import { assetsApi, type Asset as LibraryAsset } from '../../services/assets';
-=======
 import { videoApi, VideoApiError, type GeneratePreviewData } from '../../services/video';
-import { assetsApi } from '../../services/assets';
->>>>>>> 4074365 (Fix compatibility issue with Kling v2.6 when submit video generation)
+import { assetsApi, type Asset as LibraryAsset } from '../../services/assets';
 import { tiktokApi } from '../../services/tiktok';
 import {
   PromptLabWindow,
@@ -336,6 +331,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [promptTemplatesError, setPromptTemplatesError] = useState<string | null>(null);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [guideStepIndex, setGuideStepIndex] = useState(0);
+  const [guidePanelStyle, setGuidePanelStyle] = useState<React.CSSProperties>({});
   const promptOverridesPayload = useMemo(
     () => (ENABLE_PROMPT_LAB ? buildBackendPromptOverrides(promptOverrides) : null),
     [promptOverrides]
@@ -1135,32 +1131,115 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     scene: t.assets_tab_scenes || '场景',
     motion: t.assets_tab_motion || '动作',
   };
-  const currentMaterialTypeValue: AssetLibraryTab = currentAssetMediaKind === 'video'
-    ? 'motion'
-    : (currentMaterialType || 'product');
+  const uploadDisplayAssets: QueuedAsset[] = useMemo(() => {
+    if (assetQueue.length > 0) return assetQueue;
+    if (!uploadedFile) return [];
+    return [{
+      id: 'current-upload',
+      name: fileName || '当前素材',
+      previewUrl: uploadedFile,
+      fileObj: selectedFileObj,
+      assetUrl: selectedAssetUrl,
+      source: selectedAssetSource || 'product',
+      materialType: currentMaterialType || (currentAssetMediaKind === 'video' ? 'motion' : 'product'),
+      isPrimaryFrame: selectedAssetSource === 'product',
+      mediaKind: currentAssetMediaKind,
+      uploadedPath: lastUploadedUrl,
+    }];
+  }, [
+    assetQueue,
+    currentAssetMediaKind,
+    currentMaterialType,
+    fileName,
+    lastUploadedUrl,
+    selectedAssetSource,
+    selectedAssetUrl,
+    selectedFileObj,
+    uploadedFile,
+  ]);
   const activeGuideStep = isGuideOpen ? guideSteps[guideStepIndex] : null;
   const isGuideFocused = (key: GuideStepKey) => activeGuideStep?.key === key;
   const getGuideFocusClass = (key: GuideStepKey) => (
     isGuideFocused(key)
-      ? 'ring-2 ring-orange-400/80 ring-offset-2 ring-offset-black/60 shadow-[0_0_24px_rgba(251,146,60,0.35)] rounded-xl'
+      ? 'relative z-[85] ring-2 ring-orange-400/80 ring-offset-2 ring-offset-black/60 shadow-[0_0_24px_rgba(251,146,60,0.35)] rounded-xl'
       : ''
   );
 
-  useEffect(() => {
-    if (!isGuideOpen) return;
-    const sectionMap: Record<GuideStepKey, React.RefObject<HTMLDivElement | null>> = {
+  const getGuideTargetElement = useCallback(() => {
+    const map: Record<GuideStepKey, React.RefObject<HTMLDivElement | null>> = {
       mode: modeSectionRef,
       upload: uploadSectionRef,
       config: configSectionRef,
       scripts: scriptsSectionRef,
       preview: previewSectionRef,
     };
-    const activeKey = guideSteps[guideStepIndex]?.key;
-    const target = activeKey ? sectionMap[activeKey]?.current : null;
+    const key = guideSteps[guideStepIndex]?.key;
+    return key ? map[key]?.current || null : null;
+  }, [guideStepIndex, guideSteps]);
+
+  const updateGuidePanelPosition = useCallback(() => {
+    const target = getGuideTargetElement();
+    const viewportPadding = 12;
+    const panelWidth = Math.min(420, window.innerWidth - viewportPadding * 2);
+    const panelHeight = 330;
+
+    if (!target) {
+      setGuidePanelStyle({
+        width: `${panelWidth}px`,
+        left: `${Math.max(viewportPadding, Math.round((window.innerWidth - panelWidth) / 2))}px`,
+        top: `${Math.max(viewportPadding, Math.round((window.innerHeight - panelHeight) / 2))}px`,
+      });
+      return;
+    }
+
+    const rect = target.getBoundingClientRect();
+    let left = rect.right + 16;
+    if (left + panelWidth > window.innerWidth - viewportPadding) {
+      left = rect.left - panelWidth - 16;
+    }
+    if (left < viewportPadding) {
+      left = Math.max(viewportPadding, Math.round((window.innerWidth - panelWidth) / 2));
+    }
+
+    let top = rect.top;
+    if (top + panelHeight > window.innerHeight - viewportPadding) {
+      top = window.innerHeight - panelHeight - viewportPadding;
+    }
+    if (top < viewportPadding) {
+      top = viewportPadding;
+    }
+
+    setGuidePanelStyle({
+      width: `${panelWidth}px`,
+      left: `${Math.round(left)}px`,
+      top: `${Math.round(top)}px`,
+    });
+  }, [getGuideTargetElement]);
+
+  useEffect(() => {
+    if (!isGuideOpen) return;
+    const target = getGuideTargetElement();
     if (target) {
       target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
     }
-  }, [guideStepIndex, isGuideOpen, guideSteps]);
+
+    const timer = window.setTimeout(() => {
+      updateGuidePanelPosition();
+    }, 260);
+
+    const onViewportChange = () => {
+      updateGuidePanelPosition();
+    };
+
+    window.addEventListener('scroll', onViewportChange, true);
+    window.addEventListener('resize', onViewportChange);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('scroll', onViewportChange, true);
+      window.removeEventListener('resize', onViewportChange);
+    };
+  }, [guideStepIndex, isGuideOpen, getGuideTargetElement, updateGuidePanelPosition]);
 
   const extractUploadedAssetPath = (uploadResp: any): string | null => {
     if (uploadResp?.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
@@ -1541,8 +1620,40 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     handleLocalFiles(files);
   };
 
-  const removeUpload = (e: React.MouseEvent) => {
+  const removeUpload = (e: React.MouseEvent, assetId?: string) => {
     e.stopPropagation();
+
+    const removeTargetId = assetId || selectedQueueAssetId;
+    if (removeTargetId) {
+      const nextQueue = assetQueue.filter((item) => item.id !== removeTargetId);
+      setAssetQueue(nextQueue);
+
+      const fallback = nextQueue[0] || null;
+      if (fallback) {
+        setSelectedQueueAssetId(fallback.id);
+        setUploadedFile(fallback.previewUrl || null);
+        setSelectedFileObj(fallback.fileObj || null);
+        setFileName(fallback.name || '');
+        setSelectedAssetUrl(fallback.assetUrl || null);
+        setSelectedAssetSource(fallback.source || null);
+        setCurrentMaterialType(fallback.materialType || null);
+      } else {
+        setSelectedQueueAssetId(null);
+        setUploadedFile(null);
+        setSelectedFileObj(null);
+        setFileName('');
+        setSelectedAssetUrl(null);
+        setLastUploadedUrl(null);
+        setSelectedAssetSource(null);
+        setCurrentMaterialType(null);
+      }
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      return;
+    }
+
     if (uploadedFile) {
       URL.revokeObjectURL(uploadedFile);
     }
@@ -2666,14 +2777,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           onDragEnter={handleUploadDragOver}
           onDragLeave={handleUploadDragLeave}
           onDrop={handleUploadDrop}
-          className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors h-32 relative group ${uploadedFile ? 'border-none' : ''} ${isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50'}`}
+          className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors min-h-32 relative group ${uploadDisplayAssets.length > 0 ? 'border-none' : ''} ${isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50'}`}
         >
           {isDragUploadActive && (
             <div className="absolute inset-1 rounded-lg border border-dashed border-orange-500/60 bg-orange-500/10 pointer-events-none" />
           )}
           <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*,audio/*" multiple onChange={handleWorkbenchUpload} />
-          {!uploadedFile ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
+          {uploadDisplayAssets.length === 0 ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center z-10 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
               <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition duration-300"><Plus className="w-4 h-4 text-zinc-500 group-hover:text-orange-500" /></div>
               <p className="text-[10px] font-medium text-zinc-400">{t.wb_upload_click}</p>
               <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[10px] text-zinc-300">
@@ -2700,31 +2811,73 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </div>
                   </div>
               ) : (
-                  <div className="absolute inset-0 bg-zinc-900 rounded-lg overflow-hidden group/preview">
-                    {currentAssetMediaKind === 'video' ? (
-                      <video src={uploadedFile} className="w-full h-full object-cover opacity-80" muted playsInline />
-                    ) : (
-                      <img src={uploadedFile} className="w-full h-full object-cover opacity-80" alt="Preview" />
-                    )}
-                    <div className="absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full border border-white/15 bg-black/60 text-zinc-100">
-                      {materialTypeLabelMap[currentMaterialTypeValue]}
+                  <div className="rounded-lg bg-zinc-900/80 p-2">
+                    <div className="flex flex-col gap-2 max-h-72 overflow-y-auto custom-scroll pr-1">
+                      {uploadDisplayAssets.map((asset) => {
+                        const inQueue = assetQueue.find((item) => item.id === asset.id);
+                        const selected = selectedQueueAssetId ? selectedQueueAssetId === asset.id : uploadedFile === asset.previewUrl;
+                        return (
+                          <button
+                            key={asset.id}
+                            type="button"
+                            onClick={() => {
+                              if (inQueue) {
+                                selectAssetFromQueue(inQueue);
+                                return;
+                              }
+                              setUploadedFile(asset.previewUrl || null);
+                              setFileName(asset.name || '');
+                              setSelectedFileObj(asset.fileObj || null);
+                              setSelectedAssetUrl(asset.assetUrl || null);
+                              setSelectedAssetSource(asset.source || null);
+                              setCurrentMaterialType(asset.materialType || null);
+                              setSelectedQueueAssetId(null);
+                            }}
+                            className={`relative w-full h-24 rounded-md overflow-hidden border text-left transition ${selected ? 'border-orange-500/70 ring-1 ring-orange-500/50' : 'border-white/10 hover:border-white/20'}`}
+                          >
+                            {asset.previewUrl ? (asset.mediaKind === 'video' ? (
+                              <video src={asset.previewUrl} className="w-full h-full object-cover opacity-80" muted playsInline />
+                            ) : (
+                              <img src={asset.previewUrl} className="w-full h-full object-cover opacity-80" alt={asset.name} />
+                            )) : (
+                              <div className="w-full h-full flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
+                            )}
+                            <div className="absolute top-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-white/15 bg-black/60 text-zinc-100">
+                              {materialTypeLabelMap[asset.materialType || 'product']}
+                            </div>
+                            <div className="absolute top-1 right-1 flex items-center gap-1">
+                              {asset.mediaKind === 'image' && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const nextSource = (asset.source === 'product' || (!asset.source && selectedAssetSource === 'product')) ? 'preference' : 'product';
+                                    
+                                    if (inQueue) {
+                                      setAssetQueue(prev => prev.map(item => 
+                                        item.id === asset.id ? { ...item, source: nextSource } : item
+                                      ));
+                                    }
+                                    
+                                    if (selected) {
+                                      setSelectedAssetSource(nextSource);
+                                    }
+                                  }}
+                                  className={`rounded border px-1.5 py-0.5 text-[9px] font-bold transition ${(asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')) ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'}`}
+                                >
+                                  {(asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')) ? '首帧图' : '参考图'}
+                                </button>
+                              )}
+                              <button onClick={(e) => removeUpload(e, asset.id)} className="p-1 bg-black/50 hover:bg-red-500 rounded text-white transition"><X className="w-2.5 h-2.5" /></button>
+                            </div>
+                            <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent">
+                              <p className="text-[9px] text-white truncate">{asset.name}</p>
+                              {selected && <p className="text-[9px] text-green-400 flex items-center gap-1"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p>}
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
-                    <div className="absolute top-2 right-2 flex items-center gap-2">
-                      {currentAssetMediaKind === 'image' && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            applyAssetSource(selectedAssetSource === 'product' ? 'preference' : 'product');
-                          }}
-                          className={`rounded-md border px-2 py-1 text-[10px] font-bold transition ${selectedAssetSource === 'product' ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'}`}
-                        >
-                          {selectedAssetSource === 'product' ? '首帧图' : '参考图'}
-                        </button>
-                      )}
-                      <button onClick={removeUpload} className="p-1.5 bg-black/50 hover:bg-red-500 rounded-md text-white transition"><X className="w-3 h-3" /></button>
-                    </div>
-                    <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent"><p className="text-[10px] text-white truncate">{fileName}</p><p className="text-[10px] text-green-400 flex items-center gap-1"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p></div>
                   </div>
           )}
             </div>
@@ -3280,13 +3433,46 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         )}
 
         {isGuideOpen && (
-          <AppDialog
-            isOpen={isGuideOpen}
-            title="新手引导"
-            onClose={() => setIsGuideOpen(false)}
-            widthClassName="max-w-[min(92vw,720px)]"
-            footer={
-              <>
+          <>
+            <div className="fixed inset-0 z-[70] bg-black/35 backdrop-blur-[1px]" onClick={() => setIsGuideOpen(false)} />
+            <div
+              className="fixed z-[90] rounded-2xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/60 p-4"
+              style={guidePanelStyle}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-base font-bold text-white">新手引导</div>
+                  <div className="mt-1 text-xs text-zinc-400">步骤 {guideStepIndex + 1} / {guideSteps.length}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsGuideOpen(false)}
+                  className="text-zinc-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="mt-3 rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-3">
+                <div className="text-sm font-bold text-orange-200">{activeGuideStep?.title}</div>
+                <div className="mt-2 text-sm text-zinc-100">{activeGuideStep?.description}</div>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {guideSteps.map((step, index) => (
+                  <button
+                    key={step.key}
+                    type="button"
+                    onClick={() => setGuideStepIndex(index)}
+                    className={`text-left rounded-lg border px-3 py-2 text-xs transition ${guideStepIndex === index ? 'border-orange-500/70 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-black/40 text-zinc-300 hover:bg-white/5'}`}
+                  >
+                    {index + 1}. {step.title}
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-4 flex justify-end gap-2">
                 <button
                   className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
                   onClick={() => setIsGuideOpen(false)}
@@ -3312,29 +3498,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 >
                   {guideStepIndex >= guideSteps.length - 1 ? '完成' : '下一步'}
                 </button>
-              </>
-            }
-          >
-            <div className="space-y-4">
-              <div className="text-xs text-zinc-400">步骤 {guideStepIndex + 1} / {guideSteps.length}</div>
-              <div className="rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-3">
-                <div className="text-sm font-bold text-orange-200">{activeGuideStep?.title}</div>
-                <div className="mt-2 text-sm text-zinc-200">{activeGuideStep?.description}</div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {guideSteps.map((step, index) => (
-                  <button
-                    key={step.key}
-                    type="button"
-                    onClick={() => setGuideStepIndex(index)}
-                    className={`text-left rounded-lg border px-3 py-2 text-xs transition ${guideStepIndex === index ? 'border-orange-500/70 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
-                  >
-                    {index + 1}. {step.title}
-                  </button>
-                ))}
               </div>
             </div>
-          </AppDialog>
+          </>
         )}
 
         {isInfoOpen && (

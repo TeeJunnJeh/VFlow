@@ -9,8 +9,13 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { useTasks } from '../../context/TaskContext';
 import { useWorkbenchModel } from '../../context/WorkbenchModelContext';
+<<<<<<< HEAD
 import { videoApi, type GeneratePreviewData } from '../../services/video';
 import { assetsApi, type Asset as LibraryAsset } from '../../services/assets';
+=======
+import { videoApi, VideoApiError, type GeneratePreviewData } from '../../services/video';
+import { assetsApi } from '../../services/assets';
+>>>>>>> 4074365 (Fix compatibility issue with Kling v2.6 when submit video generation)
 import { tiktokApi } from '../../services/tiktok';
 import {
   PromptLabWindow,
@@ -82,6 +87,12 @@ type GeneratePayload = {
   negative_prompt?: string;
   [key: string]: unknown;
 };
+
+type ActionRequired = {
+  type?: string;
+  prompt?: string;
+  request_flag?: string | null;
+} | null;
 
 // What we persist to the backend for cross-refresh / cross-device restore.
 // Keep it JSON-serializable (no File / Blob / functions).
@@ -242,6 +253,7 @@ const RATIO_TO_RES: Record<string, string> = {
 };
 
 const ICON_EMOJI_MAP: Record<string, string> = { 'flame': '🔥', 'gem': '💎', 'zap': '⚡' };
+const USER_CANCELLED_ADAPT = '__USER_CANCELLED_IMAGE_ADAPT__';
 
 const inferMediaKind = (value: { name?: string | null; url?: string | null; type?: string | null; file?: File | null }): 'image' | 'video' | 'audio' | 'file' => {
   if (value.type === 'motion') return 'video';
@@ -1236,7 +1248,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     console.log('🚀 Sending Generation Request:', requestPayload);
 
-    const genResp = await videoApi.generate(requestPayload);
+    const genResp = await generateWithAdaptiveImageConfirm(requestPayload);
     const taskId = genResp?.data?.task_id || genResp?.task_id;
 
     if (genResp?.code === 0 && taskId) {
@@ -1255,6 +1267,48 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
 
     openInfo('Notice', '提交成功，但未返回任务ID。');
+  };
+
+  const getActionRequiredFromError = (err: unknown): ActionRequired => {
+    if (err instanceof VideoApiError) {
+      return err.actionRequired || null;
+    }
+    return null;
+  };
+
+  const generateWithAdaptiveImageConfirm = async (payload: GeneratePayload) => {
+    try {
+      return await videoApi.generate(payload);
+    } catch (err) {
+      const actionRequired = getActionRequiredFromError(err);
+      const requestFlagRaw = actionRequired?.request_flag;
+      const requestFlag = typeof requestFlagRaw === 'string' ? requestFlagRaw : null;
+      const supportedFlag = requestFlag === 'allow_image_resize' || requestFlag === 'allow_image_compress';
+
+      if (!supportedFlag || !requestFlag) {
+        throw err;
+      }
+
+      // Avoid infinite retry loops when backend still rejects after user confirmation.
+      if (payload[requestFlag]) {
+        throw err;
+      }
+
+      const prompt =
+        (typeof actionRequired?.prompt === 'string' && actionRequired.prompt.trim())
+          ? actionRequired.prompt.trim()
+          : (requestFlag === 'allow_image_resize'
+            ? '当前图片不满足最小分辨率要求，是否自动放大后继续？'
+            : '当前图片超过 10MB，是否自动压缩后继续？');
+
+      const confirmed = await openConfirm('Image Adjustment', prompt);
+      if (!confirmed) {
+        throw new Error(USER_CANCELLED_ADAPT);
+      }
+
+      const retriedPayload: GeneratePayload = { ...payload, [requestFlag]: true };
+      return await videoApi.generate(retriedPayload);
+    }
   };
 
   const refreshDebugPreview = async (payload: Record<string, unknown>) => {
@@ -2014,7 +2068,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
               };
 
-            const genResp = await videoApi.generate(payload);
+            const genResp = await generateWithAdaptiveImageConfirm(payload);
             const taskId = genResp?.data?.task_id || genResp?.task_id;
             const projectId = genResp?.data?.project_id || newProjectId;
 
@@ -2047,8 +2101,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         } else {
           openInfo('Notice', '批量提交完成，但未返回有效任务ID');
         }
-      } catch (err: any) {
+    } catch (err: any) {
+      if (err?.message === USER_CANCELLED_ADAPT) {
+        openInfo('Notice', '已取消图片自动处理，批量生成已停止。');
+      } else {
         openInfo('Error', `批量生成失败：${err?.message || '未知错误'}`);
+      }
       } finally {
         setIsGenerating(false);
       }
@@ -2153,7 +2211,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       */
     } catch (err: any) {
-      openInfo('Error', `Error: ${err.message || 'Generation failed'}`);
+      if (err?.message === USER_CANCELLED_ADAPT) {
+        openInfo('Notice', '已取消图片自动处理，未提交任务。');
+      } else {
+        openInfo('Error', `Error: ${err.message || 'Generation failed'}`);
+      }
     } finally {
       setIsGenerating(false);
     }

@@ -8,6 +8,7 @@ interface AppDialogProps {
   children?: React.ReactNode;
   footer?: React.ReactNode;
   widthClassName?: string;
+  titleClassName?: string;
 }
 
 export const AppDialog: React.FC<AppDialogProps> = ({
@@ -17,6 +18,7 @@ export const AppDialog: React.FC<AppDialogProps> = ({
   children,
   footer,
   widthClassName = 'max-w-md',
+  titleClassName = 'text-sm',
 }) => {
   useEffect(() => {
     if (!isOpen) return;
@@ -38,7 +40,7 @@ export const AppDialog: React.FC<AppDialogProps> = ({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-4 mb-4">
-          <h3 className="text-sm font-bold text-zinc-100">{title}</h3>
+          <h3 className={`${titleClassName} font-bold text-zinc-100`}>{title}</h3>
           <button className="text-zinc-400 hover:text-white transition" onClick={onClose} aria-label="Close dialog">
             <X className="w-5 h-5" />
           </button>

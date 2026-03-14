@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
@@ -3185,6 +3185,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         {isAssetLibraryOpen && (
           <AppDialog
             isOpen={isAssetLibraryOpen}
+            widthClassName="max-w-[980px]"
+            titleClassName="text-lg"
             title="从素材库选择"
             onClose={() => setIsAssetLibraryOpen(false)}
             footer={
@@ -3198,7 +3200,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </>
             }
           >
-            <div className="w-[min(88vw,760px)] max-h-[70vh] flex flex-col gap-3">
+            <div className="w-full h-[62vh] max-h-[600px] min-h-[440px] flex flex-col gap-2.5">
               <div className="flex items-center gap-2 overflow-x-auto pb-1">
                 {([
                   { value: 'product', label: t.assets_tab_products || '商品' },
@@ -3210,14 +3212,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     key={tab.value}
                     type="button"
                     onClick={() => setAssetLibraryTab(tab.value)}
-                    className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
+                    className={`shrink-0 rounded-full border px-5 py-2 text-[14px] font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
                   >
                     {tab.label}
                   </button>
                 ))}
               </div>
 
-              <div className="min-h-[220px] max-h-[52vh] overflow-y-auto custom-scroll pr-1">
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-1">
                 {assetLibraryLoading ? (
                   <div className="h-52 flex items-center justify-center text-zinc-400">
                     <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载中...
@@ -3231,13 +3233,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     暂无素材
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-4 gap-2">
                     {assetLibraryItems.map((asset) => (
                       <button
                         key={asset.id}
                         type="button"
                         onClick={() => selectAssetFromLibraryPopup(asset)}
-                        className="text-left rounded-xl border border-white/10 bg-black/30 p-2 hover:border-orange-500/50 hover:bg-white/5 transition"
+                        className="text-left rounded-lg border border-white/10 bg-black/30 p-1 hover:border-orange-500/50 hover:bg-white/5 transition"
                       >
                         <div className="w-full aspect-[4/3] rounded-lg overflow-hidden bg-zinc-800">
                           {asset.media_kind === 'video' ? (
@@ -3246,7 +3248,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} />
                           )}
                         </div>
-                        <div className="mt-2 text-xs font-bold text-zinc-200 truncate">{asset.name}</div>
+                        <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{asset.name}</div>
                       </button>
                     ))}
                   </div>
@@ -3441,3 +3443,4 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       </div>
   );
 };
+

@@ -266,6 +266,8 @@ type LangLabelKey =
     | 'lang_ms'
     | 'lang_vi';
 
+type GuideStepKey = 'mode' | 'upload' | 'config' | 'scripts' | 'preview';
+
 const TARGET_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: LangLabelKey }> = [
   { value: 'en', labelKey: 'lang_en' },
   { value: 'zh', labelKey: 'lang_zh' },
@@ -306,6 +308,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scriptFileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const modeSectionRef = useRef<HTMLDivElement | null>(null);
+  const uploadSectionRef = useRef<HTMLDivElement | null>(null);
+  const configSectionRef = useRef<HTMLDivElement | null>(null);
+  const scriptsSectionRef = useRef<HTMLDivElement | null>(null);
+  const previewSectionRef = useRef<HTMLDivElement | null>(null);
 
   // --- Prompt Lab (temporary, removable) ---
   const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
@@ -315,10 +322,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   );
   const [promptTemplatesLoading, setPromptTemplatesLoading] = useState(false);
   const [promptTemplatesError, setPromptTemplatesError] = useState<string | null>(null);
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [guideStepIndex, setGuideStepIndex] = useState(0);
   const promptOverridesPayload = useMemo(
     () => (ENABLE_PROMPT_LAB ? buildBackendPromptOverrides(promptOverrides) : null),
     [promptOverrides]
   );
+  const guideSteps = useMemo<Array<{ key: GuideStepKey; title: string; description: string }>>(() => ([
+    { key: 'mode', title: '创作模式：选择模型', description: '先在左侧创作模式选择模型，确定本次生成使用的能力。' },
+    { key: 'upload', title: '素材上传：切换首帧图/参考图', description: '上传素材后，在图片右上角按钮切换为首帧图或参考图。' },
+    { key: 'config', title: '配置：选择模板与脚本参数', description: '在配置区快速选择模板，并调整时长、音频和脚本相关设置。' },
+    { key: 'scripts', title: '分镜脚本：时长要匹配', description: '分镜里所有镜头秒数之和，需要与配置总时长一致。' },
+    { key: 'preview', title: '预览：查看生成视频', description: '生成完成后，在预览区查看并播放最终视频。' },
+  ]), []);
 
   const loadPromptLabTemplates = async () => {
     if (!ENABLE_PROMPT_LAB) return;
@@ -1092,7 +1108,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const isReuseReady = assetQueue.length > 0 && scriptQueue.length > 0;
   const expectedBatchCount = isReuseReady ? assetQueue.length * scriptQueue.length : 0;
   const hasCurrentAsset = Boolean(uploadedFile || selectedAssetUrl || selectedFileObj);
-  const isImageAssetSelected = hasCurrentAsset && currentAssetMediaKind === 'image';
   const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
   const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
   const VIDEO_EXTS = ['mp4', 'mov', 'mkv', 'webm', 'avi'];
@@ -1111,6 +1126,29 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const currentMaterialTypeValue: AssetLibraryTab = currentAssetMediaKind === 'video'
     ? 'motion'
     : (currentMaterialType || 'product');
+  const activeGuideStep = isGuideOpen ? guideSteps[guideStepIndex] : null;
+  const isGuideFocused = (key: GuideStepKey) => activeGuideStep?.key === key;
+  const getGuideFocusClass = (key: GuideStepKey) => (
+    isGuideFocused(key)
+      ? 'ring-2 ring-orange-400/80 ring-offset-2 ring-offset-black/60 shadow-[0_0_24px_rgba(251,146,60,0.35)] rounded-xl'
+      : ''
+  );
+
+  useEffect(() => {
+    if (!isGuideOpen) return;
+    const sectionMap: Record<GuideStepKey, React.RefObject<HTMLDivElement | null>> = {
+      mode: modeSectionRef,
+      upload: uploadSectionRef,
+      config: configSectionRef,
+      scripts: scriptsSectionRef,
+      preview: previewSectionRef,
+    };
+    const activeKey = guideSteps[guideStepIndex]?.key;
+    const target = activeKey ? sectionMap[activeKey]?.current : null;
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    }
+  }, [guideStepIndex, isGuideOpen, guideSteps]);
 
   const extractUploadedAssetPath = (uploadResp: any): string | null => {
     if (uploadResp?.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
@@ -1858,18 +1896,50 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
   }, [t]); // Re-run when language (t) changes
 
-  const handleGenerateVideo = async () => {
-    // 1. Batch Generation (Reuse Queue)
+  const validateGenerateRequirements = () => {
+    const issues: string[] = [];
+
     if (assetQueue.length > 0 || scriptQueue.length > 0) {
       if (assetQueue.length === 0 || scriptQueue.length === 0) {
-          openInfo('Notice', "批量生成需要同时加入素材队列和脚本队列");
-          return;
-        }
-        if (!user?.id) {
-          openInfo('Notice', "请先登录");
-          return;
-        }
+        issues.push('复用队列：批量生成需要同时加入素材队列和脚本队列。');
+      }
+      if (!user?.id) {
+        issues.push('账号：请先登录后再发起批量生成。');
+      }
+      return issues;
+    }
 
+    if (!selectedTemplate?.id && !selectedFileObj && !selectedAssetUrl && !uploadedFile) {
+      issues.push('素材上传：请先上传素材，或先选择一个模板。');
+    }
+    if (scripts.length === 0) {
+      issues.push('分镜脚本：请先生成或添加脚本。');
+    }
+    if (!isDurationValid) {
+      issues.push(`分镜脚本：镜头总时长(${currentScriptDuration.toFixed(1)}s)需要与配置时长(${genDuration}s)一致。`);
+    }
+    if (!selectedTemplate?.id && !user?.id) {
+      issues.push('账号：请先登录。');
+    }
+
+    return issues;
+  };
+
+  const showGenerateValidationIssues = (issues: string[]) => {
+    if (issues.length === 0) return;
+    const details = issues.map((item, index) => `${index + 1}. ${item}`).join('\n');
+    openInfo('生成条件未满足', `请先修复以下问题：\n${details}`);
+  };
+
+  const handleGenerateVideo = async () => {
+    const issues = validateGenerateRequirements();
+    if (issues.length > 0) {
+      showGenerateValidationIssues(issues);
+      return;
+    }
+
+    // 1. Batch Generation (Reuse Queue)
+    if (assetQueue.length > 0 || scriptQueue.length > 0) {
       setIsGenerating(true);
       setGeneratedVideoUrl(null);
 
@@ -1914,6 +1984,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               newProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
               if (!newProjectId) throw new Error('Failed to clone project');
             } else {
+              if (!user?.id) throw new Error('请先登录');
               const createResp = await videoApi.createProject(user.id, {
                 title: `${asset.name} × ${scriptPack.name}`,
                 aspect_ratio: '9:16',
@@ -1986,11 +2057,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
 
     // 2. Single Video Generation
-    // Allow generation when a template is selected even if no local/remote asset was uploaded.
-    if (!selectedTemplate?.id && !selectedFileObj && !selectedAssetUrl && !uploadedFile) { openInfo('Notice', 'Please upload a reference asset or select a template first!'); return; }
-    if (scripts.length === 0) { openInfo('Notice', 'Please generate or add scripts first!'); return; }
-    if (!isDurationValid) { openInfo('Warning', `Total script duration (${currentScriptDuration}s) must match requested duration (${genDuration}s)!`); return; }
-    if (!selectedTemplate?.id && !user?.id) { openInfo('Notice', '请先登录'); return; }
 
     setIsGenerating(true);
     setGeneratedVideoUrl(null);
@@ -2526,18 +2592,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     return (
     <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
-      {modelSelector}
+      <div ref={modeSectionRef} className={getGuideFocusClass('mode')}>
+        {modelSelector}
+      </div>
       {false && legacyModelSelector}
       {/* Upload Section */}
-      <div className="flex flex-col gap-3">
+      <div ref={uploadSectionRef} className={`flex flex-col gap-3 ${getGuideFocusClass('upload')}`}>
         <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
         <div
-          onClick={() => fileInputRef.current?.click()}
           onDragOver={handleUploadDragOver}
           onDragEnter={handleUploadDragOver}
           onDragLeave={handleUploadDragLeave}
           onDrop={handleUploadDrop}
-          className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors h-32 relative group cursor-pointer ${uploadedFile ? 'border-none' : ''} ${isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50'}`}
+          className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors h-32 relative group ${uploadedFile ? 'border-none' : ''} ${isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50'}`}
         >
           {isDragUploadActive && (
             <div className="absolute inset-1 rounded-lg border border-dashed border-orange-500/60 bg-orange-500/10 pointer-events-none" />
@@ -2600,40 +2667,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           )}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              openAssetLibraryPicker();
-            }}
-            className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
-          >
-            从素材库选择
-          </button>
-          {isImageAssetSelected && (
-            <div
-              className="rounded-lg border border-white/10 bg-black/30 p-2"
-              onClick={(e) => e.stopPropagation()}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                fileInputRef.current?.click();
+              }}
+              className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
             >
-              <div className="text-[10px] font-bold text-zinc-400 uppercase">图片用途</div>
-              <div className="mt-2 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => applyAssetSource('product')}
-                  className={`flex-1 rounded-md border px-2 py-1.5 text-[10px] font-bold transition ${selectedAssetSource === 'product' ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/40 text-zinc-400 hover:text-zinc-200'}`}
-                >
-                  作为首帧图
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyAssetSource('preference')}
-                  className={`flex-1 rounded-md border px-2 py-1.5 text-[10px] font-bold transition ${selectedAssetSource === 'preference' ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/40 text-zinc-400 hover:text-zinc-200'}`}
-                >
-                  仅作参考图
-                </button>
-              </div>
-            </div>
-          )}
+              从本地上传素材
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                openAssetLibraryPicker();
+              }}
+              className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
+            >
+              从素材库选择素材
+            </button>
+          </div>
 
           {/* Reuse Queues Section (Restored Buttons) */}
           <div className="flex flex-col gap-3">
@@ -2727,7 +2782,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           </div>
 
       {/* Config Panel (Restored Controls) */}
-      <div className="flex flex-col gap-3 flex-1 transition-opacity duration-500">
+      <div ref={configSectionRef} className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${getGuideFocusClass('config')}`}>
         <div className="flex justify-between items-center"><h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><SlidersHorizontal className="w-3 h-3" /> {t.wb_config_title}</h2></div>
         <div className="glass-panel rounded-xl p-5 flex flex-col gap-5">
            {/* Template Selector */}
@@ -3110,14 +3165,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             )}
             <span className="px-2 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-400 border border-white/5">{t.wb_header_draft}</span>
             {ENABLE_PROMPT_LAB && (
-              <button
-                onClick={openPromptLab}
-                className="flex items-center gap-1.5 px-2 py-1 rounded border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
-                title="查看/编辑内置 prompts（临时功能）"
-              >
-                <FileJson className="w-3.5 h-3.5" />
-                <span className="text-[10px] font-bold">Prompt</span>
-              </button>
+              <>
+                <button
+                  onClick={openPromptLab}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
+                  title="查看/编辑内置 prompts（临时功能）"
+                >
+                  <FileJson className="w-3.5 h-3.5" />
+                  <span className="text-[10px] font-bold">Prompt</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGuideStepIndex(0);
+                    setIsGuideOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 transition"
+                  title="查看新手引导"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span className="text-[10px] font-bold">新手引导</span>
+                </button>
+              </>
             )}
           </div>
           <div className="flex items-center gap-4">
@@ -3146,6 +3215,64 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             }}
             onClose={() => setIsPromptLabOpen(false)}
           />
+        )}
+
+        {isGuideOpen && (
+          <AppDialog
+            isOpen={isGuideOpen}
+            title="新手引导"
+            onClose={() => setIsGuideOpen(false)}
+            widthClassName="max-w-[min(92vw,720px)]"
+            footer={
+              <>
+                <button
+                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                  onClick={() => setIsGuideOpen(false)}
+                >
+                  关闭
+                </button>
+                <button
+                  className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={guideStepIndex <= 0}
+                  onClick={() => setGuideStepIndex((prev) => Math.max(0, prev - 1))}
+                >
+                  上一步
+                </button>
+                <button
+                  className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
+                  onClick={() => {
+                    if (guideStepIndex >= guideSteps.length - 1) {
+                      setIsGuideOpen(false);
+                      return;
+                    }
+                    setGuideStepIndex((prev) => Math.min(guideSteps.length - 1, prev + 1));
+                  }}
+                >
+                  {guideStepIndex >= guideSteps.length - 1 ? '完成' : '下一步'}
+                </button>
+              </>
+            }
+          >
+            <div className="space-y-4">
+              <div className="text-xs text-zinc-400">步骤 {guideStepIndex + 1} / {guideSteps.length}</div>
+              <div className="rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-3">
+                <div className="text-sm font-bold text-orange-200">{activeGuideStep?.title}</div>
+                <div className="mt-2 text-sm text-zinc-200">{activeGuideStep?.description}</div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {guideSteps.map((step, index) => (
+                  <button
+                    key={step.key}
+                    type="button"
+                    onClick={() => setGuideStepIndex(index)}
+                    className={`text-left rounded-lg border px-3 py-2 text-xs transition ${guideStepIndex === index ? 'border-orange-500/70 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
+                  >
+                    {index + 1}. {step.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </AppDialog>
         )}
 
         {isInfoOpen && (
@@ -3286,6 +3413,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             isOpen={isUploadTypeDialogOpen}
             title="请选择上传素材类别"
             onClose={cancelUploadTypeSelection}
+            widthClassName="max-w-[min(92vw,700px)]"
             footer={
               <>
                 <button
@@ -3303,9 +3431,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </>
             }
           >
-            <div className="space-y-3 w-[min(80vw,560px)]">
+            <div className="space-y-3 w-full">
               <div className="text-sm text-zinc-300">本次将上传 {pendingUploadFiles.length} 个文件，请先选择它们所属的素材类别。</div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {(['product', 'model', 'scene', 'motion'] as AssetLibraryTab[]).map((type) => (
                   <button
                     key={type}
@@ -3323,7 +3451,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         {isAssetLibraryOpen && (
           <AppDialog
             isOpen={isAssetLibraryOpen}
-            widthClassName="max-w-[980px]"
             titleClassName="text-lg"
             title="从素材库选择"
             onClose={() => setIsAssetLibraryOpen(false)}
@@ -3400,7 +3527,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       <div className="flex-1 flex overflow-hidden p-6 gap-6">
         {renderLeftColumn()}
         
-        <div className="flex-auto flex flex-col gap-3 h-full min-w-[300px]">
+        <div ref={scriptsSectionRef} className={`flex-auto flex flex-col gap-3 h-full min-w-[300px] ${getGuideFocusClass('scripts')}`}>
            <div className="flex justify-between items-center shrink-0 h-[32px]">
               <div className="flex items-center gap-3">
                  <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
@@ -3457,7 +3584,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </button>
             </div>
               <div className="flex items-center gap-2">
-              <button onClick={handleGenerateVideo} disabled={isGenerating || (!isReuseReady && (!(selectedTemplate?.id || hasCurrentAsset) || !isDurationValid))} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
+                <button onClick={handleGenerateVideo} disabled={isGenerating} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
                   {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}{isGenerating ? 'Generating...' : t.wb_btn_gen_video}
               </button>
               </div>
@@ -3499,7 +3626,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         </div>
 
           {/* Right Column: Preview & Results */}
-          <div className="w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full">
+          <div ref={previewSectionRef} className={`w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full ${getGuideFocusClass('preview')}`}>
             <div className="flex justify-between items-end shrink-0 h-[32px]">
               <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-3 h-3" /> {t.wb_col_preview}</h2>
             </div>

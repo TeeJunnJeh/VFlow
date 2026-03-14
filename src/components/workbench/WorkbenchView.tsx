@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
@@ -128,9 +128,7 @@ type LocalProjectStore = {
 const LOCAL_PROJECT_STORE_KEY = 'vflow_workbench_projects_v1';
 const DEFAULT_PROJECT_NAME = 'Project_Alpha_01';
 const MAX_PROJECT_NAME_LENGTH = 30;
-const PROJECT_ACTION_MENU_SAFE_GAP = 8;
-const PROJECT_LIST_BASE_MAX_HEIGHT = 256;
-const PROJECT_LIST_MAX_HEIGHT = 420;
+const PROJECT_ACTION_MENU_RESERVED_SPACE = 60;
 
 const estimateProjectNameWidthEm = (value: string): number => {
   const text = value || '';
@@ -446,7 +444,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectSearch, setProjectSearch] = useState('');
   const [projectActionMenuId, setProjectActionMenuId] = useState<string | null>(null);
-  const [projectListExtraHeight, setProjectListExtraHeight] = useState(0);
   const [isProjectManageMode, setIsProjectManageMode] = useState(false);
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [renameRetryState, setRenameRetryState] = useState<{ projectId: string; originalName: string } | null>(null);
@@ -461,6 +458,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [deleteProjectIds, setDeleteProjectIds] = useState<string[]>([]);
   const projectMenuRef = useRef<HTMLDivElement | null>(null);
   const projectMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const projectActionMenuIdRef = useRef<string | null>(null);
   const projectListRef = useRef<HTMLDivElement | null>(null);
   const isApplyingProjectWorkspaceRef = useRef(false);
   const currentProject = useMemo(
@@ -812,13 +810,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   ]);
 
   useEffect(() => {
+    projectActionMenuIdRef.current = projectActionMenuId;
+  }, [projectActionMenuId]);
+
+  useEffect(() => {
     const onClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
       const withinMenu = projectMenuRef.current?.contains(target);
       const withinButton = projectMenuButtonRef.current?.contains(target);
       if (!withinMenu && !withinButton) {
+        if (projectActionMenuIdRef.current) {
+          setProjectActionMenuId(null);
+          return;
+        }
         setProjectMenuOpen(false);
-        setProjectActionMenuId(null);
       }
     };
     document.addEventListener('mousedown', onClickOutside);
@@ -829,58 +834,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (projectMenuOpen) return;
     setRenamingProjectId(null);
     setRenamingProjectName('');
+    setIsProjectManageMode(false);
+    setSelectedProjectIds([]);
+    setProjectActionMenuId(null);
   }, [projectMenuOpen]);
-
-  useEffect(() => {
-    if (!projectActionMenuId) {
-      if (projectListExtraHeight !== 0) setProjectListExtraHeight(0);
-      return;
-    }
-
-    let cancelled = false;
-    const rafId = requestAnimationFrame(() => {
-      if (cancelled) return;
-      const listEl = projectListRef.current;
-      const menuEl = projectMenuRef.current?.querySelector('[data-project-action-menu="true"]') as HTMLElement | null;
-      if (!listEl || !menuEl) return;
-
-      const listRect = listEl.getBoundingClientRect();
-      const menuRect = menuEl.getBoundingClientRect();
-      const overflow = menuRect.bottom + PROJECT_ACTION_MENU_SAFE_GAP - listRect.bottom;
-      if (overflow <= 0) return;
-
-      const canGrowHeight = listEl.clientHeight + 1 < PROJECT_LIST_MAX_HEIGHT;
-      if (canGrowHeight) {
-        const targetExtra = Math.ceil(projectListExtraHeight + overflow + PROJECT_ACTION_MENU_SAFE_GAP);
-        if (targetExtra > projectListExtraHeight) {
-          setProjectListExtraHeight(targetExtra);
-        }
-        return;
-      }
-
-      requestAnimationFrame(() => {
-        if (cancelled) return;
-        const listEl2 = projectListRef.current;
-        const menuEl2 = projectMenuRef.current?.querySelector('[data-project-action-menu="true"]') as HTMLElement | null;
-        if (!listEl2 || !menuEl2) return;
-
-        const listRect2 = listEl2.getBoundingClientRect();
-        const menuRect2 = menuEl2.getBoundingClientRect();
-        const remaining = menuRect2.bottom + PROJECT_ACTION_MENU_SAFE_GAP - listRect2.bottom;
-        if (remaining > 0) {
-          const maxScrollable2 = Math.max(0, listEl2.scrollHeight - listEl2.clientHeight - listEl2.scrollTop);
-          if (maxScrollable2 > 0) {
-            listEl2.scrollBy({ top: Math.min(remaining, maxScrollable2), behavior: 'auto' });
-          }
-        }
-      });
-    });
-
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(rafId);
-    };
-  }, [projectActionMenuId, projectListExtraHeight]);
 
   useEffect(() => { 
     // Reset or update duration when template changes
@@ -2971,7 +2928,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <div
                     ref={projectListRef}
                     className="overflow-y-auto custom-scroll pr-1"
-                    style={{ maxHeight: projectActionMenuId ? PROJECT_LIST_MAX_HEIGHT : PROJECT_LIST_BASE_MAX_HEIGHT }}
+                    style={{ maxHeight: 256, paddingBottom: PROJECT_ACTION_MENU_RESERVED_SPACE }}
                   >
                     {filteredProjects.length === 0 && (
                       <div className="px-2 py-3 text-xs text-zinc-500">{projectUiText.empty}</div>
@@ -2980,7 +2937,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       const isCurrent = project.id === projectStore.currentProjectId;
                       const isRenaming = renamingProjectId === project.id;
                       return (
-                        <div key={project.id} className="group relative flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5">
+                        <div key={project.id} className="project-menu-item-row group relative flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5">
                           <button
                             type="button"
                             onClick={() => {
@@ -2990,7 +2947,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               }
                               switchProject(project.id);
                             }}
-                            className="flex-1 min-w-0 text-left"
+                            className="project-menu-item-btn flex-1 min-w-0 text-left bg-transparent border-0 appearance-none"
                           >
                             <div className="flex items-center gap-2">
                               {isProjectManageMode && (
@@ -3059,7 +3016,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                   return;
                                 }
 
-                                setProjectListExtraHeight(0);
                                 setProjectActionMenuId(nextId);
                               }}
                               className="opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-400 hover:text-white hover:bg-white/10 transition"
@@ -3097,9 +3053,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         </div>
                       );
                     })}
-                    {!isProjectManageMode && projectActionMenuId && projectListExtraHeight > 0 && (
-                      <div style={{ height: projectListExtraHeight }} aria-hidden />
-                    )}
                   </div>
 
                   <div className="h-px bg-white/10 my-3" />
@@ -3370,6 +3323,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         {isAssetLibraryOpen && (
           <AppDialog
             isOpen={isAssetLibraryOpen}
+            widthClassName="max-w-[980px]"
+            titleClassName="text-lg"
             title="从素材库选择"
             onClose={() => setIsAssetLibraryOpen(false)}
             widthClassName="max-w-[min(92vw,980px)]"
@@ -3384,7 +3339,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </>
             }
           >
-            <div className="w-full max-h-[70vh] flex flex-col gap-3">
+            <div className="w-full h-[62vh] max-h-[600px] min-h-[440px] flex flex-col gap-2.5">
               <div className="flex items-center gap-2 overflow-x-auto pb-1">
                 {([
                   { value: 'product', label: t.assets_tab_products || '商品' },
@@ -3396,14 +3351,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     key={tab.value}
                     type="button"
                     onClick={() => setAssetLibraryTab(tab.value)}
-                    className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
+                    className={`shrink-0 rounded-full border px-5 py-2 text-[14px] font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
                   >
                     {tab.label}
                   </button>
                 ))}
               </div>
 
-              <div className="min-h-[220px] max-h-[52vh] overflow-y-auto custom-scroll pr-1">
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-1">
                 {assetLibraryLoading ? (
                   <div className="h-52 flex items-center justify-center text-zinc-400">
                     <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载中...
@@ -3417,13 +3372,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     暂无素材
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-4 gap-2">
                     {assetLibraryItems.map((asset) => (
                       <button
                         key={asset.id}
                         type="button"
                         onClick={() => selectAssetFromLibraryPopup(asset)}
-                        className="text-left rounded-xl border border-white/10 bg-black/30 p-2 hover:border-orange-500/50 hover:bg-white/5 transition flex flex-col"
+                        className="text-left rounded-lg border border-white/10 bg-black/30 p-1 hover:border-orange-500/50 hover:bg-white/5 transition"
                       >
                         <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
                           {asset.media_kind === 'video' ? (
@@ -3431,11 +3386,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           ) : (
                             <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} />
                           )}
-                          <div className="absolute left-2 top-2 rounded-full border border-white/10 bg-black/50 px-1.5 py-0.5 text-[9px] text-zinc-100">
-                            {asset.media_kind === 'video' ? (t.assets_tab_motion || '动作') : materialTypeLabelMap[assetLibraryTab]}
-                          </div>
                         </div>
-                        <div className="mt-2 text-xs font-bold text-zinc-200 truncate">{asset.name}</div>
+                        <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{asset.name}</div>
                       </button>
                     ))}
                   </div>
@@ -3630,3 +3582,4 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       </div>
   );
 };
+

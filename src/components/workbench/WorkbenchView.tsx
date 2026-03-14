@@ -126,9 +126,7 @@ type LocalProjectStore = {
 const LOCAL_PROJECT_STORE_KEY = 'vflow_workbench_projects_v1';
 const DEFAULT_PROJECT_NAME = 'Project_Alpha_01';
 const MAX_PROJECT_NAME_LENGTH = 30;
-const PROJECT_ACTION_MENU_SAFE_GAP = 8;
-const PROJECT_LIST_BASE_MAX_HEIGHT = 256;
-const PROJECT_LIST_MAX_HEIGHT = 420;
+const PROJECT_ACTION_MENU_RESERVED_SPACE = 60;
 
 const estimateProjectNameWidthEm = (value: string): number => {
   const text = value || '';
@@ -440,7 +438,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectSearch, setProjectSearch] = useState('');
   const [projectActionMenuId, setProjectActionMenuId] = useState<string | null>(null);
-  const [projectListExtraHeight, setProjectListExtraHeight] = useState(0);
   const [isProjectManageMode, setIsProjectManageMode] = useState(false);
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [renameRetryState, setRenameRetryState] = useState<{ projectId: string; originalName: string } | null>(null);
@@ -455,6 +452,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [deleteProjectIds, setDeleteProjectIds] = useState<string[]>([]);
   const projectMenuRef = useRef<HTMLDivElement | null>(null);
   const projectMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const projectActionMenuIdRef = useRef<string | null>(null);
   const projectListRef = useRef<HTMLDivElement | null>(null);
   const isApplyingProjectWorkspaceRef = useRef(false);
   const currentProject = useMemo(
@@ -804,13 +802,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   ]);
 
   useEffect(() => {
+    projectActionMenuIdRef.current = projectActionMenuId;
+  }, [projectActionMenuId]);
+
+  useEffect(() => {
     const onClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
       const withinMenu = projectMenuRef.current?.contains(target);
       const withinButton = projectMenuButtonRef.current?.contains(target);
       if (!withinMenu && !withinButton) {
+        if (projectActionMenuIdRef.current) {
+          setProjectActionMenuId(null);
+          return;
+        }
         setProjectMenuOpen(false);
-        setProjectActionMenuId(null);
       }
     };
     document.addEventListener('mousedown', onClickOutside);
@@ -821,58 +826,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (projectMenuOpen) return;
     setRenamingProjectId(null);
     setRenamingProjectName('');
+    setIsProjectManageMode(false);
+    setSelectedProjectIds([]);
+    setProjectActionMenuId(null);
   }, [projectMenuOpen]);
-
-  useEffect(() => {
-    if (!projectActionMenuId) {
-      if (projectListExtraHeight !== 0) setProjectListExtraHeight(0);
-      return;
-    }
-
-    let cancelled = false;
-    const rafId = requestAnimationFrame(() => {
-      if (cancelled) return;
-      const listEl = projectListRef.current;
-      const menuEl = projectMenuRef.current?.querySelector('[data-project-action-menu="true"]') as HTMLElement | null;
-      if (!listEl || !menuEl) return;
-
-      const listRect = listEl.getBoundingClientRect();
-      const menuRect = menuEl.getBoundingClientRect();
-      const overflow = menuRect.bottom + PROJECT_ACTION_MENU_SAFE_GAP - listRect.bottom;
-      if (overflow <= 0) return;
-
-      const canGrowHeight = listEl.clientHeight + 1 < PROJECT_LIST_MAX_HEIGHT;
-      if (canGrowHeight) {
-        const targetExtra = Math.ceil(projectListExtraHeight + overflow + PROJECT_ACTION_MENU_SAFE_GAP);
-        if (targetExtra > projectListExtraHeight) {
-          setProjectListExtraHeight(targetExtra);
-        }
-        return;
-      }
-
-      requestAnimationFrame(() => {
-        if (cancelled) return;
-        const listEl2 = projectListRef.current;
-        const menuEl2 = projectMenuRef.current?.querySelector('[data-project-action-menu="true"]') as HTMLElement | null;
-        if (!listEl2 || !menuEl2) return;
-
-        const listRect2 = listEl2.getBoundingClientRect();
-        const menuRect2 = menuEl2.getBoundingClientRect();
-        const remaining = menuRect2.bottom + PROJECT_ACTION_MENU_SAFE_GAP - listRect2.bottom;
-        if (remaining > 0) {
-          const maxScrollable2 = Math.max(0, listEl2.scrollHeight - listEl2.clientHeight - listEl2.scrollTop);
-          if (maxScrollable2 > 0) {
-            listEl2.scrollBy({ top: Math.min(remaining, maxScrollable2), behavior: 'auto' });
-          }
-        }
-      });
-    });
-
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(rafId);
-    };
-  }, [projectActionMenuId, projectListExtraHeight]);
 
   useEffect(() => { 
     // Reset or update duration when template changes
@@ -2872,7 +2829,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <div
                     ref={projectListRef}
                     className="overflow-y-auto custom-scroll pr-1"
-                    style={{ maxHeight: projectActionMenuId ? PROJECT_LIST_MAX_HEIGHT : PROJECT_LIST_BASE_MAX_HEIGHT }}
+                    style={{ maxHeight: 256, paddingBottom: PROJECT_ACTION_MENU_RESERVED_SPACE }}
                   >
                     {filteredProjects.length === 0 && (
                       <div className="px-2 py-3 text-xs text-zinc-500">{projectUiText.empty}</div>
@@ -2881,7 +2838,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       const isCurrent = project.id === projectStore.currentProjectId;
                       const isRenaming = renamingProjectId === project.id;
                       return (
-                        <div key={project.id} className="group relative flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5">
+                        <div key={project.id} className="project-menu-item-row group relative flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5">
                           <button
                             type="button"
                             onClick={() => {
@@ -2891,7 +2848,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               }
                               switchProject(project.id);
                             }}
-                            className="flex-1 min-w-0 text-left"
+                            className="project-menu-item-btn flex-1 min-w-0 text-left bg-transparent border-0 appearance-none"
                           >
                             <div className="flex items-center gap-2">
                               {isProjectManageMode && (
@@ -2960,7 +2917,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                   return;
                                 }
 
-                                setProjectListExtraHeight(0);
                                 setProjectActionMenuId(nextId);
                               }}
                               className="opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-400 hover:text-white hover:bg-white/10 transition"
@@ -2998,9 +2954,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         </div>
                       );
                     })}
-                    {!isProjectManageMode && projectActionMenuId && projectListExtraHeight > 0 && (
-                      <div style={{ height: projectListExtraHeight }} aria-hidden />
-                    )}
                   </div>
 
                   <div className="h-px bg-white/10 my-3" />

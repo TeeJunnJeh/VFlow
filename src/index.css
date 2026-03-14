@@ -193,6 +193,13 @@ body {
   background-color: #ffffff !important;
   color: #0f172a !important;
 }
+/* Workbench project list item should stay transparent in light mode */
+.theme-light .project-menu-item-btn {
+  background-color: transparent !important;
+}
+.theme-light .project-menu-item-row:hover {
+  background-color: #ffffff !important;
+}
 .theme-light .glass-card, .theme-light .glass-panel {
   background: rgba(255,255,255,0.85) !important;
   border-color: rgba(15,23,42,0.06) !important;

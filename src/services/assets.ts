@@ -71,6 +71,7 @@ export interface PlazaAssetItem {
   id: string;
   display_name: string;
   category: 'model' | 'product' | 'scene' | 'motion';
+  source_type: 'official' | 'user';
   keywords: string;
   description: string;
   file_url: string;
@@ -80,6 +81,8 @@ export interface PlazaAssetItem {
   collect_count: number;
   is_liked: boolean;
   is_starred: boolean;
+  is_mine: boolean;
+  can_manage: boolean;
   created_at: string;
 }
 
@@ -465,9 +468,10 @@ export const assetsApi = {
     return await response.json();
   },
 
-  getPlazaAssets: async (params?: { category?: 'model' | 'product' | 'scene' | 'motion'; q?: string; limit?: number; offset?: number }) => {
+  getPlazaAssets: async (params?: { category?: 'model' | 'product' | 'scene' | 'motion'; source?: 'all' | 'official' | 'user'; q?: string; limit?: number; offset?: number }) => {
     const search = new URLSearchParams();
     if (params?.category) search.set('category', params.category);
+    if (params?.source) search.set('source', params.source);
     if (params?.q) search.set('q', params.q);
     if (params?.limit) search.set('limit', String(params.limit));
     if (params?.offset) search.set('offset', String(params.offset));
@@ -491,6 +495,7 @@ export const assetsApi = {
         id: String(item.id),
         display_name: String(item.display_name || ''),
         category: String(item.category || 'product') as PlazaAssetItem['category'],
+        source_type: String(item.source_type || 'user') as PlazaAssetItem['source_type'],
         keywords: String(item.keywords || ''),
         description: String(item.description || ''),
         file_url: toDisplayUrl(item.file_url || item.url || ''),
@@ -500,6 +505,8 @@ export const assetsApi = {
         collect_count: Number(item.collect_count || 0),
         is_liked: Boolean(item.is_liked),
         is_starred: Boolean(item.is_starred),
+        is_mine: Boolean(item.is_mine),
+        can_manage: Boolean(item.can_manage),
         created_at: String(item.created_at || ''),
       })) as PlazaAssetItem[],
       total: Number(data.total || 0),
@@ -536,6 +543,81 @@ export const assetsApi = {
       },
       credentials: 'include',
       body: formData,
+    });
+
+    if (!response.ok) throw new Error(await readApiError(response));
+    return await response.json();
+  },
+
+  getPlazaAssetDetail: async (itemId: string) => {
+    const response = await fetch(`${API_BASE_URL}/plaza/${itemId}/`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) throw new Error(await readApiError(response));
+    const json = await response.json();
+    const item = json?.data || {};
+    return {
+      ...json,
+      data: {
+        id: String(item.id || itemId),
+        display_name: String(item.display_name || ''),
+        category: String(item.category || 'product') as PlazaAssetItem['category'],
+        source_type: String(item.source_type || 'user') as PlazaAssetItem['source_type'],
+        keywords: String(item.keywords || ''),
+        description: String(item.description || ''),
+        file_url: toDisplayUrl(item.file_url || item.url || ''),
+        author_name: String(item.author_name || ''),
+        like_count: Number(item.like_count || 0),
+        star_count: Number(item.star_count || 0),
+        collect_count: Number(item.collect_count || 0),
+        is_liked: Boolean(item.is_liked),
+        is_starred: Boolean(item.is_starred),
+        is_mine: Boolean(item.is_mine),
+        can_manage: Boolean(item.can_manage),
+        created_at: String(item.created_at || ''),
+      } as PlazaAssetItem,
+    };
+  },
+
+  updatePlazaAsset: async (itemId: string, payload: {
+    display_name?: string;
+    category?: 'model' | 'product' | 'scene' | 'motion';
+    keywords?: string;
+    description?: string;
+    is_active?: boolean;
+  }) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/plaza/${itemId}/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) throw new Error(await readApiError(response));
+    return await response.json();
+  },
+
+  deletePlazaAsset: async (itemId: string) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/plaza/${itemId}/`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
     });
 
     if (!response.ok) throw new Error(await readApiError(response));

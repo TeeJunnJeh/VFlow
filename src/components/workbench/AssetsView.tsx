@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil, Search, Heart, Star, Download, Library, Globe
+  FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil, Search, Heart, Download, Library, Globe, Info, Settings
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -63,14 +63,20 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [plazaItems, setPlazaItems] = useState<PlazaAssetItem[]>([]);
   const [plazaLoading, setPlazaLoading] = useState(false);
   const [plazaSearch, setPlazaSearch] = useState('');
+  const [plazaSource, setPlazaSource] = useState<'all' | 'official' | 'user'>('all');
   const [plazaCollectPolicy, setPlazaCollectPolicy] = useState<PlazaCollectPolicy>({
     daily_free_limit: 3,
     used_today: 0,
     free_remaining: 3,
     paid_cost_vpoints: 1,
   });
-  const [isPlazaAdmin, setIsPlazaAdmin] = useState(false);
   const [plazaKeywordDraft, setPlazaKeywordDraft] = useState('');
+  const [plazaDetailItem, setPlazaDetailItem] = useState<PlazaAssetItem | null>(null);
+  const [plazaManageItem, setPlazaManageItem] = useState<PlazaAssetItem | null>(null);
+  const [plazaManageName, setPlazaManageName] = useState('');
+  const [plazaManageCategory, setPlazaManageCategory] = useState<AssetType>('product');
+  const [plazaManageKeywords, setPlazaManageKeywords] = useState('');
+  const [isPlazaManaging, setIsPlazaManaging] = useState(false);
   const plazaUploadInputRef = useRef<HTMLInputElement>(null);
   
   // UI State
@@ -162,20 +168,20 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     try {
       const resp = await assetsApi.getPlazaAssets({
         category: activeAssetTab,
+        source: plazaSource,
         q: plazaSearch.trim(),
         limit: 120,
         offset: 0,
       });
       setPlazaItems(resp.items || []);
       setPlazaCollectPolicy(resp.collectPolicy);
-      setIsPlazaAdmin(resp.isAdmin);
     } catch (err) {
       console.error('Failed to load plaza assets', err);
       openInfo(t.assets_confirm_title || 'Notice', String(err instanceof Error ? err.message : err));
     } finally {
       setPlazaLoading(false);
     }
-  }, [activeAssetTab, plazaSearch, t.assets_confirm_title, viewMode]);
+  }, [activeAssetTab, plazaSearch, plazaSource, t.assets_confirm_title, viewMode]);
 
   // --- Effects ---
   useEffect(() => {
@@ -299,6 +305,61 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     } catch (err) {
       await loadPlazaData();
       openInfo(t.assets_confirm_title || 'Notice', String(err instanceof Error ? err.message : err));
+    }
+  };
+
+  const handleOpenPlazaDetail = async (item: PlazaAssetItem) => {
+    try {
+      const resp = await assetsApi.getPlazaAssetDetail(item.id);
+      setPlazaDetailItem((resp?.data || item) as PlazaAssetItem);
+    } catch (err) {
+      openInfo(t.assets_confirm_title || 'Notice', String(err instanceof Error ? err.message : err));
+    }
+  };
+
+  const openPlazaManage = (item: PlazaAssetItem) => {
+    setPlazaManageItem(item);
+    setPlazaManageName(item.display_name || '');
+    setPlazaManageCategory((item.category || 'product') as AssetType);
+    setPlazaManageKeywords(item.keywords || '');
+  };
+
+  const savePlazaManage = async () => {
+    if (!plazaManageItem) return;
+    const nextName = plazaManageName.trim();
+    if (!nextName) {
+      openInfo(t.assets_confirm_title || 'Notice', t.assets_name_label || 'Name');
+      return;
+    }
+    setIsPlazaManaging(true);
+    try {
+      await assetsApi.updatePlazaAsset(plazaManageItem.id, {
+        display_name: nextName,
+        category: plazaManageCategory,
+        keywords: plazaManageKeywords.trim(),
+      });
+      setPlazaManageItem(null);
+      await loadPlazaData();
+      openInfo(t.assets_confirm_title || 'Notice', t.assets_plaza_manage_saved || 'Saved');
+    } catch (err) {
+      openInfo(t.assets_confirm_title || 'Notice', String(err instanceof Error ? err.message : err));
+    } finally {
+      setIsPlazaManaging(false);
+    }
+  };
+
+  const deletePlazaManagedItem = async () => {
+    if (!plazaManageItem) return;
+    setIsPlazaManaging(true);
+    try {
+      await assetsApi.deletePlazaAsset(plazaManageItem.id);
+      setPlazaManageItem(null);
+      await loadPlazaData();
+      openInfo(t.assets_confirm_title || 'Notice', t.assets_plaza_delete_success || 'Deleted');
+    } catch (err) {
+      openInfo(t.assets_confirm_title || 'Notice', String(err instanceof Error ? err.message : err));
+    } finally {
+      setIsPlazaManaging(false);
     }
   };
 
@@ -833,34 +894,32 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                  <div className="text-[11px] px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-zinc-300">
                    {t.assets_plaza_free_hint || '每日前 3 次收集免费，超出后扣 V 点'}: {plazaCollectPolicy.free_remaining}
                  </div>
-                 {isPlazaAdmin && (
-                   <>
-                     <input
-                       type="text"
-                       value={plazaKeywordDraft}
-                       onChange={(e) => setPlazaKeywordDraft(e.target.value)}
-                       placeholder={t.assets_plaza_keywords_placeholder || '上传时附带关键词，逗号分隔'}
-                       className="w-52 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-orange-500"
-                     />
-                     <button
-                       type="button"
-                       onClick={() => plazaUploadInputRef.current?.click()}
-                       className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20"
-                       disabled={plazaLoading}
-                     >
-                       {plazaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                       {t.assets_plaza_upload_btn || '上传到广场'}
-                     </button>
-                     <input
-                       type="file"
-                       ref={plazaUploadInputRef}
-                       className="hidden"
-                       multiple
-                       accept={activeAssetTab === 'motion' ? 'video/*' : 'image/*'}
-                       onChange={(e) => void handleAdminUploadToPlaza(e.target.files)}
-                     />
-                   </>
-                 )}
+                 <>
+                   <input
+                     type="text"
+                     value={plazaKeywordDraft}
+                     onChange={(e) => setPlazaKeywordDraft(e.target.value)}
+                     placeholder={t.assets_plaza_keywords_placeholder || '上传时附带关键词，逗号分隔'}
+                     className="w-52 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-orange-500"
+                   />
+                   <button
+                     type="button"
+                     onClick={() => plazaUploadInputRef.current?.click()}
+                     className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20"
+                     disabled={plazaLoading}
+                   >
+                     {plazaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                     {t.assets_plaza_upload_btn || '上传到广场'}
+                   </button>
+                   <input
+                     type="file"
+                     ref={plazaUploadInputRef}
+                     className="hidden"
+                     multiple
+                     accept={activeAssetTab === 'motion' ? 'video/*' : 'image/*'}
+                     onChange={(e) => void handleAdminUploadToPlaza(e.target.files)}
+                   />
+                 </>
                </>
              )}
           </div>
@@ -1178,6 +1237,22 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                     className="w-full bg-black/40 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-orange-500"
                   />
                 </div>
+                <div className="flex items-center gap-2">
+                  {(['all', 'official', 'user'] as const).map((source) => (
+                    <button
+                      key={source}
+                      type="button"
+                      onClick={() => setPlazaSource(source)}
+                      className={`px-3 py-2 rounded-lg border text-xs font-bold transition ${plazaSource === source ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10'}`}
+                    >
+                      {source === 'all'
+                        ? (t.assets_plaza_source_all || '全部')
+                        : source === 'official'
+                          ? (t.assets_plaza_source_official || '官方')
+                          : (t.assets_plaza_source_user || '用户')}
+                    </button>
+                  ))}
+                </div>
                 <button
                   type="button"
                   onClick={() => void loadPlazaData()}
@@ -1200,7 +1275,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                   <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-6">
                     {plazaItems.map((item) => {
                       const isVideo = item.category === 'motion' || /\.(mp4|mov|mkv|webm|avi)(\?|$)/i.test(item.file_url || '');
-                      const keywords = (item.keywords || '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 3);
+                      const keywords = (item.keywords || '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 2);
                       return (
                         <div key={item.id} className="glass-card rounded-2xl p-2 group relative aspect-[3/4]">
                           <div className="w-full h-full bg-zinc-800 rounded-xl overflow-hidden relative">
@@ -1214,43 +1289,28 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                                 onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }}
                               />
                             )}
-                            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 asset-thumb-fade" />
 
-                            <div className="absolute top-2 right-2 flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => void handlePlazaReaction(item, 'like')}
-                                className={`w-7 h-7 rounded-full border flex items-center justify-center transition ${item.is_liked ? 'border-red-400/70 bg-red-500/20 text-red-300' : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'}`}
-                              >
-                                <Heart className="w-3.5 h-3.5" fill={item.is_liked ? 'currentColor' : 'none'} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void handlePlazaReaction(item, 'star')}
-                                className={`w-7 h-7 rounded-full border flex items-center justify-center transition ${item.is_starred ? 'border-yellow-400/70 bg-yellow-500/20 text-yellow-300' : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'}`}
-                              >
-                                <Star className="w-3.5 h-3.5" fill={item.is_starred ? 'currentColor' : 'none'} />
-                              </button>
+                            <div className="absolute top-2 right-2 flex items-center gap-1 z-20">
+                              <span className="px-1.5 py-0.5 rounded bg-black/50 border border-white/15 text-[10px] text-zinc-100 flex items-center gap-1">
+                                <Heart className="w-3 h-3" />{item.like_count}
+                              </span>
+                              <span className="px-1.5 py-0.5 rounded bg-black/50 border border-white/15 text-[10px] text-zinc-100 flex items-center gap-1">
+                                <Download className="w-3 h-3" />{item.collect_count}
+                              </span>
                             </div>
 
-                            <div className="absolute bottom-2 left-2 right-2 z-20">
+                            <div className="absolute bottom-2 left-2 right-2 z-20 pointer-events-none">
                               <div className="text-xs font-bold text-white truncate">{item.display_name}</div>
-                              <div className="mt-1 text-[10px] text-zinc-200/90 truncate">@{item.author_name || 'admin'}</div>
                               {keywords.length > 0 && (
                                 <div className="mt-1 flex flex-wrap gap-1">
                                   {keywords.map((kw) => (
-                                    <span key={kw} className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 text-[9px] text-zinc-100">{kw}</span>
+                                    <span key={kw} className="px-1.5 py-0.5 rounded bg-black/35 border border-white/10 text-[9px] text-zinc-100">{kw}</span>
                                   ))}
                                 </div>
                               )}
-                              <div className="mt-1.5 flex items-center justify-between text-[10px] text-zinc-200/90">
-                                <span className="flex items-center gap-1"><Heart className="w-3 h-3" />{item.like_count}</span>
-                                <span className="flex items-center gap-1"><Star className="w-3 h-3" />{item.star_count}</span>
-                                <span className="flex items-center gap-1"><Download className="w-3 h-3" />{item.collect_count}</span>
-                              </div>
                             </div>
 
-                            <div className="absolute inset-0 z-10 bg-black/65 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-xl flex flex-col items-center justify-center gap-2 py-4 px-2">
+                            <div className="absolute inset-0 z-10 bg-black/55 backdrop-blur-[1px] opacity-0 group-hover:opacity-100 transition rounded-xl flex flex-col items-center justify-center gap-2 py-4 px-2">
                               <button
                                 type="button"
                                 onClick={() => void handleCollectPlazaItem(item)}
@@ -1258,6 +1318,31 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                               >
                                 {t.assets_plaza_collect_btn || '收集到我的素材库'}
                               </button>
+                              <button
+                                type="button"
+                                onClick={() => void handlePlazaReaction(item, 'like')}
+                                className={`w-full py-2 rounded-lg text-xs font-bold transition shadow-lg ${item.is_liked ? 'bg-red-500/90 text-white hover:bg-red-500' : 'bg-zinc-700 text-white hover:bg-zinc-600'}`}
+                              >
+                                {item.is_liked ? (t.assets_plaza_liked_btn || '已喜欢') : (t.assets_plaza_like_btn || '喜欢')}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleOpenPlazaDetail(item)}
+                                className="w-full bg-zinc-800 text-zinc-100 py-2 rounded-lg text-xs font-bold hover:bg-zinc-700 transition shadow-lg flex items-center justify-center gap-1.5"
+                              >
+                                <Info className="w-3.5 h-3.5" />
+                                {t.assets_plaza_detail_btn || '详细信息'}
+                              </button>
+                              {item.can_manage && (
+                                <button
+                                  type="button"
+                                  onClick={() => openPlazaManage(item)}
+                                  className="w-full bg-zinc-900 text-zinc-100 py-2 rounded-lg text-xs font-bold hover:bg-zinc-700 transition shadow-lg flex items-center justify-center gap-1.5 border border-white/10"
+                                >
+                                  <Settings className="w-3.5 h-3.5" />
+                                  {t.assets_plaza_manage_btn || '管理'}
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1295,6 +1380,109 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                      onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }}
                    />
                  )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 1.5 Plaza Detail Dialog */}
+        {plazaDetailItem && (
+          <div className="fixed inset-0 z-[111] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6" onClick={() => setPlazaDetailItem(null)}>
+            <div className="w-full max-w-xl glass-panel rounded-2xl p-6 border border-white/10" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-zinc-200">{t.assets_plaza_detail_title || '素材详情'}</h3>
+                <button className="text-zinc-400 hover:text-white" onClick={() => setPlazaDetailItem(null)}><X className="w-5 h-5"/></button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-zinc-300">
+                <div>
+                  <div className="text-zinc-500 mb-1">{t.assets_name_label || '名称'}</div>
+                  <div className="text-zinc-100 font-bold break-all">{plazaDetailItem.display_name}</div>
+                </div>
+                <div>
+                  <div className="text-zinc-500 mb-1">{t.assets_plaza_author || '作者'}</div>
+                  <div className="text-zinc-100">@{plazaDetailItem.author_name || 'admin'}</div>
+                </div>
+                <div>
+                  <div className="text-zinc-500 mb-1">{t.assets_tab_products || '分类'}</div>
+                  <div className="text-zinc-100">{assetTabLabel[plazaDetailItem.category as AssetType] || plazaDetailItem.category}</div>
+                </div>
+                <div>
+                  <div className="text-zinc-500 mb-1">{t.assets_plaza_source_label || '来源'}</div>
+                  <div className="text-zinc-100">{plazaDetailItem.source_type === 'official' ? (t.assets_plaza_source_official || '官方') : (t.assets_plaza_source_user || '用户')}</div>
+                </div>
+                <div>
+                  <div className="text-zinc-500 mb-1">{t.assets_plaza_like_btn || '喜欢'}</div>
+                  <div className="text-zinc-100">{plazaDetailItem.like_count}</div>
+                </div>
+                <div>
+                  <div className="text-zinc-500 mb-1">{t.assets_plaza_collect_btn || '收集'}</div>
+                  <div className="text-zinc-100">{plazaDetailItem.collect_count}</div>
+                </div>
+                <div className="md:col-span-2">
+                  <div className="text-zinc-500 mb-1">{t.assets_plaza_keywords_placeholder || '关键词'}</div>
+                  <div className="text-zinc-100 break-all">{plazaDetailItem.keywords || '-'}</div>
+                </div>
+                <div className="md:col-span-2">
+                  <div className="text-zinc-500 mb-1">{t.assets_plaza_desc_label || '描述'}</div>
+                  <div className="text-zinc-100 whitespace-pre-wrap break-words">{plazaDetailItem.description || '-'}</div>
+                </div>
+                <div className="md:col-span-2">
+                  <div className="text-zinc-500 mb-1">{t.assets_plaza_created_at || '创建时间'}</div>
+                  <div className="text-zinc-100">{plazaDetailItem.created_at || '-'}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 1.6 Plaza Manage Dialog */}
+        {plazaManageItem && (
+          <div className="fixed inset-0 z-[111] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6" onClick={() => setPlazaManageItem(null)}>
+            <div className="w-full max-w-lg glass-panel rounded-2xl p-6 border border-white/10" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-zinc-200">{t.assets_plaza_manage_btn || '管理'}</h3>
+                <button className="text-zinc-400 hover:text-white" onClick={() => setPlazaManageItem(null)}><X className="w-5 h-5"/></button>
+              </div>
+              <div className="space-y-3">
+                <input
+                  value={plazaManageName}
+                  onChange={(e) => setPlazaManageName(e.target.value)}
+                  placeholder={t.assets_name_label || '名称'}
+                  className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-orange-500"
+                />
+                <select
+                  value={plazaManageCategory}
+                  onChange={(e) => setPlazaManageCategory(e.target.value as AssetType)}
+                  className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-orange-500"
+                >
+                  {(['model', 'product', 'scene', 'motion'] as AssetType[]).map((cat) => (
+                    <option key={cat} value={cat}>{assetTabLabel[cat] || cat}</option>
+                  ))}
+                </select>
+                <input
+                  value={plazaManageKeywords}
+                  onChange={(e) => setPlazaManageKeywords(e.target.value)}
+                  placeholder={t.assets_plaza_keywords_placeholder || '关键词'}
+                  className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-orange-500"
+                />
+              </div>
+              <div className="flex items-center justify-between mt-5 gap-3">
+                <button
+                  type="button"
+                  disabled={isPlazaManaging}
+                  onClick={() => void deletePlazaManagedItem()}
+                  className="px-4 py-2 rounded-lg text-sm font-bold bg-red-600 text-white hover:bg-red-500 disabled:opacity-60"
+                >
+                  {t.assets_delete || '删除'}
+                </button>
+                <button
+                  type="button"
+                  disabled={isPlazaManaging}
+                  onClick={() => void savePlazaManage()}
+                  className="px-4 py-2 rounded-lg text-sm font-bold bg-orange-600 text-white hover:bg-orange-500 disabled:opacity-60"
+                >
+                  {t.assets_save || '保存'}
+                </button>
               </div>
             </div>
           </div>

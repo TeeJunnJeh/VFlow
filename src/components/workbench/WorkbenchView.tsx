@@ -109,6 +109,7 @@ type ProjectWorkspaceState = {
   scriptVariantCount: number;
   targetLanguage: string;
   creationMode: 'fast' | 'replay';
+  reuseQueueEnabled: boolean;
   scripts: ScriptItem[];
   scriptPages: ScriptPage[];
   activeScriptPage: number;
@@ -168,6 +169,7 @@ const createWorkspaceState = (params?: {
   scriptVariantCount: 1,
   targetLanguage: 'en',
   creationMode: 'fast',
+  reuseQueueEnabled: false,
   scripts: params?.scripts || [],
   scriptPages: [{
     id: 'page-1',
@@ -406,6 +408,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [scriptVariantCount, setScriptVariantCount] = useState<number>(1);
   const [targetLanguage, setTargetLanguage] = useState<string>('en');
   const [creationMode, setCreationMode] = useState<'fast' | 'replay'>('fast');
+  const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
   const lastFastModelRef = useRef<'kling' | 'sora2' | 'sora2pro' | 'seedance2.0'>('kling');
   const templateModelAsset = selectedTemplate?.default_model_asset ?? null;
   const templateMotionAsset = selectedTemplate?.default_motion_asset ?? null;
@@ -420,6 +423,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isSendingDebug, setIsSendingDebug] = useState(false);
   const [debugPayloadText, setDebugPayloadText] = useState('');
   const [debugPreview, setDebugPreview] = useState<GeneratePreviewData | null>(null);
+  const shotTypeOptions = useMemo<Array<{ value: string; label: string }>>(() => ([
+    { value: 'Medium', label: t.wb_shot_type_medium || 'Medium' },
+    { value: 'Detail', label: t.wb_shot_type_detail || 'Detail' },
+    { value: 'Close-up', label: t.wb_shot_type_closeup || 'Close-up' },
+    { value: 'Wide', label: t.wb_shot_type_wide || 'Wide' },
+    { value: 'General', label: t.wb_shot_type_general || 'General' },
+  ]), [
+    t.wb_shot_type_medium,
+    t.wb_shot_type_detail,
+    t.wb_shot_type_closeup,
+    t.wb_shot_type_wide,
+    t.wb_shot_type_general,
+  ]);
 
   // Video Player State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -566,6 +582,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setScriptVariantCount(typeof workspace.scriptVariantCount === 'number' ? workspace.scriptVariantCount : 1);
     setTargetLanguage(workspace.targetLanguage || 'en');
     setCreationMode(workspace.creationMode || 'fast');
+    setReuseQueueEnabled(!!workspace.reuseQueueEnabled);
     setScripts(Array.isArray(workspace.scripts) ? workspace.scripts : []);
     setScriptPages(Array.isArray(workspace.scriptPages) && workspace.scriptPages.length > 0 ? workspace.scriptPages : [{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: [] }]);
     setActiveScriptPage(typeof workspace.activeScriptPage === 'number' ? workspace.activeScriptPage : 0);
@@ -786,6 +803,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       scriptVariantCount,
       targetLanguage,
       creationMode,
+      reuseQueueEnabled,
       scripts,
       scriptPages,
       activeScriptPage,
@@ -823,6 +841,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     scriptVariantCount,
     targetLanguage,
     creationMode,
+    reuseQueueEnabled,
     scripts,
     scriptPages,
     activeScriptPage,
@@ -1136,6 +1155,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return total + (parseFloat(s.dur.replace('s', '')) || 0);
   }, 0);
   const isDurationValid = Math.abs(currentScriptDuration - genDuration) < 0.1;
+  const hasAnyReuseQueue = assetQueue.length > 0 || scriptQueue.length > 0;
   const isReuseReady = assetQueue.length > 0 && scriptQueue.length > 0;
   const expectedBatchCount = isReuseReady ? assetQueue.length * scriptQueue.length : 0;
   const hasCurrentAsset = Boolean(uploadedFile || selectedAssetUrl || selectedFileObj);
@@ -1147,7 +1167,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const videoFormats = VIDEO_EXTS.join('/');
   const audioFormats = AUDIO_EXTS.join('/');
   const formatHint = `图片(${imageFormats}) 视频(${videoFormats}) 音频(${audioFormats}) · ≤1GB`;
-  const isBatchDebugMode = assetQueue.length > 0 || scriptQueue.length > 0;
+  const isBatchDebugMode = reuseQueueEnabled && hasAnyReuseQueue;
   const materialTypeLabelMap: Record<AssetLibraryTab, string> = {
     product: t.assets_tab_products || '商品',
     model: t.assets_tab_models || '模特',
@@ -1701,6 +1721,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setScripts(newScripts);
   };
 
+  const handleScriptTypeChange = (id: number, newType: string) => {
+    const normalizedType = newType.trim() || 'Medium';
+    const newScripts = scripts.map((item) => (item.id === id ? { ...item, type: normalizedType } : item));
+    updateScripts(newScripts);
+  };
+
   const updateScripts = (newScripts: ScriptItem[]) => {
     setScripts(newScripts);
     setScriptPages(prev => {
@@ -1920,7 +1946,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const buildScriptsFromShots = (shots: any[]) => shots.map((shot: any) => ({
         id: shot.shot_index,
         shot: shot.shot_index.toString(),
-        type: 'General',
+        type: shot.type || 'Medium',
         dur: `${shot.duration_sec}s`,
         visual: shot.visual,
         audio: shot.audio || shot.voiceover || shot.beat
@@ -2034,7 +2060,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           const validScripts = parsed.map((item: any, idx: number) => ({
             id: item.id || Date.now() + idx,
             shot: item.shot || (idx + 1).toString(),
-            type: item.type || 'General',
+            type: item.type || 'Medium',
             dur: item.dur || '2s',
             visual: item.visual || '',
             audio: item.audio || ''
@@ -2115,9 +2141,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const validateGenerateRequirements = () => {
     const issues: string[] = [];
 
-    if (assetQueue.length > 0 || scriptQueue.length > 0) {
+    if (reuseQueueEnabled) {
+      if (assetQueue.length === 0 && scriptQueue.length === 0) {
+        issues.push(t.wb_reuse_queue_enable_hint || '复用队列模式已开启，请先加入素材队列和脚本队列，或关闭复用队列模式。');
+      }
       if (assetQueue.length === 0 || scriptQueue.length === 0) {
-        issues.push('复用队列：批量生成需要同时加入素材队列和脚本队列。');
+        issues.push(t.wb_reuse_queue_pairing_hint || '复用队列：批量生成需要同时加入素材队列和脚本队列。');
       }
       if (!user?.id) {
         issues.push('账号：请先登录后再发起批量生成。');
@@ -2155,7 +2184,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
 
     // 1. Batch Generation (Reuse Queue)
-    if (assetQueue.length > 0 || scriptQueue.length > 0) {
+    if (reuseQueueEnabled) {
       setIsGenerating(true);
       setGeneratedVideoUrl(null);
 
@@ -2958,8 +2987,38 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
           {/* Reuse Queues Section (Restored Buttons) */}
           <div className="flex flex-col gap-3">
-            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> {t.wb_reuse_queue}</h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> {t.wb_reuse_queue}</h2>
+              <button
+                type="button"
+                onClick={() => setReuseQueueEnabled((prev) => !prev)}
+                className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold transition ${reuseQueueEnabled ? 'border-orange-500/60 bg-orange-500/15 text-orange-300' : 'border-white/10 bg-black/40 text-zinc-400 hover:bg-white/5'}`}
+              >
+                {reuseQueueEnabled ? (t.wb_reuse_queue_mode_on || '已开启') : (t.wb_reuse_queue_mode_off || '已关闭')}
+              </button>
+            </div>
             <div className="glass-panel rounded-xl p-4 flex flex-col gap-4">
+              <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2.5">
+                <div className="flex items-center gap-2 text-[11px] font-bold text-zinc-200">
+                  <Info className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>{t.wb_reuse_queue_explain_title || '复用队列怎么用？'}</span>
+                </div>
+                <p className="mt-1 text-[10px] leading-relaxed text-zinc-400">
+                  {t.wb_reuse_queue_explain_desc || '用于批量复用生成：系统会将素材队列和脚本队列做笛卡尔组合（素材 × 脚本）逐条提交任务。'}
+                </p>
+                <p className={`mt-1 text-[10px] ${reuseQueueEnabled ? 'text-orange-300' : 'text-zinc-500'}`}>
+                  {reuseQueueEnabled
+                    ? (t.wb_reuse_queue_enable_hint || '当前为批量模式：请把素材和脚本分别加入队列再生成。')
+                    : (t.wb_reuse_queue_disable_hint || '当前为单次模式：开启后才显示队列内容，适合大量复用场景。')}
+                </p>
+              </div>
+
+              {!reuseQueueEnabled ? (
+                <div className="text-[10px] text-zinc-500 border border-dashed border-white/10 rounded-lg px-3 py-2.5">
+                  {t.wb_reuse_queue_collapsed_hint || '复用队列已折叠。点击右上角按钮开启后即可维护队列。'}
+                </div>
+              ) : (
+                <>
               {/* Asset Queue */}
               <div className="flex items-center justify-between">
                 <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_asset_queue}</div>
@@ -3044,6 +3103,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <div className="text-[10px] text-zinc-500 pt-2 border-t border-white/5">
                 {t.wb_estimated_generate}: {assetQueue.length} × {scriptQueue.length} = {expectedBatchCount}
               </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -3881,7 +3942,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         <div className="flex justify-between items-start mb-3">
                             <div className="flex items-center gap-2">
                                 <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
-                                <span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.type}</span>
+                                <select
+                                  value={script.type}
+                                  onChange={(e) => handleScriptTypeChange(script.id, e.target.value)}
+                                  className="text-[10px] text-zinc-300 border border-white/10 px-1.5 py-0.5 rounded bg-black/40 focus:outline-none focus:border-orange-500"
+                                  title={t.wb_shot_type_label || '镜头类型'}
+                                >
+                                  {shotTypeOptions.map((option) => (
+                                    <option key={option.value} value={option.value} className="bg-black text-zinc-100">
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
                                 <input type="number" step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
                                 <span className="text-[10px] text-zinc-500">s</span>
                               </div>

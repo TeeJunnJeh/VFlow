@@ -1094,18 +1094,36 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const assetUrl = asset.file_url || null;
     if (!assetUrl) return;
     const source: 'product' | 'preference' = asset.media_kind === 'video' ? 'preference' : 'product';
+    const nextMaterialType: AssetLibraryTab = asset.media_kind === 'video' ? 'motion' : assetLibraryTab;
+    const queueId = `lib-${asset.id}`;
+    const queuedAsset: QueuedAsset = {
+      id: queueId,
+      name: asset.name || '未命名素材',
+      previewUrl: assetUrl,
+      fileObj: null,
+      assetUrl,
+      source,
+      materialType: nextMaterialType,
+      isPrimaryFrame: source === 'product',
+      mediaKind: inferMediaKind({ name: asset.name || '', url: assetUrl }),
+      uploadedPath: assetUrl,
+    };
+
+    setAssetQueue(prev => {
+      const exists = prev.some((item) => item.id === queueId);
+      if (exists) return prev;
+      return [...prev, queuedAsset];
+    });
 
     setUploadedFile(assetUrl);
     setSelectedAssetUrl(assetUrl);
     setLastUploadedUrl(assetUrl);
     setSelectedFileObj(null);
-    setFileName(asset.name || '未命名素材');
+    setFileName(queuedAsset.name);
     setSelectedAssetSource(source);
-    setCurrentMaterialType(asset.media_kind === 'video' ? 'motion' : assetLibraryTab);
-    setSelectedQueueAssetId(null);
+    setCurrentMaterialType(nextMaterialType);
+    setSelectedQueueAssetId(queueId);
     setGeneratedVideoUrl(null);
-    setAssetQueue(prev => prev.map(item => ({ ...item, isPrimaryFrame: false })));
-    setIsAssetLibraryOpen(false);
   };
 
   // Duration Logic

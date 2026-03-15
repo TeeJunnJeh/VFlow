@@ -210,7 +210,7 @@ export const translations = {
 
     // --- ASSETS VIEW ---
     assets_title: "Asset Hub",
-    assets_subtitle: "Manage models, products and scenes",
+    assets_subtitle: "Manage models, products, scenes and motions",
     assets_btn_new_folder: "New Folder",
     assets_root: "Root",
     assets_new_folder_prompt: "Folder name",
@@ -611,7 +611,7 @@ export const translations = {
     wb_batch_no_results: "暂无结果",
 
     assets_title: "素材库",
-    assets_subtitle: "管理模特、商品及场景素材",
+    assets_subtitle: "管理模特、商品、场景及动作素材",
     assets_btn_new_folder: "新建文件夹",
     assets_root: "根目录",
     assets_new_folder_prompt: "文件夹名称",
@@ -1015,7 +1015,7 @@ export const translations = {
 
     // Assets
     assets_title: "Hab Aset",
-    assets_subtitle: "Urus model, produk dan babak",
+    assets_subtitle: "Urus model, produk, adegan dan gerakan",
     assets_btn_new_folder: "Folder Baru",
     assets_root: "Akar",
     assets_new_folder_prompt: "Nama folder",
@@ -1386,7 +1386,7 @@ export const translations = {
 
     // Assets
     assets_title: "Kho tài nguyên",
-    assets_subtitle: "Quản lý người mẫu, sản phẩm và bối cảnh",
+    assets_subtitle: "Quản lý người mẫu, sản phẩm, bối cảnh và chuyển động",
     assets_btn_new_folder: "Thư mục mới",
     assets_root: "Gốc",
     assets_new_folder_prompt: "Tên thư mục",
@@ -1767,7 +1767,7 @@ export const translations = {
 
     // Assets
     assets_title: "에셋 허브",
-    assets_subtitle: "모델, 제품 및 장면 관리",
+    assets_subtitle: "모델, 제품, 장면 및 모션 관리",
     assets_btn_new_folder: "새 폴더",
     assets_root: "루트",
     assets_new_folder_prompt: "폴더 이름",

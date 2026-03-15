@@ -89,15 +89,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
 
   const handleChangePassword = async () => {
     if (requiresCurrentPassword && !currentPassword) {
-      openInfo('Error', '请填写当前密码');
+      openInfo('Error', t.profile_err_fill_current_password || '请填写当前密码');
       return;
     }
     if (!nextPassword) {
-      openInfo('Error', '请输入新密码');
+      openInfo('Error', t.profile_err_fill_new_password || '请输入新密码');
       return;
     }
     if (nextPassword !== confirmNextPassword) {
-      openInfo('Error', '两次输入的新密码不一致');
+      openInfo('Error', t.profile_err_password_mismatch || '两次输入的新密码不一致');
       return;
     }
 
@@ -111,9 +111,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
       updateUser({ hasPassword: true });
       setIsPasswordDialogOpen(false);
       resetPasswordForm();
-      openInfo('Success', '密码修改成功');
+      openInfo('Success', t.profile_password_change_success || '密码修改成功');
     } catch (err: any) {
-      openInfo('Error', err?.message || '修改密码失败');
+      openInfo('Error', err?.message || t.profile_password_change_failed || '修改密码失败');
     } finally {
       setIsChangingPassword(false);
     }
@@ -251,14 +251,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                               <div className="text-xs font-bold text-zinc-600 mb-1">LIMIT: {user?.plan === 'pro' ? '∞' : user?.plan === 'plus' ? 500 : 100} V</div>
                               <button
                                 onClick={() => setShowBilling(true)}
-                                className="text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full border border-cyan-400/40 text-cyan-100 bg-cyan-500/20 hover:bg-cyan-500/30 shadow-[0_0_20px_rgba(34,211,238,0.22)] hover:shadow-[0_0_24px_rgba(34,211,238,0.35)] transition"
+                                className="text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full border border-yellow-400/40 text-yellow-100 bg-yellow-500/20 hover:bg-yellow-500/30 shadow-[0_0_20px_rgba(250,204,21,0.20)] hover:shadow-[0_0_24px_rgba(250,204,21,0.30)] transition"
                               >
                                 {t.profile_billing_title || '账单明细'}
                               </button>
                             </div>
                         </div>
                         <div className="h-4 w-full bg-zinc-900 rounded-full border border-white/5 p-1 overflow-hidden">
-                            <div className={`h-full rounded-full transition-all duration-1000 ease-out relative ${user?.plan === 'pro' ? 'bg-gradient-to-r from-purple-600 via-orange-500 to-yellow-400' : user?.plan === 'plus' ? 'bg-gradient-to-r from-blue-700 via-indigo-500 to-cyan-400' : 'bg-gradient-to-r from-zinc-700 via-zinc-500 to-emerald-500/50'}`} style={{ width: `${user?.plan === 'pro' ? 100 : Math.min(((user?.credits || 0) / (user?.plan === 'plus' ? 500 : 100)) * 100, 100)}%` }}>
+                            <div className={`h-full rounded-full transition-all duration-1000 ease-out relative ${user?.plan === 'pro' ? 'bg-gradient-to-r from-purple-600 via-orange-500 to-yellow-400' : user?.plan === 'plus' ? 'bg-gradient-to-r from-blue-700 via-indigo-500 to-yellow-400' : 'bg-gradient-to-r from-zinc-700 via-zinc-500 to-yellow-500/70'}`} style={{ width: `${user?.plan === 'pro' ? 100 : Math.min(((user?.credits || 0) / (user?.plan === 'plus' ? 500 : 100)) * 100, 100)}%` }}>
                                 <div className="absolute inset-0 bg-white/10 animate-pulse" />
                             </div>
                         </div>
@@ -281,7 +281,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                          </div>
                          <button
                            onClick={() => setShowBilling(false)}
-                           className="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border border-cyan-400/30 text-cyan-100/90 bg-cyan-500/10 hover:bg-cyan-500/20 transition"
+                           className="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border border-yellow-400/30 text-yellow-100/90 bg-yellow-500/10 hover:bg-yellow-500/20 transition"
                          >
                            {t.profile_back || '返回'}
                          </button>
@@ -313,16 +313,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                                 </div>
                               ))
                             ) : (
-                              <div className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 p-4 flex items-center justify-between">
+                              <div className="rounded-xl border border-yellow-400/30 bg-yellow-500/10 p-4 flex items-center justify-between">
                                 <div className="flex flex-col">
-                                  <span className="text-sm font-semibold text-cyan-100">
+                                  <span className="text-sm font-semibold text-yellow-100">
                                     {t.profile_billing_empty || '暂无消费记录'}
                                   </span>
-                                  <span className="text-[11px] text-cyan-100/60">
+                                  <span className="text-[11px] text-yellow-100/60">
                                     {t.profile_billing_recent || 'recent'}
                                   </span>
                                 </div>
-                                <div className="text-lg font-black text-cyan-200">0</div>
+                                <div className="text-lg font-black text-yellow-200">0</div>
                               </div>
                             )}
                           </div>
@@ -351,8 +351,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                       <div className="flex items-center gap-4">
                           <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/password:text-orange-500 transition-colors"><KeyRound className="w-6 h-6" /></div>
                           <div className="text-left">
-                              <div className="text-base font-bold text-white">修改密码</div>
-                              <div className="text-xs text-zinc-600 mt-0.5">支持密码登录账号管理</div>
+                              <div className="text-base font-bold text-white">{t.profile_change_password_title || '修改密码'}</div>
+                              <div className="text-xs text-zinc-600 mt-0.5">{t.profile_change_password_desc || '支持密码登录账号管理'}</div>
                           </div>
                       </div>
                   </button>
@@ -373,7 +373,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
        {isPasswordDialogOpen && (
          <AppDialog
            isOpen={isPasswordDialogOpen}
-           title="修改密码"
+           title={t.profile_change_password_title || '修改密码'}
            onClose={() => {
              setIsPasswordDialogOpen(false);
              resetPasswordForm();

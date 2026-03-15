@@ -2891,7 +2891,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               }}
               className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
             >
-              从本地上传素材
+              {t.wb_btn_upload_local_asset || '从本地上传素材'}
             </button>
             <button
               type="button"
@@ -2901,7 +2901,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               }}
               className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
             >
-              从素材库选择素材
+              {t.wb_btn_choose_from_library || '从素材库选择素材'}
             </button>
           </div>
 
@@ -3680,7 +3680,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           <AppDialog
             isOpen={isAssetLibraryOpen}
             titleClassName="text-lg"
-            title="从素材库选择"
+            title={t.wb_dialog_choose_from_library || '从素材库选择'}
             onClose={() => setIsAssetLibraryOpen(false)}
             widthClassName="max-w-[min(92vw,980px)]"
             footer={

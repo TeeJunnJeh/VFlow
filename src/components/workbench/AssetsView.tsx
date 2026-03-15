@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil
+  FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil, Search, Heart, Star, Download, Library, Globe
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
-import { assetsApi, type Asset, type AssetFolder } from '../../services/assets';
+import { useAuth } from '../../context/AuthContext';
+import { assetsApi, type Asset, type AssetFolder, type PlazaAssetItem, type PlazaCollectPolicy } from '../../services/assets';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 
 type AssetType = 'model' | 'product' | 'scene' | 'motion';
@@ -22,6 +23,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   setCurrentFolderId 
 }) => {
   const { t } = useLanguage();
+  const { updateUser } = useAuth();
   const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
   const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
   const VIDEO_EXTS = ['mp4', 'mov', 'mkv', 'webm', 'avi'];
@@ -47,6 +49,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     scene: t.assets_tab_scenes,
     motion: t.assets_tab_motion
   };
+
+  const [viewMode, setViewMode] = useState<'library' | 'plaza'>('library');
   
   // Data State
   const [assetList, setAssetList] = useState<Asset[]>([]);
@@ -56,6 +60,18 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [activeAssetTab, setActiveAssetTab] = useState<AssetType>('product');
   const [isUploading, setIsUploading] = useState(false);
   const [isDragUploadActive, setIsDragUploadActive] = useState(false);
+  const [plazaItems, setPlazaItems] = useState<PlazaAssetItem[]>([]);
+  const [plazaLoading, setPlazaLoading] = useState(false);
+  const [plazaSearch, setPlazaSearch] = useState('');
+  const [plazaCollectPolicy, setPlazaCollectPolicy] = useState<PlazaCollectPolicy>({
+    daily_free_limit: 3,
+    used_today: 0,
+    free_remaining: 3,
+    paid_cost_vpoints: 1,
+  });
+  const [isPlazaAdmin, setIsPlazaAdmin] = useState(false);
+  const [plazaKeywordDraft, setPlazaKeywordDraft] = useState('');
+  const plazaUploadInputRef = useRef<HTMLInputElement>(null);
   
   // UI State
   const [openFolderMenuId, setOpenFolderMenuId] = useState<string | null>(null);
@@ -123,6 +139,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
   // --- API Loaders ---
   const loadData = useCallback(async () => {
+    if (viewMode !== 'library') return;
     setIsLoading(true);
     try {
       const [assets, folderData] = await Promise.all([
@@ -137,17 +154,40 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [activeAssetTab, currentFolderId]);
+  }, [activeAssetTab, currentFolderId, viewMode]);
+
+  const loadPlazaData = useCallback(async () => {
+    if (viewMode !== 'plaza') return;
+    setPlazaLoading(true);
+    try {
+      const resp = await assetsApi.getPlazaAssets({
+        category: activeAssetTab,
+        q: plazaSearch.trim(),
+        limit: 120,
+        offset: 0,
+      });
+      setPlazaItems(resp.items || []);
+      setPlazaCollectPolicy(resp.collectPolicy);
+      setIsPlazaAdmin(resp.isAdmin);
+    } catch (err) {
+      console.error('Failed to load plaza assets', err);
+      openInfo(t.assets_confirm_title || 'Notice', String(err instanceof Error ? err.message : err));
+    } finally {
+      setPlazaLoading(false);
+    }
+  }, [activeAssetTab, plazaSearch, t.assets_confirm_title, viewMode]);
 
   // --- Effects ---
   useEffect(() => {
-    void loadData();
-    // Close menus when tab changes
-    setOpenFolderMenuId(null); 
-    // Reset selection when scope changes
-    setIsSelectionMode(false);
-    setSelectedAssetIds(new Set());
-  }, [loadData]);
+    if (viewMode === 'library') {
+      void loadData();
+      setOpenFolderMenuId(null);
+      setIsSelectionMode(false);
+      setSelectedAssetIds(new Set());
+      return;
+    }
+    void loadPlazaData();
+  }, [loadData, loadPlazaData, viewMode]);
 
   useEffect(() => {
     if (isFolderModalOpen) {
@@ -221,6 +261,94 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     setIsDragUploadActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       await uploadFiles(e.dataTransfer.files);
+    }
+  };
+
+  const handlePlazaReaction = async (item: PlazaAssetItem, action: 'like' | 'star') => {
+    const nextValue = action === 'like' ? !item.is_liked : !item.is_starred;
+    setPlazaItems(prev => prev.map((it) => {
+      if (it.id !== item.id) return it;
+      if (action === 'like') {
+        return {
+          ...it,
+          is_liked: nextValue,
+          like_count: Math.max(0, it.like_count + (nextValue ? 1 : -1)),
+        };
+      }
+      return {
+        ...it,
+        is_starred: nextValue,
+        star_count: Math.max(0, it.star_count + (nextValue ? 1 : -1)),
+      };
+    }));
+
+    try {
+      const resp = await assetsApi.setPlazaReaction(item.id, action, nextValue);
+      const data = resp?.data || {};
+      setPlazaItems(prev => prev.map((it) => (
+        it.id === item.id
+          ? {
+              ...it,
+              is_liked: Boolean(data.is_liked),
+              is_starred: Boolean(data.is_starred),
+              like_count: Number(data.like_count ?? it.like_count),
+              star_count: Number(data.star_count ?? it.star_count),
+            }
+          : it
+      )));
+    } catch (err) {
+      await loadPlazaData();
+      openInfo(t.assets_confirm_title || 'Notice', String(err instanceof Error ? err.message : err));
+    }
+  };
+
+  const handleCollectPlazaItem = async (item: PlazaAssetItem) => {
+    try {
+      const resp = await assetsApi.collectPlazaAsset(item.id, null);
+      const data = resp?.data || {};
+      const charged = Number(data.charged_vpoints || 0);
+      const freeRemaining = Number(data.free_remaining ?? plazaCollectPolicy.free_remaining);
+      const balance = Number(data.balance);
+
+      setPlazaItems(prev => prev.map((it) => (
+        it.id === item.id
+          ? { ...it, collect_count: Math.max(it.collect_count, Number(data.collect_count || it.collect_count)) }
+          : it
+      )));
+      setPlazaCollectPolicy(prev => ({ ...prev, free_remaining: freeRemaining }));
+
+      if (!Number.isNaN(balance)) {
+        updateUser({ credits: balance });
+      }
+
+      if (charged > 0) {
+        openInfo(t.assets_confirm_title || 'Notice', `${t.assets_plaza_collect_success_paid || 'Collect success, V-points deducted'}: -${charged}`);
+      } else {
+        openInfo(t.assets_confirm_title || 'Notice', t.assets_plaza_collect_success_free || 'Collect success (free quota used)');
+      }
+    } catch (err) {
+      openInfo(t.assets_confirm_title || 'Notice', String(err instanceof Error ? err.message : err));
+    }
+  };
+
+  const handleAdminUploadToPlaza = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const list = Array.from(files);
+    setPlazaLoading(true);
+    try {
+      await Promise.all(list.map((file) => assetsApi.uploadPlazaAsset({
+        file,
+        category: activeAssetTab,
+        keywords: plazaKeywordDraft,
+      })));
+      setPlazaKeywordDraft('');
+      await loadPlazaData();
+      openInfo(t.assets_confirm_title || 'Notice', t.assets_plaza_upload_success || 'Plaza upload complete');
+    } catch (err) {
+      openInfo(t.assets_confirm_title || 'Notice', String(err instanceof Error ? err.message : err));
+    } finally {
+      setPlazaLoading(false);
+      if (plazaUploadInputRef.current) plazaUploadInputRef.current.value = '';
     }
   };
 
@@ -662,26 +790,85 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
           </div>
         )}
        <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
-          <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.assets_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.assets_subtitle}</p></div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{viewMode === 'library' ? t.assets_title : (t.assets_plaza_title || '素材广场')}</h1>
+            <p className="text-zinc-500 text-xs mt-1">{viewMode === 'library' ? t.assets_subtitle : (t.assets_plaza_subtitle || '全站可见，收藏后进入个人素材库')}</p>
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setViewMode('library')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition flex items-center gap-1.5 ${viewMode === 'library' ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10'}`}
+              >
+                <Library className="w-3.5 h-3.5" />
+                {t.assets_title}
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('plaza')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition flex items-center gap-1.5 ${viewMode === 'plaza' ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10'}`}
+              >
+                <Globe className="w-3.5 h-3.5" />
+                {t.assets_plaza_title || '素材广场'}
+              </button>
+            </div>
+          </div>
           <div className="flex gap-3 items-center">
              <LanguageSwitcher />
-             <button onClick={openCreateFolderModal} className="bg-zinc-800 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-zinc-700 transition flex items-center gap-2"><FolderPlus className="w-4 h-4" /> {t.assets_btn_new_folder}</button>
-             <div className="relative group">
-               <button onClick={() => assetInputRef.current?.click()} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20" disabled={isUploading}>
-                  {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} {t.assets_btn_upload}
-               </button>
-               <div className="absolute right-0 top-12 z-50 w-max max-w-[360px] rounded-xl border border-white/10 bg-zinc-900/95 px-3 py-2 text-[10px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover:opacity-100 hover:opacity-100">
-                 <div className="text-[11px] font-bold text-white mb-1">{t.assets_upload_formats_title}</div>
-                 <div className="whitespace-pre-line text-zinc-300 leading-relaxed">{formatHint}</div>
-               </div>
-             </div>
-             <input type="file" ref={assetInputRef} className="hidden" multiple accept="image/*,video/*,audio/*" onChange={handleAssetUpload} />
+             {viewMode === 'library' ? (
+               <>
+                 <button onClick={openCreateFolderModal} className="bg-zinc-800 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-zinc-700 transition flex items-center gap-2"><FolderPlus className="w-4 h-4" /> {t.assets_btn_new_folder}</button>
+                 <div className="relative group">
+                   <button onClick={() => assetInputRef.current?.click()} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20" disabled={isUploading}>
+                      {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} {t.assets_btn_upload}
+                   </button>
+                   <div className="absolute right-0 top-12 z-50 w-max max-w-[360px] rounded-xl border border-white/10 bg-zinc-900/95 px-3 py-2 text-[10px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover:opacity-100 hover:opacity-100">
+                     <div className="text-[11px] font-bold text-white mb-1">{t.assets_upload_formats_title}</div>
+                     <div className="whitespace-pre-line text-zinc-300 leading-relaxed">{formatHint}</div>
+                   </div>
+                 </div>
+                 <input type="file" ref={assetInputRef} className="hidden" multiple accept="image/*,video/*,audio/*" onChange={handleAssetUpload} />
+               </>
+             ) : (
+               <>
+                 <div className="text-[11px] px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-zinc-300">
+                   {t.assets_plaza_free_hint || '每日前 3 次收集免费，超出后扣 V 点'}: {plazaCollectPolicy.free_remaining}
+                 </div>
+                 {isPlazaAdmin && (
+                   <>
+                     <input
+                       type="text"
+                       value={plazaKeywordDraft}
+                       onChange={(e) => setPlazaKeywordDraft(e.target.value)}
+                       placeholder={t.assets_plaza_keywords_placeholder || '上传时附带关键词，逗号分隔'}
+                       className="w-52 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-orange-500"
+                     />
+                     <button
+                       type="button"
+                       onClick={() => plazaUploadInputRef.current?.click()}
+                       className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20"
+                       disabled={plazaLoading}
+                     >
+                       {plazaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                       {t.assets_plaza_upload_btn || '上传到广场'}
+                     </button>
+                     <input
+                       type="file"
+                       ref={plazaUploadInputRef}
+                       className="hidden"
+                       multiple
+                       accept={activeAssetTab === 'motion' ? 'video/*' : 'image/*'}
+                       onChange={(e) => void handleAdminUploadToPlaza(e.target.files)}
+                     />
+                   </>
+                 )}
+               </>
+             )}
           </div>
        </header>
 
        <div className="flex-1 flex flex-col px-10 pt-4 pb-10 overflow-hidden">
-          {/* Tabs */}
-          <div className="flex gap-4 mb-8 border-b border-white/5 pb-2">
+         {/* Tabs */}
+         <div className="flex gap-4 mb-8 border-b border-white/5 pb-2">
              {(['model', 'product', 'scene', 'motion'] as AssetType[]).map(type => (
                 <button
                   key={type}
@@ -697,7 +884,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                 </button>
              ))}
           </div>
-          
+
+         {viewMode === 'library' ? (
+          <>
            {/* Breadcrumb */}
             <div className="flex items-center justify-between gap-4 mb-4">
               <div className="flex items-center gap-2 text-xs text-zinc-500 min-w-0">
@@ -971,6 +1160,114 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                  </div>
               )}
            </div>
+          </>
+          ) : (
+            <>
+              <div className="mb-4 flex items-center gap-3">
+                <div className="relative w-full max-w-md">
+                  <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    value={plazaSearch}
+                    onChange={(e) => setPlazaSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        void loadPlazaData();
+                      }
+                    }}
+                    placeholder={t.assets_plaza_search_placeholder || '检索名称/关键词/作者'}
+                    className="w-full bg-black/40 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-orange-500"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadPlazaData()}
+                  className="px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10"
+                >
+                  {t.hist_retry || '重试'}
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto custom-scroll">
+                {plazaLoading ? (
+                  <div className="h-56 flex items-center justify-center text-zinc-400">
+                    <Loader2 className="w-5 h-5 animate-spin mr-2" /> {t.wb_debug_loading || 'Loading...'}
+                  </div>
+                ) : plazaItems.length === 0 ? (
+                  <div className="h-56 flex items-center justify-center text-zinc-500 text-sm">
+                    {t.wb_empty_assets || '暂无素材'}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-6">
+                    {plazaItems.map((item) => {
+                      const isVideo = item.category === 'motion' || /\.(mp4|mov|mkv|webm|avi)(\?|$)/i.test(item.file_url || '');
+                      const keywords = (item.keywords || '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 3);
+                      return (
+                        <div key={item.id} className="glass-card rounded-2xl p-2 group relative aspect-[3/4]">
+                          <div className="w-full h-full bg-zinc-800 rounded-xl overflow-hidden relative">
+                            {isVideo ? (
+                              <video src={item.file_url} className="absolute inset-0 w-full h-full object-cover" muted playsInline preload="metadata" />
+                            ) : (
+                              <img
+                                src={item.file_url || ASSET_PLACEHOLDER_DATA_URL}
+                                className="absolute inset-0 w-full h-full object-cover"
+                                alt={item.display_name}
+                                onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }}
+                              />
+                            )}
+                            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 asset-thumb-fade" />
+
+                            <div className="absolute top-2 right-2 flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => void handlePlazaReaction(item, 'like')}
+                                className={`w-7 h-7 rounded-full border flex items-center justify-center transition ${item.is_liked ? 'border-red-400/70 bg-red-500/20 text-red-300' : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'}`}
+                              >
+                                <Heart className="w-3.5 h-3.5" fill={item.is_liked ? 'currentColor' : 'none'} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handlePlazaReaction(item, 'star')}
+                                className={`w-7 h-7 rounded-full border flex items-center justify-center transition ${item.is_starred ? 'border-yellow-400/70 bg-yellow-500/20 text-yellow-300' : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'}`}
+                              >
+                                <Star className="w-3.5 h-3.5" fill={item.is_starred ? 'currentColor' : 'none'} />
+                              </button>
+                            </div>
+
+                            <div className="absolute bottom-2 left-2 right-2 z-20">
+                              <div className="text-xs font-bold text-white truncate">{item.display_name}</div>
+                              <div className="mt-1 text-[10px] text-zinc-200/90 truncate">@{item.author_name || 'admin'}</div>
+                              {keywords.length > 0 && (
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {keywords.map((kw) => (
+                                    <span key={kw} className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 text-[9px] text-zinc-100">{kw}</span>
+                                  ))}
+                                </div>
+                              )}
+                              <div className="mt-1.5 flex items-center justify-between text-[10px] text-zinc-200/90">
+                                <span className="flex items-center gap-1"><Heart className="w-3 h-3" />{item.like_count}</span>
+                                <span className="flex items-center gap-1"><Star className="w-3 h-3" />{item.star_count}</span>
+                                <span className="flex items-center gap-1"><Download className="w-3 h-3" />{item.collect_count}</span>
+                              </div>
+                            </div>
+
+                            <div className="absolute inset-0 z-10 bg-black/65 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-xl flex flex-col items-center justify-center gap-2 py-4 px-2">
+                              <button
+                                type="button"
+                                onClick={() => void handleCollectPlazaItem(item)}
+                                className="w-full bg-white text-black py-2 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition shadow-lg"
+                              >
+                                {t.assets_plaza_collect_btn || '收集到我的素材库'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
        </div>
 
        {/* --- MODALS --- */}

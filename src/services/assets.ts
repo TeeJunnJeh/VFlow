@@ -67,6 +67,29 @@ export interface AssetFolder {
   created_at?: string;
 }
 
+export interface PlazaAssetItem {
+  id: string;
+  display_name: string;
+  category: 'model' | 'product' | 'scene' | 'motion';
+  keywords: string;
+  description: string;
+  file_url: string;
+  author_name: string;
+  like_count: number;
+  star_count: number;
+  collect_count: number;
+  is_liked: boolean;
+  is_starred: boolean;
+  created_at: string;
+}
+
+export interface PlazaCollectPolicy {
+  daily_free_limit: number;
+  used_today: number;
+  free_remaining: number;
+  paid_cost_vpoints: number;
+}
+
 // --- Helper: Read CSRF Token from Browser Cookies ---
 function getCookie(name: string) {
   let cookieValue = null;
@@ -436,6 +459,119 @@ export const assetsApi = {
       },
       credentials: 'include',
       body: JSON.stringify({ parent_id: parentId }),
+    });
+
+    if (!response.ok) throw new Error(await readApiError(response));
+    return await response.json();
+  },
+
+  getPlazaAssets: async (params?: { category?: 'model' | 'product' | 'scene' | 'motion'; q?: string; limit?: number; offset?: number }) => {
+    const search = new URLSearchParams();
+    if (params?.category) search.set('category', params.category);
+    if (params?.q) search.set('q', params.q);
+    if (params?.limit) search.set('limit', String(params.limit));
+    if (params?.offset) search.set('offset', String(params.offset));
+
+    const response = await fetch(`${API_BASE_URL}/plaza/list/${search.toString() ? `?${search.toString()}` : ''}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) throw new Error(await readApiError(response));
+    const json = await response.json();
+    const data = json?.data || {};
+    const items = (data.items || []) as Array<any>;
+
+    return {
+      items: items.map((item) => ({
+        id: String(item.id),
+        display_name: String(item.display_name || ''),
+        category: String(item.category || 'product') as PlazaAssetItem['category'],
+        keywords: String(item.keywords || ''),
+        description: String(item.description || ''),
+        file_url: toDisplayUrl(item.file_url || item.url || ''),
+        author_name: String(item.author_name || ''),
+        like_count: Number(item.like_count || 0),
+        star_count: Number(item.star_count || 0),
+        collect_count: Number(item.collect_count || 0),
+        is_liked: Boolean(item.is_liked),
+        is_starred: Boolean(item.is_starred),
+        created_at: String(item.created_at || ''),
+      })) as PlazaAssetItem[],
+      total: Number(data.total || 0),
+      collectPolicy: (data.collect_policy || {
+        daily_free_limit: 3,
+        used_today: 0,
+        free_remaining: 3,
+        paid_cost_vpoints: 1,
+      }) as PlazaCollectPolicy,
+      isAdmin: Boolean(data.is_admin),
+    };
+  },
+
+  uploadPlazaAsset: async (payload: {
+    file: File;
+    category: 'model' | 'product' | 'scene' | 'motion';
+    displayName?: string;
+    keywords?: string;
+    description?: string;
+  }) => {
+    const csrftoken = getCookie('csrftoken');
+    const formData = new FormData();
+    formData.append('file', payload.file);
+    formData.append('category', payload.category);
+    formData.append('display_name', payload.displayName || payload.file.name);
+    if (payload.keywords) formData.append('keywords', payload.keywords);
+    if (payload.description) formData.append('description', payload.description);
+
+    const response = await fetch(`${API_BASE_URL}/plaza/list/`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: formData,
+    });
+
+    if (!response.ok) throw new Error(await readApiError(response));
+    return await response.json();
+  },
+
+  setPlazaReaction: async (itemId: string, action: 'like' | 'star', value: boolean) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/plaza/${itemId}/reaction/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ action, value }),
+    });
+
+    if (!response.ok) throw new Error(await readApiError(response));
+    return await response.json();
+  },
+
+  collectPlazaAsset: async (itemId: string, folderId?: string | null) => {
+    const csrftoken = getCookie('csrftoken');
+    const formData = new FormData();
+    if (folderId !== undefined) formData.append('folder_id', folderId ?? '');
+
+    const response = await fetch(`${API_BASE_URL}/plaza/${itemId}/collect/`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: formData,
     });
 
     if (!response.ok) throw new Error(await readApiError(response));

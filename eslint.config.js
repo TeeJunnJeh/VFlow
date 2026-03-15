@@ -19,5 +19,18 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      'no-restricted-syntax': [
+        'warn',
+        {
+          selector: 'JSXText[value=/[\\u4E00-\\u9FFF]/]',
+          message: 'Do not write Chinese literals directly in JSX text. Use i18n key via t.xxx.',
+        },
+        {
+          selector: 'JSXAttribute[value.type="Literal"][value.value=/[\\u4E00-\\u9FFF]/]',
+          message: 'Do not write Chinese literals directly in JSX attributes. Use i18n key via t.xxx.',
+        },
+      ],
+    },
   },
 ])

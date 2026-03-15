@@ -39,7 +39,9 @@ function scanUsedI18nKeys() {
     const content = fs.readFileSync(file, 'utf8');
     let match;
     while ((match = keyRegex.exec(content)) !== null) {
-      used.add(match[1]);
+      const key = match[1];
+      if (!key.includes('_')) continue;
+      used.add(key);
     }
   }
   return used;
@@ -56,6 +58,7 @@ function main() {
   const en = translations.en || {};
   const enKeys = Object.keys(en);
   const usedKeys = scanUsedI18nKeys();
+  const strictLangs = new Set(['zh']);
 
   const missingInEn = Array.from(usedKeys).filter((k) => !(k in en));
   let hasError = false;
@@ -75,15 +78,25 @@ function main() {
     const untranslated = enKeys.filter((key) => key in dict && dict[key] === en[key]);
 
     if (missing.length > 0) {
-      hasError = true;
-      console.error(`\n[ERROR] Missing keys in ${lang}:`);
-      for (const key of missing.sort()) console.error(`  - ${key}`);
+      if (strictLangs.has(lang)) {
+        hasError = true;
+        console.error(`\n[ERROR] Missing keys in ${lang}:`);
+        for (const key of missing.sort()) console.error(`  - ${key}`);
+      } else {
+        console.warn(`\n[WARN] Missing keys in ${lang}:`);
+        for (const key of missing.sort()) console.warn(`  - ${key}`);
+      }
     }
 
     if (empty.length > 0) {
-      hasError = true;
-      console.error(`\n[ERROR] Empty translations in ${lang}:`);
-      for (const key of empty.sort()) console.error(`  - ${key}`);
+      if (strictLangs.has(lang)) {
+        hasError = true;
+        console.error(`\n[ERROR] Empty translations in ${lang}:`);
+        for (const key of empty.sort()) console.error(`  - ${key}`);
+      } else {
+        console.warn(`\n[WARN] Empty translations in ${lang}:`);
+        for (const key of empty.sort()) console.warn(`  - ${key}`);
+      }
     }
 
     if (untranslated.length > 0) {

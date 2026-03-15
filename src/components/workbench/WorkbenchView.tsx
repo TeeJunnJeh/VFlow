@@ -1095,6 +1095,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!assetUrl) return;
     const source: 'product' | 'preference' = asset.media_kind === 'video' ? 'preference' : 'product';
     const nextMaterialType: AssetLibraryTab = asset.media_kind === 'video' ? 'motion' : assetLibraryTab;
+    const mediaKind: QueuedAsset['mediaKind'] =
+      asset.media_kind === 'video'
+        ? 'video'
+        : asset.media_kind === 'audio'
+          ? 'audio'
+          : (asset.media_kind === 'image' ? 'image' : inferMediaKind({ name: asset.name || '', url: assetUrl }));
     const queueId = `lib-${asset.id}`;
     const queuedAsset: QueuedAsset = {
       id: queueId,
@@ -1105,14 +1111,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       source,
       materialType: nextMaterialType,
       isPrimaryFrame: source === 'product',
-      mediaKind: inferMediaKind({ name: asset.name || '', url: assetUrl }),
+      mediaKind,
       uploadedPath: assetUrl,
     };
 
     setAssetQueue(prev => {
-      const exists = prev.some((item) => item.id === queueId);
-      if (exists) return prev;
-      return [...prev, queuedAsset];
+      const next = prev.filter(item => item.materialType !== nextMaterialType);
+      return [...next, queuedAsset];
     });
 
     setUploadedFile(assetUrl);
@@ -1514,40 +1519,38 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const applySelectedUploadType = (files: File[], selectedType: AssetLibraryTab) => {
     if (files.length === 0) return;
 
-    const createdItems: QueuedAsset[] = files.map((file, index) => {
-      const mediaKind = inferMediaKind({ name: file.name, file });
-      const source: QueuedAsset['source'] = mediaKind === 'video' ? 'preference' : 'product';
-      return {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${index}`,
-        name: file.name,
-        previewUrl: URL.createObjectURL(file),
-        fileObj: file,
-        assetUrl: null,
-        source,
-        materialType: selectedType,
-        isPrimaryFrame: index === 0 && mediaKind === 'image',
-        mediaKind,
-        uploadedPath: null,
-      };
-    });
+    const latestFile = files[files.length - 1];
+    const mediaKind = inferMediaKind({ name: latestFile.name, file: latestFile });
+    const source: QueuedAsset['source'] = mediaKind === 'video' ? 'preference' : 'product';
+    const latestItem: QueuedAsset = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-0`,
+      name: latestFile.name,
+      previewUrl: URL.createObjectURL(latestFile),
+      fileObj: latestFile,
+      assetUrl: null,
+      source,
+      materialType: selectedType,
+      isPrimaryFrame: mediaKind === 'image',
+      mediaKind,
+      uploadedPath: null,
+    };
 
-    const firstItem = createdItems[0];
     setUploadedFile((prev) => {
       if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
-      return firstItem.previewUrl;
+      return latestItem.previewUrl;
     });
-    setFileName(firstItem.name);
-    setSelectedFileObj(firstItem.fileObj || null);
-    setSelectedAssetSource(firstItem.source);
+    setFileName(latestItem.name);
+    setSelectedFileObj(latestItem.fileObj || null);
+    setSelectedAssetSource(latestItem.source);
     setSelectedAssetUrl(null);
-    setSelectedQueueAssetId(firstItem.id);
-    setCurrentMaterialType(firstItem.materialType || null);
+    setSelectedQueueAssetId(latestItem.id);
+    setCurrentMaterialType(latestItem.materialType || null);
     setGeneratedVideoUrl(null);
     setLastUploadedUrl(null);
 
     setAssetQueue(prev => {
-      const resetPrimary = prev.map(item => ({ ...item, isPrimaryFrame: false }));
-      return [...resetPrimary, ...createdItems];
+      const next = prev.filter(item => item.materialType !== selectedType);
+      return [...next, latestItem];
     });
   };
 
@@ -1728,21 +1731,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const name = fileName || '未命名素材';
     const mediaKind = inferMediaKind({ name, url: previewUrl, file: selectedFileObj });
 
-    setAssetQueue(prev => ([
-      ...prev,
-      {
-        id: newId,
-        name,
-        previewUrl,
-        fileObj: selectedFileObj,
-        assetUrl: selectedAssetUrl,
-        source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference'),
-        materialType: currentAssetMediaKind === 'video' ? 'motion' : 'product',
-        isPrimaryFrame: false,
-        mediaKind,
-        uploadedPath: null
-      }
-    ]));
+    const nextMaterialType: AssetLibraryTab = currentAssetMediaKind === 'video'
+      ? 'motion'
+      : (currentMaterialType || 'product');
+    const nextItem: QueuedAsset = {
+      id: newId,
+      name,
+      previewUrl,
+      fileObj: selectedFileObj,
+      assetUrl: selectedAssetUrl,
+      source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference'),
+      materialType: nextMaterialType,
+      isPrimaryFrame: mediaKind === 'image',
+      mediaKind,
+      uploadedPath: null
+    };
+
+    setAssetQueue(prev => {
+      const next = prev.filter(item => item.materialType !== nextMaterialType);
+      return [...next, nextItem];
+    });
+    setSelectedQueueAssetId(newId);
 
     setUploadedFile(null);
     setSelectedFileObj(null);
@@ -1808,31 +1817,54 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setIsGeneratingScript(true);
 
     try {
-      let imagePath = "";
-      const scriptAssetIsImage = currentAssetMediaKind === 'image';
+      type ScriptReferenceAsset = {
+        type: 'model' | 'product' | 'scene';
+        name: string;
+        image_path: string;
+      };
 
-      // 1. Upload Image (if one is selected but not yet uploaded)
-      if (selectedFileObj && scriptAssetIsImage) {
-        console.log("🚀 Uploading reference image for script...");
-        const uploadResp = await assetsApi.uploadTempAsset(selectedFileObj);
-        
-        let rawPath = null;
-        if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
-          rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
-        } else {
-          rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
-        }
-
-        if (rawPath) {
-          setLastUploadedUrl(rawPath);
-          // Send raw path directly to backend (backend will handle URL vs path)
-          imagePath = rawPath;
-        }
-      } else if (selectedAssetUrl && scriptAssetIsImage) {
-        setLastUploadedUrl(selectedAssetUrl);
-        // Send raw URL directly to backend
-        imagePath = selectedAssetUrl;
+      const referenceSources = uploadDisplayAssets;
+      const latestByType = new Map<'model' | 'product' | 'scene', QueuedAsset>();
+      for (const asset of referenceSources) {
+        if (asset.mediaKind !== 'image') continue;
+        if (asset.materialType !== 'model' && asset.materialType !== 'product' && asset.materialType !== 'scene') continue;
+        latestByType.set(asset.materialType, asset);
       }
+
+      const referenceAssets: ScriptReferenceAsset[] = [];
+      const queuedPathUpdates: Record<string, string> = {};
+      const orderedTypes: Array<'model' | 'product' | 'scene'> = ['model', 'product', 'scene'];
+      for (const type of orderedTypes) {
+        const asset = latestByType.get(type);
+        if (!asset) continue;
+
+        let resolvedPath = asset.uploadedPath || asset.assetUrl || null;
+        if (!resolvedPath && asset.fileObj) {
+          const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
+          resolvedPath = extractUploadedAssetPath(uploadResp);
+        }
+        if (!resolvedPath) continue;
+
+        if (asset.id && asset.id !== 'current-upload') {
+          queuedPathUpdates[asset.id] = resolvedPath;
+        }
+        if (selectedQueueAssetId && selectedQueueAssetId === asset.id) {
+          setLastUploadedUrl(resolvedPath);
+        }
+
+        referenceAssets.push({
+          type,
+          name: asset.name || '',
+          image_path: resolvedPath,
+        });
+      }
+      if (Object.keys(queuedPathUpdates).length > 0) {
+        setAssetQueue(prev => prev.map(item => (
+          queuedPathUpdates[item.id] ? { ...item, uploadedPath: queuedPathUpdates[item.id] } : item
+        )));
+      }
+
+      let imagePath = referenceAssets.find((item) => item.type === 'product')?.image_path || referenceAssets[0]?.image_path || '';
 
       // 2. Prepare Payload (Robust)
       const promptText = genPrompt || "产品推广";
@@ -1865,7 +1897,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         script_content: {
           duration: duration,
           shot_number: shots,
-          custom: selectedTemplate?.custom_config || "突出夜景拍摄",
+          custom: selectedTemplate?.custom_config || "",
           // Inner level prompt
           input: promptText,
           prompt: promptText,
@@ -1873,6 +1905,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           script_count: scriptVariantCount,
           shots: []
         },
+        ...(referenceAssets.length > 0 ? { reference_assets: referenceAssets } : {}),
         ...(imagePath ? { product_image_path: imagePath } : {}),
         asset_source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference'),
         ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),

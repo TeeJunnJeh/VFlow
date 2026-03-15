@@ -484,7 +484,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                         onClick={() => openAssetPicker('model')}
                         className="text-[10px] text-zinc-300 hover:text-orange-300 font-bold px-2 py-1 rounded bg-white/5 hover:bg-orange-500/15 transition"
                       >
-                        {t.wb_btn_choose_from_library || '从素材库选'}
+                        从素材库选
                       </button>
                       <button
                         type="button"
@@ -521,7 +521,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                       className="w-full flex items-center justify-center gap-2 py-6 border border-white/10 rounded-xl text-zinc-300 hover:text-orange-300 hover:border-orange-500/50 hover:bg-orange-500/5 transition"
                     >
                       <UserSquare2 className="w-4 h-4" />
-                      <span className="text-xs font-bold">{t.wb_btn_choose_from_library || '从素材库选择'}</span>
+                      <span className="text-xs font-bold">从素材库选择</span>
                     </button>
                   </div>
                 )}
@@ -560,7 +560,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                         onClick={() => openAssetPicker('motion')}
                         className="text-[10px] text-zinc-300 hover:text-orange-300 font-bold px-2 py-1 rounded bg-white/5 hover:bg-orange-500/15 transition"
                       >
-                        {t.wb_btn_choose_from_library || '从素材库选'}
+                        从素材库选
                       </button>
                       <button
                         type="button"
@@ -597,7 +597,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                       className="w-full flex items-center justify-center gap-2 py-6 border border-white/10 rounded-xl text-zinc-300 hover:text-orange-300 hover:border-orange-500/50 hover:bg-orange-500/5 transition"
                     >
                       <Film className="w-4 h-4" />
-                      <span className="text-xs font-bold">{t.wb_btn_choose_from_library || '从素材库选择'}</span>
+                      <span className="text-xs font-bold">从素材库选择</span>
                     </button>
                   </div>
                 )}
@@ -641,7 +641,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
       {assetPickerMode && (
         <AppDialog
           isOpen={!!assetPickerMode}
-          title={assetPickerMode === 'model' ? `${t.wb_dialog_choose_from_library || '从素材库选择'}${t.assets_tab_models || '模特'}` : `${t.wb_dialog_choose_from_library || '从素材库选择'}${t.assets_tab_motion || '动作'}`}
+          title={assetPickerMode === 'model' ? '从素材库选择模特' : '从素材库选择动作'}
           onClose={closeAssetPicker}
           footer={
             <>
@@ -651,17 +651,17 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
         >
           <div className="w-[min(86vw,760px)] max-h-[70vh] flex flex-col gap-3">
             <div className="text-xs text-zinc-400">
-              {assetPickerMode === 'model' ? (t.editor_label_model || '默认模特') : (t.editor_label_motion || '默认动作视频')}
+              {assetPickerMode === 'model' ? '选择一个模特素材作为模板默认模特。' : '选择一个动作素材作为模板默认参考动作。'}
             </div>
             <div className="min-h-[220px] max-h-[52vh] overflow-y-auto custom-scroll pr-1">
               {assetPickerLoading ? (
                 <div className="h-52 flex items-center justify-center text-zinc-400">
-                  <Loader2 className="w-4 h-4 animate-spin mr-2" /> {t.wb_debug_loading || 'Loading...'}
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载中...
                 </div>
               ) : assetPickerError ? (
                 <div className="h-52 flex items-center justify-center text-red-300 text-sm">{assetPickerError}</div>
               ) : assetPickerItems.length === 0 ? (
-                <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">{t.wb_empty_assets || '暂无可用素材'}</div>
+                <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">暂无可用素材</div>
               ) : (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {assetPickerItems.map((asset) => (

@@ -46,36 +46,6 @@ type ApiEnvelope<T> = {
   data?: T;
 } & Record<string, unknown>;
 
-type ApiActionRequired = {
-  type?: string;
-  prompt?: string;
-  request_flag?: string | null;
-} | null;
-
-export class VideoApiError extends Error {
-  status: number;
-  code?: number;
-  errorType?: string;
-  data?: Record<string, unknown> | null;
-  actionRequired?: ApiActionRequired;
-
-  constructor(message: string, opts: {
-    status: number;
-    code?: number;
-    errorType?: string;
-    data?: Record<string, unknown> | null;
-    actionRequired?: ApiActionRequired;
-  }) {
-    super(message);
-    this.name = 'VideoApiError';
-    this.status = opts.status;
-    this.code = opts.code;
-    this.errorType = opts.errorType;
-    this.data = opts.data;
-    this.actionRequired = opts.actionRequired;
-  }
-}
-
 export type GeneratePreviewData = {
   request_payload: Record<string, unknown>;
   model_request: Record<string, unknown>;
@@ -89,51 +59,6 @@ const asRecord = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== 'object') return null;
   return value as Record<string, unknown>;
 };
-
-async function readApiErrorDetail(response: Response, fallbackMessage: string): Promise<VideoApiError> {
-  let message = fallbackMessage;
-  let code: number | undefined;
-  let errorType: string | undefined;
-  let data: Record<string, unknown> | null = null;
-  let actionRequired: ApiActionRequired = null;
-
-  const contentType = response.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) {
-    try {
-      const json: unknown = await response.json();
-      const rec = asRecord(json);
-      if (rec) {
-        const msg = rec.message ?? rec.error;
-        if (typeof msg === 'string' && msg.trim()) message = msg.trim();
-        if (typeof rec.code === 'number') code = rec.code;
-        if (typeof rec.error_type === 'string' && rec.error_type.trim()) errorType = rec.error_type.trim();
-        data = asRecord(rec.data);
-        const action = data ? asRecord(data.action_required) : null;
-        actionRequired = action as ApiActionRequired;
-      }
-    } catch {
-      // fall back to plain text below
-    }
-  }
-
-  if (message === fallbackMessage) {
-    try {
-      const text = await response.text();
-      const compact = text.replace(/\s+/g, ' ').trim();
-      if (compact) message = compact.slice(0, 300);
-    } catch {
-      // ignore
-    }
-  }
-
-  return new VideoApiError(message, {
-    status: response.status,
-    code,
-    errorType,
-    data,
-    actionRequired,
-  });
-}
 
 async function readApiError(response: Response): Promise<string> {
   const contentType = response.headers.get('content-type') || '';
@@ -257,8 +182,14 @@ export const videoApi = {
     });
 
     if (!response.ok) {
-      const fallback = `Server Error: ${response.status} ${response.statusText || 'Video generation failed'}`;
-      throw await readApiErrorDetail(response, fallback);
+      let errorMsg = 'Video generation failed';
+      try {
+        const errData = await response.json();
+        errorMsg = errData.message || JSON.stringify(errData);
+      } catch {
+        errorMsg = `Server Error: ${response.status} ${response.statusText}`;
+      }
+      throw new Error(errorMsg);
     }
 
     return await response.json();

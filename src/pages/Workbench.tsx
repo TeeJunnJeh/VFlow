@@ -31,7 +31,7 @@ const Workbench = () => {
 
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
-  const [theme, setTheme] = useState<'dark' | 'light'>(user?.theme || 'dark');
+  const [theme, setTheme] = useState<'dark' | 'light' | 'dim'>(user?.theme || 'dark');
 
   // --- Data Passing State ---
   const [selectedAssetForWorkbench, setSelectedAssetForWorkbench] = useState<{
@@ -58,6 +58,7 @@ const Workbench = () => {
 
   useEffect(() => {
     document.documentElement.classList.toggle('theme-light', theme === 'light');
+    document.documentElement.classList.toggle('theme-dim', theme === 'dim');
   }, [theme]);
 
   useEffect(() => {

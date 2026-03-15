@@ -3,8 +3,7 @@ import {
   FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil, Search, Heart, Download, Library, Globe, Info, Settings
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
-import { useAuth } from '../../context/AuthContext';
-import { assetsApi, type Asset, type AssetFolder, type PlazaAssetItem, type PlazaCollectPolicy } from '../../services/assets';
+import { assetsApi, type Asset, type AssetFolder } from '../../services/assets';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 
 type AssetType = 'model' | 'product' | 'scene' | 'motion';
@@ -23,7 +22,6 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   setCurrentFolderId 
 }) => {
   const { t } = useLanguage();
-  const { updateUser } = useAuth();
   const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
   const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
   const VIDEO_EXTS = ['mp4', 'mov', 'mkv', 'webm', 'avi'];
@@ -49,8 +47,6 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     scene: t.assets_tab_scenes,
     motion: t.assets_tab_motion
   };
-
-  const [viewMode, setViewMode] = useState<'library' | 'plaza'>('library');
   
   // Data State
   const [assetList, setAssetList] = useState<Asset[]>([]);
@@ -145,7 +141,6 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
   // --- API Loaders ---
   const loadData = useCallback(async () => {
-    if (viewMode !== 'library') return;
     setIsLoading(true);
     try {
       const [assets, folderData] = await Promise.all([
@@ -185,15 +180,13 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
   // --- Effects ---
   useEffect(() => {
-    if (viewMode === 'library') {
-      void loadData();
-      setOpenFolderMenuId(null);
-      setIsSelectionMode(false);
-      setSelectedAssetIds(new Set());
-      return;
-    }
-    void loadPlazaData();
-  }, [loadData, loadPlazaData, viewMode]);
+    void loadData();
+    // Close menus when tab changes
+    setOpenFolderMenuId(null); 
+    // Reset selection when scope changes
+    setIsSelectionMode(false);
+    setSelectedAssetIds(new Set());
+  }, [loadData]);
 
   useEffect(() => {
     if (isFolderModalOpen) {
@@ -851,28 +844,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
           </div>
         )}
        <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{viewMode === 'library' ? t.assets_title : (t.assets_plaza_title || '素材广场')}</h1>
-            <p className="text-zinc-500 text-xs mt-1">{viewMode === 'library' ? t.assets_subtitle : (t.assets_plaza_subtitle || '全站可见，收藏后进入个人素材库')}</p>
-            <div className="mt-3 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setViewMode('library')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition flex items-center gap-1.5 ${viewMode === 'library' ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10'}`}
-              >
-                <Library className="w-3.5 h-3.5" />
-                {t.assets_title}
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('plaza')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition flex items-center gap-1.5 ${viewMode === 'plaza' ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10'}`}
-              >
-                <Globe className="w-3.5 h-3.5" />
-                {t.assets_plaza_title || '素材广场'}
-              </button>
-            </div>
-          </div>
+          <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.assets_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.assets_subtitle}</p></div>
           <div className="flex gap-3 items-center">
              <LanguageSwitcher />
              {viewMode === 'library' ? (
@@ -926,8 +898,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
        </header>
 
        <div className="flex-1 flex flex-col px-10 pt-4 pb-10 overflow-hidden">
-         {/* Tabs */}
-         <div className="flex gap-4 mb-8 border-b border-white/5 pb-2">
+          {/* Tabs */}
+          <div className="flex gap-4 mb-8 border-b border-white/5 pb-2">
              {(['model', 'product', 'scene', 'motion'] as AssetType[]).map(type => (
                 <button
                   key={type}
@@ -943,9 +915,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                 </button>
              ))}
           </div>
-
-         {viewMode === 'library' ? (
-          <>
+          
            {/* Breadcrumb */}
             <div className="flex items-center justify-between gap-4 mb-4">
               <div className="flex items-center gap-2 text-xs text-zinc-500 min-w-0">

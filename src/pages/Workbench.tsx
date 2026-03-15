@@ -31,7 +31,7 @@ const Workbench = () => {
 
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
-  const [theme, setTheme] = useState<'dark' | 'light' | 'dim'>(user?.theme || 'dark');
+  const [theme, setTheme] = useState<'dark' | 'light' | 'dim'>(user?.theme || 'light');
 
   // --- Data Passing State ---
   const [selectedAssetForWorkbench, setSelectedAssetForWorkbench] = useState<{

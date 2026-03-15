@@ -3,7 +3,7 @@ import {
   FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil, Search, Heart, Download, Library, Globe, Info, Settings
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/AuthContext'
 import { assetsApi, type Asset, type AssetFolder, type PlazaAssetItem, type PlazaCollectPolicy } from '../../services/assets';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 
@@ -145,6 +145,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
   // --- API Loaders ---
   const loadData = useCallback(async () => {
+    if (viewMode !== 'library') return;
     setIsLoading(true);
     try {
       const [assets, folderData] = await Promise.all([
@@ -184,13 +185,15 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
   // --- Effects ---
   useEffect(() => {
-    void loadData();
-    // Close menus when tab changes
-    setOpenFolderMenuId(null); 
-    // Reset selection when scope changes
-    setIsSelectionMode(false);
-    setSelectedAssetIds(new Set());
-  }, [loadData]);
+    if (viewMode === 'library') {
+      void loadData();
+      setOpenFolderMenuId(null);
+      setIsSelectionMode(false);
+      setSelectedAssetIds(new Set());
+      return;
+    }
+    void loadPlazaData();
+  }, [loadData, loadPlazaData, viewMode]);
 
   useEffect(() => {
     if (isFolderModalOpen) {
@@ -923,8 +926,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
        </header>
 
        <div className="flex-1 flex flex-col px-10 pt-4 pb-10 overflow-hidden">
-          {/* Tabs */}
-          <div className="flex gap-4 mb-8 border-b border-white/5 pb-2">
+         {/* Tabs */}
+         <div className="flex gap-4 mb-8 border-b border-white/5 pb-2">
              {(['model', 'product', 'scene', 'motion'] as AssetType[]).map(type => (
                 <button
                   key={type}

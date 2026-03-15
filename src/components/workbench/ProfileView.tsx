@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Edit3, User as UserIcon, Settings2, LogOut, Flame, Gem, Zap, KeyRound } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -12,7 +12,7 @@ interface ProfileViewProps {
   setTheme: (t: 'dark' | 'light' | 'dim') => void;
 }
 
-export const ProfileView = ({ theme, setTheme }: ProfileViewProps) => {
+export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => {
   const { t } = useLanguage();
   const { user, updateUser, logout } = useAuth();
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -89,15 +89,15 @@ export const ProfileView = ({ theme, setTheme }: ProfileViewProps) => {
 
   const handleChangePassword = async () => {
     if (requiresCurrentPassword && !currentPassword) {
-      openInfo(t.profile_error || 'Error', t.profile_password_error_current_required || 'Please enter current password');
+      openInfo('Error', t.profile_err_fill_current_password || '请填写当前密码');
       return;
     }
     if (!nextPassword) {
-      openInfo(t.profile_error || 'Error', t.profile_password_error_new_required || 'Please enter a new password');
+      openInfo('Error', t.profile_err_fill_new_password || '请输入新密码');
       return;
     }
     if (nextPassword !== confirmNextPassword) {
-      openInfo(t.profile_error || 'Error', t.profile_password_error_mismatch || 'Passwords do not match');
+      openInfo('Error', t.profile_err_password_mismatch || '两次输入的新密码不一致');
       return;
     }
 
@@ -111,9 +111,9 @@ export const ProfileView = ({ theme, setTheme }: ProfileViewProps) => {
       updateUser({ hasPassword: true });
       setIsPasswordDialogOpen(false);
       resetPasswordForm();
-      openInfo(t.profile_success || 'Success', t.profile_password_success || 'Password updated');
+      openInfo('Success', t.profile_password_change_success || '密码修改成功');
     } catch (err: any) {
-      openInfo(t.profile_error || 'Error', err?.message || t.profile_password_error || 'Failed to update password');
+      openInfo('Error', err?.message || t.profile_password_change_failed || '修改密码失败');
     } finally {
       setIsChangingPassword(false);
     }
@@ -251,14 +251,14 @@ export const ProfileView = ({ theme, setTheme }: ProfileViewProps) => {
                               <div className="text-xs font-bold text-zinc-600 mb-1">LIMIT: {user?.plan === 'pro' ? '∞' : user?.plan === 'plus' ? 500 : 100} V</div>
                               <button
                                 onClick={() => setShowBilling(true)}
-                                className="text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full border border-cyan-400/40 text-cyan-100 bg-cyan-500/20 hover:bg-cyan-500/30 shadow-[0_0_20px_rgba(34,211,238,0.22)] hover:shadow-[0_0_24px_rgba(34,211,238,0.35)] transition"
+                                className="text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full border border-yellow-400/40 text-yellow-100 bg-yellow-500/20 hover:bg-yellow-500/30 shadow-[0_0_20px_rgba(250,204,21,0.20)] hover:shadow-[0_0_24px_rgba(250,204,21,0.30)] transition"
                               >
                                 {t.profile_billing_title || '账单明细'}
                               </button>
                             </div>
                         </div>
                         <div className="h-4 w-full bg-zinc-900 rounded-full border border-white/5 p-1 overflow-hidden">
-                            <div className={`h-full rounded-full transition-all duration-1000 ease-out relative ${user?.plan === 'pro' ? 'bg-gradient-to-r from-purple-600 via-orange-500 to-yellow-400' : user?.plan === 'plus' ? 'bg-gradient-to-r from-blue-700 via-indigo-500 to-cyan-400' : 'bg-gradient-to-r from-zinc-700 via-zinc-500 to-emerald-500/50'}`} style={{ width: `${user?.plan === 'pro' ? 100 : Math.min(((user?.credits || 0) / (user?.plan === 'plus' ? 500 : 100)) * 100, 100)}%` }}>
+                            <div className={`h-full rounded-full transition-all duration-1000 ease-out relative ${user?.plan === 'pro' ? 'bg-gradient-to-r from-purple-600 via-orange-500 to-yellow-400' : user?.plan === 'plus' ? 'bg-gradient-to-r from-blue-700 via-indigo-500 to-yellow-400' : 'bg-gradient-to-r from-zinc-700 via-zinc-500 to-yellow-500/70'}`} style={{ width: `${user?.plan === 'pro' ? 100 : Math.min(((user?.credits || 0) / (user?.plan === 'plus' ? 500 : 100)) * 100, 100)}%` }}>
                                 <div className="absolute inset-0 bg-white/10 animate-pulse" />
                             </div>
                         </div>
@@ -281,7 +281,7 @@ export const ProfileView = ({ theme, setTheme }: ProfileViewProps) => {
                          </div>
                          <button
                            onClick={() => setShowBilling(false)}
-                           className="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border border-cyan-400/30 text-cyan-100/90 bg-cyan-500/10 hover:bg-cyan-500/20 transition"
+                           className="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border border-yellow-400/30 text-yellow-100/90 bg-yellow-500/10 hover:bg-yellow-500/20 transition"
                          >
                            {t.profile_back || '返回'}
                          </button>
@@ -313,16 +313,16 @@ export const ProfileView = ({ theme, setTheme }: ProfileViewProps) => {
                                 </div>
                               ))
                             ) : (
-                              <div className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 p-4 flex items-center justify-between">
+                              <div className="rounded-xl border border-yellow-400/30 bg-yellow-500/10 p-4 flex items-center justify-between">
                                 <div className="flex flex-col">
-                                  <span className="text-sm font-semibold text-cyan-100">
+                                  <span className="text-sm font-semibold text-yellow-100">
                                     {t.profile_billing_empty || '暂无消费记录'}
                                   </span>
-                                  <span className="text-[11px] text-cyan-100/60">
+                                  <span className="text-[11px] text-yellow-100/60">
                                     {t.profile_billing_recent || 'recent'}
                                   </span>
                                 </div>
-                                <div className="text-lg font-black text-cyan-200">0</div>
+                                <div className="text-lg font-black text-yellow-200">0</div>
                               </div>
                             )}
                           </div>
@@ -337,7 +337,7 @@ export const ProfileView = ({ theme, setTheme }: ProfileViewProps) => {
                
                {/* Footer Buttons */}
                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pb-12">
-                  <div className="flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/item shadow-sm hover:shadow-orange-500/5">
+                  <div onClick={async () => { const newTheme = theme === 'dark' ? 'light' : 'dark'; setTheme(newTheme); try { const res = await authApi.updateProfile({ theme: newTheme }); updateUser({ theme: res.data.theme }); } catch (err) { console.error("Failed to save theme preference", err); } }} className="flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/item cursor-pointer shadow-sm hover:shadow-orange-500/5">
                       <div className="flex items-center gap-4">
                           <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/item:text-orange-500 transition-colors"><Settings2 className="w-6 h-6" /></div>
                           <div className="text-left">
@@ -382,8 +382,8 @@ export const ProfileView = ({ theme, setTheme }: ProfileViewProps) => {
                       <div className="flex items-center gap-4">
                           <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/password:text-orange-500 transition-colors"><KeyRound className="w-6 h-6" /></div>
                           <div className="text-left">
-                              <div className="text-base font-bold text-white">{t.profile_password_title || 'Change password'}</div>
-                              <div className="text-xs text-zinc-600 mt-0.5">{t.profile_password_subtitle || 'Manage account with password login'}</div>
+                              <div className="text-base font-bold text-white">{t.profile_change_password_title || '修改密码'}</div>
+                              <div className="text-xs text-zinc-600 mt-0.5">{t.profile_change_password_desc || '支持密码登录账号管理'}</div>
                           </div>
                       </div>
                   </button>
@@ -461,7 +461,7 @@ export const ProfileView = ({ theme, setTheme }: ProfileViewProps) => {
          </AppDialog>
        )}
        {isInfoOpen && (
-         <AppDialog isOpen={isInfoOpen} title={infoTitle || t.profile_notice || 'Notice'} onClose={() => setIsInfoOpen(false)} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>{t.profile_ok || 'OK'}</button></>}>
+         <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={() => setIsInfoOpen(false)} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>OK</button></>}>
            <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
          </AppDialog>
        )}
@@ -469,10 +469,11 @@ export const ProfileView = ({ theme, setTheme }: ProfileViewProps) => {
   );
 };
 
+  // Info dialog state/hooks
   function useProfileInfo() {
-    const [isInfoOpen, setIsInfoOpen] = useState(false);
-    const [infoTitle, setInfoTitle] = useState('');
-    const [infoMessage, setInfoMessage] = useState<string | null>(null);
+    const [isInfoOpen, setIsInfoOpen] = React.useState(false);
+    const [infoTitle, setInfoTitle] = React.useState('');
+    const [infoMessage, setInfoMessage] = React.useState<string | null>(null);
     const openInfo = (title: string, message: string | null = null) => {
       setInfoTitle(title || '');
       setInfoMessage(message || null);

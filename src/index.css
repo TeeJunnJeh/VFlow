@@ -130,6 +130,31 @@ body {
   background: linear-gradient(180deg,#f8fafc 0%,#eef2ff 60%);
   color: #0f172a;
 }
+
+/* Dim theme overrides when `theme-dim` class is set on <html> */
+.theme-dim body {
+  background: radial-gradient(circle at 50% 0%, #1f2937 0%, #0f172a 65%);
+  color: #e2e8f0;
+}
+.theme-dim .glass-panel {
+  background: rgba(15, 23, 42, 0.8);
+  border-color: rgba(148, 163, 184, 0.12);
+}
+.theme-dim .glass-card {
+  background: rgba(30, 41, 59, 0.65);
+  border-color: rgba(148, 163, 184, 0.1);
+}
+.theme-dim .text-zinc-200 { color: #e2e8f0 !important; }
+.theme-dim .text-zinc-100 { color: #f1f5f9 !important; }
+.theme-dim .text-zinc-500 { color: #94a3b8 !important; }
+.theme-dim .text-zinc-400 { color: #94a3b8 !important; }
+.theme-dim .bg-zinc-950 { background-color: #0b1120 !important; }
+.theme-dim .bg-zinc-900 { background-color: #111827 !important; }
+.theme-dim .bg-zinc-800 { background-color: #1f2937 !important; }
+.theme-dim .bg-black\/20 { background-color: rgba(15, 23, 42, 0.55) !important; }
+.theme-dim .bg-black\/40 { background-color: rgba(15, 23, 42, 0.7) !important; }
+.theme-dim .border-white\/5 { border-color: rgba(148, 163, 184, 0.12) !important; }
+.theme-dim .border-white\/10 { border-color: rgba(148, 163, 184, 0.18) !important; }
 .theme-light .glass-panel {
   background: rgba(255,255,255,0.7);
   border-color: rgba(15,23,42,0.06);
@@ -172,6 +197,17 @@ body {
 .theme-light .bg-black\/20 { background-color: rgba(255,255,255,0.6) !important; }
 .theme-light .bg-black\/40 { background-color: rgba(255,255,255,0.5) !important; }
 .theme-light .glass-panel { background: rgba(255,255,255,0.85); backdrop-filter: blur(8px); border-color: rgba(15,23,42,0.06); }
+
+/* Dim theme refinements */
+.theme-dim .glass-panel { background: rgba(15, 23, 42, 0.88) !important; border-color: rgba(148, 163, 184, 0.14) !important; }
+.theme-dim .glass-card { background: rgba(30, 41, 59, 0.7) !important; border-color: rgba(148, 163, 184, 0.14) !important; }
+.theme-dim .bg-zinc-950 { background-color: #0b1120 !important; }
+.theme-dim .bg-zinc-900 { background-color: #111827 !important; }
+.theme-dim .bg-zinc-800 { background-color: #1f2937 !important; }
+.theme-dim .text-zinc-200 { color: #e2e8f0 !important; }
+.theme-dim .text-zinc-100 { color: #f1f5f9 !important; }
+.theme-dim .text-zinc-500 { color: #94a3b8 !important; }
+.theme-dim .text-zinc-400 { color: #94a3b8 !important; }
 
 /* Ensure main app container and other strong backgrounds switch in light mode */
 .theme-light .bg-\\[\#050505\\] { background: linear-gradient(180deg,#f8fafc 0%,#eef2ff 60%) !important; }

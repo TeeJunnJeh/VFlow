@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { authApi } from '../services/auth';
 
 interface User {
@@ -7,7 +7,7 @@ interface User {
   avatar: string;
   plan: 'free' | 'plus' | 'pro';
   credits?: number; // remaining generation credits (v点)
-  theme?: 'light' | 'dark';
+  theme?: 'light' | 'dark' | 'dim';
   hasPassword?: boolean;
   token?: string; 
 }
@@ -23,7 +23,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -50,7 +50,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 avatar: backendUser.avatar || '', 
                 plan: plan,
                 credits: backendUser.balance,
-                theme: backendUser.theme as 'light' | 'dark' || 'dark',
+                theme: (backendUser.theme as 'light' | 'dark' | 'dim') || 'dark',
                 hasPassword: backendUser.has_password === true,
                 token: undefined // We rely on Cookie Session, no JWT token needed in state
             };
@@ -122,7 +122,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       avatar: serverData?.avatar || serverData?.data?.avatar || '',
       plan: resolvedPlan,
       credits: serverData?.credits ?? serverData?.data?.balance ?? defaultCredits,
-      theme: serverData?.theme || serverData?.data?.theme || 'dark',
+      theme: (serverData?.theme || serverData?.data?.theme || 'dark') as 'light' | 'dark' | 'dim',
       hasPassword: (serverData?.has_password ?? serverData?.data?.has_password) === true,
       token: token 
     };

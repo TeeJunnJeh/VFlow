@@ -1,6 +1,6 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal,
+  UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder, SlidersHorizontal,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2
@@ -10,7 +10,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useTasks } from '../../context/TaskContext';
 import { useWorkbenchModel } from '../../context/WorkbenchModelContext';
 import { videoApi, VideoApiError, type GeneratePreviewData } from '../../services/video';
-import { assetsApi, type Asset as LibraryAsset } from '../../services/assets';
+import { assetsApi, type Asset as LibraryAsset, type AssetFolder } from '../../services/assets';
 import { tiktokApi } from '../../services/tiktok';
 import {
   PromptLabWindow,
@@ -384,6 +384,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isAssetLibraryOpen, setIsAssetLibraryOpen] = useState(false);
   const [assetLibraryTab, setAssetLibraryTab] = useState<AssetLibraryTab>('product');
   const [assetLibraryItems, setAssetLibraryItems] = useState<LibraryAsset[]>([]);
+  const [assetLibraryFolders, setAssetLibraryFolders] = useState<AssetFolder[]>([]);
+  const [assetLibraryBreadcrumb, setAssetLibraryBreadcrumb] = useState<AssetFolder[]>([]);
+  const [assetLibraryCurrentFolderId, setAssetLibraryCurrentFolderId] = useState<string | null>(null);
   const [assetLibraryLoading, setAssetLibraryLoading] = useState(false);
   const [assetLibraryError, setAssetLibraryError] = useState<string | null>(null);
 
@@ -1085,12 +1088,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setAssetLibraryLoading(true);
       setAssetLibraryError(null);
       try {
-        const items = await assetsApi.getAssets({ type: assetLibraryTab, folderId: null });
-        if (!cancelled) setAssetLibraryItems(Array.isArray(items) ? items : []);
+        const [items, folderData] = await Promise.all([
+          assetsApi.getAssets({ type: assetLibraryTab, folderId: assetLibraryCurrentFolderId }),
+          assetsApi.getFolders({ type: assetLibraryTab, parentId: assetLibraryCurrentFolderId }),
+        ]);
+        if (!cancelled) {
+          setAssetLibraryItems(Array.isArray(items) ? items : []);
+          setAssetLibraryFolders(Array.isArray(folderData.folders) ? folderData.folders : []);
+          setAssetLibraryBreadcrumb(Array.isArray(folderData.breadcrumb) ? folderData.breadcrumb : []);
+        }
       } catch (err: any) {
         console.error('Failed to load asset library items:', err);
         if (!cancelled) {
           setAssetLibraryItems([]);
+          setAssetLibraryFolders([]);
+          setAssetLibraryBreadcrumb([]);
           setAssetLibraryError(String(err?.message || '加载素材失败'));
         }
       } finally {
@@ -1102,10 +1114,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [assetLibraryTab, isAssetLibraryOpen]);
+  }, [assetLibraryCurrentFolderId, assetLibraryTab, isAssetLibraryOpen]);
 
   const openAssetLibraryPicker = () => {
     setAssetLibraryTab(currentAssetMediaKind === 'video' ? 'motion' : 'product');
+    setAssetLibraryCurrentFolderId(null);
     setIsAssetLibraryOpen(true);
   };
 
@@ -3817,11 +3830,35 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <button
                     key={tab.value}
                     type="button"
-                    onClick={() => setAssetLibraryTab(tab.value)}
+                    onClick={() => {
+                      setAssetLibraryTab(tab.value);
+                      setAssetLibraryCurrentFolderId(null);
+                    }}
                     className={`shrink-0 rounded-full border px-5 py-2 text-[14px] font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
                   >
                     {tab.label}
                   </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 text-xs text-zinc-500 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setAssetLibraryCurrentFolderId(null)}
+                  className={`hover:text-white ${assetLibraryCurrentFolderId === null ? 'text-white' : ''}`}
+                >
+                  {t.assets_root || '根目录'}
+                </button>
+                {assetLibraryBreadcrumb.map((folder) => (
+                  <div key={folder.id} className="flex items-center gap-2 min-w-0">
+                    <span>/</span>
+                    <button
+                      type="button"
+                      onClick={() => setAssetLibraryCurrentFolderId(folder.id)}
+                      className={`hover:text-white truncate ${assetLibraryCurrentFolderId === folder.id ? 'text-white' : ''}`}
+                    >
+                      {folder.name}
+                    </button>
+                  </div>
                 ))}
               </div>
 
@@ -3834,12 +3871,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <div className="h-52 flex items-center justify-center text-red-300 text-sm">
                     {assetLibraryError}
                   </div>
-                ) : assetLibraryItems.length === 0 ? (
+                ) : assetLibraryItems.length === 0 && assetLibraryFolders.length === 0 ? (
                   <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">
                     暂无素材
                   </div>
                 ) : (
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-6 gap-2">
+                    {assetLibraryFolders.map((folder) => (
+                      <button
+                        key={folder.id}
+                        type="button"
+                        onClick={() => setAssetLibraryCurrentFolderId(folder.id)}
+                        className="text-left rounded-lg border border-white/10 bg-black/30 p-1 hover:border-orange-500/50 hover:bg-white/5 transition"
+                      >
+                        <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-900/60 relative flex items-center justify-center">
+                          <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center">
+                            <Folder className="w-5 h-5 text-zinc-300" />
+                          </div>
+                        </div>
+                        <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{folder.name}</div>
+                      </button>
+                    ))}
                     {assetLibraryItems.map((asset) => (
                       <button
                         key={asset.id}

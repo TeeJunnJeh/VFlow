@@ -12,6 +12,28 @@ const extractErrorMessage = async (response: Response, fallback: string) => {
   }
 };
 
+type OpenClawKeyStatusResponse = {
+  code: number;
+  message: string;
+  data: {
+    phone: string | null;
+    enabled: boolean;
+    has_key: boolean;
+    masked_key: string;
+    updated_at: string | null;
+  };
+};
+
+type OpenClawKeyRevealResponse = {
+  code: number;
+  message: string;
+  data: {
+    key: string;
+    enabled: boolean;
+    updated_at: string | null;
+  };
+};
+
 export const authApi = {
   // 1. Send Verification Code
   sendCode: async (phoneNumber: string) => {
@@ -166,5 +188,57 @@ export const authApi = {
     } catch (error) {
       throw error;
     }
+  },
+
+  getOpenClawKeyStatus: async (): Promise<OpenClawKeyStatusResponse> => {
+    const response = await fetch(`${API_BASE_URL}/openclaw/key/`, {
+      method: 'GET',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      throw new Error(await extractErrorMessage(response, 'Failed to load OpenClaw key status'));
+    }
+    return await response.json();
+  },
+
+  regenerateOpenClawKey: async (): Promise<OpenClawKeyRevealResponse> => {
+    const response = await fetch(`${API_BASE_URL}/openclaw/key/regenerate/`, {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      throw new Error(await extractErrorMessage(response, 'Failed to regenerate OpenClaw key'));
+    }
+    return await response.json();
+  },
+
+  toggleOpenClawKey: async (enabled: boolean) => {
+    const response = await fetch(`${API_BASE_URL}/openclaw/key/toggle/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ enabled }),
+    });
+    if (!response.ok) {
+      throw new Error(await extractErrorMessage(response, 'Failed to toggle OpenClaw key'));
+    }
+    return await response.json();
+  },
+
+  revealOpenClawKey: async (): Promise<OpenClawKeyRevealResponse> => {
+    const response = await fetch(`${API_BASE_URL}/openclaw/key/reveal/`, {
+      method: 'GET',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      throw new Error(await extractErrorMessage(response, 'Failed to fetch OpenClaw key'));
+    }
+    return await response.json();
   },
 };

@@ -12,6 +12,14 @@ interface ProfileViewProps {
   setTheme: (t: 'dark' | 'light' | 'dim') => void;
 }
 
+type OpenClawKeyState = {
+  phone: string | null;
+  enabled: boolean;
+  hasKey: boolean;
+  maskedKey: string;
+  updatedAt: string | null;
+};
+
 export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => {
   const { t } = useLanguage();
   const { user, updateUser, logout } = useAuth();
@@ -27,8 +35,37 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
   const [nextPassword, setNextPassword] = useState('');
   const [confirmNextPassword, setConfirmNextPassword] = useState('');
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [isOpenClawDialogOpen, setIsOpenClawDialogOpen] = useState(false);
+  const [isOpenClawLoading, setIsOpenClawLoading] = useState(false);
+  const [openClawKey, setOpenClawKey] = useState('');
+  const [openClawStatus, setOpenClawStatus] = useState<OpenClawKeyState>({
+    phone: null,
+    enabled: false,
+    hasKey: false,
+    maskedKey: '',
+    updatedAt: null,
+  });
   const requiresCurrentPassword = user?.hasPassword === true;
   const { isInfoOpen, setIsInfoOpen, infoTitle, infoMessage, openInfo } = useProfileInfo();
+
+  const loadOpenClawStatus = async () => {
+    try {
+      const resp = await authApi.getOpenClawKeyStatus();
+      setOpenClawStatus({
+        phone: resp.data?.phone || null,
+        enabled: resp.data?.enabled === true,
+        hasKey: resp.data?.has_key === true,
+        maskedKey: resp.data?.masked_key || '',
+        updatedAt: resp.data?.updated_at || null,
+      });
+    } catch (err: any) {
+      openInfo(t.profile_error || 'Error', err?.message || 'Failed to load OpenClaw key status');
+    }
+  };
+
+  useEffect(() => {
+    loadOpenClawStatus();
+  }, []);
 
   useEffect(() => {
     if (!showBilling) return;
@@ -116,6 +153,55 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
       openInfo('Error', err?.message || t.profile_password_change_failed || '修改密码失败');
     } finally {
       setIsChangingPassword(false);
+    }
+  };
+
+  const handleRegenerateOpenClawKey = async () => {
+    setIsOpenClawLoading(true);
+    try {
+      const resp = await authApi.regenerateOpenClawKey();
+      const fullKey = resp.data?.key || '';
+      setOpenClawKey(fullKey);
+      await loadOpenClawStatus();
+      if (fullKey) {
+        await navigator.clipboard.writeText(fullKey);
+        openInfo(t.profile_success || 'Success', t.profile_openclaw_regenerate_success || '密钥已更新并复制到剪贴板');
+      }
+    } catch (err: any) {
+      openInfo(t.profile_error || 'Error', err?.message || 'Failed to regenerate key');
+    } finally {
+      setIsOpenClawLoading(false);
+    }
+  };
+
+  const handleToggleOpenClaw = async () => {
+    setIsOpenClawLoading(true);
+    try {
+      await authApi.toggleOpenClawKey(!openClawStatus.enabled);
+      await loadOpenClawStatus();
+    } catch (err: any) {
+      openInfo(t.profile_error || 'Error', err?.message || 'Failed to toggle key status');
+    } finally {
+      setIsOpenClawLoading(false);
+    }
+  };
+
+  const handleCopyOpenClawKey = async () => {
+    setIsOpenClawLoading(true);
+    try {
+      const resp = await authApi.revealOpenClawKey();
+      const fullKey = resp.data?.key || '';
+      if (!fullKey) {
+        openInfo(t.profile_notice || 'Notice', t.profile_openclaw_not_generated || '尚未生成密钥');
+        return;
+      }
+      setOpenClawKey(fullKey);
+      await navigator.clipboard.writeText(fullKey);
+      openInfo(t.profile_success || 'Success', t.profile_openclaw_copy_success || '密钥已复制');
+    } catch (err: any) {
+      openInfo(t.profile_error || 'Error', err?.message || 'Failed to copy key');
+    } finally {
+      setIsOpenClawLoading(false);
     }
   };
 
@@ -336,7 +422,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                <hr className="mt-6 mb-6 border-white/5" />
                
                {/* Footer Buttons */}
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pb-12">
+               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pb-12">
                   <div onClick={async () => { const newTheme = theme === 'dark' ? 'light' : 'dark'; setTheme(newTheme); try { const res = await authApi.updateProfile({ theme: newTheme }); updateUser({ theme: res.data.theme }); } catch (err) { console.error("Failed to save theme preference", err); } }} className="flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/item cursor-pointer shadow-sm hover:shadow-orange-500/5">
                       <div className="flex items-center gap-4">
                           <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/item:text-orange-500 transition-colors"><Settings2 className="w-6 h-6" /></div>
@@ -386,6 +472,22 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                               <div className="text-xs text-zinc-600 mt-0.5">{t.profile_change_password_desc || '支持密码登录账号管理'}</div>
                           </div>
                       </div>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsOpenClawDialogOpen(true);
+                      setOpenClawKey('');
+                    }}
+                    className="w-full flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/key shadow-sm hover:shadow-orange-500/5"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/key:text-orange-500 transition-colors"><KeyRound className="w-6 h-6" /></div>
+                      <div className="text-left">
+                        <div className="text-base font-bold text-white">{t.profile_openclaw_title || 'OpenClaw Key'}</div>
+                        <div className="text-xs text-zinc-600 mt-0.5">{openClawStatus.enabled ? (t.profile_openclaw_status_enabled || 'Enabled') : (t.profile_openclaw_status_disabled || 'Disabled')} · {openClawStatus.hasKey ? openClawStatus.maskedKey : (t.profile_openclaw_not_generated || 'Not Generated')}</div>
+                      </div>
+                    </div>
                   </button>
                   
                   <button onClick={logout} className="w-full flex items-center justify-between p-6 rounded-2xl bg-red-500/5 hover:bg-red-500/10 transition group/logout border border-red-500/10 hover:border-red-500/20">
@@ -463,6 +565,71 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
        {isInfoOpen && (
          <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={() => setIsInfoOpen(false)} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>OK</button></>}>
            <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
+         </AppDialog>
+       )}
+       {isOpenClawDialogOpen && (
+         <AppDialog
+           isOpen={isOpenClawDialogOpen}
+           title={t.profile_openclaw_title || 'OpenClaw 查询密钥管理'}
+           onClose={() => {
+             setIsOpenClawDialogOpen(false);
+             setOpenClawKey('');
+           }}
+           footer={
+             <>
+               <button
+                 className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
+                 onClick={() => {
+                   setIsOpenClawDialogOpen(false);
+                   setOpenClawKey('');
+                 }}
+               >
+                 {t.profile_openclaw_btn_close || '关闭'}
+               </button>
+             </>
+           }
+         >
+           <div className="space-y-3 text-sm text-zinc-300">
+             <div className="rounded-lg border border-white/10 bg-zinc-900/50 p-3">
+               <div>{t.profile_openclaw_phone || '手机号'}: <span className="text-white">{openClawStatus.phone || (t.profile_openclaw_unbound || '未绑定')}</span></div>
+               <div className="mt-1">{t.profile_openclaw_status || '状态'}: <span className={openClawStatus.enabled ? 'text-emerald-400' : 'text-zinc-500'}>{openClawStatus.enabled ? (t.profile_openclaw_status_enabled || '已启用') : (t.profile_openclaw_status_disabled || '未启用')}</span></div>
+               <div className="mt-1">{t.profile_openclaw_key || '密钥'}: <span className="text-white">{openClawKey || openClawStatus.maskedKey || (t.profile_openclaw_not_generated || '未生成')}</span></div>
+               <div className="mt-1">{t.profile_openclaw_update_time || '更新时间'}: <span className="text-zinc-400">{openClawStatus.updatedAt ? new Date(openClawStatus.updatedAt).toLocaleString() : '-'}</span></div>
+             </div>
+
+             <div className="flex flex-wrap gap-2">
+               <button
+                 onClick={handleToggleOpenClaw}
+                 disabled={isOpenClawLoading}
+                 className="px-3 py-2 rounded-lg text-xs font-bold bg-white/5 text-white border border-white/10 hover:bg-white/10 disabled:opacity-60"
+               >
+                 {openClawStatus.enabled ? (t.profile_openclaw_btn_disable || '禁用') : (t.profile_openclaw_btn_enable || '启用')}
+               </button>
+               
+               {openClawStatus.enabled && (
+                 <>
+                   <button
+                     onClick={handleRegenerateOpenClawKey}
+                     disabled={isOpenClawLoading}
+                     className="px-3 py-2 rounded-lg text-xs font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30 hover:bg-orange-500/30 disabled:opacity-60"
+                   >
+                     {t.profile_openclaw_btn_regenerate || '生成/换新密钥'}
+                   </button>
+                   <button
+                     onClick={handleCopyOpenClawKey}
+                     disabled={isOpenClawLoading}
+                     className="px-3 py-2 rounded-lg text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 disabled:opacity-60"
+                   >
+                     {t.profile_openclaw_btn_copy || '复制密钥'}
+                   </button>
+                 </>
+               )}
+             </div>
+
+             <div className="text-xs text-zinc-500 leading-relaxed">
+               {t.profile_openclaw_hint || 'OpenClaw 仅支持只读查询与下载链接获取。调用时需同时提供手机号和密钥。'}
+             </div>
+           </div>
          </AppDialog>
        )}
     </div>

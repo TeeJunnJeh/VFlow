@@ -132,7 +132,7 @@ type LocalProjectStore = {
   workspaces: Record<string, ProjectWorkspaceState>;
 };
 
-const LOCAL_PROJECT_STORE_KEY = 'vflow_workbench_projects_v1';
+const LOCAL_PROJECT_STORE_KEY_PREFIX = 'vflow_workbench_projects_v1';
 const DEFAULT_PROJECT_NAME = 'Project_Alpha_01';
 const MAX_PROJECT_NAME_LENGTH = 30;
 const PROJECT_ACTION_MENU_RESERVED_SPACE = 60;
@@ -193,9 +193,14 @@ const createDefaultProjectStore = (): LocalProjectStore => {
   };
 };
 
-const loadLocalProjectStore = (): LocalProjectStore => {
+const getLocalProjectStoreKey = (userId?: string | number | null): string => {
+  const normalized = userId === null || userId === undefined || userId === '' ? 'guest' : String(userId);
+  return `${LOCAL_PROJECT_STORE_KEY_PREFIX}_${normalized}`;
+};
+
+const loadLocalProjectStore = (userId?: string | number | null): LocalProjectStore => {
   try {
-    const raw = localStorage.getItem(LOCAL_PROJECT_STORE_KEY);
+    const raw = localStorage.getItem(getLocalProjectStoreKey(userId));
     if (!raw) return createDefaultProjectStore();
     const parsed = JSON.parse(raw) as Partial<LocalProjectStore>;
     if (!parsed || typeof parsed !== 'object') return createDefaultProjectStore();
@@ -483,7 +488,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [currentMaterialType, setCurrentMaterialType] = useState<AssetLibraryTab | null>(null);
   const [generatedBatch, setGeneratedBatch] = useState<Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }>>([]);
   const [selectedQueueAssetId, setSelectedQueueAssetId] = useState<string | null>(null);
-  const [projectStore, setProjectStore] = useState<LocalProjectStore>(() => loadLocalProjectStore());
+  const [projectStore, setProjectStore] = useState<LocalProjectStore>(() => loadLocalProjectStore(user?.id ?? null));
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectSearch, setProjectSearch] = useState('');
   const [projectActionMenuId, setProjectActionMenuId] = useState<string | null>(null);
@@ -786,8 +791,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [projectStore.currentProjectId, templateList, t.wb_script_page_prefix, t.demo_shot1_visual, t.demo_shot1_audio, t.demo_shot2_visual, t.demo_shot2_audio]);
 
   useEffect(() => {
-    localStorage.setItem(LOCAL_PROJECT_STORE_KEY, JSON.stringify(projectStore));
-  }, [projectStore]);
+    localStorage.setItem(getLocalProjectStoreKey(user?.id ?? null), JSON.stringify(projectStore));
+  }, [projectStore, user?.id]);
+
+  useEffect(() => {
+    setProjectStore(loadLocalProjectStore(user?.id ?? null));
+  }, [user?.id]);
 
   useEffect(() => {
     if (isApplyingProjectWorkspaceRef.current) return;

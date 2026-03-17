@@ -1,6 +1,6 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  UploadCloud, Plus, X, CheckCircle, FolderPlus, SlidersHorizontal,
+  UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder, SlidersHorizontal,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2
@@ -10,7 +10,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useTasks } from '../../context/TaskContext';
 import { useWorkbenchModel } from '../../context/WorkbenchModelContext';
 import { videoApi, VideoApiError, type GeneratePreviewData } from '../../services/video';
-import { assetsApi, type Asset as LibraryAsset } from '../../services/assets';
+import { assetsApi, type Asset as LibraryAsset, type AssetFolder } from '../../services/assets';
 import { tiktokApi } from '../../services/tiktok';
 import {
   PromptLabWindow,
@@ -38,10 +38,16 @@ type ScriptItem = {
   audio: string;
 };
 
+type ReferenceSummaryItem = {
+  type: 'model' | 'product' | 'scene';
+  keywords: string[];
+};
+
 type ScriptPage = {
   id: string;
   name: string;
   scripts: ScriptItem[];
+  referenceSummary?: ReferenceSummaryItem[];
 };
 
 type QueuedAsset = {
@@ -109,6 +115,7 @@ type ProjectWorkspaceState = {
   scriptVariantCount: number;
   targetLanguage: string;
   creationMode: 'fast' | 'replay';
+  reuseQueueEnabled: boolean;
   scripts: ScriptItem[];
   scriptPages: ScriptPage[];
   activeScriptPage: number;
@@ -131,7 +138,7 @@ type LocalProjectStore = {
   workspaces: Record<string, ProjectWorkspaceState>;
 };
 
-const LOCAL_PROJECT_STORE_KEY = 'vflow_workbench_projects_v1';
+const LOCAL_PROJECT_STORE_KEY_PREFIX = 'vflow_workbench_projects_v1';
 const DEFAULT_PROJECT_NAME = 'Project_Alpha_01';
 const MAX_PROJECT_NAME_LENGTH = 30;
 const PROJECT_ACTION_MENU_RESERVED_SPACE = 60;
@@ -168,6 +175,7 @@ const createWorkspaceState = (params?: {
   scriptVariantCount: 1,
   targetLanguage: 'en',
   creationMode: 'fast',
+  reuseQueueEnabled: false,
   scripts: params?.scripts || [],
   scriptPages: [{
     id: 'page-1',
@@ -191,9 +199,14 @@ const createDefaultProjectStore = (): LocalProjectStore => {
   };
 };
 
-const loadLocalProjectStore = (): LocalProjectStore => {
+const getLocalProjectStoreKey = (userId?: string | number | null): string => {
+  const normalized = userId === null || userId === undefined || userId === '' ? 'guest' : String(userId);
+  return `${LOCAL_PROJECT_STORE_KEY_PREFIX}_${normalized}`;
+};
+
+const loadLocalProjectStore = (userId?: string | number | null): LocalProjectStore => {
   try {
-    const raw = localStorage.getItem(LOCAL_PROJECT_STORE_KEY);
+    const raw = localStorage.getItem(getLocalProjectStoreKey(userId));
     if (!raw) return createDefaultProjectStore();
     const parsed = JSON.parse(raw) as Partial<LocalProjectStore>;
     if (!parsed || typeof parsed !== 'object') return createDefaultProjectStore();
@@ -382,6 +395,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isAssetLibraryOpen, setIsAssetLibraryOpen] = useState(false);
   const [assetLibraryTab, setAssetLibraryTab] = useState<AssetLibraryTab>('product');
   const [assetLibraryItems, setAssetLibraryItems] = useState<LibraryAsset[]>([]);
+  const [assetLibraryFolders, setAssetLibraryFolders] = useState<AssetFolder[]>([]);
+  const [assetLibraryBreadcrumb, setAssetLibraryBreadcrumb] = useState<AssetFolder[]>([]);
+  const [assetLibraryCurrentFolderId, setAssetLibraryCurrentFolderId] = useState<string | null>(null);
   const [assetLibraryLoading, setAssetLibraryLoading] = useState(false);
   const [assetLibraryError, setAssetLibraryError] = useState<string | null>(null);
 
@@ -406,6 +422,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [scriptVariantCount, setScriptVariantCount] = useState<number>(1);
   const [targetLanguage, setTargetLanguage] = useState<string>('en');
   const [creationMode, setCreationMode] = useState<'fast' | 'replay'>('fast');
+  const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
   const lastFastModelRef = useRef<'kling' | 'sora2' | 'sora2pro' | 'seedance2.0'>('kling');
   const templateModelAsset = selectedTemplate?.default_model_asset ?? null;
   const templateMotionAsset = selectedTemplate?.default_motion_asset ?? null;
@@ -420,6 +437,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isSendingDebug, setIsSendingDebug] = useState(false);
   const [debugPayloadText, setDebugPayloadText] = useState('');
   const [debugPreview, setDebugPreview] = useState<GeneratePreviewData | null>(null);
+  const shotTypeOptions = useMemo<Array<{ value: string; label: string }>>(() => ([
+    { value: 'Medium', label: t.wb_shot_type_medium || 'Medium' },
+    { value: 'Detail', label: t.wb_shot_type_detail || 'Detail' },
+    { value: 'Close-up', label: t.wb_shot_type_closeup || 'Close-up' },
+    { value: 'Wide', label: t.wb_shot_type_wide || 'Wide' },
+    { value: 'General', label: t.wb_shot_type_general || 'General' },
+  ]), [
+    t.wb_shot_type_medium,
+    t.wb_shot_type_detail,
+    t.wb_shot_type_closeup,
+    t.wb_shot_type_wide,
+    t.wb_shot_type_general,
+  ]);
 
   // Video Player State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -464,7 +494,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [currentMaterialType, setCurrentMaterialType] = useState<AssetLibraryTab | null>(null);
   const [generatedBatch, setGeneratedBatch] = useState<Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }>>([]);
   const [selectedQueueAssetId, setSelectedQueueAssetId] = useState<string | null>(null);
-  const [projectStore, setProjectStore] = useState<LocalProjectStore>(() => loadLocalProjectStore());
+  const [projectStore, setProjectStore] = useState<LocalProjectStore>(() => loadLocalProjectStore(user?.id ?? null));
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectSearch, setProjectSearch] = useState('');
   const [projectActionMenuId, setProjectActionMenuId] = useState<string | null>(null);
@@ -566,6 +596,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setScriptVariantCount(typeof workspace.scriptVariantCount === 'number' ? workspace.scriptVariantCount : 1);
     setTargetLanguage(workspace.targetLanguage || 'en');
     setCreationMode(workspace.creationMode || 'fast');
+    setReuseQueueEnabled(!!workspace.reuseQueueEnabled);
     setScripts(Array.isArray(workspace.scripts) ? workspace.scripts : []);
     setScriptPages(Array.isArray(workspace.scriptPages) && workspace.scriptPages.length > 0 ? workspace.scriptPages : [{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: [] }]);
     setActiveScriptPage(typeof workspace.activeScriptPage === 'number' ? workspace.activeScriptPage : 0);
@@ -766,8 +797,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [projectStore.currentProjectId, templateList, t.wb_script_page_prefix, t.demo_shot1_visual, t.demo_shot1_audio, t.demo_shot2_visual, t.demo_shot2_audio]);
 
   useEffect(() => {
-    localStorage.setItem(LOCAL_PROJECT_STORE_KEY, JSON.stringify(projectStore));
-  }, [projectStore]);
+    localStorage.setItem(getLocalProjectStoreKey(user?.id ?? null), JSON.stringify(projectStore));
+  }, [projectStore, user?.id]);
+
+  useEffect(() => {
+    setProjectStore(loadLocalProjectStore(user?.id ?? null));
+  }, [user?.id]);
 
   useEffect(() => {
     if (isApplyingProjectWorkspaceRef.current) return;
@@ -786,6 +821,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       scriptVariantCount,
       targetLanguage,
       creationMode,
+      reuseQueueEnabled,
       scripts,
       scriptPages,
       activeScriptPage,
@@ -823,6 +859,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     scriptVariantCount,
     targetLanguage,
     creationMode,
+    reuseQueueEnabled,
     scripts,
     scriptPages,
     activeScriptPage,
@@ -1066,12 +1103,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setAssetLibraryLoading(true);
       setAssetLibraryError(null);
       try {
-        const items = await assetsApi.getAssets({ type: assetLibraryTab, folderId: null });
-        if (!cancelled) setAssetLibraryItems(Array.isArray(items) ? items : []);
+        const [items, folderData] = await Promise.all([
+          assetsApi.getAssets({ type: assetLibraryTab, folderId: assetLibraryCurrentFolderId }),
+          assetsApi.getFolders({ type: assetLibraryTab, parentId: assetLibraryCurrentFolderId }),
+        ]);
+        if (!cancelled) {
+          setAssetLibraryItems(Array.isArray(items) ? items : []);
+          setAssetLibraryFolders(Array.isArray(folderData.folders) ? folderData.folders : []);
+          setAssetLibraryBreadcrumb(Array.isArray(folderData.breadcrumb) ? folderData.breadcrumb : []);
+        }
       } catch (err: any) {
         console.error('Failed to load asset library items:', err);
         if (!cancelled) {
           setAssetLibraryItems([]);
+          setAssetLibraryFolders([]);
+          setAssetLibraryBreadcrumb([]);
           setAssetLibraryError(String(err?.message || '加载素材失败'));
         }
       } finally {
@@ -1083,10 +1129,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [assetLibraryTab, isAssetLibraryOpen]);
+  }, [assetLibraryCurrentFolderId, assetLibraryTab, isAssetLibraryOpen]);
 
   const openAssetLibraryPicker = () => {
     setAssetLibraryTab(currentAssetMediaKind === 'video' ? 'motion' : 'product');
+    setAssetLibraryCurrentFolderId(null);
     setIsAssetLibraryOpen(true);
   };
 
@@ -1094,18 +1141,41 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const assetUrl = asset.file_url || null;
     if (!assetUrl) return;
     const source: 'product' | 'preference' = asset.media_kind === 'video' ? 'preference' : 'product';
+    const nextMaterialType: AssetLibraryTab = asset.media_kind === 'video' ? 'motion' : assetLibraryTab;
+    const mediaKind: QueuedAsset['mediaKind'] =
+      asset.media_kind === 'video'
+        ? 'video'
+        : asset.media_kind === 'audio'
+          ? 'audio'
+          : (asset.media_kind === 'image' ? 'image' : inferMediaKind({ name: asset.name || '', url: assetUrl }));
+    const queueId = `lib-${asset.id}`;
+    const queuedAsset: QueuedAsset = {
+      id: queueId,
+      name: asset.name || '未命名素材',
+      previewUrl: assetUrl,
+      fileObj: null,
+      assetUrl,
+      source,
+      materialType: nextMaterialType,
+      isPrimaryFrame: source === 'product',
+      mediaKind,
+      uploadedPath: assetUrl,
+    };
+
+    setAssetQueue(prev => {
+      const next = prev.filter(item => item.materialType !== nextMaterialType);
+      return [...next, queuedAsset];
+    });
 
     setUploadedFile(assetUrl);
     setSelectedAssetUrl(assetUrl);
     setLastUploadedUrl(assetUrl);
     setSelectedFileObj(null);
-    setFileName(asset.name || '未命名素材');
+    setFileName(queuedAsset.name);
     setSelectedAssetSource(source);
-    setCurrentMaterialType(asset.media_kind === 'video' ? 'motion' : assetLibraryTab);
-    setSelectedQueueAssetId(null);
+    setCurrentMaterialType(nextMaterialType);
+    setSelectedQueueAssetId(queueId);
     setGeneratedVideoUrl(null);
-    setAssetQueue(prev => prev.map(item => ({ ...item, isPrimaryFrame: false })));
-    setIsAssetLibraryOpen(false);
   };
 
   // Duration Logic
@@ -1113,6 +1183,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return total + (parseFloat(s.dur.replace('s', '')) || 0);
   }, 0);
   const isDurationValid = Math.abs(currentScriptDuration - genDuration) < 0.1;
+  const hasAnyReuseQueue = assetQueue.length > 0 || scriptQueue.length > 0;
   const isReuseReady = assetQueue.length > 0 && scriptQueue.length > 0;
   const expectedBatchCount = isReuseReady ? assetQueue.length * scriptQueue.length : 0;
   const hasCurrentAsset = Boolean(uploadedFile || selectedAssetUrl || selectedFileObj);
@@ -1124,7 +1195,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const videoFormats = VIDEO_EXTS.join('/');
   const audioFormats = AUDIO_EXTS.join('/');
   const formatHint = `图片(${imageFormats}) 视频(${videoFormats}) 音频(${audioFormats}) · ≤1GB`;
-  const isBatchDebugMode = assetQueue.length > 0 || scriptQueue.length > 0;
+  const isBatchDebugMode = reuseQueueEnabled && hasAnyReuseQueue;
   const materialTypeLabelMap: Record<AssetLibraryTab, string> = {
     product: t.assets_tab_products || '商品',
     model: t.assets_tab_models || '模特',
@@ -1157,6 +1228,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     selectedFileObj,
     uploadedFile,
   ]);
+  const referencePreviewAssetsByType = useMemo(() => {
+    const next: Partial<Record<'model' | 'product' | 'scene', QueuedAsset>> = {};
+    for (const asset of uploadDisplayAssets) {
+      if (asset.materialType !== 'model' && asset.materialType !== 'product' && asset.materialType !== 'scene') continue;
+      next[asset.materialType] = asset;
+    }
+    return next;
+  }, [uploadDisplayAssets]);
+  const activeReferenceSummary = scriptPages[activeScriptPage]?.referenceSummary || [];
   const activeGuideStep = isGuideOpen ? guideSteps[guideStepIndex] : null;
   const isGuideFocused = (key: GuideStepKey) => activeGuideStep?.key === key;
   const getGuideFocusClass = (key: GuideStepKey) => (
@@ -1496,40 +1576,38 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const applySelectedUploadType = (files: File[], selectedType: AssetLibraryTab) => {
     if (files.length === 0) return;
 
-    const createdItems: QueuedAsset[] = files.map((file, index) => {
-      const mediaKind = inferMediaKind({ name: file.name, file });
-      const source: QueuedAsset['source'] = mediaKind === 'video' ? 'preference' : 'product';
-      return {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${index}`,
-        name: file.name,
-        previewUrl: URL.createObjectURL(file),
-        fileObj: file,
-        assetUrl: null,
-        source,
-        materialType: selectedType,
-        isPrimaryFrame: index === 0 && mediaKind === 'image',
-        mediaKind,
-        uploadedPath: null,
-      };
-    });
+    const latestFile = files[files.length - 1];
+    const mediaKind = inferMediaKind({ name: latestFile.name, file: latestFile });
+    const source: QueuedAsset['source'] = mediaKind === 'video' ? 'preference' : 'product';
+    const latestItem: QueuedAsset = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-0`,
+      name: latestFile.name,
+      previewUrl: URL.createObjectURL(latestFile),
+      fileObj: latestFile,
+      assetUrl: null,
+      source,
+      materialType: selectedType,
+      isPrimaryFrame: mediaKind === 'image',
+      mediaKind,
+      uploadedPath: null,
+    };
 
-    const firstItem = createdItems[0];
     setUploadedFile((prev) => {
       if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
-      return firstItem.previewUrl;
+      return latestItem.previewUrl;
     });
-    setFileName(firstItem.name);
-    setSelectedFileObj(firstItem.fileObj || null);
-    setSelectedAssetSource(firstItem.source);
+    setFileName(latestItem.name);
+    setSelectedFileObj(latestItem.fileObj || null);
+    setSelectedAssetSource(latestItem.source);
     setSelectedAssetUrl(null);
-    setSelectedQueueAssetId(firstItem.id);
-    setCurrentMaterialType(firstItem.materialType || null);
+    setSelectedQueueAssetId(latestItem.id);
+    setCurrentMaterialType(latestItem.materialType || null);
     setGeneratedVideoUrl(null);
     setLastUploadedUrl(null);
 
     setAssetQueue(prev => {
-      const resetPrimary = prev.map(item => ({ ...item, isPrimaryFrame: false }));
-      return [...resetPrimary, ...createdItems];
+      const next = prev.filter(item => item.materialType !== selectedType);
+      return [...next, latestItem];
     });
   };
 
@@ -1680,6 +1758,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setScripts(newScripts);
   };
 
+  const handleScriptTypeChange = (id: number, newType: string) => {
+    const normalizedType = newType.trim() || 'Medium';
+    const newScripts = scripts.map((item) => (item.id === id ? { ...item, type: normalizedType } : item));
+    updateScripts(newScripts);
+  };
+
   const updateScripts = (newScripts: ScriptItem[]) => {
     setScripts(newScripts);
     setScriptPages(prev => {
@@ -1710,21 +1794,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const name = fileName || '未命名素材';
     const mediaKind = inferMediaKind({ name, url: previewUrl, file: selectedFileObj });
 
-    setAssetQueue(prev => ([
-      ...prev,
-      {
-        id: newId,
-        name,
-        previewUrl,
-        fileObj: selectedFileObj,
-        assetUrl: selectedAssetUrl,
-        source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference'),
-        materialType: currentAssetMediaKind === 'video' ? 'motion' : 'product',
-        isPrimaryFrame: false,
-        mediaKind,
-        uploadedPath: null
-      }
-    ]));
+    const nextMaterialType: AssetLibraryTab = currentAssetMediaKind === 'video'
+      ? 'motion'
+      : (currentMaterialType || 'product');
+    const nextItem: QueuedAsset = {
+      id: newId,
+      name,
+      previewUrl,
+      fileObj: selectedFileObj,
+      assetUrl: selectedAssetUrl,
+      source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference'),
+      materialType: nextMaterialType,
+      isPrimaryFrame: mediaKind === 'image',
+      mediaKind,
+      uploadedPath: null
+    };
+
+    setAssetQueue(prev => {
+      const next = prev.filter(item => item.materialType !== nextMaterialType);
+      return [...next, nextItem];
+    });
+    setSelectedQueueAssetId(newId);
 
     setUploadedFile(null);
     setSelectedFileObj(null);
@@ -1790,31 +1880,54 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setIsGeneratingScript(true);
 
     try {
-      let imagePath = "";
-      const scriptAssetIsImage = currentAssetMediaKind === 'image';
+      type ScriptReferenceAsset = {
+        type: 'model' | 'product' | 'scene';
+        name: string;
+        image_path: string;
+      };
 
-      // 1. Upload Image (if one is selected but not yet uploaded)
-      if (selectedFileObj && scriptAssetIsImage) {
-        console.log("🚀 Uploading reference image for script...");
-        const uploadResp = await assetsApi.uploadTempAsset(selectedFileObj);
-        
-        let rawPath = null;
-        if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
-          rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
-        } else {
-          rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
-        }
-
-        if (rawPath) {
-          setLastUploadedUrl(rawPath);
-          // Send raw path directly to backend (backend will handle URL vs path)
-          imagePath = rawPath;
-        }
-      } else if (selectedAssetUrl && scriptAssetIsImage) {
-        setLastUploadedUrl(selectedAssetUrl);
-        // Send raw URL directly to backend
-        imagePath = selectedAssetUrl;
+      const referenceSources = uploadDisplayAssets;
+      const latestByType = new Map<'model' | 'product' | 'scene', QueuedAsset>();
+      for (const asset of referenceSources) {
+        if (asset.mediaKind !== 'image') continue;
+        if (asset.materialType !== 'model' && asset.materialType !== 'product' && asset.materialType !== 'scene') continue;
+        latestByType.set(asset.materialType, asset);
       }
+
+      const referenceAssets: ScriptReferenceAsset[] = [];
+      const queuedPathUpdates: Record<string, string> = {};
+      const orderedTypes: Array<'model' | 'product' | 'scene'> = ['model', 'product', 'scene'];
+      for (const type of orderedTypes) {
+        const asset = latestByType.get(type);
+        if (!asset) continue;
+
+        let resolvedPath = asset.uploadedPath || asset.assetUrl || null;
+        if (!resolvedPath && asset.fileObj) {
+          const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
+          resolvedPath = extractUploadedAssetPath(uploadResp);
+        }
+        if (!resolvedPath) continue;
+
+        if (asset.id && asset.id !== 'current-upload') {
+          queuedPathUpdates[asset.id] = resolvedPath;
+        }
+        if (selectedQueueAssetId && selectedQueueAssetId === asset.id) {
+          setLastUploadedUrl(resolvedPath);
+        }
+
+        referenceAssets.push({
+          type,
+          name: asset.name || '',
+          image_path: resolvedPath,
+        });
+      }
+      if (Object.keys(queuedPathUpdates).length > 0) {
+        setAssetQueue(prev => prev.map(item => (
+          queuedPathUpdates[item.id] ? { ...item, uploadedPath: queuedPathUpdates[item.id] } : item
+        )));
+      }
+
+      let imagePath = referenceAssets.find((item) => item.type === 'product')?.image_path || referenceAssets[0]?.image_path || '';
 
       // 2. Prepare Payload (Robust)
       const promptText = genPrompt || "产品推广";
@@ -1847,7 +1960,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         script_content: {
           duration: duration,
           shot_number: shots,
-          custom: selectedTemplate?.custom_config || "突出夜景拍摄",
+          custom: selectedTemplate?.custom_config || "",
           // Inner level prompt
           input: promptText,
           prompt: promptText,
@@ -1855,6 +1968,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           script_count: scriptVariantCount,
           shots: []
         },
+        ...(referenceAssets.length > 0 ? { reference_assets: referenceAssets } : {}),
         ...(imagePath ? { product_image_path: imagePath } : {}),
         asset_source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference'),
         ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
@@ -1869,11 +1983,29 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const buildScriptsFromShots = (shots: any[]) => shots.map((shot: any) => ({
         id: shot.shot_index,
         shot: shot.shot_index.toString(),
-        type: 'General',
+        type: shot.type || 'Medium',
         dur: `${shot.duration_sec}s`,
         visual: shot.visual,
         audio: shot.audio || shot.voiceover || shot.beat
       }));
+      const parseReferenceSummary = (summary: any): ReferenceSummaryItem[] => {
+        if (!Array.isArray(summary)) return [];
+        const allowedTypes = new Set(['model', 'product', 'scene']);
+        const next: ReferenceSummaryItem[] = [];
+        for (const item of summary) {
+          if (!item || typeof item !== 'object') continue;
+          const type = String(item.type || '').toLowerCase();
+          if (!allowedTypes.has(type)) continue;
+          if (!Array.isArray(item.keywords)) continue;
+          const keywords = item.keywords
+            .map((kw: any) => String(kw || '').trim())
+            .filter((kw: string, idx: number, arr: string[]) => kw.length > 0 && arr.indexOf(kw) === idx)
+            .slice(0, 3);
+          if (keywords.length === 0) continue;
+          next.push({ type: type as ReferenceSummaryItem['type'], keywords });
+        }
+        return next;
+      };
 
       // 4. Handle various response formats from API
       const extractScriptPages = (data: any): ScriptPage[] => {
@@ -1882,28 +2014,36 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           return data.script_contents.map((sc: any, idx: number) => ({
             id: `page-${idx + 1}`,
             name: `${t.wb_script_page_prefix} ${idx + 1}`,
-            scripts: buildScriptsFromShots(sc?.shots || [])
+            scripts: buildScriptsFromShots(sc?.shots || []),
+            referenceSummary: parseReferenceSummary(sc?.reference_assets_summary),
           }));
         }
         if (Array.isArray(data.script_variants)) {
           return data.script_variants.map((variant: any, idx: number) => ({
             id: `page-${idx + 1}`,
             name: `${t.wb_script_page_prefix} ${idx + 1}`,
-            scripts: buildScriptsFromShots(variant?.script_content?.shots || variant?.shots || [])
+            scripts: buildScriptsFromShots(variant?.script_content?.shots || variant?.shots || []),
+            referenceSummary: parseReferenceSummary(
+              variant?.script_content?.reference_assets_summary || variant?.reference_assets_summary
+            ),
           }));
         }
         if (Array.isArray(data.variants)) {
           return data.variants.map((variant: any, idx: number) => ({
             id: `page-${idx + 1}`,
             name: `${t.wb_script_page_prefix} ${idx + 1}`,
-            scripts: buildScriptsFromShots(variant?.script_content?.shots || variant?.shots || [])
+            scripts: buildScriptsFromShots(variant?.script_content?.shots || variant?.shots || []),
+            referenceSummary: parseReferenceSummary(
+              variant?.script_content?.reference_assets_summary || variant?.reference_assets_summary
+            ),
           }));
         }
         if (data.script_content?.shots) {
           return [{
             id: 'page-1',
             name: `${t.wb_script_page_prefix} 1`,
-            scripts: buildScriptsFromShots(data.script_content.shots)
+            scripts: buildScriptsFromShots(data.script_content.shots),
+            referenceSummary: parseReferenceSummary(data.script_content?.reference_assets_summary),
           }];
         }
         return [];
@@ -1983,7 +2123,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           const validScripts = parsed.map((item: any, idx: number) => ({
             id: item.id || Date.now() + idx,
             shot: item.shot || (idx + 1).toString(),
-            type: item.type || 'General',
+            type: item.type || 'Medium',
             dur: item.dur || '2s',
             visual: item.visual || '',
             audio: item.audio || ''
@@ -2064,9 +2204,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const validateGenerateRequirements = () => {
     const issues: string[] = [];
 
-    if (assetQueue.length > 0 || scriptQueue.length > 0) {
+    if (reuseQueueEnabled) {
+      if (assetQueue.length === 0 && scriptQueue.length === 0) {
+        issues.push(t.wb_reuse_queue_enable_hint || '复用队列模式已开启，请先加入素材队列和脚本队列，或关闭复用队列模式。');
+      }
       if (assetQueue.length === 0 || scriptQueue.length === 0) {
-        issues.push('复用队列：批量生成需要同时加入素材队列和脚本队列。');
+        issues.push(t.wb_reuse_queue_pairing_hint || '复用队列：批量生成需要同时加入素材队列和脚本队列。');
       }
       if (!user?.id) {
         issues.push('账号：请先登录后再发起批量生成。');
@@ -2104,7 +2247,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
 
     // 1. Batch Generation (Reuse Queue)
-    if (assetQueue.length > 0 || scriptQueue.length > 0) {
+    if (reuseQueueEnabled) {
       setIsGenerating(true);
       setGeneratedVideoUrl(null);
 
@@ -2891,7 +3034,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               }}
               className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
             >
-              从本地上传素材
+              {t.wb_btn_upload_local_asset || '从本地上传素材'}
             </button>
             <button
               type="button"
@@ -2901,14 +3044,44 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               }}
               className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
             >
-              从素材库选择素材
+              {t.wb_btn_choose_from_library || '从素材库选择素材'}
             </button>
           </div>
 
           {/* Reuse Queues Section (Restored Buttons) */}
           <div className="flex flex-col gap-3">
-            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> {t.wb_reuse_queue}</h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> {t.wb_reuse_queue}</h2>
+              <button
+                type="button"
+                onClick={() => setReuseQueueEnabled((prev) => !prev)}
+                className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold transition ${reuseQueueEnabled ? 'border-orange-500/60 bg-orange-500/15 text-orange-300' : 'border-white/10 bg-black/40 text-zinc-400 hover:bg-white/5'}`}
+              >
+                {reuseQueueEnabled ? (t.wb_reuse_queue_mode_on || '已开启') : (t.wb_reuse_queue_mode_off || '已关闭')}
+              </button>
+            </div>
             <div className="glass-panel rounded-xl p-4 flex flex-col gap-4">
+              <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2.5">
+                <div className="flex items-center gap-2 text-[11px] font-bold text-zinc-200">
+                  <Info className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>{t.wb_reuse_queue_explain_title || '复用队列怎么用？'}</span>
+                </div>
+                <p className="mt-1 text-[10px] leading-relaxed text-zinc-400">
+                  {t.wb_reuse_queue_explain_desc || '用于批量复用生成：系统会将素材队列和脚本队列做笛卡尔组合（素材 × 脚本）逐条提交任务。'}
+                </p>
+                <p className={`mt-1 text-[10px] ${reuseQueueEnabled ? 'text-orange-300' : 'text-zinc-500'}`}>
+                  {reuseQueueEnabled
+                    ? (t.wb_reuse_queue_enable_hint || '当前为批量模式：请把素材和脚本分别加入队列再生成。')
+                    : (t.wb_reuse_queue_disable_hint || '当前为单次模式：开启后才显示队列内容，适合大量复用场景。')}
+                </p>
+              </div>
+
+              {!reuseQueueEnabled ? (
+                <div className="text-[10px] text-zinc-500 border border-dashed border-white/10 rounded-lg px-3 py-2.5">
+                  {t.wb_reuse_queue_collapsed_hint || '复用队列已折叠。点击右上角按钮开启后即可维护队列。'}
+                </div>
+              ) : (
+                <>
               {/* Asset Queue */}
               <div className="flex items-center justify-between">
                 <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_asset_queue}</div>
@@ -2993,6 +3166,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <div className="text-[10px] text-zinc-500 pt-2 border-t border-white/5">
                 {t.wb_estimated_generate}: {assetQueue.length} × {scriptQueue.length} = {expectedBatchCount}
               </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -3680,7 +3855,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           <AppDialog
             isOpen={isAssetLibraryOpen}
             titleClassName="text-lg"
-            title="从素材库选择"
+            title={t.wb_dialog_choose_from_library || '从素材库选择'}
             onClose={() => setIsAssetLibraryOpen(false)}
             widthClassName="max-w-[min(92vw,980px)]"
             footer={
@@ -3705,11 +3880,35 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <button
                     key={tab.value}
                     type="button"
-                    onClick={() => setAssetLibraryTab(tab.value)}
+                    onClick={() => {
+                      setAssetLibraryTab(tab.value);
+                      setAssetLibraryCurrentFolderId(null);
+                    }}
                     className={`shrink-0 rounded-full border px-5 py-2 text-[14px] font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
                   >
                     {tab.label}
                   </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 text-xs text-zinc-500 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setAssetLibraryCurrentFolderId(null)}
+                  className={`hover:text-white ${assetLibraryCurrentFolderId === null ? 'text-white' : ''}`}
+                >
+                  {t.assets_root || '根目录'}
+                </button>
+                {assetLibraryBreadcrumb.map((folder) => (
+                  <div key={folder.id} className="flex items-center gap-2 min-w-0">
+                    <span>/</span>
+                    <button
+                      type="button"
+                      onClick={() => setAssetLibraryCurrentFolderId(folder.id)}
+                      className={`hover:text-white truncate ${assetLibraryCurrentFolderId === folder.id ? 'text-white' : ''}`}
+                    >
+                      {folder.name}
+                    </button>
+                  </div>
                 ))}
               </div>
 
@@ -3722,12 +3921,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <div className="h-52 flex items-center justify-center text-red-300 text-sm">
                     {assetLibraryError}
                   </div>
-                ) : assetLibraryItems.length === 0 ? (
+                ) : assetLibraryItems.length === 0 && assetLibraryFolders.length === 0 ? (
                   <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">
                     暂无素材
                   </div>
                 ) : (
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-6 gap-2">
+                    {assetLibraryFolders.map((folder) => (
+                      <button
+                        key={folder.id}
+                        type="button"
+                        onClick={() => setAssetLibraryCurrentFolderId(folder.id)}
+                        className="text-left rounded-lg border border-white/10 bg-black/30 p-1 hover:border-orange-500/50 hover:bg-white/5 transition"
+                      >
+                        <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-900/60 relative flex items-center justify-center">
+                          <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center">
+                            <Folder className="w-5 h-5 text-zinc-300" />
+                          </div>
+                        </div>
+                        <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{folder.name}</div>
+                      </button>
+                    ))}
                     {assetLibraryItems.map((asset) => (
                       <button
                         key={asset.id}
@@ -3819,6 +4033,40 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
            </div>
            
            <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
+              {activeReferenceSummary.length > 0 && (
+                <div className="glass-panel rounded-xl p-3 border border-white/10">
+                  <div className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2">{t.wb_upload_title}</div>
+                  <div className="space-y-2">
+                    {activeReferenceSummary.map((item, idx) => {
+                      const previewAsset = referencePreviewAssetsByType[item.type];
+                      const previewSrc = previewAsset?.previewUrl || previewAsset?.assetUrl || null;
+                      return (
+                        <div key={`${item.type}-${idx}`} className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 p-2">
+                          <div className="w-10 h-10 rounded-md overflow-hidden border border-white/10 bg-zinc-900 shrink-0 flex items-center justify-center">
+                            {previewSrc ? (
+                              <img src={previewSrc} alt={previewAsset?.name || item.type} className="w-full h-full object-cover" />
+                            ) : (
+                              <Layers className="w-4 h-4 text-zinc-500" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[10px] text-zinc-300 font-semibold">
+                              {materialTypeLabelMap[item.type]}
+                            </div>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {item.keywords.map((kw, kIdx) => (
+                                <span key={`${item.type}-${kIdx}-${kw}`} className="text-[10px] px-1.5 py-0.5 rounded border border-white/15 bg-white/5 text-zinc-200">
+                                  {kw}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               {scripts.length === 0 ? (
                  <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
                     <FileJson className="w-10 h-10 mb-2 opacity-50" />
@@ -3830,7 +4078,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         <div className="flex justify-between items-start mb-3">
                             <div className="flex items-center gap-2">
                                 <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
-                                <span className="text-[10px] text-zinc-400 border border-white/10 px-1.5 rounded">{script.type}</span>
+                                <select
+                                  value={script.type}
+                                  onChange={(e) => handleScriptTypeChange(script.id, e.target.value)}
+                                  className="text-[10px] text-zinc-300 border border-white/10 px-1.5 py-0.5 rounded bg-black/40 focus:outline-none focus:border-orange-500"
+                                  title={t.wb_shot_type_label || '镜头类型'}
+                                >
+                                  {shotTypeOptions.map((option) => (
+                                    <option key={option.value} value={option.value} className="bg-black text-zinc-100">
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
                                 <input type="number" step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
                                 <span className="text-[10px] text-zinc-500">s</span>
                               </div>

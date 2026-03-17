@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Flame, Gem, Zap, ChevronDown, Camera, Sparkles, Utensils, Cpu, Eye, Film, Box, Wand2, PencilLine, UserSquare2, Maximize2, X, Loader2 } from 'lucide-react';
+﻿import React, { useState, useEffect, useRef } from 'react';
+import { ArrowLeft, Flame, Gem, Zap, ChevronDown, Camera, Sparkles, Utensils, Cpu, Eye, Film, Box, Wand2, PencilLine, UserSquare2, Maximize2, X, Loader2, Folder } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { AppDialog } from '../common/AppDialog';
 import { type Template, templatesApi } from '../../services/templates';
-import { assetsApi, type Asset as LibraryAsset } from '../../services/assets';
+import { assetsApi, type Asset as LibraryAsset, type AssetFolder } from '../../services/assets';
 import { useAuth } from '../../context/AuthContext';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 
@@ -78,6 +78,9 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
   const [assetPickerLoading, setAssetPickerLoading] = useState(false);
   const [assetPickerError, setAssetPickerError] = useState<string | null>(null);
   const [assetPickerItems, setAssetPickerItems] = useState<LibraryAsset[]>([]);
+  const [assetPickerFolders, setAssetPickerFolders] = useState<AssetFolder[]>([]);
+  const [assetPickerBreadcrumb, setAssetPickerBreadcrumb] = useState<AssetFolder[]>([]);
+  const [assetPickerCurrentFolderId, setAssetPickerCurrentFolderId] = useState<string | null>(null);
   // Info dialog state to replace native alert()
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [infoTitle, setInfoTitle] = useState('');
@@ -198,16 +201,23 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
       setAssetPickerError(null);
       try {
         const nextType = assetPickerMode === 'model' ? 'model' : 'motion';
-        const items = await assetsApi.getAssets({ type: nextType, folderId: null });
+        const [items, folderData] = await Promise.all([
+          assetsApi.getAssets({ type: nextType, folderId: assetPickerCurrentFolderId }),
+          assetsApi.getFolders({ type: nextType, parentId: assetPickerCurrentFolderId }),
+        ]);
         if (!cancelled) {
           const normalized = Array.isArray(items) ? items : [];
           setAssetPickerItems(
             normalized.filter((item) => (assetPickerMode === 'model' ? item.media_kind !== 'video' : item.media_kind === 'video'))
           );
+          setAssetPickerFolders(Array.isArray(folderData.folders) ? folderData.folders : []);
+          setAssetPickerBreadcrumb(Array.isArray(folderData.breadcrumb) ? folderData.breadcrumb : []);
         }
       } catch (err: any) {
         if (!cancelled) {
           setAssetPickerItems([]);
+          setAssetPickerFolders([]);
+          setAssetPickerBreadcrumb([]);
           setAssetPickerError(String(err?.message || '加载素材失败'));
         }
       } finally {
@@ -219,15 +229,19 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
     return () => {
       cancelled = true;
     };
-  }, [assetPickerMode]);
+  }, [assetPickerCurrentFolderId, assetPickerMode]);
 
   const openAssetPicker = (mode: 'model' | 'motion') => {
+    setAssetPickerCurrentFolderId(null);
     setAssetPickerMode(mode);
   };
 
   const closeAssetPicker = () => {
     setAssetPickerMode(null);
+    setAssetPickerCurrentFolderId(null);
     setAssetPickerItems([]);
+    setAssetPickerFolders([]);
+    setAssetPickerBreadcrumb([]);
     setAssetPickerError(null);
     setAssetPickerLoading(false);
   };
@@ -484,7 +498,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                         onClick={() => openAssetPicker('model')}
                         className="text-[10px] text-zinc-300 hover:text-orange-300 font-bold px-2 py-1 rounded bg-white/5 hover:bg-orange-500/15 transition"
                       >
-                        从素材库选
+                        {t.wb_btn_choose_from_library || '从素材库选择'}
                       </button>
                       <button
                         type="button"
@@ -521,7 +535,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                       className="w-full flex items-center justify-center gap-2 py-6 border border-white/10 rounded-xl text-zinc-300 hover:text-orange-300 hover:border-orange-500/50 hover:bg-orange-500/5 transition"
                     >
                       <UserSquare2 className="w-4 h-4" />
-                      <span className="text-xs font-bold">从素材库选择</span>
+                      <span className="text-xs font-bold">{t.wb_btn_choose_from_library || '从素材库选择'}</span>
                     </button>
                   </div>
                 )}
@@ -560,7 +574,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                         onClick={() => openAssetPicker('motion')}
                         className="text-[10px] text-zinc-300 hover:text-orange-300 font-bold px-2 py-1 rounded bg-white/5 hover:bg-orange-500/15 transition"
                       >
-                        从素材库选
+                        {t.wb_btn_choose_from_library || '从素材库选择'}
                       </button>
                       <button
                         type="button"
@@ -597,7 +611,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                       className="w-full flex items-center justify-center gap-2 py-6 border border-white/10 rounded-xl text-zinc-300 hover:text-orange-300 hover:border-orange-500/50 hover:bg-orange-500/5 transition"
                     >
                       <Film className="w-4 h-4" />
-                      <span className="text-xs font-bold">从素材库选择</span>
+                      <span className="text-xs font-bold">{t.wb_btn_choose_from_library || '从素材库选择'}</span>
                     </button>
                   </div>
                 )}
@@ -641,7 +655,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
       {assetPickerMode && (
         <AppDialog
           isOpen={!!assetPickerMode}
-          title={assetPickerMode === 'model' ? '从素材库选择模特' : '从素材库选择动作'}
+          title={assetPickerMode === 'model' ? `${t.wb_dialog_choose_from_library || '从素材库选择'}${t.assets_tab_models || '模特'}` : `${t.wb_dialog_choose_from_library || '从素材库选择'}${t.assets_tab_motion || '动作'}`}
           onClose={closeAssetPicker}
           footer={
             <>
@@ -651,19 +665,53 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
         >
           <div className="w-[min(86vw,760px)] max-h-[70vh] flex flex-col gap-3">
             <div className="text-xs text-zinc-400">
-              {assetPickerMode === 'model' ? '选择一个模特素材作为模板默认模特。' : '选择一个动作素材作为模板默认参考动作。'}
+              {assetPickerMode === 'model' ? (t.editor_label_model || '默认模特') : (t.editor_label_motion || '默认动作视频')}
+            </div>
+            <div className="flex items-center gap-2 text-xs text-zinc-500 min-w-0">
+              <button
+                type="button"
+                onClick={() => setAssetPickerCurrentFolderId(null)}
+                className={`hover:text-white ${assetPickerCurrentFolderId === null ? 'text-white' : ''}`}
+              >
+                                {t.assets_root || 'Root'}
+              </button>
+              {assetPickerBreadcrumb.map((folder) => (
+                <div key={folder.id} className="flex items-center gap-2 min-w-0">
+                  <span>/</span>
+                  <button
+                    type="button"
+                    onClick={() => setAssetPickerCurrentFolderId(folder.id)}
+                    className={`hover:text-white truncate ${assetPickerCurrentFolderId === folder.id ? 'text-white' : ''}`}
+                  >
+                    {folder.name}
+                  </button>
+                </div>
+              ))}
             </div>
             <div className="min-h-[220px] max-h-[52vh] overflow-y-auto custom-scroll pr-1">
               {assetPickerLoading ? (
                 <div className="h-52 flex items-center justify-center text-zinc-400">
-                  <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载中...
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" /> {t.wb_debug_loading || 'Loading...'}
                 </div>
               ) : assetPickerError ? (
                 <div className="h-52 flex items-center justify-center text-red-300 text-sm">{assetPickerError}</div>
-              ) : assetPickerItems.length === 0 ? (
-                <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">暂无可用素材</div>
+              ) : assetPickerItems.length === 0 && assetPickerFolders.length === 0 ? (
+                <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">{t.wb_empty_assets || '暂无可用素材'}</div>
               ) : (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {assetPickerFolders.map((folder) => (
+                    <button
+                      key={folder.id}
+                      type="button"
+                      onClick={() => setAssetPickerCurrentFolderId(folder.id)}
+                      className="text-left rounded-xl border border-white/10 bg-black/30 p-2 hover:border-orange-500/50 hover:bg-white/5 transition flex flex-col justify-center items-center gap-2"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center">
+                        <Folder className="w-5 h-5 text-zinc-300" />
+                      </div>
+                      <div className="text-xs font-bold text-zinc-200 truncate w-full text-center">{folder.name}</div>
+                    </button>
+                  ))}
                   {assetPickerItems.map((asset) => (
                     <button
                       key={asset.id}

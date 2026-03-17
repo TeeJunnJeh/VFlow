@@ -9,8 +9,10 @@ import { WorkbenchView } from '../components/workbench/WorkbenchView';
 import { AssetsView } from '../components/workbench/AssetsView';
 import { TemplatesView } from '../components/workbench/TemplatesView';
 import { HistoryView } from '../components/workbench/HistoryView';
+import { AgentView } from '../components/workbench/AgentView';
 import { EditorView } from '../components/workbench/EditorView';
 import { ProfileView } from '../components/workbench/ProfileView';
+import { BillingView } from '../components/workbench/BillingView';
 import { Sidebar } from '../components/workbench/Sidebar';
 import type { ViewType } from '../components/workbench/types';
 import { useLocation } from 'react-router-dom';
@@ -31,7 +33,7 @@ const Workbench = () => {
 
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
-  const [theme, setTheme] = useState<'dark' | 'light'>(user?.theme || 'dark');
+  const [theme, setTheme] = useState<'dark' | 'light' | 'dim'>(user?.theme || 'light');
 
   // --- Data Passing State ---
   const [selectedAssetForWorkbench, setSelectedAssetForWorkbench] = useState<{
@@ -58,6 +60,7 @@ const Workbench = () => {
 
   useEffect(() => {
     document.documentElement.classList.toggle('theme-light', theme === 'light');
+    document.documentElement.classList.toggle('theme-dim', theme === 'dim');
   }, [theme]);
 
   useEffect(() => {
@@ -236,6 +239,10 @@ const Workbench = () => {
             )}
 
             {activeView === 'history' && <HistoryView />}
+
+            {activeView === 'agent' && <AgentView />}
+
+            {activeView === 'billing' && <BillingView />}
 
             {activeView === 'profile' && <ProfileView theme={theme} setTheme={setTheme} />}
 

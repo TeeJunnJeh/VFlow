@@ -44,4 +44,57 @@ export const billingApi = {
 
     return await response.json();
   },
+
+  getOverview: async () => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/overview/`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      let errorMsg = 'Failed to load billing overview';
+      try {
+        const errData = await response.json();
+        errorMsg = errData.message || JSON.stringify(errData);
+      } catch (e) {
+        errorMsg = `Server Error: ${response.status} ${response.statusText}`;
+      }
+      throw new Error(errorMsg);
+    }
+
+    return await response.json();
+  },
+
+  createRecharge: async (amount: number) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/recharge/wechat/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ amount }),
+    });
+
+    if (!response.ok) {
+      let errorMsg = 'Recharge failed';
+      try {
+        const errData = await response.json();
+        errorMsg = errData.message || JSON.stringify(errData);
+      } catch (e) {
+        errorMsg = `Server Error: ${response.status} ${response.statusText}`;
+      }
+      throw new Error(errorMsg);
+    }
+
+    return await response.json();
+  },
 };

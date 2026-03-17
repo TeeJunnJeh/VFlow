@@ -12,6 +12,7 @@ import { HistoryView } from '../components/workbench/HistoryView';
 import { AgentView } from '../components/workbench/AgentView';
 import { EditorView } from '../components/workbench/EditorView';
 import { ProfileView } from '../components/workbench/ProfileView';
+import { BillingView } from '../components/workbench/BillingView';
 import { Sidebar } from '../components/workbench/Sidebar';
 import type { ViewType } from '../components/workbench/types';
 import { useLocation } from 'react-router-dom';
@@ -240,6 +241,8 @@ const Workbench = () => {
             {activeView === 'history' && <HistoryView />}
 
             {activeView === 'agent' && <AgentView />}
+
+            {activeView === 'billing' && <BillingView />}
 
             {activeView === 'profile' && <ProfileView theme={theme} setTheme={setTheme} />}
 

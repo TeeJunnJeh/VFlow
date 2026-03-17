@@ -29,6 +29,7 @@ export const translations = {
     login_title: "Welcome Login",
     login_tab_phone: "Phone Login",
     login_tab_email: "Email Login",
+    login_tab_password: "Password Login",
     login_input_phone: "Enter mobile number",
     login_input_code: "Enter verification code",
     login_btn_get_code: "Get Code",
@@ -38,11 +39,19 @@ export const translations = {
     login_agreement_privacy: "Privacy Policy",
     login_input_email: "Enter email address",
     login_input_password: "Enter password",
+    login_input_identifier: "Enter username or phone",
+    login_input_confirm_password: "Confirm password",
+    login_btn_password_login: "Password Login",
+    login_btn_register_and_login: "Register & Login",
+    login_switch_to_login: "Already have an account? Log in",
+    login_switch_to_register: "No account? Register",
 
     // Login Validation Errors
     login_error_invalid_phone: "Invalid phone number",
     login_error_invalid_otp: "Invalid verification code",
     login_error_missing_fields: "Please enter phone and code",
+    login_error_missing_account_password: "Please enter account and password",
+    login_error_password_mismatch: "The two passwords do not match",
 
     // Generate Page
     header_title_prefix: "What do you want to",
@@ -502,6 +511,7 @@ export const translations = {
     login_title: "欢迎登录",
     login_tab_phone: "手机登录",
     login_tab_email: "邮箱登录",
+    login_tab_password: "密码登录/注册",
     login_input_phone: "请输入手机号",
     login_input_code: "请输入验证码",
     login_btn_get_code: "获取验证码",
@@ -511,10 +521,18 @@ export const translations = {
     login_agreement_privacy: "《隐私政策》",
     login_input_email: "请输入邮箱地址",
     login_input_password: "请输入密码",
+    login_input_identifier: "请输入账号（用户名或手机号）",
+    login_input_confirm_password: "请再次输入密码",
+    login_btn_password_login: "密码登录",
+    login_btn_register_and_login: "注册并登录",
+    login_switch_to_login: "已有账号，去登录",
+    login_switch_to_register: "没有账号，去注册",
 
     login_error_invalid_phone: "手机号非法",
     login_error_invalid_otp: "验证码错误",
     login_error_missing_fields: "请输入手机号和验证码",
+    login_error_missing_account_password: "请输入账号和密码",
+    login_error_password_mismatch: "两次输入的密码不一致",
 
     header_title_prefix: "今天你想",
     header_title_highlight: "创作",
@@ -962,6 +980,7 @@ export const translations = {
     login_title: "Selamat Datang",
     login_tab_phone: "Log Masuk Telefon",
     login_tab_email: "Log Masuk Emel",
+    login_tab_password: "Log Masuk Kata Laluan",
     login_input_phone: "Masukkan nombor telefon",
     login_input_code: "Masukkan kod pengesahan",
     login_btn_get_code: "Dapatkan Kod",
@@ -971,11 +990,19 @@ export const translations = {
     login_agreement_privacy: "Dasar Privasi",
     login_input_email: "Masukkan alamat emel",
     login_input_password: "Masukkan kata laluan",
+    login_input_identifier: "Masukkan nama pengguna atau telefon",
+    login_input_confirm_password: "Sahkan kata laluan",
+    login_btn_password_login: "Log Masuk Kata Laluan",
+    login_btn_register_and_login: "Daftar & Log Masuk",
+    login_switch_to_login: "Sudah ada akaun? Log masuk",
+    login_switch_to_register: "Tiada akaun? Daftar",
 
     // Login Errors
     login_error_invalid_phone: "Nombor telefon tidak sah",
     login_error_invalid_otp: "Kod pengesahan tidak sah",
     login_error_missing_fields: "Sila masukkan telefon dan kod",
+    login_error_missing_account_password: "Sila masukkan akaun dan kata laluan",
+    login_error_password_mismatch: "Dua kata laluan tidak sepadan",
 
     // Generate Page
     header_title_prefix: "Apa yang anda ingin",
@@ -1353,6 +1380,7 @@ export const translations = {
     login_title: "Chào mừng đăng nhập",
     login_tab_phone: "Đăng nhập SĐT",
     login_tab_email: "Đăng nhập Email",
+    login_tab_password: "Đăng nhập mật khẩu",
     login_input_phone: "Nhập số điện thoại",
     login_input_code: "Nhập mã xác minh",
     login_btn_get_code: "Lấy mã",
@@ -1362,11 +1390,19 @@ export const translations = {
     login_agreement_privacy: "Chính sách bảo mật",
     login_input_email: "Nhập địa chỉ email",
     login_input_password: "Nhập mật khẩu",
+    login_input_identifier: "Nhập tên người dùng hoặc SĐT",
+    login_input_confirm_password: "Xác nhận mật khẩu",
+    login_btn_password_login: "Đăng nhập mật khẩu",
+    login_btn_register_and_login: "Đăng ký & Đăng nhập",
+    login_switch_to_login: "Đã có tài khoản? Đăng nhập",
+    login_switch_to_register: "Chưa có tài khoản? Đăng ký",
 
     // Login Errors
     login_error_invalid_phone: "Số điện thoại không hợp lệ",
     login_error_invalid_otp: "Mã xác minh không hợp lệ",
     login_error_missing_fields: "Vui lòng nhập SĐT và mã",
+    login_error_missing_account_password: "Vui lòng nhập tài khoản và mật khẩu",
+    login_error_password_mismatch: "Hai mật khẩu không khớp",
 
     // Generate Page
     header_title_prefix: "Hôm nay bạn muốn",
@@ -1754,6 +1790,7 @@ export const translations = {
     login_title: "로그인 환영",
     login_tab_phone: "휴대폰 로그인",
     login_tab_email: "이메일 로그인",
+    login_tab_password: "비밀번호 로그인",
     login_input_phone: "휴대폰 번호 입력",
     login_input_code: "인증 코드 입력",
     login_btn_get_code: "코드 받기",
@@ -1763,11 +1800,19 @@ export const translations = {
     login_agreement_privacy: "개인정보 처리방침",
     login_input_email: "이메일 주소 입력",
     login_input_password: "비밀번호 입력",
+    login_input_identifier: "아이디 또는 전화번호 입력",
+    login_input_confirm_password: "비밀번호 확인",
+    login_btn_password_login: "비밀번호 로그인",
+    login_btn_register_and_login: "회원가입 및 로그인",
+    login_switch_to_login: "이미 계정이 있나요? 로그인",
+    login_switch_to_register: "계정이 없나요? 회원가입",
 
     // Login Errors
     login_error_invalid_phone: "유효하지 않은 전화번호입니다",
     login_error_invalid_otp: "인증 코드가 올바르지 않습니다",
     login_error_missing_fields: "전화번호와 코드를 입력해주세요",
+    login_error_missing_account_password: "아이디와 비밀번호를 입력해주세요",
+    login_error_password_mismatch: "비밀번호가 일치하지 않습니다",
 
     // Generate Page
     header_title_prefix: "오늘 무엇을",

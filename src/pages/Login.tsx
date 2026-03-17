@@ -81,9 +81,9 @@ const LoginPage = () => {
         data = await authApi.loginWithPhone(phone, otp);
         loginIdentifier = phone;
       } else {
-        if (!identifier || !password) throw new Error('请输入账号和密码');
+        if (!identifier || !password) throw new Error(t.login_error_missing_account_password);
         if (isRegister) {
-          if (password !== confirmPassword) throw new Error('两次输入的密码不一致');
+          if (password !== confirmPassword) throw new Error(t.login_error_password_mismatch);
           data = await authApi.registerWithPassword({
             identifier,
             password,
@@ -244,7 +244,7 @@ const LoginPage = () => {
                 }}
                 className={`py-2 text-sm font-bold rounded-lg transition ${authMode === 'password' ? 'bg-violet-500/25 text-white border border-violet-500/40' : 'text-zinc-400 hover:text-zinc-200'}`}
               >
-                密码登录/注册
+                {t.login_tab_password}
               </button>
             </div>
 
@@ -287,7 +287,7 @@ const LoginPage = () => {
                         type="text"
                         value={identifier}
                         onChange={(e) => setIdentifier(e.target.value)}
-                        placeholder="请输入账号（用户名或手机号）"
+                        placeholder={t.login_input_identifier}
                         className="flex-1 bg-transparent text-white text-sm px-4 py-3 outline-none"
                     />
                   </div>
@@ -307,7 +307,7 @@ const LoginPage = () => {
                             type="password"
                             value={confirmPassword}
                             onChange={(e) => setConfirmPassword(e.target.value)}
-                            placeholder="请再次输入密码"
+                            placeholder={t.login_input_confirm_password}
                             className="flex-1 bg-transparent text-white text-sm px-4 py-3 outline-none"
                         />
                       </div>
@@ -321,7 +321,7 @@ const LoginPage = () => {
                     }}
                     className="text-xs text-violet-300 hover:text-violet-200 transition font-bold"
                   >
-                    {isRegister ? '已有账号，去登录' : '没有账号，去注册'}
+                    {isRegister ? t.login_switch_to_login : t.login_switch_to_register}
                   </button>
                 </div>
               )}
@@ -331,7 +331,15 @@ const LoginPage = () => {
                   disabled={isSubmitting || isLoginSuccess}
                   className="w-full bg-[#111] hover:bg-violet-600/10 text-white font-black py-4 rounded-xl transition-all duration-500 border border-white/10 hover:border-violet-500 flex items-center justify-center mt-10 text-sm tracking-widest hover:shadow-[0_0_30px_rgba(139,92,246,0.2)]"
               >
-                {isSubmitting ? <Loader2 className="animate-spin" size={20} /> : authMode === 'phone' ? t.login_btn_start : (isRegister ? '注册并登录' : '密码登录')}
+                {isSubmitting ? (
+                  <Loader2 className="animate-spin" size={20} />
+                ) : authMode === 'phone' ? (
+                  t.login_btn_start
+                ) : isRegister ? (
+                  t.login_btn_register_and_login
+                ) : (
+                  t.login_btn_password_login
+                )}
               </button>
             </form>
           </div>

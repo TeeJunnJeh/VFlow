@@ -1577,12 +1577,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const validateUploadFile = (file: File) => {
-    if (file.size > MAX_UPLOAD_BYTES) return `文件过大：${file.name}（>1GB）`;
+    if (file.size > MAX_UPLOAD_BYTES) return `${t.assets_upload_error_too_large || '文件过大'}：${file.name}（>1GB）`;
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
-    const isImage = file.type.startsWith('image/') || IMAGE_EXTS.includes(ext);
-    const isVideo = file.type.startsWith('video/') || VIDEO_EXTS.includes(ext);
-    const isAudio = file.type.startsWith('audio/') || AUDIO_EXTS.includes(ext);
-    if (!isImage && !isVideo && !isAudio) return `格式不支持：${file.name}`;
+    const isImage = IMAGE_EXTS.includes(ext);
+    const isVideo = VIDEO_EXTS.includes(ext);
+    const isAudio = AUDIO_EXTS.includes(ext);
+
+    // 仅按扩展名放行，确保与后端校验一致（例如 HEIC 虽然是 image/*，但程序不支持）
+    if (!isImage && !isVideo && !isAudio) return `${t.assets_upload_error_unsupported || '格式不支持'}：${file.name}`;
     return null;
   };
 
@@ -1638,12 +1640,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     });
 
     if (errors.length > 0) {
-      openInfo('Invalid file', `${errors.join('\n')}\n\n支持格式：${formatHint}`);
+      openInfo(
+        (t as any).assets_upload_formats_title || '提示',
+        `${errors.join('\n')}\n\n${(t as any).assets_upload_formats_title || '支持格式'}：${formatHint}`
+      );
     }
     if (validFiles.length === 0) return;
 
+    const firstMediaKind = inferMediaKind({ name: validFiles[0].name, file: validFiles[0] });
     setPendingUploadFiles(validFiles);
-    setPendingUploadType(validFiles[0].type.startsWith('video/') ? 'motion' : 'product');
+    setPendingUploadType(firstMediaKind === 'video' ? 'motion' : 'product');
     setIsUploadTypeDialogOpen(true);
   };
 
@@ -2957,7 +2963,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           {isDragUploadActive && (
             <div className="absolute inset-1 rounded-lg border border-dashed border-orange-500/60 bg-orange-500/10 pointer-events-none" />
           )}
-          <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*,audio/*" multiple onChange={handleWorkbenchUpload} />
+          <input type="file" ref={fileInputRef} className="hidden" accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.mkv,.webm,.avi,.mp3,.wav,.flac" multiple onChange={handleWorkbenchUpload} />
           {uploadDisplayAssets.length === 0 ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center z-10 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
               <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition duration-300"><Plus className="w-4 h-4 text-zinc-500 group-hover:text-orange-500" /></div>

@@ -336,6 +336,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const scriptsSectionRef = useRef<HTMLDivElement | null>(null);
   const previewSectionRef = useRef<HTMLDivElement | null>(null);
 
+  const [isScriptsNarrow, setIsScriptsNarrow] = useState(false);
+
   // --- Prompt Lab (temporary, removable) ---
   const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
   const [promptTemplates, setPromptTemplates] = useState<PromptStepTemplate[]>([]);
@@ -753,6 +755,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   // Inject an asset from the Asset Library ("用于工作台") into the workbench.
   // Because WorkbenchView is permanently mounted (shown/hidden via CSS), the
   // useState initial values for initialFileUrl are set only once at mount. We
+  useEffect(() => {
+    const el = scriptsSectionRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      setIsScriptsNarrow(entry.contentRect.width < 500);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // need a useEffect that watches the prop and updates internal state whenever
   // a new asset URL is pushed in from the parent.
   useEffect(() => {
@@ -4028,8 +4040,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         {renderLeftColumn()}
         
         <div ref={scriptsSectionRef} className={`flex-auto flex flex-col gap-3 h-full min-w-[300px] ${getGuideFocusClass('scripts')}`}>
-           <div className="flex justify-between items-center shrink-0 h-[32px]">
-              <div className="flex items-center gap-3">
+           <div className={`flex items-center shrink-0 ${isScriptsNarrow ? 'flex-wrap gap-y-2' : 'justify-between h-[32px]'}`}>
+              <div className={`flex items-center gap-3 ${isScriptsNarrow ? 'w-full' : ''}`}>
                  <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
                  <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{currentScriptDuration.toFixed(1)}s / {genDuration}s</div>
                  {/* Icons for script handling */}
@@ -4062,9 +4074,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   />
                 </div>
               </div>
-              <div className="flex items-center gap-1.5">
-                <button 
-                  onClick={() => handleScriptPageChange(activeScriptPage - 1)} 
+              <div className={`flex items-center gap-1.5 ${isScriptsNarrow ? 'w-1/2 justify-center' : ''}`}>
+                <button
+                  onClick={() => handleScriptPageChange(activeScriptPage - 1)}
                   disabled={scriptPages.length <= 1 || activeScriptPage === 0}
                   className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
                 >
@@ -4083,7 +4095,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <ArrowRight className="w-3 h-3" />
                 </button>
             </div>
-              <div className="flex items-center gap-2">
+              <div className={`flex items-center gap-2 ${isScriptsNarrow ? 'w-1/2 justify-center' : ''}`}>
                 <button onClick={handleGenerateVideo} disabled={isGenerating} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
                   {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}{isGenerating ? 'Generating...' : t.wb_btn_gen_video}
               </button>

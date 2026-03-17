@@ -38,10 +38,16 @@ type ScriptItem = {
   audio: string;
 };
 
+type ReferenceSummaryItem = {
+  type: 'model' | 'product' | 'scene';
+  keywords: string[];
+};
+
 type ScriptPage = {
   id: string;
   name: string;
   scripts: ScriptItem[];
+  referenceSummary?: ReferenceSummaryItem[];
 };
 
 type QueuedAsset = {
@@ -1222,6 +1228,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     selectedFileObj,
     uploadedFile,
   ]);
+  const referencePreviewAssetsByType = useMemo(() => {
+    const next: Partial<Record<'model' | 'product' | 'scene', QueuedAsset>> = {};
+    for (const asset of uploadDisplayAssets) {
+      if (asset.materialType !== 'model' && asset.materialType !== 'product' && asset.materialType !== 'scene') continue;
+      next[asset.materialType] = asset;
+    }
+    return next;
+  }, [uploadDisplayAssets]);
+  const activeReferenceSummary = scriptPages[activeScriptPage]?.referenceSummary || [];
   const activeGuideStep = isGuideOpen ? guideSteps[guideStepIndex] : null;
   const isGuideFocused = (key: GuideStepKey) => activeGuideStep?.key === key;
   const getGuideFocusClass = (key: GuideStepKey) => (
@@ -1973,6 +1988,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         visual: shot.visual,
         audio: shot.audio || shot.voiceover || shot.beat
       }));
+      const parseReferenceSummary = (summary: any): ReferenceSummaryItem[] => {
+        if (!Array.isArray(summary)) return [];
+        const allowedTypes = new Set(['model', 'product', 'scene']);
+        const next: ReferenceSummaryItem[] = [];
+        for (const item of summary) {
+          if (!item || typeof item !== 'object') continue;
+          const type = String(item.type || '').toLowerCase();
+          if (!allowedTypes.has(type)) continue;
+          if (!Array.isArray(item.keywords)) continue;
+          const keywords = item.keywords
+            .map((kw: any) => String(kw || '').trim())
+            .filter((kw: string, idx: number, arr: string[]) => kw.length > 0 && arr.indexOf(kw) === idx)
+            .slice(0, 3);
+          if (keywords.length === 0) continue;
+          next.push({ type: type as ReferenceSummaryItem['type'], keywords });
+        }
+        return next;
+      };
 
       // 4. Handle various response formats from API
       const extractScriptPages = (data: any): ScriptPage[] => {
@@ -1981,28 +2014,36 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           return data.script_contents.map((sc: any, idx: number) => ({
             id: `page-${idx + 1}`,
             name: `${t.wb_script_page_prefix} ${idx + 1}`,
-            scripts: buildScriptsFromShots(sc?.shots || [])
+            scripts: buildScriptsFromShots(sc?.shots || []),
+            referenceSummary: parseReferenceSummary(sc?.reference_assets_summary),
           }));
         }
         if (Array.isArray(data.script_variants)) {
           return data.script_variants.map((variant: any, idx: number) => ({
             id: `page-${idx + 1}`,
             name: `${t.wb_script_page_prefix} ${idx + 1}`,
-            scripts: buildScriptsFromShots(variant?.script_content?.shots || variant?.shots || [])
+            scripts: buildScriptsFromShots(variant?.script_content?.shots || variant?.shots || []),
+            referenceSummary: parseReferenceSummary(
+              variant?.script_content?.reference_assets_summary || variant?.reference_assets_summary
+            ),
           }));
         }
         if (Array.isArray(data.variants)) {
           return data.variants.map((variant: any, idx: number) => ({
             id: `page-${idx + 1}`,
             name: `${t.wb_script_page_prefix} ${idx + 1}`,
-            scripts: buildScriptsFromShots(variant?.script_content?.shots || variant?.shots || [])
+            scripts: buildScriptsFromShots(variant?.script_content?.shots || variant?.shots || []),
+            referenceSummary: parseReferenceSummary(
+              variant?.script_content?.reference_assets_summary || variant?.reference_assets_summary
+            ),
           }));
         }
         if (data.script_content?.shots) {
           return [{
             id: 'page-1',
             name: `${t.wb_script_page_prefix} 1`,
-            scripts: buildScriptsFromShots(data.script_content.shots)
+            scripts: buildScriptsFromShots(data.script_content.shots),
+            referenceSummary: parseReferenceSummary(data.script_content?.reference_assets_summary),
           }];
         }
         return [];
@@ -3992,6 +4033,40 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
            </div>
            
            <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
+              {activeReferenceSummary.length > 0 && (
+                <div className="glass-panel rounded-xl p-3 border border-white/10">
+                  <div className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2">{t.wb_upload_title}</div>
+                  <div className="space-y-2">
+                    {activeReferenceSummary.map((item, idx) => {
+                      const previewAsset = referencePreviewAssetsByType[item.type];
+                      const previewSrc = previewAsset?.previewUrl || previewAsset?.assetUrl || null;
+                      return (
+                        <div key={`${item.type}-${idx}`} className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 p-2">
+                          <div className="w-10 h-10 rounded-md overflow-hidden border border-white/10 bg-zinc-900 shrink-0 flex items-center justify-center">
+                            {previewSrc ? (
+                              <img src={previewSrc} alt={previewAsset?.name || item.type} className="w-full h-full object-cover" />
+                            ) : (
+                              <Layers className="w-4 h-4 text-zinc-500" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[10px] text-zinc-300 font-semibold">
+                              {materialTypeLabelMap[item.type]}
+                            </div>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {item.keywords.map((kw, kIdx) => (
+                                <span key={`${item.type}-${kIdx}-${kw}`} className="text-[10px] px-1.5 py-0.5 rounded border border-white/15 bg-white/5 text-zinc-200">
+                                  {kw}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               {scripts.length === 0 ? (
                  <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
                     <FileJson className="w-10 h-10 mb-2 opacity-50" />

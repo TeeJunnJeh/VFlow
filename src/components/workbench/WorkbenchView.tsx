@@ -1293,7 +1293,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const buildCombinedScriptPrompt = (inputScripts: ScriptItem[]) => (
     inputScripts.map((script) => {
-      const audioMarker = script.audio ? `【音频|【[旁白]】${script.audio}】` : '';
+      const audioMarker = (soundSetting === 'on' && script.audio) ? `【音频|【[旁白]】${script.audio}】` : '';
       return `${script.visual || ''} ${audioMarker}`.trim();
     }).join(' ')
   );
@@ -1917,6 +1917,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
         // Tell backend which language to use for script generation (UI language)
         user_language: language,
+        sound: soundSetting,
         // Persist target audience language in payload for future backend extensions
         target_language: targetLanguage,
 
@@ -1928,6 +1929,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           input: promptText,
           prompt: promptText,
           user_prompt: promptText,
+          sound: soundSetting,
           script_count: scriptVariantCount,
           shots: []
         },
@@ -1949,7 +1951,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         type: shot.type || 'Medium',
         dur: `${shot.duration_sec}s`,
         visual: shot.visual,
-        audio: shot.audio || shot.voiceover || shot.beat
+        audio: shot.audio || shot.voiceover || ''
       }));
 
       // 4. Handle various response formats from API
@@ -2219,7 +2221,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         for (const asset of preparedAssets) {
           for (const scriptPack of scriptQueue) {
             const combinedScriptPrompt = scriptPack.scripts.map(s => {
-              const audioMarker = s.audio ? `【音频|【[旁白]】${s.audio}】` : '';
+              const audioMarker = (soundSetting === 'on' && s.audio) ? `【音频|【[旁白]】${s.audio}】` : '';
               return `${s.visual || ''} ${audioMarker}`.trim();
             }).join(' ');
 
@@ -3966,7 +3968,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               </div>
                               <div className="flex flex-col gap-1.5">
                                 <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
-                                <input type="text" className="w-full bg-black/20 text-xs text-zinc-400 p-3 rounded-lg border border-white/5 italic focus:border-white/20 transition-colors outline-none" value={script.audio} onChange={(e) => { const ns = [...scripts]; ns[index].audio = e.target.value; updateScripts(ns); }} />
+                                <input
+                                  type="text"
+                                  disabled={soundSetting === 'off'}
+                                  className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
+                                  value={soundSetting === 'off' ? '已关闭音频' : script.audio}
+                                  onChange={(e) => {
+                                    if (soundSetting === 'off') return;
+                                    const ns = [...scripts];
+                                    ns[index].audio = e.target.value;
+                                    updateScripts(ns);
+                                  }}
+                                />
                             </div>
                         </div>
                     </div>

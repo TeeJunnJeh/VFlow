@@ -82,6 +82,16 @@ export const translations = {
     wb_nav_assets: "Assets",
     wb_nav_templates: "Templates",
     wb_nav_history: "History",
+    wb_nav_agent: "Agent",
+
+    // --- AGENT VIEW ---
+    agent_welcome: "I am VFlow Agent. You can tell me what you want to do (e.g., how to choose templates, how to write selling points, how to troubleshoot generation failures).",
+    agent_subtitle: "Describe your goal in natural language, and I will give you executable steps.",
+    agent_placeholder: "Ask me: How to quickly generate a commerce video using the asset library?",
+    agent_status_thinking: "Thinking...",
+    agent_btn_send: "Send",
+    agent_input_tip: "Enter to send, Shift+Enter for new line",
+    agent_err_failed: "Chat failed",
 
     // --- WORKBENCH VIEW --- 
     wb_header_draft: "Draft", 
@@ -529,8 +539,18 @@ export const translations = {
 
     wb_nav_workbench: "工作台",
     wb_nav_assets: "素材库",
+    wb_nav_agent: "助手",
     wb_nav_templates: "模版配置",
     wb_nav_history: "历史记录",
+
+    // --- AGENT VIEW ---
+    agent_welcome: "我是 VFlow 助手。你可以告诉我你想做什么（例如：如何选模板、怎么写卖点、生成失败如何排查）。",
+    agent_subtitle: "用自然语言描述目标，我会给你可执行的操作步骤。",
+    agent_placeholder: "问我：如何用素材库快速生成一条带货视频？",
+    agent_status_thinking: "正在思考...",
+    agent_btn_send: "发送",
+    agent_input_tip: "Enter 发送，Shift+Enter 换行",
+    agent_err_failed: "对话失败",
 
     wb_header_draft: "草稿",
     wb_header_save: "上次保存: 刚刚",
@@ -977,6 +997,16 @@ export const translations = {
     wb_nav_assets: "Aset",
     wb_nav_templates: "Templat",
     wb_nav_history: "Sejarah",
+    wb_nav_agent: "Agen",
+
+    // --- AGENT VIEW ---
+    agent_welcome: "Saya adalah Agen VFlow. Anda dapat memberi tahu saya apa yang ingin Anda lakukan (misalnya: cara memilih templat, cara menulis poin penjualan, cara mendiagnosis kegagalan pembuatan).",
+    agent_subtitle: "Jelaskan tujuan Anda dalam bahasa alami, dan saya akan memberikan langkah-langkah yang dapat dilakukan.",
+    agent_placeholder: "Tanya saya: Bagaimana cara cepat menghasilkan video dagang menggunakan perpustakaan aset?",
+    agent_status_thinking: "Sedang berpikir...",
+    agent_btn_send: "Kirim",
+    agent_input_tip: "Enter untuk mengirim, Shift+Enter untuk baris baru",
+    agent_err_failed: "Obrolan gagal",
 
     wb_header_draft: "Draf",
     wb_header_save: "Terakhir disimpan: Baru tadi",
@@ -1358,6 +1388,16 @@ export const translations = {
     wb_nav_assets: "Tài nguyên",
     wb_nav_templates: "Mẫu",
     wb_nav_history: "Lịch sử",
+    wb_nav_agent: "Trợ lý",
+
+    // --- AGENT VIEW ---
+    agent_welcome: "Tôi là VFlow Agent. Bạn có thể cho tôi biết bạn muốn làm gì (Ví dụ: cách chọn mẫu, cách viết kịch bản, cách sửa lỗi khi tạo không thành công).",
+    agent_subtitle: "Mô tả mục tiêu của bạn bằng ngôn ngữ tự nhiên, tôi sẽ đưa ra các bước thực hiện.",
+    agent_placeholder: "Hỏi tôi: Cách nhanh nhất để tạo video bán hàng bằng thư viện tài sản?",
+    agent_status_thinking: "Đang suy nghĩ...",
+    agent_btn_send: "Gửi",
+    agent_input_tip: "Enter để gửi, Shift+Enter để xuống hàng",
+    agent_err_failed: "Trò chuyện thất bại",
 
     wb_header_draft: "Bản nháp",
     wb_header_save: "Đã lưu: Vừa xong",
@@ -1748,7 +1788,17 @@ export const translations = {
     wb_nav_workbench: "워크벤치",
     wb_nav_assets: "에셋",
     wb_nav_templates: "템플릿",
+    wb_nav_agent: "에이전트",
     wb_nav_history: "히스토리",
+
+    // --- AGENT VIEW ---
+    agent_welcome: "저는 VFlow 에이전트입니다. 무엇을 하고 싶은지 말씀해 주세요 (예: 템플릿 선택 방법, 판매 포인트 작성 방법, 생성 실패 문제 해결 방법 등).",
+    agent_subtitle: "자연어로 목표를 설명하면 실행 가능한 단계를 안내해 드립니다.",
+    agent_placeholder: "질문: 에셋 라이브러리를 사용해 커머스 영상을 빠르게 만드는 방법은 무엇인가요?",
+    agent_status_thinking: "생각 중...",
+    agent_btn_send: "보내기",
+    agent_input_tip: "Enter는 전송, Shift+Enter는 줄바꿈",
+    agent_err_failed: "채팅 실패",
 
     wb_header_draft: "초안",
     wb_header_save: "마지막 저장: 방금 전",

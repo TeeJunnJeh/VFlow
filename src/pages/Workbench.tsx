@@ -9,6 +9,7 @@ import { WorkbenchView } from '../components/workbench/WorkbenchView';
 import { AssetsView } from '../components/workbench/AssetsView';
 import { TemplatesView } from '../components/workbench/TemplatesView';
 import { HistoryView } from '../components/workbench/HistoryView';
+import { AgentView } from '../components/workbench/AgentView';
 import { EditorView } from '../components/workbench/EditorView';
 import { ProfileView } from '../components/workbench/ProfileView';
 import { Sidebar } from '../components/workbench/Sidebar';
@@ -237,6 +238,8 @@ const Workbench = () => {
             )}
 
             {activeView === 'history' && <HistoryView />}
+
+            {activeView === 'agent' && <AgentView />}
 
             {activeView === 'profile' && <ProfileView theme={theme} setTheme={setTheme} />}
 

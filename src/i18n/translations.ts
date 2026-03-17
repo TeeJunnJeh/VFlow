@@ -83,6 +83,15 @@ export const translations = {
     wb_nav_templates: "Templates",
     wb_nav_history: "History",
     wb_nav_agent: "Agent",
+    wb_nav_billing: "Billing",
+
+    // --- BILLING VIEW ---
+    billing_balance_label: "Balance",
+    billing_credit_unit: "credits",
+    billing_recharge_title: "Quick Recharge",
+    billing_recharge_hint: "Current environment uses mock mode: balance will update immediately after clicking.",
+    billing_transactions_title: "Recent Transactions",
+    billing_empty: "No transactions yet.",
 
     // --- AGENT VIEW ---
     agent_welcome: "I am VFlow Agent. You can tell me what you want to do (e.g., how to choose templates, how to write selling points, how to troubleshoot generation failures).",
@@ -542,6 +551,15 @@ export const translations = {
     wb_nav_agent: "助手",
     wb_nav_templates: "模版配置",
     wb_nav_history: "历史记录",
+    wb_nav_billing: "计费",
+
+    // --- BILLING VIEW ---
+    billing_balance_label: "当前余额",
+    billing_credit_unit: "积分",
+    billing_recharge_title: "快捷充值",
+    billing_recharge_hint: "当前为模拟充值模式：点击后余额会立即更新。",
+    billing_transactions_title: "最近流水",
+    billing_empty: "暂无交易记录",
 
     // --- AGENT VIEW ---
     agent_welcome: "我是 VFlow 助手。你可以告诉我你想做什么（例如：如何选模板、怎么写卖点、生成失败如何排查）。",

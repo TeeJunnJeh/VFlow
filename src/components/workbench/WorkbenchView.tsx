@@ -36,6 +36,7 @@ type ScriptItem = {
   dur: string;
   visual: string;
   audio: string;
+  audioTranslated?: string;
 };
 
 type ReferenceSummaryItem = {
@@ -2015,7 +2016,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         type: shot.type || 'Medium',
         dur: `${shot.duration_sec}s`,
         visual: shot.visual,
-        audio: shot.audio || shot.voiceover || ''
+        audio: shot.audio || shot.voiceover || '',
+        audioTranslated: shot.voiceover_translated || '',
       }));
       const parseReferenceSummary = (summary: any): ReferenceSummaryItem[] => {
         if (!Array.isArray(summary)) return [];
@@ -4184,6 +4186,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                     updateScripts(ns);
                                   }}
                                 />
+                                {script.audioTranslated && (
+                                  <p className="text-[10px] text-zinc-500 italic px-3 mt-1">{script.audioTranslated}</p>
+                                )}
                             </div>
                         </div>
                     </div>

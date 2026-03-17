@@ -109,6 +109,7 @@ type ProjectWorkspaceState = {
   selectedAssetUrl: string | null;
   lastUploadedUrl: string | null;
   selectedAssetSource: 'product' | 'preference' | null;
+  currentMaterialType: AssetLibraryTab | null;
   genPrompt: string;
   genDuration: number;
   soundSetting: 'on' | 'off';
@@ -169,6 +170,7 @@ const createWorkspaceState = (params?: {
   selectedAssetUrl: null,
   lastUploadedUrl: null,
   selectedAssetSource: null,
+  currentMaterialType: null,
   genPrompt: '',
   genDuration: 10,
   soundSetting: 'on',
@@ -349,13 +351,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     () => (ENABLE_PROMPT_LAB ? buildBackendPromptOverrides(promptOverrides) : null),
     [promptOverrides]
   );
-  const guideSteps = useMemo<Array<{ key: GuideStepKey; title: string; description: string }>>(() => ([
-    { key: 'mode', title: '创作模式：选择模型', description: '先在左侧创作模式选择模型，确定本次生成使用的能力。' },
-    { key: 'upload', title: '素材上传：切换首帧图/参考图', description: '上传素材后，在图片右上角按钮切换为首帧图或参考图。' },
-    { key: 'config', title: '配置：选择模板与脚本参数', description: '在配置区快速选择模板，并调整时长、音频和脚本相关设置。' },
-    { key: 'scripts', title: '分镜脚本：时长要匹配', description: '分镜里所有镜头秒数之和，需要与配置总时长一致。' },
-    { key: 'preview', title: '预览：查看生成视频', description: '生成完成后，在预览区查看并播放最终视频。' },
-  ]), []);
+  const guideSteps = useMemo<Array<{ key: GuideStepKey; title: string; description: string }>>(
+    () => [
+      { key: 'mode', title: t.wb_guide_mode_title, description: t.wb_guide_mode_desc },
+      { key: 'upload', title: t.wb_guide_upload_title, description: t.wb_guide_upload_desc },
+      { key: 'config', title: t.wb_guide_config_title, description: t.wb_guide_config_desc },
+      { key: 'scripts', title: t.wb_guide_scripts_title, description: t.wb_guide_scripts_desc },
+      { key: 'preview', title: t.wb_guide_preview_title, description: t.wb_guide_preview_desc },
+    ],
+    [language]
+  );
 
   const loadPromptLabTemplates = async () => {
     if (!ENABLE_PROMPT_LAB) return;
@@ -589,6 +594,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setSelectedAssetUrl(workspace.selectedAssetUrl || null);
     setLastUploadedUrl(workspace.lastUploadedUrl || null);
     setSelectedAssetSource(workspace.selectedAssetSource || null);
+    setCurrentMaterialType(workspace.currentMaterialType || null);
     setSelectedFileObj(null);
     setGenPrompt(workspace.genPrompt || '');
     setGenDuration(typeof workspace.genDuration === 'number' ? workspace.genDuration : 10);
@@ -815,6 +821,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       selectedAssetUrl,
       lastUploadedUrl,
       selectedAssetSource,
+      currentMaterialType,
       genPrompt,
       genDuration,
       soundSetting,
@@ -853,6 +860,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     selectedAssetUrl,
     lastUploadedUrl,
     selectedAssetSource,
+    currentMaterialType,
     genPrompt,
     genDuration,
     soundSetting,
@@ -1201,6 +1209,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     model: t.assets_tab_models || '模特',
     scene: t.assets_tab_scenes || '场景',
     motion: t.assets_tab_motion || '动作',
+  };
+
+  const materialTypeCycle: AssetLibraryTab[] = ['product', 'model', 'scene', 'motion'];
+  const getNextMaterialType = (current: AssetLibraryTab): AssetLibraryTab => {
+    const idx = materialTypeCycle.indexOf(current);
+    if (idx < 0) return materialTypeCycle[0];
+    return materialTypeCycle[(idx + 1) % materialTypeCycle.length];
   };
   const uploadDisplayAssets: QueuedAsset[] = useMemo(() => {
     if (assetQueue.length > 0) return assetQueue;
@@ -2203,33 +2218,42 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
   }, [t]); // Re-run when language (t) changes
 
+  const formatI18nTemplate = (template: string, vars: Record<string, string | number>) =>
+    template.replace(/\{(\w+)\}/g, (match, key) => (Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : match));
+
   const validateGenerateRequirements = () => {
     const issues: string[] = [];
 
     if (reuseQueueEnabled) {
       if (assetQueue.length === 0 && scriptQueue.length === 0) {
-        issues.push(t.wb_reuse_queue_enable_hint || '复用队列模式已开启，请先加入素材队列和脚本队列，或关闭复用队列模式。');
+        issues.push(t.wb_reuse_queue_enable_hint || 'Batch mode is on: add both assets and scripts into queues before generating.');
       }
       if (assetQueue.length === 0 || scriptQueue.length === 0) {
-        issues.push(t.wb_reuse_queue_pairing_hint || '复用队列：批量生成需要同时加入素材队列和脚本队列。');
+        issues.push(t.wb_reuse_queue_pairing_hint || 'Reuse Queue: batch generation requires both asset queue and script queue.');
       }
       if (!user?.id) {
-        issues.push('账号：请先登录后再发起批量生成。');
+        issues.push(t.wb_gen_req_issue_login_batch || 'Account: please sign in before starting batch generation.');
       }
       return issues;
     }
 
     if (!selectedTemplate?.id && !selectedFileObj && !selectedAssetUrl && !uploadedFile) {
-      issues.push('素材上传：请先上传素材，或先选择一个模板。');
+      issues.push(t.wb_gen_req_issue_asset_or_template || 'Assets: upload an asset or select a template first.');
     }
     if (scripts.length === 0) {
-      issues.push('分镜脚本：请先生成或添加脚本。');
+      issues.push(t.wb_gen_req_issue_scripts_missing || 'Storyboard: generate or add scripts first.');
     }
     if (!isDurationValid) {
-      issues.push(`分镜脚本：镜头总时长(${currentScriptDuration.toFixed(1)}s)需要与配置时长(${genDuration}s)一致。`);
+      const template = t.wb_gen_req_issue_duration_mismatch || 'Storyboard: total shot duration ({scriptDuration}s) must match configured duration ({configDuration}s).';
+      issues.push(
+        formatI18nTemplate(template, {
+          scriptDuration: currentScriptDuration.toFixed(1),
+          configDuration: genDuration,
+        })
+      );
     }
     if (!selectedTemplate?.id && !user?.id) {
-      issues.push('账号：请先登录。');
+      issues.push(t.wb_gen_req_issue_login || 'Account: please sign in.');
     }
 
     return issues;
@@ -2238,7 +2262,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const showGenerateValidationIssues = (issues: string[]) => {
     if (issues.length === 0) return;
     const details = issues.map((item, index) => `${index + 1}. ${item}`).join('\n');
-    openInfo('生成条件未满足', `请先修复以下问题：\n${details}`);
+    const title = t.wb_gen_req_title || 'Generation requirements not met';
+    const intro = t.wb_gen_req_intro || 'Please fix the following issues:';
+    openInfo(title, `${intro}\n${details}`);
   };
 
   const handleGenerateVideo = async () => {
@@ -2962,10 +2988,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         const inQueue = assetQueue.find((item) => item.id === asset.id);
                         const selected = selectedQueueAssetId ? selectedQueueAssetId === asset.id : uploadedFile === asset.previewUrl;
                         return (
-                          <button
+                          <div
                             key={asset.id}
-                            type="button"
+                            role="button"
+                            tabIndex={0}
                             onClick={() => {
+                              if (inQueue) {
+                                selectAssetFromQueue(inQueue);
+                                return;
+                              }
+                              setUploadedFile(asset.previewUrl || null);
+                              setFileName(asset.name || '');
+                              setSelectedFileObj(asset.fileObj || null);
+                              setSelectedAssetUrl(asset.assetUrl || null);
+                              setSelectedAssetSource(asset.source || null);
+                              setCurrentMaterialType(asset.materialType || null);
+                              setSelectedQueueAssetId(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key !== 'Enter' && e.key !== ' ') return;
+                              e.preventDefault();
                               if (inQueue) {
                                 selectAssetFromQueue(inQueue);
                                 return;
@@ -2987,9 +3029,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             )) : (
                               <div className="w-full h-full flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
                             )}
-                            <div className="absolute top-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-white/15 bg-black/60 text-zinc-100">
-                              {materialTypeLabelMap[asset.materialType || 'product']}
-                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const currentType = asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product');
+                                const nextType = getNextMaterialType(currentType);
+                                if (inQueue) {
+                                  setAssetQueue(prev => prev.map(item => (item.id === asset.id ? { ...item, materialType: nextType } : item)));
+                                  if (selected) setCurrentMaterialType(nextType);
+                                } else {
+                                  setCurrentMaterialType(nextType);
+                                }
+                              }}
+                              className="absolute top-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-white/15 bg-black/60 text-zinc-100 hover:bg-black/75 transition"
+                            >
+                              {materialTypeLabelMap[asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product')]}
+                            </button>
                             <div className="absolute top-1 right-1 flex items-center gap-1">
                               {asset.mediaKind === 'image' && (
                                 <button
@@ -3019,7 +3075,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               <p className="text-[9px] text-white truncate">{asset.name}</p>
                               {selected && <p className="text-[9px] text-green-400 flex items-center gap-1"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p>}
                             </div>
-                          </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -3573,10 +3629,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     setIsGuideOpen(true);
                   }}
                   className="flex items-center gap-1.5 px-2 py-1 rounded border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 transition"
-                  title="查看新手引导"
+                  title={t.wb_guide_button_title}
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span className="text-[10px] font-bold">新手引导</span>
+                  <span className="text-[10px] font-bold">{t.wb_guide_button_label}</span>
                 </button>
               </>
             )}
@@ -3619,8 +3675,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-base font-bold text-white">新手引导</div>
-                  <div className="mt-1 text-xs text-zinc-400">步骤 {guideStepIndex + 1} / {guideSteps.length}</div>
+                  <div className="text-base font-bold text-white">{t.wb_guide_title}</div>
+                  <div className="mt-1 text-xs text-zinc-400">{t.wb_guide_step} {guideStepIndex + 1} / {guideSteps.length}</div>
                 </div>
                 <button
                   type="button"
@@ -3654,14 +3710,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
                   onClick={() => setIsGuideOpen(false)}
                 >
-                  关闭
+                  {t.wb_guide_close}
                 </button>
                 <button
                   className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   disabled={guideStepIndex <= 0}
                   onClick={() => setGuideStepIndex((prev) => Math.max(0, prev - 1))}
                 >
-                  上一步
+                  {t.wb_guide_prev}
                 </button>
                 <button
                   className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
@@ -3673,7 +3729,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     setGuideStepIndex((prev) => Math.min(guideSteps.length - 1, prev + 1));
                   }}
                 >
-                  {guideStepIndex >= guideSteps.length - 1 ? '完成' : '下一步'}
+                  {guideStepIndex >= guideSteps.length - 1 ? t.wb_guide_finish : t.wb_guide_next}
                 </button>
               </div>
             </div>

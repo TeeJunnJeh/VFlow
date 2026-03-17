@@ -21,10 +21,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView }) =
     <div 
       onClick={() => setActiveView(view)} 
       className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${activeView === view ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300'}`} 
-      title={label}
     >
       <Icon className={`w-5 h-5 transition-all ${activeView === view ? 'stroke-[2.5px]' : ''}`} />
       {activeView === view && (<div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />)}
+      <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
+        {label}
+      </div>
     </div>
   );
 
@@ -45,8 +47,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView }) =
       <div className="mt-auto pb-6 w-full px-2 flex flex-col items-center gap-4">
         <div 
           onClick={() => setActiveView('profile')}
-          className={`w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative overflow-hidden ${activeView === 'profile' ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_15px_rgba(249,115,22,0.2)]' : 'border-white/5 bg-zinc-900/50 hover:border-white/20'}`}
-          title={t.profile_title}
+          className={`w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative ${activeView === 'profile' ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_15px_rgba(249,115,22,0.2)]' : 'border-white/5 bg-zinc-900/50 hover:border-white/20'}`}
         >
           {user?.avatar ? (
             <img src={user.avatar} className="w-full h-full object-cover" alt="Profile" />
@@ -55,6 +56,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView }) =
               <UserIcon className="w-5 h-5" />
             </div>
           )}
+
+          <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
+            {t.profile_title}
+          </div>
         </div>
       </div>
     </aside>

@@ -1763,12 +1763,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const handleDurationChange = (id: number, newValue: string) => {
+    const raw = newValue.trim();
     const newScripts = scripts.map(s => {
-      if (s.id === id) {
-        const num = parseFloat(newValue);
-        return { ...s, dur: isNaN(num) ? '0s' : `${num}s` };
-      }
-      return s;
+      if (s.id !== id) return s;
+
+      if (!raw) return s;
+
+      const num = Number(raw);
+      if (!Number.isFinite(num)) return s;
+
+      const clamped = Math.max(0.1, num);
+      const rounded = Math.round(clamped * 10) / 10;
+      return { ...s, dur: `${rounded}s` };
     });
     setScripts(newScripts);
   };
@@ -4146,7 +4152,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                     </option>
                                   ))}
                                 </select>
-                                <input type="number" step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
+                                <input type="number" min={0.1} step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
                                 <span className="text-[10px] text-zinc-500">s</span>
                               </div>
                               <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>

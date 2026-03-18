@@ -38,6 +38,18 @@ type ScriptItem = {
   audio: string;
 };
 
+type ScriptCreativeCard = {
+  style?: string;
+  environment?: string;
+  tonePacing?: string;
+  camera?: string;
+  lighting?: string;
+  actions?: string[];
+  backgroundSound?: string;
+  transitionEditing?: string;
+  callToAction?: string;
+};
+
 type ReferenceSummaryItem = {
   type: 'model' | 'product' | 'scene';
   keywords: string[];
@@ -48,6 +60,21 @@ type ScriptPage = {
   name: string;
   scripts: ScriptItem[];
   referenceSummary?: ReferenceSummaryItem[];
+  fullScript?: string;
+  continuityAnchor?: {
+    subject?: string;
+    scene?: string;
+    style?: string;
+  };
+  scriptStructure?: {
+    hook?: string;
+    development?: string;
+    payoff?: string;
+  };
+  sellingPoints?: string[];
+  sceneSuggestions?: string[];
+  styleTags?: string[];
+  creativeCard?: ScriptCreativeCard;
 };
 
 type QueuedAsset = {
@@ -68,6 +95,7 @@ type QueuedScript = {
   name: string;
   scripts: ScriptItem[];
   duration: number;
+  creativeCard?: ScriptCreativeCard;
 };
 
 type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion';
@@ -489,6 +517,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [scripts, setScripts] = useState<ScriptItem[]>(buildDemoScripts);
   const [scriptPages, setScriptPages] = useState<ScriptPage[]>(() => ([{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: buildDemoScripts() }]));
   const [activeScriptPage, setActiveScriptPage] = useState(0);
+  const [isShotBreakdownOpen, setIsShotBreakdownOpen] = useState(false);
 
   // Queue State
   const [assetQueue, setAssetQueue] = useState<QueuedAsset[]>([]);
@@ -627,6 +656,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setScripts(Array.isArray(workspace.scripts) ? workspace.scripts : []);
     setScriptPages(Array.isArray(workspace.scriptPages) && workspace.scriptPages.length > 0 ? workspace.scriptPages : [{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: [] }]);
     setActiveScriptPage(typeof workspace.activeScriptPage === 'number' ? workspace.activeScriptPage : 0);
+    setIsShotBreakdownOpen(false);
     setAssetQueue(normalizedQueue);
     setScriptQueue(Array.isArray(workspace.scriptQueue) ? workspace.scriptQueue : []);
     setGeneratedVideoUrl(workspace.generatedVideoUrl || null);
@@ -1289,7 +1319,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
     return next;
   }, [uploadDisplayAssets]);
-  const activeReferenceSummary = scriptPages[activeScriptPage]?.referenceSummary || [];
+  const activeScriptPlan = scriptPages[activeScriptPage];
+  const activeReferenceSummary = activeScriptPlan?.referenceSummary || [];
+  const activeFullScript = (activeScriptPlan?.fullScript || '').trim();
+  const activeCreativeCard = activeScriptPlan?.creativeCard;
   const activeGuideStep = isGuideOpen ? guideSteps[guideStepIndex] : null;
   const isGuideFocused = (key: GuideStepKey) => activeGuideStep?.key === key;
   const getGuideFocusClass = (key: GuideStepKey) => (
@@ -1381,12 +1414,33 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return uploadResp?.url || uploadResp?.file_url || uploadResp?.path || uploadResp?.data?.url || null;
   };
 
-  const buildCombinedScriptPrompt = (inputScripts: ScriptItem[]) => (
-    inputScripts.map((script) => {
+  const buildCreativeCardPrompt = (card?: ScriptCreativeCard) => {
+    if (!card) return '';
+    const sections: string[] = [];
+    if (card.style) sections.push(`[风格]: ${card.style}`);
+    if (card.environment) sections.push(`[环境]: ${card.environment}`);
+    if (card.tonePacing) sections.push(`[语调与节奏]: ${card.tonePacing}`);
+    if (card.camera) sections.push(`[镜头]: ${card.camera}`);
+    if (card.lighting) sections.push(`[光线]: ${card.lighting}`);
+    if (Array.isArray(card.actions) && card.actions.length > 0) {
+      const actions = card.actions.map((item, idx) => `- ${idx + 1}. ${item}`).join('\n');
+      sections.push(`[动作]:\n${actions}`);
+    }
+    if (card.backgroundSound) sections.push(`[背景音]: ${card.backgroundSound}`);
+    if (card.transitionEditing) sections.push(`[转场 / 剪辑]: ${card.transitionEditing}`);
+    if (card.callToAction) sections.push(`[行动号召]: ${card.callToAction}`);
+    return sections.join('\n');
+  };
+
+  const buildCombinedScriptPrompt = (inputScripts: ScriptItem[], card?: ScriptCreativeCard) => {
+    const creativeCardPrompt = buildCreativeCardPrompt(card);
+    const shotPrompt = inputScripts.map((script) => {
       const audioMarker = (soundSetting === 'on' && script.audio) ? `【音频|【[旁白]】${script.audio}】` : '';
       return `${script.visual || ''} ${audioMarker}`.trim();
-    }).join(' ')
-  );
+    }).join(' ');
+    if (creativeCardPrompt && shotPrompt) return `${creativeCardPrompt}\n\n[分镜指引]: ${shotPrompt}`;
+    return creativeCardPrompt || shotPrompt;
+  };
 
   const resolveCurrentSingleAssetPath = async () => {
     let apiPath = lastUploadedUrl;
@@ -1408,7 +1462,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const apiPath = await resolveCurrentSingleAssetPath();
     const payload: GeneratePayload = {
       model: backendModel,
-      prompt: buildCombinedScriptPrompt(scripts),
+      prompt: buildCombinedScriptPrompt(scripts, activeCreativeCard),
       duration: genDuration,
       sound: soundSetting,
       asset_source: selectedAssetSource,
@@ -1952,7 +2006,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         id: newId,
         name,
         scripts: copiedScripts,
-        duration: genDuration
+        duration: genDuration,
+        creativeCard: activeScriptPlan?.creativeCard,
       }
     ]));
   };
@@ -2078,6 +2133,66 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         visual: shot.visual,
         audio: shot.audio || shot.voiceover || ''
       }));
+      const normalizeText = (value: any) => String(value || '').replace(/\s+/g, ' ').trim();
+      const parseStringList = (value: any, maxLen = 5) => {
+        if (!Array.isArray(value)) return [];
+        const next: string[] = [];
+        for (const item of value) {
+          const text = normalizeText(item);
+          if (!text) continue;
+          if (next.includes(text)) continue;
+          next.push(text);
+          if (next.length >= maxLen) break;
+        }
+        return next;
+      };
+      const buildFullScriptFallback = (scriptsList: ScriptItem[]) => (
+        scriptsList
+          .map((item) => normalizeText(item.visual))
+          .filter((text) => !!text)
+          .join(' ')
+      );
+      const parseScriptPage = (raw: any, idx: number): ScriptPage => {
+        const shots = buildScriptsFromShots(raw?.shots || raw?.script_content?.shots || []);
+        const scriptContent = raw?.script_content || raw || {};
+        const continuityAnchor = scriptContent?.continuity_anchor || {};
+        const scriptStructure = scriptContent?.script_structure || {};
+        const creativeCard = scriptContent?.creative_card || {};
+        const fullScript = normalizeText(scriptContent?.video_master_script) || buildFullScriptFallback(shots);
+        return {
+          id: `page-${idx + 1}`,
+          name: `${t.wb_script_page_prefix} ${idx + 1}`,
+          scripts: shots,
+          referenceSummary: parseReferenceSummary(
+            scriptContent?.reference_assets_summary || raw?.reference_assets_summary
+          ),
+          fullScript,
+          continuityAnchor: {
+            subject: normalizeText(continuityAnchor?.subject),
+            scene: normalizeText(continuityAnchor?.scene),
+            style: normalizeText(continuityAnchor?.style),
+          },
+          scriptStructure: {
+            hook: normalizeText(scriptStructure?.hook),
+            development: normalizeText(scriptStructure?.development),
+            payoff: normalizeText(scriptStructure?.payoff),
+          },
+          sellingPoints: parseStringList(scriptContent?.selling_points),
+          sceneSuggestions: parseStringList(scriptContent?.scene_suggestions),
+          styleTags: parseStringList(scriptContent?.style_tags),
+          creativeCard: {
+            style: normalizeText(creativeCard?.style),
+            environment: normalizeText(creativeCard?.environment),
+            tonePacing: normalizeText(creativeCard?.tone_pacing),
+            camera: normalizeText(creativeCard?.camera),
+            lighting: normalizeText(creativeCard?.lighting),
+            actions: parseStringList(creativeCard?.actions, 8),
+            backgroundSound: normalizeText(creativeCard?.background_sound),
+            transitionEditing: normalizeText(creativeCard?.transition_editing),
+            callToAction: normalizeText(creativeCard?.call_to_action),
+          },
+        };
+      };
       const parseReferenceSummary = (summary: any): ReferenceSummaryItem[] => {
         if (!Array.isArray(summary)) return [];
         const allowedTypes = new Set(['model', 'product', 'scene']);
@@ -2101,40 +2216,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const extractScriptPages = (data: any): ScriptPage[] => {
         if (!data) return [];
         if (Array.isArray(data.script_contents)) {
-          return data.script_contents.map((sc: any, idx: number) => ({
-            id: `page-${idx + 1}`,
-            name: `${t.wb_script_page_prefix} ${idx + 1}`,
-            scripts: buildScriptsFromShots(sc?.shots || []),
-            referenceSummary: parseReferenceSummary(sc?.reference_assets_summary),
-          }));
+          return data.script_contents.map((sc: any, idx: number) => parseScriptPage(sc, idx));
         }
         if (Array.isArray(data.script_variants)) {
-          return data.script_variants.map((variant: any, idx: number) => ({
-            id: `page-${idx + 1}`,
-            name: `${t.wb_script_page_prefix} ${idx + 1}`,
-            scripts: buildScriptsFromShots(variant?.script_content?.shots || variant?.shots || []),
-            referenceSummary: parseReferenceSummary(
-              variant?.script_content?.reference_assets_summary || variant?.reference_assets_summary
-            ),
-          }));
+          return data.script_variants.map((variant: any, idx: number) => parseScriptPage(variant, idx));
         }
         if (Array.isArray(data.variants)) {
-          return data.variants.map((variant: any, idx: number) => ({
-            id: `page-${idx + 1}`,
-            name: `${t.wb_script_page_prefix} ${idx + 1}`,
-            scripts: buildScriptsFromShots(variant?.script_content?.shots || variant?.shots || []),
-            referenceSummary: parseReferenceSummary(
-              variant?.script_content?.reference_assets_summary || variant?.reference_assets_summary
-            ),
-          }));
+          return data.variants.map((variant: any, idx: number) => parseScriptPage(variant, idx));
         }
         if (data.script_content?.shots) {
-          return [{
-            id: 'page-1',
-            name: `${t.wb_script_page_prefix} 1`,
-            scripts: buildScriptsFromShots(data.script_content.shots),
-            referenceSummary: parseReferenceSummary(data.script_content?.reference_assets_summary),
-          }];
+          return [parseScriptPage(data, 0)];
         }
         return [];
       };
@@ -2145,6 +2236,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           setScriptPages(pages);
           setActiveScriptPage(0);
           setScripts(pages[0].scripts);
+          setIsShotBreakdownOpen(false);
         } else {
           openInfo('Notice', "Script generation completed but returned unexpected data.");
         }
@@ -2260,6 +2352,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     // 3. Load scripts from the new page
     setScripts(scriptPages[nextIndex]?.scripts || []);
+    setIsShotBreakdownOpen(false);
   };
 
   // --- Safety: Sync Active Page if Pages Decrease ---
@@ -2382,10 +2475,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         // 2) 逐条提交任务（素材 × 脚本）
         for (const asset of preparedAssets) {
           for (const scriptPack of scriptQueue) {
-            const combinedScriptPrompt = scriptPack.scripts.map(s => {
-              const audioMarker = (soundSetting === 'on' && s.audio) ? `【音频|【[旁白]】${s.audio}】` : '';
-              return `${s.visual || ''} ${audioMarker}`.trim();
-            }).join(' ');
+            const combinedScriptPrompt = buildCombinedScriptPrompt(
+              scriptPack.scripts,
+              scriptPack.creativeCard
+            );
 
             let newProjectId: string | undefined;
             if (selectedTemplate?.id) {
@@ -4165,6 +4258,104 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
            </div>
            
            <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
+              {activeFullScript && (
+                <div className="rounded-2xl border border-emerald-400/25 bg-gradient-to-br from-emerald-500/10 via-black/60 to-black/80 p-4 shadow-[0_12px_36px_rgba(16,185,129,0.12)]">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-400/20 border border-emerald-300/30 flex items-center justify-center">
+                        <Sparkles className="w-3.5 h-3.5 text-emerald-200" />
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-[0.18em] text-emerald-200/90">脚本方案卡</div>
+                        <div className="text-[11px] text-zinc-400">{t.wb_script_page_prefix} {activeScriptPage + 1}</div>
+                      </div>
+                    </div>
+                    <div className="text-[10px] px-2 py-1 rounded-full border border-emerald-300/30 bg-emerald-400/10 text-emerald-100">
+                      可灵3.0提示词
+                    </div>
+                  </div>
+
+                  <div className="mt-3 rounded-xl border border-white/10 bg-black/35 p-3">
+                    <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">完整脚本</div>
+                    <p className="text-[12px] leading-6 text-zinc-100 whitespace-pre-wrap">{activeFullScript}</p>
+                  </div>
+
+                  {activeCreativeCard && (
+                    <div className="mt-3 space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {activeCreativeCard.style && (
+                          <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
+                            <div className="text-[10px] text-emerald-200 mb-1">[风格]</div>
+                            <div className="text-[11px] leading-5 text-zinc-200">{activeCreativeCard.style}</div>
+                          </div>
+                        )}
+                        {activeCreativeCard.environment && (
+                          <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
+                            <div className="text-[10px] text-emerald-200 mb-1">[环境]</div>
+                            <div className="text-[11px] leading-5 text-zinc-200">{activeCreativeCard.environment}</div>
+                          </div>
+                        )}
+                        {activeCreativeCard.tonePacing && (
+                          <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
+                            <div className="text-[10px] text-emerald-200 mb-1">[语调与节奏]</div>
+                            <div className="text-[11px] leading-5 text-zinc-200">{activeCreativeCard.tonePacing}</div>
+                          </div>
+                        )}
+                        {activeCreativeCard.camera && (
+                          <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
+                            <div className="text-[10px] text-emerald-200 mb-1">[镜头]</div>
+                            <div className="text-[11px] leading-5 text-zinc-200">{activeCreativeCard.camera}</div>
+                          </div>
+                        )}
+                        {activeCreativeCard.lighting && (
+                          <div className="rounded-xl border border-white/10 bg-black/30 p-2.5 md:col-span-2">
+                            <div className="text-[10px] text-emerald-200 mb-1">[光线]</div>
+                            <div className="text-[11px] leading-5 text-zinc-200">{activeCreativeCard.lighting}</div>
+                          </div>
+                        )}
+                      </div>
+
+                      {activeCreativeCard.actions && activeCreativeCard.actions.length > 0 && (
+                        <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                          <div className="text-[10px] text-emerald-200 mb-2">[动作]</div>
+                          <div className="space-y-2">
+                            {activeCreativeCard.actions.map((item, idx) => (
+                              <div key={`card-action-${idx}`} className="flex gap-2">
+                                <div className="w-5 h-5 mt-0.5 shrink-0 rounded-full border border-emerald-300/30 bg-emerald-400/10 text-[10px] text-emerald-100 flex items-center justify-center">
+                                  {idx + 1}
+                                </div>
+                                <div className="text-[11px] leading-5 text-zinc-200">{item}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {activeCreativeCard.backgroundSound && (
+                          <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
+                            <div className="text-[10px] text-emerald-200 mb-1">[背景音]</div>
+                            <div className="text-[11px] leading-5 text-zinc-200">{activeCreativeCard.backgroundSound}</div>
+                          </div>
+                        )}
+                        {activeCreativeCard.transitionEditing && (
+                          <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
+                            <div className="text-[10px] text-emerald-200 mb-1">[转场 / 剪辑]</div>
+                            <div className="text-[11px] leading-5 text-zinc-200">{activeCreativeCard.transitionEditing}</div>
+                          </div>
+                        )}
+                      </div>
+
+                      {activeCreativeCard.callToAction && (
+                        <div className="rounded-xl border border-orange-300/30 bg-orange-400/10 p-2.5">
+                          <div className="text-[10px] text-orange-100 mb-1">[行动号召]</div>
+                          <div className="text-[11px] leading-5 text-zinc-100">{activeCreativeCard.callToAction}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               {activeReferenceSummary.length > 0 && (
                 <div className="glass-panel rounded-xl p-3 border border-white/10">
                   <div className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2">{t.wb_upload_title}</div>
@@ -4199,7 +4390,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
                 </div>
               )}
-              {scripts.length === 0 ? (
+              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                <div className="text-[10px] text-zinc-400 uppercase tracking-widest">分镜结构（可编辑）</div>
+                <button
+                  type="button"
+                  onClick={() => setIsShotBreakdownOpen((prev) => !prev)}
+                  className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
+                >
+                  {isShotBreakdownOpen ? '收起分镜' : '展开分镜'}
+                </button>
+              </div>
+              {!isShotBreakdownOpen ? (
+                <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
+                  当前默认展示完整脚本方案。点击“展开分镜”进行镜头级精修。
+                </div>
+              ) : scripts.length === 0 ? (
                  <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
                     <FileJson className="w-10 h-10 mb-2 opacity-50" />
                     <p className="text-xs">No scripts yet.</p>
@@ -4251,7 +4456,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </div>
                   ))
               )}
-              <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
+              {isShotBreakdownOpen && (
+                <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
+              )}
            </div>
         </div>
 
@@ -4349,4 +4556,3 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       </div>
   );
 };
-

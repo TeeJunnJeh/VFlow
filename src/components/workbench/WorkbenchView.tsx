@@ -183,7 +183,7 @@ const createWorkspaceState = (params?: {
   productCategory: '',
   coreSellingPoints: '',
   targetAudience: '',
-  deliveryRegion: '',
+  deliveryRegion: '中国',
   videoType: '',
   hasAiRecognized: false,
   genPrompt: '',
@@ -302,6 +302,14 @@ type LangLabelKey =
     | 'lang_ms'
     | 'lang_vi';
 
+type RegionLabelKey =
+  | 'wb_region_us'
+  | 'wb_region_sea'
+  | 'wb_region_eu'
+  | 'wb_region_jp'
+  | 'wb_region_kr'
+  | 'wb_region_cn';
+
 type GuideStepKey = 'mode' | 'upload' | 'config' | 'scripts' | 'preview';
 
 const TARGET_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: LangLabelKey }> = [
@@ -312,6 +320,15 @@ const TARGET_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: LangLabelKey }> 
   { value: 'ko', labelKey: 'lang_ko' },
   { value: 'ms', labelKey: 'lang_ms' },
   { value: 'vi', labelKey: 'lang_vi' },
+];
+
+const DELIVERY_REGION_OPTIONS: Array<{ value: string; labelKey: RegionLabelKey }> = [
+  { value: '中国', labelKey: 'wb_region_cn' },
+  { value: '美国', labelKey: 'wb_region_us' },
+  { value: '东南亚', labelKey: 'wb_region_sea' },
+  { value: '欧洲', labelKey: 'wb_region_eu' },
+  { value: '日本', labelKey: 'wb_region_jp' },
+  { value: '韩国', labelKey: 'wb_region_kr' },
 ];
 
 interface WorkbenchViewProps {
@@ -456,7 +473,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     sellingPoints: false,
     audience: false,
   });
-  const [deliveryRegion, setDeliveryRegion] = useState('');
+  const [deliveryRegion, setDeliveryRegion] = useState('中国');
   const [videoType, setVideoType] = useState('');
   const [genPrompt, setGenPrompt] = useState('');
   const [genDuration, setGenDuration] = useState<number>(selectedTemplate?.duration || 10);
@@ -693,7 +710,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setProductCategory(workspace.productCategory || '');
     setCoreSellingPoints(workspace.coreSellingPoints || '');
     setTargetAudience(workspace.targetAudience || '');
-    setDeliveryRegion(workspace.deliveryRegion || '');
+    setDeliveryRegion(workspace.deliveryRegion || '中国');
     setVideoType(workspace.videoType || '');
     setHasAiRecognized(!!workspace.hasAiRecognized);
     setGenPrompt(workspace.genPrompt || '');
@@ -2283,7 +2300,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   // --- API Handlers ---
   const handleGenerateScripts = async () => {
-    if (!user?.id) { openInfo('Notice', 'Please log in first'); return; }
+    if (!user?.id) {
+      openInfo('Notice', 'Please log in first');
+      return;
+    }
+
+    const issues: string[] = [];
+    if (!productName.trim()) issues.push(t.wb_gen_req_issue_product_name || 'Product name: required.');
+    if (!productCategory.trim()) issues.push(t.wb_gen_req_issue_product_category || 'Product category: required.');
+    if (!coreSellingPoints.trim()) issues.push(t.wb_gen_req_issue_core_selling_points || 'Key selling points: required.');
+    if (!videoType.trim()) issues.push(t.wb_gen_req_issue_video_type || 'Video type: required.');
+
+    if (issues.length > 0) {
+      const title = t.wb_gen_req_title || 'Generation requirements not met';
+      const intro = t.wb_gen_req_intro || 'Please fix the following issues:';
+      openInfo(title, `${intro}\n${issues.map((item) => `- ${item}`).join('\n')}`);
+      return;
+    }
 
     setIsGeneratingScript(true);
 
@@ -3356,7 +3389,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         <div className="flex flex-col gap-4">
           <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
             <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_product_name_label}</label>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+                {t.wb_field_product_name_label}
+                <span className="ml-1 text-red-400">*</span>
+              </label>
               <input
                 value={productName}
                 onChange={(e) => {
@@ -3369,7 +3405,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
 
             <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_product_category_label}</label>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+                {t.wb_field_product_category_label}
+                <span className="ml-1 text-red-400">*</span>
+              </label>
               <DropdownSelect
                 value={productCategory}
                 options={[
@@ -3392,7 +3431,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
 
             <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_core_selling_points_label}</label>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+                {t.wb_field_core_selling_points_label}
+                <span className="ml-1 text-red-400">*</span>
+              </label>
               <textarea
                 value={coreSellingPoints}
                 onChange={(e) => {
@@ -3432,15 +3474,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_delivery_region_label}</label>
                 <DropdownSelect
                   value={deliveryRegion}
-                  options={[
-                    { value: '', label: t.wb_select_placeholder },
-                    { value: '美国', label: t.wb_region_us },
-                    { value: '东南亚', label: t.wb_region_sea },
-                    { value: '欧洲', label: t.wb_region_eu },
-                    { value: '日本', label: t.wb_region_jp },
-                    { value: '韩国', label: t.wb_region_kr },
-                    { value: '中国', label: t.wb_region_cn },
-                  ]}
+                  options={DELIVERY_REGION_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
                   onChange={setDeliveryRegion}
                   buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
                   labelClassName=""
@@ -3464,7 +3498,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
 
             <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_video_type_label}</label>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+                {t.wb_field_video_type_label}
+                <span className="ml-1 text-red-400">*</span>
+              </label>
               <DropdownSelect
                 value={videoType}
                 options={[

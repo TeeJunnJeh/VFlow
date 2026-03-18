@@ -588,10 +588,31 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const applyWorkspaceState = (workspace: ProjectWorkspaceState) => {
+    const normalizePersistedUrl = (value: string | null | undefined, fallback?: string | null | undefined) => {
+      const primary = value || '';
+      const backup = fallback || '';
+      if (primary && !primary.startsWith('blob:')) return primary;
+      if (backup && !backup.startsWith('blob:')) return backup;
+      return primary || backup || null;
+    };
+    const normalizedUploadedFile = normalizePersistedUrl(workspace.uploadedFile, workspace.lastUploadedUrl);
+    const normalizedSelectedAssetUrl = normalizePersistedUrl(workspace.selectedAssetUrl, workspace.lastUploadedUrl);
+    const normalizedQueue = (Array.isArray(workspace.assetQueue) ? workspace.assetQueue : []).map((item) => {
+      const persisted = normalizePersistedUrl(item.uploadedPath || item.assetUrl || null, null);
+      const preview = normalizePersistedUrl(item.previewUrl || null, persisted);
+      return {
+        ...item,
+        previewUrl: preview,
+        assetUrl: normalizePersistedUrl(item.assetUrl || null, persisted),
+        uploadedPath: normalizePersistedUrl(item.uploadedPath || null, persisted),
+        fileObj: null,
+      };
+    });
+
     isApplyingProjectWorkspaceRef.current = true;
     setFileName(workspace.fileName || '');
-    setUploadedFile(workspace.uploadedFile || null);
-    setSelectedAssetUrl(workspace.selectedAssetUrl || null);
+    setUploadedFile(normalizedUploadedFile);
+    setSelectedAssetUrl(normalizedSelectedAssetUrl);
     setLastUploadedUrl(workspace.lastUploadedUrl || null);
     setSelectedAssetSource(workspace.selectedAssetSource || null);
     setCurrentMaterialType(workspace.currentMaterialType || null);
@@ -606,7 +627,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setScripts(Array.isArray(workspace.scripts) ? workspace.scripts : []);
     setScriptPages(Array.isArray(workspace.scriptPages) && workspace.scriptPages.length > 0 ? workspace.scriptPages : [{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: [] }]);
     setActiveScriptPage(typeof workspace.activeScriptPage === 'number' ? workspace.activeScriptPage : 0);
-    setAssetQueue(Array.isArray(workspace.assetQueue) ? workspace.assetQueue : []);
+    setAssetQueue(normalizedQueue);
     setScriptQueue(Array.isArray(workspace.scriptQueue) ? workspace.scriptQueue : []);
     setGeneratedVideoUrl(workspace.generatedVideoUrl || null);
 
@@ -1606,6 +1627,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       mediaKind,
       uploadedPath: null,
     };
+    const queueId = latestItem.id;
 
     setUploadedFile((prev) => {
       if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
@@ -1624,6 +1646,35 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const next = prev.filter(item => item.materialType !== selectedType);
       return [...next, latestItem];
     });
+
+    // Upload once to temp storage immediately so preview can survive refresh.
+    void (async () => {
+      try {
+        const uploadResp = await assetsApi.uploadTempAsset(latestFile);
+        const persistedPath = extractUploadedAssetPath(uploadResp);
+        if (!persistedPath) return;
+
+        setAssetQueue(prev => prev.map(item => (
+          item.id === queueId
+            ? {
+                ...item,
+                previewUrl: persistedPath,
+                assetUrl: persistedPath,
+                uploadedPath: persistedPath,
+              }
+            : item
+        )));
+
+        setUploadedFile((prev) => {
+          if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+          return persistedPath;
+        });
+        setSelectedAssetUrl(persistedPath);
+        setLastUploadedUrl(persistedPath);
+      } catch (err) {
+        console.warn('Failed to persist local upload for preview:', err);
+      }
+    })();
   };
 
   const queueFilesWithTypePrompt = (files: File[]) => {

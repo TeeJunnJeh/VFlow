@@ -110,6 +110,8 @@ export const translations = {
     agent_btn_send: "Send",
     agent_input_tip: "Enter to send, Shift+Enter for new line",
     agent_err_failed: "Chat failed",
+    agent_input_tip_slash: "Enter to send, / to view skills",
+    agent_input_tip_attachment: "Support uploading images/videos/docs",
 
     // --- WORKBENCH VIEW --- 
     wb_header_draft: "Draft", 
@@ -616,6 +618,8 @@ export const translations = {
     agent_btn_send: "发送",
     agent_input_tip: "Enter 发送，Shift+Enter 换行",
     agent_err_failed: "对话失败",
+    agent_input_tip_slash: "Enter 发送，输入 / 查看技能",
+    agent_input_tip_attachment: "支持上传图片/视频/文档附件",
 
     wb_header_draft: "草稿",
     wb_header_save: "上次保存: 刚刚",

@@ -323,6 +323,28 @@ export const videoApi = {
     return await response.json();
   },
 
+  recognizeProductInfo: async (payload: { image_paths: string[] }) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/recognize-product/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const fallback = `商品识别失败: ${response.status} ${response.statusText || ''}`.trim();
+      throw await readApiErrorDetail(response, fallback);
+    }
+
+    return await response.json();
+  },
+
   // 3. Workbench Draft (cross-refresh/cross-device state)
   getDraft: async () => {
     const response = await fetch(`${API_BASE_URL}/draft/`, {

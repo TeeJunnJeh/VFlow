@@ -1,9 +1,10 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder, SlidersHorizontal,
+  UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
-  Zap, Layers, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2
+  Zap, Layers, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift,
+  SlidersHorizontal
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -110,6 +111,13 @@ type ProjectWorkspaceState = {
   lastUploadedUrl: string | null;
   selectedAssetSource: 'product' | 'preference' | null;
   currentMaterialType: AssetLibraryTab | null;
+  productName: string;
+  productCategory: string;
+  coreSellingPoints: string;
+  targetAudience: string;
+  deliveryRegion: string;
+  videoType: string;
+  hasAiRecognized: boolean;
   genPrompt: string;
   genDuration: number;
   soundSetting: 'on' | 'off';
@@ -171,6 +179,13 @@ const createWorkspaceState = (params?: {
   lastUploadedUrl: null,
   selectedAssetSource: null,
   currentMaterialType: null,
+  productName: '',
+  productCategory: '',
+  coreSellingPoints: '',
+  targetAudience: '',
+  deliveryRegion: '',
+  videoType: '',
+  hasAiRecognized: false,
   genPrompt: '',
   genDuration: 10,
   soundSetting: 'on',
@@ -262,7 +277,6 @@ const RATIO_TO_RES: Record<string, string> = {
   '4:3': '1024*768',
 };
 
-const ICON_EMOJI_MAP: Record<string, string> = { 'flame': '🔥', 'gem': '💎', 'zap': '⚡' };
 const USER_CANCELLED_ADAPT = '__USER_CANCELLED_IMAGE_ADAPT__';
 
 const inferMediaKind = (value: { name?: string | null; url?: string | null; type?: string | null; file?: File | null }): 'image' | 'video' | 'audio' | 'file' => {
@@ -335,6 +349,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const configSectionRef = useRef<HTMLDivElement | null>(null);
   const scriptsSectionRef = useRef<HTMLDivElement | null>(null);
   const previewSectionRef = useRef<HTMLDivElement | null>(null);
+
+  const toDisplayUrl = (pathOrUrl: string | null | undefined): string | null => {
+    if (!pathOrUrl) return null;
+    const raw = String(pathOrUrl).trim();
+    if (!raw) return null;
+    if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+    const normalized = raw.startsWith('/') ? raw : `/${raw}`;
+    const mediaBase: string = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
+    if (mediaBase && normalized.startsWith('/media/')) return `${mediaBase}${normalized}`;
+    return normalized;
+  };
 
   // --- Prompt Lab (temporary, removable) ---
   const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
@@ -421,6 +446,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const restoredDraftRef = useRef(false);
 
   // Config State
+  const [productName, setProductName] = useState('');
+  const [productCategory, setProductCategory] = useState('');
+  const [coreSellingPoints, setCoreSellingPoints] = useState('');
+  const [targetAudience, setTargetAudience] = useState('');
+  const [productInfoTouched, setProductInfoTouched] = useState({
+    name: false,
+    category: false,
+    sellingPoints: false,
+    audience: false,
+  });
+  const [deliveryRegion, setDeliveryRegion] = useState('');
+  const [videoType, setVideoType] = useState('');
   const [genPrompt, setGenPrompt] = useState('');
   const [genDuration, setGenDuration] = useState<number>(selectedTemplate?.duration || 10);
   const [soundSetting, setSoundSetting] = useState<'on' | 'off'>('on');
@@ -428,9 +465,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [targetLanguage, setTargetLanguage] = useState<string>('en');
   const [creationMode, setCreationMode] = useState<'fast' | 'replay'>('fast');
   const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
+  const [isAiRecognizing, setIsAiRecognizing] = useState(false);
+  const [hasAiRecognized, setHasAiRecognized] = useState(false);
+  const lastRecognizedSignatureRef = useRef<string>('');
+  const isAutoRecognizePromptingRef = useRef(false);
+  const LEFT_COLUMN_MIN_WIDTH = 260;
+  const SCRIPT_COLUMN_MIN_WIDTH = 320;
+  const LEFT_COLUMN_RATIO_KEY = `vflow_workbench_layout_ratio_v1_${user?.id ?? 'guest'}`;
+  const workspaceRowRef = useRef<HTMLDivElement | null>(null);
+  const isResizingRef = useRef(false);
+  const [leftColumnWidth, setLeftColumnWidth] = useState<number>(() => {
+    try {
+      const ratioRaw = sessionStorage.getItem(LEFT_COLUMN_RATIO_KEY);
+      const ratio = ratioRaw ? Number(ratioRaw) : NaN;
+      const fallback = 320;
+      if (!Number.isFinite(ratio) || ratio <= 0 || ratio >= 1) return fallback;
+      const width = Math.round(window.innerWidth * ratio);
+      return Math.min(640, Math.max(LEFT_COLUMN_MIN_WIDTH, width));
+    } catch {
+      return 320;
+    }
+  });
   const lastFastModelRef = useRef<'kling' | 'sora2' | 'sora2pro' | 'seedance2.0'>('kling');
-  const templateModelAsset = selectedTemplate?.default_model_asset ?? null;
-  const templateMotionAsset = selectedTemplate?.default_motion_asset ?? null;
   const currentAssetMediaKind = inferMediaKind({ name: fileName, url: selectedAssetUrl || uploadedFile, file: selectedFileObj });
   
   // Processing State
@@ -471,12 +527,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [confirmTitle, setConfirmTitle] = useState('');
   const [confirmMessage, setConfirmMessage] = useState('');
+  const [confirmOkLabel, setConfirmOkLabel] = useState('');
+  const [confirmCancelLabel, setConfirmCancelLabel] = useState('');
   const confirmResolveRef = useRef<((v: boolean) => void) | null>(null);
-  const openConfirm = (title: string, message: string) => {
+  const openConfirm = (
+    title: string,
+    message: string,
+    opts?: {
+      okLabel?: string;
+      cancelLabel?: string;
+    }
+  ) => {
     return new Promise<boolean>((resolve) => {
       confirmResolveRef.current = resolve;
       setConfirmTitle(title || '');
       setConfirmMessage(message || '');
+      setConfirmOkLabel(opts?.okLabel || t.wb_confirm_ok);
+      setConfirmCancelLabel(opts?.cancelLabel || t.wb_confirm_cancel);
       setIsConfirmOpen(true);
     });
   };
@@ -589,13 +656,46 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const applyWorkspaceState = (workspace: ProjectWorkspaceState) => {
     isApplyingProjectWorkspaceRef.current = true;
+
+    const restoredLastUploaded = workspace.lastUploadedUrl || null;
+    const restoredUploadedFileRaw = workspace.uploadedFile || null;
+    const restoredUploadedFile = (() => {
+      if (restoredUploadedFileRaw && restoredUploadedFileRaw.startsWith('blob:')) {
+        return toDisplayUrl(restoredLastUploaded);
+      }
+      return toDisplayUrl(restoredUploadedFileRaw) || restoredUploadedFileRaw;
+    })();
+
+    const restoredAssetQueue = (Array.isArray(workspace.assetQueue) ? workspace.assetQueue : []).map((item) => {
+      const rawPreview = item?.previewUrl || null;
+      const stablePreview =
+        (rawPreview && rawPreview.startsWith('blob:'))
+          ? (toDisplayUrl(item.uploadedPath || item.assetUrl) || null)
+          : (toDisplayUrl(rawPreview) || rawPreview);
+
+      return {
+        ...item,
+        previewUrl: stablePreview,
+        assetUrl: toDisplayUrl(item.assetUrl) || item.assetUrl,
+        uploadedPath: item.uploadedPath || null,
+        fileObj: null,
+      } as QueuedAsset;
+    });
+
     setFileName(workspace.fileName || '');
-    setUploadedFile(workspace.uploadedFile || null);
-    setSelectedAssetUrl(workspace.selectedAssetUrl || null);
-    setLastUploadedUrl(workspace.lastUploadedUrl || null);
+    setUploadedFile(restoredUploadedFile);
+    setSelectedAssetUrl(toDisplayUrl(workspace.selectedAssetUrl) || workspace.selectedAssetUrl || null);
+    setLastUploadedUrl(restoredLastUploaded);
     setSelectedAssetSource(workspace.selectedAssetSource || null);
     setCurrentMaterialType(workspace.currentMaterialType || null);
     setSelectedFileObj(null);
+    setProductName(workspace.productName || '');
+    setProductCategory(workspace.productCategory || '');
+    setCoreSellingPoints(workspace.coreSellingPoints || '');
+    setTargetAudience(workspace.targetAudience || '');
+    setDeliveryRegion(workspace.deliveryRegion || '');
+    setVideoType(workspace.videoType || '');
+    setHasAiRecognized(!!workspace.hasAiRecognized);
     setGenPrompt(workspace.genPrompt || '');
     setGenDuration(typeof workspace.genDuration === 'number' ? workspace.genDuration : 10);
     setSoundSetting(workspace.soundSetting || 'on');
@@ -606,7 +706,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setScripts(Array.isArray(workspace.scripts) ? workspace.scripts : []);
     setScriptPages(Array.isArray(workspace.scriptPages) && workspace.scriptPages.length > 0 ? workspace.scriptPages : [{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: [] }]);
     setActiveScriptPage(typeof workspace.activeScriptPage === 'number' ? workspace.activeScriptPage : 0);
-    setAssetQueue(Array.isArray(workspace.assetQueue) ? workspace.assetQueue : []);
+    setAssetQueue(restoredAssetQueue);
     setScriptQueue(Array.isArray(workspace.scriptQueue) ? workspace.scriptQueue : []);
     setGeneratedVideoUrl(workspace.generatedVideoUrl || null);
 
@@ -815,13 +915,42 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!projectStore.currentProjectId) return;
 
     const currentProjectId = projectStore.currentProjectId;
+
+    const persistedUploadedFile = (() => {
+      if (uploadedFile && uploadedFile.startsWith('blob:')) {
+        return lastUploadedUrl || selectedAssetUrl || null;
+      }
+      return uploadedFile;
+    })();
+
+    const persistedAssetQueue = assetQueue.map((item) => {
+      const rawPreview = item.previewUrl;
+      const stablePreview =
+        rawPreview && rawPreview.startsWith('blob:')
+          ? (item.uploadedPath || item.assetUrl || null)
+          : rawPreview;
+
+      return {
+        ...item,
+        previewUrl: stablePreview,
+        fileObj: null,
+      } as QueuedAsset;
+    });
+
     const workspace: ProjectWorkspaceState = {
       fileName,
-      uploadedFile,
+      uploadedFile: persistedUploadedFile,
       selectedAssetUrl,
       lastUploadedUrl,
       selectedAssetSource,
       currentMaterialType,
+      productName,
+      productCategory,
+      coreSellingPoints,
+      targetAudience,
+      deliveryRegion,
+      videoType,
+      hasAiRecognized,
       genPrompt,
       genDuration,
       soundSetting,
@@ -832,7 +961,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       scripts,
       scriptPages,
       activeScriptPage,
-      assetQueue,
+      assetQueue: persistedAssetQueue,
       scriptQueue,
       selectedTemplateId: selectedTemplate?.id || null,
       selectedModelId: (selectedModel as string) || null,
@@ -861,6 +990,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     lastUploadedUrl,
     selectedAssetSource,
     currentMaterialType,
+    productName,
+    productCategory,
+    coreSellingPoints,
+    targetAudience,
+    deliveryRegion,
+    videoType,
+    hasAiRecognized,
     genPrompt,
     genDuration,
     soundSetting,
@@ -1366,6 +1502,232 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return apiPath;
   };
 
+  const buildScriptInputText = () => {
+    const parts: string[] = [];
+
+    const pushLine = (label: string, value: string) => {
+      const trimmed = (value || '').trim();
+      if (!trimmed) return;
+      parts.push(`${label}: ${trimmed}`);
+    };
+
+    pushLine(t.wb_field_product_name_label, productName);
+    pushLine(t.wb_field_product_category_label, productCategory);
+    pushLine(t.wb_field_core_selling_points_label, coreSellingPoints);
+    pushLine(t.wb_field_target_audience_label, targetAudience);
+    pushLine(t.wb_field_delivery_region_label, deliveryRegion);
+    pushLine(t.wb_field_video_language_label, targetLanguage);
+    pushLine(t.wb_field_video_type_label, videoType);
+    pushLine(t.wb_field_additional_requirements_label, genPrompt);
+
+    return parts.length > 0 ? parts.join('\n') : t.wb_script_prompt_fallback;
+  };
+
+  const getProductRecognitionSources = useCallback(() => {
+    return uploadDisplayAssets.filter(
+      (asset) => asset.materialType === 'product' && asset.mediaKind === 'image'
+    );
+  }, [uploadDisplayAssets]);
+
+  const resolveProductRecognitionImagePaths = useCallback(async () => {
+    const sources = getProductRecognitionSources();
+    const limited = sources.slice(0, 4);
+
+    const queuedPathUpdates: Record<string, string> = {};
+    const paths: string[] = [];
+
+    for (const asset of limited) {
+      let resolvedPath = asset.uploadedPath || asset.assetUrl || null;
+      if (!resolvedPath && asset.fileObj) {
+        const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
+        resolvedPath = extractUploadedAssetPath(uploadResp);
+      }
+      if (!resolvedPath) continue;
+
+      paths.push(resolvedPath);
+      if (asset.id && asset.id !== 'current-upload') {
+        queuedPathUpdates[asset.id] = resolvedPath;
+      } else if (asset.id === 'current-upload') {
+        setLastUploadedUrl(resolvedPath);
+      }
+    }
+
+    if (Object.keys(queuedPathUpdates).length > 0) {
+      setAssetQueue((prev) => prev.map((item) => (
+        queuedPathUpdates[item.id] ? { ...item, uploadedPath: queuedPathUpdates[item.id] } : item
+      )));
+    }
+
+    return paths;
+  }, [extractUploadedAssetPath, getProductRecognitionSources]);
+
+  const handleResizeMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const startX = event.clientX;
+    const startWidth = leftColumnWidth;
+
+    const layoutRect = workspaceRowRef.current?.getBoundingClientRect();
+    if (!layoutRect) return;
+
+    const GAP_PX = 24;
+    const SEPARATOR_HIT_WIDTH = 16;
+    const previewWidth = previewSectionRef.current?.getBoundingClientRect().width ?? 300;
+    const maxLeftByLayout = Math.floor(
+      layoutRect.width - previewWidth - SCRIPT_COLUMN_MIN_WIDTH - GAP_PX * 3 - SEPARATOR_HIT_WIDTH
+    );
+    const maxLeft = Math.max(LEFT_COLUMN_MIN_WIDTH, Math.min(640, maxLeftByLayout));
+
+    isResizingRef.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMove = (e: MouseEvent) => {
+      if (!isResizingRef.current) return;
+      const delta = e.clientX - startX;
+      const nextWidth = Math.min(maxLeft, Math.max(LEFT_COLUMN_MIN_WIDTH, startWidth + delta));
+      setLeftColumnWidth(nextWidth);
+      const ratio = layoutRect.width > 0 ? nextWidth / layoutRect.width : 0;
+      if (ratio > 0 && ratio < 1) {
+        try {
+          sessionStorage.setItem(LEFT_COLUMN_RATIO_KEY, String(ratio));
+        } catch {
+          void 0;
+        }
+      }
+    };
+
+    const onUp = () => {
+      isResizingRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [LEFT_COLUMN_MIN_WIDTH, LEFT_COLUMN_RATIO_KEY, SCRIPT_COLUMN_MIN_WIDTH, leftColumnWidth]);
+
+  const productImageSignature = useMemo(() => {
+    const sources = getProductRecognitionSources();
+    return sources
+      .map((asset) => {
+        if (asset.fileObj) {
+          return `${asset.fileObj.name}:${asset.fileObj.size}:${asset.fileObj.lastModified}`;
+        }
+        return String(asset.assetUrl || asset.previewUrl || asset.id);
+      })
+      .filter(Boolean)
+      .join('|');
+  }, [getProductRecognitionSources]);
+
+  const handleAiRecognize = useCallback(
+    async (opts?: { skipOverwriteConfirm?: boolean }) => {
+      if (!user?.id) {
+        openInfo('Notice', 'Please log in first');
+        return;
+      }
+
+      const imagePaths = await resolveProductRecognitionImagePaths();
+      if (imagePaths.length === 0) {
+        openInfo('Notice', '请先上传至少 1 张商品图片');
+        return;
+      }
+
+      const signature = imagePaths.join('|');
+
+      const hasManualInput =
+        (productInfoTouched.name && productName.trim()) ||
+        (productInfoTouched.category && productCategory.trim()) ||
+        (productInfoTouched.sellingPoints && coreSellingPoints.trim()) ||
+        (productInfoTouched.audience && targetAudience.trim());
+
+      if (!opts?.skipOverwriteConfirm && hasManualInput) {
+        const ok = await openConfirm(t.wb_ai_overwrite_title, t.wb_ai_overwrite_message, {
+          okLabel: t.wb_ai_overwrite_confirm_ok,
+          cancelLabel: t.wb_ai_overwrite_confirm_cancel,
+        });
+        if (!ok) return;
+      }
+
+      setIsAiRecognizing(true);
+      try {
+        const resp = await videoApi.recognizeProductInfo({ image_paths: imagePaths });
+        const data = resp?.data || resp?.result || resp?.payload || resp;
+
+        const nextName = String(data?.product_name || '').trim();
+        const nextCategory = String(data?.product_category || '').trim();
+        const nextSelling = Array.isArray(data?.core_selling_points)
+          ? data.core_selling_points.filter(Boolean).join('\n')
+          : String(data?.core_selling_points || '').trim();
+        const nextAudience = String(data?.target_audience || '').trim();
+
+        setProductName(nextName);
+        setProductCategory(nextCategory);
+        setCoreSellingPoints(nextSelling);
+        setTargetAudience(nextAudience);
+        setProductInfoTouched({ name: false, category: false, sellingPoints: false, audience: false });
+
+        setHasAiRecognized(true);
+        lastRecognizedSignatureRef.current = productImageSignature || signature;
+      } catch (err: any) {
+        openInfo('Error', String(err?.message || t.wb_ai_recognize_failed));
+      } finally {
+        setIsAiRecognizing(false);
+      }
+    },
+    [
+      coreSellingPoints,
+      openConfirm,
+      openInfo,
+      productCategory,
+      productImageSignature,
+      productInfoTouched,
+      productName,
+      resolveProductRecognitionImagePaths,
+      targetAudience,
+      user?.id,
+    ]
+  );
+
+  useEffect(() => {
+    if (isAiRecognizing) return;
+
+    if (!productImageSignature) {
+      lastRecognizedSignatureRef.current = '';
+      return;
+    }
+
+    const prevSignature = lastRecognizedSignatureRef.current;
+
+    if (!prevSignature) {
+      lastRecognizedSignatureRef.current = productImageSignature;
+      return;
+    }
+
+    if (prevSignature === productImageSignature) return;
+    if (isAutoRecognizePromptingRef.current) return;
+
+    isAutoRecognizePromptingRef.current = true;
+    void (async () => {
+      const ok = await openConfirm(t.wb_ai_reprompt_title, t.wb_ai_reprompt_message, {
+        okLabel: t.wb_ai_reprompt_confirm_ok,
+        cancelLabel: t.wb_ai_reprompt_confirm_cancel,
+      });
+      isAutoRecognizePromptingRef.current = false;
+
+      if (!ok) {
+        lastRecognizedSignatureRef.current = productImageSignature;
+        return;
+      }
+
+      await handleAiRecognize({ skipOverwriteConfirm: true });
+      lastRecognizedSignatureRef.current = productImageSignature;
+    })();
+  }, [handleAiRecognize, isAiRecognizing, openConfirm, productImageSignature]);
+
   const buildSingleGeneratePayload = async (): Promise<GeneratePayload> => {
     const apiPath = await resolveCurrentSingleAssetPath();
     const payload: GeneratePayload = {
@@ -1622,10 +1984,35 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setGeneratedVideoUrl(null);
     setLastUploadedUrl(null);
 
-    setAssetQueue(prev => {
-      const next = prev.filter(item => item.materialType !== selectedType);
+    setAssetQueue((prev) => {
+      const next = prev.filter((item) => item.materialType !== selectedType);
       return [...next, latestItem];
     });
+
+    void (async () => {
+      try {
+        const uploadResp = await assetsApi.uploadTempAsset(latestFile);
+        const rawPath = extractUploadedAssetPath(uploadResp);
+        if (!rawPath) return;
+
+        const displayUrl = toDisplayUrl(rawPath);
+
+        setAssetQueue((prev) => prev.map((item) => (
+          item.id === latestItem.id
+            ? { ...item, uploadedPath: rawPath, previewUrl: displayUrl || item.previewUrl, fileObj: null }
+            : item
+        )));
+
+        setLastUploadedUrl(rawPath);
+        setSelectedFileObj(null);
+        setUploadedFile((prev) => {
+          if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+          return displayUrl || prev;
+        });
+      } catch {
+        void 0;
+      }
+    })();
   };
 
   const queueFilesWithTypePrompt = (files: File[]) => {
@@ -1957,7 +2344,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       let imagePath = referenceAssets.find((item) => item.type === 'product')?.image_path || referenceAssets[0]?.image_path || '';
 
       // 2. Prepare Payload (Robust)
-      const promptText = genPrompt || "产品推广";
+      const promptText = buildScriptInputText();
 
       // Values from Selected Template or Default
       const category = selectedTemplate?.product_category || "相机";
@@ -2946,8 +3333,233 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       </div>
     );
 
+    const renderLeftColumnSettings = () => (
+      <div ref={configSectionRef} className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${getGuideFocusClass('config')}`}>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+            <Gift className="w-3 h-3" /> 商品信息
+          </h2>
+          <button
+            type="button"
+            onClick={() => {
+              if (isAiRecognizing) {
+                openInfo('Notice', t.wb_ai_recognizing_tip);
+                return;
+              }
+              if (getProductRecognitionSources().length === 0) {
+                openInfo('Notice', t.wb_ai_need_product_image);
+                return;
+              }
+              void handleAiRecognize();
+            }}
+            className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border ${isAiRecognizing || getProductRecognitionSources().length === 0 ? 'border-white/10 bg-black/30 text-zinc-600 opacity-70 hover:bg-black/30' : 'border-orange-500/40 bg-orange-500/10 text-orange-300 hover:bg-orange-500/20'}`}
+          >
+            {isAiRecognizing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+            {isAiRecognizing ? t.wb_ai_recognizing_btn : t.wb_ai_recognize_btn}
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
+            <div>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_product_name_label}</label>
+              <input
+                value={productName}
+                onChange={(e) => {
+                  setProductName(e.target.value);
+                  setProductInfoTouched((prev) => ({ ...prev, name: true }));
+                }}
+                placeholder={t.wb_field_product_name_placeholder}
+                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_product_category_label}</label>
+              <DropdownSelect
+                value={productCategory}
+                options={[
+                  { value: '', label: t.wb_select_placeholder },
+                  { value: '服装鞋靴', label: t.wb_product_category_apparel },
+                  { value: '美妆个护', label: t.wb_product_category_beauty },
+                  { value: '食品饮料', label: t.wb_product_category_food },
+                  { value: '3C数码', label: t.wb_product_category_digital },
+                  { value: '家居百货', label: t.wb_product_category_home },
+                ]}
+                onChange={(v) => {
+                  setProductCategory(v);
+                  setProductInfoTouched((prev) => ({ ...prev, category: true }));
+                }}
+                buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                labelClassName=""
+                iconClassName="w-3 h-3 text-zinc-500"
+                optionClassName="text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_core_selling_points_label}</label>
+              <textarea
+                value={coreSellingPoints}
+                onChange={(e) => {
+                  setCoreSellingPoints(e.target.value);
+                  setProductInfoTouched((prev) => ({ ...prev, sellingPoints: true }));
+                }}
+                placeholder={t.wb_field_core_selling_points_placeholder}
+                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition resize-none min-h-[80px]"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_target_audience_label}</label>
+              <input
+                value={targetAudience}
+                onChange={(e) => {
+                  setTargetAudience(e.target.value);
+                  setProductInfoTouched((prev) => ({ ...prev, audience: true }));
+                }}
+                placeholder={t.wb_field_target_audience_placeholder}
+                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-4 mt-2">
+          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+            <SlidersHorizontal className="w-3 h-3" /> {t.wb_generation_settings_title}
+          </h2>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_delivery_region_label}</label>
+                <DropdownSelect
+                  value={deliveryRegion}
+                  options={[
+                    { value: '', label: t.wb_select_placeholder },
+                    { value: '美国', label: t.wb_region_us },
+                    { value: '东南亚', label: t.wb_region_sea },
+                    { value: '欧洲', label: t.wb_region_eu },
+                    { value: '日本', label: t.wb_region_jp },
+                    { value: '韩国', label: t.wb_region_kr },
+                    { value: '中国', label: t.wb_region_cn },
+                  ]}
+                  onChange={setDeliveryRegion}
+                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  labelClassName=""
+                  iconClassName="w-3 h-3 text-zinc-500"
+                  optionClassName="text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_video_language_label}</label>
+                <DropdownSelect
+                  value={targetLanguage}
+                  options={TARGET_LANGUAGE_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
+                  onChange={setTargetLanguage}
+                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  labelClassName=""
+                  iconClassName="w-3 h-3 text-zinc-500"
+                  optionClassName="text-xs"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_video_type_label}</label>
+              <DropdownSelect
+                value={videoType}
+                options={[
+                  { value: '', label: t.wb_select_placeholder },
+                  { value: 'UGC种草', label: t.wb_video_type_ugc },
+                  { value: '产品口播', label: t.wb_video_type_talking },
+                  { value: '产品演示', label: t.wb_video_type_demo },
+                  { value: '痛点-解决', label: t.wb_video_type_problem_solution },
+                  { value: '前后对比', label: t.wb_video_type_before_after },
+                  { value: '反应展示', label: t.wb_video_type_reaction },
+                  { value: '故事讲述', label: t.wb_video_type_story },
+                ]}
+                onChange={setVideoType}
+                buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                labelClassName=""
+                iconClassName="w-3 h-3 text-zinc-500"
+                optionClassName="text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_additional_requirements_label}</label>
+              <textarea
+                readOnly={!hasCurrentAsset}
+                onFocus={() => {
+                  if (!hasCurrentAsset) openInfo('Notice', t.wb_additional_requirements_need_asset);
+                }}
+                onClick={() => {
+                  if (!hasCurrentAsset) openInfo('Notice', t.wb_additional_requirements_need_asset);
+                }}
+                className={`w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-none min-h-[80px] ${!hasCurrentAsset ? 'text-zinc-500 opacity-60' : 'text-zinc-300 focus:border-orange-500 focus:outline-none'}`}
+                placeholder={t.wb_field_additional_requirements_placeholder}
+                value={genPrompt}
+                onChange={(e) => {
+                  if (!hasCurrentAsset) return;
+                  setGenPrompt(e.target.value);
+                }}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
+                <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
+                  {[5, 10, 15].map((d) => (
+                    <button
+                      key={d}
+                      onClick={() => setGenDuration(d)}
+                      className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${genDuration === d ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}
+                    >
+                      {d}s
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_audio}</label>
+                <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
+                  <button onClick={() => setSoundSetting('on')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'on' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_on}</button>
+                  <button onClick={() => setSoundSetting('off')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'off' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_off}</button>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-white/5 my-1" />
+
+            <div className="flex flex-col gap-3">
+              <div className="flex justify-between items-center">
+                <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_script_count_label}</label>
+                <span className="text-[12px] font-bold text-orange-400">{scriptVariantCount} {t.wb_script_count_unit}</span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={10}
+                value={scriptVariantCount}
+                onChange={(e) => setScriptVariantCount(Number(e.target.value))}
+                className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
+              />
+            </div>
+          </div>
+        </div>
+
+      </div>
+    );
+
     return (
-    <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
+    <div className="w-full flex flex-col gap-6 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
       <div ref={modeSectionRef} className={getGuideFocusClass('mode')}>
         {modelSelector}
       </div>
@@ -3241,139 +3853,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
           </div>
 
-      {/* Config Panel (Restored Controls) */}
-      <div ref={configSectionRef} className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${getGuideFocusClass('config')}`}>
-        <div className="flex justify-between items-center"><h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><SlidersHorizontal className="w-3 h-3" /> {t.wb_config_title}</h2></div>
-        <div className="glass-panel rounded-xl p-5 flex flex-col gap-5">
-           {/* Template Selector */}
-           <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_template_label}</label>
-              <div className="relative">
-	                <DropdownSelect
-	                  value={selectedTemplate?.id || ''}
-	                  options={
-	                    templateList.length === 0
-	                      ? [{ value: '', label: t.wb_config_custom }]
-	                      : templateList.flatMap((tpl) =>
-	                          tpl.id
-	                            ? [
-	                                {
-	                                  value: tpl.id,
-	                                  label: `${ICON_EMOJI_MAP[tpl.icon] || '🔥'} ${tpl.name}`
-	                                }
-	                              ]
-	                            : []
-	                        )
-	                  }
-	                  onChange={(id) => onSelectTemplate(templateList.find((t) => t.id === id) || null)}
-	                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-orange-500 font-bold focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
-	                  labelClassName=""
-	                  iconClassName="w-3 h-3 text-zinc-500"
-	                  optionClassName="text-xs"
-	                />
-              </div>
-           </div>
+      {renderLeftColumnSettings()}
 
-           {/* Default Model Asset – selectable dropdown, refreshes on open */}
-           <div>
-             <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_model_label}</label>
-             {templateModelAsset ? (
-               <div className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2">
-                 <div className="flex items-center gap-2">
-                   <img
-                     src={templateModelAsset.url}
-                     alt={templateModelAsset.display_name}
-                     className="w-6 h-6 rounded-md object-cover border border-white/10 shrink-0"
-                   />
-                   <span className="text-xs text-zinc-200 font-bold truncate">{templateModelAsset.display_name}</span>
-                 </div>
-               </div>
-             ) : (
-               <div className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-400 font-bold">
-                 {t.wb_config_model_smart}
-               </div>
-             )}
-           </div>
-
-           <div>
-             <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_motion_label || '参考动作'}</label>
-             {templateMotionAsset ? (
-               <div className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2">
-                 <div className="flex items-center gap-2">
-                   <video
-                     src={templateMotionAsset.url}
-                     className="w-8 h-8 rounded-md object-cover border border-white/10 shrink-0"
-                     muted
-                     playsInline
-                   />
-                   <span className="text-xs text-zinc-200 font-bold truncate">{templateMotionAsset.display_name}</span>
-                 </div>
-               </div>
-             ) : (
-               <div className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-400 font-bold">
-                 {t.wb_config_motion_empty || '未绑定动作参考'}
-               </div>
-             )}
-           </div>
-
-              {/* Restored Inputs: Prompt, Duration, Audio, Count */}
-              <hr className="border-white/5" />
-              <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_prompt_label}</label>
-                <textarea
-                    disabled={!hasCurrentAsset}
-                    className={`w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-none min-h-[80px] ${!hasCurrentAsset ? 'text-zinc-500 cursor-not-allowed opacity-60' : 'text-zinc-300 focus:border-orange-500 focus:outline-none'}`}
-                    placeholder={t.wb_config_prompt_placeholder}
-                    value={genPrompt}
-                    onChange={(e) => setGenPrompt(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
-                <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
-                  {[5, 10, 15].map(d => (
-                      <button key={d} onClick={() => setGenDuration(d)} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${genDuration === d ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{d}s</button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_audio}</label>
-                <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
-                  <button onClick={() => setSoundSetting('on')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'on' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_on}</button>
-                  <button onClick={() => setSoundSetting('off')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'off' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_off}</button>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_script_count_label}</label>
-                <div className="flex items-center gap-2 bg-black/40 p-2 rounded-lg border border-white/5">
-                  <input type="number" min={1} max={10} value={scriptVariantCount} onChange={(e) => setScriptVariantCount(Number(e.target.value))} className="w-16 bg-transparent text-xs text-zinc-200 focus:outline-none text-center" />
-                  <span className="text-[10px] text-zinc-500">{t.wb_script_count_unit}</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_target_audience_language}</label>
-                <DropdownSelect
-                    value={targetLanguage}
-                    options={TARGET_LANGUAGE_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
-                    onChange={setTargetLanguage}
-                    buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
-                    labelClassName=""
-                    iconClassName="w-3 h-3 text-zinc-500"
-                    optionClassName="text-xs"
-                />
-              </div>
-
-              <button onClick={handleGenerateScripts} disabled={isGeneratingScript || !hasCurrentAsset} className={`w-full py-3 rounded-xl font-bold text-xs transition shadow-lg shadow-white/5 mt-2 flex items-center justify-center gap-2 group ${isGeneratingScript || !hasCurrentAsset ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed' : 'bg-white text-black hover:bg-orange-500 hover:text-white'}`}>
-                {isGeneratingScript ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />}
-                {isGeneratingScript ? 'Generating...' : t.wb_btn_gen_scripts}
-              </button>
-            </div>
-          </div>
-        </div>
+      <button
+        type="button"
+        onClick={() => {
+          if (isGeneratingScript) {
+            openInfo('Notice', t.wb_generate_in_progress);
+            return;
+          }
+          if (!hasCurrentAsset) {
+            openInfo('Notice', t.wb_generate_need_asset);
+            return;
+          }
+          void handleGenerateScripts();
+        }}
+        className={`w-full py-3 rounded-xl font-bold text-xs transition flex items-center justify-center gap-2 group border border-white/10 bg-black/30 text-zinc-200 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 ${isGeneratingScript || !hasCurrentAsset ? 'opacity-40 hover:bg-black/30' : ''}`}
+      >
+        {isGeneratingScript ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />}
+        {isGeneratingScript ? t.wb_generating : t.wb_btn_gen_scripts}
+      </button>
+    </div>
     );
   };
 
@@ -3760,8 +4260,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             onClose={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}
             footer={
               <>
-                <button className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}>Cancel</button>
-                <button className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(true); confirmResolveRef.current = null; } }}>OK</button>
+                <button className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}>{confirmCancelLabel || t.wb_confirm_cancel}</button>
+                <button className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(true); confirmResolveRef.current = null; } }}>{confirmOkLabel || t.wb_confirm_ok}</button>
               </>
             }
           >
@@ -4036,9 +4536,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           </AppDialog>
         )}
 
-      <div className="flex-1 flex overflow-hidden p-6 gap-6">
-        {renderLeftColumn()}
-        
+      <div ref={workspaceRowRef} className="flex-1 flex overflow-hidden p-6 gap-6">
+        <div style={{ width: leftColumnWidth }} className="shrink-0 h-full min-w-[260px] max-w-[640px]">
+          {renderLeftColumn()}
+        </div>
+
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          onMouseDown={handleResizeMouseDown}
+          className="group relative w-4 -mx-3 cursor-col-resize transition shrink-0 flex items-stretch justify-center"
+          title="拖拽调整布局"
+        >
+          <div className="w-px h-full bg-white/15 group-hover:bg-white/30 transition" />
+          <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-4" />
+        </div>
+
         <div ref={scriptsSectionRef} className={`flex-auto flex flex-col gap-3 h-full min-w-[300px] ${getGuideFocusClass('scripts')}`}>
            <div className="flex justify-between items-center shrink-0 h-[32px]">
               <div className="flex items-center gap-3">
@@ -4273,8 +4786,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
           </div>
         </div>
-
-      </div>
+        </div>
   );
 };
 

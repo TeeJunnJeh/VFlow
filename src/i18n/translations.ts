@@ -69,6 +69,8 @@ export const translations = {
     advanced_settings: "Advanced Settings",
     btn_generate: "Generate Video",
     btn_processing: "Processing...",
+    btn_generating: "Generating...",
+    btn_submitting: "Submitting...",
 
     // Legacy Login
     welcome_back: "Welcome Back",
@@ -578,6 +580,8 @@ export const translations = {
     advanced_settings: "高级设置",
     btn_generate: "生成视频",
     btn_processing: "生成中...",
+    btn_generating: "生成中...",
+    btn_submitting: "提交中...",
 
     welcome_back: "欢迎回来",
     sign_in_subtitle: "登录以开始创作。",
@@ -1078,6 +1082,8 @@ export const translations = {
     advanced_settings: "Tetapan Lanjutan",
     btn_generate: "Jana Video",
     btn_processing: "Sedang Memproses...",
+    btn_generating: "Menjana...",
+    btn_submitting: "Menghantar...",
 
     // Legacy Login
     welcome_back: "Selamat Kembali",
@@ -1507,6 +1513,8 @@ export const translations = {
     advanced_settings: "Cài đặt nâng cao",
     btn_generate: "Tạo Video",
     btn_processing: "Đang xử lý...",
+    btn_generating: "Đang tạo...",
+    btn_submitting: "Đang gửi...",
 
     // Legacy Login
     welcome_back: "Chào mừng trở lại",
@@ -1946,6 +1954,8 @@ export const translations = {
     advanced_settings: "고급 설정",
     btn_generate: "비디오 생성",
     btn_processing: "처리 중...",
+    btn_generating: "생성 중...",
+    btn_submitting: "제출 중...",
 
     // Legacy Login
     welcome_back: "환영합니다",

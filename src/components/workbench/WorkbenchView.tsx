@@ -3371,7 +3371,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
               <button onClick={handleGenerateScripts} disabled={isGeneratingScript || !hasCurrentAsset} className={`w-full py-3 rounded-xl font-bold text-xs transition shadow-lg shadow-white/5 mt-2 flex items-center justify-center gap-2 group ${isGeneratingScript || !hasCurrentAsset ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed' : 'bg-white text-black hover:bg-orange-500 hover:text-white'}`}>
                 {isGeneratingScript ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />}
-                {isGeneratingScript ? 'Generating...' : t.wb_btn_gen_scripts}
+                {isGeneratingScript ? t.btn_generating : t.wb_btn_gen_scripts}
               </button>
             </div>
           </div>
@@ -4099,7 +4099,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
               <div className={`flex items-center gap-2 ${isScriptsNarrow ? 'w-1/2 justify-center' : ''}`}>
                 <button onClick={handleGenerateVideo} disabled={isGenerating} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
-                  {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}{isGenerating ? 'Generating...' : t.wb_btn_gen_video}
+                  {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}{isGenerating ? t.btn_generating : t.wb_btn_gen_video}
               </button>
               </div>
            </div>
@@ -4218,7 +4218,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         onPause={() => setIsPlaying(false)}
                   />
                 ) : (
-                  <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Submitting…' : t.wb_waiting}</p></div>
+                  <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? t.btn_submitting : t.wb_waiting}</p></div>
                 )}
                 
               </div>

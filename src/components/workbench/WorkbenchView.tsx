@@ -1346,13 +1346,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     scene: t.assets_tab_scenes || '场景',
     motion: t.assets_tab_motion || '动作',
   };
-
-  const materialTypeCycle: AssetLibraryTab[] = ['product', 'model', 'scene', 'motion'];
-  const getNextMaterialType = (current: AssetLibraryTab): AssetLibraryTab => {
-    const idx = materialTypeCycle.indexOf(current);
-    if (idx < 0) return materialTypeCycle[0];
-    return materialTypeCycle[(idx + 1) % materialTypeCycle.length];
-  };
   const uploadDisplayAssets: QueuedAsset[] = useMemo(() => {
     if (assetQueue.length > 0) return assetQueue;
     if (!uploadedFile) return [];
@@ -1614,10 +1607,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const sources = getProductRecognitionSources();
     return sources
       .map((asset) => {
+        if (asset.id) return String(asset.id);
         if (asset.fileObj) {
           return `${asset.fileObj.name}:${asset.fileObj.size}:${asset.fileObj.lastModified}`;
         }
-        return String(asset.assetUrl || asset.previewUrl || asset.id);
+        return String(asset.assetUrl || asset.previewUrl || '');
       })
       .filter(Boolean)
       .join('|');
@@ -3653,23 +3647,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             )) : (
                               <div className="w-full h-full flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
                             )}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const currentType = asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product');
-                                const nextType = getNextMaterialType(currentType);
-                                if (inQueue) {
-                                  setAssetQueue(prev => prev.map(item => (item.id === asset.id ? { ...item, materialType: nextType } : item)));
-                                  if (selected) setCurrentMaterialType(nextType);
-                                } else {
-                                  setCurrentMaterialType(nextType);
-                                }
-                              }}
-                              className="absolute top-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-white/15 bg-black/60 text-zinc-100 hover:bg-black/75 transition"
-                            >
+                            <div className="absolute top-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-white/15 bg-black/60 text-zinc-100">
                               {materialTypeLabelMap[asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product')]}
-                            </button>
+                            </div>
                             <div className="absolute top-1 right-1 flex items-center gap-1">
                               {asset.mediaKind === 'image' && (
                                 <button

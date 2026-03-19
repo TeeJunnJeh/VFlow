@@ -4,7 +4,7 @@ import {
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift,
-  SlidersHorizontal, RefreshCw
+  SlidersHorizontal,Palette, MapPin, Activity, Camera, Lightbulb, Music, Scissors, Megaphone, AlignLeft
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -29,7 +29,6 @@ import { AppDialog } from '../common/AppDialog';
 const ENABLE_PROMPT_LAB = true;
 const ENABLE_STORYBOARD_PROMPT = false;
 const ENABLE_STORYBOARD_EDITOR = false;
-
 
 // Types specific to Workbench View
 type ScriptItem = {
@@ -127,12 +126,10 @@ type ActionRequired = {
   request_flag?: string | null;
 } | null;
 
-// What we persist to the backend for cross-refresh / cross-device restore.
-// Keep it JSON-serializable (no File / Blob / functions).
 type WorkbenchSnapshot = {
   version: 1;
   template_id: string | null;
-  timestamp: number; // client timestamp (ms)
+  timestamp: number;
 };
 
 type ProjectWorkspaceState = {
@@ -300,7 +297,6 @@ const SoraStarIcon: React.FC<{ className?: string }> = ({ className }) => (
     </svg>
 );
 
-// Helper constants
 const RATIO_TO_RES: Record<string, string> = {
   '16:9': '1280*720',
   '9:16': '720*1280',
@@ -322,6 +318,57 @@ const inferMediaKind = (value: { name?: string | null; url?: string | null; type
   if (/\.(mp4|mov|mkv|webm|avi)$/.test(raw)) return 'video';
   if (/\.(mp3|wav|flac)$/.test(raw)) return 'audio';
   return 'file';
+};
+
+// 增加前端图片压缩函数
+const compressImage = async (file: File, maxWidth = 1920, maxHeight = 1920, quality = 0.8): Promise<File> => {
+  if (!file.type.startsWith('image/')) return file;
+  // 小于 500KB 的图片不压缩
+  if (file.size < 500 * 1024) return file;
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxWidth || height > maxHeight) {
+        const ratio = Math.min(maxWidth / width, maxHeight / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        URL.revokeObjectURL(objectUrl);
+        resolve(file);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+          (blob) => {
+            URL.revokeObjectURL(objectUrl);
+            if (blob) {
+              const compressedFile = new File([blob], file.name, {
+                type: 'image/jpeg',
+                lastModified: Date.now(),
+              });
+              resolve(compressedFile);
+            } else {
+              resolve(file);
+            }
+          },
+          'image/jpeg',
+          quality
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(file);
+    };
+    img.src = objectUrl;
+  });
 };
 
 type LangLabelKey =
@@ -409,7 +456,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return normalized;
   };
 
-  // --- Prompt Lab (temporary, removable) ---
   const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
   const [promptTemplates, setPromptTemplates] = useState<PromptStepTemplate[]>([]);
   const [promptOverrides, setPromptOverrides] = useState<PromptOverrides>(() =>
@@ -432,7 +478,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         { key: 'scripts', title: t.wb_guide_scripts_title, description: t.wb_guide_scripts_desc },
         { key: 'preview', title: t.wb_guide_preview_title, description: t.wb_guide_preview_desc },
       ],
-      [language]
+      [language, t]
   );
 
   const loadPromptLabTemplates = async () => {
@@ -459,7 +505,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     await loadPromptLabTemplates();
   };
 
-  // --- Local State ---
   const [uploadedFile, setUploadedFile] = useState<string | null>(initialFileUrl || null);
   const [fileName, setFileName] = useState(initialFileName || '');
   const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null);
@@ -488,7 +533,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const skipTemplateDurationSyncRef = useRef(false);
   const restoredDraftRef = useRef(false);
 
-  // Config State
   const [productName, setProductName] = useState('');
   const [productCategory, setProductCategory] = useState('');
   const [coreSellingPoints, setCoreSellingPoints] = useState('');
@@ -544,7 +588,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const lastFastModelRef = useRef<'kling' | 'sora2' | 'sora2pro' | 'seedance2.0'>('kling');
   const currentAssetMediaKind = inferMediaKind({ name: fileName, url: selectedAssetUrl || uploadedFile, file: selectedFileObj });
 
-  // Processing State
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
@@ -567,7 +610,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     t.wb_shot_type_general,
   ]);
 
-  // Video Player State
   const [isPlaying, setIsPlaying] = useState(false);
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [infoTitle, setInfoTitle] = useState('');
@@ -601,22 +643,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     });
   };
 
-  // Script State
-  const buildDemoScripts = () => ([
+  const buildDemoScripts = useCallback(() => ([
     { id: 1, shot: '1', type: 'Medium', dur: '2s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio },
     { id: 2, shot: '2', type: 'Detail', dur: '2s', visual: t.demo_shot2_visual, audio: t.demo_shot2_audio }
-  ]);
+  ]), [t]);
   const [scripts, setScripts] = useState<ScriptItem[]>(buildDemoScripts);
   const [scriptPages, setScriptPages] = useState<ScriptPage[]>(() => ([{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: buildDemoScripts() }]));
   const [activeScriptPage, setActiveScriptPage] = useState(0);
   const [isShotBreakdownOpen, setIsShotBreakdownOpen] = useState(false);
 
-  // Queue State
   const [assetQueue, setAssetQueue] = useState<QueuedAsset[]>([]);
   const [scriptQueue, setScriptQueue] = useState<QueuedScript[]>([]);
-  const [pendingUploadFiles, setPendingUploadFiles] = useState<File[]>([]);
-  const [isUploadTypeDialogOpen, setIsUploadTypeDialogOpen] = useState(false);
-  const [pendingUploadType, setPendingUploadType] = useState<AssetLibraryTab>('product');
   const [currentMaterialType, setCurrentMaterialType] = useState<AssetLibraryTab | null>(null);
   const [generatedBatch, setGeneratedBatch] = useState<Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }>>([]);
   const [selectedQueueAssetId, setSelectedQueueAssetId] = useState<string | null>(null);
@@ -708,7 +745,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return useCompactTime ? `${days}${projectUiText.daysAgo}` : `${days} ${projectUiText.daysAgo}`;
   };
 
-  const applyWorkspaceState = (workspace: ProjectWorkspaceState) => {
+  const applyWorkspaceState = useCallback((workspace: ProjectWorkspaceState) => {
     const normalizePersistedUrl = (value: string | null | undefined, fallback?: string | null | undefined) => {
       const primary = value || '';
       const backup = fallback || '';
@@ -716,19 +753,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       if (backup && !backup.startsWith('blob:')) return backup;
       return primary || backup || null;
     };
-    const normalizedUploadedFile = normalizePersistedUrl(workspace.uploadedFile, workspace.lastUploadedUrl);
-    const normalizedSelectedAssetUrl = normalizePersistedUrl(workspace.selectedAssetUrl, workspace.lastUploadedUrl);
-    const normalizedQueue = (Array.isArray(workspace.assetQueue) ? workspace.assetQueue : []).map((item) => {
-      const persisted = normalizePersistedUrl(item.uploadedPath || item.assetUrl || null, null);
-      const preview = normalizePersistedUrl(item.previewUrl || null, persisted);
-      return {
-        ...item,
-        previewUrl: preview,
-        assetUrl: normalizePersistedUrl(item.assetUrl || null, persisted),
-        uploadedPath: normalizePersistedUrl(item.uploadedPath || null, persisted),
-        fileObj: null,
-      };
-    });
 
     isApplyingProjectWorkspaceRef.current = true;
 
@@ -795,7 +819,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setTimeout(() => {
       isApplyingProjectWorkspaceRef.current = false;
     }, 0);
-  };
+  }, [onSelectTemplate, setSelectedModel, t.wb_script_page_prefix, templateList]);
 
   const beginHeaderRename = () => {
     if (!currentProject) return;
@@ -923,13 +947,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
   const injectedAssetSignaturesRef = useRef<Set<string>>(new Set());
 
-  // --- Effects ---
-
-  // Inject an asset from the Asset Library ("用于工作台") into the workbench.
-  // Because WorkbenchView is permanently mounted (shown/hidden via CSS), the
-  // useState initial values for initialFileUrl are set only once at mount. We
-  // need a useEffect that watches the prop and updates internal state whenever
-  // a new asset URL is pushed in from the parent.
   useEffect(() => {
     if (!initialFileUrl) return;
     const name = initialFileName || '未命名素材';
@@ -974,8 +991,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       scripts: buildDemoScripts(),
       scriptPagePrefix: t.wb_script_page_prefix,
     }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectStore.currentProjectId, templateList, t.wb_script_page_prefix, t.demo_shot1_visual, t.demo_shot1_audio, t.demo_shot2_visual, t.demo_shot2_audio]);
+  }, [projectStore.currentProjectId, applyWorkspaceState, buildDemoScripts, t.wb_script_page_prefix]);
 
   useEffect(() => {
     localStorage.setItem(getLocalProjectStoreKey(user?.id ?? null), JSON.stringify(projectStore));
@@ -1058,35 +1074,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       };
     });
   }, [
-    projectStore.currentProjectId,
-    fileName,
-    uploadedFile,
-    selectedAssetUrl,
-    lastUploadedUrl,
-    selectedAssetSource,
-    currentMaterialType,
-    productName,
-    productCategory,
-    coreSellingPoints,
-    targetAudience,
-    deliveryRegion,
-    videoType,
-    hasAiRecognized,
-    genPrompt,
-    genDuration,
-    soundSetting,
-    scriptVariantCount,
-    targetLanguage,
-    creationMode,
-    reuseQueueEnabled,
-    scripts,
-    scriptPages,
-    activeScriptPage,
-    assetQueue,
-    scriptQueue,
-    selectedTemplate?.id,
-    selectedModel,
-    generatedVideoUrl,
+    projectStore.currentProjectId, fileName, uploadedFile, selectedAssetUrl,
+    lastUploadedUrl, selectedAssetSource, currentMaterialType, productName,
+    productCategory, coreSellingPoints, targetAudience, deliveryRegion,
+    videoType, hasAiRecognized, genPrompt, genDuration, soundSetting,
+    scriptVariantCount, targetLanguage, creationMode, reuseQueueEnabled,
+    scripts, scriptPages, activeScriptPage, assetQueue, scriptQueue,
+    selectedTemplate?.id, selectedModel, generatedVideoUrl,
   ]);
 
   useEffect(() => {
@@ -1120,28 +1114,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [projectMenuOpen]);
 
   useEffect(() => {
-    // Reset or update duration when template changes
     if (!selectedTemplate) {
       return;
     }
-
-    // When we apply a restored template, keep the duration we restored from the snapshot.
     if (skipTemplateDurationSyncRef.current) {
       skipTemplateDurationSyncRef.current = false;
       return;
     }
-
-    // During draft restore we may set duration from snapshot; don't override it.
     if (!isRestoring) setGenDuration(selectedTemplate.duration);
-
   }, [selectedTemplate, isRestoring]);
 
-  // When the preview video changes, reset play state until we receive onPlay/onPause from the new element.
   useEffect(() => {
     setIsPlaying(false);
   }, [generatedVideoUrl]);
 
-  // Debug: Log task changes
   useEffect(() => {
     if (generatedBatch.length > 0) {
       console.log('[WorkbenchView] generatedBatch updated:', generatedBatch);
@@ -1158,15 +1144,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
   }, [generatedBatch, tasks]);
 
-  // Keep a ref so unmount flush doesn't depend on hook dependency arrays.
   useEffect(() => {
     canAutoSaveRef.current = !!user?.id && !isRestoring;
   }, [user?.id, isRestoring]);
 
-  // 1) Restore draft when entering workbench (mount) or after login
   useEffect(() => {
     let cancelled = false;
-
     const restoreDraft = async () => {
       setIsRestoring(true);
       restoredDraftRef.current = false;
@@ -1177,7 +1160,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
 
       let restored = false;
-
       try {
         const res = await videoApi.getDraft();
         if (cancelled) return;
@@ -1186,7 +1168,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (snap && typeof snap === 'object') {
           restoredDraftRef.current = true;
           restored = true;
-          // Template (may arrive before templateList is loaded)
           if (typeof snap.template_id === 'string' && snap.template_id) {
             setPendingTemplateId(snap.template_id);
           } else if (snap.template_id === null) {
@@ -1197,28 +1178,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         console.warn("Failed to restore workbench draft:", err);
       } finally {
         if (cancelled) return;
-
         setWasDraftRestored(restored);
-
         setIsRestoring(false);
       }
     };
-
     restoreDraft();
-
     return () => {
       cancelled = true;
     };
-    // Intentionally only tied to auth identity; template selection is handled in a separate effect.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [user?.id, onSelectTemplate]);
 
-  // Apply restored template once templates are available
   useEffect(() => {
     if (!pendingTemplateId) return;
     if (isRestoring) return;
-
-    // If user already selected something manually, don't override.
     if (selectedTemplate?.id) {
       setPendingTemplateId(null);
       return;
@@ -1232,14 +1204,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
-    // Template was deleted or otherwise unavailable. Clear pending so we can fall back.
     if (templateList.length > 0) setPendingTemplateId(null);
   }, [pendingTemplateId, isRestoring, selectedTemplate?.id, templateList, onSelectTemplate]);
 
-  // If user has templates, "Custom Config" is not a valid/meaningful option:
-  // - Hide it in the dropdown (render logic below)
-  // - Ensure we always have a real template selected (default to the first)
-  // - Don't interrupt draft restore (pendingTemplateId) or in-progress restore
   useEffect(() => {
     if (isRestoring) return;
     if (pendingTemplateId) return;
@@ -1249,16 +1216,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const isValidSelection = !!selectedId && templateList.some(t => t.id === selectedId);
     if (isValidSelection) return;
 
-    // If we just restored a draft snapshot (that may have been "Custom Config"),
-    // preserve the restored duration instead of syncing to template default.
     if (restoredDraftRef.current) skipTemplateDurationSyncRef.current = true;
 
     onSelectTemplate(templateList[0]);
   }, [templateList, selectedTemplate?.id, pendingTemplateId, isRestoring, onSelectTemplate]);
 
-  // Default template selection:
-  // - If user has templates and there's NO restored draft, default to the first template (not "Custom Config").
-  // - If user has no templates, keep showing "Custom Config".
   useEffect(() => {
     if (isRestoring) return;
     if (wasDraftRestored) return;
@@ -1273,14 +1235,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     hasAutoSelectedTemplateRef.current = true;
   }, [isRestoring, wasDraftRestored, templateList, selectedTemplate?.id, onSelectTemplate]);
 
-  // Keep a best-effort "latest snapshot" for debounce + unmount flush.
   latestSnapshotRef.current = {
     version: 1,
     template_id: (selectedTemplate?.id as string | undefined) || null,
     timestamp: Date.now(),
   };
 
-  // 2) Auto-save (debounced)
   useEffect(() => {
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     if (!user?.id || isRestoring) return;
@@ -1296,7 +1256,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
   }, [user?.id, isRestoring, selectedTemplate?.id]);
 
-  // 3) Flush on unmount (e.g. leaving workbench tab) so we don't lose the last edits due to debounce cleanup
   useEffect(() => {
     return () => {
       if (!canAutoSaveRef.current) return;
@@ -1306,7 +1265,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
   }, []);
 
-  // 4) Best-effort save on page refresh/close (covers "F5" / tab close cases better than debounce alone)
   useEffect(() => {
     const handler = () => {
       if (!canAutoSaveRef.current) return;
@@ -1414,7 +1372,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setGeneratedVideoUrl(null);
   };
 
-  // Duration Logic
   const currentScriptDuration = ENABLE_STORYBOARD_EDITOR
       ? scripts.reduce((total, s) => total + (parseFloat(s.dur.replace('s', '')) || 0), 0)
       : genDuration;
@@ -1820,6 +1777,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         resolveProductRecognitionImagePaths,
         targetAudience,
         user?.id,
+        t,
+        language
       ]
   );
 
@@ -1857,7 +1816,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       await handleAiRecognize({ skipOverwriteConfirm: true });
       lastRecognizedSignatureRef.current = productImageSignature;
     })();
-  }, [handleAiRecognize, isAiRecognizing, openConfirm, productImageSignature]);
+  }, [handleAiRecognize, isAiRecognizing, openConfirm, productImageSignature, t]);
 
   const buildSingleGeneratePayload = async (): Promise<GeneratePayload> => {
     const apiPath = await resolveCurrentSingleAssetPath();
@@ -1879,9 +1838,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       else payload.image_path = apiPath;
     }
 
-    // 为Sora模型添加size参数（Sora仅支持特定的分辨率）
     if (selectedModel === 'sora2' || selectedModel === 'sora2pro') {
-      payload.size = '1280x720'; // Sora默认1280x720，用户可根据aspect_ratio调整
+      payload.size = '1280x720';
     }
 
     return payload;
@@ -1961,7 +1919,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         throw err;
       }
 
-      // Avoid infinite retry loops when backend still rejects after user confirmation.
       if (payload[requestFlag]) {
         throw err;
       }
@@ -2081,12 +2038,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const isVideo = VIDEO_EXTS.includes(ext);
     const isAudio = AUDIO_EXTS.includes(ext);
 
-    // 仅按扩展名放行，确保与后端校验一致（例如 HEIC 虽然是 image/*，但程序不支持）
     if (!isImage && !isVideo && !isAudio) return `${t.assets_upload_error_unsupported || '格式不支持'}：${file.name}`;
     return null;
   };
-
-  // --- Handlers ---
 
   const applySelectedUploadType = (files: File[], selectedType: AssetLibraryTab) => {
     if (files.length === 0) return;
@@ -2151,7 +2105,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
     })();
 
-    // Upload once to temp storage immediately so preview can survive refresh.
     void (async () => {
       try {
         const uploadResp = await assetsApi.uploadTempAsset(latestFile);
@@ -2181,16 +2134,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     })();
   };
 
-  const queueFilesWithTypePrompt = (files: File[]) => {
+  const handleLocalFiles = async (files: File[]) => {
     if (files.length === 0) return;
 
     const errors: string[] = [];
     const validFiles: File[] = [];
-    files.forEach((file) => {
+
+    for (const file of files) {
       const err = validateUploadFile(file);
-      if (err) errors.push(err);
-      else validFiles.push(file);
-    });
+      if (err) {
+        errors.push(err);
+      } else {
+        const processedFile = await compressImage(file);
+        validFiles.push(processedFile);
+      }
+    }
 
     if (errors.length > 0) {
       openInfo(
@@ -2198,26 +2156,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           `${errors.join('\n')}\n\n${(t as any).assets_upload_formats_title || '支持格式'}：${formatHint}`
       );
     }
+
     if (validFiles.length === 0) return;
 
     const firstMediaKind = inferMediaKind({ name: validFiles[0].name, file: validFiles[0] });
-    setPendingUploadFiles(validFiles);
-    setPendingUploadType(firstMediaKind === 'video' ? 'motion' : 'product');
-    setIsUploadTypeDialogOpen(true);
-  };
-
-  const confirmUploadTypeSelection = () => {
-    const files = [...pendingUploadFiles];
-    const type = pendingUploadType;
-    setIsUploadTypeDialogOpen(false);
-    setPendingUploadFiles([]);
-    if (files.length === 0) return;
-    applySelectedUploadType(files, type);
-  };
-
-  const cancelUploadTypeSelection = () => {
-    setIsUploadTypeDialogOpen(false);
-    setPendingUploadFiles([]);
+    const defaultType = firstMediaKind === 'video' ? 'motion' : 'product';
+    applySelectedUploadType(validFiles, defaultType);
   };
 
   const markQueueAssetAsPrimaryFrame = (targetId: string) => {
@@ -2235,16 +2179,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     })));
     selectAssetFromQueue({ ...target, source: 'product', isPrimaryFrame: true });
   };
-
-  const handleLocalFiles = (files: File[]) => {
-    queueFilesWithTypePrompt(files);
-  };
-
-  // const applyAssetSource = (nextSource: 'product' | 'preference') => {
-  //   setSelectedAssetSource(nextSource);
-  //   if (!selectedQueueAssetId) return;
-  //   setAssetQueue(prev => prev.map(asset => (asset.id === selectedQueueAssetId ? { ...asset, source: nextSource } : asset)));
-  // };
 
   const handleWorkbenchUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -2423,7 +2357,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     updateScripts(remaining);
   };
 
-  // --- Queue Handlers ---
   const addCurrentAssetToQueue = () => {
     if (!selectedFileObj && !selectedAssetUrl && !uploadedFile) {
       openInfo('Notice', '请先选择或上传素材');
@@ -2495,7 +2428,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const name = `${t.wb_script_page_prefix} ${scriptQueue.length + 1}`;
-    // Deep copy scripts
     const copiedScripts = scripts.map(s => ({ ...s }));
 
     setScriptQueue(prev => ([
@@ -2515,7 +2447,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setScriptQueue(prev => prev.filter(s => s.id !== id));
   };
 
-  // --- API Handlers ---
   useEffect(() => {
     if (!toastMessage) return;
     const timer = window.setTimeout(() => setToastMessage(null), 2500);
@@ -2622,10 +2553,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       let imagePath = referenceAssets.find((item) => item.type === 'product')?.image_path || referenceAssets[0]?.image_path || '';
 
-      // 2. Prepare Payload (Robust)
       const promptText = buildScriptInputText();
 
-      // Values from Selected Template or Default
       const category = selectedTemplate?.product_category || "相机";
       const style = selectedTemplate?.visual_style || "写实";
       const rawRatio = selectedTemplate?.aspect_ratio || "16:9";
@@ -2657,7 +2586,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const response = await videoApi.generateScript(user.id, payload);
       console.log("✅ Script Generated:", response);
 
-      // 3. Helper to parse response
       const buildScriptsFromShots = (shots: any[]) => shots.map((shot: any) => ({
         id: shot.shot_index,
         shot: shot.shot_index.toString(),
@@ -2745,7 +2673,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         return next;
       };
 
-      // 4. Handle various response formats from API
       const extractScriptPages = (data: any): ScriptPage[] => {
         if (!data) return [];
         if (Array.isArray(data.script_contents)) {
@@ -2778,7 +2705,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
 
     } catch (err: any) {
-      console.error("Script Gen Error:", err); // 提供翻译支持
+      console.error("Script Gen Error:", err);
       let msg = err.message;
       try {
         const jsonPart = err.message.substring(err.message.indexOf('{'));
@@ -2790,8 +2717,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setIsGeneratingScript(false);
     }
   };
-
-  // --- Script Import / Export Functions ---
 
   const handleExportScripts = async () => {
     if (scripts.length === 0) { openInfo('Notice', 'No scripts to export!'); return; }
@@ -2811,8 +2736,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      // 上传到服务器 (如果父组件传了这个方法 且 启用了 Supabase)
-      // const enableSupabase = import.meta.env.VITE_ENABLE_SUPABASE === 'true';
       const enableSupabase = false;
       if (onExportToServer && enableSupabase) {
         await onExportToServer(scripts);
@@ -2833,7 +2756,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       try {
         const parsed = JSON.parse(event.target?.result as string);
 
-        // Validation: Check if array and has some expected fields
         if (Array.isArray(parsed) && parsed.length > 0 && ('visual' in parsed[0] || 'shot' in parsed[0])) {
           const validScripts = parsed.map((item: any, idx: number) => ({
             id: item.id || Date.now() + idx,
@@ -2843,7 +2765,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             visual: item.visual || '',
             audio: item.audio || ''
           }));
-          // Update state
           setScripts(validScripts);
           setScriptPages(prev => {
             const next = [...prev];
@@ -2851,7 +2772,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             return next;
           });
 
-          // Optional: Update duration config to match imported script
           const newTotal = validScripts.reduce((acc: number, s: any) => acc + (parseFloat(s.dur.replace('s','')) || 0), 0);
           if (Math.abs(newTotal - genDuration) > 0.5) {
             setGenDuration(Math.ceil(newTotal));
@@ -2865,42 +2785,33 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
     };
     reader.readAsText(file);
-    // Reset file input so user can re-upload same file if needed
     e.target.value = '';
   };
 
-  // --- Script Pagination Handler ---
   const handleScriptPageChange = (nextIndex: number) => {
     if (nextIndex < 0 || nextIndex >= scriptPages.length) return;
 
-    // 1. Save current scripts to the current page before leaving
     setScriptPages(prev => {
       const next = [...prev];
       next[activeScriptPage] = { ...next[activeScriptPage], scripts: scripts };
       return next;
     });
 
-    // 2. Change Page Index
     setActiveScriptPage(nextIndex);
 
-    // 3. Load scripts from the new page
     setScripts(scriptPages[nextIndex]?.scripts || []);
     setIsShotBreakdownOpen(false);
   };
 
-  // --- Safety: Sync Active Page if Pages Decrease ---
   useEffect(() => {
     if (activeScriptPage >= scriptPages.length && scriptPages.length > 0) {
-      // If current page index is invalid, jump to the last valid page
       const lastIndex = scriptPages.length - 1;
       setActiveScriptPage(lastIndex);
       setScripts(scriptPages[lastIndex].scripts || []);
     }
   }, [activeScriptPage, scriptPages]);
 
-  // --- Demo Script Auto-Translation ---
   useEffect(() => {
-    // Only update if we are still looking at the default demo scripts (ID 1 & 2)
     const isDemo = scripts.length === 2 && scripts[0].id === 1 && scripts[1].id === 2;
 
     if (isDemo) {
@@ -2908,14 +2819,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setScripts(newDemo);
       setScriptPages(prev => {
         const next = [...prev];
-        // Safely update the current page with translated scripts
         if (next[0]) {
           next[0] = { ...next[0], scripts: newDemo };
         }
         return next;
       });
     }
-  }, [t]); // Re-run when language (t) changes
+  }, [t, buildDemoScripts, scripts.length]);
 
   const formatI18nTemplate = (template: string, vars: Record<string, string | number>) =>
       template.replace(/\{(\w+)\}/g, (match, key) => (Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : match));
@@ -2973,7 +2883,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
-    // 1. Batch Generation (Reuse Queue)
     if (reuseQueueEnabled) {
       setIsGenerating(true);
       setGeneratedVideoUrl(null);
@@ -2981,7 +2890,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       try {
         const batchItems: Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }> = [];
 
-        // 1) 处理素材：上传或复用已有路径
         const preparedAssets = await Promise.all(assetQueue.map(async (asset) => {
           let apiPath = asset.uploadedPath || asset.assetUrl || null;
 
@@ -2996,7 +2904,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             if (!rawPath) throw new Error("素材上传后未返回路径");
             apiPath = rawPath;
 
-            // 记录已上传路径，避免重复上传
             setAssetQueue(prev => prev.map(a => a.id === asset.id ? { ...a, uploadedPath: apiPath } : a));
           }
 
@@ -3005,7 +2912,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           return { ...asset, apiPath };
         }));
 
-        // 2) 逐条提交任务（素材 × 脚本）
         for (const asset of preparedAssets) {
           for (const scriptPack of scriptQueue) {
             const combinedScriptPrompt = buildCombinedScriptPrompt(
@@ -3096,102 +3002,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
-    // 2. Single Video Generation
-
     setIsGenerating(true);
     setGeneratedVideoUrl(null);
 
     try {
       const payload = await buildSingleGeneratePayload();
       await submitSingleGeneration(payload);
-      /*
-      let apiPath = lastUploadedUrl;
-      const uploadType = currentAssetMediaKind === 'video' ? 'motion' : 'product';
-
-      if (!apiPath && selectedFileObj) {
-          console.log("🚀 Uploading reference image...");
-        const uploadResp = await assetsApi.uploadAsset(selectedFileObj, uploadType);
-
-          let rawPath = null;
-          if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
-            rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
-          } else {
-            rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
-          }
-
-          if (!rawPath) throw new Error("Could not retrieve image path from upload response");
-
-          setLastUploadedUrl(rawPath);
-          apiPath = rawPath;
-      } else if (!apiPath && selectedAssetUrl) {
-        apiPath = selectedAssetUrl;
-      }
-
-      // It's valid to generate from a template or pure text-only prompt without an explicit image path.
-      // If we don't have an apiPath, proceed and let the backend decide (it may use model_asset_id or pure-text generation).
-
-      // Combine Scripts
-      const combinedScriptPrompt = scripts.map(s => {
-        const audioMarker = s.audio ? `【音频|【[旁白]】${s.audio}】` : '';
-        return `${s.visual || ''} ${audioMarker}`.trim();
-      }).join(' ');
-
-      // Clone Project (if template selected) or Create Project from scripts
-      let newProjectId: string | undefined;
-      if (selectedTemplate?.id) {
-        const cloneResp = await videoApi.cloneProject(selectedTemplate.id);
-        newProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
-        if (!newProjectId) throw new Error('Failed to clone project');
-      } else {
-        const createResp = await videoApi.createProject(user!.id, {
-          title: fileName || 'Video',
-          aspect_ratio: selectedTemplate?.aspect_ratio || '9:16',
-          script_content: {
-            duration: genDuration,
-            shots: scripts
-          }
-        });
-        newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
-        if (!newProjectId) throw new Error('Failed to create project');
-      }
-
-        const payload = {
-          model: backendModel,
-          prompt: combinedScriptPrompt,
-          project_id: newProjectId,
-          duration: genDuration,
-          ...(currentAssetMediaKind === 'video' ? { motion_video_path: apiPath } : { image_path: apiPath }),
-          sound: soundSetting,
-          asset_source: selectedAssetSource,
-          user_language: language,
-          target_language: targetLanguage,
-          model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
-          motion_asset_id: currentAssetMediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
-          ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
-        };
-
-      console.log("🚀 Sending Generation Request:", payload);
-
-      const genResp = await videoApi.generate(payload);
-      const taskId = genResp?.data?.task_id || genResp?.task_id;
-      const projectId = genResp?.data?.project_id || newProjectId;
-
-      if (genResp?.code === 0 && taskId) {
-        addTask({
-          id: taskId,
-          projectId: String(projectId),
-          type: 'video_generation',
-          status: 'processing',
-          name: `${selectedTemplate?.name || 'Video'} (${String(projectId).slice(0, 6)})`,
-          thumbnail: uploadedFile || undefined,
-          createdAt: Date.now(),
-        });
-        setLastGeneratedProjectId(String(projectId));
-        openInfo('Success', '任务已提交到后台运行，您可以继续修改参数生成下一个！');
-      } else {
-        openInfo('Notice', '提交成功，但未返回任务ID。');
-      }
-      */
     } catch (err: any) {
       if (err?.message === USER_CANCELLED_ADAPT) {
         openInfo('Notice', '已取消图片自动处理，未提交任务。');
@@ -3217,7 +3033,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     setIsPostingTikTok(true);
     try {
-      // 尝试检查授权状态
       let isAuthorized = false;
       let tiktokUserInfo = null;
       try {
@@ -3225,19 +3040,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         isAuthorized = status?.data?.authorized || false;
         tiktokUserInfo = status?.data?.tiktok_user || null;
       } catch (err: any) {
-        // 如果 getStatus 失败（401 等），说明需要授权，继续跳转到授权页面
         console.log('[TikTok] Status check failed, need authorization:', err);
         isAuthorized = false;
       }
 
-      // 如果未授权，跳转到授权页面
       if (!isAuthorized) {
         const authUrl = await tiktokApi.getAuthUrl(targetProjectId);
         window.location.href = authUrl;
         return;
       }
 
-      // 显示当前授权的TikTok账号，让用户确认
       let confirmMessage = '确认上传视频到TikTok草稿箱？\n\n';
       if (tiktokUserInfo && tiktokUserInfo.display_name) {
         confirmMessage += `当前授权账号: ${tiktokUserInfo.display_name}\n\n`;
@@ -3249,7 +3061,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       const userConfirmed = await openConfirm('Upload to TikTok', confirmMessage);
       if (!userConfirmed) {
-        // 用户点击了取消，询问是否要切换账号
         const switchAccount = await openConfirm(
             'Switch TikTok Account',
             '是否要切换TikTok账号？\n\n点击"确定"后：\n1. 系统将取消当前授权\n2. 跳转到TikTok授权页面\n3. 如需切换到其他账号，请在TikTok页面先退出当前账号，再登录新账号\n4. 授权成功后视频将自动上传到新账号的草稿箱'
@@ -3257,7 +3068,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (switchAccount) {
           try {
             await tiktokApi.revokeAuth();
-            // 取消授权成功，跳转到授权页面
             openInfo('Notice', '当前授权已取消，即将跳转到TikTok授权页面。\n\n如需切换账号，请在TikTok页面先退出当前账号。');
             const authUrl = await tiktokApi.getAuthUrl(targetProjectId);
             window.location.href = authUrl;
@@ -3270,7 +3080,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         return;
       }
 
-      // 已授权，尝试发布
       const result = await tiktokApi.publishDraft(targetProjectId);
       if (result.requiresAuth) {
         const authUrl = result.authUrl || await tiktokApi.getAuthUrl(targetProjectId);
@@ -3285,14 +3094,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setIsPostingTikTok(false);
     }
   };
-  // --- Video Controls ---
+
   const toggleVideoPlay = () => {
     const video = videoRef.current;
     if (!video) return;
 
     if (video.paused || video.ended) {
       const p = video.play();
-      // play() can reject (autoplay / permissions). Avoid unhandled promise rejection.
       if (p && typeof (p as Promise<void>).catch === 'function') p.catch(() => setIsPlaying(false));
     } else {
       video.pause();
@@ -3304,15 +3112,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!video) return;
 
     const next = Math.max(0, video.currentTime + seconds);
-    // duration may be NaN/Infinity until metadata is loaded (or for live streams).
     if (Number.isFinite(video.duration) && video.duration > 0) {
       video.currentTime = Math.min(next, video.duration);
     } else {
       video.currentTime = next;
     }
   };
-
-  // --- Render Sections ---
 
   useEffect(() => {
     if (creationMode !== 'fast') return;
@@ -3940,8 +3745,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
               ) : (
                   <div className="rounded-lg bg-zinc-900/80 p-2">
-                    {/* 更新了外层滚动容器，增加了 pb-12 确保底部的元素气泡也有空间弹起 */}
-                    <div className="flex flex-col gap-3 max-h-[55vh] overflow-y-auto custom-scroll pr-1 pb-12">
+                    <div className="flex flex-col gap-2 max-h-72 overflow-y-auto custom-scroll pr-1">
                       {uploadDisplayAssets.map((asset) => {
                         const inQueue = assetQueue.find((item) => item.id === asset.id);
                         const selected = selectedQueueAssetId ? selectedQueueAssetId === asset.id : uploadedFile === asset.previewUrl;
@@ -3978,57 +3782,35 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                   setCurrentMaterialType(asset.materialType || null);
                                   setSelectedQueueAssetId(null);
                                 }}
-                                // 👉 去除 overflow-hidden，让气泡自由突破边框
-                                className={`relative w-full rounded-lg border text-left transition bg-zinc-900/60 ${selected ? 'border-orange-500/70 ring-2 ring-orange-500/50 shadow-[0_0_15px_rgba(249,115,22,0.15)]' : 'border-white/10 hover:border-white/30'}`}
+                                className={`relative w-full rounded-md overflow-hidden border text-left transition ${selected ? 'border-orange-500/70 ring-1 ring-orange-500/50' : 'border-white/10 hover:border-white/20'}`}
                             >
-                              {/* 👉 将 overflow-hidden 移入专门的内部图片容器中，彻底解决气泡被切断问题 */}
-                              <div className="relative w-full rounded-lg overflow-hidden pointer-events-none flex items-center justify-center bg-black/20">
-                                {asset.previewUrl ? (asset.mediaKind === 'video' ? (
-                                    // 👉 使用 h-auto 搭配 max-h-[360px]，完美跟随原图比例，绝不压扁或扭曲
-                                    <video src={asset.previewUrl} className="w-full h-auto max-h-[360px] !object-contain block" muted playsInline loop />
-                                ) : (
-                                    <img src={asset.previewUrl} loading="lazy" className="w-full h-auto max-h-[360px] !object-contain block" alt={asset.name} />
-                                )) : (
-                                    <div className="w-full py-16 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
-                                )}
-
-                                <div className="absolute bottom-0 left-0 right-0 p-2.5 bg-gradient-to-t from-black/90 via-black/40 to-transparent">
-                                  <p className="text-[11px] text-white truncate font-medium drop-shadow-md">{asset.name}</p>
-                                  {selected && <p className="text-[10px] text-green-400 flex items-center gap-1 mt-0.5"><CheckCircle className="w-3 h-3" /> {t.wb_ready}</p>}
-                                </div>
+                              {asset.previewUrl ? (asset.mediaKind === 'video' ? (
+                                  <video src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" muted playsInline />
+                              ) : (
+                                  <img src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" alt={asset.name} />
+                              )) : (
+                                  <div className="w-full h-24 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
+                              )}
+                              <div className="absolute top-1 left-1 z-10" onClick={(e) => e.stopPropagation()}>
+                                <select
+                                    className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
+                                    value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product')}
+                                    onChange={(e) => {
+                                      const newType = e.target.value as AssetLibraryTab;
+                                      setAssetQueue(prev => prev.map(item => item.id === asset.id ? { ...item, materialType: newType } : item));
+                                      if (selectedQueueAssetId === asset.id || uploadedFile === asset.previewUrl) {
+                                        setCurrentMaterialType(newType);
+                                      }
+                                    }}
+                                    style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
+                                >
+                                  <option value="product">{materialTypeLabelMap['product']}</option>
+                                  <option value="model">{materialTypeLabelMap['model']}</option>
+                                  <option value="scene">{materialTypeLabelMap['scene']}</option>
+                                  <option value="motion">{materialTypeLabelMap['motion']}</option>
+                                </select>
                               </div>
-
-                              {/* 👉 左上角切换类型按钮，层级提升为 z-20，免受下面图片层干扰 */}
-                              <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const currentType = asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product');
-                                    const nextType = getNextMaterialType(currentType);
-                                    if (inQueue) {
-                                      setAssetQueue(prev => prev.map(item => (item.id === asset.id ? { ...item, materialType: nextType } : item)));
-                                      if (selected) setCurrentMaterialType(nextType);
-                                    } else {
-                                      setCurrentMaterialType(nextType);
-                                    }
-                                  }}
-                                  className="group/typebtn absolute top-2 left-2 z-20 flex items-center gap-1.5 text-[10px] font-bold px-2 py-1.5 rounded-lg border border-white/15 bg-black/40 text-zinc-200 backdrop-blur-md hover:bg-gradient-to-r hover:from-orange-500 hover:to-orange-400 hover:border-orange-400 hover:text-white transition-all duration-300 shadow-lg hover:shadow-orange-500/30"
-                              >
-                                <RefreshCw className="w-3.5 h-3.5 text-orange-400 group-hover/typebtn:text-white group-hover/typebtn:-rotate-180 transition-transform duration-500 ease-out" />
-                                <span className="tracking-wide">
-                                {materialTypeLabelMap[asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product')]}
-                              </span>
-
-                                {/* 👉 向下方弹出的 Tooltip (top-full mt-2)，彻底杜绝任何边缘截断 */}
-                                <div className="pointer-events-none absolute left-0 top-full mt-2 w-max rounded-md bg-zinc-900 border border-white/10 px-2 py-1.5 text-[10px] font-medium text-zinc-300 opacity-0 shadow-xl backdrop-blur-xl transition-all duration-300 transform -translate-y-1 group-hover/typebtn:opacity-100 group-hover/typebtn:translate-y-0">
-                                  {t.wb_switch_material_type || (language === 'zh' ? '点击切换素材类型' : 'Click to switch material type')}
-                                  {/* 指向顶部的小三角 */}
-                                  <div className="absolute -top-[5px] left-4 h-2.5 w-2.5 rotate-45 border-t border-l border-white/10 bg-zinc-900"></div>
-                                </div>
-                              </button>
-
-                              {/* 右上角其他功能按钮，同样提升为 z-20 */}
-                              <div className="absolute top-2 right-2 z-20 flex items-center gap-1.5">
+                              <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
                                 {asset.mediaKind === 'image' && (
                                     <button
                                         type="button"
@@ -4046,12 +3828,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                             setSelectedAssetSource(nextSource);
                                           }
                                         }}
-                                        className={`rounded-md border px-2 py-1 text-[10px] font-bold backdrop-blur-md transition shadow-lg ${(asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')) ? 'border-orange-500/70 bg-orange-500/40 text-white' : 'border-white/20 bg-black/60 text-zinc-200 hover:bg-black/80'}`}
+                                        className={`rounded border px-1.5 py-0.5 text-[9px] font-bold transition ${(asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')) ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'}`}
                                     >
                                       {(asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')) ? '首帧图' : '参考图'}
                                     </button>
                                 )}
-                                <button onClick={(e) => removeUpload(e, asset.id)} className="p-1.5 bg-black/60 backdrop-blur-md border border-white/10 hover:border-red-500/50 hover:bg-red-500 rounded-md text-white transition shadow-lg"><X className="w-3.5 h-3.5" /></button>
+                                <button onClick={(e) => removeUpload(e, asset.id)} className="p-1 bg-black/50 hover:bg-red-500 rounded text-white transition"><X className="w-2.5 h-2.5" /></button>
+                              </div>
+                              <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-10">
+                                <p className="text-[9px] text-white truncate drop-shadow-md">{asset.name}</p>
+                                {selected && <p className="text-[9px] text-green-400 flex items-center gap-1 drop-shadow-md"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p>}
                               </div>
                             </div>
                         );
@@ -4084,7 +3870,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </button>
           </div>
 
-          {/* Reuse Queues Section */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> {t.wb_reuse_queue}</h2>
@@ -4118,7 +3903,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
               ) : (
                   <>
-                    {/* Asset Queue */}
                     <div className="flex items-center justify-between">
                       <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_asset_queue}</div>
                       <button
@@ -4136,11 +3920,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               onClick={() => selectAssetFromQueue(item)}
                               className={`flex items-center gap-2 rounded-lg p-2 border cursor-pointer transition ${selectedQueueAssetId === item.id ? 'bg-orange-500/10 border-orange-500/30' : 'bg-black/30 border-white/5 hover:bg-white/5'}`}
                           >
-                            <div className="w-8 h-8 rounded bg-zinc-800 overflow-hidden shrink-0 flex items-center justify-center">
+                            <div className="w-8 h-8 rounded bg-zinc-800 overflow-hidden shrink-0">
                               {item.previewUrl && (item.mediaKind === 'video' ? (
-                                  <video src={item.previewUrl} className="max-w-full max-h-full !object-contain" muted playsInline />
+                                  <video src={item.previewUrl} className="w-full h-full object-cover" muted playsInline />
                               ) : (
-                                  <img src={item.previewUrl} loading="lazy" className="max-w-full max-h-full !object-contain" alt={item.name} />
+                                  <img src={item.previewUrl} className="w-full h-full object-cover" />
                               ))}
                             </div>
                             <div className="flex-1 min-w-0">
@@ -4177,7 +3961,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       ))}
                     </div>
 
-                    {/* Script Queue */}
                     <div className="flex items-center justify-between">
                       <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_script_queue}</div>
                       <button
@@ -4602,6 +4385,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </>
         )}
 
+        {toastMessage && (
+            <div className="fixed left-6 bottom-6 z-[140] max-w-[360px] rounded-xl border border-white/10 bg-black/70 px-4 py-3 text-xs text-zinc-200 shadow-lg shadow-black/30">
+              {toastMessage}
+            </div>
+        )}
+
         {isInfoOpen && (
             <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={closeInfoDialog} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={closeInfoDialog}>OK</button></>}>
               <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
@@ -4614,8 +4403,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 onClose={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}
                 footer={
                   <>
-                    <button className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}>{confirmCancelLabel}</button>
-                    <button className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(true); confirmResolveRef.current = null; } }}>{confirmOkLabel}</button>
+                    <button className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}>{confirmCancelLabel || t.wb_confirm_cancel}</button>
+                    <button className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(true); confirmResolveRef.current = null; } }}>{confirmOkLabel || t.wb_confirm_ok}</button>
                   </>
                 }
             >
@@ -4736,8 +4525,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </AppDialog>
         )}
 
-        {/* 移除了之前的 isUploadTypeDialogOpen 弹窗 */}
-
         {isAssetLibraryOpen && (
             <AppDialog
                 isOpen={isAssetLibraryOpen}
@@ -4838,9 +4625,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             >
                               <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
                                 {asset.media_kind === 'video' ? (
-                                    <video src={asset.file_url} className="w-full h-full object-contain bg-zinc-900" muted playsInline />
+                                    <video src={asset.file_url} className="w-full h-full object-cover" muted playsInline />
                                 ) : (
-                                    <img src={asset.file_url} loading="lazy" className="w-full h-full object-contain bg-zinc-900" alt={asset.name} />
+                                    <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} />
                                 )}
                               </div>
                               <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{asset.name}</div>
@@ -4853,25 +4640,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </AppDialog>
         )}
 
-        <div className="flex-1 flex overflow-hidden p-6 gap-6 relative" ref={workspaceRowRef}>
-          <div style={{ width: leftColumnWidth }} className="shrink-0 flex flex-col gap-6 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
+        <div ref={workspaceRowRef} className="flex-1 flex overflow-hidden p-6 gap-6">
+          <div style={{ width: leftColumnWidth }} className="shrink-0 h-full min-w-[260px] max-w-[640px]">
             {renderLeftColumn()}
           </div>
 
-          {/* Resize Handle */}
           <div
+              role="separator"
+              aria-orientation="vertical"
               onMouseDown={handleResizeMouseDown}
-              className="w-4 -ml-4 shrink-0 cursor-col-resize flex items-center justify-center group z-10 relative"
-              title="Drag to resize"
+              className="group relative w-4 -mx-3 cursor-col-resize transition shrink-0 flex items-stretch justify-center"
+              title="拖拽调整布局"
           >
-            <div className="w-[1px] h-24 bg-white/10 group-hover:bg-orange-500/50 group-active:bg-orange-500 transition-colors" />
+            <div className="w-px h-full bg-white/15 group-hover:bg-white/30 transition" />
+            <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-4" />
           </div>
 
-          <div ref={scriptsSectionRef} className={`flex-auto flex flex-col gap-3 h-full min-w-[320px] ${getGuideFocusClass('scripts')}`}>
+          <div ref={scriptsSectionRef} className={`flex-auto flex flex-col gap-3 h-full min-w-[300px] ${getGuideFocusClass('scripts')}`}>
             <div className="flex justify-between items-center shrink-0 h-[32px]">
               <div className="flex items-center gap-3">
                 <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
-                {ENABLE_STORYBOARD_EDITOR && <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{currentScriptDuration.toFixed(1)}s / {genDuration}s</div>}
+                <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{currentScriptDuration.toFixed(1)}s / {genDuration}s</div>
                 <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
                   <button
                       onClick={handleExportScripts}
@@ -4930,6 +4719,182 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
 
             <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
+              {activeScriptPlan && (
+                  <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-2xl relative overflow-hidden">
+                    {/* 装饰性背景光晕：极微弱的紫色透出 */}
+                    <div className="absolute -top-20 -right-20 w-72 h-72 bg-purple-500/10 rounded-full blur-[100px] pointer-events-none" />
+
+                    {/* 头部 */}
+                    <div className="flex items-center justify-between gap-3 relative z-10 mb-6 border-b border-white/10 pb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.15)]">
+                          <Sparkles className="w-4 h-4 text-purple-400" />
+                        </div>
+                        <div>
+                          <div className="text-[13px] font-black tracking-wider text-zinc-100 flex items-center gap-2">
+                            脚本方案卡
+                            <span className="text-[9px] px-1.5 py-0.5 rounded border border-purple-500/30 bg-purple-500/20 text-purple-200 font-normal tracking-normal">
+                              可灵3.0提示词
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-zinc-500 mt-0.5 font-medium">{t.wb_script_page_prefix} {activeScriptPage + 1}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-6 relative z-10">
+                      {/* 核心剧本 */}
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-widest">
+                          <AlignLeft className="w-3.5 h-3.5" /> 完整脚本
+                        </div>
+                        <textarea
+                            value={activeFullScript}
+                            onChange={(e) => updateActiveFullScript(e.target.value)}
+                            placeholder="输入完整脚本方案..."
+                            className="w-full min-h-[96px] bg-black/20 border border-white/10 rounded-xl px-3.5 py-3 text-[12px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 focus:bg-black/40 focus:ring-1 focus:ring-purple-500/50 transition-all resize-y custom-scroll"
+                        />
+                      </div>
+
+                      {/* 视觉与场景 */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-widest">
+                            <Palette className="w-3.5 h-3.5" /> [风格]
+                          </div>
+                          <textarea
+                              value={activeCreativeCard?.style || ''}
+                              onChange={(e) => updateActiveCreativeCardField('style', e.target.value)}
+                              className="w-full min-h-[72px] bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 focus:bg-black/40 focus:ring-1 focus:ring-purple-500/50 transition-all resize-y custom-scroll"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-widest">
+                            <MapPin className="w-3.5 h-3.5" /> [环境]
+                          </div>
+                          <textarea
+                              value={activeCreativeCard?.environment || ''}
+                              onChange={(e) => updateActiveCreativeCardField('environment', e.target.value)}
+                              className="w-full min-h-[72px] bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 focus:bg-black/40 focus:ring-1 focus:ring-purple-500/50 transition-all resize-y custom-scroll"
+                          />
+                        </div>
+                        <div className="space-y-2 md:col-span-2">
+                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-widest">
+                            <Lightbulb className="w-3.5 h-3.5" /> [光线]
+                          </div>
+                          <textarea
+                              value={activeCreativeCard?.lighting || ''}
+                              onChange={(e) => updateActiveCreativeCardField('lighting', e.target.value)}
+                              className="w-full min-h-[64px] bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 focus:bg-black/40 focus:ring-1 focus:ring-purple-500/50 transition-all resize-y custom-scroll"
+                          />
+                        </div>
+                      </div>
+
+                      {/* 镜头与节奏 */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-widest">
+                            <Camera className="w-3.5 h-3.5" /> [镜头]
+                          </div>
+                          <textarea
+                              value={activeCreativeCard?.camera || ''}
+                              onChange={(e) => updateActiveCreativeCardField('camera', e.target.value)}
+                              className="w-full min-h-[72px] bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 focus:bg-black/40 focus:ring-1 focus:ring-purple-500/50 transition-all resize-y custom-scroll"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-widest">
+                            <Activity className="w-3.5 h-3.5" /> [语调与节奏]
+                          </div>
+                          <textarea
+                              value={activeCreativeCard?.tonePacing || ''}
+                              onChange={(e) => updateActiveCreativeCardField('tonePacing', e.target.value)}
+                              className="w-full min-h-[72px] bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 focus:bg-black/40 focus:ring-1 focus:ring-purple-500/50 transition-all resize-y custom-scroll"
+                          />
+                        </div>
+                      </div>
+
+                      {/* 动作设计 (时间轴样式) */}
+                      <div className="space-y-3 bg-black/20 rounded-2xl p-4 border border-white/5">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-widest">
+                            <Film className="w-3.5 h-3.5" /> [动作设计]
+                          </div>
+                          <button
+                              type="button"
+                              onClick={addActiveCreativeCardAction}
+                              className="text-[10px] flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 transition-colors"
+                          >
+                            <Plus className="w-3 h-3" /> 新增动作
+                          </button>
+                        </div>
+                        <div className="pl-3.5 border-l-2 border-purple-500/30 space-y-4 relative py-2">
+                          {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0 ? activeCreativeCard.actions : ['']).map((item, idx) => (
+                              <div key={`card-action-edit-${idx}`} className="relative flex gap-3 items-start group">
+                                {/* 节点圆圈 */}
+                                <div className="absolute -left-[24px] top-2.5 w-5 h-5 rounded-full bg-[#050505] border-2 border-purple-500/50 flex items-center justify-center text-[9px] text-purple-300 font-black shadow-[0_0_8px_rgba(168,85,247,0.3)] z-10">
+                                  {idx + 1}
+                                </div>
+                                <textarea
+                                    value={item}
+                                    onChange={(e) => updateActiveCreativeCardAction(idx, e.target.value)}
+                                    placeholder={`动作 ${idx + 1}...`}
+                                    className="flex-1 min-h-[52px] bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 focus:bg-black/50 focus:ring-1 focus:ring-purple-500/50 transition-all resize-y custom-scroll"
+                                />
+                                {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0) && (
+                                    <button
+                                        type="button"
+                                        onClick={() => removeActiveCreativeCardAction(idx)}
+                                        className="mt-1 h-8 w-8 flex items-center justify-center rounded-lg border border-white/5 text-zinc-500 hover:text-red-400 hover:bg-red-400/10 hover:border-red-400/20 transition-all opacity-0 group-hover:opacity-100 shrink-0"
+                                        title="删除此动作"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                )}
+                              </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* 声音与后期 */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-widest">
+                            <Music className="w-3.5 h-3.5" /> [背景音]
+                          </div>
+                          <textarea
+                              value={activeCreativeCard?.backgroundSound || ''}
+                              onChange={(e) => updateActiveCreativeCardField('backgroundSound', e.target.value)}
+                              className="w-full min-h-[64px] bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 focus:bg-black/40 focus:ring-1 focus:ring-purple-500/50 transition-all resize-y custom-scroll"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-widest">
+                            <Scissors className="w-3.5 h-3.5" /> [转场 / 剪辑]
+                          </div>
+                          <textarea
+                              value={activeCreativeCard?.transitionEditing || ''}
+                              onChange={(e) => updateActiveCreativeCardField('transitionEditing', e.target.value)}
+                              className="w-full min-h-[64px] bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 focus:bg-black/40 focus:ring-1 focus:ring-purple-500/50 transition-all resize-y custom-scroll"
+                          />
+                        </div>
+                      </div>
+
+                      {/* 转化引导 (CTA) */}
+                      <div className="space-y-2 pt-2">
+                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-orange-400 uppercase tracking-widest">
+                          <Megaphone className="w-3.5 h-3.5" /> [行动号召]
+                        </div>
+                        <textarea
+                            value={activeCreativeCard?.callToAction || ''}
+                            onChange={(e) => updateActiveCreativeCardField('callToAction', e.target.value)}
+                            placeholder="例如：点击左下角链接购买..."
+                            className="w-full min-h-[64px] bg-orange-500/10 border border-orange-500/20 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed text-orange-100 placeholder:text-orange-500/40 focus:outline-none focus:border-orange-500/50 focus:bg-orange-500/20 focus:ring-1 focus:ring-orange-500/50 transition-all resize-y custom-scroll"
+                        />
+                      </div>
+                    </div>
+                  </div>
+              )}
               {activeReferenceSummary.length > 0 && (
                   <div className="glass-panel rounded-xl p-3 border border-white/10">
                     <div className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2">{t.wb_upload_title}</div>
@@ -4941,7 +4906,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             <div key={`${item.type}-${idx}`} className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 p-2">
                               <div className="w-10 h-10 rounded-md overflow-hidden border border-white/10 bg-zinc-900 shrink-0 flex items-center justify-center">
                                 {previewSrc ? (
-                                    <img src={previewSrc} alt={previewAsset?.name || item.type} loading="lazy" className="w-full h-full object-contain bg-zinc-900" />
+                                    <img src={previewSrc} alt={previewAsset?.name || item.type} className="w-full h-full object-cover" />
                                 ) : (
                                     <Layers className="w-4 h-4 text-zinc-500" />
                                 )}
@@ -4964,128 +4929,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </div>
                   </div>
               )}
-
-              {/* Master Script / Creative Card Viewer */}
-              {hasActiveScriptConcept ? (
-                  <div className="flex flex-col gap-3">
-                    <div className="glass-panel rounded-xl p-4 border-l-4 border-l-orange-500 border border-white/10 bg-black/30">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="text-[11px] font-bold text-orange-400 flex items-center gap-1.5">
-                          <Sparkles className="w-3.5 h-3.5" /> 完整脚本方案
-                        </div>
-                        <span className="text-[9px] text-zinc-500 px-2 py-0.5 rounded bg-white/5 border border-white/10">AI Generated</span>
-                      </div>
-
-                      <div className="flex flex-col gap-4">
-                        {activeFullScript && (
-                            <div>
-                              <div className="text-[10px] text-zinc-500 uppercase font-bold mb-1.5">旁白/台词</div>
-                              <textarea
-                                  value={activeFullScript}
-                                  onChange={(e) => updateActiveFullScript(e.target.value)}
-                                  className="w-full bg-black/40 text-[11px] text-zinc-200 p-3 rounded-lg border border-white/10 resize-none min-h-[60px] focus:border-orange-500/50 transition-colors outline-none custom-scroll leading-relaxed"
-                              />
-                            </div>
-                        )}
-
-                        {activeCreativeCard && hasCreativeCardContent(activeCreativeCard) && (
-                            <div className="flex flex-col gap-3 pt-3 border-t border-white/10">
-                              <div className="text-[10px] text-zinc-500 uppercase font-bold">画面创意设定</div>
-
-                              <div className="grid grid-cols-2 gap-3">
-                                {['style', 'environment', 'tonePacing', 'camera', 'lighting', 'backgroundSound', 'transitionEditing', 'callToAction'].map((fieldStr) => {
-                                  const field = fieldStr as keyof ScriptCreativeCard;
-                                  if (field === 'actions') return null;
-                                  const val = activeCreativeCard[field];
-                                  if (!val && typeof val !== 'string') return null;
-
-                                  const labelMap: Record<string, string> = {
-                                    style: '视觉风格',
-                                    environment: '环境与场景',
-                                    tonePacing: '语调与节奏',
-                                    camera: '镜头运动',
-                                    lighting: '光线设定',
-                                    backgroundSound: '背景音效',
-                                    transitionEditing: '转场剪辑',
-                                    callToAction: '行动号召',
-                                  };
-
-                                  return (
-                                      <div key={field} className="flex flex-col gap-1">
-                                        <div className="text-[9px] text-zinc-400 font-medium">{labelMap[field]}</div>
-                                        <input
-                                            value={val as string}
-                                            onChange={(e) => updateActiveCreativeCardField(field, e.target.value)}
-                                            className="w-full bg-black/40 text-[10px] text-zinc-300 p-1.5 rounded border border-white/5 focus:border-orange-500/50 transition-colors outline-none"
-                                        />
-                                      </div>
-                                  );
-                                })}
-                              </div>
-
-                              {Array.isArray(activeCreativeCard.actions) && activeCreativeCard.actions.length > 0 && (
-                                  <div className="flex flex-col gap-1.5 mt-1">
-                                    <div className="text-[9px] text-zinc-400 font-medium">关键动作 / 表现</div>
-                                    <div className="flex flex-col gap-1.5">
-                                      {activeCreativeCard.actions.map((action, idx) => (
-                                          <div key={idx} className="flex items-start gap-1.5">
-                                            <span className="text-[10px] text-zinc-600 mt-1.5 shrink-0">{idx + 1}.</span>
-                                            <textarea
-                                                value={action}
-                                                onChange={(e) => updateActiveCreativeCardAction(idx, e.target.value)}
-                                                className="flex-1 bg-black/40 text-[10px] text-zinc-300 p-1.5 rounded border border-white/5 focus:border-orange-500/50 transition-colors outline-none resize-none min-h-[36px]"
-                                            />
-                                            <button
-                                                onClick={() => removeActiveCreativeCardAction(idx)}
-                                                className="mt-1.5 text-zinc-600 hover:text-red-400 p-0.5"
-                                            >
-                                              <X className="w-3 h-3" />
-                                            </button>
-                                          </div>
-                                      ))}
-                                      <button
-                                          onClick={addActiveCreativeCardAction}
-                                          className="text-[10px] text-zinc-500 hover:text-orange-400 self-start flex items-center gap-1 mt-1"
-                                      >
-                                        <Plus className="w-3 h-3" /> 添加动作
-                                      </button>
-                                    </div>
-                                  </div>
-                              )}
-                            </div>
-                        )}
-                      </div>
+              {ENABLE_STORYBOARD_EDITOR ? (
+                  <>
+                    <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                      <div className="text-[10px] text-zinc-400 uppercase tracking-widest">分镜结构（可编辑）</div>
+                      <button
+                          type="button"
+                          onClick={() => setIsShotBreakdownOpen((prev) => !prev)}
+                          className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
+                      >
+                        {isShotBreakdownOpen ? '收起分镜' : '展开分镜'}
+                      </button>
                     </div>
-
-                    {!ENABLE_STORYBOARD_EDITOR && scripts.length > 0 && (
-                        <div className="flex justify-center mt-2 mb-2 relative">
-                          <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                            <div className="w-full border-t border-white/10 border-dashed"></div>
-                          </div>
-                          <button
-                              onClick={() => setIsShotBreakdownOpen(!isShotBreakdownOpen)}
-                              className="relative bg-zinc-900 border border-white/10 px-4 py-1.5 rounded-full text-[10px] font-bold text-zinc-400 hover:text-white hover:border-white/30 transition shadow-lg flex items-center gap-1.5"
-                          >
-                            <Layers className="w-3.5 h-3.5" />
-                            {isShotBreakdownOpen ? '隐藏详细分镜表' : '查看详细分镜表'}
-                            {isShotBreakdownOpen ? <ArrowLeft className="w-3 h-3 rotate-90" /> : <ArrowRight className="w-3 h-3 block rotate-90" />}
-                          </button>
+                    {!isShotBreakdownOpen ? (
+                        <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
+                          当前默认展示完整脚本方案。点击“展开分镜”进行镜头级精修。
                         </div>
-                    )}
-                  </div>
-              ) : (
-                  <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
-                    <FileJson className="w-10 h-10 mb-3 opacity-30" />
-                    <p className="text-xs font-bold mb-1">暂无脚本方案</p>
-                    <p className="text-[10px]">请在左侧配置商品信息并点击生成</p>
-                  </div>
-              )}
-
-              {(ENABLE_STORYBOARD_EDITOR || (hasActiveScriptConcept && isShotBreakdownOpen)) && (
-                  <div className="flex flex-col gap-4 animate-in slide-in-from-top-4 duration-300">
-                    {scripts.length === 0 ? (
-                        <div className="py-8 flex flex-col items-center justify-center text-zinc-600 border border-dashed border-zinc-800 rounded-xl bg-black/20">
-                          <p className="text-[10px]">没有详细分镜数据</p>
+                    ) : scripts.length === 0 ? (
+                        <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
+                          <FileJson className="w-10 h-10 mb-2 opacity-50" />
+                          <p className="text-xs">No scripts yet.</p>
                         </div>
                     ) : (
                         scripts.map((script, index) => (
@@ -5105,7 +4968,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                         </option>
                                     ))}
                                   </select>
-                                  <input type="number" step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right focus:outline-none focus:text-white focus:bg-white/5 rounded px-1" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
+                                  <input type="number" min={0.1} step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
                                   <span className="text-[10px] text-zinc-500">s</span>
                                 </div>
                                 <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
@@ -5113,7 +4976,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               <div className="grid grid-cols-1 gap-3">
                                 <div className="flex flex-col gap-1.5">
                                   <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_visual}</p>
-                                  <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll leading-relaxed" value={script.visual} onChange={(e) => { const ns = [...scripts]; ns[index].visual = e.target.value; updateScripts(ns); }} />
+                                  <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll" value={script.visual} onChange={(e) => { const ns = [...scripts]; ns[index].visual = e.target.value; updateScripts(ns); }} />
                                 </div>
                                 <div className="flex flex-col gap-1.5">
                                   <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
@@ -5134,16 +4997,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             </div>
                         ))
                     )}
-                    <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
+                    {isShotBreakdownOpen && (
+                        <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
+                    )}
+                  </>
+              ) : (
+                  <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
+                    分镜功能已临时关闭，当前仅使用完整脚本方案卡生成视频。
                   </div>
               )}
             </div>
           </div>
 
+          {/* Right Column: Preview & Results */}
           <div ref={previewSectionRef} className={`w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full ${getGuideFocusClass('preview')}`}>
             <div className="flex justify-between items-end shrink-0 h-[32px]">
               <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-3 h-3" /> {t.wb_col_preview}</h2>
             </div>
+            {/* Video Player */}
             <div className="glass-panel flex-1 rounded-2xl p-1 relative flex flex-col overflow-hidden">
               <div className="flex-1 bg-black rounded-xl relative overflow-hidden group flex items-center justify-center">
                 {generatedVideoUrl ? (
@@ -5213,15 +5084,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
             <div className="glass-panel rounded-2xl p-4 border border-white/5 max-h-56 overflow-y-auto custom-scroll">
               <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3">{t.wb_batch_results}</div>
-              {generatedBatch.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_batch_no_results}</div> : <div className="space-y-2">{generatedBatch.map(item => { const task = tasks.find(t => t.id === item.taskId); const status = task?.status; const url = task?.result?.video_url || task?.result?.url; return (<div key={item.id} className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>{status === 'success' && url ? (<button onClick={() => setGeneratedVideoUrl(url)} className="text-orange-400 hover:text-orange-300 transition">预览</button>) : status === 'failed' ? (<span className="text-red-400">失败</span>) : (<span className="text-zinc-500">生成中…</span>)}</div>); })}</div>}
+              {generatedBatch.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_batch_no_results}</div> : <div className="space-y-2">{generatedBatch.map(item => {
+                const task = tasks.find(t => t.id === item.taskId);
+                const status = task?.status;
+                const url = task?.result?.video_url || task?.result?.url;
+                return (<div key={item.id} className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>{status === 'success' && url ? (<button onClick={() => setGeneratedVideoUrl(url)} className="text-orange-400 hover:text-orange-300 transition">预览</button>) : status === 'failed' ? (<span className="text-red-400">失败</span>) : (<span className="text-zinc-500">生成中…</span>)}</div>);
+              })}</div>}
             </div>
           </div>
         </div>
-        {toastMessage && (
-            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 px-6 py-3 bg-zinc-900 text-white text-sm font-medium rounded-xl shadow-2xl border border-white/10 z-[100] animate-in fade-in slide-in-from-bottom-4">
-              {toastMessage}
-            </div>
-        )}
       </div>
   );
 };

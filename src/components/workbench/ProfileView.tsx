@@ -115,7 +115,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
   };
 
   const handleUseDefaultAvatar = async () => {
-    updateUser({ avatar: '' });
+    try {
+      await authApi.updateProfile({ avatarClear: true });
+      updateUser({ avatar: '' });
+    } catch (err) {
+      openInfo('Error', 'Failed to reset avatar');
+    }
   };
 
   const resetPasswordForm = () => {

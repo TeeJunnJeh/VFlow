@@ -2785,14 +2785,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
 
     } catch (err: any) {
-      console.error("Script Gen Error:", err); // 提供翻译支持
-      let msg = err.message;
-      try {
-        const jsonPart = err.message.substring(err.message.indexOf('{'));
-        const parsed = JSON.parse(jsonPart);
-        if (parsed.message) msg = parsed.message;
-      } catch (e) {}
-      openInfo('Error', `Script Generation Failed: ${msg}`);
+      console.error("Script Gen Error:", err);
+
+      const raw = typeof err?.message === 'string' ? err.message : '';
+      const mappedReason = (() => {
+        if (/V点不足/.test(raw)) return t.wb_script_gen_err_insufficient_credits;
+        if (/请求数据格式错误/.test(raw)) return t.wb_script_gen_err_invalid_request;
+        if (/stage1_output_invalid_json|stage2_output_invalid_json|json_repair_failed|Expecting ',' delimiter|JSONDecodeError/.test(raw)) {
+          return t.wb_script_gen_err_invalid_json;
+        }
+        if (/video_master_script/.test(raw)) return t.wb_script_gen_err_missing_master_script;
+        if (/Missing API key|DASHSCOPE_API_KEY/.test(raw)) return t.wb_script_gen_err_missing_api_key;
+        return t.wb_script_gen_err_generic;
+      })();
+
+      openInfo(t.wb_script_gen_failed_title, mappedReason);
     } finally {
       setIsGeneratingScript(false);
     }

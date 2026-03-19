@@ -293,6 +293,14 @@ export const translations = {
     wb_btn_gen_scripts: "Generate Scripts",
     wb_target_audience_language: "Target Audience Language",
 
+    wb_script_gen_failed_title: "Generation failed",
+    wb_script_gen_err_generic: "Generation failed. Please try again.",
+    wb_script_gen_err_invalid_request: "Request format error. Please refresh and try again.",
+    wb_script_gen_err_invalid_json: "AI output format error. Please try again.",
+    wb_script_gen_err_missing_master_script: "AI output is missing required fields. Please try again.",
+    wb_script_gen_err_missing_api_key: "Service is not configured. Please contact support.",
+    wb_script_gen_err_insufficient_credits: "Insufficient credits. Please recharge and try again.",
+
     wb_gen_req_title: "Generation requirements not met",
     wb_gen_req_intro: "Please fix the following issues:",
     wb_gen_req_issue_login_batch: "Account: please sign in before starting batch generation.",
@@ -893,6 +901,14 @@ export const translations = {
     wb_btn_gen_scripts: "生成分镜脚本",
     wb_target_audience_language: "目标受众语言",
 
+    wb_script_gen_failed_title: "生成失败",
+    wb_script_gen_err_generic: "生成失败，请重试。",
+    wb_script_gen_err_invalid_request: "请求格式错误，请刷新后重试。",
+    wb_script_gen_err_invalid_json: "AI返回格式异常，请重试。",
+    wb_script_gen_err_missing_master_script: "AI返回缺少关键字段，请重试。",
+    wb_script_gen_err_missing_api_key: "服务未配置，请联系管理员。",
+    wb_script_gen_err_insufficient_credits: "V点不足，请充值后重试。",
+
     wb_gen_req_title: "生成条件未满足",
     wb_gen_req_intro: "请先修复以下问题：",
     wb_gen_req_issue_login_batch: "账号：请先登录后再发起批量生成。",
@@ -1419,6 +1435,14 @@ export const translations = {
     wb_btn_gen_scripts: "Jana Skrip",
     wb_target_audience_language: "Bahasa Sasaran Audiens",
 
+    wb_script_gen_failed_title: "Penjanaan gagal",
+    wb_script_gen_err_generic: "Penjanaan gagal. Sila cuba lagi.",
+    wb_script_gen_err_invalid_request: "Ralat format permintaan. Sila muat semula dan cuba lagi.",
+    wb_script_gen_err_invalid_json: "Ralat format output AI. Sila cuba lagi.",
+    wb_script_gen_err_missing_master_script: "Output AI kekurangan medan wajib. Sila cuba lagi.",
+    wb_script_gen_err_missing_api_key: "Perkhidmatan belum dikonfigurasi. Sila hubungi sokongan.",
+    wb_script_gen_err_insufficient_credits: "Kredit tidak mencukupi. Sila tambah nilai dan cuba lagi.",
+
     wb_gen_req_title: "Syarat penjanaan tidak dipenuhi",
     wb_gen_req_intro: "Sila baiki isu berikut dahulu:",
     wb_gen_req_issue_login_batch: "Akaun: sila log masuk sebelum memulakan penjanaan pukal.",
@@ -1887,6 +1911,14 @@ export const translations = {
     wb_config_audio_off: "Tắt",
     wb_btn_gen_scripts: "Tạo kịch bản",
     wb_target_audience_language: "Ngôn ngữ đối tượng mục tiêu",
+
+    wb_script_gen_failed_title: "Tạo thất bại",
+    wb_script_gen_err_generic: "Tạo thất bại. Vui lòng thử lại.",
+    wb_script_gen_err_invalid_request: "Lỗi định dạng yêu cầu. Vui lòng tải lại và thử lại.",
+    wb_script_gen_err_invalid_json: "Lỗi định dạng đầu ra AI. Vui lòng thử lại.",
+    wb_script_gen_err_missing_master_script: "Đầu ra AI thiếu trường bắt buộc. Vui lòng thử lại.",
+    wb_script_gen_err_missing_api_key: "Dịch vụ chưa được cấu hình. Vui lòng liên hệ hỗ trợ.",
+    wb_script_gen_err_insufficient_credits: "Không đủ credit. Vui lòng nạp thêm và thử lại.",
 
     wb_gen_req_title: "Chưa đáp ứng điều kiện tạo video",
     wb_gen_req_intro: "Vui lòng khắc phục các vấn đề sau:",
@@ -2366,6 +2398,14 @@ export const translations = {
     wb_config_audio_off: "꺼짐",
     wb_btn_gen_scripts: "스크립트 생성",
     wb_target_audience_language: "타겟 언어",
+
+    wb_script_gen_failed_title: "생성 실패",
+    wb_script_gen_err_generic: "생성에 실패했습니다. 다시 시도해 주세요.",
+    wb_script_gen_err_invalid_request: "요청 형식 오류입니다. 새로고침 후 다시 시도해 주세요.",
+    wb_script_gen_err_invalid_json: "AI 출력 형식 오류입니다. 다시 시도해 주세요.",
+    wb_script_gen_err_missing_master_script: "AI 출력에 필수 필드가 누락되었습니다. 다시 시도해 주세요.",
+    wb_script_gen_err_missing_api_key: "서비스가 구성되지 않았습니다. 관리자에게 문의해 주세요.",
+    wb_script_gen_err_insufficient_credits: "크레딧이 부족합니다. 충전 후 다시 시도해 주세요.",
 
     wb_gen_req_title: "생성 조건을 충족하지 못했습니다",
     wb_gen_req_intro: "다음 문제를 먼저 해결하세요:",

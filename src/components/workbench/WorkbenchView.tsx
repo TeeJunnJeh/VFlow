@@ -1407,6 +1407,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       else payload.image_path = apiPath;
     }
 
+    // 为Sora模型添加size参数（Sora仅支持特定的分辨率）
+    if (selectedModel === 'sora2' || selectedModel === 'sora2pro') {
+      payload.size = '1280x720'; // Sora默认1280x720，用户可根据aspect_ratio调整
+    }
+
     return payload;
   };
 
@@ -3371,7 +3376,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <div>
                 <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
                 <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
-                  {[5, 10, 15].map(d => (
+                  {/* Sora模型使用4,8,12秒 | Kling使用5,10,15秒 */}
+                  {(selectedModel === 'sora2' || selectedModel === 'sora2pro' ? [4, 8, 12] : [5, 10, 15]).map(d => (
                       <button key={d} onClick={() => setGenDuration(d)} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${genDuration === d ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{d}s</button>
                   ))}
                 </div>

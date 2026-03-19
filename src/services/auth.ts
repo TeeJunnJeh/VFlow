@@ -34,6 +34,14 @@ type OpenClawKeyRevealResponse = {
   };
 };
 
+type DebugModeResponse = {
+  message?: string;
+  error?: string;
+  data?: {
+    enabled?: boolean;
+  };
+};
+
 export const authApi = {
   // 1. Send Verification Code
   sendCode: async (phoneNumber: string) => {
@@ -162,9 +170,10 @@ export const authApi = {
   },
 
   // 4. Update Profile (Avatar/Name/Theme/Tier/Credits)
-  updateProfile: async (data: { avatar?: File; name?: string; theme?: string; tier?: string; credits?: number }) => {
+  updateProfile: async (data: { avatar?: File; avatarClear?: boolean; name?: string; theme?: string; tier?: string; credits?: number }) => {
     try {
       const formData = new FormData();
+      if (data.avatarClear) formData.append('avatar_clear', '1');
       if (data.avatar) formData.append('avatar', data.avatar);
       if (data.name) formData.append('name', data.name);
       if (data.theme) formData.append('theme', data.theme);
@@ -240,5 +249,42 @@ export const authApi = {
       throw new Error(await extractErrorMessage(response, 'Failed to fetch OpenClaw key'));
     }
     return await response.json();
+  },
+
+  getDebugModeStatus: async (): Promise<boolean> => {
+    const response = await fetch(`${API_BASE_URL}/debug-mode/`, {
+      method: 'GET',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw new Error(await extractErrorMessage(response, 'Failed to load debug mode status'));
+    }
+
+    const json = (await response.json()) as DebugModeResponse;
+    return json?.data?.enabled === true;
+  },
+
+  setDebugMode: async (payload: { enabled: boolean; password?: string }): Promise<boolean> => {
+    const response = await fetch(`${API_BASE_URL}/debug-mode/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        enabled: payload.enabled,
+        password: payload.password || '',
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await extractErrorMessage(response, 'Failed to update debug mode'));
+    }
+
+    const json = (await response.json()) as DebugModeResponse;
+    return json?.data?.enabled === true;
   },
 };

@@ -1,27 +1,29 @@
 <!doctype html>
-<html lang="en">
-  <head>
+<html lang="en" class="dark">
+<head>
     <script src="https://cdn.tailwindcss.com"></script>
-<script>
-  tailwind.config = {
-    theme: {
-      extend: {
-        colors: {
-          slate: {
-            950: '#020617', // Manually adding the dark color we used
-          }
+    <script>
+        tailwind.config = {
+            // 👇 核心修改 2：告诉 Tailwind 遇到 html 上的 dark class 时，启用深色样式
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        slate: {
+                            950: '#020617', // Manually adding the dark color we used
+                        }
+                    }
+                }
+            }
         }
-      }
-    }
-  }
-</script>
+    </script>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Vflow AI - Video Generation</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+</head>
+<body>
+<div id="root"></div>
+<script type="module" src="/src/main.tsx"></script>
+</body>
 </html>

@@ -11,14 +11,11 @@ import LandingPage from './pages/Landing';
 import Workbench from './pages/Workbench';
 import TermsOfServicePage from './pages/TermsOfService';
 import PrivacyPolicyPage from './pages/PrivacyPolicy';
+import { debugLog, debugError } from './services/debugMode';
 
 /**
- * [新增] 访客路由封装 (GuestRoute)
+ * 访客路由封装 (GuestRoute)
  * 作用：限制已登录用户访问游客页面（如首页、登录页）
- * 逻辑：
- * 1. 等待 AuthContext 初始化 (isLoading)
- * 2. 如果已登录 (user 存在) -> 重定向到工作台 (/app)
- * 3. 如果未登录 -> 允许访问 (Landing/Login)
  */
 const GuestRoute = ({ children }: { children: React.ReactNode }) => {
     const { user, isLoading } = useAuth();
@@ -65,6 +62,11 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 const AnimatedRoutes = () => {
     const location = useLocation();
 
+    // 1. 修复：必须将 useState 移到 useEffect 之前，防止 ReferenceError
+    const [isInfoOpen, setIsInfoOpen] = React.useState(false);
+    const [infoTitle, setInfoTitle] = React.useState('');
+    const [infoMessage, setInfoMessage] = React.useState<string | null>(null);
+
     React.useEffect(() => {
         const params = new URLSearchParams(location.search);
         const code = params.get('code');
@@ -77,13 +79,13 @@ const AnimatedRoutes = () => {
 
         // 防止重复处理 - 使用 ref 标记
         if ((window as any).__tiktok_callback_processing) {
-            console.log('[TikTok OAuth] Already processing callback, skipping...');
+            debugLog('[TikTok OAuth] Already processing callback, skipping...');
             return;
         }
         (window as any).__tiktok_callback_processing = true;
 
         // Log for debugging
-        console.log('[TikTok OAuth] Detected callback params:', { code: !!code, state: !!state, error });
+        debugLog('[TikTok OAuth] Detected callback params:', { code: !!code, state: !!state, error });
 
         // 立即清除URL参数，防止多次触发
         window.history.replaceState({}, document.title, location.pathname);
@@ -98,14 +100,14 @@ const AnimatedRoutes = () => {
                     throw new Error('授权参数不完整');
                 }
 
-                console.log('[TikTok OAuth] Calling completeAuth...');
+                debugLog('[TikTok OAuth] Calling completeAuth...');
                 const result = await tiktokApi.completeAuth({
                     code,
                     state,
                     error: error || undefined,
                     error_description: errorDescription || undefined,
                 });
-                console.log('[TikTok OAuth] completeAuth success:', result);
+                debugLog('[TikTok OAuth] completeAuth success:', result);
 
                 // 显示成功消息，告知用户视频已上传到哪个账号
                 if (result?.message) {
@@ -118,7 +120,7 @@ const AnimatedRoutes = () => {
                     setIsInfoOpen(true);
                 }
             } catch (err: any) {
-                console.error('[TikTok OAuth] Error:', err);
+                debugError('[TikTok OAuth] Error:', err);
                 setInfoTitle('Error');
                 setInfoMessage(`TikTok 授权失败：${err?.message || '未知错误'}`);
                 setIsInfoOpen(true);
@@ -128,58 +130,53 @@ const AnimatedRoutes = () => {
         })();
     }, [location.pathname, location.search]);
 
-    // Info dialog state to replace alert()
-    const [isInfoOpen, setIsInfoOpen] = React.useState(false);
-    const [infoTitle, setInfoTitle] = React.useState('');
-    const [infoMessage, setInfoMessage] = React.useState<string | null>(null);
-
     return (
-        /**
-         * mode="wait":
-         * 1. 当 navigate('/login') 被触发时，LandingPage 的 exit 动画开始。
-         * 2. 只有当 LandingPage 完全卸载后，LoginPage 才会入场。
-         * 3. 这配合 TransitionOverlay 的全屏闪光，可以实现无缝的视觉“白转暗”或“光影穿梭”感。
-         */
-        <AnimatePresence mode="sync" initial={false}>
-            <Routes location={location} key={location.pathname}>
-                {/* 
-                   首页：使用 GuestRoute 包裹。
-                   效果：如果已登录访问首页，直接跳去 /app；未登录则显示首页。
-                */}
-                <Route 
-                    path="/" 
-                    element={
-                        <GuestRoute>
-                            <LandingPage />
-                        </GuestRoute>
-                    } 
-                />
+        // 2. 修复：将 AppDialog 移出 AnimatePresence，并根据你的注释将 mode 改为 wait 以实现无缝光影穿梭动画
+        <>
+            <AnimatePresence mode="wait" initial={false}>
+                <Routes location={location} key={location.pathname}>
+                    <Route
+                        path="/"
+                        element={
+                            <GuestRoute>
+                                <LandingPage />
+                            </GuestRoute>
+                        }
+                    />
+                    <Route path="/login" element={<LoginPage />} />
+                    <Route
+                        path="/app/*"
+                        element={
+                            <ProtectedRoute>
+                                <Workbench />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+            </AnimatePresence>
 
-                {/* 
-                   登录页：不使用 GuestRoute 包裹。
-                   原因：我们需要在 Login 页面内部控制跳转时机，以免打断登录成功的动画。
-                */}
-                <Route path="/login" element={<LoginPage />} />
-
-                {/* 受保护的工作台 */}
-                <Route
-                    path="/app/*"
-                    element={
-                        <ProtectedRoute>
-                            <Workbench />
-                        </ProtectedRoute>
-                    }
-                />
-
-                {/* 兜底重定向 */}
-                <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+            {/* 弹窗独立渲染，避免阻断页面路由的 Exit 动画 */}
             {isInfoOpen && (
-                <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={() => setIsInfoOpen(false)} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>OK</button></>}>
+                <AppDialog
+                    isOpen={isInfoOpen}
+                    title={infoTitle || 'Notice'}
+                    onClose={() => setIsInfoOpen(false)}
+                    footer={
+                        <>
+                            <button
+                                className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
+                                onClick={() => setIsInfoOpen(false)}
+                            >
+                                OK
+                            </button>
+                        </>
+                    }
+                >
                     <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
                 </AppDialog>
             )}
-        </AnimatePresence>
+        </>
     );
 };
 

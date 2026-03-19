@@ -79,8 +79,10 @@ type GeneratePayload = {
   sound: 'on' | 'off';
   project_id?: string;
   image_path?: string | null;
+  reference_image_list?: string[];
   motion_video_path?: string | null;
   asset_source?: 'product' | 'preference' | null;
+  aspect_ratio?: '16:9' | '9:16' | '1:1' | string;
   user_language: string;
   target_language: string;
   model_asset_id: string | number | null;
@@ -1289,6 +1291,25 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
     return next;
   }, [uploadDisplayAssets]);
+  const klingSourceStats = useMemo(() => {
+    const imageAssets = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image');
+    const primaryCount = imageAssets.filter((asset) => asset.source === 'product').length;
+    const referenceCount = imageAssets.filter((asset) => asset.source === 'preference').length;
+    const hasVideoAsset = uploadDisplayAssets.some((asset) => asset.mediaKind === 'video');
+    return { imageAssets, primaryCount, referenceCount, hasVideoAsset };
+  }, [uploadDisplayAssets]);
+  const klingSourceWarnings = useMemo(() => {
+    if (selectedModel !== 'kling') return [] as string[];
+    const warnings: string[] = ['支持两种模式：首帧模式 | 多参考图模式'];
+    if (klingSourceStats.hasVideoAsset) return warnings;
+    if (klingSourceStats.primaryCount > 1) warnings.push('只能有一张素材作为首帧');
+    if (klingSourceStats.primaryCount > 0 && klingSourceStats.referenceCount > 0) warnings.push('首帧图和参考帧图不能同时存在');
+    return warnings;
+  }, [klingSourceStats.hasVideoAsset, klingSourceStats.primaryCount, klingSourceStats.referenceCount, selectedModel]);
+  const hasKlingSourceConflict = useMemo(() => {
+    if (selectedModel !== 'kling' || klingSourceStats.hasVideoAsset) return false;
+    return klingSourceStats.primaryCount > 1 || (klingSourceStats.primaryCount > 0 && klingSourceStats.referenceCount > 0);
+  }, [klingSourceStats.hasVideoAsset, klingSourceStats.primaryCount, klingSourceStats.referenceCount, selectedModel]);
   const activeReferenceSummary = scriptPages[activeScriptPage]?.referenceSummary || [];
   const activeGuideStep = isGuideOpen ? guideSteps[guideStepIndex] : null;
   const isGuideFocused = (key: GuideStepKey) => activeGuideStep?.key === key;
@@ -1404,6 +1425,31 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return apiPath;
   };
 
+  const resolveAssetApiPath = async (asset: QueuedAsset): Promise<string | null> => {
+    let apiPath = asset.uploadedPath || asset.assetUrl || null;
+
+    if (!apiPath && asset.fileObj) {
+      const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
+      const rawPath = extractUploadedAssetPath(uploadResp);
+      if (!rawPath) return null;
+      apiPath = rawPath;
+
+      if (asset.id && asset.id !== 'current-upload') {
+        setAssetQueue(prev => prev.map(item => (
+          item.id === asset.id
+            ? { ...item, uploadedPath: rawPath, assetUrl: rawPath, previewUrl: item.previewUrl || rawPath }
+            : item
+        )));
+      }
+      if (selectedQueueAssetId && selectedQueueAssetId === asset.id) {
+        setSelectedAssetUrl(rawPath);
+        setLastUploadedUrl(rawPath);
+      }
+    }
+
+    return apiPath;
+  };
+
   const buildSingleGeneratePayload = async (): Promise<GeneratePayload> => {
     const apiPath = await resolveCurrentSingleAssetPath();
     const payload: GeneratePayload = {
@@ -1419,7 +1465,30 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
     };
 
-    if (apiPath) {
+    if (selectedModel === 'kling' && currentAssetMediaKind !== 'video') {
+      const displayImageAssets = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image');
+      const resolvedImageAssets: Array<QueuedAsset & { resolvedPath: string }> = [];
+      for (const asset of displayImageAssets) {
+        const resolvedPath = await resolveAssetApiPath(asset);
+        if (!resolvedPath) continue;
+        resolvedImageAssets.push({ ...asset, resolvedPath });
+      }
+
+      const primaryAssets = resolvedImageAssets.filter((asset) => asset.source === 'product');
+      const referenceAssets = resolvedImageAssets.filter((asset) => asset.source === 'preference');
+
+      if (primaryAssets.length === 1 && referenceAssets.length === 0) {
+        payload.image_path = primaryAssets[0].resolvedPath;
+        payload.asset_source = 'product';
+      } else if (primaryAssets.length === 0 && referenceAssets.length >= 1) {
+        payload.reference_image_list = referenceAssets.map((asset) => asset.resolvedPath).slice(0, 4);
+        payload.asset_source = 'preference';
+      } else if (apiPath) {
+        payload.image_path = apiPath;
+      }
+
+      payload.aspect_ratio = selectedTemplate?.aspect_ratio || '9:16';
+    } else if (apiPath) {
       if (currentAssetMediaKind === 'video') payload.motion_video_path = apiPath;
       else payload.image_path = apiPath;
     }
@@ -2313,6 +2382,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!selectedTemplate?.id && !selectedFileObj && !selectedAssetUrl && !uploadedFile) {
       issues.push(t.wb_gen_req_issue_asset_or_template || 'Assets: upload an asset or select a template first.');
     }
+    if (selectedModel === 'kling' && !klingSourceStats.hasVideoAsset) {
+      if (klingSourceStats.primaryCount > 1) issues.push('只能有一张素材作为首帧');
+      if (klingSourceStats.primaryCount > 0 && klingSourceStats.referenceCount > 0) issues.push('首帧图和参考帧图不能同时存在');
+    }
     if (scripts.length === 0) {
       issues.push(t.wb_gen_req_issue_scripts_missing || 'Storyboard: generate or add scripts first.');
     }
@@ -3016,6 +3089,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       {/* Upload Section */}
       <div ref={uploadSectionRef} className={`flex flex-col gap-3 ${getGuideFocusClass('upload')}`}>
         <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
+        {klingSourceWarnings.length > 0 && (
+          <div className={`rounded-lg px-2.5 py-2 text-[10px] space-y-1 ${hasKlingSourceConflict ? 'border border-red-500/40 bg-red-500/10' : 'border border-white/20 bg-white/5'}`}>
+            {klingSourceWarnings.map((item, index) => (
+              <div key={`${item}-${index}`} className={index === 0 ? 'font-normal text-zinc-400' : 'font-bold text-red-300'}>
+                {item}
+              </div>
+            ))}
+          </div>
+        )}
         <div
           onDragOver={handleUploadDragOver}
           onDragEnter={handleUploadDragOver}

@@ -951,6 +951,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setIsPlaying(false);
   }, [generatedVideoUrl]);
 
+  // Debug: Log task changes
+  useEffect(() => {
+    if (generatedBatch.length > 0) {
+      console.log('[WorkbenchView] generatedBatch updated:', generatedBatch);
+      generatedBatch.forEach(item => {
+        const task = tasks.find(t => t.id === item.taskId);
+        console.log(`[WorkbenchView] Batch item ${item.id} (taskId=${item.taskId}):`, {
+          found: !!task,
+          status: task?.status,
+          result: task?.result,
+          hasUrl: !!(task?.result?.video_url || task?.result?.url),
+          url: task?.result?.video_url || task?.result?.url
+        });
+      });
+    }
+  }, [generatedBatch, tasks]);
+
   // Keep a ref so unmount flush doesn't depend on hook dependency arrays.
   useEffect(() => {
     canAutoSaveRef.current = !!user?.id && !isRestoring;
@@ -4314,7 +4331,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             {/* Batch Results Panel (Restored) */}
             <div className="glass-panel rounded-2xl p-4 border border-white/5 max-h-56 overflow-y-auto custom-scroll">
               <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3">{t.wb_batch_results}</div>
-              {generatedBatch.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_batch_no_results}</div> : <div className="space-y-2">{generatedBatch.map(item => { const task = tasks.find(t => t.id === item.taskId); const status = task?.status; const url = task?.result?.video_url || task?.result?.url; return (<div key={item.id} className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>{status === 'success' && url ? (<button onClick={() => setGeneratedVideoUrl(url)} className="text-orange-400 hover:text-orange-300 transition">预览</button>) : status === 'failed' ? (<span className="text-red-400">失败</span>) : (<span className="text-zinc-500">生成中…</span>)}</div>); })}</div>}
+              {generatedBatch.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_batch_no_results}</div> : <div className="space-y-2">{generatedBatch.map(item => { 
+                const task = tasks.find(t => t.id === item.taskId); 
+                const status = task?.status; 
+                const url = task?.result?.video_url || task?.result?.url;
+                if (!task) {
+                  console.warn(`[BatchResults] Task ${item.taskId} not found in tasks array`);
+                } else {
+                  console.log(`[BatchResults] Task ${item.taskId}: status=${status}, url=${url}, result=${JSON.stringify(task.result)}`);
+                }
+                return (<div key={item.id} className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>{status === 'success' && url ? (<button onClick={() => setGeneratedVideoUrl(url)} className="text-orange-400 hover:text-orange-300 transition">预览</button>) : status === 'failed' ? (<span className="text-red-400">失败</span>) : (<span className="text-zinc-500">生成中…</span>)}</div>); 
+              })}</div>}
             </div>
           </div>
         </div>

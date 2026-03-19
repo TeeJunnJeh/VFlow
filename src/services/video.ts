@@ -331,6 +331,42 @@ export const videoApi = {
     return await response.json();
   },
 
+  translateShotAudio: async (
+    userId: string | number,
+    payload: {
+      source_text: string;
+      target_language: string;
+      mode: 'direct' | 'creative';
+      product_category?: string;
+      visual_description?: string;
+    }
+  ) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/users/${userId}/translate-audio`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      let errorMsg = 'Translation failed';
+      try {
+        const errData = await response.json();
+        errorMsg = errData.message || JSON.stringify(errData);
+      } catch {
+        errorMsg = await response.text();
+      }
+      throw new Error(errorMsg);
+    }
+
+    return await response.json();
+  },
+
   // 3. Workbench Draft (cross-refresh/cross-device state)
   getDraft: async () => {
     const response = await fetch(`${API_BASE_URL}/draft/`, {

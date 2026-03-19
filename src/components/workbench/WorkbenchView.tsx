@@ -1,9 +1,11 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder, SlidersHorizontal,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
-  Zap, Layers, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2
+  Zap, Layers, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2,
+  Languages, HelpCircle
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -429,6 +431,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [soundSetting, setSoundSetting] = useState<'on' | 'off'>('on');
   const [scriptVariantCount, setScriptVariantCount] = useState<number>(1);
   const [targetLanguage, setTargetLanguage] = useState<string>('en');
+  const [translatingShots, setTranslatingShots] = useState<Set<number>>(new Set());
+  const [translatePopoverShotId, setTranslatePopoverShotId] = useState<number | null>(null);
+  const [translatePopoverPos, setTranslatePopoverPos] = useState<{ top: number; left: number } | null>(null);
+  const translatePopoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const translateBtnRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const [creationMode, setCreationMode] = useState<'fast' | 'replay'>('fast');
   const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
   const lastFastModelRef = useRef<'kling' | 'sora2' | 'sora2pro' | 'seedance2.0'>('kling');
@@ -1882,6 +1889,38 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const removeScript = (id: number) => {
     const remaining = scripts.filter(s => s.id !== id).map((s, idx) => ({ ...s, shot: (idx + 1).toString() }));
     updateScripts(remaining);
+  };
+
+  const handleTranslateAudio = async (shotId: number, mode: 'direct' | 'creative') => {
+    const shot = scripts.find(s => s.id === shotId);
+    if (!shot || !shot.audioTranslated?.trim() || !user) return;
+
+    setTranslatingShots(prev => new Set(prev).add(shotId));
+    setTranslatePopoverShotId(null);
+    try {
+      const category = selectedTemplate?.product_category || '';
+      const response = await videoApi.translateShotAudio(user.id, {
+        source_text: shot.audioTranslated,
+        target_language: targetLanguage,
+        mode,
+        product_category: category,
+        visual_description: shot.visual,
+      });
+      if (response?.data?.translated_text) {
+        const ns = scripts.map(s =>
+          s.id === shotId ? { ...s, audio: response.data.translated_text } : s
+        );
+        updateScripts(ns);
+      }
+    } catch (err) {
+      console.error('Translation failed:', err);
+    } finally {
+      setTranslatingShots(prev => {
+        const next = new Set(prev);
+        next.delete(shotId);
+        return next;
+      });
+    }
   };
 
   // --- Queue Handlers ---
@@ -4250,9 +4289,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
                                 <input
                                   type="text"
-                                  disabled={soundSetting === 'off'}
-                                  className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
-                                  value={soundSetting === 'off' ? '已关闭音频' : script.audio}
+                                  disabled={soundSetting === 'off' || translatingShots.has(script.id)}
+                                  className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : translatingShots.has(script.id) ? 'bg-zinc-900/60 text-orange-400 border-orange-500/30 cursor-wait' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
+                                  value={translatingShots.has(script.id) ? t.wb_translating : soundSetting === 'off' ? t.wb_audio_off : script.audio}
                                   onChange={(e) => {
                                     if (soundSetting === 'off') return;
                                     const ns = [...scripts];
@@ -4260,8 +4299,88 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                     updateScripts(ns);
                                   }}
                                 />
-                                {script.audioTranslated && (
-                                  <p className="text-[10px] text-zinc-500 italic px-3 mt-1">{script.audioTranslated}</p>
+                                {(targetLanguage !== language) && (
+                                  <div className="flex items-center gap-1.5 mt-1">
+                                    <input
+                                      type="text"
+                                      className="flex-1 text-[11px] text-zinc-500 italic p-2 rounded-lg border border-white/5 bg-black/20 focus:border-white/20 transition-colors outline-none"
+                                      placeholder={script.audioTranslated || ''}
+                                      value={script.audioTranslated || ''}
+                                      onChange={(e) => {
+                                        const ns = [...scripts];
+                                        ns[index].audioTranslated = e.target.value;
+                                        updateScripts(ns);
+                                      }}
+                                    />
+                                    <div
+                                      ref={(el) => { translateBtnRefs.current[script.id] = el; }}
+                                      onMouseEnter={() => {
+                                        if (translatePopoverTimer.current) clearTimeout(translatePopoverTimer.current);
+                                        const el = translateBtnRefs.current[script.id];
+                                        if (el) {
+                                          const rect = el.getBoundingClientRect();
+                                          setTranslatePopoverPos({ top: rect.top, left: rect.right + 4 });
+                                        }
+                                        setTranslatePopoverShotId(script.id);
+                                      }}
+                                      onMouseLeave={() => {
+                                        translatePopoverTimer.current = setTimeout(() => setTranslatePopoverShotId(null), 200);
+                                      }}
+                                    >
+                                      <button
+                                        type="button"
+                                        className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] text-zinc-400 bg-zinc-800/80 border border-white/10 hover:border-orange-500/50 hover:text-orange-400 transition whitespace-nowrap"
+                                        title={t.wb_translate_to_target}
+                                      >
+                                        <Languages className="w-3 h-3" />
+                                        <span>{t.wb_translate_to_target}</span>
+                                      </button>
+                                      {translatePopoverShotId === script.id && translatePopoverPos && createPortal(
+                                        <div
+                                          style={{ position: 'fixed', top: translatePopoverPos.top, left: translatePopoverPos.left, zIndex: 9999 }}
+                                          className="bg-zinc-900 border border-white/10 rounded-lg shadow-xl p-1.5 flex flex-col gap-1 min-w-[160px]"
+                                          onMouseEnter={() => {
+                                            if (translatePopoverTimer.current) clearTimeout(translatePopoverTimer.current);
+                                          }}
+                                          onMouseLeave={() => {
+                                            translatePopoverTimer.current = setTimeout(() => setTranslatePopoverShotId(null), 200);
+                                          }}
+                                        >
+                                          <div className="flex items-center gap-1">
+                                            <button
+                                              type="button"
+                                              onClick={() => handleTranslateAudio(script.id, 'direct')}
+                                              className="flex-1 text-left px-2.5 py-1.5 rounded text-[11px] text-zinc-300 hover:bg-orange-500/20 hover:text-orange-400 transition"
+                                            >
+                                              {t.wb_translate_direct}
+                                            </button>
+                                            <span className="relative group cursor-help">
+                                              <HelpCircle className="w-3 h-3 text-zinc-600 hover:text-zinc-400" />
+                                              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 rounded bg-black text-[10px] text-zinc-300 border border-white/10 whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none">
+                                                {t.wb_translate_direct_tip}
+                                              </span>
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-1">
+                                            <button
+                                              type="button"
+                                              onClick={() => handleTranslateAudio(script.id, 'creative')}
+                                              className="flex-1 text-left px-2.5 py-1.5 rounded text-[11px] text-zinc-300 hover:bg-orange-500/20 hover:text-orange-400 transition"
+                                            >
+                                              {t.wb_translate_creative}
+                                            </button>
+                                            <span className="relative group cursor-help">
+                                              <HelpCircle className="w-3 h-3 text-zinc-600 hover:text-zinc-400" />
+                                              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 rounded bg-black text-[10px] text-zinc-300 border border-white/10 whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none">
+                                                {t.wb_translate_creative_tip}
+                                              </span>
+                                            </span>
+                                          </div>
+                                        </div>,
+                                        document.body
+                                      )}
+                                    </div>
+                                  </div>
                                 )}
                             </div>
                         </div>

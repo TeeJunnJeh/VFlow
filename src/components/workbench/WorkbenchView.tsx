@@ -591,10 +591,31 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const applyWorkspaceState = (workspace: ProjectWorkspaceState) => {
+    const normalizePersistedUrl = (value: string | null | undefined, fallback?: string | null | undefined) => {
+      const primary = value || '';
+      const backup = fallback || '';
+      if (primary && !primary.startsWith('blob:')) return primary;
+      if (backup && !backup.startsWith('blob:')) return backup;
+      return primary || backup || null;
+    };
+    const normalizedUploadedFile = normalizePersistedUrl(workspace.uploadedFile, workspace.lastUploadedUrl);
+    const normalizedSelectedAssetUrl = normalizePersistedUrl(workspace.selectedAssetUrl, workspace.lastUploadedUrl);
+    const normalizedQueue = (Array.isArray(workspace.assetQueue) ? workspace.assetQueue : []).map((item) => {
+      const persisted = normalizePersistedUrl(item.uploadedPath || item.assetUrl || null, null);
+      const preview = normalizePersistedUrl(item.previewUrl || null, persisted);
+      return {
+        ...item,
+        previewUrl: preview,
+        assetUrl: normalizePersistedUrl(item.assetUrl || null, persisted),
+        uploadedPath: normalizePersistedUrl(item.uploadedPath || null, persisted),
+        fileObj: null,
+      };
+    });
+
     isApplyingProjectWorkspaceRef.current = true;
     setFileName(workspace.fileName || '');
-    setUploadedFile(workspace.uploadedFile || null);
-    setSelectedAssetUrl(workspace.selectedAssetUrl || null);
+    setUploadedFile(normalizedUploadedFile);
+    setSelectedAssetUrl(normalizedSelectedAssetUrl);
     setLastUploadedUrl(workspace.lastUploadedUrl || null);
     setSelectedAssetSource(workspace.selectedAssetSource || null);
     setCurrentMaterialType(workspace.currentMaterialType || null);
@@ -609,7 +630,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setScripts(Array.isArray(workspace.scripts) ? workspace.scripts : []);
     setScriptPages(Array.isArray(workspace.scriptPages) && workspace.scriptPages.length > 0 ? workspace.scriptPages : [{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: [] }]);
     setActiveScriptPage(typeof workspace.activeScriptPage === 'number' ? workspace.activeScriptPage : 0);
-    setAssetQueue(Array.isArray(workspace.assetQueue) ? workspace.assetQueue : []);
+    setAssetQueue(normalizedQueue);
     setScriptQueue(Array.isArray(workspace.scriptQueue) ? workspace.scriptQueue : []);
     setGeneratedVideoUrl(workspace.generatedVideoUrl || null);
 
@@ -942,6 +963,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   useEffect(() => {
     setIsPlaying(false);
   }, [generatedVideoUrl]);
+
+  // Debug: Log task changes
+  useEffect(() => {
+    if (generatedBatch.length > 0) {
+      console.log('[WorkbenchView] generatedBatch updated:', generatedBatch);
+      generatedBatch.forEach(item => {
+        const task = tasks.find(t => t.id === item.taskId);
+        console.log(`[WorkbenchView] Batch item ${item.id} (taskId=${item.taskId}):`, {
+          found: !!task,
+          status: task?.status,
+          result: task?.result,
+          hasUrl: !!(task?.result?.video_url || task?.result?.url),
+          url: task?.result?.video_url || task?.result?.url
+        });
+      });
+    }
+  }, [generatedBatch, tasks]);
 
   // Keep a ref so unmount flush doesn't depend on hook dependency arrays.
   useEffect(() => {
@@ -1399,6 +1437,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       else payload.image_path = apiPath;
     }
 
+    // 为Sora模型添加size参数（Sora仅支持特定的分辨率）
+    if (selectedModel === 'sora2' || selectedModel === 'sora2pro') {
+      payload.size = '1280x720'; // Sora默认1280x720，用户可根据aspect_ratio调整
+    }
+
     return payload;
   };
 
@@ -1619,6 +1662,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       mediaKind,
       uploadedPath: null,
     };
+    const queueId = latestItem.id;
 
     setUploadedFile((prev) => {
       if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
@@ -1637,6 +1681,35 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const next = prev.filter(item => item.materialType !== selectedType);
       return [...next, latestItem];
     });
+
+    // Upload once to temp storage immediately so preview can survive refresh.
+    void (async () => {
+      try {
+        const uploadResp = await assetsApi.uploadTempAsset(latestFile);
+        const persistedPath = extractUploadedAssetPath(uploadResp);
+        if (!persistedPath) return;
+
+        setAssetQueue(prev => prev.map(item => (
+          item.id === queueId
+            ? {
+                ...item,
+                previewUrl: persistedPath,
+                assetUrl: persistedPath,
+                uploadedPath: persistedPath,
+              }
+            : item
+        )));
+
+        setUploadedFile((prev) => {
+          if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+          return persistedPath;
+        });
+        setSelectedAssetUrl(persistedPath);
+        setLastUploadedUrl(persistedPath);
+      } catch (err) {
+        console.warn('Failed to persist local upload for preview:', err);
+      }
+    })();
   };
 
   const queueFilesWithTypePrompt = (files: File[]) => {
@@ -3334,7 +3407,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <div>
                 <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
                 <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
-                  {[5, 10, 15].map(d => (
+                  {/* Sora模型使用4,8,12秒 | Kling使用5,10,15秒 */}
+                  {(selectedModel === 'sora2' || selectedModel === 'sora2pro' ? [4, 8, 12] : [5, 10, 15]).map(d => (
                       <button key={d} onClick={() => setGenDuration(d)} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${genDuration === d ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{d}s</button>
                   ))}
                 </div>
@@ -4274,7 +4348,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             {/* Batch Results Panel (Restored) */}
             <div className="glass-panel rounded-2xl p-4 border border-white/5 max-h-56 overflow-y-auto custom-scroll">
               <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3">{t.wb_batch_results}</div>
-              {generatedBatch.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_batch_no_results}</div> : <div className="space-y-2">{generatedBatch.map(item => { const task = tasks.find(t => t.id === item.taskId); const status = task?.status; const url = task?.result?.video_url || task?.result?.url; return (<div key={item.id} className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>{status === 'success' && url ? (<button onClick={() => setGeneratedVideoUrl(url)} className="text-orange-400 hover:text-orange-300 transition">预览</button>) : status === 'failed' ? (<span className="text-red-400">失败</span>) : (<span className="text-zinc-500">生成中…</span>)}</div>); })}</div>}
+              {generatedBatch.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_batch_no_results}</div> : <div className="space-y-2">{generatedBatch.map(item => { 
+                const task = tasks.find(t => t.id === item.taskId); 
+                const status = task?.status; 
+                const url = task?.result?.video_url || task?.result?.url;
+                if (!task) {
+                  console.warn(`[BatchResults] Task ${item.taskId} not found in tasks array`);
+                } else {
+                  console.log(`[BatchResults] Task ${item.taskId}: status=${status}, url=${url}, result=${JSON.stringify(task.result)}`);
+                }
+                return (<div key={item.id} className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>{status === 'success' && url ? (<button onClick={() => setGeneratedVideoUrl(url)} className="text-orange-400 hover:text-orange-300 transition">预览</button>) : status === 'failed' ? (<span className="text-red-400">失败</span>) : (<span className="text-zinc-500">生成中…</span>)}</div>); 
+              })}</div>}
             </div>
           </div>
         </div>

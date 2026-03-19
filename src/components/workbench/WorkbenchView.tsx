@@ -2641,38 +2641,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const shots = selectedTemplate?.shot_number || 5;
 
       const payload = {
-        model: backendModel,
-        // Root level prompt for backend safety
-        user_prompt: promptText,
-        prompt: promptText,
-        input: promptText,
-
         product_category: category,
         visual_style: style,
         aspect_ratio: resolution,
-        script_count: scriptVariantCount,
-
-        // Tell backend which language to use for script generation (UI language)
         user_language: language,
         sound: soundSetting,
-        // Persist target audience language in payload for future backend extensions
-        target_language: targetLanguage,
-
+        script_count: scriptVariantCount,
         script_content: {
-          duration: duration,
+          duration,
           shot_number: shots,
           custom: selectedTemplate?.custom_config || "",
-          // Inner level prompt
           input: promptText,
-          prompt: promptText,
-          user_prompt: promptText,
-          sound: soundSetting,
-          script_count: scriptVariantCount,
-          shots: []
+          shots: [],
         },
         ...(referenceAssets.length > 0 ? { reference_assets: referenceAssets } : {}),
         ...(imagePath ? { product_image_path: imagePath } : {}),
-        asset_source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference'),
         ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
       };
 
@@ -2802,7 +2785,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
 
     } catch (err: any) {
-      console.error("Script Gen Error:", err);
+      console.error("Script Gen Error:", err); // 提供翻译支持
       let msg = err.message;
       try {
         const jsonPart = err.message.substring(err.message.indexOf('{'));

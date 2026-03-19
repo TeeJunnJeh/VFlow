@@ -304,17 +304,21 @@ export const videoApi = {
   generateScript: async (userId: string | number, payload: unknown) => {
     const csrftoken = getCookie('csrftoken');
 
-    // Ensure this path matches your backend.
-    // If this starts 404ing too, try adding a slash here as well.
+    const body = JSON.stringify(payload);
+    if (!body) {
+      throw new Error('Script generation payload is empty');
+    }
+
     const response = await fetch(`${API_BASE_URL}/users/${userId}/generate-script`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Content-Type': 'application/json; charset=utf-8',
         'X-CSRFToken': csrftoken || '',
         'X-Requested-With': 'XMLHttpRequest',
       },
       credentials: 'include',
-      body: JSON.stringify(payload),
+      body,
     });
 
     if (!response.ok) {

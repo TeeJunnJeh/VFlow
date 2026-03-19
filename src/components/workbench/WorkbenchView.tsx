@@ -475,6 +475,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   });
   const [deliveryRegion, setDeliveryRegion] = useState('中国');
   const [videoType, setVideoType] = useState('');
+  const [requiredErrors, setRequiredErrors] = useState<{
+    productName?: string;
+    productCategory?: string;
+    coreSellingPoints?: string;
+    videoType?: string;
+  }>({});
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const productNameFieldRef = useRef<HTMLInputElement | null>(null);
+  const productCategoryFieldRef = useRef<HTMLDivElement | null>(null);
+  const coreSellingPointsFieldRef = useRef<HTMLTextAreaElement | null>(null);
+  const videoTypeFieldRef = useRef<HTMLDivElement | null>(null);
   const [genPrompt, setGenPrompt] = useState('');
   const [genDuration, setGenDuration] = useState<number>(selectedTemplate?.duration || 10);
   const [soundSetting, setSoundSetting] = useState<'on' | 'off'>('on');
@@ -1665,7 +1677,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       setIsAiRecognizing(true);
       try {
-        const resp = await videoApi.recognizeProductInfo({ image_paths: imagePaths });
+        const resp = await videoApi.recognizeProductInfo({ image_paths: imagePaths, output_language: language });
         const data = resp?.data || resp?.result || resp?.payload || resp;
 
         const nextName = String(data?.product_name || '').trim();
@@ -1684,7 +1696,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         setHasAiRecognized(true);
         lastRecognizedSignatureRef.current = productImageSignature || signature;
       } catch (err: any) {
-        openInfo('Error', String(err?.message || t.wb_ai_recognize_failed));
+        openInfo('Error', t.wb_ai_recognize_failed);
       } finally {
         setIsAiRecognizing(false);
       }
@@ -2299,24 +2311,59 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   // --- API Handlers ---
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = window.setTimeout(() => setToastMessage(null), 2500);
+    return () => window.clearTimeout(timer);
+  }, [toastMessage]);
+
   const handleGenerateScripts = async () => {
     if (!user?.id) {
       openInfo('Notice', 'Please log in first');
       return;
     }
 
-    const issues: string[] = [];
-    if (!productName.trim()) issues.push(t.wb_gen_req_issue_product_name || 'Product name: required.');
-    if (!productCategory.trim()) issues.push(t.wb_gen_req_issue_product_category || 'Product category: required.');
-    if (!coreSellingPoints.trim()) issues.push(t.wb_gen_req_issue_core_selling_points || 'Key selling points: required.');
-    if (!videoType.trim()) issues.push(t.wb_gen_req_issue_video_type || 'Video type: required.');
+    const nextErrors: {
+      productName?: string;
+      productCategory?: string;
+      coreSellingPoints?: string;
+      videoType?: string;
+    } = {};
 
-    if (issues.length > 0) {
-      const title = t.wb_gen_req_title || 'Generation requirements not met';
-      const intro = t.wb_gen_req_intro || 'Please fix the following issues:';
-      openInfo(title, `${intro}\n${issues.map((item) => `- ${item}`).join('\n')}`);
+    if (!productName.trim()) nextErrors.productName = t.wb_required_product_name;
+    if (!productCategory.trim()) nextErrors.productCategory = t.wb_required_product_category;
+    if (!coreSellingPoints.trim()) nextErrors.coreSellingPoints = t.wb_required_core_selling_points;
+    if (!videoType.trim()) nextErrors.videoType = t.wb_required_video_type;
+
+    if (Object.keys(nextErrors).length > 0) {
+      setRequiredErrors(nextErrors);
+      setToastMessage(t.wb_required_toast);
+
+      const scrollOptions: ScrollIntoViewOptions = { behavior: 'smooth', block: 'center' };
+      const focusDropdownButton = (wrapper: HTMLDivElement | null) => {
+        const btn = wrapper?.querySelector('button') as HTMLButtonElement | null;
+        if (!btn) return;
+        window.requestAnimationFrame(() => btn.focus());
+      };
+
+      if (nextErrors.productName) {
+        productNameFieldRef.current?.scrollIntoView(scrollOptions);
+        productNameFieldRef.current?.focus();
+      } else if (nextErrors.productCategory) {
+        productCategoryFieldRef.current?.scrollIntoView(scrollOptions);
+        focusDropdownButton(productCategoryFieldRef.current);
+      } else if (nextErrors.coreSellingPoints) {
+        coreSellingPointsFieldRef.current?.scrollIntoView(scrollOptions);
+        coreSellingPointsFieldRef.current?.focus();
+      } else if (nextErrors.videoType) {
+        videoTypeFieldRef.current?.scrollIntoView(scrollOptions);
+        focusDropdownButton(videoTypeFieldRef.current);
+      }
+
       return;
     }
+
+    if (Object.keys(requiredErrors).length > 0) setRequiredErrors({});
 
     setIsGeneratingScript(true);
 
@@ -3388,31 +3435,38 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
         <div className="flex flex-col gap-4">
           <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
-            <div>
+            <div ref={videoTypeFieldRef}>
               <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
                 {t.wb_field_product_name_label}
                 <span className="ml-1 text-red-400">*</span>
               </label>
               <input
+                ref={productNameFieldRef}
                 value={productName}
                 onChange={(e) => {
                   setProductName(e.target.value);
                   setProductInfoTouched((prev) => ({ ...prev, name: true }));
+                  if (requiredErrors.productName && e.target.value.trim()) {
+                    setRequiredErrors((prev) => ({ ...prev, productName: undefined }));
+                  }
                 }}
                 placeholder={t.wb_field_product_name_placeholder}
                 className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition"
               />
+              {requiredErrors.productName && (
+                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.productName}</div>
+              )}
             </div>
 
-            <div>
+            <div ref={productCategoryFieldRef}>
               <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
                 {t.wb_field_product_category_label}
                 <span className="ml-1 text-red-400">*</span>
               </label>
               <DropdownSelect
                 value={productCategory}
+                placeholder={t.wb_select_placeholder}
                 options={[
-                  { value: '', label: t.wb_select_placeholder },
                   { value: '服装鞋靴', label: t.wb_product_category_apparel },
                   { value: '美妆个护', label: t.wb_product_category_beauty },
                   { value: '食品饮料', label: t.wb_product_category_food },
@@ -3422,12 +3476,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 onChange={(v) => {
                   setProductCategory(v);
                   setProductInfoTouched((prev) => ({ ...prev, category: true }));
+                  if (requiredErrors.productCategory && v.trim()) {
+                    setRequiredErrors((prev) => ({ ...prev, productCategory: undefined }));
+                  }
                 }}
                 buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
                 labelClassName=""
                 iconClassName="w-3 h-3 text-zinc-500"
                 optionClassName="text-xs"
               />
+              {requiredErrors.productCategory && (
+                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.productCategory}</div>
+              )}
             </div>
 
             <div>
@@ -3436,14 +3496,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 <span className="ml-1 text-red-400">*</span>
               </label>
               <textarea
+                ref={coreSellingPointsFieldRef}
                 value={coreSellingPoints}
                 onChange={(e) => {
                   setCoreSellingPoints(e.target.value);
                   setProductInfoTouched((prev) => ({ ...prev, sellingPoints: true }));
+                  if (requiredErrors.coreSellingPoints && e.target.value.trim()) {
+                    setRequiredErrors((prev) => ({ ...prev, coreSellingPoints: undefined }));
+                  }
                 }}
                 placeholder={t.wb_field_core_selling_points_placeholder}
                 className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition resize-none min-h-[80px]"
               />
+              {requiredErrors.coreSellingPoints && (
+                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.coreSellingPoints}</div>
+              )}
             </div>
 
             <div>
@@ -3504,8 +3571,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </label>
               <DropdownSelect
                 value={videoType}
+                placeholder={t.wb_select_placeholder}
                 options={[
-                  { value: '', label: t.wb_select_placeholder },
                   { value: 'UGC种草', label: t.wb_video_type_ugc },
                   { value: '产品口播', label: t.wb_video_type_talking },
                   { value: '产品演示', label: t.wb_video_type_demo },
@@ -3514,12 +3581,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   { value: '反应展示', label: t.wb_video_type_reaction },
                   { value: '故事讲述', label: t.wb_video_type_story },
                 ]}
-                onChange={setVideoType}
+                onChange={(v) => {
+                  setVideoType(v);
+                  if (requiredErrors.videoType && v.trim()) {
+                    setRequiredErrors((prev) => ({ ...prev, videoType: undefined }));
+                  }
+                }}
                 buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
                 labelClassName=""
                 iconClassName="w-3 h-3 text-zinc-500"
                 optionClassName="text-xs"
               />
+              {requiredErrors.videoType && (
+                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.videoType}</div>
+              )}
             </div>
 
             <div>
@@ -4263,6 +4338,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
             </div>
           </>
+        )}
+
+        {toastMessage && (
+          <div className="fixed left-6 bottom-6 z-[140] max-w-[360px] rounded-xl border border-white/10 bg-black/70 px-4 py-3 text-xs text-zinc-200 shadow-lg shadow-black/30">
+            {toastMessage}
+          </div>
         )}
 
         {isInfoOpen && (

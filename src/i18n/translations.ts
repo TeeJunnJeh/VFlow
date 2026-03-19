@@ -223,7 +223,7 @@ export const translations = {
     wb_ai_recognizing_btn: "Recognizing...",
     wb_ai_recognizing_tip: "AI recognition is running. Please wait.",
     wb_ai_need_product_image: "Upload at least 1 product image first.",
-    wb_ai_recognize_failed: "AI recognition failed",
+    wb_ai_recognize_failed: "Recognition failed. Please try again or fill in product info manually.",
     wb_confirm_cancel: "Cancel",
     wb_confirm_ok: "OK",
 
@@ -304,6 +304,12 @@ export const translations = {
     wb_gen_req_issue_product_category: "Product category: required.",
     wb_gen_req_issue_core_selling_points: "Key selling points: required.",
     wb_gen_req_issue_video_type: "Video type: required.",
+
+    wb_required_toast: "Please complete required fields before generating scripts.",
+    wb_required_product_name: "Please enter product name.",
+    wb_required_product_category: "Please select product category.",
+    wb_required_core_selling_points: "Please fill in key selling points.",
+    wb_required_video_type: "Please select video type.",
 
     lang_en: "English",
     lang_zh: "Chinese",
@@ -798,7 +804,7 @@ export const translations = {
     wb_ai_recognizing_btn: "识别中...",
     wb_ai_recognizing_tip: "AI识别进行中，请稍候。",
     wb_ai_need_product_image: "请先上传至少 1 张商品图片。",
-    wb_ai_recognize_failed: "AI识别失败",
+    wb_ai_recognize_failed: "识别失败，请重试或手动填写商品信息。",
     wb_confirm_cancel: "取消",
     wb_confirm_ok: "确定",
 
@@ -879,6 +885,12 @@ export const translations = {
     wb_gen_req_issue_product_category: "产品类目：必填。",
     wb_gen_req_issue_core_selling_points: "核心卖点：必填。",
     wb_gen_req_issue_video_type: "视频类型：必填。",
+
+    wb_required_toast: "请完善必填信息后再生成脚本",
+    wb_required_product_name: "请输入产品名称",
+    wb_required_product_category: "请选择产品类目",
+    wb_required_core_selling_points: "请填写核心卖点",
+    wb_required_video_type: "请选择视频类型",
 
     lang_en: "英语",
     lang_zh: "中文",
@@ -1288,6 +1300,7 @@ export const translations = {
     wb_ai_reprompt_message: "Gambar produk telah dikemas kini. Jalankan semula pengecaman AI untuk maklumat produk?",
     wb_ai_reprompt_confirm_ok: "Jalankan semula",
     wb_ai_reprompt_confirm_cancel: "Bukan sekarang",
+    wb_ai_recognize_failed: "Pengecaman gagal. Sila cuba lagi atau isi maklumat produk secara manual.",
 
     wb_project_list_tooltip: "Senarai Projek",
     wb_project_switch_title: "Tukar Projek",
@@ -1379,6 +1392,12 @@ export const translations = {
     wb_gen_req_issue_product_category: "Kategori produk: wajib.",
     wb_gen_req_issue_core_selling_points: "Poin jualan utama: wajib.",
     wb_gen_req_issue_video_type: "Jenis video: wajib.",
+
+    wb_required_toast: "Sila lengkapkan maklumat wajib sebelum menjana skrip.",
+    wb_required_product_name: "Sila masukkan nama produk.",
+    wb_required_product_category: "Sila pilih kategori produk.",
+    wb_required_core_selling_points: "Sila isi poin jualan utama.",
+    wb_required_video_type: "Sila pilih jenis video.",
 
     lang_en: "Inggeris",
     lang_zh: "Cina",
@@ -1734,6 +1753,7 @@ export const translations = {
     wb_ai_reprompt_message: "Ảnh sản phẩm đã được cập nhật. Nhận diện lại thông tin sản phẩm?",
     wb_ai_reprompt_confirm_ok: "Nhận diện lại",
     wb_ai_reprompt_confirm_cancel: "Chưa",
+    wb_ai_recognize_failed: "Nhận diện thất bại. Vui lòng thử lại hoặc điền thông tin sản phẩm thủ công.",
 
     wb_project_list_tooltip: "Danh sach du an",
     wb_project_switch_title: "Chuyen du an",
@@ -1825,6 +1845,12 @@ export const translations = {
     wb_gen_req_issue_product_category: "Danh mục sản phẩm: bắt buộc.",
     wb_gen_req_issue_core_selling_points: "Điểm bán hàng: bắt buộc.",
     wb_gen_req_issue_video_type: "Loại video: bắt buộc.",
+
+    wb_required_toast: "Vui lòng hoàn thiện thông tin bắt buộc trước khi tạo kịch bản.",
+    wb_required_product_name: "Vui lòng nhập tên sản phẩm.",
+    wb_required_product_category: "Vui lòng chọn danh mục sản phẩm.",
+    wb_required_core_selling_points: "Vui lòng nhập điểm bán hàng.",
+    wb_required_video_type: "Vui lòng chọn loại video.",
 
     lang_en: "Tiếng Anh",
     lang_zh: "Tiếng Trung",
@@ -2190,6 +2216,7 @@ export const translations = {
     wb_ai_reprompt_message: "상품 이미지가 업데이트되었습니다. 상품 정보를 다시 인식할까요?",
     wb_ai_reprompt_confirm_ok: "다시 인식",
     wb_ai_reprompt_confirm_cancel: "나중에",
+    wb_ai_recognize_failed: "인식에 실패했습니다. 다시 시도하거나 상품 정보를 수동으로 입력해 주세요.",
 
     wb_project_list_tooltip: "프로젝트 목록",
     wb_project_switch_title: "프로젝트 전환",
@@ -2281,6 +2308,12 @@ export const translations = {
     wb_gen_req_issue_product_category: "상품 카테고리: 필수입니다.",
     wb_gen_req_issue_core_selling_points: "핵심 판매 포인트: 필수입니다.",
     wb_gen_req_issue_video_type: "비디오 유형: 필수입니다.",
+
+    wb_required_toast: "필수 정보를 입력한 뒤 스크립트를 생성하세요.",
+    wb_required_product_name: "상품명을 입력해 주세요.",
+    wb_required_product_category: "상품 카테고리를 선택해 주세요.",
+    wb_required_core_selling_points: "핵심 판매 포인트를 입력해 주세요.",
+    wb_required_video_type: "비디오 유형을 선택해 주세요.",
 
     lang_en: "영어",
     lang_zh: "중국어",

@@ -323,7 +323,7 @@ export const videoApi = {
     return await response.json();
   },
 
-  recognizeProductInfo: async (payload: { image_paths: string[] }) => {
+  recognizeProductInfo: async (payload: { image_paths: string[]; output_language?: string }) => {
     const csrftoken = getCookie('csrftoken');
 
     const response = await fetch(`${API_BASE_URL}/recognize-product/`, {

@@ -3747,7 +3747,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   }
                 }}
                 placeholder={t.wb_field_core_selling_points_placeholder}
-                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition resize-none min-h-[80px]"
+                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition resize-y min-h-[80px]"
               />
               {requiredErrors.coreSellingPoints && (
                 <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.coreSellingPoints}</div>
@@ -3848,7 +3848,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 onClick={() => {
                   if (!hasCurrentAsset) openInfo('Notice', t.wb_additional_requirements_need_asset);
                 }}
-                className={`w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-none min-h-[80px] ${!hasCurrentAsset ? 'text-zinc-500 opacity-60' : 'text-zinc-300 focus:border-orange-500 focus:outline-none'}`}
+                className={`w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-y min-h-[80px] ${!hasCurrentAsset ? 'text-zinc-500 opacity-60' : 'text-zinc-300 focus:border-orange-500 focus:outline-none'}`}
                 placeholder={t.wb_field_additional_requirements_placeholder}
                 value={genPrompt}
                 onChange={(e) => {
@@ -4956,7 +4956,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
            
            <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
               {activeScriptPlan && (
-                <div className="rounded-2xl border border-emerald-400/25 bg-gradient-to-br from-emerald-500/10 via-black/60 to-black/80 p-4 shadow-[0_12px_36px_rgba(16,185,129,0.12)]">
+                <div className="glass-panel wb-script-plan-card rounded-2xl p-4 shadow-lg shadow-black/20">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
                       <div className="w-7 h-7 rounded-lg bg-emerald-400/20 border border-emerald-300/30 flex items-center justify-center">

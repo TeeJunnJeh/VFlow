@@ -20,6 +20,14 @@ function getCookie(name: string) {
 
 export type HistoryProjectStatus = 'DRAFT' | 'PENDING' | 'PROCESSING' | 'SUCCESS' | 'FAILED';
 
+export type HistorySort = 'updated_at_desc' | 'updated_at_asc' | 'created_at_desc' | 'created_at_asc';
+
+export interface HistoryQueryParams {
+  status?: 'ALL' | HistoryProjectStatus;
+  keyword?: string;
+  sort?: HistorySort;
+}
+
 export interface HistoryProject {
   id: string;
   title: string;
@@ -369,8 +377,22 @@ export const videoApi = {
   },
 
   // 4. History list
-  getHistory: async (): Promise<HistoryProject[]> => {
-    const response = await fetch(`${API_BASE_URL}/history/`, {
+  getHistory: async (params?: HistoryQueryParams): Promise<HistoryProject[]> => {
+    const query = new URLSearchParams();
+    if (params?.status && params.status !== 'ALL') {
+      query.set('status', params.status);
+    }
+    if (params?.keyword && params.keyword.trim()) {
+      query.set('keyword', params.keyword.trim());
+    }
+    if (params?.sort) {
+      query.set('sort', params.sort);
+    }
+
+    const queryString = query.toString();
+    const url = `${API_BASE_URL}/history/${queryString ? `?${queryString}` : ''}`;
+
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -424,6 +446,43 @@ export const videoApi = {
     }
 
     return true;
+  },
+
+  // 6. Bulk delete projects
+  deleteProjects: async (projectIds: string[]): Promise<{ deleted_count: number; missing_ids: string[] }> => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/bulk-delete/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ project_ids: projectIds }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await readApiError(response));
+    }
+
+    if (response.redirected) throw new Error('Unauthorized');
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      return { deleted_count: 0, missing_ids: [] };
+    }
+
+    const json = (await response.json()) as ApiEnvelope<{ deleted_count?: number; missing_ids?: string[] }>;
+    if (json?.code !== undefined && json.code !== 0) {
+      throw new Error((json?.message || 'Failed to bulk delete projects') as string);
+    }
+
+    const data = json?.data || {};
+    return {
+      deleted_count: Number(data.deleted_count || 0),
+      missing_ids: Array.isArray(data.missing_ids) ? data.missing_ids : [],
+    };
   },
 };
 

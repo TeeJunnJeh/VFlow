@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Loader2, Play, Trash2, Video, FileJson, X } from 'lucide-react';
+import { AlertCircle, Download, Loader2, Play, Trash2, Video, FileJson, X } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
-import { videoApi, type HistoryProject } from '../../services/video';
+import { videoApi, type HistoryProject, type HistorySort } from '../../services/video';
 import { AppDialog } from '../common/AppDialog';
 
 const toDisplayUrl = (path: string | null | undefined): string | null => {
@@ -73,6 +73,13 @@ export const HistoryView = () => {
   const [deleteTarget, setDeleteTarget] = useState<HistoryProject | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [promptProject, setPromptProject] = useState<HistoryProject | null>(null);
+  const [selectedProjects, setSelectedProjects] = useState<Record<string, { id: string; title: string; video_url: string | null }>>({});
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'ALL' | HistoryProject['status']>('ALL');
+  const [sortBy, setSortBy] = useState<HistorySort>('updated_at_desc');
+  const [searchInput, setSearchInput] = useState('');
+  const [searchKeyword, setSearchKeyword] = useState('');
 
   const categoryLabels: Record<string, string> = {
     camera: t.opt_cat_camera,
@@ -96,10 +103,20 @@ export const HistoryView = () => {
   const statusLabels: Record<string, string> = useMemo(() => ({
     SUCCESS: t.hist_status_success,
     PROCESSING: t.hist_status_processing,
-    PENDING: t.hist_status_processing,
+    PENDING: t.hist_status_pending,
     FAILED: t.hist_status_failed,
     DRAFT: t.hist_status_draft,
   }), [t]);
+
+  const historyQuery = useMemo(() => ({
+    status: statusFilter,
+    keyword: searchKeyword,
+    sort: sortBy,
+  }), [statusFilter, searchKeyword, sortBy]);
+
+  const selectedIds = useMemo(() => Object.keys(selectedProjects), [selectedProjects]);
+  const selectedCount = selectedIds.length;
+  const allSelected = projects.length > 0 && projects.every((item) => Boolean(selectedProjects[item.id]));
 
   const renderConfigLine = (proj: HistoryProject) => {
     const catRaw = displayValue(proj.config_snapshot?.category);
@@ -125,7 +142,7 @@ export const HistoryView = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await videoApi.getHistory();
+      const data = await videoApi.getHistory(historyQuery);
       setProjects(Array.isArray(data) ? data : []);
     } catch (e: unknown) {
       setError(getErrorMessage(e, 'Failed to load history'));
@@ -134,6 +151,14 @@ export const HistoryView = () => {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSearchKeyword(searchInput.trim());
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,7 +175,7 @@ export const HistoryView = () => {
       setError(null);
 
       try {
-        const data = await videoApi.getHistory();
+        const data = await videoApi.getHistory(historyQuery);
         if (cancelled) return;
         setProjects(Array.isArray(data) ? data : []);
       } catch (e: unknown) {
@@ -166,7 +191,7 @@ export const HistoryView = () => {
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [user?.id, historyQuery]);
 
   useEffect(() => {
     if (!playingVideo) return;
@@ -177,6 +202,24 @@ export const HistoryView = () => {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [playingVideo]);
+
+  useEffect(() => {
+    if (projects.length === 0) return;
+    setSelectedProjects((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      projects.forEach((proj) => {
+        if (!next[proj.id]) return;
+        const title = proj.title || t.hist_untitled_project;
+        const videoUrl = proj.video_url || null;
+        if (next[proj.id].title !== title || next[proj.id].video_url !== videoUrl) {
+          next[proj.id] = { id: proj.id, title, video_url: videoUrl };
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [projects, t.hist_untitled_project]);
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -193,11 +236,120 @@ export const HistoryView = () => {
     try {
       await videoApi.deleteProject(deleteTarget.id);
       setProjects(prev => prev.filter(project => project.id !== deleteTarget.id));
+      setSelectedProjects((prev) => {
+        if (!prev[deleteTarget.id]) return prev;
+        const next = { ...prev };
+        delete next[deleteTarget.id];
+        return next;
+      });
       setDeleteTarget(null);
     } catch (err: unknown) {
       setFeedbackMessage(getErrorMessage(err, t.hist_delete_failed));
     } finally {
       setDeletingId(prev => (prev === deleteTarget.id ? null : prev));
+    }
+  };
+
+  const toggleSelect = (proj: HistoryProject) => {
+    setSelectedProjects((prev) => {
+      if (prev[proj.id]) {
+        const next = { ...prev };
+        delete next[proj.id];
+        return next;
+      }
+      return {
+        ...prev,
+        [proj.id]: {
+          id: proj.id,
+          title: proj.title || t.hist_untitled_project,
+          video_url: proj.video_url || null,
+        },
+      };
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      const currentPageIds = new Set(projects.map((item) => item.id));
+      setSelectedProjects((prev) => {
+        const next = { ...prev };
+        currentPageIds.forEach((id) => {
+          delete next[id];
+        });
+        return next;
+      });
+      return;
+    }
+    setSelectedProjects((prev) => {
+      const next = { ...prev };
+      projects.forEach((item) => {
+        next[item.id] = {
+          id: item.id,
+          title: item.title || t.hist_untitled_project,
+          video_url: item.video_url || null,
+        };
+      });
+      return next;
+    });
+  };
+
+  const triggerDownload = (url: string, fileName: string) => {
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const buildDownloadName = (title: string, index?: number) => {
+    const safe = title.replace(/[\\/:*?"<>|]+/g, '_').trim() || 'video';
+    const suffix = typeof index === 'number' ? `_${index + 1}` : '';
+    return `${safe}${suffix}.mp4`;
+  };
+
+  const handleDownload = (proj: { title: string; video_url: string | null }) => {
+    const url = toDisplayUrl(proj.video_url);
+    if (!url) {
+      setFeedbackMessage(t.hist_video_not_ready);
+      return;
+    }
+    triggerDownload(url, buildDownloadName(proj.title || t.hist_untitled_project));
+  };
+
+  const handleBatchDownload = () => {
+    const selectedList = selectedIds.map((id) => selectedProjects[id]).filter(Boolean);
+    const downloadable = selectedList.filter((item) => Boolean(item.video_url));
+    if (downloadable.length === 0) {
+      setFeedbackMessage(t.hist_batch_download_empty);
+      return;
+    }
+
+    downloadable.forEach((item, index) => {
+      window.setTimeout(() => {
+        const url = toDisplayUrl(item.video_url);
+        if (!url) return;
+        triggerDownload(url, buildDownloadName(item.title || t.hist_untitled_project, index));
+      }, index * 180);
+    });
+  };
+
+  const confirmBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+
+    setIsBulkDeleting(true);
+    try {
+      const targetSet = new Set(selectedIds);
+      await videoApi.deleteProjects(selectedIds);
+      setProjects((prev) => prev.filter((item) => !targetSet.has(item.id)));
+      setSelectedProjects({});
+      setIsBulkDeleteOpen(false);
+    } catch (err: unknown) {
+      setFeedbackMessage(getErrorMessage(err, t.hist_bulk_delete_failed));
+    } finally {
+      setIsBulkDeleting(false);
     }
   };
 
@@ -251,13 +403,139 @@ export const HistoryView = () => {
               </button>
             </div>
           ) : projects.length === 0 ? (
-            <div className="text-center py-20 text-zinc-500">
-              <Video className="w-12 h-12 mx-auto mb-4 opacity-20" />
-              <p>{t.hist_empty}</p>
-            </div>
+            <>
+              <div className="mb-5 p-4 rounded-xl border border-white/10 bg-transparent">
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto_auto] gap-3">
+                  <input
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    placeholder={t.hist_filter_search_placeholder}
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-orange-500"
+                  />
+
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value as 'ALL' | HistoryProject['status'])}
+                    className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-orange-500"
+                  >
+                    <option value="ALL">{t.hist_filter_all_status}</option>
+                    <option value="SUCCESS">{t.hist_status_success}</option>
+                    <option value="PROCESSING">{t.hist_status_processing}</option>
+                    <option value="PENDING">{t.hist_status_pending}</option>
+                    <option value="FAILED">{t.hist_status_failed}</option>
+                    <option value="DRAFT">{t.hist_status_draft}</option>
+                  </select>
+
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as HistorySort)}
+                    className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-orange-500"
+                  >
+                    <option value="updated_at_desc">{t.hist_sort_updated_desc}</option>
+                    <option value="updated_at_asc">{t.hist_sort_updated_asc}</option>
+                    <option value="created_at_desc">{t.hist_sort_created_desc}</option>
+                    <option value="created_at_asc">{t.hist_sort_created_asc}</option>
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStatusFilter('ALL');
+                      setSortBy('updated_at_desc');
+                      setSearchInput('');
+                      setSearchKeyword('');
+                    }}
+                    className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-200 hover:bg-white/10 transition"
+                  >
+                    {t.hist_filter_reset}
+                  </button>
+                </div>
+              </div>
+
+              <div className="text-center py-20 text-zinc-500">
+                <Video className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                <p>{t.hist_empty}</p>
+              </div>
+            </>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {projects.map(proj => {
+            <>
+              <div className="mb-5 p-4 rounded-xl border border-white/10 bg-transparent">
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto_auto] gap-3">
+                  <input
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    placeholder={t.hist_filter_search_placeholder}
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-orange-500"
+                  />
+
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value as 'ALL' | HistoryProject['status'])}
+                    className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-orange-500"
+                  >
+                    <option value="ALL">{t.hist_filter_all_status}</option>
+                    <option value="SUCCESS">{t.hist_status_success}</option>
+                    <option value="PROCESSING">{t.hist_status_processing}</option>
+                    <option value="PENDING">{t.hist_status_pending}</option>
+                    <option value="FAILED">{t.hist_status_failed}</option>
+                    <option value="DRAFT">{t.hist_status_draft}</option>
+                  </select>
+
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as HistorySort)}
+                    className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-orange-500"
+                  >
+                    <option value="updated_at_desc">{t.hist_sort_updated_desc}</option>
+                    <option value="updated_at_asc">{t.hist_sort_updated_asc}</option>
+                    <option value="created_at_desc">{t.hist_sort_created_desc}</option>
+                    <option value="created_at_asc">{t.hist_sort_created_asc}</option>
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStatusFilter('ALL');
+                      setSortBy('updated_at_desc');
+                      setSearchInput('');
+                      setSearchKeyword('');
+                    }}
+                    className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-200 hover:bg-white/10 transition"
+                  >
+                    {t.hist_filter_reset}
+                  </button>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={toggleSelectAll}
+                    className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${allSelected ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10'}`}
+                  >
+                    {allSelected ? t.hist_selection_clear : t.hist_selection_all}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBatchDownload}
+                    disabled={selectedCount === 0}
+                    className={`rounded-lg border px-3 py-2 text-xs font-bold transition flex items-center gap-1 ${selectedCount > 0 ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed'}`}
+                  >
+                    <Download className="w-4 h-4" />
+                    {t.hist_bulk_download_action}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsBulkDeleteOpen(true)}
+                    disabled={selectedCount === 0}
+                    className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${selectedCount > 0 ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed'}`}
+                  >
+                    {t.hist_bulk_delete_action} ({selectedCount})
+                  </button>
+                </div>
+                <div className="mt-2 text-xs text-zinc-500">{projects.length} {t.hist_results_label}</div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {projects.map(proj => {
                 const coverUrl = toDisplayUrl(proj.cover_url);
                 const videoUrl = toDisplayUrl(proj.video_url);
                 const canPlay = proj.status === 'SUCCESS' && !!videoUrl;
@@ -272,6 +550,19 @@ export const HistoryView = () => {
                     title={proj.title || ''}
                   >
                     <div className="aspect-video bg-black/40 relative overflow-hidden">
+                      <label
+                        className="absolute top-2 left-2 z-20 flex items-center gap-1 rounded-md bg-black/70 px-2 py-1 text-[11px] text-zinc-100 border border-white/15"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={Boolean(selectedProjects[proj.id])}
+                          onChange={() => toggleSelect(proj)}
+                          className="accent-orange-500"
+                        />
+                        {t.assets_select}
+                      </label>
+
                       {canPlay ? (
                         <>
                           {coverUrl ? (
@@ -302,21 +593,23 @@ export const HistoryView = () => {
                         </div>
                       )}
 
-                      <div className="absolute inset-0 z-10 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-none flex flex-col items-center justify-center gap-2 py-4 px-4">
-                        <button
-                          onClick={() => handlePlay(proj)}
-                          className="w-full bg-white text-black py-2 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition shadow-lg flex items-center justify-center gap-2"
-                        >
-                          <Play className="w-3.5 h-3.5" />
-                          {t.hist_action_view_video}
-                        </button>
-                        <button
-                          onClick={() => handleOpenPrompt(proj)}
-                          className="w-full bg-zinc-800 text-white py-2 rounded-lg text-xs font-bold hover:bg-zinc-700 transition flex items-center justify-center gap-2"
-                        >
-                          <FileJson className="w-3.5 h-3.5" />
-                          {t.hist_action_view_prompt}
-                        </button>
+                      <div className="absolute inset-0 z-10 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-none flex items-center justify-center py-4 px-4">
+                        <div className="w-full flex items-center gap-2">
+                          <button
+                            onClick={() => handlePlay(proj)}
+                            className="flex-1 bg-white text-black py-2 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition shadow-lg flex items-center justify-center gap-2"
+                          >
+                            <Play className="w-3.5 h-3.5" />
+                            {t.hist_action_view_video}
+                          </button>
+                          <button
+                            onClick={() => handleOpenPrompt(proj)}
+                            className="flex-1 bg-zinc-800 text-white py-2 rounded-lg text-xs font-bold hover:bg-zinc-700 transition flex items-center justify-center gap-2"
+                          >
+                            <FileJson className="w-3.5 h-3.5" />
+                            {t.hist_action_view_prompt}
+                          </button>
+                        </div>
                       </div>
                     </div>
 
@@ -341,6 +634,14 @@ export const HistoryView = () => {
                         </div>
 
                         <button
+                          onClick={() => handleDownload({ title: proj.title || t.hist_untitled_project, video_url: proj.video_url })}
+                          className="p-1.5 text-zinc-600 hover:text-zinc-200 hover:bg-zinc-500/10 rounded transition"
+                          title={t.hist_action_download}
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
                           onClick={(e) => handleDelete(e, proj.id)}
                           className="p-1.5 text-zinc-600 hover:text-red-400 hover:bg-red-500/10 rounded transition disabled:opacity-50 disabled:cursor-not-allowed"
                           title={t.assets_delete}
@@ -356,11 +657,44 @@ export const HistoryView = () => {
                     </div>
                   </div>
                 );
-              })}
-            </div>
+                })}
+              </div>
+            </>
           )}
         </div>
       </div>
+
+      <AppDialog
+        isOpen={isBulkDeleteOpen}
+        title={t.hist_bulk_delete_title}
+        onClose={() => {
+          if (isBulkDeleting) return;
+          setIsBulkDeleteOpen(false);
+        }}
+        footer={
+          <>
+            <button
+              className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700 disabled:opacity-60"
+              onClick={() => setIsBulkDeleteOpen(false)}
+              disabled={isBulkDeleting}
+            >
+              {t.assets_move_cancel}
+            </button>
+            <button
+              className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500 disabled:opacity-60 flex items-center gap-2"
+              onClick={() => void confirmBulkDelete()}
+              disabled={isBulkDeleting || selectedCount === 0}
+            >
+              {isBulkDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {t.hist_bulk_delete_action}
+            </button>
+          </>
+        }
+      >
+        <div className="whitespace-pre-line text-zinc-300">
+          {t.hist_bulk_delete_message_prefix} {selectedCount} {t.hist_bulk_delete_message_suffix}
+        </div>
+      </AppDialog>
 
       <AppDialog
         isOpen={!!deleteTarget}

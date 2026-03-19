@@ -4,7 +4,7 @@ import {
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift,
-  SlidersHorizontal
+  SlidersHorizontal, RefreshCw
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -260,8 +260,8 @@ const loadLocalProjectStore = (userId?: string | number | null): LocalProjectSto
     if (!parsed || typeof parsed !== 'object') return createDefaultProjectStore();
     if (!Array.isArray(parsed.projects) || parsed.projects.length === 0) return createDefaultProjectStore();
     const currentProjectId = typeof parsed.currentProjectId === 'string' && parsed.currentProjectId
-      ? parsed.currentProjectId
-      : parsed.projects[0].id;
+        ? parsed.currentProjectId
+        : parsed.projects[0].id;
     return {
       currentProjectId,
       projects: parsed.projects as LocalProjectMeta[],
@@ -275,9 +275,9 @@ const loadLocalProjectStore = (userId?: string | number | null): LocalProjectSto
 const ensureUniqueProjectName = (rawName: string, projects: LocalProjectMeta[], excludeId?: string): string => {
   const baseName = (rawName || '').trim() || 'Project';
   const names = new Set(
-    projects
-      .filter((project) => project.id !== excludeId)
-      .map((project) => project.name.toLowerCase())
+      projects
+          .filter((project) => project.id !== excludeId)
+          .map((project) => project.name.toLowerCase())
   );
   if (!names.has(baseName.toLowerCase())) return baseName;
   let suffix = 1;
@@ -290,14 +290,14 @@ const ensureUniqueProjectName = (rawName: string, projects: LocalProjectMeta[], 
 };
 
 const SoraStarIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
-    <path
-      d="M12 2.5l2.2 7.3 7.3 2.2-7.3 2.2-2.2 7.3-2.2-7.3-7.3-2.2 7.3-2.2L12 2.5Z"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinejoin="round"
-    />
-  </svg>
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path
+          d="M12 2.5l2.2 7.3 7.3 2.2-7.3 2.2-2.2 7.3-2.2-7.3-7.3-2.2 7.3-2.2L12 2.5Z"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinejoin="round"
+      />
+    </svg>
 );
 
 // Helper constants
@@ -334,12 +334,12 @@ type LangLabelKey =
     | 'lang_vi';
 
 type RegionLabelKey =
-  | 'wb_region_us'
-  | 'wb_region_sea'
-  | 'wb_region_eu'
-  | 'wb_region_jp'
-  | 'wb_region_kr'
-  | 'wb_region_cn';
+    | 'wb_region_us'
+    | 'wb_region_sea'
+    | 'wb_region_eu'
+    | 'wb_region_jp'
+    | 'wb_region_kr'
+    | 'wb_region_cn';
 
 type GuideStepKey = 'mode' | 'upload' | 'config' | 'scripts' | 'preview';
 
@@ -383,7 +383,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                                               selectedTemplate,
                                                               generatedVideoUrl,
                                                               setGeneratedVideoUrl,
-                                                              onExportToServer // ★ 接收新增的 prop
+                                                              onExportToServer
                                                             }) => {
   const { t, language } = useLanguage();
   const { user } = useAuth();
@@ -413,7 +413,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
   const [promptTemplates, setPromptTemplates] = useState<PromptStepTemplate[]>([]);
   const [promptOverrides, setPromptOverrides] = useState<PromptOverrides>(() =>
-    ENABLE_PROMPT_LAB ? loadPromptOverrides() : {}
+      ENABLE_PROMPT_LAB ? loadPromptOverrides() : {}
   );
   const [promptTemplatesLoading, setPromptTemplatesLoading] = useState(false);
   const [promptTemplatesError, setPromptTemplatesError] = useState<string | null>(null);
@@ -421,18 +421,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [guideStepIndex, setGuideStepIndex] = useState(0);
   const [guidePanelStyle, setGuidePanelStyle] = useState<React.CSSProperties>({});
   const promptOverridesPayload = useMemo(
-    () => (ENABLE_PROMPT_LAB ? buildBackendPromptOverrides(promptOverrides) : null),
-    [promptOverrides]
+      () => (ENABLE_PROMPT_LAB ? buildBackendPromptOverrides(promptOverrides) : null),
+      [promptOverrides]
   );
   const guideSteps = useMemo<Array<{ key: GuideStepKey; title: string; description: string }>>(
-    () => [
-      { key: 'mode', title: t.wb_guide_mode_title, description: t.wb_guide_mode_desc },
-      { key: 'upload', title: t.wb_guide_upload_title, description: t.wb_guide_upload_desc },
-      { key: 'config', title: t.wb_guide_config_title, description: t.wb_guide_config_desc },
-      { key: 'scripts', title: t.wb_guide_scripts_title, description: t.wb_guide_scripts_desc },
-      { key: 'preview', title: t.wb_guide_preview_title, description: t.wb_guide_preview_desc },
-    ],
-    [language]
+      () => [
+        { key: 'mode', title: t.wb_guide_mode_title, description: t.wb_guide_mode_desc },
+        { key: 'upload', title: t.wb_guide_upload_title, description: t.wb_guide_upload_desc },
+        { key: 'config', title: t.wb_guide_config_title, description: t.wb_guide_config_desc },
+        { key: 'scripts', title: t.wb_guide_scripts_title, description: t.wb_guide_scripts_desc },
+        { key: 'preview', title: t.wb_guide_preview_title, description: t.wb_guide_preview_desc },
+      ],
+      [language]
   );
 
   const loadPromptLabTemplates = async () => {
@@ -465,7 +465,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null);
   const [selectedAssetSource, setSelectedAssetSource] = useState<'product' | 'preference' | null>(initialAssetSource || null);
   const [isDragUploadActive, setIsDragUploadActive] = useState(false);
-  // We use this to display the URL if provided initially
   const [selectedAssetUrl, setSelectedAssetUrl] = useState<string | null>(initialFileUrl || null);
   const [lastUploadedUrl, setLastUploadedUrl] = useState<string | null>(initialFileUrl || null);
   const [lastGeneratedProjectId, setLastGeneratedProjectId] = useState<string | null>(null);
@@ -479,13 +478,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [assetLibraryLoading, setAssetLibraryLoading] = useState(false);
   const [assetLibraryError, setAssetLibraryError] = useState<string | null>(null);
 
-  // Draft restore / autosave
   const [isRestoring, setIsRestoring] = useState(true);
   const [pendingTemplateId, setPendingTemplateId] = useState<string | null>(null);
-  // Track whether we actually restored a draft snapshot this session.
-  // If true, we must NOT auto-pick a template (draft selection has priority, including "Custom Config").
   const [wasDraftRestored, setWasDraftRestored] = useState(false);
-  // One-shot guard: don't keep forcing a template after the user intentionally switches back to "Custom Config".
   const hasAutoSelectedTemplateRef = useRef(false);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestSnapshotRef = useRef<WorkbenchSnapshot | null>(null);
@@ -548,12 +543,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   });
   const lastFastModelRef = useRef<'kling' | 'sora2' | 'sora2pro' | 'seedance2.0'>('kling');
   const currentAssetMediaKind = inferMediaKind({ name: fileName, url: selectedAssetUrl || uploadedFile, file: selectedFileObj });
-  
+
   // Processing State
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
-  const [isExporting, setIsExporting] = useState(false); 
+  const [isExporting, setIsExporting] = useState(false);
   const [isPreparingDebug, setIsPreparingDebug] = useState(false);
   const [isSendingDebug, setIsSendingDebug] = useState(false);
   const [debugPayloadText, setDebugPayloadText] = useState('');
@@ -574,7 +569,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   // Video Player State
   const [isPlaying, setIsPlaying] = useState(false);
-  // Info dialog state to replace native alert()
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [infoTitle, setInfoTitle] = useState('');
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
@@ -583,7 +577,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setInfoMessage(message || null);
     setIsInfoOpen(true);
   };
-  // Confirm dialog helper (returns a Promise<boolean>)
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [confirmTitle, setConfirmTitle] = useState('');
   const [confirmMessage, setConfirmMessage] = useState('');
@@ -591,12 +584,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [confirmCancelLabel, setConfirmCancelLabel] = useState('');
   const confirmResolveRef = useRef<((v: boolean) => void) | null>(null);
   const openConfirm = (
-    title: string,
-    message: string,
-    opts?: {
-      okLabel?: string;
-      cancelLabel?: string;
-    }
+      title: string,
+      message: string,
+      opts?: {
+        okLabel?: string;
+        cancelLabel?: string;
+      }
   ) => {
     return new Promise<boolean>((resolve) => {
       confirmResolveRef.current = resolve;
@@ -649,8 +642,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const projectListRef = useRef<HTMLDivElement | null>(null);
   const isApplyingProjectWorkspaceRef = useRef(false);
   const currentProject = useMemo(
-    () => projectStore.projects.find((project) => project.id === projectStore.currentProjectId) || null,
-    [projectStore.currentProjectId, projectStore.projects]
+      () => projectStore.projects.find((project) => project.id === projectStore.currentProjectId) || null,
+      [projectStore.currentProjectId, projectStore.projects]
   );
 
   const projectUiText = useMemo(() => ({
@@ -687,8 +680,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const compactTimeLanguages = new Set(['zh', 'ko']);
   const useCompactTime = compactTimeLanguages.has(language);
   const sortedProjects = useMemo(
-    () => [...projectStore.projects].sort((a, b) => b.updatedAt - a.updatedAt),
-    [projectStore.projects]
+      () => [...projectStore.projects].sort((a, b) => b.updatedAt - a.updatedAt),
+      [projectStore.projects]
   );
   const filteredProjects = useMemo(() => {
     const keyword = projectSearch.trim().toLowerCase();
@@ -751,9 +744,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const restoredAssetQueue = (Array.isArray(workspace.assetQueue) ? workspace.assetQueue : []).map((item) => {
       const rawPreview = item?.previewUrl || null;
       const stablePreview =
-        (rawPreview && rawPreview.startsWith('blob:'))
-          ? (toDisplayUrl(item.uploadedPath || item.assetUrl) || null)
-          : (toDisplayUrl(rawPreview) || rawPreview);
+          (rawPreview && rawPreview.startsWith('blob:'))
+              ? (toDisplayUrl(item.uploadedPath || item.assetUrl) || null)
+              : (toDisplayUrl(rawPreview) || rawPreview);
 
       return {
         ...item,
@@ -811,9 +804,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const commitProjectRename = (
-    projectId: string,
-    nameDraft: string,
-    options?: { keepEditingOnFail?: boolean; originalName?: string }
+      projectId: string,
+      nameDraft: string,
+      options?: { keepEditingOnFail?: boolean; originalName?: string }
   ) => {
     const trimmedName = (nameDraft || '').trim();
     if (trimmedName.length > MAX_PROJECT_NAME_LENGTH) {
@@ -823,8 +816,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         setRenameRetryState({ projectId, originalName: fallbackName });
       }
       openInfo(
-        t.assets_confirm_title || 'Notice',
-        messageTpl.replace('{max}', String(MAX_PROJECT_NAME_LENGTH))
+          t.assets_confirm_title || 'Notice',
+          messageTpl.replace('{max}', String(MAX_PROJECT_NAME_LENGTH))
       );
       return false;
     }
@@ -833,7 +826,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return {
         ...prev,
         projects: prev.projects.map((project) => (
-          project.id === projectId ? { ...project, name: nextName, updatedAt: Date.now() } : project
+            project.id === projectId ? { ...project, name: nextName, updatedAt: Date.now() } : project
         )),
       };
     });
@@ -901,7 +894,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const toggleProjectSelection = (projectId: string) => {
     setSelectedProjectIds((prev) => (
-      prev.includes(projectId) ? prev.filter((id) => id !== projectId) : [...prev, projectId]
+        prev.includes(projectId) ? prev.filter((id) => id !== projectId) : [...prev, projectId]
     ));
   };
 
@@ -910,8 +903,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setProjectStore((prev) => {
       const remaining = prev.projects.filter((project) => !idSet.has(project.id));
       const nextProjects = remaining.length > 0
-        ? remaining
-        : [{ id: 'project_alpha_01', name: DEFAULT_PROJECT_NAME, updatedAt: Date.now() }];
+          ? remaining
+          : [{ id: 'project_alpha_01', name: DEFAULT_PROJECT_NAME, updatedAt: Date.now() }];
       const nextCurrent = idSet.has(prev.currentProjectId) ? nextProjects[0].id : prev.currentProjectId;
       const nextWorkspaces = { ...prev.workspaces };
       ids.forEach((id) => { delete nextWorkspaces[id]; });
@@ -968,7 +961,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         uploadedPath: initialFileUrl,
       }
     ]));
-  }, [initialAssetSource, initialFileName, initialFileUrl]); 
+  }, [initialAssetSource, initialFileName, initialFileUrl]);
 
   useEffect(() => {
     const currentProjectId = projectStore.currentProjectId;
@@ -981,7 +974,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       scripts: buildDemoScripts(),
       scriptPagePrefix: t.wb_script_page_prefix,
     }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectStore.currentProjectId, templateList, t.wb_script_page_prefix, t.demo_shot1_visual, t.demo_shot1_audio, t.demo_shot2_visual, t.demo_shot2_audio]);
 
   useEffect(() => {
@@ -1008,9 +1001,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const persistedAssetQueue = assetQueue.map((item) => {
       const rawPreview = item.previewUrl;
       const stablePreview =
-        rawPreview && rawPreview.startsWith('blob:')
-          ? (item.uploadedPath || item.assetUrl || null)
-          : rawPreview;
+          rawPreview && rawPreview.startsWith('blob:')
+              ? (item.uploadedPath || item.assetUrl || null)
+              : rawPreview;
 
       return {
         ...item,
@@ -1056,7 +1049,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return {
         ...prev,
         projects: prev.projects.map((project) => (
-          project.id === currentProjectId ? { ...project, updatedAt: Date.now() } : project
+            project.id === currentProjectId ? { ...project, updatedAt: Date.now() } : project
         )),
         workspaces: {
           ...prev.workspaces,
@@ -1126,7 +1119,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setProjectActionMenuId(null);
   }, [projectMenuOpen]);
 
-  useEffect(() => { 
+  useEffect(() => {
     // Reset or update duration when template changes
     if (!selectedTemplate) {
       return;
@@ -1386,11 +1379,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const source: 'product' | 'preference' = asset.media_kind === 'video' ? 'preference' : 'product';
     const nextMaterialType: AssetLibraryTab = asset.media_kind === 'video' ? 'motion' : assetLibraryTab;
     const mediaKind: QueuedAsset['mediaKind'] =
-      asset.media_kind === 'video'
-        ? 'video'
-        : asset.media_kind === 'audio'
-          ? 'audio'
-          : (asset.media_kind === 'image' ? 'image' : inferMediaKind({ name: asset.name || '', url: assetUrl }));
+        asset.media_kind === 'video'
+            ? 'video'
+            : asset.media_kind === 'audio'
+                ? 'audio'
+                : (asset.media_kind === 'image' ? 'image' : inferMediaKind({ name: asset.name || '', url: assetUrl }));
     const queueId = `lib-${asset.id}`;
     const queuedAsset: QueuedAsset = {
       id: queueId,
@@ -1423,8 +1416,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   // Duration Logic
   const currentScriptDuration = ENABLE_STORYBOARD_EDITOR
-    ? scripts.reduce((total, s) => total + (parseFloat(s.dur.replace('s', '')) || 0), 0)
-    : genDuration;
+      ? scripts.reduce((total, s) => total + (parseFloat(s.dur.replace('s', '')) || 0), 0)
+      : genDuration;
   const isDurationValid = Math.abs(currentScriptDuration - genDuration) < 0.1;
   const hasAnyReuseQueue = assetQueue.length > 0 || scriptQueue.length > 0;
   const isReuseReady = assetQueue.length > 0 && scriptQueue.length > 0;
@@ -1486,9 +1479,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const activeGuideStep = isGuideOpen ? guideSteps[guideStepIndex] : null;
   const isGuideFocused = (key: GuideStepKey) => activeGuideStep?.key === key;
   const getGuideFocusClass = (key: GuideStepKey) => (
-    isGuideFocused(key)
-      ? 'relative z-[85] ring-2 ring-orange-400/80 ring-offset-2 ring-offset-black/60 shadow-[0_0_24px_rgba(251,146,60,0.35)] rounded-xl'
-      : ''
+      isGuideFocused(key)
+          ? 'relative z-[85] ring-2 ring-orange-400/80 ring-offset-2 ring-offset-black/60 shadow-[0_0_24px_rgba(251,146,60,0.35)] rounded-xl'
+          : ''
   );
 
   const getGuideTargetElement = useCallback(() => {
@@ -1662,7 +1655,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const getProductRecognitionSources = useCallback(() => {
     return uploadDisplayAssets.filter(
-      (asset) => asset.materialType === 'product' && asset.mediaKind === 'image'
+        (asset) => asset.materialType === 'product' && asset.mediaKind === 'image'
     );
   }, [uploadDisplayAssets]);
 
@@ -1691,7 +1684,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     if (Object.keys(queuedPathUpdates).length > 0) {
       setAssetQueue((prev) => prev.map((item) => (
-        queuedPathUpdates[item.id] ? { ...item, uploadedPath: queuedPathUpdates[item.id] } : item
+          queuedPathUpdates[item.id] ? { ...item, uploadedPath: queuedPathUpdates[item.id] } : item
       )));
     }
 
@@ -1712,7 +1705,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const SEPARATOR_HIT_WIDTH = 16;
     const previewWidth = previewSectionRef.current?.getBoundingClientRect().width ?? 300;
     const maxLeftByLayout = Math.floor(
-      layoutRect.width - previewWidth - SCRIPT_COLUMN_MIN_WIDTH - GAP_PX * 3 - SEPARATOR_HIT_WIDTH
+        layoutRect.width - previewWidth - SCRIPT_COLUMN_MIN_WIDTH - GAP_PX * 3 - SEPARATOR_HIT_WIDTH
     );
     const maxLeft = Math.max(LEFT_COLUMN_MIN_WIDTH, Math.min(640, maxLeftByLayout));
 
@@ -1750,84 +1743,84 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const productImageSignature = useMemo(() => {
     const sources = getProductRecognitionSources();
     return sources
-      .map((asset) => {
-        if (asset.id) return String(asset.id);
-        if (asset.fileObj) {
-          return `${asset.fileObj.name}:${asset.fileObj.size}:${asset.fileObj.lastModified}`;
-        }
-        return String(asset.assetUrl || asset.previewUrl || '');
-      })
-      .filter(Boolean)
-      .join('|');
+        .map((asset) => {
+          if (asset.id) return String(asset.id);
+          if (asset.fileObj) {
+            return `${asset.fileObj.name}:${asset.fileObj.size}:${asset.fileObj.lastModified}`;
+          }
+          return String(asset.assetUrl || asset.previewUrl || '');
+        })
+        .filter(Boolean)
+        .join('|');
   }, [getProductRecognitionSources]);
 
   const handleAiRecognize = useCallback(
-    async (opts?: { skipOverwriteConfirm?: boolean }) => {
-      if (!user?.id) {
-        openInfo('Notice', 'Please log in first');
-        return;
-      }
+      async (opts?: { skipOverwriteConfirm?: boolean }) => {
+        if (!user?.id) {
+          openInfo('Notice', 'Please log in first');
+          return;
+        }
 
-      const imagePaths = await resolveProductRecognitionImagePaths();
-      if (imagePaths.length === 0) {
-        openInfo('Notice', '请先上传至少 1 张商品图片');
-        return;
-      }
+        const imagePaths = await resolveProductRecognitionImagePaths();
+        if (imagePaths.length === 0) {
+          openInfo('Notice', '请先上传至少 1 张商品图片');
+          return;
+        }
 
-      const signature = imagePaths.join('|');
+        const signature = imagePaths.join('|');
 
-      const hasManualInput =
-        (productInfoTouched.name && productName.trim()) ||
-        (productInfoTouched.category && productCategory.trim()) ||
-        (productInfoTouched.sellingPoints && coreSellingPoints.trim()) ||
-        (productInfoTouched.audience && targetAudience.trim());
+        const hasManualInput =
+            (productInfoTouched.name && productName.trim()) ||
+            (productInfoTouched.category && productCategory.trim()) ||
+            (productInfoTouched.sellingPoints && coreSellingPoints.trim()) ||
+            (productInfoTouched.audience && targetAudience.trim());
 
-      if (!opts?.skipOverwriteConfirm && hasManualInput) {
-        const ok = await openConfirm(t.wb_ai_overwrite_title, t.wb_ai_overwrite_message, {
-          okLabel: t.wb_ai_overwrite_confirm_ok,
-          cancelLabel: t.wb_ai_overwrite_confirm_cancel,
-        });
-        if (!ok) return;
-      }
+        if (!opts?.skipOverwriteConfirm && hasManualInput) {
+          const ok = await openConfirm(t.wb_ai_overwrite_title, t.wb_ai_overwrite_message, {
+            okLabel: t.wb_ai_overwrite_confirm_ok,
+            cancelLabel: t.wb_ai_overwrite_confirm_cancel,
+          });
+          if (!ok) return;
+        }
 
-      setIsAiRecognizing(true);
-      try {
-        const resp = await videoApi.recognizeProductInfo({ image_paths: imagePaths, output_language: language });
-        const data = resp?.data || resp?.result || resp?.payload || resp;
+        setIsAiRecognizing(true);
+        try {
+          const resp = await videoApi.recognizeProductInfo({ image_paths: imagePaths, output_language: language });
+          const data = resp?.data || resp?.result || resp?.payload || resp;
 
-        const nextName = String(data?.product_name || '').trim();
-        const nextCategory = String(data?.product_category || '').trim();
-        const nextSelling = Array.isArray(data?.core_selling_points)
-          ? data.core_selling_points.filter(Boolean).join('\n')
-          : String(data?.core_selling_points || '').trim();
-        const nextAudience = String(data?.target_audience || '').trim();
+          const nextName = String(data?.product_name || '').trim();
+          const nextCategory = String(data?.product_category || '').trim();
+          const nextSelling = Array.isArray(data?.core_selling_points)
+              ? data.core_selling_points.filter(Boolean).join('\n')
+              : String(data?.core_selling_points || '').trim();
+          const nextAudience = String(data?.target_audience || '').trim();
 
-        setProductName(nextName);
-        setProductCategory(nextCategory);
-        setCoreSellingPoints(nextSelling);
-        setTargetAudience(nextAudience);
-        setProductInfoTouched({ name: false, category: false, sellingPoints: false, audience: false });
+          setProductName(nextName);
+          setProductCategory(nextCategory);
+          setCoreSellingPoints(nextSelling);
+          setTargetAudience(nextAudience);
+          setProductInfoTouched({ name: false, category: false, sellingPoints: false, audience: false });
 
-        setHasAiRecognized(true);
-        lastRecognizedSignatureRef.current = productImageSignature || signature;
-      } catch (err: any) {
-        openInfo('Error', t.wb_ai_recognize_failed);
-      } finally {
-        setIsAiRecognizing(false);
-      }
-    },
-    [
-      coreSellingPoints,
-      openConfirm,
-      openInfo,
-      productCategory,
-      productImageSignature,
-      productInfoTouched,
-      productName,
-      resolveProductRecognitionImagePaths,
-      targetAudience,
-      user?.id,
-    ]
+          setHasAiRecognized(true);
+          lastRecognizedSignatureRef.current = productImageSignature || signature;
+        } catch (err: any) {
+          openInfo('Error', t.wb_ai_recognize_failed);
+        } finally {
+          setIsAiRecognizing(false);
+        }
+      },
+      [
+        coreSellingPoints,
+        openConfirm,
+        openInfo,
+        productCategory,
+        productImageSignature,
+        productInfoTouched,
+        productName,
+        resolveProductRecognitionImagePaths,
+        targetAudience,
+        user?.id,
+      ]
   );
 
   useEffect(() => {
@@ -1974,11 +1967,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
 
       const prompt =
-        (typeof actionRequired?.prompt === 'string' && actionRequired.prompt.trim())
-          ? actionRequired.prompt.trim()
-          : (requestFlag === 'allow_image_resize'
-            ? '当前图片不满足最小分辨率要求，是否自动放大后继续？'
-            : '当前图片超过 10MB，是否自动压缩后继续？');
+          (typeof actionRequired?.prompt === 'string' && actionRequired.prompt.trim())
+              ? actionRequired.prompt.trim()
+              : (requestFlag === 'allow_image_resize'
+                  ? '当前图片不满足最小分辨率要求，是否自动放大后继续？'
+                  : '当前图片超过 10MB，是否自动压缩后继续？');
 
       const confirmed = await openConfirm('Image Adjustment', prompt);
       if (!confirmed) {
@@ -2142,9 +2135,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         const displayUrl = toDisplayUrl(rawPath);
 
         setAssetQueue((prev) => prev.map((item) => (
-          item.id === latestItem.id
-            ? { ...item, uploadedPath: rawPath, previewUrl: displayUrl || item.previewUrl, fileObj: null }
-            : item
+            item.id === latestItem.id
+                ? { ...item, uploadedPath: rawPath, previewUrl: displayUrl || item.previewUrl, fileObj: null }
+                : item
         )));
 
         setLastUploadedUrl(rawPath);
@@ -2166,14 +2159,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (!persistedPath) return;
 
         setAssetQueue(prev => prev.map(item => (
-          item.id === queueId
-            ? {
-                ...item,
-                previewUrl: persistedPath,
-                assetUrl: persistedPath,
-                uploadedPath: persistedPath,
-              }
-            : item
+            item.id === queueId
+                ? {
+                  ...item,
+                  previewUrl: persistedPath,
+                  assetUrl: persistedPath,
+                  uploadedPath: persistedPath,
+                }
+                : item
         )));
 
         setUploadedFile((prev) => {
@@ -2201,8 +2194,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     if (errors.length > 0) {
       openInfo(
-        (t as any).assets_upload_formats_title || '提示',
-        `${errors.join('\n')}\n\n${(t as any).assets_upload_formats_title || '支持格式'}：${formatHint}`
+          (t as any).assets_upload_formats_title || '提示',
+          `${errors.join('\n')}\n\n${(t as any).assets_upload_formats_title || '支持格式'}：${formatHint}`
       );
     }
     if (validFiles.length === 0) return;
@@ -2442,8 +2435,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const mediaKind = inferMediaKind({ name, url: previewUrl, file: selectedFileObj });
 
     const nextMaterialType: AssetLibraryTab = currentAssetMediaKind === 'video'
-      ? 'motion'
-      : (currentMaterialType || 'product');
+        ? 'motion'
+        : (currentMaterialType || 'product');
     const nextItem: QueuedAsset = {
       id: newId,
       name,
@@ -2623,7 +2616,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       if (Object.keys(queuedPathUpdates).length > 0) {
         setAssetQueue(prev => prev.map(item => (
-          queuedPathUpdates[item.id] ? { ...item, uploadedPath: queuedPathUpdates[item.id] } : item
+            queuedPathUpdates[item.id] ? { ...item, uploadedPath: queuedPathUpdates[item.id] } : item
         )));
       }
 
@@ -2687,10 +2680,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         return next;
       };
       const buildFullScriptFallback = (scriptsList: ScriptItem[]) => (
-        scriptsList
-          .map((item) => normalizeText(item.visual))
-          .filter((text) => !!text)
-          .join(' ')
+          scriptsList
+              .map((item) => normalizeText(item.visual))
+              .filter((text) => !!text)
+              .join(' ')
       );
       const parseScriptPage = (raw: any, idx: number): ScriptPage => {
         const shots = buildScriptsFromShots(raw?.shots || raw?.script_content?.shots || []);
@@ -2704,7 +2697,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           name: `${t.wb_script_page_prefix} ${idx + 1}`,
           scripts: shots,
           referenceSummary: parseReferenceSummary(
-            scriptContent?.reference_assets_summary || raw?.reference_assets_summary
+              scriptContent?.reference_assets_summary || raw?.reference_assets_summary
           ),
           fullScript,
           continuityAnchor: {
@@ -2743,9 +2736,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           if (!allowedTypes.has(type)) continue;
           if (!Array.isArray(item.keywords)) continue;
           const keywords = item.keywords
-            .map((kw: any) => String(kw || '').trim())
-            .filter((kw: string, idx: number, arr: string[]) => kw.length > 0 && arr.indexOf(kw) === idx)
-            .slice(0, 3);
+              .map((kw: any) => String(kw || '').trim())
+              .filter((kw: string, idx: number, arr: string[]) => kw.length > 0 && arr.indexOf(kw) === idx)
+              .slice(0, 3);
           if (keywords.length === 0) continue;
           next.push({ type: type as ReferenceSummaryItem['type'], keywords });
         }
@@ -2925,7 +2918,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [t]); // Re-run when language (t) changes
 
   const formatI18nTemplate = (template: string, vars: Record<string, string | number>) =>
-    template.replace(/\{(\w+)\}/g, (match, key) => (Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : match));
+      template.replace(/\{(\w+)\}/g, (match, key) => (Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : match));
 
   const validateGenerateRequirements = () => {
     const issues: string[] = [];
@@ -2952,10 +2945,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (ENABLE_STORYBOARD_EDITOR && !isDurationValid) {
       const template = t.wb_gen_req_issue_duration_mismatch || 'Storyboard: total shot duration ({scriptDuration}s) must match configured duration ({configDuration}s).';
       issues.push(
-        formatI18nTemplate(template, {
-          scriptDuration: currentScriptDuration.toFixed(1),
-          configDuration: genDuration,
-        })
+          formatI18nTemplate(template, {
+            scriptDuration: currentScriptDuration.toFixed(1),
+            configDuration: genDuration,
+          })
       );
     }
     if (!selectedTemplate?.id && !user?.id) {
@@ -2993,8 +2986,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           let apiPath = asset.uploadedPath || asset.assetUrl || null;
 
           if (!apiPath && asset.fileObj) {
-              const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
-              let rawPath = null;
+            const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
+            let rawPath = null;
             if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
               rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
             } else {
@@ -3016,9 +3009,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         for (const asset of preparedAssets) {
           for (const scriptPack of scriptQueue) {
             const combinedScriptPrompt = buildCombinedScriptPrompt(
-              scriptPack.fullScript || '',
-              scriptPack.creativeCard,
-              scriptPack.scripts
+                scriptPack.fullScript || '',
+                scriptPack.creativeCard,
+                scriptPack.scripts
             );
 
             let newProjectId: string | undefined;
@@ -3040,22 +3033,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               if (!newProjectId) throw new Error('Failed to create project');
             }
 
-              const payload = {
-                model: backendModel,
-                prompt: combinedScriptPrompt,
-                project_id: newProjectId,
-                duration: scriptPack.duration,
-                ...(asset.mediaKind === 'video'
+            const payload = {
+              model: backendModel,
+              prompt: combinedScriptPrompt,
+              project_id: newProjectId,
+              duration: scriptPack.duration,
+              ...(asset.mediaKind === 'video'
                   ? { motion_video_path: (asset as any).apiPath }
                   : { image_path: (asset as any).apiPath }),
-                sound: soundSetting,
-                asset_source: asset.source,
-                user_language: language,
-                target_language: targetLanguage,
-                model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
-                motion_asset_id: asset.mediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
-                ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
-              };
+              sound: soundSetting,
+              asset_source: asset.source,
+              user_language: language,
+              target_language: targetLanguage,
+              model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
+              motion_asset_id: asset.mediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
+              ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
+            };
 
             const genResp = await generateWithAdaptiveImageConfirm(payload);
             const taskId = genResp?.data?.task_id || genResp?.task_id;
@@ -3090,12 +3083,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         } else {
           openInfo('Notice', '批量提交完成，但未返回有效任务ID');
         }
-    } catch (err: any) {
-      if (err?.message === USER_CANCELLED_ADAPT) {
-        openInfo('Notice', '已取消图片自动处理，批量生成已停止。');
-      } else {
-        openInfo('Error', `批量生成失败：${err?.message || '未知错误'}`);
-      }
+      } catch (err: any) {
+        if (err?.message === USER_CANCELLED_ADAPT) {
+          openInfo('Notice', '已取消图片自动处理，批量生成已停止。');
+        } else {
+          openInfo('Error', `批量生成失败：${err?.message || '未知错误'}`);
+        }
       } finally {
         setIsGenerating(false);
       }
@@ -3112,13 +3105,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const payload = await buildSingleGeneratePayload();
       await submitSingleGeneration(payload);
       /*
-      let apiPath = lastUploadedUrl; 
+      let apiPath = lastUploadedUrl;
       const uploadType = currentAssetMediaKind === 'video' ? 'motion' : 'product';
-      
+
       if (!apiPath && selectedFileObj) {
           console.log("🚀 Uploading reference image...");
         const uploadResp = await assetsApi.uploadAsset(selectedFileObj, uploadType);
-          
+
           let rawPath = null;
           if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
             rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
@@ -3320,14 +3313,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   // --- Render Sections ---
-  
+
   useEffect(() => {
     if (creationMode !== 'fast') return;
     if (
-      selectedModel === 'kling' ||
-      selectedModel === 'sora2' ||
-      selectedModel === 'sora2pro' ||
-      selectedModel === 'seedance2.0'
+        selectedModel === 'kling' ||
+        selectedModel === 'sora2' ||
+        selectedModel === 'sora2pro' ||
+        selectedModel === 'seedance2.0'
     ) {
       lastFastModelRef.current = selectedModel;
     }
@@ -3339,17 +3332,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [creationMode, selectedModel, setSelectedModel]);
 
   const backendModel =
-    selectedModel === 'sora2pro'
-      ? 'sora-2-pro'
-      : selectedModel === 'sora2'
-        ? 'sora-2'
-        : selectedModel === 'kling'
-          ? 'kling-v3'
-          : 'seedance-2.0';
+      selectedModel === 'sora2pro'
+          ? 'sora-2-pro'
+          : selectedModel === 'sora2'
+              ? 'sora-2'
+              : selectedModel === 'kling'
+                  ? 'kling-v3'
+                  : 'seedance-2.0';
 
   const renderLeftColumn = () => {
     const segmentBase =
-      'group/seg relative flex-1 py-2.5 rounded-lg text-[10px] tracking-tight font-bold transition select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60';
+        'group/seg relative flex-1 py-2.5 rounded-lg text-[10px] tracking-tight font-bold transition select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60';
     const activeSegment = 'bg-gradient-to-r from-purple-600 to-orange-500 text-white shadow-lg shadow-orange-500/15';
     const inactiveSegment = 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5';
 
@@ -3370,61 +3363,61 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     );
 
     const legacyModelSelector = (
-      <div className="flex flex-col gap-3">
-        <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-          <Cpu className="w-3 h-3" /> {t.wb_model_title}
-        </h2>
-        <div className="glass-panel rounded-xl p-1 border border-white/10 bg-black/20 relative z-[90]">
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              aria-pressed={selectedModel === 'kling'}
-              onClick={() => setSelectedModel('kling')}
-              className={`${segmentBase} ${language === 'zh' ? 'text-[10px]' : ''} ${selectedModel === 'kling' ? activeSegment : inactiveSegment}`}
-            >
-              {language === 'zh' ? '可灵3.0' : 'Kling3.0'}
-              {tooltip(t.wb_model_tip_sora_kling, 'left')}
-            </button>
-            <button
-              type="button"
-              aria-pressed={selectedModel === 'sora2'}
-              onClick={() => setSelectedModel('sora2')}
-              className={`${segmentBase} ${selectedModel === 'sora2' ? activeSegment : inactiveSegment}`}
-            >
-              Sora 2
-              {tooltip(t.wb_model_tip_sora_kling, 'center')}
-            </button>
-            <button
-              type="button"
-              aria-pressed={selectedModel === 'sora2pro'}
-              onClick={() => setSelectedModel('sora2pro')}
-              className={`${segmentBase} ${selectedModel === 'sora2pro' ? activeSegment : inactiveSegment}`}
-            >
-              Sora 2 Pro
-              {tooltip(t.wb_model_tip_sora_kling, 'center')}
-            </button>
-            <button
-              type="button"
-              aria-pressed={selectedModel === 'seedance2.0'}
-              onClick={() => setSelectedModel('seedance2.0')}
-              className={`${segmentBase} ${selectedModel === 'seedance2.0' ? activeSegment : inactiveSegment}`}
-            >
-              Seedance 2.0
-              {tooltip(t.wb_model_tip_seedance, 'right')}
-            </button>
+        <div className="flex flex-col gap-3">
+          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+            <Cpu className="w-3 h-3" /> {t.wb_model_title}
+          </h2>
+          <div className="glass-panel rounded-xl p-1 border border-white/10 bg-black/20 relative z-[90]">
+            <div className="flex items-center gap-1">
+              <button
+                  type="button"
+                  aria-pressed={selectedModel === 'kling'}
+                  onClick={() => setSelectedModel('kling')}
+                  className={`${segmentBase} ${language === 'zh' ? 'text-[10px]' : ''} ${selectedModel === 'kling' ? activeSegment : inactiveSegment}`}
+              >
+                {language === 'zh' ? '可灵3.0' : 'Kling3.0'}
+                {tooltip(t.wb_model_tip_sora_kling, 'left')}
+              </button>
+              <button
+                  type="button"
+                  aria-pressed={selectedModel === 'sora2'}
+                  onClick={() => setSelectedModel('sora2')}
+                  className={`${segmentBase} ${selectedModel === 'sora2' ? activeSegment : inactiveSegment}`}
+              >
+                Sora 2
+                {tooltip(t.wb_model_tip_sora_kling, 'center')}
+              </button>
+              <button
+                  type="button"
+                  aria-pressed={selectedModel === 'sora2pro'}
+                  onClick={() => setSelectedModel('sora2pro')}
+                  className={`${segmentBase} ${selectedModel === 'sora2pro' ? activeSegment : inactiveSegment}`}
+              >
+                Sora 2 Pro
+                {tooltip(t.wb_model_tip_sora_kling, 'center')}
+              </button>
+              <button
+                  type="button"
+                  aria-pressed={selectedModel === 'seedance2.0'}
+                  onClick={() => setSelectedModel('seedance2.0')}
+                  className={`${segmentBase} ${selectedModel === 'seedance2.0' ? activeSegment : inactiveSegment}`}
+              >
+                Seedance 2.0
+                {tooltip(t.wb_model_tip_seedance, 'right')}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
     );
 
     const handleSetCreationMode = (next: 'fast' | 'replay') => {
       if (next === creationMode) return;
       if (next === 'replay') {
         if (
-          selectedModel === 'kling' ||
-          selectedModel === 'sora2' ||
-          selectedModel === 'sora2pro' ||
-          selectedModel === 'seedance2.0'
+            selectedModel === 'kling' ||
+            selectedModel === 'sora2' ||
+            selectedModel === 'sora2pro' ||
+            selectedModel === 'seedance2.0'
         ) {
           lastFastModelRef.current = selectedModel;
         }
@@ -3477,454 +3470,454 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const active = selectedModel === opt.id;
       const locked = creationMode === 'fast' && opt.id === 'seedance2.0';
       return (
-        <button
-          key={opt.id}
-          type="button"
-          onClick={() => {
-            if (locked) return;
-            setSelectedModel(opt.id);
-          }}
-          disabled={locked}
-          className={[
-            'w-full text-left rounded-2xl border p-3 transition flex items-center gap-4',
-            'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
-            active
-              ? 'border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10'
-              : 'border-white/10 bg-black/20 hover:bg-white/5',
-            locked ? 'cursor-not-allowed opacity-70' : '',
-          ].join(' ')}
-          aria-pressed={active}
-        >
-          <div
-            className={[
-              'w-10 h-10 rounded-2xl flex items-center justify-center shrink-0',
-              active
-                ? 'bg-orange-500/20 border border-orange-500/30'
-                : 'bg-zinc-900/60 border border-white/10',
-            ].join(' ')}
+          <button
+              key={opt.id}
+              type="button"
+              onClick={() => {
+                if (locked) return;
+                setSelectedModel(opt.id);
+              }}
+              disabled={locked}
+              className={[
+                'w-full text-left rounded-2xl border p-3 transition flex items-center gap-4',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                active
+                    ? 'border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10'
+                    : 'border-white/10 bg-black/20 hover:bg-white/5',
+                locked ? 'cursor-not-allowed opacity-70' : '',
+              ].join(' ')}
+              aria-pressed={active}
           >
-            <opt.Icon className={active ? 'w-5 h-5 text-orange-500' : 'w-5 h-5 text-zinc-400'} />
-          </div>
+            <div
+                className={[
+                  'w-10 h-10 rounded-2xl flex items-center justify-center shrink-0',
+                  active
+                      ? 'bg-orange-500/20 border border-orange-500/30'
+                      : 'bg-zinc-900/60 border border-white/10',
+                ].join(' ')}
+            >
+              <opt.Icon className={active ? 'w-5 h-5 text-orange-500' : 'w-5 h-5 text-zinc-400'} />
+            </div>
 
-          <div className="flex-1 min-w-0">
-            <div className="text-[12px] font-black tracking-wide text-zinc-200 truncate">{opt.title}</div>
-            <div
-              className={
-                language === 'zh'
-                  ? 'mt-1 text-[9px] font-medium text-zinc-400 truncate'
-                  : 'mt-1 text-[8px] font-medium text-zinc-400 whitespace-normal break-words leading-snug'
-              }
-            >
-              {opt.desc}
+            <div className="flex-1 min-w-0">
+              <div className="text-[12px] font-black tracking-wide text-zinc-200 truncate">{opt.title}</div>
+              <div
+                  className={
+                    language === 'zh'
+                        ? 'mt-1 text-[9px] font-medium text-zinc-400 truncate'
+                        : 'mt-1 text-[8px] font-medium text-zinc-400 whitespace-normal break-words leading-snug'
+                  }
+              >
+                {opt.desc}
+              </div>
             </div>
-          </div>
-          {locked ? (
-            <Lock className="w-4 h-4 text-zinc-400 shrink-0" aria-hidden="true" />
-          ) : (
-          <div className="flex flex-col items-center gap-2 shrink-0">
-            <div
-              className={[
-                'model-check w-4 h-4 rounded-full border flex items-center justify-center',
-                active ? 'border-orange-500 bg-orange-500' : 'model-check--inactive border-white/25 bg-transparent',
-              ].join(' ')}
-              aria-hidden="true"
-            >
-              {active ? <Check className="w-2.5 h-2.5 text-white" /> : null}
-            </div>
-            <div
-              className={[
-                'text-[8px] whitespace-nowrap',
-                active ? 'font-bold text-orange-500' : 'font-medium text-zinc-500',
-              ].join(' ')}
-            >
-              {opt.rate}{t.wb_vpoints_per_sec}
-            </div>
-          </div>
-          )}
-        </button>
+            {locked ? (
+                <Lock className="w-4 h-4 text-zinc-400 shrink-0" aria-hidden="true" />
+            ) : (
+                <div className="flex flex-col items-center gap-2 shrink-0">
+                  <div
+                      className={[
+                        'model-check w-4 h-4 rounded-full border flex items-center justify-center',
+                        active ? 'border-orange-500 bg-orange-500' : 'model-check--inactive border-white/25 bg-transparent',
+                      ].join(' ')}
+                      aria-hidden="true"
+                  >
+                    {active ? <Check className="w-2.5 h-2.5 text-white" /> : null}
+                  </div>
+                  <div
+                      className={[
+                        'text-[8px] whitespace-nowrap',
+                        active ? 'font-bold text-orange-500' : 'font-medium text-zinc-500',
+                      ].join(' ')}
+                  >
+                    {opt.rate}{t.wb_vpoints_per_sec}
+                  </div>
+                </div>
+            )}
+          </button>
       );
     };
 
     const modelSelector = (
-      <div className="flex flex-col gap-6">
-        <div>
-          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
-            <Wand2 className="w-3 h-3" /> {t.wb_creation_mode_title}
-          </h2>
-          <div className="creation-mode-toggle mx-3 rounded-2xl bg-white/5 border border-white/10 p-1 flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => handleSetCreationMode('fast')}
-              aria-pressed={creationMode === 'fast'}
-              className={[
-                'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
-                'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
-                creationMode === 'fast'
-                  ? 'bg-white text-zinc-900 shadow-md'
-                  : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
-              ].join(' ')}
-            >
-              <Zap className={creationMode === 'fast' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
-              <span className="text-[12px]">{t.wb_creation_mode_fast}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSetCreationMode('replay')}
-              aria-pressed={creationMode === 'replay'}
-              className={[
-                'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
-                'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
-                creationMode === 'replay'
-                  ? 'bg-white text-zinc-900 shadow-md'
-                  : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
-              ].join(' ')}
-            >
-              <Layers className={creationMode === 'replay' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
-              <span className="text-[12px]">{t.wb_creation_mode_replay}</span>
-            </button>
-          </div>
-        </div>
-
-        {creationMode === 'fast' ? (
-          <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
-            <div className="mb-3">
-              <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                <ArrowRight className="w-3 h-3 text-zinc-500" />
-                {t.wb_render_power_title}
-              </h2>
-            </div>
-            <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
-          </div>
-        ) : (
-          <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
-            <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-              <ArrowRight className="w-3 h-3 text-zinc-500" />
-              {t.wb_recommend_engine_title}
+        <div className="flex flex-col gap-6">
+          <div>
+            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
+              <Wand2 className="w-3 h-3" /> {t.wb_creation_mode_title}
             </h2>
-            <div className="w-full text-left rounded-2xl border border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10 p-4 flex items-center gap-4">
-              <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-orange-500/20 border border-orange-500/30">
-                <Video className="w-5 h-5 text-orange-400" />
-              </div>
-              <div className="flex-1 min-w-0"> 
-                <div className={language === 'vi' ? 'flex items-center gap-1.5' : 'flex items-center gap-2'}> 
-                  <div className="text-[12px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div> 
-                  <span
-                    className={[
-                      'rounded-full font-black bg-emerald-500 text-black whitespace-nowrap shrink-0',
-                      language === 'vi' ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-0.5 text-[10px]',
-                    ].join(' ')}
-                  > 
-                    {t.wb_engine_dedicated} 
-                  </span> 
-                </div> 
-                <div 
-                  className={ 
-                    language === 'zh' 
-                      ? 'mt-1 text-[9px] font-medium text-zinc-400 truncate' 
-                      : 'mt-1 text-[8px] font-medium text-zinc-400 whitespace-normal break-words leading-snug' 
-                  } 
-                > 
-                  {t.wb_recommend_engine_desc} 
-                </div> 
-              </div> 
-              <Lock className="w-4 h-4 text-zinc-500 shrink-0" aria-hidden="true" /> 
-            </div> 
-
-            <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 flex items-start gap-2">
-              <Info className="w-3 h-3 text-zinc-400 mt-0.5 shrink-0" />
-              <div className="text-[10px] font-normal text-zinc-400 leading-relaxed">
-                {t.wb_replay_seedance_only}
-              </div>
+            <div className="creation-mode-toggle mx-3 rounded-2xl bg-white/5 border border-white/10 p-1 flex items-center gap-1">
+              <button
+                  type="button"
+                  onClick={() => handleSetCreationMode('fast')}
+                  aria-pressed={creationMode === 'fast'}
+                  className={[
+                    'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
+                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                    creationMode === 'fast'
+                        ? 'bg-white text-zinc-900 shadow-md'
+                        : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
+                  ].join(' ')}
+              >
+                <Zap className={creationMode === 'fast' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
+                <span className="text-[12px]">{t.wb_creation_mode_fast}</span>
+              </button>
+              <button
+                  type="button"
+                  onClick={() => handleSetCreationMode('replay')}
+                  aria-pressed={creationMode === 'replay'}
+                  className={[
+                    'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
+                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                    creationMode === 'replay'
+                        ? 'bg-white text-zinc-900 shadow-md'
+                        : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
+                  ].join(' ')}
+              >
+                <Layers className={creationMode === 'replay' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
+                <span className="text-[12px]">{t.wb_creation_mode_replay}</span>
+              </button>
             </div>
           </div>
-        )}
-      </div>
+
+          {creationMode === 'fast' ? (
+              <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
+                <div className="mb-3">
+                  <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                    <ArrowRight className="w-3 h-3 text-zinc-500" />
+                    {t.wb_render_power_title}
+                  </h2>
+                </div>
+                <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
+              </div>
+          ) : (
+              <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
+                <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                  <ArrowRight className="w-3 h-3 text-zinc-500" />
+                  {t.wb_recommend_engine_title}
+                </h2>
+                <div className="w-full text-left rounded-2xl border border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10 p-4 flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-orange-500/20 border border-orange-500/30">
+                    <Video className="w-5 h-5 text-orange-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className={language === 'vi' ? 'flex items-center gap-1.5' : 'flex items-center gap-2'}>
+                      <div className="text-[12px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div>
+                      <span
+                          className={[
+                            'rounded-full font-black bg-emerald-500 text-black whitespace-nowrap shrink-0',
+                            language === 'vi' ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-0.5 text-[10px]',
+                          ].join(' ')}
+                      >
+                    {t.wb_engine_dedicated}
+                  </span>
+                    </div>
+                    <div
+                        className={
+                          language === 'zh'
+                              ? 'mt-1 text-[9px] font-medium text-zinc-400 truncate'
+                              : 'mt-1 text-[8px] font-medium text-zinc-400 whitespace-normal break-words leading-snug'
+                        }
+                    >
+                      {t.wb_recommend_engine_desc}
+                    </div>
+                  </div>
+                  <Lock className="w-4 h-4 text-zinc-500 shrink-0" aria-hidden="true" />
+                </div>
+
+                <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 flex items-start gap-2">
+                  <Info className="w-3 h-3 text-zinc-400 mt-0.5 shrink-0" />
+                  <div className="text-[10px] font-normal text-zinc-400 leading-relaxed">
+                    {t.wb_replay_seedance_only}
+                  </div>
+                </div>
+              </div>
+          )}
+        </div>
     );
 
     const renderLeftColumnSettings = () => (
-      <div ref={configSectionRef} className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${getGuideFocusClass('config')}`}>
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-            <Gift className="w-3 h-3" /> 商品信息
-          </h2>
-          <button
-            type="button"
-            onClick={() => {
-              if (isAiRecognizing) {
-                openInfo('Notice', t.wb_ai_recognizing_tip);
-                return;
-              }
-              if (getProductRecognitionSources().length === 0) {
-                openInfo('Notice', t.wb_ai_need_product_image);
-                return;
-              }
-              void handleAiRecognize();
-            }}
-            className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border ${isAiRecognizing || getProductRecognitionSources().length === 0 ? 'border-white/10 bg-black/30 text-zinc-600 opacity-70 hover:bg-black/30' : 'border-orange-500/40 bg-orange-500/10 text-orange-300 hover:bg-orange-500/20'}`}
-          >
-            {isAiRecognizing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-            {isAiRecognizing ? t.wb_ai_recognizing_btn : t.wb_ai_recognize_btn}
-          </button>
-        </div>
-
-        <div className="flex flex-col gap-4">
-          <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
-            <div ref={videoTypeFieldRef}>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
-                {t.wb_field_product_name_label}
-                <span className="ml-1 text-red-400">*</span>
-              </label>
-              <input
-                ref={productNameFieldRef}
-                value={productName}
-                onChange={(e) => {
-                  setProductName(e.target.value);
-                  setProductInfoTouched((prev) => ({ ...prev, name: true }));
-                  if (requiredErrors.productName && e.target.value.trim()) {
-                    setRequiredErrors((prev) => ({ ...prev, productName: undefined }));
-                  }
-                }}
-                placeholder={t.wb_field_product_name_placeholder}
-                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition"
-              />
-              {requiredErrors.productName && (
-                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.productName}</div>
-              )}
-            </div>
-
-            <div ref={productCategoryFieldRef}>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
-                {t.wb_field_product_category_label}
-                <span className="ml-1 text-red-400">*</span>
-              </label>
-              <DropdownSelect
-                value={productCategory}
-                placeholder={t.wb_select_placeholder}
-                options={[
-                  { value: '服装鞋靴', label: t.wb_product_category_apparel },
-                  { value: '美妆个护', label: t.wb_product_category_beauty },
-                  { value: '食品饮料', label: t.wb_product_category_food },
-                  { value: '3C数码', label: t.wb_product_category_digital },
-                  { value: '家居百货', label: t.wb_product_category_home },
-                ]}
-                onChange={(v) => {
-                  setProductCategory(v);
-                  setProductInfoTouched((prev) => ({ ...prev, category: true }));
-                  if (requiredErrors.productCategory && v.trim()) {
-                    setRequiredErrors((prev) => ({ ...prev, productCategory: undefined }));
-                  }
-                }}
-                buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
-                labelClassName=""
-                iconClassName="w-3 h-3 text-zinc-500"
-                optionClassName="text-xs"
-              />
-              {requiredErrors.productCategory && (
-                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.productCategory}</div>
-              )}
-            </div>
-
-            <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
-                {t.wb_field_core_selling_points_label}
-                <span className="ml-1 text-red-400">*</span>
-              </label>
-              <textarea
-                ref={coreSellingPointsFieldRef}
-                value={coreSellingPoints}
-                onChange={(e) => {
-                  setCoreSellingPoints(e.target.value);
-                  setProductInfoTouched((prev) => ({ ...prev, sellingPoints: true }));
-                  if (requiredErrors.coreSellingPoints && e.target.value.trim()) {
-                    setRequiredErrors((prev) => ({ ...prev, coreSellingPoints: undefined }));
-                  }
-                }}
-                placeholder={t.wb_field_core_selling_points_placeholder}
-                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition resize-none min-h-[80px]"
-              />
-              {requiredErrors.coreSellingPoints && (
-                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.coreSellingPoints}</div>
-              )}
-            </div>
-
-            <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_target_audience_label}</label>
-              <input
-                value={targetAudience}
-                onChange={(e) => {
-                  setTargetAudience(e.target.value);
-                  setProductInfoTouched((prev) => ({ ...prev, audience: true }));
-                }}
-                placeholder={t.wb_field_target_audience_placeholder}
-                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between gap-4 mt-2">
-          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-            <SlidersHorizontal className="w-3 h-3" /> {t.wb_generation_settings_title}
-          </h2>
-        </div>
-
-        <div className="flex flex-col gap-4">
-          <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_delivery_region_label}</label>
-                <DropdownSelect
-                  value={deliveryRegion}
-                  options={DELIVERY_REGION_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
-                  onChange={setDeliveryRegion}
-                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
-                  labelClassName=""
-                  iconClassName="w-3 h-3 text-zinc-500"
-                  optionClassName="text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_video_language_label}</label>
-                <DropdownSelect
-                  value={targetLanguage}
-                  options={TARGET_LANGUAGE_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
-                  onChange={setTargetLanguage}
-                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
-                  labelClassName=""
-                  iconClassName="w-3 h-3 text-zinc-500"
-                  optionClassName="text-xs"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
-                {t.wb_field_video_type_label}
-                <span className="ml-1 text-red-400">*</span>
-              </label>
-              <DropdownSelect
-                value={videoType}
-                placeholder={t.wb_select_placeholder}
-                options={[
-                  { value: 'UGC种草', label: t.wb_video_type_ugc },
-                  { value: '产品口播', label: t.wb_video_type_talking },
-                  { value: '产品演示', label: t.wb_video_type_demo },
-                  { value: '痛点-解决', label: t.wb_video_type_problem_solution },
-                  { value: '前后对比', label: t.wb_video_type_before_after },
-                  { value: '反应展示', label: t.wb_video_type_reaction },
-                  { value: '故事讲述', label: t.wb_video_type_story },
-                ]}
-                onChange={(v) => {
-                  setVideoType(v);
-                  if (requiredErrors.videoType && v.trim()) {
-                    setRequiredErrors((prev) => ({ ...prev, videoType: undefined }));
-                  }
-                }}
-                buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
-                labelClassName=""
-                iconClassName="w-3 h-3 text-zinc-500"
-                optionClassName="text-xs"
-              />
-              {requiredErrors.videoType && (
-                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.videoType}</div>
-              )}
-            </div>
-
-            <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_additional_requirements_label}</label>
-              <textarea
-                readOnly={!hasCurrentAsset}
-                onFocus={() => {
-                  if (!hasCurrentAsset) openInfo('Notice', t.wb_additional_requirements_need_asset);
-                }}
+        <div ref={configSectionRef} className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${getGuideFocusClass('config')}`}>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+              <Gift className="w-3 h-3" /> 商品信息
+            </h2>
+            <button
+                type="button"
                 onClick={() => {
-                  if (!hasCurrentAsset) openInfo('Notice', t.wb_additional_requirements_need_asset);
+                  if (isAiRecognizing) {
+                    openInfo('Notice', t.wb_ai_recognizing_tip);
+                    return;
+                  }
+                  if (getProductRecognitionSources().length === 0) {
+                    openInfo('Notice', t.wb_ai_need_product_image);
+                    return;
+                  }
+                  void handleAiRecognize();
                 }}
-                className={`w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-none min-h-[80px] ${!hasCurrentAsset ? 'text-zinc-500 opacity-60' : 'text-zinc-300 focus:border-orange-500 focus:outline-none'}`}
-                placeholder={t.wb_field_additional_requirements_placeholder}
-                value={genPrompt}
-                onChange={(e) => {
-                  if (!hasCurrentAsset) return;
-                  setGenPrompt(e.target.value);
-                }}
-              />
-            </div>
+                className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border ${isAiRecognizing || getProductRecognitionSources().length === 0 ? 'border-white/10 bg-black/30 text-zinc-600 opacity-70 hover:bg-black/30' : 'border-orange-500/40 bg-orange-500/10 text-orange-300 hover:bg-orange-500/20'}`}
+            >
+              {isAiRecognizing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+              {isAiRecognizing ? t.wb_ai_recognizing_btn : t.wb_ai_recognize_btn}
+            </button>
+          </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
-                <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
-                  {[5, 10, 15].map((d) => (
-                    <button
-                      key={d}
-                      onClick={() => setGenDuration(d)}
-                      className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${genDuration === d ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}
-                    >
-                      {d}s
-                    </button>
-                  ))}
-                </div>
+          <div className="flex flex-col gap-4">
+            <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
+              <div ref={videoTypeFieldRef}>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+                  {t.wb_field_product_name_label}
+                  <span className="ml-1 text-red-400">*</span>
+                </label>
+                <input
+                    ref={productNameFieldRef}
+                    value={productName}
+                    onChange={(e) => {
+                      setProductName(e.target.value);
+                      setProductInfoTouched((prev) => ({ ...prev, name: true }));
+                      if (requiredErrors.productName && e.target.value.trim()) {
+                        setRequiredErrors((prev) => ({ ...prev, productName: undefined }));
+                      }
+                    }}
+                    placeholder={t.wb_field_product_name_placeholder}
+                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition"
+                />
+                {requiredErrors.productName && (
+                    <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.productName}</div>
+                )}
+              </div>
+
+              <div ref={productCategoryFieldRef}>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+                  {t.wb_field_product_category_label}
+                  <span className="ml-1 text-red-400">*</span>
+                </label>
+                <DropdownSelect
+                    value={productCategory}
+                    placeholder={t.wb_select_placeholder}
+                    options={[
+                      { value: '服装鞋靴', label: t.wb_product_category_apparel },
+                      { value: '美妆个护', label: t.wb_product_category_beauty },
+                      { value: '食品饮料', label: t.wb_product_category_food },
+                      { value: '3C数码', label: t.wb_product_category_digital },
+                      { value: '家居百货', label: t.wb_product_category_home },
+                    ]}
+                    onChange={(v) => {
+                      setProductCategory(v);
+                      setProductInfoTouched((prev) => ({ ...prev, category: true }));
+                      if (requiredErrors.productCategory && v.trim()) {
+                        setRequiredErrors((prev) => ({ ...prev, productCategory: undefined }));
+                      }
+                    }}
+                    buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                    labelClassName=""
+                    iconClassName="w-3 h-3 text-zinc-500"
+                    optionClassName="text-xs"
+                />
+                {requiredErrors.productCategory && (
+                    <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.productCategory}</div>
+                )}
               </div>
 
               <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_audio}</label>
-                <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
-                  <button onClick={() => setSoundSetting('on')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'on' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_on}</button>
-                  <button onClick={() => setSoundSetting('off')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'off' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_off}</button>
-                </div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+                  {t.wb_field_core_selling_points_label}
+                  <span className="ml-1 text-red-400">*</span>
+                </label>
+                <textarea
+                    ref={coreSellingPointsFieldRef}
+                    value={coreSellingPoints}
+                    onChange={(e) => {
+                      setCoreSellingPoints(e.target.value);
+                      setProductInfoTouched((prev) => ({ ...prev, sellingPoints: true }));
+                      if (requiredErrors.coreSellingPoints && e.target.value.trim()) {
+                        setRequiredErrors((prev) => ({ ...prev, coreSellingPoints: undefined }));
+                      }
+                    }}
+                    placeholder={t.wb_field_core_selling_points_placeholder}
+                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition resize-none min-h-[80px]"
+                />
+                {requiredErrors.coreSellingPoints && (
+                    <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.coreSellingPoints}</div>
+                )}
               </div>
-            </div>
 
-            <div className="border-t border-white/5 my-1" />
-
-            <div className="flex flex-col gap-3">
-              <div className="flex justify-between items-center">
-                <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_script_count_label}</label>
-                <span className="text-[12px] font-bold text-orange-400">{scriptVariantCount} {t.wb_script_count_unit}</span>
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_target_audience_label}</label>
+                <input
+                    value={targetAudience}
+                    onChange={(e) => {
+                      setTargetAudience(e.target.value);
+                      setProductInfoTouched((prev) => ({ ...prev, audience: true }));
+                    }}
+                    placeholder={t.wb_field_target_audience_placeholder}
+                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition"
+                />
               </div>
-              <input
-                type="range"
-                min={1}
-                max={10}
-                value={scriptVariantCount}
-                onChange={(e) => setScriptVariantCount(Number(e.target.value))}
-                className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
-              />
             </div>
           </div>
-        </div>
 
-      </div>
+          <div className="flex items-center justify-between gap-4 mt-2">
+            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+              <SlidersHorizontal className="w-3 h-3" /> {t.wb_generation_settings_title}
+            </h2>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_delivery_region_label}</label>
+                  <DropdownSelect
+                      value={deliveryRegion}
+                      options={DELIVERY_REGION_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
+                      onChange={setDeliveryRegion}
+                      buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                      labelClassName=""
+                      iconClassName="w-3 h-3 text-zinc-500"
+                      optionClassName="text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_video_language_label}</label>
+                  <DropdownSelect
+                      value={targetLanguage}
+                      options={TARGET_LANGUAGE_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
+                      onChange={setTargetLanguage}
+                      buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                      labelClassName=""
+                      iconClassName="w-3 h-3 text-zinc-500"
+                      optionClassName="text-xs"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+                  {t.wb_field_video_type_label}
+                  <span className="ml-1 text-red-400">*</span>
+                </label>
+                <DropdownSelect
+                    value={videoType}
+                    placeholder={t.wb_select_placeholder}
+                    options={[
+                      { value: 'UGC种草', label: t.wb_video_type_ugc },
+                      { value: '产品口播', label: t.wb_video_type_talking },
+                      { value: '产品演示', label: t.wb_video_type_demo },
+                      { value: '痛点-解决', label: t.wb_video_type_problem_solution },
+                      { value: '前后对比', label: t.wb_video_type_before_after },
+                      { value: '反应展示', label: t.wb_video_type_reaction },
+                      { value: '故事讲述', label: t.wb_video_type_story },
+                    ]}
+                    onChange={(v) => {
+                      setVideoType(v);
+                      if (requiredErrors.videoType && v.trim()) {
+                        setRequiredErrors((prev) => ({ ...prev, videoType: undefined }));
+                      }
+                    }}
+                    buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                    labelClassName=""
+                    iconClassName="w-3 h-3 text-zinc-500"
+                    optionClassName="text-xs"
+                />
+                {requiredErrors.videoType && (
+                    <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.videoType}</div>
+                )}
+              </div>
+
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_additional_requirements_label}</label>
+                <textarea
+                    readOnly={!hasCurrentAsset}
+                    onFocus={() => {
+                      if (!hasCurrentAsset) openInfo('Notice', t.wb_additional_requirements_need_asset);
+                    }}
+                    onClick={() => {
+                      if (!hasCurrentAsset) openInfo('Notice', t.wb_additional_requirements_need_asset);
+                    }}
+                    className={`w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-none min-h-[80px] ${!hasCurrentAsset ? 'text-zinc-500 opacity-60' : 'text-zinc-300 focus:border-orange-500 focus:outline-none'}`}
+                    placeholder={t.wb_field_additional_requirements_placeholder}
+                    value={genPrompt}
+                    onChange={(e) => {
+                      if (!hasCurrentAsset) return;
+                      setGenPrompt(e.target.value);
+                    }}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
+                  <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
+                    {[5, 10, 15].map((d) => (
+                        <button
+                            key={d}
+                            onClick={() => setGenDuration(d)}
+                            className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${genDuration === d ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}
+                        >
+                          {d}s
+                        </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_audio}</label>
+                  <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
+                    <button onClick={() => setSoundSetting('on')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'on' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_on}</button>
+                    <button onClick={() => setSoundSetting('off')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'off' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_off}</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-white/5 my-1" />
+
+              <div className="flex flex-col gap-3">
+                <div className="flex justify-between items-center">
+                  <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_script_count_label}</label>
+                  <span className="text-[12px] font-bold text-orange-400">{scriptVariantCount} {t.wb_script_count_unit}</span>
+                </div>
+                <input
+                    type="range"
+                    min={1}
+                    max={10}
+                    value={scriptVariantCount}
+                    onChange={(e) => setScriptVariantCount(Number(e.target.value))}
+                    className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                />
+              </div>
+            </div>
+          </div>
+
+        </div>
     );
 
     return (
-    <div className="w-full flex flex-col gap-6 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
-      <div ref={modeSectionRef} className={getGuideFocusClass('mode')}>
-        {modelSelector}
-      </div>
-      {false && legacyModelSelector}
-      {/* Upload Section */}
-      <div ref={uploadSectionRef} className={`flex flex-col gap-3 ${getGuideFocusClass('upload')}`}>
-        <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
-        <div
-          onDragOver={handleUploadDragOver}
-          onDragEnter={handleUploadDragOver}
-          onDragLeave={handleUploadDragLeave}
-          onDrop={handleUploadDrop}
-          className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors min-h-32 relative group ${uploadDisplayAssets.length > 0 ? 'border-none' : ''} ${isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50'}`}
-        >
-          {isDragUploadActive && (
-            <div className="absolute inset-1 rounded-lg border border-dashed border-orange-500/60 bg-orange-500/10 pointer-events-none" />
-          )}
-          <input type="file" ref={fileInputRef} className="hidden" accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.mkv,.webm,.avi,.mp3,.wav,.flac" multiple onChange={handleWorkbenchUpload} />
-          {uploadDisplayAssets.length === 0 ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center z-10 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-              <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition duration-300"><Plus className="w-4 h-4 text-zinc-500 group-hover:text-orange-500" /></div>
-              <p className="text-[10px] font-medium text-zinc-400">{t.wb_upload_click}</p>
-              <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[10px] text-zinc-300">
-                <span className="text-zinc-500">{t.wb_upload_support}</span>
-                <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
+        <div className="w-full flex flex-col gap-6 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
+          <div ref={modeSectionRef} className={getGuideFocusClass('mode')}>
+            {modelSelector}
+          </div>
+          {false && legacyModelSelector}
+          {/* Upload Section */}
+          <div ref={uploadSectionRef} className={`flex flex-col gap-3 ${getGuideFocusClass('upload')}`}>
+            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
+            <div
+                onDragOver={handleUploadDragOver}
+                onDragEnter={handleUploadDragOver}
+                onDragLeave={handleUploadDragLeave}
+                onDrop={handleUploadDrop}
+                className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors min-h-32 relative group ${uploadDisplayAssets.length > 0 ? 'border-none' : ''} ${isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50'}`}
+            >
+              {isDragUploadActive && (
+                  <div className="absolute inset-1 rounded-lg border border-dashed border-orange-500/60 bg-orange-500/10 pointer-events-none" />
+              )}
+              <input type="file" ref={fileInputRef} className="hidden" accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.mkv,.webm,.avi,.mp3,.wav,.flac" multiple onChange={handleWorkbenchUpload} />
+              {uploadDisplayAssets.length === 0 ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center z-10 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                    <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition duration-300"><Plus className="w-4 h-4 text-zinc-500 group-hover:text-orange-500" /></div>
+                    <p className="text-[10px] font-medium text-zinc-400">{t.wb_upload_click}</p>
+                    <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[10px] text-zinc-300">
+                      <span className="text-zinc-500">{t.wb_upload_support}</span>
+                      <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
                   {t.wb_upload_image}
                         <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
                     {imageFormats}
@@ -3947,123 +3940,158 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
               ) : (
                   <div className="rounded-lg bg-zinc-900/80 p-2">
-                    <div className="flex flex-col gap-2 max-h-72 overflow-y-auto custom-scroll pr-1">
+                    {/* 更新了外层滚动容器，增加了 pb-12 确保底部的元素气泡也有空间弹起 */}
+                    <div className="flex flex-col gap-3 max-h-[55vh] overflow-y-auto custom-scroll pr-1 pb-12">
                       {uploadDisplayAssets.map((asset) => {
                         const inQueue = assetQueue.find((item) => item.id === asset.id);
                         const selected = selectedQueueAssetId ? selectedQueueAssetId === asset.id : uploadedFile === asset.previewUrl;
                         return (
-                          <div
-                            key={asset.id}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => {
-                              if (inQueue) {
-                                selectAssetFromQueue(inQueue);
-                                return;
-                              }
-                              setUploadedFile(asset.previewUrl || null);
-                              setFileName(asset.name || '');
-                              setSelectedFileObj(asset.fileObj || null);
-                              setSelectedAssetUrl(asset.assetUrl || null);
-                              setSelectedAssetSource(asset.source || null);
-                              setCurrentMaterialType(asset.materialType || null);
-                              setSelectedQueueAssetId(null);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key !== 'Enter' && e.key !== ' ') return;
-                              e.preventDefault();
-                              if (inQueue) {
-                                selectAssetFromQueue(inQueue);
-                                return;
-                              }
-                              setUploadedFile(asset.previewUrl || null);
-                              setFileName(asset.name || '');
-                              setSelectedFileObj(asset.fileObj || null);
-                              setSelectedAssetUrl(asset.assetUrl || null);
-                              setSelectedAssetSource(asset.source || null);
-                              setCurrentMaterialType(asset.materialType || null);
-                              setSelectedQueueAssetId(null);
-                            }}
-                            className={`relative w-full h-24 rounded-md overflow-hidden border text-left transition ${selected ? 'border-orange-500/70 ring-1 ring-orange-500/50' : 'border-white/10 hover:border-white/20'}`}
-                          >
-                            {asset.previewUrl ? (asset.mediaKind === 'video' ? (
-                              <video src={asset.previewUrl} className="w-full h-full object-cover opacity-80" muted playsInline />
-                            ) : (
-                              <img src={asset.previewUrl} className="w-full h-full object-cover opacity-80" alt={asset.name} />
-                            )) : (
-                              <div className="w-full h-full flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
-                            )}
-                            <div className="absolute top-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-white/15 bg-black/60 text-zinc-100">
-                              {materialTypeLabelMap[asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product')]}
-                            </div>
-                            <div className="absolute top-1 right-1 flex items-center gap-1">
-                              {asset.mediaKind === 'image' && (
-                                <button
+                            <div
+                                key={asset.id}
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => {
+                                  if (inQueue) {
+                                    selectAssetFromQueue(inQueue);
+                                    return;
+                                  }
+                                  setUploadedFile(asset.previewUrl || null);
+                                  setFileName(asset.name || '');
+                                  setSelectedFileObj(asset.fileObj || null);
+                                  setSelectedAssetUrl(asset.assetUrl || null);
+                                  setSelectedAssetSource(asset.source || null);
+                                  setCurrentMaterialType(asset.materialType || null);
+                                  setSelectedQueueAssetId(null);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key !== 'Enter' && e.key !== ' ') return;
+                                  e.preventDefault();
+                                  if (inQueue) {
+                                    selectAssetFromQueue(inQueue);
+                                    return;
+                                  }
+                                  setUploadedFile(asset.previewUrl || null);
+                                  setFileName(asset.name || '');
+                                  setSelectedFileObj(asset.fileObj || null);
+                                  setSelectedAssetUrl(asset.assetUrl || null);
+                                  setSelectedAssetSource(asset.source || null);
+                                  setCurrentMaterialType(asset.materialType || null);
+                                  setSelectedQueueAssetId(null);
+                                }}
+                                // 👉 去除 overflow-hidden，让气泡自由突破边框
+                                className={`relative w-full rounded-lg border text-left transition bg-zinc-900/60 ${selected ? 'border-orange-500/70 ring-2 ring-orange-500/50 shadow-[0_0_15px_rgba(249,115,22,0.15)]' : 'border-white/10 hover:border-white/30'}`}
+                            >
+                              {/* 👉 将 overflow-hidden 移入专门的内部图片容器中，彻底解决气泡被切断问题 */}
+                              <div className="relative w-full rounded-lg overflow-hidden pointer-events-none flex items-center justify-center bg-black/20">
+                                {asset.previewUrl ? (asset.mediaKind === 'video' ? (
+                                    // 👉 使用 h-auto 搭配 max-h-[360px]，完美跟随原图比例，绝不压扁或扭曲
+                                    <video src={asset.previewUrl} className="w-full h-auto max-h-[360px] !object-contain block" muted playsInline loop />
+                                ) : (
+                                    <img src={asset.previewUrl} loading="lazy" className="w-full h-auto max-h-[360px] !object-contain block" alt={asset.name} />
+                                )) : (
+                                    <div className="w-full py-16 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
+                                )}
+
+                                <div className="absolute bottom-0 left-0 right-0 p-2.5 bg-gradient-to-t from-black/90 via-black/40 to-transparent">
+                                  <p className="text-[11px] text-white truncate font-medium drop-shadow-md">{asset.name}</p>
+                                  {selected && <p className="text-[10px] text-green-400 flex items-center gap-1 mt-0.5"><CheckCircle className="w-3 h-3" /> {t.wb_ready}</p>}
+                                </div>
+                              </div>
+
+                              {/* 👉 左上角切换类型按钮，层级提升为 z-20，免受下面图片层干扰 */}
+                              <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const nextSource = (asset.source === 'product' || (!asset.source && selectedAssetSource === 'product')) ? 'preference' : 'product';
-                                    
+                                    const currentType = asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product');
+                                    const nextType = getNextMaterialType(currentType);
                                     if (inQueue) {
-                                      setAssetQueue(prev => prev.map(item => 
-                                        item.id === asset.id ? { ...item, source: nextSource } : item
-                                      ));
-                                    }
-                                    
-                                    if (selected) {
-                                      setSelectedAssetSource(nextSource);
+                                      setAssetQueue(prev => prev.map(item => (item.id === asset.id ? { ...item, materialType: nextType } : item)));
+                                      if (selected) setCurrentMaterialType(nextType);
+                                    } else {
+                                      setCurrentMaterialType(nextType);
                                     }
                                   }}
-                                  className={`rounded border px-1.5 py-0.5 text-[9px] font-bold transition ${(asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')) ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'}`}
-                                >
-                                  {(asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')) ? '首帧图' : '参考图'}
-                                </button>
-                              )}
-                              <button onClick={(e) => removeUpload(e, asset.id)} className="p-1 bg-black/50 hover:bg-red-500 rounded text-white transition"><X className="w-2.5 h-2.5" /></button>
+                                  className="group/typebtn absolute top-2 left-2 z-20 flex items-center gap-1.5 text-[10px] font-bold px-2 py-1.5 rounded-lg border border-white/15 bg-black/40 text-zinc-200 backdrop-blur-md hover:bg-gradient-to-r hover:from-orange-500 hover:to-orange-400 hover:border-orange-400 hover:text-white transition-all duration-300 shadow-lg hover:shadow-orange-500/30"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5 text-orange-400 group-hover/typebtn:text-white group-hover/typebtn:-rotate-180 transition-transform duration-500 ease-out" />
+                                <span className="tracking-wide">
+                                {materialTypeLabelMap[asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product')]}
+                              </span>
+
+                                {/* 👉 向下方弹出的 Tooltip (top-full mt-2)，彻底杜绝任何边缘截断 */}
+                                <div className="pointer-events-none absolute left-0 top-full mt-2 w-max rounded-md bg-zinc-900 border border-white/10 px-2 py-1.5 text-[10px] font-medium text-zinc-300 opacity-0 shadow-xl backdrop-blur-xl transition-all duration-300 transform -translate-y-1 group-hover/typebtn:opacity-100 group-hover/typebtn:translate-y-0">
+                                  {t.wb_switch_material_type || (language === 'zh' ? '点击切换素材类型' : 'Click to switch material type')}
+                                  {/* 指向顶部的小三角 */}
+                                  <div className="absolute -top-[5px] left-4 h-2.5 w-2.5 rotate-45 border-t border-l border-white/10 bg-zinc-900"></div>
+                                </div>
+                              </button>
+
+                              {/* 右上角其他功能按钮，同样提升为 z-20 */}
+                              <div className="absolute top-2 right-2 z-20 flex items-center gap-1.5">
+                                {asset.mediaKind === 'image' && (
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const nextSource = (asset.source === 'product' || (!asset.source && selectedAssetSource === 'product')) ? 'preference' : 'product';
+
+                                          if (inQueue) {
+                                            setAssetQueue(prev => prev.map(item =>
+                                                item.id === asset.id ? { ...item, source: nextSource } : item
+                                            ));
+                                          }
+
+                                          if (selected) {
+                                            setSelectedAssetSource(nextSource);
+                                          }
+                                        }}
+                                        className={`rounded-md border px-2 py-1 text-[10px] font-bold backdrop-blur-md transition shadow-lg ${(asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')) ? 'border-orange-500/70 bg-orange-500/40 text-white' : 'border-white/20 bg-black/60 text-zinc-200 hover:bg-black/80'}`}
+                                    >
+                                      {(asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')) ? '首帧图' : '参考图'}
+                                    </button>
+                                )}
+                                <button onClick={(e) => removeUpload(e, asset.id)} className="p-1.5 bg-black/60 backdrop-blur-md border border-white/10 hover:border-red-500/50 hover:bg-red-500 rounded-md text-white transition shadow-lg"><X className="w-3.5 h-3.5" /></button>
+                              </div>
                             </div>
-                            <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent">
-                              <p className="text-[9px] text-white truncate">{asset.name}</p>
-                              {selected && <p className="text-[9px] text-green-400 flex items-center gap-1"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p>}
-                            </div>
-                          </div>
                         );
                       })}
                     </div>
                   </div>
-          )}
+              )}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                fileInputRef.current?.click();
-              }}
-              className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  fileInputRef.current?.click();
+                }}
+                className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
             >
               {t.wb_btn_upload_local_asset || '从本地上传素材'}
             </button>
             <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                openAssetLibraryPicker();
-              }}
-              className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openAssetLibraryPicker();
+                }}
+                className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
             >
               {t.wb_btn_choose_from_library || '从素材库选择素材'}
             </button>
           </div>
 
-          {/* Reuse Queues Section (Restored Buttons) */}
+          {/* Reuse Queues Section */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> {t.wb_reuse_queue}</h2>
               <button
-                type="button"
-                onClick={() => setReuseQueueEnabled((prev) => !prev)}
-                className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold transition ${reuseQueueEnabled ? 'border-orange-500/60 bg-orange-500/15 text-orange-300' : 'border-white/10 bg-black/40 text-zinc-400 hover:bg-white/5'}`}
+                  type="button"
+                  onClick={() => setReuseQueueEnabled((prev) => !prev)}
+                  className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold transition ${reuseQueueEnabled ? 'border-orange-500/60 bg-orange-500/15 text-orange-300' : 'border-white/10 bg-black/40 text-zinc-400 hover:bg-white/5'}`}
               >
                 {reuseQueueEnabled ? (t.wb_reuse_queue_mode_on || '已开启') : (t.wb_reuse_queue_mode_off || '已关闭')}
               </button>
@@ -4079,127 +4107,127 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </p>
                 <p className={`mt-1 text-[10px] ${reuseQueueEnabled ? 'text-orange-300' : 'text-zinc-500'}`}>
                   {reuseQueueEnabled
-                    ? (t.wb_reuse_queue_enable_hint || '当前为批量模式：请把素材和脚本分别加入队列再生成。')
-                    : (t.wb_reuse_queue_disable_hint || '当前为单次模式：开启后才显示队列内容，适合大量复用场景。')}
+                      ? (t.wb_reuse_queue_enable_hint || '当前为批量模式：请把素材和脚本分别加入队列再生成。')
+                      : (t.wb_reuse_queue_disable_hint || '当前为单次模式：开启后才显示队列内容，适合大量复用场景。')}
                 </p>
               </div>
 
               {!reuseQueueEnabled ? (
-                <div className="text-[10px] text-zinc-500 border border-dashed border-white/10 rounded-lg px-3 py-2.5">
-                  {t.wb_reuse_queue_collapsed_hint || '复用队列已折叠。点击右上角按钮开启后即可维护队列。'}
-                </div>
+                  <div className="text-[10px] text-zinc-500 border border-dashed border-white/10 rounded-lg px-3 py-2.5">
+                    {t.wb_reuse_queue_collapsed_hint || '复用队列已折叠。点击右上角按钮开启后即可维护队列。'}
+                  </div>
               ) : (
-                <>
-              {/* Asset Queue */}
-              <div className="flex items-center justify-between">
-                <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_asset_queue}</div>
-                <button
-                    onClick={addCurrentAssetToQueue}
-                    disabled={!uploadedFile && !selectedAssetUrl}
-                    className={`text-[10px] px-2 py-1 rounded border border-white/10 ${!uploadedFile && !selectedAssetUrl ? 'text-zinc-600' : 'text-orange-500 hover:bg-white/5'}`}
-                >
-                  {t.wb_add_asset_queue}
-                </button>
-              </div>
-              <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
-                {assetQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_assets}</div> : assetQueue.map(item => (
-                    <div
-                        key={item.id}
-                        onClick={() => selectAssetFromQueue(item)}
-                        className={`flex items-center gap-2 rounded-lg p-2 border cursor-pointer transition ${selectedQueueAssetId === item.id ? 'bg-orange-500/10 border-orange-500/30' : 'bg-black/30 border-white/5 hover:bg-white/5'}`}
-                    >
-                      <div className="w-8 h-8 rounded bg-zinc-800 overflow-hidden shrink-0">
-                        {item.previewUrl && (item.mediaKind === 'video' ? (
-                          <video src={item.previewUrl} className="w-full h-full object-cover" muted playsInline />
-                        ) : (
-                          <img src={item.previewUrl} className="w-full h-full object-cover" />
-                        ))}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 min-w-0">
+                  <>
+                    {/* Asset Queue */}
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_asset_queue}</div>
+                      <button
+                          onClick={addCurrentAssetToQueue}
+                          disabled={!uploadedFile && !selectedAssetUrl}
+                          className={`text-[10px] px-2 py-1 rounded border border-white/10 ${!uploadedFile && !selectedAssetUrl ? 'text-zinc-600' : 'text-orange-500 hover:bg-white/5'}`}
+                      >
+                        {t.wb_add_asset_queue}
+                      </button>
+                    </div>
+                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
+                      {assetQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_assets}</div> : assetQueue.map(item => (
+                          <div
+                              key={item.id}
+                              onClick={() => selectAssetFromQueue(item)}
+                              className={`flex items-center gap-2 rounded-lg p-2 border cursor-pointer transition ${selectedQueueAssetId === item.id ? 'bg-orange-500/10 border-orange-500/30' : 'bg-black/30 border-white/5 hover:bg-white/5'}`}
+                          >
+                            <div className="w-8 h-8 rounded bg-zinc-800 overflow-hidden shrink-0 flex items-center justify-center">
+                              {item.previewUrl && (item.mediaKind === 'video' ? (
+                                  <video src={item.previewUrl} className="max-w-full max-h-full !object-contain" muted playsInline />
+                              ) : (
+                                  <img src={item.previewUrl} loading="lazy" className="max-w-full max-h-full !object-contain" alt={item.name} />
+                              ))}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 min-w-0">
                           <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-zinc-300">
                             {materialTypeLabelMap[item.materialType || 'product']}
                           </span>
-                          <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
-                        </div>
-                      </div>
-                      <label
-                        className={`shrink-0 flex items-center gap-1 text-[9px] px-1.5 py-1 rounded border transition ${item.mediaKind === 'image' ? 'border-white/10 text-zinc-300 hover:bg-white/5 cursor-pointer' : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}
-                        onClick={(e) => e.stopPropagation()}
-                        title={item.mediaKind === 'image' ? '选择此素材作为首帧图' : '仅图片可作为首帧图'}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={!!item.isPrimaryFrame}
-                          disabled={item.mediaKind !== 'image'}
-                          onChange={() => markQueueAssetAsPrimaryFrame(item.id)}
-                          className="accent-orange-500"
-                        />
-                        <span>首帧</span>
-                      </label>
+                                <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
+                              </div>
+                            </div>
+                            <label
+                                className={`shrink-0 flex items-center gap-1 text-[9px] px-1.5 py-1 rounded border transition ${item.mediaKind === 'image' ? 'border-white/10 text-zinc-300 hover:bg-white/5 cursor-pointer' : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}
+                                onClick={(e) => e.stopPropagation()}
+                                title={item.mediaKind === 'image' ? '选择此素材作为首帧图' : '仅图片可作为首帧图'}
+                            >
+                              <input
+                                  type="checkbox"
+                                  checked={!!item.isPrimaryFrame}
+                                  disabled={item.mediaKind !== 'image'}
+                                  onChange={() => markQueueAssetAsPrimaryFrame(item.id)}
+                                  className="accent-orange-500"
+                              />
+                              <span>首帧</span>
+                            </label>
+                            <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeAssetFromQueue(item.id);
+                                }}
+                            >
+                              <X className="w-3 h-3 text-zinc-600 hover:text-red-400" />
+                            </button>
+                          </div>
+                      ))}
+                    </div>
+
+                    {/* Script Queue */}
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_script_queue}</div>
                       <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeAssetFromQueue(item.id);
-                          }}
+                          onClick={addCurrentScriptToQueue}
+                          className="text-[10px] px-2 py-1 rounded border border-white/10 text-orange-500 hover:bg-white/5"
                       >
-                        <X className="w-3 h-3 text-zinc-600 hover:text-red-400" />
+                        {t.wb_add_script_queue}
                       </button>
                     </div>
-                ))}
-              </div>
-
-              {/* Script Queue */}
-              <div className="flex items-center justify-between">
-                <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_script_queue}</div>
-                <button
-                    onClick={addCurrentScriptToQueue}
-                    className="text-[10px] px-2 py-1 rounded border border-white/10 text-orange-500 hover:bg-white/5"
-                >
-                  {t.wb_add_script_queue}
-                </button>
-              </div>
-              <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
-                {scriptQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_scripts}</div> : scriptQueue.map(item => (
-                    <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
-                        <div className="text-[9px] text-zinc-500">{ENABLE_STORYBOARD_EDITOR ? `${item.scripts.length} shots` : '完整脚本方案'}</div>
-                      </div>
-                      <button onClick={() => removeScriptFromQueue(item.id)}><X className="w-3 h-3 text-zinc-600 hover:text-red-400" /></button>
+                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
+                      {scriptQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_scripts}</div> : scriptQueue.map(item => (
+                          <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
+                              <div className="text-[9px] text-zinc-500">{ENABLE_STORYBOARD_EDITOR ? `${item.scripts.length} shots` : '完整脚本方案'}</div>
+                            </div>
+                            <button onClick={() => removeScriptFromQueue(item.id)}><X className="w-3 h-3 text-zinc-600 hover:text-red-400" /></button>
+                          </div>
+                      ))}
                     </div>
-                ))}
-              </div>
 
-              <div className="text-[10px] text-zinc-500 pt-2 border-t border-white/5">
-                {t.wb_estimated_generate}: {assetQueue.length} × {scriptQueue.length} = {expectedBatchCount}
-              </div>
-                </>
+                    <div className="text-[10px] text-zinc-500 pt-2 border-t border-white/5">
+                      {t.wb_estimated_generate}: {assetQueue.length} × {scriptQueue.length} = {expectedBatchCount}
+                    </div>
+                  </>
               )}
             </div>
           </div>
 
-      {renderLeftColumnSettings()}
+          {renderLeftColumnSettings()}
 
-      <button
-        type="button"
-        onClick={() => {
-          if (isGeneratingScript) {
-            openInfo('Notice', t.wb_generate_in_progress);
-            return;
-          }
-          if (!hasCurrentAsset) {
-            openInfo('Notice', t.wb_generate_need_asset);
-            return;
-          }
-          void handleGenerateScripts();
-        }}
-        className={`w-full py-3 rounded-xl font-bold text-xs transition flex items-center justify-center gap-2 group border border-white/10 bg-black/30 text-zinc-200 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 ${isGeneratingScript || !hasCurrentAsset ? 'opacity-40 hover:bg-black/30' : ''}`}
-      >
-        {isGeneratingScript ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />}
-        {isGeneratingScript ? t.wb_generating : t.wb_btn_gen_scripts}
-      </button>
-    </div>
+          <button
+              type="button"
+              onClick={() => {
+                if (isGeneratingScript) {
+                  openInfo('Notice', t.wb_generate_in_progress);
+                  return;
+                }
+                if (!hasCurrentAsset) {
+                  openInfo('Notice', t.wb_generate_need_asset);
+                  return;
+                }
+                void handleGenerateScripts();
+              }}
+              className={`w-full py-3 rounded-xl font-bold text-xs transition flex items-center justify-center gap-2 group border border-white/10 bg-black/30 text-zinc-200 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 ${isGeneratingScript || !hasCurrentAsset ? 'opacity-40 hover:bg-black/30' : ''}`}
+          >
+            {isGeneratingScript ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />}
+            {isGeneratingScript ? t.wb_generating : t.wb_btn_gen_scripts}
+          </button>
+        </div>
     );
   };
 
@@ -4209,270 +4237,270 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           <div className="flex items-center gap-4">
             <div className="relative">
               <button
-                ref={projectMenuButtonRef}
-                type="button"
-                title={projectUiText.listTooltip}
-                onClick={() => {
-                  setProjectMenuOpen((prev) => !prev);
-                  setProjectActionMenuId(null);
-                }}
-                className="p-2 rounded-md border border-white/10 text-zinc-300 hover:text-white hover:border-white/30 hover:bg-white/10 transition"
+                  ref={projectMenuButtonRef}
+                  type="button"
+                  title={projectUiText.listTooltip}
+                  onClick={() => {
+                    setProjectMenuOpen((prev) => !prev);
+                    setProjectActionMenuId(null);
+                  }}
+                  className="p-2 rounded-md border border-white/10 text-zinc-300 hover:text-white hover:border-white/30 hover:bg-white/10 transition"
               >
                 <List className="w-4 h-4" />
               </button>
 
               {projectMenuOpen && (
-                <div
-                  ref={projectMenuRef}
-                  onMouseDown={(event) => {
-                    const target = event.target as HTMLElement;
-                    if (target.closest('[data-project-action-root="true"]')) return;
-                    setProjectActionMenuId(null);
-                  }}
-                  className="absolute top-11 left-0 w-[360px] rounded-xl border border-white/10 bg-zinc-950/95 backdrop-blur-xl shadow-2xl shadow-black/60 p-3 text-sm"
-                >
-                  <div className="text-sm font-bold text-zinc-100 px-2 pb-2">{projectUiText.switchTitle}</div>
-                  <div className="px-2">
-                    <input
-                      value={projectSearch}
-                      onChange={(e) => setProjectSearch(e.target.value)}
-                      placeholder={projectUiText.searchPlaceholder}
-                      className="w-full rounded-lg border border-white/10 bg-black/40 text-zinc-200 text-xs px-3 py-2 outline-none focus:border-orange-500"
-                    />
-                  </div>
-                  <div className="h-px bg-white/10 my-3" />
-                  <div className="px-2 pb-1 flex items-center justify-between">
-                    <div className="text-[11px] uppercase tracking-widest text-zinc-500">{projectUiText.recent}</div>
-                    {isProjectManageMode && (
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsProjectManageMode(false);
-                            setSelectedProjectIds([]);
-                          }}
-                          className="text-[11px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10"
-                        >
-                          {projectUiText.manageCancel || projectUiText.cancel}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={selectedProjectIds.length === 0}
-                          onClick={() => setDeleteProjectIds(selectedProjectIds)}
-                          className={`text-[11px] px-2 py-1 rounded text-white ${selectedProjectIds.length === 0 ? 'bg-red-600/40 cursor-not-allowed' : 'bg-red-600 hover:bg-red-500'}`}
-                        >
-                          {projectUiText.manageDelete || projectUiText.delete}
-                        </button>
-                      </div>
-                    )}
-                  </div>
                   <div
-                    ref={projectListRef}
-                    className="overflow-y-auto custom-scroll pr-1"
-                    style={{ maxHeight: 256, paddingBottom: PROJECT_ACTION_MENU_RESERVED_SPACE }}
+                      ref={projectMenuRef}
+                      onMouseDown={(event) => {
+                        const target = event.target as HTMLElement;
+                        if (target.closest('[data-project-action-root="true"]')) return;
+                        setProjectActionMenuId(null);
+                      }}
+                      className="absolute top-11 left-0 w-[360px] rounded-xl border border-white/10 bg-zinc-950/95 backdrop-blur-xl shadow-2xl shadow-black/60 p-3 text-sm"
                   >
-                    {filteredProjects.length === 0 && (
-                      <div className="px-2 py-3 text-xs text-zinc-500">{projectUiText.empty}</div>
-                    )}
-                    {filteredProjects.map((project) => {
-                      const isCurrent = project.id === projectStore.currentProjectId;
-                      const isRenaming = renamingProjectId === project.id;
-                      return (
-                        <div key={project.id} className="project-menu-item-row group relative flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (isProjectManageMode) {
-                                toggleProjectSelection(project.id);
-                                return;
-                              }
-                              switchProject(project.id);
-                            }}
-                            className="project-menu-item-btn flex-1 min-w-0 text-left bg-transparent border-0 appearance-none"
-                          >
-                            <div className="flex items-center gap-2">
-                              {isProjectManageMode && (
-                                <span
-                                  className={`w-4 h-4 rounded border shrink-0 inline-flex items-center justify-center ${selectedProjectIds.includes(project.id) ? 'bg-orange-500 border-orange-500 text-black' : 'border-white/30 text-transparent'}`}
-                                >
+                    <div className="text-sm font-bold text-zinc-100 px-2 pb-2">{projectUiText.switchTitle}</div>
+                    <div className="px-2">
+                      <input
+                          value={projectSearch}
+                          onChange={(e) => setProjectSearch(e.target.value)}
+                          placeholder={projectUiText.searchPlaceholder}
+                          className="w-full rounded-lg border border-white/10 bg-black/40 text-zinc-200 text-xs px-3 py-2 outline-none focus:border-orange-500"
+                      />
+                    </div>
+                    <div className="h-px bg-white/10 my-3" />
+                    <div className="px-2 pb-1 flex items-center justify-between">
+                      <div className="text-[11px] uppercase tracking-widest text-zinc-500">{projectUiText.recent}</div>
+                      {isProjectManageMode && (
+                          <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                  setIsProjectManageMode(false);
+                                  setSelectedProjectIds([]);
+                                }}
+                                className="text-[11px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10"
+                            >
+                              {projectUiText.manageCancel || projectUiText.cancel}
+                            </button>
+                            <button
+                                type="button"
+                                disabled={selectedProjectIds.length === 0}
+                                onClick={() => setDeleteProjectIds(selectedProjectIds)}
+                                className={`text-[11px] px-2 py-1 rounded text-white ${selectedProjectIds.length === 0 ? 'bg-red-600/40 cursor-not-allowed' : 'bg-red-600 hover:bg-red-500'}`}
+                            >
+                              {projectUiText.manageDelete || projectUiText.delete}
+                            </button>
+                          </div>
+                      )}
+                    </div>
+                    <div
+                        ref={projectListRef}
+                        className="overflow-y-auto custom-scroll pr-1"
+                        style={{ maxHeight: 256, paddingBottom: PROJECT_ACTION_MENU_RESERVED_SPACE }}
+                    >
+                      {filteredProjects.length === 0 && (
+                          <div className="px-2 py-3 text-xs text-zinc-500">{projectUiText.empty}</div>
+                      )}
+                      {filteredProjects.map((project) => {
+                        const isCurrent = project.id === projectStore.currentProjectId;
+                        const isRenaming = renamingProjectId === project.id;
+                        return (
+                            <div key={project.id} className="project-menu-item-row group relative flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5">
+                              <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (isProjectManageMode) {
+                                      toggleProjectSelection(project.id);
+                                      return;
+                                    }
+                                    switchProject(project.id);
+                                  }}
+                                  className="project-menu-item-btn flex-1 min-w-0 text-left bg-transparent border-0 appearance-none"
+                              >
+                                <div className="flex items-center gap-2">
+                                  {isProjectManageMode && (
+                                      <span
+                                          className={`w-4 h-4 rounded border shrink-0 inline-flex items-center justify-center ${selectedProjectIds.includes(project.id) ? 'bg-orange-500 border-orange-500 text-black' : 'border-white/30 text-transparent'}`}
+                                      >
                                   <Check className="w-3 h-3" />
                                 </span>
-                              )}
-                              <span className="shrink-0">
+                                  )}
+                                  <span className="shrink-0">
                                 {isCurrent ? (
-                                  <span className="inline-flex items-center justify-center whitespace-nowrap leading-none px-2 py-1 rounded-md bg-orange-500 text-black text-[10px] font-black">
+                                    <span className="inline-flex items-center justify-center whitespace-nowrap leading-none px-2 py-1 rounded-md bg-orange-500 text-black text-[10px] font-black">
                                     {projectUiText.currentTag}
                                   </span>
                                 ) : null}
                               </span>
-                              {isRenaming ? (
-                                <input
-                                  autoFocus
-                                  value={renamingProjectName}
-                                  onClick={(event) => event.stopPropagation()}
-                                  onChange={(event) => setRenamingProjectName(event.target.value)}
-                                  onBlur={() => {
-                                    const renameSuccess = commitProjectRename(project.id, renamingProjectName, {
-                                      keepEditingOnFail: true,
-                                      originalName: project.name,
-                                    });
-                                    if (renameSuccess) {
-                                      setRenamingProjectId(null);
-                                    } else {
-                                      setRenamingProjectName(project.name);
-                                    }
-                                  }}
-                                  onKeyDown={(event) => {
-                                    if (event.key === 'Enter') {
-                                      const renameSuccess = commitProjectRename(project.id, renamingProjectName, {
-                                        keepEditingOnFail: true,
-                                        originalName: project.name,
-                                      });
-                                      if (renameSuccess) {
-                                        setRenamingProjectId(null);
-                                      } else {
-                                        setRenamingProjectName(project.name);
+                                  {isRenaming ? (
+                                      <input
+                                          autoFocus
+                                          value={renamingProjectName}
+                                          onClick={(event) => event.stopPropagation()}
+                                          onChange={(event) => setRenamingProjectName(event.target.value)}
+                                          onBlur={() => {
+                                            const renameSuccess = commitProjectRename(project.id, renamingProjectName, {
+                                              keepEditingOnFail: true,
+                                              originalName: project.name,
+                                            });
+                                            if (renameSuccess) {
+                                              setRenamingProjectId(null);
+                                            } else {
+                                              setRenamingProjectName(project.name);
+                                            }
+                                          }}
+                                          onKeyDown={(event) => {
+                                            if (event.key === 'Enter') {
+                                              const renameSuccess = commitProjectRename(project.id, renamingProjectName, {
+                                                keepEditingOnFail: true,
+                                                originalName: project.name,
+                                              });
+                                              if (renameSuccess) {
+                                                setRenamingProjectId(null);
+                                              } else {
+                                                setRenamingProjectName(project.name);
+                                              }
+                                            } else if (event.key === 'Escape') {
+                                              setRenamingProjectId(null);
+                                            }
+                                          }}
+                                          className="w-[180px] rounded border border-white/10 bg-black/40 text-zinc-100 text-xs px-2 py-1 outline-none focus:border-orange-500"
+                                      />
+                                  ) : (
+                                      <span className="text-sm text-zinc-100 truncate">{project.name}</span>
+                                  )}
+                                  <span className="text-[11px] text-zinc-500 shrink-0">{formatProjectLastEdited(project.updatedAt)}</span>
+                                </div>
+                              </button>
+                              {!isProjectManageMode && <div className="relative" data-project-action-root="true">
+                                <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      const nextId = project.id;
+                                      const isClosing = projectActionMenuId === nextId;
+                                      if (isClosing) {
+                                        setProjectActionMenuId(null);
+                                        return;
                                       }
-                                    } else if (event.key === 'Escape') {
-                                      setRenamingProjectId(null);
-                                    }
-                                  }}
-                                  className="w-[180px] rounded border border-white/10 bg-black/40 text-zinc-100 text-xs px-2 py-1 outline-none focus:border-orange-500"
-                                />
-                              ) : (
-                                <span className="text-sm text-zinc-100 truncate">{project.name}</span>
-                              )}
-                              <span className="text-[11px] text-zinc-500 shrink-0">{formatProjectLastEdited(project.updatedAt)}</span>
+
+                                      setProjectActionMenuId(nextId);
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-400 hover:text-white hover:bg-white/10 transition"
+                                >
+                                  <MoreHorizontal className="w-4 h-4" />
+                                </button>
+                                {projectActionMenuId === project.id && (
+                                    <div data-project-action-menu="true" className="absolute right-0 top-7 w-28 rounded-lg border border-white/10 bg-zinc-900 shadow-xl p-1 z-20">
+                                      <button
+                                          type="button"
+                                          onClick={() => {
+                                            setProjectActionMenuId(null);
+                                            setRenamingProjectId(project.id);
+                                            setRenamingProjectName(project.name);
+                                          }}
+                                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-zinc-200 hover:bg-white/10"
+                                      >
+                                        <Pencil className="w-3.5 h-3.5" />
+                                        {projectUiText.rename}
+                                      </button>
+                                      <button
+                                          type="button"
+                                          onClick={() => {
+                                            setProjectActionMenuId(null);
+                                            setDeleteProjectTarget(project);
+                                          }}
+                                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-red-400 hover:bg-red-500/10"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        {projectUiText.delete}
+                                      </button>
+                                    </div>
+                                )}
+                              </div>}
                             </div>
-                          </button>
-                          {!isProjectManageMode && <div className="relative" data-project-action-root="true">
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                const nextId = project.id;
-                                const isClosing = projectActionMenuId === nextId;
-                                if (isClosing) {
-                                  setProjectActionMenuId(null);
-                                  return;
-                                }
+                        );
+                      })}
+                    </div>
 
-                                setProjectActionMenuId(nextId);
-                              }}
-                              className="opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-400 hover:text-white hover:bg-white/10 transition"
-                            >
-                              <MoreHorizontal className="w-4 h-4" />
-                            </button>
-                            {projectActionMenuId === project.id && (
-                              <div data-project-action-menu="true" className="absolute right-0 top-7 w-28 rounded-lg border border-white/10 bg-zinc-900 shadow-xl p-1 z-20">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setProjectActionMenuId(null);
-                                    setRenamingProjectId(project.id);
-                                    setRenamingProjectName(project.name);
-                                  }}
-                                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-zinc-200 hover:bg-white/10"
-                                >
-                                  <Pencil className="w-3.5 h-3.5" />
-                                  {projectUiText.rename}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setProjectActionMenuId(null);
-                                    setDeleteProjectTarget(project);
-                                  }}
-                                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-red-400 hover:bg-red-500/10"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                  {projectUiText.delete}
-                                </button>
-                              </div>
-                            )}
-                          </div>}
-                        </div>
-                      );
-                    })}
+                    <div className="h-px bg-white/10 my-3" />
+                    <div className="flex items-center justify-end gap-2 px-2">
+                      <button
+                          type="button"
+                          onClick={() => {
+                            setNewProjectNameDraft(projectUiText.defaultProjectName);
+                            setCreateProjectNameError('');
+                            setIsCreateProjectOpen(true);
+                          }}
+                          className="text-xs px-2 py-1 rounded text-orange-400 hover:text-orange-300 hover:bg-orange-500/10"
+                      >
+                        + {projectUiText.newProject}
+                      </button>
+                      <button
+                          type="button"
+                          onClick={() => {
+                            setIsProjectManageMode(true);
+                            setSelectedProjectIds([]);
+                            setProjectActionMenuId(null);
+                          }}
+                          className="text-xs px-2 py-1 rounded text-zinc-300 hover:text-white hover:bg-white/10"
+                      >
+                        {projectUiText.manageProjects}
+                      </button>
+                    </div>
                   </div>
-
-                  <div className="h-px bg-white/10 my-3" />
-                  <div className="flex items-center justify-end gap-2 px-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNewProjectNameDraft(projectUiText.defaultProjectName);
-                        setCreateProjectNameError('');
-                        setIsCreateProjectOpen(true);
-                      }}
-                      className="text-xs px-2 py-1 rounded text-orange-400 hover:text-orange-300 hover:bg-orange-500/10"
-                    >
-                      + {projectUiText.newProject}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsProjectManageMode(true);
-                        setSelectedProjectIds([]);
-                        setProjectActionMenuId(null);
-                      }}
-                      className="text-xs px-2 py-1 rounded text-zinc-300 hover:text-white hover:bg-white/10"
-                    >
-                      {projectUiText.manageProjects}
-                    </button>
-                  </div>
-                </div>
               )}
             </div>
             {isHeaderProjectEditing ? (
-              <input
-                autoFocus
-                value={headerProjectNameDraft}
-                onChange={(event) => setHeaderProjectNameDraft(event.target.value)}
-                onBlur={() => {
-                  if (currentProject) commitProjectRename(currentProject.id, headerProjectNameDraft);
-                  setIsHeaderProjectEditing(false);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    if (currentProject) commitProjectRename(currentProject.id, headerProjectNameDraft);
-                    setIsHeaderProjectEditing(false);
-                  } else if (event.key === 'Escape') {
-                    setIsHeaderProjectEditing(false);
-                  }
-                }}
-                style={{ width: `${Math.max(1.2, Math.min(estimateProjectNameWidthEm(headerProjectNameDraft || currentProject?.name || ''), 22))}em` }}
-                className="text-xl font-bold tracking-tight text-white bg-transparent border-b border-white/30 focus:border-orange-500 outline-none"
-              />
+                <input
+                    autoFocus
+                    value={headerProjectNameDraft}
+                    onChange={(event) => setHeaderProjectNameDraft(event.target.value)}
+                    onBlur={() => {
+                      if (currentProject) commitProjectRename(currentProject.id, headerProjectNameDraft);
+                      setIsHeaderProjectEditing(false);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        if (currentProject) commitProjectRename(currentProject.id, headerProjectNameDraft);
+                        setIsHeaderProjectEditing(false);
+                      } else if (event.key === 'Escape') {
+                        setIsHeaderProjectEditing(false);
+                      }
+                    }}
+                    style={{ width: `${Math.max(1.2, Math.min(estimateProjectNameWidthEm(headerProjectNameDraft || currentProject?.name || ''), 22))}em` }}
+                    className="text-xl font-bold tracking-tight text-white bg-transparent border-b border-white/30 focus:border-orange-500 outline-none"
+                />
             ) : (
-              <h1 className="text-xl font-bold tracking-tight text-white cursor-text" onClick={beginHeaderRename}>
-                {currentProject?.name || DEFAULT_PROJECT_NAME}
-              </h1>
+                <h1 className="text-xl font-bold tracking-tight text-white cursor-text" onClick={beginHeaderRename}>
+                  {currentProject?.name || DEFAULT_PROJECT_NAME}
+                </h1>
             )}
             <span className="px-2 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-400 border border-white/5">{t.wb_header_draft}</span>
             {ENABLE_PROMPT_LAB && (
-              <>
-                <button
-                  onClick={openPromptLab}
-                  className="flex items-center gap-1.5 px-2 py-1 rounded border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
-                  title="查看/编辑内置 prompts（临时功能）"
-                >
-                  <FileJson className="w-3.5 h-3.5" />
-                  <span className="text-[10px] font-bold">Prompt</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGuideStepIndex(0);
-                    setIsGuideOpen(true);
-                  }}
-                  className="flex items-center gap-1.5 px-2 py-1 rounded border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 transition"
-                  title={t.wb_guide_button_title}
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span className="text-[10px] font-bold">{t.wb_guide_button_label}</span>
-                </button>
-              </>
+                <>
+                  <button
+                      onClick={openPromptLab}
+                      className="flex items-center gap-1.5 px-2 py-1 rounded border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
+                      title="查看/编辑内置 prompts（临时功能）"
+                  >
+                    <FileJson className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-bold">Prompt</span>
+                  </button>
+                  <button
+                      type="button"
+                      onClick={() => {
+                        setGuideStepIndex(0);
+                        setIsGuideOpen(true);
+                      }}
+                      className="flex items-center gap-1.5 px-2 py-1 rounded border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 transition"
+                      title={t.wb_guide_button_title}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-bold">{t.wb_guide_button_label}</span>
+                  </button>
+                </>
             )}
           </div>
           <div className="flex items-center gap-4">
@@ -4482,746 +4510,657 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         </header>
 
         {ENABLE_PROMPT_LAB && isPromptLabOpen && (
-          <PromptLabWindow
-            templates={promptTemplates}
-            loading={promptTemplatesLoading}
-            error={promptTemplatesError}
-            onReload={loadPromptLabTemplates}
-            overrides={promptOverrides}
-            onChangeOverrides={setPromptOverrides}
-            debug={{
-              isPreparing: isPreparingDebug,
-              isSending: isSendingDebug,
-              payloadText: debugPayloadText,
-              onChangePayloadText: setDebugPayloadText,
-              preview: debugPreview,
-              onPrepare: handlePrepareDebug,
-              onRefresh: handleRefreshDebugPreview,
-              onSend: handleSendDebugPayload,
-            }}
-            onClose={() => setIsPromptLabOpen(false)}
-          />
+            <PromptLabWindow
+                templates={promptTemplates}
+                loading={promptTemplatesLoading}
+                error={promptTemplatesError}
+                onReload={loadPromptLabTemplates}
+                overrides={promptOverrides}
+                onChangeOverrides={setPromptOverrides}
+                debug={{
+                  isPreparing: isPreparingDebug,
+                  isSending: isSendingDebug,
+                  payloadText: debugPayloadText,
+                  onChangePayloadText: setDebugPayloadText,
+                  preview: debugPreview,
+                  onPrepare: handlePrepareDebug,
+                  onRefresh: handleRefreshDebugPreview,
+                  onSend: handleSendDebugPayload,
+                }}
+                onClose={() => setIsPromptLabOpen(false)}
+            />
         )}
 
         {isGuideOpen && (
-          <>
-            <div className="fixed inset-0 z-[70] bg-black/35 backdrop-blur-[1px]" onClick={() => setIsGuideOpen(false)} />
-            <div
-              className="fixed z-[90] rounded-2xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/60 p-4"
-              style={guidePanelStyle}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-base font-bold text-white">{t.wb_guide_title}</div>
-                  <div className="mt-1 text-xs text-zinc-400">{t.wb_guide_step} {guideStepIndex + 1} / {guideSteps.length}</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsGuideOpen(false)}
-                  className="text-zinc-400 hover:text-white"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="mt-3 rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-3">
-                <div className="text-sm font-bold text-orange-200">{activeGuideStep?.title}</div>
-                <div className="mt-2 text-sm text-zinc-100">{activeGuideStep?.description}</div>
-              </div>
-
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {guideSteps.map((step, index) => (
+            <>
+              <div className="fixed inset-0 z-[70] bg-black/35 backdrop-blur-[1px]" onClick={() => setIsGuideOpen(false)} />
+              <div
+                  className="fixed z-[90] rounded-2xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/60 p-4"
+                  style={guidePanelStyle}
+                  onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-base font-bold text-white">{t.wb_guide_title}</div>
+                    <div className="mt-1 text-xs text-zinc-400">{t.wb_guide_step} {guideStepIndex + 1} / {guideSteps.length}</div>
+                  </div>
                   <button
-                    key={step.key}
-                    type="button"
-                    onClick={() => setGuideStepIndex(index)}
-                    className={`text-left rounded-lg border px-3 py-2 text-xs transition ${guideStepIndex === index ? 'border-orange-500/70 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-black/40 text-zinc-300 hover:bg-white/5'}`}
+                      type="button"
+                      onClick={() => setIsGuideOpen(false)}
+                      className="text-zinc-400 hover:text-white"
                   >
-                    {index + 1}. {step.title}
+                    <X className="w-4 h-4" />
                   </button>
-                ))}
-              </div>
+                </div>
 
-              <div className="mt-4 flex justify-end gap-2">
-                <button
-                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                  onClick={() => setIsGuideOpen(false)}
-                >
-                  {t.wb_guide_close}
-                </button>
-                <button
-                  className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={guideStepIndex <= 0}
-                  onClick={() => setGuideStepIndex((prev) => Math.max(0, prev - 1))}
-                >
-                  {t.wb_guide_prev}
-                </button>
-                <button
-                  className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
-                  onClick={() => {
-                    if (guideStepIndex >= guideSteps.length - 1) {
-                      setIsGuideOpen(false);
-                      return;
-                    }
-                    setGuideStepIndex((prev) => Math.min(guideSteps.length - 1, prev + 1));
-                  }}
-                >
-                  {guideStepIndex >= guideSteps.length - 1 ? t.wb_guide_finish : t.wb_guide_next}
-                </button>
-              </div>
-            </div>
-          </>
-        )}
+                <div className="mt-3 rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-3">
+                  <div className="text-sm font-bold text-orange-200">{activeGuideStep?.title}</div>
+                  <div className="mt-2 text-sm text-zinc-100">{activeGuideStep?.description}</div>
+                </div>
 
-        {toastMessage && (
-          <div className="fixed left-6 bottom-6 z-[140] max-w-[360px] rounded-xl border border-white/10 bg-black/70 px-4 py-3 text-xs text-zinc-200 shadow-lg shadow-black/30">
-            {toastMessage}
-          </div>
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {guideSteps.map((step, index) => (
+                      <button
+                          key={step.key}
+                          type="button"
+                          onClick={() => setGuideStepIndex(index)}
+                          className={`text-left rounded-lg border px-3 py-2 text-xs transition ${guideStepIndex === index ? 'border-orange-500/70 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-black/40 text-zinc-300 hover:bg-white/5'}`}
+                      >
+                        {index + 1}. {step.title}
+                      </button>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex justify-end gap-2">
+                  <button
+                      className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                      onClick={() => setIsGuideOpen(false)}
+                  >
+                    {t.wb_guide_close}
+                  </button>
+                  <button
+                      className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={guideStepIndex <= 0}
+                      onClick={() => setGuideStepIndex((prev) => Math.max(0, prev - 1))}
+                  >
+                    {t.wb_guide_prev}
+                  </button>
+                  <button
+                      className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
+                      onClick={() => {
+                        if (guideStepIndex >= guideSteps.length - 1) {
+                          setIsGuideOpen(false);
+                          return;
+                        }
+                        setGuideStepIndex((prev) => Math.min(guideSteps.length - 1, prev + 1));
+                      }}
+                  >
+                    {guideStepIndex >= guideSteps.length - 1 ? t.wb_guide_finish : t.wb_guide_next}
+                  </button>
+                </div>
+              </div>
+            </>
         )}
 
         {isInfoOpen && (
-          <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={closeInfoDialog} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={closeInfoDialog}>OK</button></>}>
-            <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
-          </AppDialog>
+            <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={closeInfoDialog} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={closeInfoDialog}>OK</button></>}>
+              <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
+            </AppDialog>
         )}
         {isConfirmOpen && (
-          <AppDialog
-            isOpen={isConfirmOpen}
-            title={confirmTitle || 'Confirm'}
-            onClose={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}
-            footer={
-              <>
-                <button className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}>{confirmCancelLabel || t.wb_confirm_cancel}</button>
-                <button className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(true); confirmResolveRef.current = null; } }}>{confirmOkLabel || t.wb_confirm_ok}</button>
-              </>
-            }
-          >
-            <div className="whitespace-pre-line text-sm text-zinc-300">{confirmMessage}</div>
-          </AppDialog>
+            <AppDialog
+                isOpen={isConfirmOpen}
+                title={confirmTitle || 'Confirm'}
+                onClose={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}
+                footer={
+                  <>
+                    <button className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}>{confirmCancelLabel}</button>
+                    <button className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(true); confirmResolveRef.current = null; } }}>{confirmOkLabel}</button>
+                  </>
+                }
+            >
+              <div className="whitespace-pre-line text-sm text-zinc-300">{confirmMessage}</div>
+            </AppDialog>
         )}
         {deleteProjectTarget && (
-          <AppDialog
-            isOpen={!!deleteProjectTarget}
-            title={projectUiText.deleteTitle}
-            onClose={() => setDeleteProjectTarget(null)}
-            footer={
-              <>
-                <button
-                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                  onClick={() => setDeleteProjectTarget(null)}
-                >
-                  {projectUiText.cancel}
-                </button>
-                <button
-                  className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500"
-                  onClick={() => {
-                    const target = deleteProjectTarget;
-                    if (!target) return;
-                    removeProjectsByIds([target.id]);
-                    setDeleteProjectTarget(null);
-                    setProjectMenuOpen(false);
-                  }}
-                >
-                  {projectUiText.delete}
-                </button>
-              </>
-            }
-          >
-            <div className="whitespace-pre-line text-sm text-zinc-300">{projectUiText.deleteDesc}</div>
-          </AppDialog>
+            <AppDialog
+                isOpen={!!deleteProjectTarget}
+                title={projectUiText.deleteTitle}
+                onClose={() => setDeleteProjectTarget(null)}
+                footer={
+                  <>
+                    <button
+                        className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                        onClick={() => setDeleteProjectTarget(null)}
+                    >
+                      {projectUiText.cancel}
+                    </button>
+                    <button
+                        className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500"
+                        onClick={() => {
+                          const target = deleteProjectTarget;
+                          if (!target) return;
+                          removeProjectsByIds([target.id]);
+                          setDeleteProjectTarget(null);
+                          setProjectMenuOpen(false);
+                        }}
+                    >
+                      {projectUiText.delete}
+                    </button>
+                  </>
+                }
+            >
+              <div className="whitespace-pre-line text-sm text-zinc-300">{projectUiText.deleteDesc}</div>
+            </AppDialog>
         )}
         {deleteProjectIds.length > 0 && (
-          <AppDialog
-            isOpen={deleteProjectIds.length > 0}
-            title={projectUiText.bulkDeleteTitle || projectUiText.deleteTitle}
-            onClose={() => setDeleteProjectIds([])}
-            footer={
-              <>
-                <button
-                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                  onClick={() => setDeleteProjectIds([])}
-                >
-                  {projectUiText.cancel}
-                </button>
-                <button
-                  className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500"
-                  onClick={() => {
-                    removeProjectsByIds(deleteProjectIds);
-                    setDeleteProjectIds([]);
-                    setSelectedProjectIds([]);
-                    setIsProjectManageMode(false);
-                  }}
-                >
-                  {projectUiText.delete}
-                </button>
-              </>
-            }
-          >
-            <div className="whitespace-pre-line text-sm text-zinc-300">{projectUiText.bulkDeleteDesc || projectUiText.deleteDesc}</div>
-          </AppDialog>
+            <AppDialog
+                isOpen={deleteProjectIds.length > 0}
+                title={projectUiText.bulkDeleteTitle || projectUiText.deleteTitle}
+                onClose={() => setDeleteProjectIds([])}
+                footer={
+                  <>
+                    <button
+                        className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                        onClick={() => setDeleteProjectIds([])}
+                    >
+                      {projectUiText.cancel}
+                    </button>
+                    <button
+                        className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500"
+                        onClick={() => {
+                          removeProjectsByIds(deleteProjectIds);
+                          setDeleteProjectIds([]);
+                          setSelectedProjectIds([]);
+                          setIsProjectManageMode(false);
+                        }}
+                    >
+                      {projectUiText.delete}
+                    </button>
+                  </>
+                }
+            >
+              <div className="whitespace-pre-line text-sm text-zinc-300">{projectUiText.bulkDeleteDesc || projectUiText.deleteDesc}</div>
+            </AppDialog>
         )}
         {isCreateProjectOpen && (
-          <AppDialog
-            isOpen={isCreateProjectOpen}
-            title={projectUiText.createTitle || projectUiText.newProject}
-            onClose={() => {
-              setIsCreateProjectOpen(false);
-              setCreateProjectNameError('');
-            }}
-            footer={
-              <>
-                <button
-                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                  onClick={() => {
-                    setIsCreateProjectOpen(false);
-                    setCreateProjectNameError('');
-                  }}
-                >
-                  {projectUiText.cancel}
-                </button>
-                <button
-                  className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
-                  onClick={() => createNewProject(newProjectNameDraft)}
-                >
-                  {projectUiText.createConfirm || projectUiText.newProject}
-                </button>
-              </>
-            }
-          >
-            <div className="space-y-2">
-              <div className="text-sm text-zinc-300">{projectUiText.createNameLabel || t.assets_name_label || 'Name'}</div>
-              <input
-                autoFocus
-                value={newProjectNameDraft}
-                onChange={(e) => {
-                  const nextName = e.target.value;
-                  setNewProjectNameDraft(nextName);
-                  if (createProjectNameError && nextName.trim().length <= MAX_PROJECT_NAME_LENGTH) {
-                    setCreateProjectNameError('');
-                  }
+            <AppDialog
+                isOpen={isCreateProjectOpen}
+                title={projectUiText.createTitle || projectUiText.newProject}
+                onClose={() => {
+                  setIsCreateProjectOpen(false);
+                  setCreateProjectNameError('');
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') createNewProject(newProjectNameDraft);
-                }}
-                placeholder={projectUiText.createNamePlaceholder || projectUiText.defaultProjectName}
-                className={`w-full rounded-lg border bg-black/40 text-zinc-100 px-3 py-2 text-sm outline-none focus:border-orange-500 ${createProjectNameError ? 'border-red-500' : 'border-white/10'}`}
-              />
-              {createProjectNameError && (
-                <div className="text-xs text-red-400">{createProjectNameError}</div>
-              )}
-            </div>
-          </AppDialog>
-        )}
-        {isUploadTypeDialogOpen && (
-          <AppDialog
-            isOpen={isUploadTypeDialogOpen}
-            title="请选择上传素材类别"
-            onClose={cancelUploadTypeSelection}
-            widthClassName="max-w-[min(92vw,700px)]"
-            footer={
-              <>
-                <button
-                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                  onClick={cancelUploadTypeSelection}
-                >
-                  取消
-                </button>
-                <button
-                  className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
-                  onClick={confirmUploadTypeSelection}
-                >
-                  确认并上传
-                </button>
-              </>
-            }
-          >
-            <div className="space-y-3 w-full">
-              <div className="text-sm text-zinc-300">本次将上传 {pendingUploadFiles.length} 个文件，请先选择它们所属的素材类别。</div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {(['product', 'model', 'scene', 'motion'] as AssetLibraryTab[]).map((type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => setPendingUploadType(type)}
-                    className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${pendingUploadType === type ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
-                  >
-                    {materialTypeLabelMap[type]}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </AppDialog>
-        )}
-        {isAssetLibraryOpen && (
-          <AppDialog
-            isOpen={isAssetLibraryOpen}
-            titleClassName="text-lg"
-            title={t.wb_dialog_choose_from_library || '从素材库选择'}
-            onClose={() => setIsAssetLibraryOpen(false)}
-            widthClassName="max-w-[min(92vw,980px)]"
-            footer={
-              <>
-                <button
-                  className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
-                  onClick={() => setIsAssetLibraryOpen(false)}
-                >
-                  关闭
-                </button>
-              </>
-            }
-          >
-            <div className="w-full h-[62vh] max-h-[600px] min-h-[440px] flex flex-col gap-2.5">
-              <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                {([
-                  { value: 'product', label: t.assets_tab_products || '商品' },
-                  { value: 'model', label: t.assets_tab_models || '模特' },
-                  { value: 'scene', label: t.assets_tab_scenes || '场景' },
-                  { value: 'motion', label: t.assets_tab_motion || '动作' },
-                ] as Array<{ value: AssetLibraryTab; label: string }>).map((tab) => (
-                  <button
-                    key={tab.value}
-                    type="button"
-                    onClick={() => {
-                      setAssetLibraryTab(tab.value);
-                      setAssetLibraryCurrentFolderId(null);
-                    }}
-                    className={`shrink-0 rounded-full border px-5 py-2 text-[14px] font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center gap-2 text-xs text-zinc-500 min-w-0">
-                <button
-                  type="button"
-                  onClick={() => setAssetLibraryCurrentFolderId(null)}
-                  className={`hover:text-white ${assetLibraryCurrentFolderId === null ? 'text-white' : ''}`}
-                >
-                  {t.assets_root || '根目录'}
-                </button>
-                {assetLibraryBreadcrumb.map((folder) => (
-                  <div key={folder.id} className="flex items-center gap-2 min-w-0">
-                    <span>/</span>
+                footer={
+                  <>
                     <button
-                      type="button"
-                      onClick={() => setAssetLibraryCurrentFolderId(folder.id)}
-                      className={`hover:text-white truncate ${assetLibraryCurrentFolderId === folder.id ? 'text-white' : ''}`}
+                        className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                        onClick={() => {
+                          setIsCreateProjectOpen(false);
+                          setCreateProjectNameError('');
+                        }}
                     >
-                      {folder.name}
+                      {projectUiText.cancel}
                     </button>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-1">
-                {assetLibraryLoading ? (
-                  <div className="h-52 flex items-center justify-center text-zinc-400">
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载中...
-                  </div>
-                ) : assetLibraryError ? (
-                  <div className="h-52 flex items-center justify-center text-red-300 text-sm">
-                    {assetLibraryError}
-                  </div>
-                ) : assetLibraryItems.length === 0 && assetLibraryFolders.length === 0 ? (
-                  <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">
-                    暂无素材
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-6 gap-2">
-                    {assetLibraryFolders.map((folder) => (
-                      <button
-                        key={folder.id}
-                        type="button"
-                        onClick={() => setAssetLibraryCurrentFolderId(folder.id)}
-                        className="text-left rounded-lg border border-white/10 bg-black/30 p-1 hover:border-orange-500/50 hover:bg-white/5 transition"
-                      >
-                        <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-900/60 relative flex items-center justify-center">
-                          <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center">
-                            <Folder className="w-5 h-5 text-zinc-300" />
-                          </div>
-                        </div>
-                        <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{folder.name}</div>
-                      </button>
-                    ))}
-                    {assetLibraryItems.map((asset) => (
-                      <button
-                        key={asset.id}
-                        type="button"
-                        onClick={() => selectAssetFromLibraryPopup(asset)}
-                        className="text-left rounded-lg border border-white/10 bg-black/30 p-1 hover:border-orange-500/50 hover:bg-white/5 transition"
-                      >
-                        <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
-                          {asset.media_kind === 'video' ? (
-                            <video src={asset.file_url} className="w-full h-full object-cover" muted playsInline />
-                          ) : (
-                            <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} />
-                          )}
-                        </div>
-                        <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{asset.name}</div>
-                      </button>
-                    ))}
-                  </div>
+                    <button
+                        className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
+                        onClick={() => createNewProject(newProjectNameDraft)}
+                    >
+                      {projectUiText.createConfirm || projectUiText.newProject}
+                    </button>
+                  </>
+                }
+            >
+              <div className="space-y-2">
+                <div className="text-sm text-zinc-300">{projectUiText.createNameLabel || t.assets_name_label || 'Name'}</div>
+                <input
+                    autoFocus
+                    value={newProjectNameDraft}
+                    onChange={(e) => {
+                      const nextName = e.target.value;
+                      setNewProjectNameDraft(nextName);
+                      if (createProjectNameError && nextName.trim().length <= MAX_PROJECT_NAME_LENGTH) {
+                        setCreateProjectNameError('');
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') createNewProject(newProjectNameDraft);
+                    }}
+                    placeholder={projectUiText.createNamePlaceholder || projectUiText.defaultProjectName}
+                    className={`w-full rounded-lg border bg-black/40 text-zinc-100 px-3 py-2 text-sm outline-none focus:border-orange-500 ${createProjectNameError ? 'border-red-500' : 'border-white/10'}`}
+                />
+                {createProjectNameError && (
+                    <div className="text-xs text-red-400">{createProjectNameError}</div>
                 )}
               </div>
-            </div>
-          </AppDialog>
+            </AppDialog>
         )}
 
-      <div ref={workspaceRowRef} className="flex-1 flex overflow-hidden p-6 gap-6">
-        <div style={{ width: leftColumnWidth }} className="shrink-0 h-full min-w-[260px] max-w-[640px]">
-          {renderLeftColumn()}
-        </div>
+        {/* 移除了之前的 isUploadTypeDialogOpen 弹窗 */}
 
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          onMouseDown={handleResizeMouseDown}
-          className="group relative w-4 -mx-3 cursor-col-resize transition shrink-0 flex items-stretch justify-center"
-          title="拖拽调整布局"
-        >
-          <div className="w-px h-full bg-white/15 group-hover:bg-white/30 transition" />
-          <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-4" />
-        </div>
+        {isAssetLibraryOpen && (
+            <AppDialog
+                isOpen={isAssetLibraryOpen}
+                titleClassName="text-lg"
+                title={t.wb_dialog_choose_from_library || '从素材库选择'}
+                onClose={() => setIsAssetLibraryOpen(false)}
+                widthClassName="max-w-[min(92vw,980px)]"
+                footer={
+                  <>
+                    <button
+                        className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
+                        onClick={() => setIsAssetLibraryOpen(false)}
+                    >
+                      关闭
+                    </button>
+                  </>
+                }
+            >
+              <div className="w-full h-[62vh] max-h-[600px] min-h-[440px] flex flex-col gap-2.5">
+                <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                  {([
+                    { value: 'product', label: t.assets_tab_products || '商品' },
+                    { value: 'model', label: t.assets_tab_models || '模特' },
+                    { value: 'scene', label: t.assets_tab_scenes || '场景' },
+                    { value: 'motion', label: t.assets_tab_motion || '动作' },
+                  ] as Array<{ value: AssetLibraryTab; label: string }>).map((tab) => (
+                      <button
+                          key={tab.value}
+                          type="button"
+                          onClick={() => {
+                            setAssetLibraryTab(tab.value);
+                            setAssetLibraryCurrentFolderId(null);
+                          }}
+                          className={`shrink-0 rounded-full border px-5 py-2 text-[14px] font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
+                      >
+                        {tab.label}
+                      </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-zinc-500 min-w-0">
+                  <button
+                      type="button"
+                      onClick={() => setAssetLibraryCurrentFolderId(null)}
+                      className={`hover:text-white ${assetLibraryCurrentFolderId === null ? 'text-white' : ''}`}
+                  >
+                    {t.assets_root || '根目录'}
+                  </button>
+                  {assetLibraryBreadcrumb.map((folder) => (
+                      <div key={folder.id} className="flex items-center gap-2 min-w-0">
+                        <span>/</span>
+                        <button
+                            type="button"
+                            onClick={() => setAssetLibraryCurrentFolderId(folder.id)}
+                            className={`hover:text-white truncate ${assetLibraryCurrentFolderId === folder.id ? 'text-white' : ''}`}
+                        >
+                          {folder.name}
+                        </button>
+                      </div>
+                  ))}
+                </div>
 
-        <div ref={scriptsSectionRef} className={`flex-auto flex flex-col gap-3 h-full min-w-[300px] ${getGuideFocusClass('scripts')}`}>
-           <div className="flex justify-between items-center shrink-0 h-[32px]">
+                <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-1">
+                  {assetLibraryLoading ? (
+                      <div className="h-52 flex items-center justify-center text-zinc-400">
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载中...
+                      </div>
+                  ) : assetLibraryError ? (
+                      <div className="h-52 flex items-center justify-center text-red-300 text-sm">
+                        {assetLibraryError}
+                      </div>
+                  ) : assetLibraryItems.length === 0 && assetLibraryFolders.length === 0 ? (
+                      <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">
+                        暂无素材
+                      </div>
+                  ) : (
+                      <div className="grid grid-cols-6 gap-2">
+                        {assetLibraryFolders.map((folder) => (
+                            <button
+                                key={folder.id}
+                                type="button"
+                                onClick={() => setAssetLibraryCurrentFolderId(folder.id)}
+                                className="text-left rounded-lg border border-white/10 bg-black/30 p-1 hover:border-orange-500/50 hover:bg-white/5 transition"
+                            >
+                              <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-900/60 relative flex items-center justify-center">
+                                <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center">
+                                  <Folder className="w-5 h-5 text-zinc-300" />
+                                </div>
+                              </div>
+                              <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{folder.name}</div>
+                            </button>
+                        ))}
+                        {assetLibraryItems.map((asset) => (
+                            <button
+                                key={asset.id}
+                                type="button"
+                                onClick={() => selectAssetFromLibraryPopup(asset)}
+                                className="text-left rounded-lg border border-white/10 bg-black/30 p-1 hover:border-orange-500/50 hover:bg-white/5 transition"
+                            >
+                              <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
+                                {asset.media_kind === 'video' ? (
+                                    <video src={asset.file_url} className="w-full h-full object-contain bg-zinc-900" muted playsInline />
+                                ) : (
+                                    <img src={asset.file_url} loading="lazy" className="w-full h-full object-contain bg-zinc-900" alt={asset.name} />
+                                )}
+                              </div>
+                              <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{asset.name}</div>
+                            </button>
+                        ))}
+                      </div>
+                  )}
+                </div>
+              </div>
+            </AppDialog>
+        )}
+
+        <div className="flex-1 flex overflow-hidden p-6 gap-6 relative" ref={workspaceRowRef}>
+          <div style={{ width: leftColumnWidth }} className="shrink-0 flex flex-col gap-6 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
+            {renderLeftColumn()}
+          </div>
+
+          {/* Resize Handle */}
+          <div
+              onMouseDown={handleResizeMouseDown}
+              className="w-4 -ml-4 shrink-0 cursor-col-resize flex items-center justify-center group z-10 relative"
+              title="Drag to resize"
+          >
+            <div className="w-[1px] h-24 bg-white/10 group-hover:bg-orange-500/50 group-active:bg-orange-500 transition-colors" />
+          </div>
+
+          <div ref={scriptsSectionRef} className={`flex-auto flex flex-col gap-3 h-full min-w-[320px] ${getGuideFocusClass('scripts')}`}>
+            <div className="flex justify-between items-center shrink-0 h-[32px]">
               <div className="flex items-center gap-3">
-                 <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
-                 <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{currentScriptDuration.toFixed(1)}s / {genDuration}s</div>
-                 {/* Icons for script handling */}
-                 <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
-                  <button 
-                    onClick={handleExportScripts}
-                    disabled={isExporting}
-                    className={`flex items-center gap-1.5 px-2 py-1 rounded transition ${isExporting ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
-                    title={t.wb_export_scripts}
+                <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
+                {ENABLE_STORYBOARD_EDITOR && <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{currentScriptDuration.toFixed(1)}s / {genDuration}s</div>}
+                <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
+                  <button
+                      onClick={handleExportScripts}
+                      disabled={isExporting}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded transition ${isExporting ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
+                      title={t.wb_export_scripts}
                   >
                     {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
                     <span className="text-[10px] font-medium">{t.wb_export_scripts}</span>
                   </button>
-                  
-                  <button 
-                    onClick={() => scriptFileInputRef.current?.click()} 
-                    className="flex items-center gap-1.5 px-2 py-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition" 
-                    title={t.wb_import_scripts}
+
+                  <button
+                      onClick={() => scriptFileInputRef.current?.click()}
+                      className="flex items-center gap-1.5 px-2 py-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition"
+                      title={t.wb_import_scripts}
                   >
                     <FileUp className="w-3.5 h-3.5" />
                     <span className="text-[10px] font-medium">{t.wb_import_scripts}</span>
                   </button>
-                  
-                  <input 
-                    type="file" 
-                    ref={scriptFileInputRef} 
-                    className="hidden" 
-                    accept=".json" 
-                    onChange={handleUploadScripts} 
+
+                  <input
+                      type="file"
+                      ref={scriptFileInputRef}
+                      className="hidden"
+                      accept=".json"
+                      onChange={handleUploadScripts}
                   />
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
-                <button 
-                  onClick={() => handleScriptPageChange(activeScriptPage - 1)} 
-                  disabled={scriptPages.length <= 1 || activeScriptPage === 0}
-                  className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
+                <button
+                    onClick={() => handleScriptPageChange(activeScriptPage - 1)}
+                    disabled={scriptPages.length <= 1 || activeScriptPage === 0}
+                    className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
                 >
                   <ArrowLeft className="w-3 h-3" />
                 </button>
-                
+
                 <div className="text-[10px] text-zinc-400 border border-white/10 px-2 py-0.5 rounded">
                   {t.wb_script_page_prefix} {activeScriptPage + 1} / {Math.max(scriptPages.length, 1)}
                 </div>
-                
-                <button 
-                  onClick={() => handleScriptPageChange(activeScriptPage + 1)} 
-                  disabled={scriptPages.length <= 1 || activeScriptPage === scriptPages.length - 1}
-                  className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === scriptPages.length - 1 ? 'opacity-40 cursor-not-allowed' : ''}`}
+
+                <button
+                    onClick={() => handleScriptPageChange(activeScriptPage + 1)}
+                    disabled={scriptPages.length <= 1 || activeScriptPage === scriptPages.length - 1}
+                    className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === scriptPages.length - 1 ? 'opacity-40 cursor-not-allowed' : ''}`}
                 >
                   <ArrowRight className="w-3 h-3" />
                 </button>
-            </div>
+              </div>
               <div className="flex items-center gap-2">
                 <button onClick={handleGenerateVideo} disabled={isGenerating} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
                   {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}{isGenerating ? 'Generating...' : t.wb_btn_gen_video}
-              </button>
+                </button>
               </div>
-           </div>
-           
-           <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
-              {activeScriptPlan && (
-                <div className="rounded-2xl border border-emerald-400/25 bg-gradient-to-br from-emerald-500/10 via-black/60 to-black/80 p-4 shadow-[0_12px_36px_rgba(16,185,129,0.12)]">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-lg bg-emerald-400/20 border border-emerald-300/30 flex items-center justify-center">
-                        <Sparkles className="w-3.5 h-3.5 text-emerald-200" />
-                      </div>
-                      <div>
-                        <div className="text-[10px] uppercase tracking-[0.18em] text-emerald-200/90">脚本方案卡</div>
-                        <div className="text-[11px] text-zinc-400">{t.wb_script_page_prefix} {activeScriptPage + 1}</div>
-                      </div>
-                    </div>
-                    <div className="text-[10px] px-2 py-1 rounded-full border border-emerald-300/30 bg-emerald-400/10 text-emerald-100">
-                      可灵3.0提示词
-                    </div>
-                  </div>
+            </div>
 
-                  <div className="mt-3 rounded-xl border border-white/10 bg-black/35 p-3">
-                    <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">完整脚本</div>
-                    <textarea
-                      value={activeFullScript}
-                      onChange={(e) => updateActiveFullScript(e.target.value)}
-                      placeholder="输入完整脚本方案..."
-                      className="w-full min-h-[96px] bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-[12px] leading-6 text-zinc-100 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
-                    />
-                  </div>
-
-                  <div className="mt-3 space-y-3">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                        <div className="text-[10px] text-emerald-200 mb-1">[风格]</div>
-                        <textarea
-                          value={activeCreativeCard?.style || ''}
-                          onChange={(e) => updateActiveCreativeCardField('style', e.target.value)}
-                          className="w-full min-h-[80px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
-                        />
-                      </div>
-                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                        <div className="text-[10px] text-emerald-200 mb-1">[环境]</div>
-                        <textarea
-                          value={activeCreativeCard?.environment || ''}
-                          onChange={(e) => updateActiveCreativeCardField('environment', e.target.value)}
-                          className="w-full min-h-[80px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
-                        />
-                      </div>
-                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                        <div className="text-[10px] text-emerald-200 mb-1">[语调与节奏]</div>
-                        <textarea
-                          value={activeCreativeCard?.tonePacing || ''}
-                          onChange={(e) => updateActiveCreativeCardField('tonePacing', e.target.value)}
-                          className="w-full min-h-[72px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
-                        />
-                      </div>
-                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                        <div className="text-[10px] text-emerald-200 mb-1">[镜头]</div>
-                        <textarea
-                          value={activeCreativeCard?.camera || ''}
-                          onChange={(e) => updateActiveCreativeCardField('camera', e.target.value)}
-                          className="w-full min-h-[72px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
-                        />
-                      </div>
-                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5 md:col-span-2">
-                        <div className="text-[10px] text-emerald-200 mb-1">[光线]</div>
-                        <textarea
-                          value={activeCreativeCard?.lighting || ''}
-                          onChange={(e) => updateActiveCreativeCardField('lighting', e.target.value)}
-                          className="w-full min-h-[72px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-[10px] text-emerald-200">[动作]</div>
-                        <button
-                          type="button"
-                          onClick={addActiveCreativeCardAction}
-                          className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
-                        >
-                          新增动作
-                        </button>
-                      </div>
-                      <div className="space-y-2">
-                        {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0 ? activeCreativeCard.actions : ['']).map((item, idx) => (
-                          <div key={`card-action-edit-${idx}`} className="flex gap-2">
-                            <div className="w-5 h-5 mt-1 shrink-0 rounded-full border border-emerald-300/30 bg-emerald-400/10 text-[10px] text-emerald-100 flex items-center justify-center">
-                              {idx + 1}
-                            </div>
-                            <textarea
-                              value={item}
-                              onChange={(e) => updateActiveCreativeCardAction(idx, e.target.value)}
-                              className="flex-1 min-h-[56px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
-                            />
-                            {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0) && (
-                              <button
-                                type="button"
-                                onClick={() => removeActiveCreativeCardAction(idx)}
-                                className="mt-1 h-8 px-2 rounded border border-white/10 text-zinc-400 hover:text-red-300 hover:border-red-400/40 transition"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                        <div className="text-[10px] text-emerald-200 mb-1">[背景音]</div>
-                        <textarea
-                          value={activeCreativeCard?.backgroundSound || ''}
-                          onChange={(e) => updateActiveCreativeCardField('backgroundSound', e.target.value)}
-                          className="w-full min-h-[72px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
-                        />
-                      </div>
-                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                        <div className="text-[10px] text-emerald-200 mb-1">[转场 / 剪辑]</div>
-                        <textarea
-                          value={activeCreativeCard?.transitionEditing || ''}
-                          onChange={(e) => updateActiveCreativeCardField('transitionEditing', e.target.value)}
-                          className="w-full min-h-[72px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-orange-300/30 bg-orange-400/10 p-2.5">
-                      <div className="text-[10px] text-orange-100 mb-1">[行动号召]</div>
-                      <textarea
-                        value={activeCreativeCard?.callToAction || ''}
-                        onChange={(e) => updateActiveCreativeCardField('callToAction', e.target.value)}
-                        className="w-full min-h-[72px] bg-black/20 border border-orange-300/25 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-100 placeholder:text-zinc-500 resize-y focus:outline-none focus:border-orange-200/60"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
+            <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
               {activeReferenceSummary.length > 0 && (
-                <div className="glass-panel rounded-xl p-3 border border-white/10">
-                  <div className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2">{t.wb_upload_title}</div>
-                  <div className="space-y-2">
-                    {activeReferenceSummary.map((item, idx) => {
-                      const previewAsset = referencePreviewAssetsByType[item.type];
-                      const previewSrc = previewAsset?.previewUrl || previewAsset?.assetUrl || null;
-                      return (
-                        <div key={`${item.type}-${idx}`} className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 p-2">
-                          <div className="w-10 h-10 rounded-md overflow-hidden border border-white/10 bg-zinc-900 shrink-0 flex items-center justify-center">
-                            {previewSrc ? (
-                              <img src={previewSrc} alt={previewAsset?.name || item.type} className="w-full h-full object-cover" />
-                            ) : (
-                              <Layers className="w-4 h-4 text-zinc-500" />
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="text-[10px] text-zinc-300 font-semibold">
-                              {materialTypeLabelMap[item.type]}
-                            </div>
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {item.keywords.map((kw, kIdx) => (
-                                <span key={`${item.type}-${kIdx}-${kw}`} className="text-[10px] px-1.5 py-0.5 rounded border border-white/15 bg-white/5 text-zinc-200">
+                  <div className="glass-panel rounded-xl p-3 border border-white/10">
+                    <div className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2">{t.wb_upload_title}</div>
+                    <div className="space-y-2">
+                      {activeReferenceSummary.map((item, idx) => {
+                        const previewAsset = referencePreviewAssetsByType[item.type];
+                        const previewSrc = previewAsset?.previewUrl || previewAsset?.assetUrl || null;
+                        return (
+                            <div key={`${item.type}-${idx}`} className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 p-2">
+                              <div className="w-10 h-10 rounded-md overflow-hidden border border-white/10 bg-zinc-900 shrink-0 flex items-center justify-center">
+                                {previewSrc ? (
+                                    <img src={previewSrc} alt={previewAsset?.name || item.type} loading="lazy" className="w-full h-full object-contain bg-zinc-900" />
+                                ) : (
+                                    <Layers className="w-4 h-4 text-zinc-500" />
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-[10px] text-zinc-300 font-semibold">
+                                  {materialTypeLabelMap[item.type]}
+                                </div>
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {item.keywords.map((kw, kIdx) => (
+                                      <span key={`${item.type}-${kIdx}-${kw}`} className="text-[10px] px-1.5 py-0.5 rounded border border-white/15 bg-white/5 text-zinc-200">
                                   {kw}
                                 </span>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              {ENABLE_STORYBOARD_EDITOR ? (
-                <>
-                  <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                    <div className="text-[10px] text-zinc-400 uppercase tracking-widest">分镜结构（可编辑）</div>
-                    <button
-                      type="button"
-                      onClick={() => setIsShotBreakdownOpen((prev) => !prev)}
-                      className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
-                    >
-                      {isShotBreakdownOpen ? '收起分镜' : '展开分镜'}
-                    </button>
-                  </div>
-                  {!isShotBreakdownOpen ? (
-                    <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
-                      当前默认展示完整脚本方案。点击“展开分镜”进行镜头级精修。
-                    </div>
-                  ) : scripts.length === 0 ? (
-                    <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
-                      <FileJson className="w-10 h-10 mb-2 opacity-50" />
-                      <p className="text-xs">No scripts yet.</p>
-                    </div>
-                  ) : (
-                    scripts.map((script, index) => (
-                      <div key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
-                        <div className="flex justify-between items-start mb-3">
-                            <div className="flex items-center gap-2">
-                                <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
-                                <select
-                                  value={script.type}
-                                  onChange={(e) => handleScriptTypeChange(script.id, e.target.value)}
-                                  className="text-[10px] text-zinc-300 border border-white/10 px-1.5 py-0.5 rounded bg-black/40 focus:outline-none focus:border-orange-500"
-                                  title={t.wb_shot_type_label || '镜头类型'}
-                                >
-                                  {shotTypeOptions.map((option) => (
-                                    <option key={option.value} value={option.value} className="bg-black text-zinc-100">
-                                      {option.label}
-                                    </option>
                                   ))}
-                                </select>
-                                <input type="number" min={0.1} step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
-                                <span className="text-[10px] text-zinc-500">s</span>
+                                </div>
                               </div>
-                              <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
                             </div>
-                            <div className="grid grid-cols-1 gap-3">
-                              <div className="flex flex-col gap-1.5">
-                                <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_visual}</p>
-                                <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll" value={script.visual} onChange={(e) => { const ns = [...scripts]; ns[index].visual = e.target.value; updateScripts(ns); }} />
-                              </div>
-                              <div className="flex flex-col gap-1.5">
-                                <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
-                                <input
-                                  type="text"
-                                  disabled={soundSetting === 'off'}
-                                  className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
-                                  value={soundSetting === 'off' ? '已关闭音频' : script.audio}
-                                  onChange={(e) => {
-                                    if (soundSetting === 'off') return;
-                                    const ns = [...scripts];
-                                    ns[index].audio = e.target.value;
-                                    updateScripts(ns);
-                                  }}
-                                />
-                            </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                  {isShotBreakdownOpen && (
-                    <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
-                  )}
-                </>
-              ) : (
-                <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
-                  分镜功能已临时关闭，当前仅使用完整脚本方案卡生成视频。
-                </div>
+                        );
+                      })}
+                    </div>
+                  </div>
               )}
-           </div>
-        </div>
 
-          {/* Right Column: Preview & Results */}
+              {/* Master Script / Creative Card Viewer */}
+              {hasActiveScriptConcept ? (
+                  <div className="flex flex-col gap-3">
+                    <div className="glass-panel rounded-xl p-4 border-l-4 border-l-orange-500 border border-white/10 bg-black/30">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="text-[11px] font-bold text-orange-400 flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5" /> 完整脚本方案
+                        </div>
+                        <span className="text-[9px] text-zinc-500 px-2 py-0.5 rounded bg-white/5 border border-white/10">AI Generated</span>
+                      </div>
+
+                      <div className="flex flex-col gap-4">
+                        {activeFullScript && (
+                            <div>
+                              <div className="text-[10px] text-zinc-500 uppercase font-bold mb-1.5">旁白/台词</div>
+                              <textarea
+                                  value={activeFullScript}
+                                  onChange={(e) => updateActiveFullScript(e.target.value)}
+                                  className="w-full bg-black/40 text-[11px] text-zinc-200 p-3 rounded-lg border border-white/10 resize-none min-h-[60px] focus:border-orange-500/50 transition-colors outline-none custom-scroll leading-relaxed"
+                              />
+                            </div>
+                        )}
+
+                        {activeCreativeCard && hasCreativeCardContent(activeCreativeCard) && (
+                            <div className="flex flex-col gap-3 pt-3 border-t border-white/10">
+                              <div className="text-[10px] text-zinc-500 uppercase font-bold">画面创意设定</div>
+
+                              <div className="grid grid-cols-2 gap-3">
+                                {['style', 'environment', 'tonePacing', 'camera', 'lighting', 'backgroundSound', 'transitionEditing', 'callToAction'].map((fieldStr) => {
+                                  const field = fieldStr as keyof ScriptCreativeCard;
+                                  if (field === 'actions') return null;
+                                  const val = activeCreativeCard[field];
+                                  if (!val && typeof val !== 'string') return null;
+
+                                  const labelMap: Record<string, string> = {
+                                    style: '视觉风格',
+                                    environment: '环境与场景',
+                                    tonePacing: '语调与节奏',
+                                    camera: '镜头运动',
+                                    lighting: '光线设定',
+                                    backgroundSound: '背景音效',
+                                    transitionEditing: '转场剪辑',
+                                    callToAction: '行动号召',
+                                  };
+
+                                  return (
+                                      <div key={field} className="flex flex-col gap-1">
+                                        <div className="text-[9px] text-zinc-400 font-medium">{labelMap[field]}</div>
+                                        <input
+                                            value={val as string}
+                                            onChange={(e) => updateActiveCreativeCardField(field, e.target.value)}
+                                            className="w-full bg-black/40 text-[10px] text-zinc-300 p-1.5 rounded border border-white/5 focus:border-orange-500/50 transition-colors outline-none"
+                                        />
+                                      </div>
+                                  );
+                                })}
+                              </div>
+
+                              {Array.isArray(activeCreativeCard.actions) && activeCreativeCard.actions.length > 0 && (
+                                  <div className="flex flex-col gap-1.5 mt-1">
+                                    <div className="text-[9px] text-zinc-400 font-medium">关键动作 / 表现</div>
+                                    <div className="flex flex-col gap-1.5">
+                                      {activeCreativeCard.actions.map((action, idx) => (
+                                          <div key={idx} className="flex items-start gap-1.5">
+                                            <span className="text-[10px] text-zinc-600 mt-1.5 shrink-0">{idx + 1}.</span>
+                                            <textarea
+                                                value={action}
+                                                onChange={(e) => updateActiveCreativeCardAction(idx, e.target.value)}
+                                                className="flex-1 bg-black/40 text-[10px] text-zinc-300 p-1.5 rounded border border-white/5 focus:border-orange-500/50 transition-colors outline-none resize-none min-h-[36px]"
+                                            />
+                                            <button
+                                                onClick={() => removeActiveCreativeCardAction(idx)}
+                                                className="mt-1.5 text-zinc-600 hover:text-red-400 p-0.5"
+                                            >
+                                              <X className="w-3 h-3" />
+                                            </button>
+                                          </div>
+                                      ))}
+                                      <button
+                                          onClick={addActiveCreativeCardAction}
+                                          className="text-[10px] text-zinc-500 hover:text-orange-400 self-start flex items-center gap-1 mt-1"
+                                      >
+                                        <Plus className="w-3 h-3" /> 添加动作
+                                      </button>
+                                    </div>
+                                  </div>
+                              )}
+                            </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {!ENABLE_STORYBOARD_EDITOR && scripts.length > 0 && (
+                        <div className="flex justify-center mt-2 mb-2 relative">
+                          <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                            <div className="w-full border-t border-white/10 border-dashed"></div>
+                          </div>
+                          <button
+                              onClick={() => setIsShotBreakdownOpen(!isShotBreakdownOpen)}
+                              className="relative bg-zinc-900 border border-white/10 px-4 py-1.5 rounded-full text-[10px] font-bold text-zinc-400 hover:text-white hover:border-white/30 transition shadow-lg flex items-center gap-1.5"
+                          >
+                            <Layers className="w-3.5 h-3.5" />
+                            {isShotBreakdownOpen ? '隐藏详细分镜表' : '查看详细分镜表'}
+                            {isShotBreakdownOpen ? <ArrowLeft className="w-3 h-3 rotate-90" /> : <ArrowRight className="w-3 h-3 block rotate-90" />}
+                          </button>
+                        </div>
+                    )}
+                  </div>
+              ) : (
+                  <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
+                    <FileJson className="w-10 h-10 mb-3 opacity-30" />
+                    <p className="text-xs font-bold mb-1">暂无脚本方案</p>
+                    <p className="text-[10px]">请在左侧配置商品信息并点击生成</p>
+                  </div>
+              )}
+
+              {(ENABLE_STORYBOARD_EDITOR || (hasActiveScriptConcept && isShotBreakdownOpen)) && (
+                  <div className="flex flex-col gap-4 animate-in slide-in-from-top-4 duration-300">
+                    {scripts.length === 0 ? (
+                        <div className="py-8 flex flex-col items-center justify-center text-zinc-600 border border-dashed border-zinc-800 rounded-xl bg-black/20">
+                          <p className="text-[10px]">没有详细分镜数据</p>
+                        </div>
+                    ) : (
+                        scripts.map((script, index) => (
+                            <div key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
+                              <div className="flex justify-between items-start mb-3">
+                                <div className="flex items-center gap-2">
+                                  <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
+                                  <select
+                                      value={script.type}
+                                      onChange={(e) => handleScriptTypeChange(script.id, e.target.value)}
+                                      className="text-[10px] text-zinc-300 border border-white/10 px-1.5 py-0.5 rounded bg-black/40 focus:outline-none focus:border-orange-500"
+                                      title={t.wb_shot_type_label || '镜头类型'}
+                                  >
+                                    {shotTypeOptions.map((option) => (
+                                        <option key={option.value} value={option.value} className="bg-black text-zinc-100">
+                                          {option.label}
+                                        </option>
+                                    ))}
+                                  </select>
+                                  <input type="number" step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right focus:outline-none focus:text-white focus:bg-white/5 rounded px-1" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
+                                  <span className="text-[10px] text-zinc-500">s</span>
+                                </div>
+                                <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
+                              </div>
+                              <div className="grid grid-cols-1 gap-3">
+                                <div className="flex flex-col gap-1.5">
+                                  <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_visual}</p>
+                                  <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll leading-relaxed" value={script.visual} onChange={(e) => { const ns = [...scripts]; ns[index].visual = e.target.value; updateScripts(ns); }} />
+                                </div>
+                                <div className="flex flex-col gap-1.5">
+                                  <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
+                                  <input
+                                      type="text"
+                                      disabled={soundSetting === 'off'}
+                                      className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
+                                      value={soundSetting === 'off' ? '已关闭音频' : script.audio}
+                                      onChange={(e) => {
+                                        if (soundSetting === 'off') return;
+                                        const ns = [...scripts];
+                                        ns[index].audio = e.target.value;
+                                        updateScripts(ns);
+                                      }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                        ))
+                    )}
+                    <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
+                  </div>
+              )}
+            </div>
+          </div>
+
           <div ref={previewSectionRef} className={`w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full ${getGuideFocusClass('preview')}`}>
             <div className="flex justify-between items-end shrink-0 h-[32px]">
               <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-3 h-3" /> {t.wb_col_preview}</h2>
             </div>
-            {/* Video Player */}
             <div className="glass-panel flex-1 rounded-2xl p-1 relative flex flex-col overflow-hidden">
               <div className="flex-1 bg-black rounded-xl relative overflow-hidden group flex items-center justify-center">
                 {generatedVideoUrl ? (
-                  <video
-                    ref={videoRef}
-                    src={generatedVideoUrl}
-                    controls
-                    autoPlay
-                    loop
-                    className="w-full h-full object-contain"
+                    <video
+                        ref={videoRef}
+                        src={generatedVideoUrl}
+                        controls
+                        autoPlay
+                        loop
+                        className="w-full h-full object-contain"
                         onPlay={() => setIsPlaying(true)}
                         onPause={() => setIsPlaying(false)}
-                  />
+                    />
                 ) : (
-                  <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Submitting…' : t.wb_waiting}</p></div>
+                    <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Submitting…' : t.wb_waiting}</p></div>
                 )}
-                
+
               </div>
               <div className="h-14 flex items-center justify-between px-4 border-t border-white/5 bg-zinc-900/50">
                 <div className="flex gap-4">
@@ -5272,23 +5211,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </button>
             </div>
 
-            {/* Batch Results Panel (Restored) */}
             <div className="glass-panel rounded-2xl p-4 border border-white/5 max-h-56 overflow-y-auto custom-scroll">
               <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3">{t.wb_batch_results}</div>
-              {generatedBatch.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_batch_no_results}</div> : <div className="space-y-2">{generatedBatch.map(item => { 
-                const task = tasks.find(t => t.id === item.taskId); 
-                const status = task?.status; 
-                const url = task?.result?.video_url || task?.result?.url;
-                if (!task) {
-                  console.warn(`[BatchResults] Task ${item.taskId} not found in tasks array`);
-                } else {
-                  console.log(`[BatchResults] Task ${item.taskId}: status=${status}, url=${url}, result=${JSON.stringify(task.result)}`);
-                }
-                return (<div key={item.id} className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>{status === 'success' && url ? (<button onClick={() => setGeneratedVideoUrl(url)} className="text-orange-400 hover:text-orange-300 transition">预览</button>) : status === 'failed' ? (<span className="text-red-400">失败</span>) : (<span className="text-zinc-500">生成中…</span>)}</div>); 
-              })}</div>}
+              {generatedBatch.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_batch_no_results}</div> : <div className="space-y-2">{generatedBatch.map(item => { const task = tasks.find(t => t.id === item.taskId); const status = task?.status; const url = task?.result?.video_url || task?.result?.url; return (<div key={item.id} className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>{status === 'success' && url ? (<button onClick={() => setGeneratedVideoUrl(url)} className="text-orange-400 hover:text-orange-300 transition">预览</button>) : status === 'failed' ? (<span className="text-red-400">失败</span>) : (<span className="text-zinc-500">生成中…</span>)}</div>); })}</div>}
             </div>
           </div>
         </div>
-        </div>
+        {toastMessage && (
+            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 px-6 py-3 bg-zinc-900 text-white text-sm font-medium rounded-xl shadow-2xl border border-white/10 z-[100] animate-in fade-in slide-in-from-bottom-4">
+              {toastMessage}
+            </div>
+        )}
+      </div>
   );
 };

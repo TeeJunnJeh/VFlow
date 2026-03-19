@@ -170,9 +170,10 @@ export const authApi = {
   },
 
   // 4. Update Profile (Avatar/Name/Theme/Tier/Credits)
-  updateProfile: async (data: { avatar?: File; name?: string; theme?: string; tier?: string; credits?: number }) => {
+  updateProfile: async (data: { avatar?: File; avatarClear?: boolean; name?: string; theme?: string; tier?: string; credits?: number }) => {
     try {
       const formData = new FormData();
+      if (data.avatarClear) formData.append('avatar_clear', '1');
       if (data.avatar) formData.append('avatar', data.avatar);
       if (data.name) formData.append('name', data.name);
       if (data.theme) formData.append('theme', data.theme);

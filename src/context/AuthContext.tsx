@@ -29,6 +29,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const toDisplayUrl = (pathOrUrl: string | null | undefined): string => {
+    if (!pathOrUrl) return '';
+    const raw = String(pathOrUrl).trim();
+    if (!raw) return '';
+    if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+    const normalized = raw.startsWith('/') ? raw : `/${raw}`;
+    const mediaBaseUrl = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
+    if (mediaBaseUrl && normalized.startsWith('/media/')) return `${mediaBaseUrl}${normalized}`;
+    return normalized;
+  };
+
+  const normalizeAvatar = (avatar: string | null | undefined): string => {
+    const raw = String(avatar || '').trim();
+    if (!raw) return '';
+    if (raw.includes('avatars/default.png')) return '';
+    return toDisplayUrl(raw);
+  };
+
   // 1. Initialize Auth State (Modified)
   // Verify session with backend instead of trusting localStorage blindly
   useEffect(() => {
@@ -49,7 +67,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             const verifiedUser: User = {
                 id: backendUser.user_id,
                 name: backendUser.nickname || backendUser.username || backendUser.phone || 'User',
-                avatar: backendUser.avatar || '', 
+                avatar: normalizeAvatar(backendUser.avatar),
                 plan: plan,
                 credits: backendUser.balance,
                 theme: (backendUser.theme as 'light' | 'dark' | 'dim') || 'light',
@@ -119,14 +137,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const newUser: User = {
       // Use the Real ID if found, otherwise crash/warn instead of using a fake string
-      id: realUserId || '1', 
+      id: realUserId || '1',
       name: serverData?.nickname || serverData?.data?.nickname || serverData?.data?.username || serverData?.username || identifier,
-      avatar: serverData?.avatar || serverData?.data?.avatar || '',
+      avatar: normalizeAvatar(serverData?.avatar || serverData?.data?.avatar || ''),
       plan: resolvedPlan,
       credits: serverData?.credits ?? serverData?.data?.balance ?? defaultCredits,
       theme: serverData?.theme || serverData?.data?.theme || 'light',
       hasPassword: (serverData?.has_password ?? serverData?.data?.has_password) === true,
-      token: token 
+      token: token
     };
 
     debugLog('User saved:', newUser);
@@ -156,7 +174,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const updateUser = (patch: Partial<User>) => {
     setUser(prev => {
-      const updated = { ...(prev as User || {}), ...patch } as User;
+      const nextPatch: Partial<User> = { ...patch };
+      if ('avatar' in nextPatch) {
+        nextPatch.avatar = normalizeAvatar((nextPatch as any).avatar);
+      }
+
+      const updated = { ...(prev as User || {}), ...nextPatch } as User;
       try {
         localStorage.setItem('vflow_ai_user', JSON.stringify(updated));
       } catch (e) {

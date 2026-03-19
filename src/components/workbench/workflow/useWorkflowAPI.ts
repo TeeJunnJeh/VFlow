@@ -22,7 +22,7 @@ export const useWorkflowAPI = (options: UseWorkflowAPIOptions = {}) => {
   const { workflow, updateStep, completeStep, failStep, setStepProgress, advanceToNextStep } =
     useWorkflowStore();
 
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const taskIdRef = useRef<string | null>(options.taskId ?? null);
 
   /**

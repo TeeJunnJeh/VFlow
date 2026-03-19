@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Flame, Gem, Zap, ChevronDown, Camera, Sparkles, Utensils, Cpu, Eye, Film, Box, Wand2, PencilLine, UserSquare2, Maximize2, X, Loader2, Folder } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { AppDialog } from '../common/AppDialog';
@@ -69,11 +69,13 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
   const [isUploadingModel, setIsUploadingModel] = useState(false);
   const [showFullPreview, setShowFullPreview] = useState(false);
   const modelFileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragOverModel, setIsDragOverModel] = useState(false);
 
   const [selectedMotionId, setSelectedMotionId] = useState<number | null | undefined>(undefined);
   const [uploadedMotionPreview, setUploadedMotionPreview] = useState<{ url: string; name: string } | null>(null);
   const [isUploadingMotion, setIsUploadingMotion] = useState(false);
   const motionFileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragOverMotion, setIsDragOverMotion] = useState(false);
   const [assetPickerMode, setAssetPickerMode] = useState<'model' | 'motion' | null>(null);
   const [assetPickerLoading, setAssetPickerLoading] = useState(false);
   const [assetPickerError, setAssetPickerError] = useState<string | null>(null);
@@ -115,6 +117,86 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
+    setIsUploadingMotion(true);
+    try {
+      const resp = await assetsApi.uploadAsset(file, 'motion');
+      const data: any = (resp as any)?.data || (Array.isArray((resp as any)?.assets) ? (resp as any).assets[0] : null) || resp;
+      const rawUrl: string = data?.url || data?.file_url || data?.path || '';
+      const fullUrl = toDisplayUrl(rawUrl);
+      const idNum = data?.id !== undefined && data?.id !== null ? Number(data.id) : null;
+      setSelectedMotionId(Number.isFinite(idNum as any) ? (idNum as number) : null);
+      setUploadedMotionPreview({ url: fullUrl, name: data?.display_name || data?.name || file.name });
+    } catch {
+      openInfo('Error', 'Failed to upload motion video');
+    } finally {
+      setIsUploadingMotion(false);
+    }
+  };
+
+  const dragHasFiles = (e: React.DragEvent) => Boolean(e.dataTransfer?.types?.includes('Files'));
+
+  const handleModelDragOver = (e: React.DragEvent) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    if (!isUploadingModel) setIsDragOverModel(true);
+  };
+
+  const handleModelDragLeave = (e: React.DragEvent) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    setIsDragOverModel(false);
+  };
+
+  const handleModelDrop = async (e: React.DragEvent) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    setIsDragOverModel(false);
+    if (isUploadingModel) return;
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      openInfo('Notice', 'Please drop an image file');
+      return;
+    }
+    setIsUploadingModel(true);
+    try {
+      const resp = await assetsApi.uploadAsset(file, 'model');
+      const data: any = (resp as any)?.data || (Array.isArray((resp as any)?.assets) ? (resp as any).assets[0] : null) || resp;
+      const rawUrl: string = data?.url || data?.file_url || data?.path || '';
+      const fullUrl = toDisplayUrl(rawUrl);
+      const idNum = data?.id !== undefined && data?.id !== null ? Number(data.id) : null;
+      setSelectedModelId(Number.isFinite(idNum as any) ? (idNum as number) : null);
+      setUploadedModelPreview({ url: fullUrl, name: data?.display_name || data?.name || file.name });
+    } catch {
+      openInfo('Error', 'Failed to upload model image');
+    } finally {
+      setIsUploadingModel(false);
+    }
+  };
+
+  const handleMotionDragOver = (e: React.DragEvent) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    if (!isUploadingMotion) setIsDragOverMotion(true);
+  };
+
+  const handleMotionDragLeave = (e: React.DragEvent) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    setIsDragOverMotion(false);
+  };
+
+  const handleMotionDrop = async (e: React.DragEvent) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    setIsDragOverMotion(false);
+    if (isUploadingMotion) return;
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('video/')) {
+      openInfo('Notice', 'Please drop a video file');
+      return;
+    }
     setIsUploadingMotion(true);
     try {
       const resp = await assetsApi.uploadAsset(file, 'motion');
@@ -464,7 +546,15 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                   onChange={handleModelImageUpload}
                 />
                 {uploadedModelPreview ? (
-                  <div className="flex items-center gap-3 p-3 bg-black/30 border border-white/10 rounded-xl">
+                  <div
+                    className={`flex items-center gap-3 p-3 bg-black/30 border rounded-xl transition ${
+                      isDragOverModel ? 'border-orange-500/60 bg-orange-500/5' : 'border-white/10'
+                    }`}
+                    onDragOver={handleModelDragOver}
+                    onDragEnter={handleModelDragOver}
+                    onDragLeave={handleModelDragLeave}
+                    onDrop={(e) => void handleModelDrop(e)}
+                  >
                     <div 
                       className="relative group cursor-pointer shrink-0"
                       onClick={() => setShowFullPreview(true)}
@@ -510,7 +600,15 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                     </div>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-2">
+                  <div
+                    className={`grid grid-cols-2 gap-2 rounded-xl transition ${
+                      isDragOverModel ? 'ring-2 ring-orange-500/50 bg-orange-500/5' : ''
+                    }`}
+                    onDragOver={handleModelDragOver}
+                    onDragEnter={handleModelDragOver}
+                    onDragLeave={handleModelDragLeave}
+                    onDrop={(e) => void handleModelDrop(e)}
+                  >
                     <button
                       type="button"
                       disabled={isUploadingModel}
@@ -554,7 +652,15 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                   onChange={handleMotionVideoUpload}
                 />
                 {uploadedMotionPreview ? (
-                  <div className="flex items-center gap-3 p-3 bg-black/30 border border-white/10 rounded-xl">
+                  <div
+                    className={`flex items-center gap-3 p-3 bg-black/30 border rounded-xl transition ${
+                      isDragOverMotion ? 'border-orange-500/60 bg-orange-500/5' : 'border-white/10'
+                    }`}
+                    onDragOver={handleMotionDragOver}
+                    onDragEnter={handleMotionDragOver}
+                    onDragLeave={handleMotionDragLeave}
+                    onDrop={(e) => void handleMotionDrop(e)}
+                  >
                     <video src={uploadedMotionPreview.url} className="w-16 h-12 rounded-lg object-cover border border-white/10 shrink-0" muted playsInline />
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-bold text-zinc-200 truncate">{uploadedMotionPreview.name}</p>
@@ -586,7 +692,15 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                     </div>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-2">
+                  <div
+                    className={`grid grid-cols-2 gap-2 rounded-xl transition ${
+                      isDragOverMotion ? 'ring-2 ring-orange-500/50 bg-orange-500/5' : ''
+                    }`}
+                    onDragOver={handleMotionDragOver}
+                    onDragEnter={handleMotionDragOver}
+                    onDragLeave={handleMotionDragLeave}
+                    onDrop={(e) => void handleMotionDrop(e)}
+                  >
                     <button
                       type="button"
                       disabled={isUploadingMotion}

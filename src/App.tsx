@@ -11,6 +11,7 @@ import LandingPage from './pages/Landing';
 import Workbench from './pages/Workbench';
 import TermsOfServicePage from './pages/TermsOfService';
 import PrivacyPolicyPage from './pages/PrivacyPolicy';
+import { debugLog, debugError } from './services/debugMode';
 
 /**
  * [新增] 访客路由封装 (GuestRoute)
@@ -77,13 +78,13 @@ const AnimatedRoutes = () => {
 
         // 防止重复处理 - 使用 ref 标记
         if ((window as any).__tiktok_callback_processing) {
-            console.log('[TikTok OAuth] Already processing callback, skipping...');
+            debugLog('[TikTok OAuth] Already processing callback, skipping...');
             return;
         }
         (window as any).__tiktok_callback_processing = true;
 
         // Log for debugging
-        console.log('[TikTok OAuth] Detected callback params:', { code: !!code, state: !!state, error });
+        debugLog('[TikTok OAuth] Detected callback params:', { code: !!code, state: !!state, error });
 
         // 立即清除URL参数，防止多次触发
         window.history.replaceState({}, document.title, location.pathname);
@@ -98,14 +99,14 @@ const AnimatedRoutes = () => {
                     throw new Error('授权参数不完整');
                 }
 
-                console.log('[TikTok OAuth] Calling completeAuth...');
+                debugLog('[TikTok OAuth] Calling completeAuth...');
                 const result = await tiktokApi.completeAuth({
                     code,
                     state,
                     error: error || undefined,
                     error_description: errorDescription || undefined,
                 });
-                console.log('[TikTok OAuth] completeAuth success:', result);
+                debugLog('[TikTok OAuth] completeAuth success:', result);
 
                 // 显示成功消息，告知用户视频已上传到哪个账号
                 if (result?.message) {
@@ -118,7 +119,7 @@ const AnimatedRoutes = () => {
                     setIsInfoOpen(true);
                 }
             } catch (err: any) {
-                console.error('[TikTok OAuth] Error:', err);
+                debugError('[TikTok OAuth] Error:', err);
                 setInfoTitle('Error');
                 setInfoMessage(`TikTok 授权失败：${err?.message || '未知错误'}`);
                 setIsInfoOpen(true);

@@ -27,7 +27,7 @@ export const translations = {
     // New Login Design Keys
     login_tagline: "NEXT-GEN VIDEO GENERATION <br /> FOR GLOBAL E-COMMERCE",
     login_title: "Welcome Login",
-    login_tab_phone: "Phone Login",
+    login_tab_phone: "Verification Login",
     login_tab_email: "Email Login",
     login_tab_password: "Password Login",
     login_input_phone: "Enter mobile number",
@@ -538,7 +538,7 @@ export const translations = {
 
     login_tagline: "面向全球电商的新一代视频生成",
     login_title: "欢迎登录",
-    login_tab_phone: "手机登录",
+    login_tab_phone: "验证码登录",
     login_tab_email: "邮箱登录",
     login_tab_password: "密码登录/注册",
     login_input_phone: "请输入手机号",
@@ -1036,7 +1036,7 @@ export const translations = {
     // New Login Design
     login_tagline: "PENJANAAN VIDEO GENERASI BARU <br /> UNTUK E-DAGANG GLOBAL",
     login_title: "Selamat Datang",
-    login_tab_phone: "Log Masuk Telefon",
+    login_tab_phone: "Log Kod Pengesahan",
     login_tab_email: "Log Masuk Emel",
     login_tab_password: "Log Masuk Kata Laluan",
     login_input_phone: "Masukkan nombor telefon",
@@ -1465,7 +1465,7 @@ export const translations = {
     // New Login Design
     login_tagline: "THẾ HỆ TẠO VIDEO TIẾP THEO <br /> CHO THƯƠNG MẠI ĐIỆN TỬ TOÀN CẦU",
     login_title: "Chào mừng đăng nhập",
-    login_tab_phone: "Đăng nhập SĐT",
+    login_tab_phone: "Đăng nhập CAPTCHA",
     login_tab_email: "Đăng nhập Email",
     login_tab_password: "Đăng nhập mật khẩu",
     login_input_phone: "Nhập số điện thoại",
@@ -1904,7 +1904,7 @@ export const translations = {
     // New Login Design
     login_tagline: "글로벌 이커머스를 위한 <br /> 차세대 비디오 생성",
     login_title: "로그인 환영",
-    login_tab_phone: "휴대폰 로그인",
+    login_tab_phone: "인증 코드 로그인",
     login_tab_email: "이메일 로그인",
     login_tab_password: "비밀번호 로그인",
     login_input_phone: "휴대폰 번호 입력",

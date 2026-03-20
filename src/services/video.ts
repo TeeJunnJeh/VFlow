@@ -335,6 +335,43 @@ export const videoApi = {
     return await response.json();
   },
 
+  // 台词翻译（直接翻译 / 创意翻译）
+  translateAudioText: async (userId: string | number, payload: {
+    text: string;
+    target_language: string;
+    mode: 'direct' | 'creative';
+    visual_description?: string;
+    product_category?: string;
+    product_selling_points?: string;
+  }) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/users/${userId}/translate-audio`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json; charset=utf-8',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      let errorMsg = '翻译请求失败';
+      try {
+        const errData = await response.json();
+        errorMsg = errData.message || JSON.stringify(errData);
+      } catch {
+        errorMsg = `服务器错误: ${response.status} ${response.statusText}`;
+      }
+      throw new Error(errorMsg);
+    }
+
+    return await response.json();
+  },
+
   recognizeProductInfo: async (payload: { image_paths: string[]; output_language?: string }) => {
     const csrftoken = getCookie('csrftoken');
 

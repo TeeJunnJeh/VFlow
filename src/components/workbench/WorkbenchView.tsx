@@ -4,7 +4,8 @@ import {
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift,
-  SlidersHorizontal,Palette, MapPin, Activity, Camera, Lightbulb, Music, Scissors, Megaphone, AlignLeft
+  SlidersHorizontal,Palette, MapPin, Activity, Camera, Lightbulb, Music, Scissors, Megaphone, AlignLeft,
+  Languages, HelpCircle
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -29,7 +30,8 @@ import { getWorkbenchPreferences } from '../../utils/preferences';
 
 const ENABLE_PROMPT_LAB = true;
 const ENABLE_STORYBOARD_PROMPT = false;
-const ENABLE_STORYBOARD_EDITOR = false;
+// Storyboard editor is now a user-toggleable runtime setting (no longer a compile-time constant).
+// The state `enableStoryboardEditor` replaces the old `enableStoryboardEditor` const.
 
 // Types specific to Workbench View
 type ScriptItem = {
@@ -39,6 +41,7 @@ type ScriptItem = {
   dur: string;
   visual: string;
   audio: string;
+  audioTranslation: string;
 };
 
 type ScriptCreativeCard = {
@@ -587,6 +590,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     typeof initialPrefs.scriptVariantCount === 'number' && initialPrefs.scriptVariantCount > 0 ? initialPrefs.scriptVariantCount : 1
   );
   const [targetLanguage, setTargetLanguage] = useState<string>(() => initialPrefs.targetLanguage || 'en');
+  const [translatingShots, setTranslatingShots] = useState<Record<number, boolean>>({});
   const [creationMode, setCreationMode] = useState<'fast' | 'replay'>(() => (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
   const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
   const [isAiRecognizing, setIsAiRecognizing] = useState(false);
@@ -676,6 +680,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [scriptPages, setScriptPages] = useState<ScriptPage[]>(() => ([{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: buildDemoScripts() }]));
   const [activeScriptPage, setActiveScriptPage] = useState(0);
   const [isShotBreakdownOpen, setIsShotBreakdownOpen] = useState(false);
+  const [enableStoryboardEditor, setEnableStoryboardEditor] = useState(false);
 
   const [assetQueue, setAssetQueue] = useState<QueuedAsset[]>([]);
   const [scriptQueue, setScriptQueue] = useState<QueuedScript[]>([]);
@@ -1443,7 +1448,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setGeneratedVideoUrl(null);
   };
 
-  const currentScriptDuration = ENABLE_STORYBOARD_EDITOR
+  const currentScriptDuration = enableStoryboardEditor
       ? scripts.reduce((total, s) => total + (parseFloat(s.dur.replace('s', '')) || 0), 0)
       : genDuration;
   const isDurationValid = Math.abs(currentScriptDuration - genDuration) < 0.1;
@@ -1931,7 +1936,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         aspect_ratio: aspectRatio || selectedTemplate?.aspect_ratio || '9:16',
       script_content: {
         duration: genDuration,
-        shots: ENABLE_STORYBOARD_EDITOR ? scripts : [],
+        shots: enableStoryboardEditor ? scripts : [],
       }
     });
 
@@ -2033,7 +2038,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       openInfo('Notice', 'Please generate or complete a script concept card first!');
       return;
     }
-    if (ENABLE_STORYBOARD_EDITOR && !isDurationValid) {
+    if (enableStoryboardEditor && !isDurationValid) {
       openInfo('Warning', `Total script duration (${currentScriptDuration}s) must match requested duration (${genDuration}s)!`);
       return;
     }
@@ -2349,6 +2354,31 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     updateScripts(newScripts);
   };
 
+  // 台词翻译处理（直接翻译 / 创意翻译）
+  const handleTranslateShot = async (script: ScriptItem, index: number, mode: 'direct' | 'creative') => {
+    if (!script.audioTranslation?.trim() || !user?.id) return;
+    setTranslatingShots(prev => ({ ...prev, [script.id]: true }));
+    try {
+      const resp = await videoApi.translateAudioText(user.id, {
+        text: script.audioTranslation,
+        target_language: targetLanguage,
+        mode,
+        visual_description: script.visual,
+        product_category: productCategory,
+        product_selling_points: coreSellingPoints,
+      });
+      if (resp.code === 0 && resp.data?.translated_text) {
+        const ns = [...scripts];
+        ns[index].audio = resp.data.translated_text;
+        updateScripts(ns);
+      }
+    } catch (err) {
+      console.error('[handleTranslateShot] 翻译失败:', err);
+    } finally {
+      setTranslatingShots(prev => ({ ...prev, [script.id]: false }));
+    }
+  };
+
   const updateScripts = (newScripts: ScriptItem[]) => {
     setScripts(newScripts);
     setScriptPages(prev => {
@@ -2420,7 +2450,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const addScript = () => {
     const newId = scripts.length > 0 ? Math.max(...scripts.map(s => s.id)) + 1 : 1;
-    updateScripts([...scripts, { id: newId, shot: (scripts.length + 1).toString(), type: 'Medium', dur: '2s', visual: '', audio: '' }]);
+    updateScripts([...scripts, { id: newId, shot: (scripts.length + 1).toString(), type: 'Medium', dur: '2s', visual: '', audio: '', audioTranslation: '' }]);
   };
 
   const removeScript = (id: number) => {
@@ -2492,7 +2522,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       openInfo('Notice', t.wb_script_plan_require_notice);
       return;
     }
-    if (ENABLE_STORYBOARD_EDITOR && !isDurationValid) {
+    if (enableStoryboardEditor && !isDurationValid) {
       openInfo('Warning', `脚本总时长(${currentScriptDuration.toFixed(1)}s)需要与配置时长(${genDuration}s)一致`);
       return;
     }
@@ -2638,6 +2668,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         visual_style: style,
         aspect_ratio: resolution,
         user_language: language,
+        target_language: targetLanguage,
         sound: soundSetting,
         script_count: scriptVariantCount,
         script_content: {
@@ -2663,7 +2694,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         type: shot.type || 'Medium',
         dur: `${shot.duration_sec}s`,
         visual: shot.visual,
-        audio: shot.audio || shot.voiceover || ''
+        audio: shot.audio || shot.voiceover || '',
+        audioTranslation: shot.voiceover_translation || '',
       }));
       const normalizeText = (value: any) => String(value || '').replace(/\s+/g, ' ').trim();
       const parseStringList = (value: any, maxLen = 5) => {
@@ -2923,7 +2955,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!hasActiveScriptConcept) {
       issues.push(t.wb_gen_req_issue_master_script_missing);
     }
-    if (ENABLE_STORYBOARD_EDITOR && !isDurationValid) {
+    if (enableStoryboardEditor && !isDurationValid) {
       const template = t.wb_gen_req_issue_duration_mismatch || 'Storyboard: total shot duration ({scriptDuration}s) must match configured duration ({configDuration}s).';
       issues.push(
           formatI18nTemplate(template, {
@@ -4027,9 +4059,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-zinc-300">
-                            {materialTypeLabelMap[item.materialType || 'product']}
-                          </span>
+                                <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-zinc-300">
+                                  {materialTypeLabelMap[item.materialType || 'product']}
+                                </span>
                                 <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
                               </div>
                             </div>
@@ -4059,27 +4091,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       ))}
                     </div>
 
-              {/* Script Queue */}
-              <div className="flex items-center justify-between">
-                <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_script_queue}</div>
-                <button
-                    onClick={addCurrentScriptToQueue}
-                    className="text-[10px] px-2 py-1 rounded border border-white/10 text-orange-500 hover:bg-white/5"
-                >
-                  {t.wb_add_script_queue}
-                </button>
-              </div>
-              <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
-                {scriptQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_scripts}</div> : scriptQueue.map(item => (
-                    <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
-                        <div className="text-[9px] text-zinc-500">{ENABLE_STORYBOARD_EDITOR ? `${item.scripts.length} shots` : t.wb_script_plan_full_label}</div>
-                      </div>
-                      <button onClick={() => removeScriptFromQueue(item.id)}><X className="w-3 h-3 text-zinc-600 hover:text-red-400" /></button>
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_script_queue}</div>
+                      <button
+                          onClick={addCurrentScriptToQueue}
+                          className="text-[10px] px-2 py-1 rounded border border-white/10 text-orange-500 hover:bg-white/5"
+                      >
+                        {t.wb_add_script_queue}
+                      </button>
                     </div>
-                ))}
-              </div>
+                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
+                      {scriptQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_scripts}</div> : scriptQueue.map(item => (
+                          <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
+                              <div className="text-[9px] text-zinc-500">{enableStoryboardEditor ? `${item.scripts.length} shots` : '完整脚本方案'}</div>
+                            </div>
+                            <button onClick={() => removeScriptFromQueue(item.id)}><X className="w-3 h-3 text-zinc-600 hover:text-red-400" /></button>
+                          </div>
+                      ))}
+                    </div>
 
                     <div className="text-[10px] text-zinc-500 pt-2 border-t border-white/5">
                       {t.wb_estimated_generate}: {assetQueue.length} × {scriptQueue.length} = {expectedBatchCount}
@@ -4989,16 +5020,166 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </div>
                   </div>
               )}
-              {ENABLE_STORYBOARD_EDITOR ? (
-                <>
-                  <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                    <div className="text-[10px] text-zinc-400 uppercase tracking-widest">{t.wb_storyboard_title}</div>
+              {enableStoryboardEditor ? (
+                  <>
+                    <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                      <div className="text-[10px] text-zinc-400 uppercase tracking-widest">分镜结构（可编辑）</div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                            type="button"
+                            onClick={() => setIsShotBreakdownOpen((prev) => !prev)}
+                            className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
+                        >
+                          {isShotBreakdownOpen ? '收起分镜' : '展开分镜'}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setEnableStoryboardEditor(false); setIsShotBreakdownOpen(false); }}
+                            className="text-[10px] px-2 py-1 rounded border border-zinc-700 text-zinc-500 hover:text-red-400 hover:border-red-500/40 transition"
+                        >
+                          关闭分镜
+                        </button>
+                      </div>
+                    </div>
+                    {!isShotBreakdownOpen ? (
+                        <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
+                          当前默认展示完整脚本方案。点击“展开分镜”进行镜头级精修。
+                        </div>
+                    ) : scripts.length === 0 ? (
+                        <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
+                          <FileJson className="w-10 h-10 mb-2 opacity-50" />
+                          <p className="text-xs">No scripts yet.</p>
+                        </div>
+                    ) : (
+                        scripts.map((script, index) => (
+                            <div key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
+                              <div className="flex justify-between items-start mb-3">
+                                <div className="flex items-center gap-2">
+                                  <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
+                                  <select
+                                      value={script.type}
+                                      onChange={(e) => handleScriptTypeChange(script.id, e.target.value)}
+                                      className="text-[10px] text-zinc-300 border border-white/10 px-1.5 py-0.5 rounded bg-black/40 focus:outline-none focus:border-orange-500"
+                                      title={t.wb_shot_type_label || '镜头类型'}
+                                  >
+                                    {shotTypeOptions.map((option) => (
+                                        <option key={option.value} value={option.value} className="bg-black text-zinc-100">
+                                          {option.label}
+                                        </option>
+                                    ))}
+                                  </select>
+                                  <input type="number" min={0.1} step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
+                                  <span className="text-[10px] text-zinc-500">s</span>
+                                </div>
+                                <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
+                              </div>
+                              <div className="grid grid-cols-1 gap-3">
+                                <div className="flex flex-col gap-1.5">
+                                  <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_visual}</p>
+                                  <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll" value={script.visual} onChange={(e) => { const ns = [...scripts]; ns[index].visual = e.target.value; updateScripts(ns); }} />
+                                </div>
+                                <div className="flex flex-col gap-1.5">
+                                  <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
+                                  <input
+                                      type="text"
+                                      disabled={soundSetting === 'off'}
+                                      className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
+                                      value={soundSetting === 'off' ? '已关闭音频' : script.audio}
+                                      onChange={(e) => {
+                                        if (soundSetting === 'off') return;
+                                        const ns = [...scripts];
+                                        ns[index].audio = e.target.value;
+                                        updateScripts(ns);
+                                      }}
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                    <div className="flex items-center justify-between">
+                                      <p className="text-[10px] text-zinc-600 uppercase font-bold ml-1">{t.wb_audio_translation || 'Translation'}</p>
+                                      {soundSetting !== 'off' && (
+                                        <div className="relative group/translate">
+                                          <button
+                                            type="button"
+                                            className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-white/10 text-zinc-400 hover:text-orange-400 hover:border-orange-500/40 transition"
+                                            disabled={!script.audioTranslation?.trim() || translatingShots[script.id]}
+                                          >
+                                            {translatingShots[script.id] ? (
+                                              <>
+                                                <Loader2 className="w-3 h-3 animate-spin" />
+                                                <span>{t.wb_translating || '翻译中...'}</span>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Languages className="w-3 h-3" />
+                                                <span>{t.wb_btn_translate_to_target || '翻译成目标语言'}</span>
+                                              </>
+                                            )}
+                                          </button>
+                                          {/* 悬浮弹出菜单：直接翻译 / 创意翻译 */}
+                                          {!translatingShots[script.id] && script.audioTranslation?.trim() && (
+                                            <div className="absolute right-0 top-full pt-1 hidden group-hover/translate:flex flex-col z-50 min-w-[160px]">
+                                            <div className="flex flex-col gap-1 bg-zinc-900 border border-white/10 rounded-lg p-2 shadow-xl">
+                                              <button
+                                                type="button"
+                                                className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 hover:text-orange-400 px-2 py-1.5 rounded hover:bg-white/5 transition whitespace-nowrap"
+                                                onClick={() => handleTranslateShot(script, index, 'direct')}
+                                              >
+                                                <span>{t.wb_translate_direct || '直接翻译'}</span>
+                                                <span className="relative group/tip-d">
+                                                  <HelpCircle className="w-3 h-3 text-zinc-500" />
+                                                  <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden group-hover/tip-d:block bg-black/90 text-zinc-300 text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap border border-white/10">
+                                                    {t.wb_translate_direct_tip || '直接翻译，保持原文含义和语气'}
+                                                  </span>
+                                                </span>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 hover:text-purple-400 px-2 py-1.5 rounded hover:bg-white/5 transition whitespace-nowrap"
+                                                onClick={() => handleTranslateShot(script, index, 'creative')}
+                                              >
+                                                <span>{t.wb_translate_creative || '创意翻译'}</span>
+                                                <span className="relative group/tip-c">
+                                                  <HelpCircle className="w-3 h-3 text-zinc-500" />
+                                                  <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden group-hover/tip-c:block bg-black/90 text-zinc-300 text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap border border-white/10">
+                                                    {t.wb_translate_creative_tip || '结合产品特点和画面进行创意翻译'}
+                                                  </span>
+                                                </span>
+                                              </button>
+                                            </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <textarea
+                                      className="w-full bg-black/20 text-xs text-zinc-400 p-3 rounded-lg border border-white/5 resize-none min-h-[40px] focus:border-white/20 transition-colors outline-none italic"
+                                      value={script.audioTranslation}
+                                      placeholder={t.wb_audio_translation || 'Translation'}
+                                      onChange={(e) => {
+                                        const ns = [...scripts];
+                                        ns[index].audioTranslation = e.target.value;
+                                        updateScripts(ns);
+                                      }}
+                                    />
+                                  </div>
+                              </div>
+                            </div>
+                        ))
+                    )}
+                    {isShotBreakdownOpen && (
+                        <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
+                    )}
+                  </>
+              ) : (
+                  <>
+                  <div className="flex items-center justify-between rounded-xl border border-dashed border-white/10 bg-black/20 px-3 py-3">
+                    <span className="text-[11px] text-zinc-500">当前使用完整脚本方案卡生成视频。</span>
                     <button
-                      type="button"
-                      onClick={() => setIsShotBreakdownOpen((prev) => !prev)}
-                      className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
+                        type="button"
+                        onClick={() => setEnableStoryboardEditor(true)}
+                        className="text-[10px] px-2.5 py-1 rounded border border-orange-500/40 text-orange-400 hover:bg-orange-500/10 transition whitespace-nowrap"
                     >
-                      {isShotBreakdownOpen ? t.wb_storyboard_collapse : t.wb_storyboard_expand}
+                      启用分镜结构
                     </button>
                   </div>
                   {!isShotBreakdownOpen ? (
@@ -5061,10 +5242,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
                   )}
                 </>
-              ) : (
-                <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
-                  {t.wb_storyboard_disabled_hint}
-                </div>
               )}
             </div>
           </div>

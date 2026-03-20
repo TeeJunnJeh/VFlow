@@ -149,6 +149,7 @@ type ProjectWorkspaceState = {
   targetAudience: string;
   deliveryRegion: string;
   videoType: string;
+  aspectRatio: '9:16' | '16:9';
   hasAiRecognized: boolean;
   genPrompt: string;
   genDuration: number;
@@ -218,7 +219,8 @@ const createWorkspaceState = (params?: {
     coreSellingPoints: '',
     targetAudience: '',
     deliveryRegion: prefs.deliveryRegion || '中国',
-    videoType: prefs.videoType || '',
+  videoType: prefs.videoType || '',
+  aspectRatio: prefs.aspectRatio === '16:9' ? '16:9' : '9:16',
     hasAiRecognized: false,
     genPrompt: '',
     genDuration: prefs.genDuration || 10,
@@ -519,6 +521,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   });
   const [deliveryRegion, setDeliveryRegion] = useState(() => initialPrefs.deliveryRegion || '中国');
   const [videoType, setVideoType] = useState(() => initialPrefs.videoType || '');
+  const [aspectRatio, setAspectRatio] = useState<'9:16' | '16:9'>(() => (initialPrefs.aspectRatio === '16:9' ? '16:9' : '9:16'));
   const [requiredErrors, setRequiredErrors] = useState<{
     productName?: string;
     productCategory?: string;
@@ -797,6 +800,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setTargetAudience(workspace.targetAudience || '');
     setDeliveryRegion(workspace.deliveryRegion || initialPrefs.deliveryRegion || '中国');
     setVideoType(workspace.videoType || initialPrefs.videoType || '');
+    setAspectRatio(workspace.aspectRatio === '16:9' ? '16:9' : (initialPrefs.aspectRatio === '16:9' ? '16:9' : '9:16'));
     setHasAiRecognized(!!workspace.hasAiRecognized);
     setGenPrompt(workspace.genPrompt || '');
     setGenDuration(() => {
@@ -1073,6 +1077,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       targetAudience,
       deliveryRegion,
       videoType,
+      aspectRatio,
       hasAiRecognized,
       genPrompt,
       genDuration,
@@ -1119,6 +1124,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     targetAudience,
     deliveryRegion,
     videoType,
+    aspectRatio,
     hasAiRecognized,
     genPrompt,
     genDuration,
@@ -1929,7 +1935,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     // 为Sora模型添加size参数（Sora仅支持特定的分辨率）
     if (selectedModel === 'sora2' || selectedModel === 'sora2pro') {
-      payload.size = '1280x720'; // Sora默认1280x720，用户可根据aspect_ratio调整
+      payload.size = aspectRatio === '9:16' ? '720x1280' : '1280x720';
     }
 
     return payload;
@@ -1946,8 +1952,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!user?.id) throw new Error('请先登录');
 
     const createResp = await videoApi.createProject(user.id, {
-      title: fileName || 'Video',
-      aspect_ratio: selectedTemplate?.aspect_ratio || '9:16',
+        title: fileName || 'Video',
+        aspect_ratio: aspectRatio || selectedTemplate?.aspect_ratio || '9:16',
       script_content: {
         duration: genDuration,
         shots: ENABLE_STORYBOARD_EDITOR ? scripts : [],
@@ -2676,7 +2682,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       // Values from Selected Template or Default
       const category = selectedTemplate?.product_category || "相机";
       const style = selectedTemplate?.visual_style || "写实";
-      const rawRatio = selectedTemplate?.aspect_ratio || "16:9";
+      const rawRatio = aspectRatio || selectedTemplate?.aspect_ratio || "16:9";
       const resolution = RATIO_TO_RES[rawRatio] || rawRatio || "1280*720";
       const duration = genDuration || selectedTemplate?.duration || 10;
       const shots = selectedTemplate?.shot_number || 5;
@@ -3846,37 +3852,55 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
             </div>
 
-            <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
-                {t.wb_field_video_type_label}
-                <span className="ml-1 text-red-400">*</span>
-              </label>
-              <DropdownSelect
-                value={videoType}
-                placeholder={t.wb_select_placeholder}
-                options={[
-                  { value: 'UGC种草', label: t.wb_video_type_ugc },
-                  { value: '产品口播', label: t.wb_video_type_talking },
-                  { value: '产品演示', label: t.wb_video_type_demo },
-                  { value: '痛点-解决', label: t.wb_video_type_problem_solution },
-                  { value: '前后对比', label: t.wb_video_type_before_after },
-                  { value: '反应展示', label: t.wb_video_type_reaction },
-                  { value: '故事讲述', label: t.wb_video_type_story },
-                ]}
-                onChange={(v) => {
-                  setVideoType(v);
-                  if (requiredErrors.videoType && v.trim()) {
-                    setRequiredErrors((prev) => ({ ...prev, videoType: undefined }));
-                  }
-                }}
-                buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
-                labelClassName=""
-                iconClassName="w-3 h-3 text-zinc-500"
-                optionClassName="text-xs"
-              />
-              {requiredErrors.videoType && (
-                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.videoType}</div>
-              )}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+                  {t.wb_field_video_type_label}
+                  <span className="ml-1 text-red-400">*</span>
+                </label>
+                <DropdownSelect
+                  value={videoType}
+                  placeholder={t.wb_select_placeholder}
+                  options={[
+                    { value: 'UGC种草', label: t.wb_video_type_ugc },
+                    { value: '产品口播', label: t.wb_video_type_talking },
+                    { value: '产品演示', label: t.wb_video_type_demo },
+                    { value: '痛点-解决', label: t.wb_video_type_problem_solution },
+                    { value: '前后对比', label: t.wb_video_type_before_after },
+                    { value: '反应展示', label: t.wb_video_type_reaction },
+                    { value: '故事讲述', label: t.wb_video_type_story },
+                  ]}
+                  onChange={(v) => {
+                    setVideoType(v);
+                    if (requiredErrors.videoType && v.trim()) {
+                      setRequiredErrors((prev) => ({ ...prev, videoType: undefined }));
+                    }
+                  }}
+                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  labelClassName=""
+                  iconClassName="w-3 h-3 text-zinc-500"
+                  optionClassName="text-xs"
+                />
+                {requiredErrors.videoType && (
+                  <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.videoType}</div>
+                )}
+              </div>
+
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.aspect_ratio}</label>
+                <DropdownSelect
+                  value={aspectRatio}
+                  options={[
+                    { value: '9:16', label: t.mobile },
+                    { value: '16:9', label: t.landscape },
+                  ]}
+                  onChange={(v) => setAspectRatio(v === '16:9' ? '16:9' : '9:16')}
+                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  labelClassName=""
+                  iconClassName="w-3 h-3 text-zinc-500"
+                  optionClassName="text-xs"
+                />
+              </div>
             </div>
 
             <div>
@@ -4934,10 +4958,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           role="separator"
           aria-orientation="vertical"
           onMouseDown={handleResizeMouseDown}
-          className="group relative w-4 -mx-3 cursor-col-resize transition shrink-0 flex items-stretch justify-center"
+          className="group relative w-4 -mx-3 cursor-col-resize transition shrink-0 flex items-stretch justify-center hover:bg-white/5 rounded"
           title="拖拽调整布局"
         >
-          <div className="w-px h-full bg-white/15 group-hover:bg-white/30 transition" />
+          <div className="h-full w-px bg-white/15 transition-all group-hover:w-0.5 group-hover:bg-orange-500/70 group-hover:shadow-[0_0_14px_rgba(249,115,22,0.35)]" />
           <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-4" />
         </div>
 

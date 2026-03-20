@@ -67,6 +67,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
       deliveryRegion: stored.deliveryRegion || '中国',
       targetLanguage: stored.targetLanguage || 'en',
       videoType: stored.videoType || 'UGC种草',
+      aspectRatio: stored.aspectRatio === '16:9' ? '16:9' : '9:16',
       genDuration: duration,
       soundSetting: stored.soundSetting === 'off' ? 'off' : 'on',
       creationMode,
@@ -97,6 +98,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
       })(),
       scriptVariantCount: Math.max(1, Math.round(Number(prefsDraft.scriptVariantCount) || 1)),
       videoType: (prefsDraft.videoType || '').trim() ? prefsDraft.videoType : 'UGC种草',
+      aspectRatio: prefsDraft.aspectRatio === '16:9' ? '16:9' : '9:16',
       deliveryRegion: (prefsDraft.deliveryRegion || '').trim() ? prefsDraft.deliveryRegion : '中国',
       targetLanguage: (prefsDraft.targetLanguage || '').trim() ? prefsDraft.targetLanguage : 'en',
     };
@@ -625,6 +627,21 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                      { value: '故事讲述', label: t.wb_video_type_story },
                    ]}
                    onChange={(v) => setPrefsDraft((prev) => ({ ...prev, videoType: v }))}
+                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                   iconClassName="w-4 h-4 text-zinc-500"
+                   optionClassName="text-xs"
+                 />
+               </div>
+
+               <div className="space-y-1">
+                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.aspect_ratio}</div>
+                 <DropdownSelect
+                   value={prefsDraft.aspectRatio}
+                   options={[
+                     { value: '9:16', label: t.mobile },
+                     { value: '16:9', label: t.landscape },
+                   ]}
+                   onChange={(v) => setPrefsDraft((prev) => ({ ...prev, aspectRatio: (v === '16:9' ? '16:9' : '9:16') }))}
                    buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
                    iconClassName="w-4 h-4 text-zinc-500"
                    optionClassName="text-xs"

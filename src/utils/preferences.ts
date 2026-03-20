@@ -2,6 +2,7 @@ export type WorkbenchPreferences = {
   deliveryRegion: string;
   targetLanguage: string;
   videoType: string;
+  aspectRatio: '9:16' | '16:9';
   genDuration: number;
   soundSetting: 'on' | 'off';
   creationMode: 'fast' | 'replay';
@@ -29,6 +30,7 @@ export function getWorkbenchPreferences(): Partial<WorkbenchPreferences> {
     if (typeof parsed.deliveryRegion === 'string') next.deliveryRegion = parsed.deliveryRegion;
     if (typeof parsed.targetLanguage === 'string') next.targetLanguage = parsed.targetLanguage;
     if (typeof parsed.videoType === 'string') next.videoType = parsed.videoType;
+    if (parsed.aspectRatio === '9:16' || parsed.aspectRatio === '16:9') next.aspectRatio = parsed.aspectRatio;
     if (typeof parsed.genDuration === 'number' && Number.isFinite(parsed.genDuration) && ALLOWED_DURATIONS.has(parsed.genDuration)) {
       next.genDuration = parsed.genDuration;
     }

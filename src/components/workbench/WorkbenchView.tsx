@@ -25,6 +25,7 @@ import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { type Template } from '../../services/templates';
 import { AppDialog } from '../common/AppDialog';
+import { getWorkbenchPreferences } from '../../utils/preferences';
 
 const ENABLE_PROMPT_LAB = true;
 const ENABLE_STORYBOARD_PROMPT = false;
@@ -145,6 +146,7 @@ type ProjectWorkspaceState = {
   targetAudience: string;
   deliveryRegion: string;
   videoType: string;
+  aspectRatio: '9:16' | '16:9';
   hasAiRecognized: boolean;
   genPrompt: string;
   genDuration: number;
@@ -200,40 +202,51 @@ const estimateProjectNameWidthEm = (value: string): number => {
 const createWorkspaceState = (params?: {
   scripts?: ScriptItem[];
   scriptPagePrefix?: string;
-}): ProjectWorkspaceState => ({
-  fileName: '',
-  uploadedFile: null,
-  selectedAssetUrl: null,
-  lastUploadedUrl: null,
-  selectedAssetSource: null,
-  currentMaterialType: null,
-  productName: '',
-  productCategory: '',
-  coreSellingPoints: '',
-  targetAudience: '',
-  deliveryRegion: '中国',
-  videoType: '',
-  hasAiRecognized: false,
-  genPrompt: '',
-  genDuration: 10,
-  soundSetting: 'on',
-  scriptVariantCount: 1,
-  targetLanguage: 'en',
-  creationMode: 'fast',
-  reuseQueueEnabled: false,
-  scripts: params?.scripts || [],
-  scriptPages: [{
-    id: 'page-1',
-    name: `${params?.scriptPagePrefix || 'Script'} 1`,
+}): ProjectWorkspaceState => {
+  const prefs = getWorkbenchPreferences();
+  return {
+    fileName: '',
+    uploadedFile: null,
+    selectedAssetUrl: null,
+    lastUploadedUrl: null,
+    selectedAssetSource: null,
+    currentMaterialType: null,
+    productName: '',
+    productCategory: '',
+    coreSellingPoints: '',
+    targetAudience: '',
+    deliveryRegion: prefs.deliveryRegion || '中国',
+  videoType: prefs.videoType || '',
+  aspectRatio: prefs.aspectRatio === '16:9' ? '16:9' : '9:16',
+    hasAiRecognized: false,
+    genPrompt: '',
+    genDuration: prefs.genDuration || 10,
+    soundSetting: prefs.soundSetting === 'off' ? 'off' : 'on',
+    scriptVariantCount:
+      typeof prefs.scriptVariantCount === 'number' && prefs.scriptVariantCount > 0 ? prefs.scriptVariantCount : 1,
+    targetLanguage: prefs.targetLanguage || 'en',
+    creationMode: prefs.creationMode === 'replay' ? 'replay' : 'fast',
+    reuseQueueEnabled: false,
     scripts: params?.scripts || [],
-  }],
-  activeScriptPage: 0,
-  assetQueue: [],
-  scriptQueue: [],
-  selectedTemplateId: null,
-  selectedModelId: null,
-  generatedVideoUrl: null,
-});
+    scriptPages: [{
+      id: 'page-1',
+      name: `${params?.scriptPagePrefix || 'Script'} 1`,
+      scripts: params?.scripts || [],
+    }],
+    activeScriptPage: 0,
+    assetQueue: [],
+    scriptQueue: [],
+    selectedTemplateId: null,
+    selectedModelId:
+      prefs.selectedModelId === 'kling' ||
+      prefs.selectedModelId === 'sora2' ||
+      prefs.selectedModelId === 'sora2pro' ||
+      prefs.selectedModelId === 'seedance2.0'
+        ? prefs.selectedModelId
+        : null,
+    generatedVideoUrl: null,
+  };
+};
 
 const createDefaultProjectStore = (): LocalProjectStore => {
   const projectId = 'project_alpha_01';
@@ -533,6 +546,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const skipTemplateDurationSyncRef = useRef(false);
   const restoredDraftRef = useRef(false);
 
+  const initialPrefs = useMemo(() => getWorkbenchPreferences(), []);
+
+
+
   const [productName, setProductName] = useState('');
   const [productCategory, setProductCategory] = useState('');
   const [coreSellingPoints, setCoreSellingPoints] = useState('');
@@ -543,8 +560,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     sellingPoints: false,
     audience: false,
   });
-  const [deliveryRegion, setDeliveryRegion] = useState('中国');
-  const [videoType, setVideoType] = useState('');
+  const [deliveryRegion, setDeliveryRegion] = useState(() => initialPrefs.deliveryRegion || '中国');
+  const [videoType, setVideoType] = useState(() => initialPrefs.videoType || '');
+  const [aspectRatio, setAspectRatio] = useState<'9:16' | '16:9'>(() => (initialPrefs.aspectRatio === '16:9' ? '16:9' : '9:16'));
   const [requiredErrors, setRequiredErrors] = useState<{
     productName?: string;
     productCategory?: string;
@@ -558,11 +576,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const coreSellingPointsFieldRef = useRef<HTMLTextAreaElement | null>(null);
   const videoTypeFieldRef = useRef<HTMLDivElement | null>(null);
   const [genPrompt, setGenPrompt] = useState('');
-  const [genDuration, setGenDuration] = useState<number>(selectedTemplate?.duration || 10);
-  const [soundSetting, setSoundSetting] = useState<'on' | 'off'>('on');
-  const [scriptVariantCount, setScriptVariantCount] = useState<number>(1);
-  const [targetLanguage, setTargetLanguage] = useState<string>('en');
-  const [creationMode, setCreationMode] = useState<'fast' | 'replay'>('fast');
+  const [genDuration, setGenDuration] = useState<number>(() => {
+    if (initialPrefs.genDuration === 5 || initialPrefs.genDuration === 10 || initialPrefs.genDuration === 15) {
+      return initialPrefs.genDuration;
+    }
+    return selectedTemplate?.duration || 10;
+  });
+  const [soundSetting, setSoundSetting] = useState<'on' | 'off'>(() => (initialPrefs.soundSetting === 'off' ? 'off' : 'on'));
+  const [scriptVariantCount, setScriptVariantCount] = useState<number>(() =>
+    typeof initialPrefs.scriptVariantCount === 'number' && initialPrefs.scriptVariantCount > 0 ? initialPrefs.scriptVariantCount : 1
+  );
+  const [targetLanguage, setTargetLanguage] = useState<string>(() => initialPrefs.targetLanguage || 'en');
+  const [creationMode, setCreationMode] = useState<'fast' | 'replay'>(() => (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
   const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
   const [isAiRecognizing, setIsAiRecognizing] = useState(false);
   const [hasAiRecognized, setHasAiRecognized] = useState(false);
@@ -792,15 +817,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setProductCategory(workspace.productCategory || '');
     setCoreSellingPoints(workspace.coreSellingPoints || '');
     setTargetAudience(workspace.targetAudience || '');
-    setDeliveryRegion(workspace.deliveryRegion || '中国');
-    setVideoType(workspace.videoType || '');
+    setDeliveryRegion(workspace.deliveryRegion || initialPrefs.deliveryRegion || '中国');
+    setVideoType(workspace.videoType || initialPrefs.videoType || '');
+    setAspectRatio(workspace.aspectRatio === '16:9' ? '16:9' : (initialPrefs.aspectRatio === '16:9' ? '16:9' : '9:16'));
     setHasAiRecognized(!!workspace.hasAiRecognized);
     setGenPrompt(workspace.genPrompt || '');
-    setGenDuration(typeof workspace.genDuration === 'number' ? workspace.genDuration : 10);
-    setSoundSetting(workspace.soundSetting || 'on');
-    setScriptVariantCount(typeof workspace.scriptVariantCount === 'number' ? workspace.scriptVariantCount : 1);
-    setTargetLanguage(workspace.targetLanguage || 'en');
-    setCreationMode(workspace.creationMode || 'fast');
+    setGenDuration(() => {
+      if (workspace.genDuration === 5 || workspace.genDuration === 10 || workspace.genDuration === 15) {
+        return workspace.genDuration;
+      }
+      if (initialPrefs.genDuration === 5 || initialPrefs.genDuration === 10 || initialPrefs.genDuration === 15) {
+        return initialPrefs.genDuration;
+      }
+      return 10;
+    });
+    setSoundSetting(workspace.soundSetting || (initialPrefs.soundSetting === 'off' ? 'off' : 'on'));
+    setScriptVariantCount(
+      typeof workspace.scriptVariantCount === 'number'
+        ? workspace.scriptVariantCount
+        : (typeof initialPrefs.scriptVariantCount === 'number' && initialPrefs.scriptVariantCount > 0 ? initialPrefs.scriptVariantCount : 1)
+    );
+    setTargetLanguage(workspace.targetLanguage || initialPrefs.targetLanguage || 'en');
+    setCreationMode(workspace.creationMode || (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
     setReuseQueueEnabled(!!workspace.reuseQueueEnabled);
     setScripts(Array.isArray(workspace.scripts) ? workspace.scripts : []);
     setScriptPages(Array.isArray(workspace.scriptPages) && workspace.scriptPages.length > 0 ? workspace.scriptPages : [{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: [] }]);
@@ -815,7 +853,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     } else {
       onSelectTemplate(null);
     }
-    if (workspace.selectedModelId) setSelectedModel(workspace.selectedModelId as any);
+    if (workspace.selectedModelId) {
+      setSelectedModel(workspace.selectedModelId as any);
+    } else if (
+      initialPrefs.selectedModelId === 'kling' ||
+      initialPrefs.selectedModelId === 'sora2' ||
+      initialPrefs.selectedModelId === 'sora2pro' ||
+      initialPrefs.selectedModelId === 'seedance2.0'
+    ) {
+      setSelectedModel(initialPrefs.selectedModelId as any);
+    }
     setTimeout(() => {
       isApplyingProjectWorkspaceRef.current = false;
     }, 0);
@@ -1041,6 +1088,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       targetAudience,
       deliveryRegion,
       videoType,
+      aspectRatio,
       hasAiRecognized,
       genPrompt,
       genDuration,
@@ -1074,13 +1122,36 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       };
     });
   }, [
-    projectStore.currentProjectId, fileName, uploadedFile, selectedAssetUrl,
-    lastUploadedUrl, selectedAssetSource, currentMaterialType, productName,
-    productCategory, coreSellingPoints, targetAudience, deliveryRegion,
-    videoType, hasAiRecognized, genPrompt, genDuration, soundSetting,
-    scriptVariantCount, targetLanguage, creationMode, reuseQueueEnabled,
-    scripts, scriptPages, activeScriptPage, assetQueue, scriptQueue,
-    selectedTemplate?.id, selectedModel, generatedVideoUrl,
+    projectStore.currentProjectId,
+    fileName,
+    uploadedFile,
+    selectedAssetUrl,
+    lastUploadedUrl,
+    selectedAssetSource,
+    currentMaterialType,
+    productName,
+    productCategory,
+    coreSellingPoints,
+    targetAudience,
+    deliveryRegion,
+    videoType,
+    aspectRatio,
+    hasAiRecognized,
+    genPrompt,
+    genDuration,
+    soundSetting,
+    scriptVariantCount,
+    targetLanguage,
+    creationMode,
+    reuseQueueEnabled,
+    scripts,
+    scriptPages,
+    activeScriptPage,
+    assetQueue,
+    scriptQueue,
+    selectedTemplate?.id,
+    selectedModel,
+    generatedVideoUrl,
   ]);
 
   useEffect(() => {
@@ -1839,7 +1910,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
 
     if (selectedModel === 'sora2' || selectedModel === 'sora2pro') {
-      payload.size = '1280x720';
+      payload.size = aspectRatio === '9:16' ? '720x1280' : '1280x720';
     }
 
     return payload;
@@ -1856,8 +1927,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!user?.id) throw new Error('请先登录');
 
     const createResp = await videoApi.createProject(user.id, {
-      title: fileName || 'Video',
-      aspect_ratio: selectedTemplate?.aspect_ratio || '9:16',
+        title: fileName || 'Video',
+        aspect_ratio: aspectRatio || selectedTemplate?.aspect_ratio || '9:16',
       script_content: {
         duration: genDuration,
         shots: ENABLE_STORYBOARD_EDITOR ? scripts : [],
@@ -2418,7 +2489,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const addCurrentScriptToQueue = () => {
     if (!hasActiveScriptConcept) {
-      openInfo('Notice', '请先生成或完善脚本方案卡');
+      openInfo('Notice', t.wb_script_plan_require_notice);
       return;
     }
     if (ENABLE_STORYBOARD_EDITOR && !isDurationValid) {
@@ -2557,7 +2628,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       const category = selectedTemplate?.product_category || "相机";
       const style = selectedTemplate?.visual_style || "写实";
-      const rawRatio = selectedTemplate?.aspect_ratio || "16:9";
+      const rawRatio = aspectRatio || selectedTemplate?.aspect_ratio || "16:9";
       const resolution = RATIO_TO_RES[rawRatio] || rawRatio || "1280*720";
       const duration = genDuration || selectedTemplate?.duration || 10;
       const shots = selectedTemplate?.shot_number || 5;
@@ -2850,7 +2921,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       issues.push(t.wb_gen_req_issue_asset_or_template || 'Assets: upload an asset or select a template first.');
     }
     if (!hasActiveScriptConcept) {
-      issues.push('脚本方案卡：请先生成或完善完整脚本内容。');
+      issues.push(t.wb_gen_req_issue_master_script_missing);
     }
     if (ENABLE_STORYBOARD_EDITOR && !isDurationValid) {
       const template = t.wb_gen_req_issue_duration_mismatch || 'Storyboard: total shot duration ({scriptDuration}s) must match configured duration ({configDuration}s).';
@@ -3522,28 +3593,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 )}
               </div>
 
-              <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
-                  {t.wb_field_core_selling_points_label}
-                  <span className="ml-1 text-red-400">*</span>
-                </label>
-                <textarea
-                    ref={coreSellingPointsFieldRef}
-                    value={coreSellingPoints}
-                    onChange={(e) => {
-                      setCoreSellingPoints(e.target.value);
-                      setProductInfoTouched((prev) => ({ ...prev, sellingPoints: true }));
-                      if (requiredErrors.coreSellingPoints && e.target.value.trim()) {
-                        setRequiredErrors((prev) => ({ ...prev, coreSellingPoints: undefined }));
-                      }
-                    }}
-                    placeholder={t.wb_field_core_selling_points_placeholder}
-                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition resize-none min-h-[80px]"
-                />
-                {requiredErrors.coreSellingPoints && (
-                    <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.coreSellingPoints}</div>
-                )}
-              </div>
+            <div>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+                {t.wb_field_core_selling_points_label}
+                <span className="ml-1 text-red-400">*</span>
+              </label>
+              <textarea
+                ref={coreSellingPointsFieldRef}
+                value={coreSellingPoints}
+                onChange={(e) => {
+                  setCoreSellingPoints(e.target.value);
+                  setProductInfoTouched((prev) => ({ ...prev, sellingPoints: true }));
+                  if (requiredErrors.coreSellingPoints && e.target.value.trim()) {
+                    setRequiredErrors((prev) => ({ ...prev, coreSellingPoints: undefined }));
+                  }
+                }}
+                placeholder={t.wb_field_core_selling_points_placeholder}
+                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition resize-y min-h-[80px]"
+              />
+              {requiredErrors.coreSellingPoints && (
+                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.coreSellingPoints}</div>
+              )}
+            </div>
 
               <div>
                 <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_target_audience_label}</label>
@@ -3596,74 +3667,101 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </div>
               </div>
 
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
                   {t.wb_field_video_type_label}
                   <span className="ml-1 text-red-400">*</span>
                 </label>
                 <DropdownSelect
-                    value={videoType}
-                    placeholder={t.wb_select_placeholder}
-                    options={[
-                      { value: 'UGC种草', label: t.wb_video_type_ugc },
-                      { value: '产品口播', label: t.wb_video_type_talking },
-                      { value: '产品演示', label: t.wb_video_type_demo },
-                      { value: '痛点-解决', label: t.wb_video_type_problem_solution },
-                      { value: '前后对比', label: t.wb_video_type_before_after },
-                      { value: '反应展示', label: t.wb_video_type_reaction },
-                      { value: '故事讲述', label: t.wb_video_type_story },
-                    ]}
-                    onChange={(v) => {
-                      setVideoType(v);
-                      if (requiredErrors.videoType && v.trim()) {
-                        setRequiredErrors((prev) => ({ ...prev, videoType: undefined }));
-                      }
-                    }}
-                    buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
-                    labelClassName=""
-                    iconClassName="w-3 h-3 text-zinc-500"
-                    optionClassName="text-xs"
+                  value={videoType}
+                  placeholder={t.wb_select_placeholder}
+                  options={[
+                    { value: 'UGC种草', label: t.wb_video_type_ugc },
+                    { value: '产品口播', label: t.wb_video_type_talking },
+                    { value: '产品演示', label: t.wb_video_type_demo },
+                    { value: '痛点-解决', label: t.wb_video_type_problem_solution },
+                    { value: '前后对比', label: t.wb_video_type_before_after },
+                    { value: '反应展示', label: t.wb_video_type_reaction },
+                    { value: '故事讲述', label: t.wb_video_type_story },
+                  ]}
+                  onChange={(v) => {
+                    setVideoType(v);
+                    if (requiredErrors.videoType && v.trim()) {
+                      setRequiredErrors((prev) => ({ ...prev, videoType: undefined }));
+                    }
+                  }}
+                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  labelClassName=""
+                  iconClassName="w-3 h-3 text-zinc-500"
+                  optionClassName="text-xs"
                 />
                 {requiredErrors.videoType && (
-                    <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.videoType}</div>
+                  <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.videoType}</div>
                 )}
               </div>
 
               <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_additional_requirements_label}</label>
-                <textarea
-                    readOnly={!hasCurrentAsset}
-                    onFocus={() => {
-                      if (!hasCurrentAsset) openInfo('Notice', t.wb_additional_requirements_need_asset);
-                    }}
-                    onClick={() => {
-                      if (!hasCurrentAsset) openInfo('Notice', t.wb_additional_requirements_need_asset);
-                    }}
-                    className={`w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-none min-h-[80px] ${!hasCurrentAsset ? 'text-zinc-500 opacity-60' : 'text-zinc-300 focus:border-orange-500 focus:outline-none'}`}
-                    placeholder={t.wb_field_additional_requirements_placeholder}
-                    value={genPrompt}
-                    onChange={(e) => {
-                      if (!hasCurrentAsset) return;
-                      setGenPrompt(e.target.value);
-                    }}
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.aspect_ratio}</label>
+                <DropdownSelect
+                  value={aspectRatio}
+                  options={[
+                    { value: '9:16', label: t.mobile },
+                    { value: '16:9', label: t.landscape },
+                  ]}
+                  onChange={(v) => setAspectRatio(v === '16:9' ? '16:9' : '9:16')}
+                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  labelClassName=""
+                  iconClassName="w-3 h-3 text-zinc-500"
+                  optionClassName="text-xs"
                 />
               </div>
+            </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
-                  <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
-                    {[5, 10, 15].map((d) => (
-                        <button
-                            key={d}
-                            onClick={() => setGenDuration(d)}
-                            className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${genDuration === d ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}
-                        >
-                          {d}s
-                        </button>
-                    ))}
-                  </div>
-                </div>
+            <div>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_additional_requirements_label}</label>
+              <textarea
+                readOnly={!hasCurrentAsset}
+                onFocus={() => {
+                  if (!hasCurrentAsset) openInfo('Notice', t.wb_additional_requirements_need_asset);
+                }}
+                onClick={() => {
+                  if (!hasCurrentAsset) openInfo('Notice', t.wb_additional_requirements_need_asset);
+                }}
+                className={`w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-y min-h-[80px] ${!hasCurrentAsset ? 'text-zinc-500 opacity-60' : 'text-zinc-300 focus:border-orange-500 focus:outline-none'}`}
+                placeholder={t.wb_field_additional_requirements_placeholder}
+                value={genPrompt}
+                onChange={(e) => {
+                  if (!hasCurrentAsset) return;
+                  setGenPrompt(e.target.value);
+                }}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
+                <DropdownSelect
+                  value={String(genDuration)}
+                  options={[
+                    { value: '5', label: '5s' },
+                    { value: '10', label: '10s' },
+                    { value: '15', label: '15s' },
+                  ]}
+                  onChange={(v) => {
+                    const next = Number(v);
+                    if (next === 5 || next === 10 || next === 15) {
+                      setGenDuration(next);
+                      return;
+                    }
+                    setGenDuration(10);
+                  }}
+                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  labelClassName=""
+                  iconClassName="w-3 h-3 text-zinc-500"
+                  optionClassName="text-xs"
+                />
+              </div>
 
                 <div>
                   <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_audio}</label>
@@ -3961,26 +4059,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       ))}
                     </div>
 
-                    <div className="flex items-center justify-between">
-                      <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_script_queue}</div>
-                      <button
-                          onClick={addCurrentScriptToQueue}
-                          className="text-[10px] px-2 py-1 rounded border border-white/10 text-orange-500 hover:bg-white/5"
-                      >
-                        {t.wb_add_script_queue}
-                      </button>
+              {/* Script Queue */}
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_script_queue}</div>
+                <button
+                    onClick={addCurrentScriptToQueue}
+                    className="text-[10px] px-2 py-1 rounded border border-white/10 text-orange-500 hover:bg-white/5"
+                >
+                  {t.wb_add_script_queue}
+                </button>
+              </div>
+              <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
+                {scriptQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_scripts}</div> : scriptQueue.map(item => (
+                    <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
+                        <div className="text-[9px] text-zinc-500">{ENABLE_STORYBOARD_EDITOR ? `${item.scripts.length} shots` : t.wb_script_plan_full_label}</div>
+                      </div>
+                      <button onClick={() => removeScriptFromQueue(item.id)}><X className="w-3 h-3 text-zinc-600 hover:text-red-400" /></button>
                     </div>
-                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
-                      {scriptQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_scripts}</div> : scriptQueue.map(item => (
-                          <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
-                            <div className="flex-1 min-w-0">
-                              <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
-                              <div className="text-[9px] text-zinc-500">{ENABLE_STORYBOARD_EDITOR ? `${item.scripts.length} shots` : '完整脚本方案'}</div>
-                            </div>
-                            <button onClick={() => removeScriptFromQueue(item.id)}><X className="w-3 h-3 text-zinc-600 hover:text-red-400" /></button>
-                          </div>
-                      ))}
-                    </div>
+                ))}
+              </div>
 
                     <div className="text-[10px] text-zinc-500 pt-2 border-t border-white/5">
                       {t.wb_estimated_generate}: {assetQueue.length} × {scriptQueue.length} = {expectedBatchCount}
@@ -4645,16 +4744,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             {renderLeftColumn()}
           </div>
 
-          <div
-              role="separator"
-              aria-orientation="vertical"
-              onMouseDown={handleResizeMouseDown}
-              className="group relative w-4 -mx-3 cursor-col-resize transition shrink-0 flex items-stretch justify-center"
-              title="拖拽调整布局"
-          >
-            <div className="w-px h-full bg-white/15 group-hover:bg-white/30 transition" />
-            <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-4" />
-          </div>
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          onMouseDown={handleResizeMouseDown}
+          className="group relative w-4 -mx-3 cursor-col-resize transition shrink-0 flex items-stretch justify-center hover:bg-white/5 rounded"
+          title="拖拽调整布局"
+        >
+          <div className="h-full w-px bg-white/15 transition-all group-hover:w-0.5 group-hover:bg-orange-500/70 group-hover:shadow-[0_0_14px_rgba(249,115,22,0.35)]" />
+          <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-4" />
+        </div>
 
           <div ref={scriptsSectionRef} className={`flex-auto flex flex-col gap-3 h-full min-w-[300px] ${getGuideFocusClass('scripts')}`}>
             <div className="flex justify-between items-center shrink-0 h-[32px]">
@@ -4720,180 +4819,141 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
             <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
               {activeScriptPlan && (
-                  <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-2xl relative overflow-hidden">
-                    {/* 装饰性背景光晕：极微弱的紫色透出 */}
-                    <div className="absolute -top-20 -right-20 w-72 h-72 bg-purple-500/10 rounded-full blur-[100px] pointer-events-none" />
-
-                    {/* 头部 */}
-                    <div className="flex items-center justify-between gap-3 relative z-10 mb-6 border-b border-white/10 pb-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.15)]">
-                          <Sparkles className="w-4 h-4 text-purple-400" />
-                        </div>
-                        <div>
-                          <div className="text-[13px] font-black tracking-wider text-zinc-100 flex items-center gap-2">
-                            脚本方案卡
-                            <span className="text-[9px] px-1.5 py-0.5 rounded border border-purple-500/30 bg-purple-500/20 text-purple-200 font-normal tracking-normal">
-                              可灵3.0提示词
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-zinc-500 mt-0.5 font-medium">{t.wb_script_page_prefix} {activeScriptPage + 1}</div>
-                        </div>
+                <div className="glass-panel wb-script-plan-card rounded-2xl p-4 shadow-lg shadow-black/20">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-400/20 border border-emerald-300/30 flex items-center justify-center">
+                        <Sparkles className="w-3.5 h-3.5 text-emerald-200" />
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-[0.18em] text-emerald-200/90">{t.wb_script_plan_card_title}</div>
+                        <div className="text-[11px] text-zinc-400">{t.wb_script_page_prefix} {activeScriptPage + 1}</div>
                       </div>
                     </div>
-
-                    <div className="space-y-6 relative z-10">
-                      {/* 核心剧本 */}
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-widest">
-                          <AlignLeft className="w-3.5 h-3.5" /> 完整脚本
-                        </div>
-                        <textarea
-                            value={activeFullScript}
-                            onChange={(e) => updateActiveFullScript(e.target.value)}
-                            placeholder="输入完整脚本方案..."
-                            className="w-full min-h-[96px] bg-black/20 border border-white/10 rounded-xl px-3.5 py-3 text-[12px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 focus:bg-black/40 focus:ring-1 focus:ring-purple-500/50 transition-all resize-y custom-scroll"
-                        />
-                      </div>
-
-                      {/* 视觉与场景 */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-widest">
-                            <Palette className="w-3.5 h-3.5" /> [风格]
-                          </div>
-                          <textarea
-                              value={activeCreativeCard?.style || ''}
-                              onChange={(e) => updateActiveCreativeCardField('style', e.target.value)}
-                              className="w-full min-h-[72px] bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 focus:bg-black/40 focus:ring-1 focus:ring-purple-500/50 transition-all resize-y custom-scroll"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-widest">
-                            <MapPin className="w-3.5 h-3.5" /> [环境]
-                          </div>
-                          <textarea
-                              value={activeCreativeCard?.environment || ''}
-                              onChange={(e) => updateActiveCreativeCardField('environment', e.target.value)}
-                              className="w-full min-h-[72px] bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 focus:bg-black/40 focus:ring-1 focus:ring-purple-500/50 transition-all resize-y custom-scroll"
-                          />
-                        </div>
-                        <div className="space-y-2 md:col-span-2">
-                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-widest">
-                            <Lightbulb className="w-3.5 h-3.5" /> [光线]
-                          </div>
-                          <textarea
-                              value={activeCreativeCard?.lighting || ''}
-                              onChange={(e) => updateActiveCreativeCardField('lighting', e.target.value)}
-                              className="w-full min-h-[64px] bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 focus:bg-black/40 focus:ring-1 focus:ring-purple-500/50 transition-all resize-y custom-scroll"
-                          />
-                        </div>
-                      </div>
-
-                      {/* 镜头与节奏 */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-widest">
-                            <Camera className="w-3.5 h-3.5" /> [镜头]
-                          </div>
-                          <textarea
-                              value={activeCreativeCard?.camera || ''}
-                              onChange={(e) => updateActiveCreativeCardField('camera', e.target.value)}
-                              className="w-full min-h-[72px] bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 focus:bg-black/40 focus:ring-1 focus:ring-purple-500/50 transition-all resize-y custom-scroll"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-widest">
-                            <Activity className="w-3.5 h-3.5" /> [语调与节奏]
-                          </div>
-                          <textarea
-                              value={activeCreativeCard?.tonePacing || ''}
-                              onChange={(e) => updateActiveCreativeCardField('tonePacing', e.target.value)}
-                              className="w-full min-h-[72px] bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 focus:bg-black/40 focus:ring-1 focus:ring-purple-500/50 transition-all resize-y custom-scroll"
-                          />
-                        </div>
-                      </div>
-
-                      {/* 动作设计 (时间轴样式) */}
-                      <div className="space-y-3 bg-black/20 rounded-2xl p-4 border border-white/5">
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-widest">
-                            <Film className="w-3.5 h-3.5" /> [动作设计]
-                          </div>
-                          <button
-                              type="button"
-                              onClick={addActiveCreativeCardAction}
-                              className="text-[10px] flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 transition-colors"
-                          >
-                            <Plus className="w-3 h-3" /> 新增动作
-                          </button>
-                        </div>
-                        <div className="pl-3.5 border-l-2 border-purple-500/30 space-y-4 relative py-2">
-                          {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0 ? activeCreativeCard.actions : ['']).map((item, idx) => (
-                              <div key={`card-action-edit-${idx}`} className="relative flex gap-3 items-start group">
-                                {/* 节点圆圈 */}
-                                <div className="absolute -left-[24px] top-2.5 w-5 h-5 rounded-full bg-[#050505] border-2 border-purple-500/50 flex items-center justify-center text-[9px] text-purple-300 font-black shadow-[0_0_8px_rgba(168,85,247,0.3)] z-10">
-                                  {idx + 1}
-                                </div>
-                                <textarea
-                                    value={item}
-                                    onChange={(e) => updateActiveCreativeCardAction(idx, e.target.value)}
-                                    placeholder={`动作 ${idx + 1}...`}
-                                    className="flex-1 min-h-[52px] bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 focus:bg-black/50 focus:ring-1 focus:ring-purple-500/50 transition-all resize-y custom-scroll"
-                                />
-                                {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0) && (
-                                    <button
-                                        type="button"
-                                        onClick={() => removeActiveCreativeCardAction(idx)}
-                                        className="mt-1 h-8 w-8 flex items-center justify-center rounded-lg border border-white/5 text-zinc-500 hover:text-red-400 hover:bg-red-400/10 hover:border-red-400/20 transition-all opacity-0 group-hover:opacity-100 shrink-0"
-                                        title="删除此动作"
-                                    >
-                                      <X className="w-3.5 h-3.5" />
-                                    </button>
-                                )}
-                              </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* 声音与后期 */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-widest">
-                            <Music className="w-3.5 h-3.5" /> [背景音]
-                          </div>
-                          <textarea
-                              value={activeCreativeCard?.backgroundSound || ''}
-                              onChange={(e) => updateActiveCreativeCardField('backgroundSound', e.target.value)}
-                              className="w-full min-h-[64px] bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 focus:bg-black/40 focus:ring-1 focus:ring-purple-500/50 transition-all resize-y custom-scroll"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-400 uppercase tracking-widest">
-                            <Scissors className="w-3.5 h-3.5" /> [转场 / 剪辑]
-                          </div>
-                          <textarea
-                              value={activeCreativeCard?.transitionEditing || ''}
-                              onChange={(e) => updateActiveCreativeCardField('transitionEditing', e.target.value)}
-                              className="w-full min-h-[64px] bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 focus:bg-black/40 focus:ring-1 focus:ring-purple-500/50 transition-all resize-y custom-scroll"
-                          />
-                        </div>
-                      </div>
-
-                      {/* 转化引导 (CTA) */}
-                      <div className="space-y-2 pt-2">
-                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-orange-400 uppercase tracking-widest">
-                          <Megaphone className="w-3.5 h-3.5" /> [行动号召]
-                        </div>
-                        <textarea
-                            value={activeCreativeCard?.callToAction || ''}
-                            onChange={(e) => updateActiveCreativeCardField('callToAction', e.target.value)}
-                            placeholder="例如：点击左下角链接购买..."
-                            className="w-full min-h-[64px] bg-orange-500/10 border border-orange-500/20 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed text-orange-100 placeholder:text-orange-500/40 focus:outline-none focus:border-orange-500/50 focus:bg-orange-500/20 focus:ring-1 focus:ring-orange-500/50 transition-all resize-y custom-scroll"
-                        />
-                      </div>
+                    <div className="text-[10px] px-2 py-1 rounded-full border border-emerald-300/30 bg-emerald-400/10 text-emerald-100">
+                      {t.wb_script_plan_card_badge}
                     </div>
                   </div>
+
+                  <div className="mt-3 rounded-xl border border-white/10 bg-black/35 p-3">
+                    <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">{t.wb_script_plan_full_script_label}</div>
+                    <textarea
+                      value={activeFullScript}
+                      onChange={(e) => updateActiveFullScript(e.target.value)}
+                      placeholder={t.wb_script_plan_full_script_placeholder}
+                      className="w-full min-h-[96px] bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-[12px] leading-6 text-zinc-100 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
+                    />
+                  </div>
+
+                  <div className="mt-3 space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
+                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_style}</div>
+                        <textarea
+                          value={activeCreativeCard?.style || ''}
+                          onChange={(e) => updateActiveCreativeCardField('style', e.target.value)}
+                          className="w-full min-h-[80px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
+                        />
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
+                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_environment}</div>
+                        <textarea
+                          value={activeCreativeCard?.environment || ''}
+                          onChange={(e) => updateActiveCreativeCardField('environment', e.target.value)}
+                          className="w-full min-h-[80px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
+                        />
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
+                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_tone_pacing}</div>
+                        <textarea
+                          value={activeCreativeCard?.tonePacing || ''}
+                          onChange={(e) => updateActiveCreativeCardField('tonePacing', e.target.value)}
+                          className="w-full min-h-[72px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
+                        />
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
+                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_camera}</div>
+                        <textarea
+                          value={activeCreativeCard?.camera || ''}
+                          onChange={(e) => updateActiveCreativeCardField('camera', e.target.value)}
+                          className="w-full min-h-[72px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
+                        />
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5 md:col-span-2">
+                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_lighting}</div>
+                        <textarea
+                          value={activeCreativeCard?.lighting || ''}
+                          onChange={(e) => updateActiveCreativeCardField('lighting', e.target.value)}
+                          className="w-full min-h-[72px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-[10px] text-emerald-200">{t.wb_script_plan_field_actions}</div>
+                        <button
+                          type="button"
+                          onClick={addActiveCreativeCardAction}
+                          className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
+                        >
+                          {t.wb_script_plan_add_action}
+                        </button>
+                      </div>
+                      <div className="space-y-2">
+                        {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0 ? activeCreativeCard.actions : ['']).map((item, idx) => (
+                          <div key={`card-action-edit-${idx}`} className="flex gap-2">
+                            <div className="w-5 h-5 mt-1 shrink-0 rounded-full border border-emerald-300/30 bg-emerald-400/10 text-[10px] text-emerald-100 flex items-center justify-center">
+                              {idx + 1}
+                            </div>
+                            <textarea
+                              value={item}
+                              onChange={(e) => updateActiveCreativeCardAction(idx, e.target.value)}
+                              className="flex-1 min-h-[56px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
+                            />
+                            {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0) && (
+                              <button
+                                type="button"
+                                onClick={() => removeActiveCreativeCardAction(idx)}
+                                className="mt-1 h-8 px-2 rounded border border-white/10 text-zinc-400 hover:text-red-300 hover:border-red-400/40 transition"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
+                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_background_sound}</div>
+                        <textarea
+                          value={activeCreativeCard?.backgroundSound || ''}
+                          onChange={(e) => updateActiveCreativeCardField('backgroundSound', e.target.value)}
+                          className="w-full min-h-[72px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
+                        />
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
+                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_transition_editing}</div>
+                        <textarea
+                          value={activeCreativeCard?.transitionEditing || ''}
+                          onChange={(e) => updateActiveCreativeCardField('transitionEditing', e.target.value)}
+                          className="w-full min-h-[72px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-orange-300/30 bg-orange-400/10 p-2.5">
+                      <div className="text-[10px] text-orange-100 mb-1">{t.wb_script_plan_field_call_to_action}</div>
+                      <textarea
+                        value={activeCreativeCard?.callToAction || ''}
+                        onChange={(e) => updateActiveCreativeCardField('callToAction', e.target.value)}
+                        className="w-full min-h-[72px] bg-black/20 border border-orange-300/25 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-100 placeholder:text-zinc-500 resize-y focus:outline-none focus:border-orange-200/60"
+                      />
+                    </div>
+                  </div>
+                </div>
               )}
               {activeReferenceSummary.length > 0 && (
                   <div className="glass-panel rounded-xl p-3 border border-white/10">
@@ -4930,81 +4990,81 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
               )}
               {ENABLE_STORYBOARD_EDITOR ? (
-                  <>
-                    <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                      <div className="text-[10px] text-zinc-400 uppercase tracking-widest">分镜结构（可编辑）</div>
-                      <button
-                          type="button"
-                          onClick={() => setIsShotBreakdownOpen((prev) => !prev)}
-                          className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
-                      >
-                        {isShotBreakdownOpen ? '收起分镜' : '展开分镜'}
-                      </button>
-                    </div>
-                    {!isShotBreakdownOpen ? (
-                        <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
-                          当前默认展示完整脚本方案。点击“展开分镜”进行镜头级精修。
-                        </div>
-                    ) : scripts.length === 0 ? (
-                        <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
-                          <FileJson className="w-10 h-10 mb-2 opacity-50" />
-                          <p className="text-xs">No scripts yet.</p>
-                        </div>
-                    ) : (
-                        scripts.map((script, index) => (
-                            <div key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
-                              <div className="flex justify-between items-start mb-3">
-                                <div className="flex items-center gap-2">
-                                  <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
-                                  <select
-                                      value={script.type}
-                                      onChange={(e) => handleScriptTypeChange(script.id, e.target.value)}
-                                      className="text-[10px] text-zinc-300 border border-white/10 px-1.5 py-0.5 rounded bg-black/40 focus:outline-none focus:border-orange-500"
-                                      title={t.wb_shot_type_label || '镜头类型'}
-                                  >
-                                    {shotTypeOptions.map((option) => (
-                                        <option key={option.value} value={option.value} className="bg-black text-zinc-100">
-                                          {option.label}
-                                        </option>
-                                    ))}
-                                  </select>
-                                  <input type="number" min={0.1} step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
-                                  <span className="text-[10px] text-zinc-500">s</span>
-                                </div>
-                                <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
-                              </div>
-                              <div className="grid grid-cols-1 gap-3">
-                                <div className="flex flex-col gap-1.5">
-                                  <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_visual}</p>
-                                  <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll" value={script.visual} onChange={(e) => { const ns = [...scripts]; ns[index].visual = e.target.value; updateScripts(ns); }} />
-                                </div>
-                                <div className="flex flex-col gap-1.5">
-                                  <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
-                                  <input
-                                      type="text"
-                                      disabled={soundSetting === 'off'}
-                                      className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
-                                      value={soundSetting === 'off' ? '已关闭音频' : script.audio}
-                                      onChange={(e) => {
-                                        if (soundSetting === 'off') return;
-                                        const ns = [...scripts];
-                                        ns[index].audio = e.target.value;
-                                        updateScripts(ns);
-                                      }}
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                        ))
-                    )}
-                    {isShotBreakdownOpen && (
-                        <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
-                    )}
-                  </>
-              ) : (
-                  <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
-                    分镜功能已临时关闭，当前仅使用完整脚本方案卡生成视频。
+                <>
+                  <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                    <div className="text-[10px] text-zinc-400 uppercase tracking-widest">{t.wb_storyboard_title}</div>
+                    <button
+                      type="button"
+                      onClick={() => setIsShotBreakdownOpen((prev) => !prev)}
+                      className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
+                    >
+                      {isShotBreakdownOpen ? t.wb_storyboard_collapse : t.wb_storyboard_expand}
+                    </button>
                   </div>
+                  {!isShotBreakdownOpen ? (
+                    <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
+                      {t.wb_storyboard_hint_default_master}
+                    </div>
+                  ) : scripts.length === 0 ? (
+                    <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
+                      <FileJson className="w-10 h-10 mb-2 opacity-50" />
+                      <p className="text-xs">{t.wb_empty_scripts}</p>
+                    </div>
+                  ) : (
+                    scripts.map((script, index) => (
+                      <div key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
+                        <div className="flex justify-between items-start mb-3">
+                            <div className="flex items-center gap-2">
+                                <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
+                                <select
+                                  value={script.type}
+                                  onChange={(e) => handleScriptTypeChange(script.id, e.target.value)}
+                                  className="text-[10px] text-zinc-300 border border-white/10 px-1.5 py-0.5 rounded bg-black/40 focus:outline-none focus:border-orange-500"
+                                  title={t.wb_shot_type_label || '镜头类型'}
+                                >
+                                  {shotTypeOptions.map((option) => (
+                                    <option key={option.value} value={option.value} className="bg-black text-zinc-100">
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <input type="number" min={0.1} step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
+                                <span className="text-[10px] text-zinc-500">s</span>
+                              </div>
+                              <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
+                            </div>
+                            <div className="grid grid-cols-1 gap-3">
+                              <div className="flex flex-col gap-1.5">
+                                <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_visual}</p>
+                                <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll" value={script.visual} onChange={(e) => { const ns = [...scripts]; ns[index].visual = e.target.value; updateScripts(ns); }} />
+                              </div>
+                              <div className="flex flex-col gap-1.5">
+                                <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
+                                <input
+                                  type="text"
+                                  disabled={soundSetting === 'off'}
+                                  className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
+                                  value={soundSetting === 'off' ? '已关闭音频' : script.audio}
+                                  onChange={(e) => {
+                                    if (soundSetting === 'off') return;
+                                    const ns = [...scripts];
+                                    ns[index].audio = e.target.value;
+                                    updateScripts(ns);
+                                  }}
+                                />
+                            </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                  {isShotBreakdownOpen && (
+                    <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
+                  )}
+                </>
+              ) : (
+                <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
+                  {t.wb_storyboard_disabled_hint}
+                </div>
               )}
             </div>
           </div>

@@ -2448,6 +2448,155 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }));
   };
 
+  const [themeClassSnapshot, setThemeClassSnapshot] = useState<string>('');
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    const sync = () => setThemeClassSnapshot(root.className || '');
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(root, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+
+  const isLightTheme = themeClassSnapshot.includes('theme-light');
+  const isDimTheme = themeClassSnapshot.includes('theme-dim');
+
+  const cardLabels = useMemo(() => {
+    const lang = String(language || 'en').toLowerCase();
+    if (lang.startsWith('zh')) {
+      return {
+        style: '[风格]:',
+        environment: '[环境]:',
+        tonePacing: '[语调与节奏]:',
+        camera: '[镜头]:',
+        lighting: '[光线]:',
+        actions: '[动作]:',
+        backgroundSound: '[背景音]:',
+        transitionEditing: '[转场 / 剪辑]:',
+        callToAction: '[行动号召]:',
+        addScene: '新增幕',
+        deleteScene: '删除',
+        scenePrefix: '第',
+        sceneSuffix: '幕',
+      };
+    }
+    if (lang.startsWith('ko')) {
+      return {
+        style: '[스타일]:',
+        environment: '[환경]:',
+        tonePacing: '[톤 & 페이싱]:',
+        camera: '[카메라]:',
+        lighting: '[조명]:',
+        actions: '[액션]:',
+        backgroundSound: '[배경음]:',
+        transitionEditing: '[전환 / 편집]:',
+        callToAction: '[콜 투 액션]:',
+        addScene: '씬 추가',
+        deleteScene: '삭제',
+        scenePrefix: '씬 ',
+        sceneSuffix: '',
+      };
+    }
+    if (lang.startsWith('vi')) {
+      return {
+        style: '[Phong cách]:',
+        environment: '[Bối cảnh]:',
+        tonePacing: '[Tông & Nhịp độ]:',
+        camera: '[Máy quay]:',
+        lighting: '[Ánh sáng]:',
+        actions: '[Hành động]:',
+        backgroundSound: '[Âm thanh nền]:',
+        transitionEditing: '[Chuyển cảnh / Dựng]:',
+        callToAction: '[Kêu gọi hành động]:',
+        addScene: 'Thêm cảnh',
+        deleteScene: 'Xóa',
+        scenePrefix: 'Cảnh ',
+        sceneSuffix: '',
+      };
+    }
+    if (lang.startsWith('ms')) {
+      return {
+        style: '[Gaya]:',
+        environment: '[Persekitaran]:',
+        tonePacing: '[Nada & Rentak]:',
+        camera: '[Kamera]:',
+        lighting: '[Pencahayaan]:',
+        actions: '[Aksi]:',
+        backgroundSound: '[Bunyi Latar]:',
+        transitionEditing: '[Peralihan / Suntingan]:',
+        callToAction: '[Seruan Tindakan]:',
+        addScene: 'Tambah babak',
+        deleteScene: 'Padam',
+        scenePrefix: 'Babak ',
+        sceneSuffix: '',
+      };
+    }
+    return {
+      style: '[Style]:',
+      environment: '[Environment]:',
+      tonePacing: '[Tone & Pacing]:',
+      camera: '[Camera]:',
+      lighting: '[Lighting]:',
+      actions: '[ACTIONS]:',
+      backgroundSound: '[Background Sound]:',
+      transitionEditing: '[Transition / Editing]:',
+      callToAction: '[Call to Action]:',
+      addScene: 'Add Scene',
+      deleteScene: 'Delete',
+      scenePrefix: 'Scene ',
+      sceneSuffix: '',
+    };
+  }, [language]);
+
+  const cardThemeClass = useMemo(() => {
+    if (isLightTheme) {
+      return {
+        shell: 'rounded-xl border border-slate-300 bg-slate-100/95 px-2.5 py-2.5 text-slate-800 shadow-sm',
+        label: 'font-semibold text-slate-800 tracking-tight',
+        input: 'mt-0.5 w-full min-h-[28px] rounded-md border border-slate-300 bg-white px-2 py-1 text-[12px] leading-4 text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400/40 resize-y custom-scroll',
+        actionItem: 'rounded-md border border-slate-300 bg-white p-1',
+        actionInput: 'w-full min-h-[28px] rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[12px] leading-4 text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400/30 resize-y custom-scroll',
+        button: 'text-[11px] px-2 py-0.5 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition',
+        dangerButton: 'text-[11px] px-1.5 py-0.5 rounded border border-slate-300 text-slate-600 hover:text-red-600 hover:border-red-300 hover:bg-red-50 transition',
+        subLabel: 'text-[11px] font-semibold text-slate-700',
+      };
+    }
+    if (isDimTheme) {
+      return {
+        shell: 'rounded-xl border border-slate-500/40 bg-slate-900/60 px-2.5 py-2.5 text-slate-100 shadow-[0_8px_20px_rgba(15,23,42,0.25)]',
+        label: 'font-semibold text-slate-100 tracking-tight',
+        input: 'mt-0.5 w-full min-h-[28px] rounded-md border border-slate-500/40 bg-slate-800/70 px-2 py-1 text-[12px] leading-4 text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-300/30 resize-y custom-scroll',
+        actionItem: 'rounded-md border border-slate-500/40 bg-slate-800/70 p-1',
+        actionInput: 'w-full min-h-[28px] rounded-md border border-slate-500/30 bg-slate-900/60 px-2 py-1 text-[12px] leading-4 text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-300/25 resize-y custom-scroll',
+        button: 'text-[11px] px-2 py-0.5 rounded-md border border-slate-400/40 bg-slate-700/60 text-slate-100 hover:bg-slate-700/80 transition',
+        dangerButton: 'text-[11px] px-1.5 py-0.5 rounded border border-slate-400/40 text-slate-300 hover:text-red-300 hover:border-red-300/40 hover:bg-red-500/10 transition',
+        subLabel: 'text-[11px] font-semibold text-slate-300',
+      };
+    }
+    return {
+      shell: 'rounded-xl border border-white/10 bg-zinc-900/45 px-2.5 py-2.5 text-zinc-100 shadow-[0_8px_20px_rgba(0,0,0,0.25)]',
+      label: 'font-semibold text-zinc-100 tracking-tight',
+      input: 'mt-0.5 w-full min-h-[28px] rounded-md border border-zinc-600 bg-zinc-800/80 px-2 py-1 text-[12px] leading-4 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-300/25 resize-y custom-scroll',
+      actionItem: 'rounded-md border border-zinc-600 bg-zinc-800/80 p-1',
+      actionInput: 'w-full min-h-[28px] rounded-md border border-zinc-500/60 bg-zinc-900/70 px-2 py-1 text-[12px] leading-4 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-300/20 resize-y custom-scroll',
+      button: 'text-[11px] px-2 py-0.5 rounded-md border border-zinc-500 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition',
+      dangerButton: 'text-[11px] px-1.5 py-0.5 rounded border border-zinc-500 text-zinc-300 hover:text-red-300 hover:border-red-300/40 hover:bg-red-500/10 transition',
+      subLabel: 'text-[11px] font-semibold text-zinc-300',
+    };
+  }, [isLightTheme, isDimTheme]);
+
+  const autoResizeCardTextarea = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
+  useEffect(() => {
+    const areas = document.querySelectorAll<HTMLTextAreaElement>('textarea[data-card-autosize="true"]');
+    areas.forEach((el) => autoResizeCardTextarea(el));
+  }, [activeScriptPage, scriptPages]);
+
   const addScript = () => {
     const newId = scripts.length > 0 ? Math.max(...scripts.map(s => s.id)) + 1 : 1;
     updateScripts([...scripts, { id: newId, shot: (scripts.length + 1).toString(), type: 'Medium', dur: '2s', visual: '', audio: '', audioTranslation: '' }]);
@@ -4851,138 +5000,172 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
             <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
               {activeScriptPlan && (
-                <div className="glass-panel wb-script-plan-card rounded-2xl p-4 shadow-lg shadow-black/20">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-lg bg-emerald-400/20 border border-emerald-300/30 flex items-center justify-center">
-                        <Sparkles className="w-3.5 h-3.5 text-emerald-200" />
-                      </div>
-                      <div>
-                        <div className="text-[10px] uppercase tracking-[0.18em] text-emerald-200/90">{t.wb_script_plan_card_title}</div>
-                        <div className="text-[11px] text-zinc-400">{t.wb_script_page_prefix} {activeScriptPage + 1}</div>
-                      </div>
-                    </div>
-                    <div className="text-[10px] px-2 py-1 rounded-full border border-emerald-300/30 bg-emerald-400/10 text-emerald-100">
-                      {t.wb_script_plan_card_badge}
-                    </div>
-                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-2xl relative overflow-hidden">
+                    {/* 装饰性背景光晕：极微弱的紫色透出 */}
+                    <div className="absolute -top-20 -right-20 w-72 h-72 bg-purple-500/10 rounded-full blur-[100px] pointer-events-none" />
 
-                  <div className="mt-3 rounded-xl border border-white/10 bg-black/35 p-3">
-                    <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">{t.wb_script_plan_full_script_label}</div>
-                    <textarea
-                      value={activeFullScript}
-                      onChange={(e) => updateActiveFullScript(e.target.value)}
-                      placeholder={t.wb_script_plan_full_script_placeholder}
-                      className="w-full min-h-[96px] bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-[12px] leading-6 text-zinc-100 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
-                    />
-                  </div>
-
-                  <div className="mt-3 space-y-3">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_style}</div>
-                        <textarea
-                          value={activeCreativeCard?.style || ''}
-                          onChange={(e) => updateActiveCreativeCardField('style', e.target.value)}
-                          className="w-full min-h-[80px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
-                        />
-                      </div>
-                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_environment}</div>
-                        <textarea
-                          value={activeCreativeCard?.environment || ''}
-                          onChange={(e) => updateActiveCreativeCardField('environment', e.target.value)}
-                          className="w-full min-h-[80px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
-                        />
-                      </div>
-                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_tone_pacing}</div>
-                        <textarea
-                          value={activeCreativeCard?.tonePacing || ''}
-                          onChange={(e) => updateActiveCreativeCardField('tonePacing', e.target.value)}
-                          className="w-full min-h-[72px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
-                        />
-                      </div>
-                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_camera}</div>
-                        <textarea
-                          value={activeCreativeCard?.camera || ''}
-                          onChange={(e) => updateActiveCreativeCardField('camera', e.target.value)}
-                          className="w-full min-h-[72px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
-                        />
-                      </div>
-                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5 md:col-span-2">
-                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_lighting}</div>
-                        <textarea
-                          value={activeCreativeCard?.lighting || ''}
-                          onChange={(e) => updateActiveCreativeCardField('lighting', e.target.value)}
-                          className="w-full min-h-[72px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-[10px] text-emerald-200">{t.wb_script_plan_field_actions}</div>
-                        <button
-                          type="button"
-                          onClick={addActiveCreativeCardAction}
-                          className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
-                        >
-                          {t.wb_script_plan_add_action}
-                        </button>
-                      </div>
-                      <div className="space-y-2">
-                        {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0 ? activeCreativeCard.actions : ['']).map((item, idx) => (
-                          <div key={`card-action-edit-${idx}`} className="flex gap-2">
-                            <div className="w-5 h-5 mt-1 shrink-0 rounded-full border border-emerald-300/30 bg-emerald-400/10 text-[10px] text-emerald-100 flex items-center justify-center">
-                              {idx + 1}
-                            </div>
-                            <textarea
-                              value={item}
-                              onChange={(e) => updateActiveCreativeCardAction(idx, e.target.value)}
-                              className="flex-1 min-h-[56px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
-                            />
-                            {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0) && (
-                              <button
-                                type="button"
-                                onClick={() => removeActiveCreativeCardAction(idx)}
-                                className="mt-1 h-8 px-2 rounded border border-white/10 text-zinc-400 hover:text-red-300 hover:border-red-400/40 transition"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            )}
+                    {/* 头部 */}
+                    <div className={`flex items-center justify-between gap-3 relative z-10 mb-6 pb-4 ${isLightTheme ? 'border-b border-slate-300/80' : 'border-b border-white/10'}`}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.15)]">
+                          <Sparkles className="w-4 h-4 text-purple-400" />
+                        </div>
+                        <div>
+                          <div className={`text-[13px] font-black tracking-wider flex items-center gap-2 ${isLightTheme ? 'text-slate-900' : 'text-zinc-100'}`}>
+                            {String(language || '').toLowerCase().startsWith('zh') ? '脚本方案卡' : 'Script Plan Card'}
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-normal tracking-normal ${isLightTheme
+                              ? 'border border-purple-300 bg-purple-100 text-purple-800'
+                              : 'border border-purple-500/30 bg-purple-500/20 text-purple-200'
+                            }`}>
+                              {String(language || '').toLowerCase().startsWith('zh') ? '可灵3.0提示词' : 'Kling 3.0 Prompt'}
+                            </span>
                           </div>
-                        ))}
+                          <div className={`text-[10px] mt-0.5 font-medium ${isLightTheme ? 'text-slate-600' : 'text-zinc-500'}`}>{t.wb_script_page_prefix} {activeScriptPage + 1}</div>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_background_sound}</div>
-                        <textarea
-                          value={activeCreativeCard?.backgroundSound || ''}
-                          onChange={(e) => updateActiveCreativeCardField('backgroundSound', e.target.value)}
-                          className="w-full min-h-[72px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
-                        />
-                      </div>
-                      <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_transition_editing}</div>
-                        <textarea
-                          value={activeCreativeCard?.transitionEditing || ''}
-                          onChange={(e) => updateActiveCreativeCardField('transitionEditing', e.target.value)}
-                          className="w-full min-h-[72px] bg-black/30 border border-white/10 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-200 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
-                        />
-                      </div>
-                    </div>
+                    <div className="space-y-1.5 relative z-10">
+                      <div className={cardThemeClass.shell}>
+                        <div className="space-y-1 text-[12px] leading-4">
+                          <div>
+                            <div className={cardThemeClass.label}>{cardLabels.style}</div>
+                            <textarea
+                                rows={1}
+                                data-card-autosize="true"
+                                value={activeCreativeCard?.style || ''}
+                                onChange={(e) => updateActiveCreativeCardField('style', e.target.value)}
+                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                className={cardThemeClass.input}
+                            />
+                          </div>
 
-                    <div className="rounded-xl border border-orange-300/30 bg-orange-400/10 p-2.5">
-                      <div className="text-[10px] text-orange-100 mb-1">{t.wb_script_plan_field_call_to_action}</div>
-                      <textarea
-                        value={activeCreativeCard?.callToAction || ''}
-                        onChange={(e) => updateActiveCreativeCardField('callToAction', e.target.value)}
-                        className="w-full min-h-[72px] bg-black/20 border border-orange-300/25 rounded-md px-2 py-1.5 text-[11px] leading-5 text-zinc-100 placeholder:text-zinc-500 resize-y focus:outline-none focus:border-orange-200/60"
-                      />
+                          <div>
+                            <div className={cardThemeClass.label}>{cardLabels.environment}</div>
+                            <textarea
+                                rows={1}
+                                data-card-autosize="true"
+                                value={activeCreativeCard?.environment || ''}
+                                onChange={(e) => updateActiveCreativeCardField('environment', e.target.value)}
+                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                className={cardThemeClass.input}
+                            />
+                          </div>
+
+                          <div>
+                            <div className={cardThemeClass.label}>{cardLabels.tonePacing}</div>
+                            <textarea
+                                rows={1}
+                                data-card-autosize="true"
+                                value={activeCreativeCard?.tonePacing || ''}
+                                onChange={(e) => updateActiveCreativeCardField('tonePacing', e.target.value)}
+                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                className={cardThemeClass.input}
+                            />
+                          </div>
+
+                          <div>
+                            <div className={cardThemeClass.label}>{cardLabels.camera}</div>
+                            <textarea
+                                rows={1}
+                                data-card-autosize="true"
+                                value={activeCreativeCard?.camera || ''}
+                                onChange={(e) => updateActiveCreativeCardField('camera', e.target.value)}
+                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                className={cardThemeClass.input}
+                            />
+                          </div>
+
+                          <div>
+                            <div className={cardThemeClass.label}>{cardLabels.lighting}</div>
+                            <textarea
+                                rows={1}
+                                data-card-autosize="true"
+                                value={activeCreativeCard?.lighting || ''}
+                                onChange={(e) => updateActiveCreativeCardField('lighting', e.target.value)}
+                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                className={cardThemeClass.input}
+                            />
+                          </div>
+
+                          <div>
+                            <div className="mb-0.5 flex items-center justify-between">
+                              <span className={cardThemeClass.label}>{cardLabels.actions}</span>
+                              <button
+                                  type="button"
+                                  onClick={addActiveCreativeCardAction}
+                                  className={cardThemeClass.button}
+                              >
+                                {cardLabels.addScene}
+                              </button>
+                            </div>
+                            <div className="space-y-1">
+                              {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0 ? activeCreativeCard.actions : ['']).map((item, idx) => (
+                                  <div key={`card-action-edit-${idx}`} className={cardThemeClass.actionItem}>
+                                    <div className="mb-0.5 flex items-center justify-between">
+                                      <span className={cardThemeClass.subLabel}>{`${cardLabels.scenePrefix}${idx + 1}${cardLabels.sceneSuffix}`}</span>
+                                      {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0) && (
+                                          <button
+                                              type="button"
+                                              onClick={() => removeActiveCreativeCardAction(idx)}
+                                              className={cardThemeClass.dangerButton}
+                                              title={cardLabels.deleteScene}
+                                          >
+                                            {cardLabels.deleteScene}
+                                          </button>
+                                      )}
+                                    </div>
+                                    <textarea
+                                        rows={1}
+                                        data-card-autosize="true"
+                                        value={item}
+                                        onChange={(e) => updateActiveCreativeCardAction(idx, e.target.value)}
+                                        onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                        placeholder={`${cardLabels.scenePrefix}${idx + 1}${cardLabels.sceneSuffix}...`}
+                                        className={cardThemeClass.actionInput}
+                                    />
+                                  </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className={cardThemeClass.label}>{cardLabels.backgroundSound}</div>
+                            <textarea
+                                rows={1}
+                                data-card-autosize="true"
+                                value={activeCreativeCard?.backgroundSound || ''}
+                                onChange={(e) => updateActiveCreativeCardField('backgroundSound', e.target.value)}
+                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                className={cardThemeClass.input}
+                            />
+                          </div>
+
+                          <div>
+                            <div className={cardThemeClass.label}>{cardLabels.transitionEditing}</div>
+                            <textarea
+                                rows={1}
+                                data-card-autosize="true"
+                                value={activeCreativeCard?.transitionEditing || ''}
+                                onChange={(e) => updateActiveCreativeCardField('transitionEditing', e.target.value)}
+                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                className={cardThemeClass.input}
+                            />
+                          </div>
+
+                          <div>
+                            <div className={cardThemeClass.label}>{cardLabels.callToAction}</div>
+                            <textarea
+                                rows={1}
+                                data-card-autosize="true"
+                                value={activeCreativeCard?.callToAction || ''}
+                                onChange={(e) => updateActiveCreativeCardField('callToAction', e.target.value)}
+                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                className={cardThemeClass.input}
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>

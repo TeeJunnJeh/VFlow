@@ -4,7 +4,8 @@ import {
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift,
-  SlidersHorizontal,Palette, MapPin, Activity, Camera, Lightbulb, Music, Scissors, Megaphone, AlignLeft
+  SlidersHorizontal,Palette, MapPin, Activity, Camera, Lightbulb, Music, Scissors, Megaphone, AlignLeft,
+  Languages, HelpCircle
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -564,6 +565,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [soundSetting, setSoundSetting] = useState<'on' | 'off'>('on');
   const [scriptVariantCount, setScriptVariantCount] = useState<number>(1);
   const [targetLanguage, setTargetLanguage] = useState<string>('en');
+  const [translatingShots, setTranslatingShots] = useState<Record<number, boolean>>({});
   const [creationMode, setCreationMode] = useState<'fast' | 'replay'>('fast');
   const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
   const [isAiRecognizing, setIsAiRecognizing] = useState(false);
@@ -2279,6 +2281,31 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const normalizedType = newType.trim() || 'Medium';
     const newScripts = scripts.map((item) => (item.id === id ? { ...item, type: normalizedType } : item));
     updateScripts(newScripts);
+  };
+
+  // 台词翻译处理（直接翻译 / 创意翻译）
+  const handleTranslateShot = async (script: ScriptItem, index: number, mode: 'direct' | 'creative') => {
+    if (!script.audioTranslation?.trim() || !user?.id) return;
+    setTranslatingShots(prev => ({ ...prev, [script.id]: true }));
+    try {
+      const resp = await videoApi.translateAudioText(user.id, {
+        text: script.audioTranslation,
+        target_language: targetLanguage,
+        mode,
+        visual_description: script.visual,
+        product_category: productCategory,
+        product_selling_points: coreSellingPoints,
+      });
+      if (resp.code === 0 && resp.data?.translated_text) {
+        const ns = [...scripts];
+        ns[index].audio = resp.data.translated_text;
+        updateScripts(ns);
+      }
+    } catch (err) {
+      console.error('[handleTranslateShot] 翻译失败:', err);
+    } finally {
+      setTranslatingShots(prev => ({ ...prev, [script.id]: false }));
+    }
   };
 
   const updateScripts = (newScripts: ScriptItem[]) => {
@@ -5007,14 +5034,75 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                       }}
                                   />
                                 </div>
-                                {script.audioTranslation && (
-                                  <div className="flex flex-col gap-1">
-                                    <p className="text-[10px] text-zinc-600 uppercase font-bold ml-1">{t.wb_audio_translation || 'Translation'}</p>
-                                    <p className="w-full text-xs text-zinc-500 p-3 rounded-lg border border-white/5 bg-black/10 italic">
-                                      {script.audioTranslation}
-                                    </p>
+                                <div className="flex flex-col gap-1">
+                                    <div className="flex items-center justify-between">
+                                      <p className="text-[10px] text-zinc-600 uppercase font-bold ml-1">{t.wb_audio_translation || 'Translation'}</p>
+                                      {soundSetting !== 'off' && (
+                                        <div className="relative group/translate">
+                                          <button
+                                            type="button"
+                                            className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-white/10 text-zinc-400 hover:text-orange-400 hover:border-orange-500/40 transition"
+                                            disabled={!script.audioTranslation?.trim() || translatingShots[script.id]}
+                                          >
+                                            {translatingShots[script.id] ? (
+                                              <>
+                                                <Loader2 className="w-3 h-3 animate-spin" />
+                                                <span>{t.wb_translating || '翻译中...'}</span>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Languages className="w-3 h-3" />
+                                                <span>{t.wb_btn_translate_to_target || '翻译成目标语言'}</span>
+                                              </>
+                                            )}
+                                          </button>
+                                          {/* 悬浮弹出菜单：直接翻译 / 创意翻译 */}
+                                          {!translatingShots[script.id] && script.audioTranslation?.trim() && (
+                                            <div className="absolute right-0 top-full pt-1 hidden group-hover/translate:flex flex-col z-50 min-w-[160px]">
+                                            <div className="flex flex-col gap-1 bg-zinc-900 border border-white/10 rounded-lg p-2 shadow-xl">
+                                              <button
+                                                type="button"
+                                                className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 hover:text-orange-400 px-2 py-1.5 rounded hover:bg-white/5 transition whitespace-nowrap"
+                                                onClick={() => handleTranslateShot(script, index, 'direct')}
+                                              >
+                                                <span>{t.wb_translate_direct || '直接翻译'}</span>
+                                                <span className="relative group/tip-d">
+                                                  <HelpCircle className="w-3 h-3 text-zinc-500" />
+                                                  <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden group-hover/tip-d:block bg-black/90 text-zinc-300 text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap border border-white/10">
+                                                    {t.wb_translate_direct_tip || '直接翻译，保持原文含义和语气'}
+                                                  </span>
+                                                </span>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 hover:text-purple-400 px-2 py-1.5 rounded hover:bg-white/5 transition whitespace-nowrap"
+                                                onClick={() => handleTranslateShot(script, index, 'creative')}
+                                              >
+                                                <span>{t.wb_translate_creative || '创意翻译'}</span>
+                                                <span className="relative group/tip-c">
+                                                  <HelpCircle className="w-3 h-3 text-zinc-500" />
+                                                  <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden group-hover/tip-c:block bg-black/90 text-zinc-300 text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap border border-white/10">
+                                                    {t.wb_translate_creative_tip || '结合产品特点和画面进行创意翻译'}
+                                                  </span>
+                                                </span>
+                                              </button>
+                                            </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <textarea
+                                      className="w-full bg-black/20 text-xs text-zinc-400 p-3 rounded-lg border border-white/5 resize-none min-h-[40px] focus:border-white/20 transition-colors outline-none italic"
+                                      value={script.audioTranslation}
+                                      placeholder={t.wb_audio_translation || 'Translation'}
+                                      onChange={(e) => {
+                                        const ns = [...scripts];
+                                        ns[index].audioTranslation = e.target.value;
+                                        updateScripts(ns);
+                                      }}
+                                    />
                                   </div>
-                                )}
                               </div>
                             </div>
                         ))

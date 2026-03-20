@@ -5168,7 +5168,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       </div>
                     </div>
                   </div>
-                </div>
               )}
               {activeReferenceSummary.length > 0 && (
                   <div className="glass-panel rounded-xl p-3 border border-white/10">

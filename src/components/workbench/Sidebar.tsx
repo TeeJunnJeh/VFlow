@@ -10,9 +10,10 @@ import type { ViewType } from './types';
 interface SidebarProps {
   activeView: ViewType;
   setActiveView: (view: ViewType) => void;
+  isDebugModeEnabled: boolean;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isDebugModeEnabled }) => {
   // ... (keep the rest of the component code exactly the same)
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -41,7 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView }) =
         <InternalNav icon={ImageIcon} view="assets" label={t.wb_nav_assets} />
         <InternalNav icon={LayoutTemplate} view="templates" label={t.wb_nav_templates} />
         <InternalNav icon={History} view="history" label={t.wb_nav_history} />
-        <InternalNav icon={Sparkles} view="agent" label={t.wb_nav_agent} />
+        {isDebugModeEnabled && <InternalNav icon={Sparkles} view="agent" label={t.wb_nav_agent} />}
         <InternalNav icon={CreditCard} view="billing" label={t.wb_nav_billing || 'Billing'} />
       </div>
       <div className="mt-auto pb-6 w-full px-2 flex flex-col items-center gap-4">

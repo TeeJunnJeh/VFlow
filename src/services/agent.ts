@@ -25,11 +25,26 @@ export type AgentMessage = {
   content: string;
 };
 
+export type AgentSkill = {
+  id: string;
+  name: string;
+  command: string;
+  description: string;
+  guide?: string;
+};
+
+export type AgentAttachment = {
+  name: string;
+  url: string;
+  media_kind: 'image' | 'video' | 'document' | 'audio' | 'file';
+};
+
 type AgentChatResponse = {
   message?: string;
   error?: string;
   data?: {
     reply?: string;
+    skills?: AgentSkill[];
   };
 };
 
@@ -59,7 +74,27 @@ async function readApiError(response: Response): Promise<string> {
 }
 
 export const agentApi = {
-  chat: async (payload: { message: string; history?: AgentMessage[] }) => {
+  getSkills: async () => {
+    const response = await fetch(`${API_BASE_URL}/agent/skills/`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const msg = await readApiError(response);
+      throw new Error(msg);
+    }
+
+    const json = (await response.json()) as AgentChatResponse;
+    const skills = json?.data?.skills;
+    return Array.isArray(skills) ? skills : [];
+  },
+
+  chat: async (payload: { message: string; history?: AgentMessage[]; attachments?: AgentAttachment[] }) => {
     const csrftoken = getCookie('csrftoken');
 
     const response = await fetch(`${API_BASE_URL}/agent/chat/`, {

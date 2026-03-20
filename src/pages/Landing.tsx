@@ -1,10 +1,14 @@
+import React from 'react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Shield, Lock } from 'lucide-react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import { useLanguage } from '../context/LanguageContext';
 import { LanguageSwitcher } from '../components/common/LanguageSwitcher';
 import TransitionOverlay from '../components/common/TransitionOverlay';
+import { AppDialog } from '../components/common/AppDialog';
+import { authApi } from '../services/auth';
+import { getDebugModeEnabled, setDebugModeEnabled } from '../services/debugMode';
 
 // --- 流星背景组件 (保持优化后的硬件加速配置) ---
 const MeteorBackground = () => {
@@ -31,6 +35,31 @@ const LandingPage = () => {
   const navigate = useNavigate();
   const { t } = useLanguage();
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const [isDebugDialogOpen, setIsDebugDialogOpen] = useState(false);
+  const [debugPassword, setDebugPassword] = useState('');
+  const [isDebugSubmitting, setIsDebugSubmitting] = useState(false);
+  const [debugError, setDebugError] = useState('');
+  const [isDebugModeEnabled, setIsDebugModeEnabledState] = useState(getDebugModeEnabled());
+
+  React.useEffect(() => {
+    let mounted = true;
+    const syncDebugMode = async () => {
+      try {
+        const enabled = await authApi.getDebugModeStatus();
+        if (!mounted) return;
+        setIsDebugModeEnabledState(enabled);
+        setDebugModeEnabled(enabled);
+      } catch {
+        if (!mounted) return;
+        setIsDebugModeEnabledState(getDebugModeEnabled());
+      }
+    };
+
+    void syncDebugMode();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const handleStart = () => {
     setIsTransitioning(true);
@@ -38,6 +67,47 @@ const LandingPage = () => {
     setTimeout(() => {
       navigate('/login');
     }, 450);
+  };
+
+  const handleDebugModeToggle = async () => {
+    if (isDebugModeEnabled) {
+      setIsDebugSubmitting(true);
+      setDebugError('');
+      try {
+        await authApi.setDebugMode({ enabled: false });
+        setDebugModeEnabled(false);
+        setIsDebugModeEnabledState(false);
+      } catch (err: any) {
+        setDebugError(err?.message || '退出调试模式失败');
+      } finally {
+        setIsDebugSubmitting(false);
+      }
+      return;
+    }
+
+    setIsDebugDialogOpen(true);
+  };
+
+  const handleEnterDebugMode = async () => {
+    if (!debugPassword.trim()) {
+      setDebugError('请输入调试密码');
+      return;
+    }
+
+    setIsDebugSubmitting(true);
+    setDebugError('');
+    try {
+      const enabled = await authApi.setDebugMode({ enabled: true, password: debugPassword.trim() });
+      setDebugModeEnabled(enabled);
+      setIsDebugModeEnabledState(enabled);
+      setIsDebugDialogOpen(false);
+      setDebugPassword('');
+      navigate('/login');
+    } catch (err: any) {
+      setDebugError(err?.message || '调试密码错误');
+    } finally {
+      setIsDebugSubmitting(false);
+    }
   };
 
   // 标题文字交错入场
@@ -88,7 +158,14 @@ const LandingPage = () => {
             <span className="text-2xl font-black tracking-tighter uppercase italic">VFlow AI</span>
           </motion.div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => void handleDebugModeToggle()}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border text-sm font-bold transition ${isDebugModeEnabled ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20' : 'border-white/10 bg-white/5 text-white hover:bg-white/10'}`}
+            >
+              <Shield size={16} />
+              {isDebugModeEnabled ? '退出调试模式' : '进入调试模式'}
+            </button>
             <LanguageSwitcher />
             <button
                 onClick={handleStart}
@@ -137,6 +214,75 @@ const LandingPage = () => {
             </button>
           </motion.div>
         </main>
+
+        <footer className="absolute bottom-4 inset-x-0 z-10 text-center">
+          <a
+            href="http://beian.miit.gov.cn"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+          >
+            粤ICP备2026027661号
+          </a>
+        </footer>
+
+        {isDebugDialogOpen && (
+          <AppDialog
+            isOpen={isDebugDialogOpen}
+            title="进入调试模式"
+            onClose={() => {
+              setIsDebugDialogOpen(false);
+              setDebugPassword('');
+              setDebugError('');
+            }}
+            footer={
+              <>
+                <button
+                  className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
+                  onClick={() => {
+                    setIsDebugDialogOpen(false);
+                    setDebugPassword('');
+                    setDebugError('');
+                  }}
+                >
+                  取消
+                </button>
+                <button
+                  className="bg-orange-500 text-black px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-400 disabled:opacity-60"
+                  onClick={() => void handleEnterDebugMode()}
+                  disabled={isDebugSubmitting}
+                >
+                  {isDebugSubmitting ? '验证中...' : '确认进入'}
+                </button>
+              </>
+            }
+            widthClassName="max-w-md"
+          >
+            <div className="space-y-3">
+              <div className="text-xs text-zinc-500 leading-relaxed">
+                调试模式会开启 agent 页面和 OpenClaw 设置，同时允许打印调试信息。只有知道密码的人才能进入。
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                <input
+                  type="password"
+                  value={debugPassword}
+                  onChange={(e) => setDebugPassword(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void handleEnterDebugMode();
+                    }
+                  }}
+                  placeholder="请输入调试密码"
+                  className="w-full rounded-lg border border-white/10 bg-zinc-900/80 pl-10 pr-3 py-2.5 text-sm text-white outline-none focus:border-orange-500/50"
+                  autoFocus
+                />
+              </div>
+              {debugError && <div className="text-xs text-red-400">{debugError}</div>}
+            </div>
+          </AppDialog>
+        )}
       </motion.div>
   );
 };

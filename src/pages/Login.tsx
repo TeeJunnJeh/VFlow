@@ -344,6 +344,17 @@ const LoginPage = () => {
             </form>
           </div>
         </div>
+
+        <footer className="absolute right-8 bottom-4 z-[120] text-right">
+          <a
+            href="http://beian.miit.gov.cn"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+          >
+            粤ICP备2026027661号
+          </a>
+        </footer>
       </motion.div>
   );
 };

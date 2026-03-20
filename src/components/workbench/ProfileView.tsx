@@ -5,11 +5,14 @@ import { useAuth } from '../../context/AuthContext';
 import { authApi } from '../../services/auth';
 import { billingApi } from '../../services/billing';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
+import { DropdownSelect } from '../common/DropdownSelect';
 import { AppDialog } from '../common/AppDialog';
+import { getWorkbenchPreferences, setWorkbenchPreferences, type WorkbenchPreferences } from '../../utils/preferences';
 
 interface ProfileViewProps {
   theme: 'dark' | 'light' | 'dim';
   setTheme: (t: 'dark' | 'light' | 'dim') => void;
+  isDebugModeEnabled: boolean;
 }
 
 type OpenClawKeyState = {
@@ -20,7 +23,7 @@ type OpenClawKeyState = {
   updatedAt: string | null;
 };
 
-export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => {
+export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDebugModeEnabled }) => {
   const { t } = useLanguage();
   const { user, updateUser, logout } = useAuth();
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -48,6 +51,73 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
   const requiresCurrentPassword = user?.hasPassword === true;
   const { isInfoOpen, setIsInfoOpen, infoTitle, infoMessage, openInfo } = useProfileInfo();
 
+  const buildPrefsDraft = (): WorkbenchPreferences => {
+    const stored = getWorkbenchPreferences();
+    const creationMode = stored.creationMode === 'replay' ? 'replay' : 'fast';
+    const selectedModelId =
+      creationMode === 'replay'
+        ? 'seedance2.0'
+        : stored.selectedModelId === 'sora2' || stored.selectedModelId === 'sora2pro' || stored.selectedModelId === 'kling'
+          ? stored.selectedModelId
+          : 'kling';
+
+    const rawDuration = typeof stored.genDuration === 'number' ? stored.genDuration : 10;
+    const duration = rawDuration === 5 || rawDuration === 10 || rawDuration === 15 ? rawDuration : 10;
+
+    return {
+      deliveryRegion: stored.deliveryRegion || '中国',
+      targetLanguage: stored.targetLanguage || 'en',
+      videoType: stored.videoType || 'UGC种草',
+      aspectRatio: stored.aspectRatio === '16:9' ? '16:9' : '9:16',
+      genDuration: duration,
+      soundSetting: stored.soundSetting === 'off' ? 'off' : 'on',
+      creationMode,
+      selectedModelId,
+      scriptVariantCount:
+        typeof stored.scriptVariantCount === 'number' && stored.scriptVariantCount > 0 ? stored.scriptVariantCount : 1,
+      theme: (stored.theme === 'light' || stored.theme === 'dim' || stored.theme === 'dark') ? stored.theme : theme,
+    };
+  };
+
+  const [isPreferencesDialogOpen, setIsPreferencesDialogOpen] = useState(false);
+  const [prefsDraft, setPrefsDraft] = useState<WorkbenchPreferences>(() => buildPrefsDraft());
+
+  const openPreferencesDialog = () => {
+    setPrefsDraft(buildPrefsDraft());
+    setIsPreferencesDialogOpen(true);
+  };
+
+  const handleSavePreferences = async () => {
+    const next: WorkbenchPreferences = {
+      ...prefsDraft,
+      creationMode: prefsDraft.creationMode === 'replay' ? 'replay' : 'fast',
+      selectedModelId: prefsDraft.creationMode === 'replay' ? 'seedance2.0' : prefsDraft.selectedModelId,
+      genDuration: (() => {
+        const raw = Number(prefsDraft.genDuration) || 10;
+        const rounded = Math.round(raw);
+        return rounded === 5 || rounded === 10 || rounded === 15 ? rounded : 10;
+      })(),
+      scriptVariantCount: Math.max(1, Math.round(Number(prefsDraft.scriptVariantCount) || 1)),
+      videoType: (prefsDraft.videoType || '').trim() ? prefsDraft.videoType : 'UGC种草',
+      aspectRatio: prefsDraft.aspectRatio === '16:9' ? '16:9' : '9:16',
+      deliveryRegion: (prefsDraft.deliveryRegion || '').trim() ? prefsDraft.deliveryRegion : '中国',
+      targetLanguage: (prefsDraft.targetLanguage || '').trim() ? prefsDraft.targetLanguage : 'en',
+    };
+
+    setWorkbenchPreferences(next);
+    setIsPreferencesDialogOpen(false);
+
+    if (next.theme !== theme) {
+      setTheme(next.theme);
+      try {
+        const res = await authApi.updateProfile({ theme: next.theme });
+        updateUser({ theme: res.data.theme });
+      } catch (err) {
+        console.error('Failed to save theme preference', err);
+      }
+    }
+  };
+
   const loadOpenClawStatus = async () => {
     try {
       const resp = await authApi.getOpenClawKeyStatus();
@@ -64,8 +134,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
   };
 
   useEffect(() => {
+    if (!isDebugModeEnabled) return;
     loadOpenClawStatus();
-  }, []);
+  }, [isDebugModeEnabled]);
 
   useEffect(() => {
     if (!showBilling) return;
@@ -115,7 +186,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
   };
 
   const handleUseDefaultAvatar = async () => {
-    updateUser({ avatar: '' });
+    try {
+      await authApi.updateProfile({ avatarClear: true });
+      updateUser({ avatar: '' });
+    } catch (err) {
+      openInfo('Error', 'Failed to reset avatar');
+    }
   };
 
   const resetPasswordForm = () => {
@@ -214,59 +290,59 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
         </div>
         
         <div className="flex items-center gap-6">
-          {/* --- DEBUG TOOLBAR --- */}
-          <div className="flex items-center gap-2 bg-zinc-900/80 border border-white/5 p-1 rounded-xl">
-            <div className="text-[10px] font-bold text-zinc-600 px-2 uppercase tracking-widest">{t.profile_debug || 'Debug'}</div>
-            <div className="flex gap-1">
-              {['free', 'plus', 'pro'].map((p) => (
-                <button 
-                  key={p} 
-                  onClick={async (e) => { 
-                    e.stopPropagation(); 
-                    const newPlan = p as any; 
-                    let newCredits = user?.credits; 
-                    if (newPlan === 'free') newCredits = 50; 
-                    else if (newPlan === 'plus') newCredits = 200; 
-                    else if (newPlan === 'pro') newCredits = 9999; 
-                    
-                    try { 
-                      const res = await authApi.updateProfile({ tier: newPlan, credits: newCredits }); 
-                      let resolvedPlan: any = 'free'; 
-                      if (res.data.tier === 'PRO') resolvedPlan = 'plus'; 
-                      else if (res.data.tier === 'ENTERPRISE') resolvedPlan = 'pro'; 
-                      updateUser({ plan: resolvedPlan, credits: res.data.balance }); 
-                    } catch (err) { 
-                      openInfo('Error', 'Failed to update plan via debug'); 
+          {isDebugModeEnabled && (
+            <div className="flex items-center gap-2 bg-zinc-900/80 border border-white/5 p-1 rounded-xl">
+              <div className="text-[10px] font-bold text-zinc-600 px-2 uppercase tracking-widest">{t.profile_debug || 'Debug'}</div>
+              <div className="flex gap-1">
+                {['free', 'plus', 'pro'].map((p) => (
+                  <button 
+                    key={p} 
+                    onClick={async (e) => { 
+                      e.stopPropagation(); 
+                      const newPlan = p as any; 
+                      let newCredits = user?.credits; 
+                      if (newPlan === 'free') newCredits = 50; 
+                      else if (newPlan === 'plus') newCredits = 200; 
+                      else if (newPlan === 'pro') newCredits = 9999; 
+                      
+                      try { 
+                        const res = await authApi.updateProfile({ tier: newPlan, credits: newCredits }); 
+                        let resolvedPlan: any = 'free'; 
+                        if (res.data.tier === 'PRO') resolvedPlan = 'plus'; 
+                        else if (res.data.tier === 'ENTERPRISE') resolvedPlan = 'pro'; 
+                        updateUser({ plan: resolvedPlan, credits: res.data.balance }); 
+                      } catch (err) { 
+                        openInfo('Error', 'Failed to update plan via debug'); 
+                      } 
+                    }} 
+                    className={`px-2 py-0.5 rounded text-[9px] font-bold border transition ${user?.plan === p ? 'bg-orange-500/20 border-orange-500/50 text-orange-500' : 'bg-transparent border-white/5 text-zinc-500 hover:text-white'}`}
+                  >
+                    {p.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <div className="w-px h-3 bg-white/5 mx-1" />
+              <div className="flex items-center gap-1 pr-1">
+                <input 
+                  type="number" 
+                  className="w-12 bg-zinc-800 text-[10px] px-1 py-0.5 rounded text-white border border-white/10 outline-none focus:border-orange-500" 
+                  defaultValue={100} 
+                      onKeyDown={async (e) => { 
+                    if (e.key === 'Enter') { 
+                      const val = Number((e.currentTarget as HTMLInputElement).value); 
+                      try { 
+                        const res = await authApi.updateProfile({ credits: val }); 
+                        updateUser({ credits: res.data.balance }); 
+                      } catch (err) { 
+                        openInfo('Error', 'Failed to update credits via debug'); 
+                      } 
                     } 
                   }} 
-                  className={`px-2 py-0.5 rounded text-[9px] font-bold border transition ${user?.plan === p ? 'bg-orange-500/20 border-orange-500/50 text-orange-500' : 'bg-transparent border-white/5 text-zinc-500 hover:text-white'}`}
-                >
-                  {p.toUpperCase()}
-                </button>
-              ))}
+                />
+                <span className="text-[8px] text-zinc-600">V</span>
+              </div>
             </div>
-            <div className="w-px h-3 bg-white/5 mx-1" />
-            <div className="flex items-center gap-1 pr-1">
-              <input 
-                type="number" 
-                className="w-12 bg-zinc-800 text-[10px] px-1 py-0.5 rounded text-white border border-white/10 outline-none focus:border-orange-500" 
-                defaultValue={100} 
-                    onKeyDown={async (e) => { 
-                  if (e.key === 'Enter') { 
-                    const val = Number((e.currentTarget as HTMLInputElement).value); 
-                    try { 
-                      const res = await authApi.updateProfile({ credits: val }); 
-                      updateUser({ credits: res.data.balance }); 
-                    } catch (err) { 
-                      openInfo('Error', 'Failed to update credits via debug'); 
-                    } 
-                  } 
-                }} 
-              />
-              <span className="text-[8px] text-zinc-600">V</span>
-            </div>
-          </div>
-          {/* --- END DEBUG TOOLBAR --- */}
+          )}
 
           <LanguageSwitcher />
         </div>
@@ -422,47 +498,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                <hr className="mt-6 mb-6 border-white/5" />
                
                {/* Footer Buttons */}
-               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pb-12">
-                  <div onClick={async () => { const newTheme = theme === 'dark' ? 'light' : 'dark'; setTheme(newTheme); try { const res = await authApi.updateProfile({ theme: newTheme }); updateUser({ theme: res.data.theme }); } catch (err) { console.error("Failed to save theme preference", err); } }} className="flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/item cursor-pointer shadow-sm hover:shadow-orange-500/5">
-                      <div className="flex items-center gap-4">
+               <div className={`grid grid-cols-1 gap-4 pb-12 ${isDebugModeEnabled ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
+                  <button
+                    type="button"
+                    onClick={openPreferencesDialog}
+                    className="w-full flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/item cursor-pointer shadow-sm hover:shadow-orange-500/5"
+                  >
+                      <div className="flex items-center gap-4 w-full">
                           <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/item:text-orange-500 transition-colors"><Settings2 className="w-6 h-6" /></div>
-                          <div className="text-left">
-                              <div className="text-base font-bold text-white">{t.profile_theme || 'Appearance'}</div>
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                {([
-                                  { id: 'light', label: t.profile_theme_light },
-                                  { id: 'dim', label: t.profile_theme_dim || 'Dim' },
-                                  { id: 'dark', label: t.profile_theme_dark },
-                                ] as const).map((opt) => (
-                                  <button
-                                    key={opt.id}
-                                    type="button"
-                                    onClick={async () => {
-                                      if (theme === opt.id) return;
-                                      const newTheme = opt.id;
-                                      setTheme(newTheme);
-                                      try {
-                                        const res = await authApi.updateProfile({ theme: newTheme });
-                                        updateUser({ theme: res.data.theme });
-                                      } catch (err) {
-                                        console.error('Failed to save theme preference', err);
-                                      }
-                                    }}
-                                    className={[
-                                      'px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-widest transition border',
-                                      theme === opt.id
-                                        ? 'bg-orange-500/20 border-orange-500/50 text-orange-500'
-                                        : 'bg-transparent border-white/10 text-zinc-500 hover:text-white hover:border-white/20',
-                                    ].join(' ')}
-                                    aria-pressed={theme === opt.id}
-                                  >
-                                    {opt.label}
-                                  </button>
-                                ))}
-                              </div>
+                          <div className="text-left w-full">
+                              <div className="text-base font-bold text-white">{t.profile_preferences || 'Preferences'}</div>
+                              <div className="text-xs text-zinc-600 mt-0.5">{t.profile_preferences_desc || 'Default settings for new projects'}</div>
                           </div>
                       </div>
-                  </div>
+                  </button>
 
                   <button onClick={() => setIsPasswordDialogOpen(true)} className="w-full flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/password shadow-sm hover:shadow-orange-500/5">
                       <div className="flex items-center gap-4">
@@ -474,21 +523,23 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                       </div>
                   </button>
 
-                  <button
-                    onClick={() => {
-                      setIsOpenClawDialogOpen(true);
-                      setOpenClawKey('');
-                    }}
-                    className="w-full flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/key shadow-sm hover:shadow-orange-500/5"
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/key:text-orange-500 transition-colors"><KeyRound className="w-6 h-6" /></div>
-                      <div className="text-left">
-                        <div className="text-base font-bold text-white">{t.profile_openclaw_title || 'OpenClaw Key'}</div>
-                        <div className="text-xs text-zinc-600 mt-0.5">{openClawStatus.enabled ? (t.profile_openclaw_status_enabled || 'Enabled') : (t.profile_openclaw_status_disabled || 'Disabled')} · {openClawStatus.hasKey ? openClawStatus.maskedKey : (t.profile_openclaw_not_generated || 'Not Generated')}</div>
+                  {isDebugModeEnabled && (
+                    <button
+                      onClick={() => {
+                        setIsOpenClawDialogOpen(true);
+                        setOpenClawKey('');
+                      }}
+                      className="w-full flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/key shadow-sm hover:shadow-orange-500/5"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/key:text-orange-500 transition-colors"><KeyRound className="w-6 h-6" /></div>
+                        <div className="text-left">
+                          <div className="text-base font-bold text-white">{t.profile_openclaw_title || 'OpenClaw Key'}</div>
+                          <div className="text-xs text-zinc-600 mt-0.5">{openClawStatus.enabled ? (t.profile_openclaw_status_enabled || 'Enabled') : (t.profile_openclaw_status_disabled || 'Disabled')} · {openClawStatus.hasKey ? openClawStatus.maskedKey : (t.profile_openclaw_not_generated || 'Not Generated')}</div>
+                        </div>
                       </div>
-                    </div>
-                  </button>
+                    </button>
+                  )}
                   
                   <button onClick={logout} className="w-full flex items-center justify-between p-6 rounded-2xl bg-red-500/5 hover:bg-red-500/10 transition group/logout border border-red-500/10 hover:border-red-500/20">
                       <div className="flex items-center gap-4">
@@ -503,6 +554,200 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
             </div>
          </div>
       </div>
+       {isPreferencesDialogOpen && (
+         <AppDialog
+           isOpen={isPreferencesDialogOpen}
+           title={t.profile_preferences_title || 'Preferences'}
+           onClose={() => setIsPreferencesDialogOpen(false)}
+           footer={
+             <>
+               <button
+                 className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
+                 onClick={() => setIsPreferencesDialogOpen(false)}
+               >
+                 {t.profile_preferences_cancel || 'Cancel'}
+               </button>
+               <button
+                 className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-bold border border-white/10 hover:bg-zinc-800 hover:border-white/20"
+                 onClick={handleSavePreferences}
+               >
+                 {t.profile_preferences_save || 'Save'}
+               </button>
+             </>
+           }
+         >
+           <div className="space-y-4 text-sm text-zinc-300">
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+               <div className="space-y-1">
+                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_delivery_region}</div>
+                 <DropdownSelect
+                   value={prefsDraft.deliveryRegion}
+                   options={[
+                     { value: '中国', label: t.wb_region_cn },
+                     { value: '美国', label: t.wb_region_us },
+                     { value: '东南亚', label: t.wb_region_sea },
+                     { value: '欧洲', label: t.wb_region_eu },
+                     { value: '日本', label: t.wb_region_jp },
+                     { value: '韩国', label: t.wb_region_kr },
+                   ]}
+                   onChange={(v) => setPrefsDraft((prev) => ({ ...prev, deliveryRegion: v }))}
+                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                   iconClassName="w-4 h-4 text-zinc-500"
+                   optionClassName="text-xs"
+                 />
+               </div>
+
+               <div className="space-y-1">
+                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_video_language}</div>
+                 <DropdownSelect
+                   value={prefsDraft.targetLanguage}
+                   options={[
+                     { value: 'en', label: t.lang_en },
+                     { value: 'zh', label: t.lang_zh },
+                     { value: 'es', label: t.lang_es },
+                     { value: 'ja', label: t.lang_ja },
+                     { value: 'ko', label: t.lang_ko },
+                     { value: 'ms', label: t.lang_ms },
+                     { value: 'vi', label: t.lang_vi },
+                   ]}
+                   onChange={(v) => setPrefsDraft((prev) => ({ ...prev, targetLanguage: v }))}
+                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                   iconClassName="w-4 h-4 text-zinc-500"
+                   optionClassName="text-xs"
+                 />
+               </div>
+
+               <div className="space-y-1">
+                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_video_type}</div>
+                 <DropdownSelect
+                   value={prefsDraft.videoType}
+                   options={[
+                     { value: 'UGC种草', label: t.wb_video_type_ugc },
+                     { value: '产品口播', label: t.wb_video_type_talking },
+                     { value: '产品演示', label: t.wb_video_type_demo },
+                     { value: '痛点-解决', label: t.wb_video_type_problem_solution },
+                     { value: '前后对比', label: t.wb_video_type_before_after },
+                     { value: '反应展示', label: t.wb_video_type_reaction },
+                     { value: '故事讲述', label: t.wb_video_type_story },
+                   ]}
+                   onChange={(v) => setPrefsDraft((prev) => ({ ...prev, videoType: v }))}
+                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                   iconClassName="w-4 h-4 text-zinc-500"
+                   optionClassName="text-xs"
+                 />
+               </div>
+
+               <div className="space-y-1">
+                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.aspect_ratio}</div>
+                 <DropdownSelect
+                   value={prefsDraft.aspectRatio}
+                   options={[
+                     { value: '9:16', label: t.mobile },
+                     { value: '16:9', label: t.landscape },
+                   ]}
+                   onChange={(v) => setPrefsDraft((prev) => ({ ...prev, aspectRatio: (v === '16:9' ? '16:9' : '9:16') }))}
+                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                   iconClassName="w-4 h-4 text-zinc-500"
+                   optionClassName="text-xs"
+                 />
+               </div>
+
+               <div className="space-y-1">
+                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_duration}</div>
+                 <DropdownSelect
+                   value={String(prefsDraft.genDuration)}
+                   options={[
+                     { value: '5', label: '5s' },
+                     { value: '10', label: '10s' },
+                     { value: '15', label: '15s' },
+                   ]}
+                   onChange={(v) => {
+                     const next = Number(v);
+                     setPrefsDraft((prev) => ({ ...prev, genDuration: next === 5 || next === 10 || next === 15 ? next : 10 }));
+                   }}
+                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                   iconClassName="w-4 h-4 text-zinc-500"
+                   optionClassName="text-xs"
+                 />
+               </div>
+
+               <div className="space-y-1">
+                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_sound}</div>
+                 <DropdownSelect
+                   value={prefsDraft.soundSetting}
+                   options={[
+                     { value: 'on', label: t.profile_pref_sound_on },
+                     { value: 'off', label: t.profile_pref_sound_off },
+                   ]}
+                   onChange={(v) => setPrefsDraft((prev) => ({ ...prev, soundSetting: v as any }))}
+                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                   iconClassName="w-4 h-4 text-zinc-500"
+                   optionClassName="text-xs"
+                 />
+               </div>
+
+               <div className="space-y-1">
+                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_quality}</div>
+                 <DropdownSelect
+                   value={prefsDraft.creationMode}
+                   options={[
+                     { value: 'fast', label: t.profile_pref_quality_fast },
+                     { value: 'replay', label: t.profile_pref_quality_replay },
+                   ]}
+                   onChange={(v) => {
+                     setPrefsDraft((prev) => ({
+                       ...prev,
+                       creationMode: v as any,
+                       selectedModelId: v === 'replay' ? 'seedance2.0' : prev.selectedModelId,
+                     }));
+                   }}
+                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                   iconClassName="w-4 h-4 text-zinc-500"
+                   optionClassName="text-xs"
+                 />
+               </div>
+
+               <div className="space-y-1">
+                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_model}</div>
+                 <DropdownSelect
+                   value={prefsDraft.creationMode === 'replay' ? 'seedance2.0' : prefsDraft.selectedModelId}
+                   disabled={prefsDraft.creationMode === 'replay'}
+                   options={
+                     prefsDraft.creationMode === 'replay'
+                       ? [{ value: 'seedance2.0', label: t.wb_model_seedance_desc ? 'SeeDance 2.0' : 'SeeDance 2.0' }]
+                       : [
+                           { value: 'kling', label: 'Kling' },
+                           { value: 'sora2', label: 'Sora 2' },
+                           { value: 'sora2pro', label: 'Sora 2 Pro' },
+                         ]
+                   }
+                   onChange={(v) => setPrefsDraft((prev) => ({ ...prev, selectedModelId: v as any }))}
+                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                   iconClassName="w-4 h-4 text-zinc-500"
+                   optionClassName="text-xs"
+                 />
+               </div>
+
+               <div className="space-y-1">
+                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_theme}</div>
+                 <DropdownSelect
+                   value={prefsDraft.theme}
+                   options={([
+                     { value: 'light', label: t.profile_theme_light || 'Light' },
+                     { value: 'dim', label: t.profile_theme_dim || 'Dim' },
+                     { value: 'dark', label: t.profile_theme_dark || 'Dark' },
+                   ] as const)}
+                   onChange={(v) => setPrefsDraft((prev) => ({ ...prev, theme: v as any }))}
+                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                   iconClassName="w-4 h-4 text-zinc-500"
+                   optionClassName="text-xs"
+                 />
+               </div>
+             </div>
+           </div>
+         </AppDialog>
+       )}
+
        {isPasswordDialogOpen && (
          <AppDialog
            isOpen={isPasswordDialogOpen}

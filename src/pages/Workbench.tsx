@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { templatesApi, type Template } from '../services/templates';
 import { assetsApi } from '../services/assets';
+import { authApi } from '../services/auth';
+import { getDebugModeEnabled, setDebugModeEnabled, clearDebugModeEnabled, debugLog, debugWarn } from '../services/debugMode';
 
 import { TaskQueueWidget } from '../components/workbench/TaskQueueWidget';
 import { AppDialog } from '../components/common/AppDialog';
@@ -9,7 +11,7 @@ import { WorkbenchView } from '../components/workbench/WorkbenchView';
 import { AssetsView } from '../components/workbench/AssetsView';
 import { TemplatesView } from '../components/workbench/TemplatesView';
 import { HistoryView } from '../components/workbench/HistoryView';
-import { AgentView } from '../components/workbench/AgentView';
+import { AgentView } from '../components/workbench/AgentView_v2';
 import { EditorView } from '../components/workbench/EditorView';
 import { ProfileView } from '../components/workbench/ProfileView';
 import { BillingView } from '../components/workbench/BillingView';
@@ -52,11 +54,37 @@ const Workbench = () => {
 
   // --- Preview State ---
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
+  const [isDebugModeEnabled, setIsDebugModeEnabledState] = useState(getDebugModeEnabled());
+  const [isDebugModeUpdating, setIsDebugModeUpdating] = useState(false);
 
   // --- Effects ---
   useEffect(() => {
     if (user?.theme && user.theme !== theme) setTheme(user.theme);
   }, [user?.theme]);
+
+  useEffect(() => {
+    let mounted = true;
+    const syncDebugMode = async () => {
+      try {
+        const enabled = await authApi.getDebugModeStatus();
+        if (!mounted) return;
+        setIsDebugModeEnabledState(enabled);
+        setDebugModeEnabled(enabled);
+      } catch (err) {
+        if (!mounted) return;
+        debugWarn('Failed to sync debug mode status, using local state only:', err);
+        setIsDebugModeEnabledState(getDebugModeEnabled());
+      }
+    };
+
+    if (user?.id) {
+      void syncDebugMode();
+    }
+
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('theme-light', theme === 'light');
@@ -110,17 +138,17 @@ const Workbench = () => {
       const fileName = `script_export_${Date.now()}.json`;
       const file = new File([blob], fileName, { type: 'application/json' });
 
-      console.log('🚀 开始将导出的脚本同步到服务器...');
+      debugLog('开始将导出的脚本同步到服务器...');
       const result = await assetsApi.uploadAsset(file, 'REFERENCE');
 
       if (result) {
-        console.log('✅ 同步服务器成功:', result);
+        debugLog('同步服务器成功:', result);
         setInfoTitle('Success');
         setInfoMessage('导出并保存到云端成功！');
         setIsInfoOpen(true);
       }
     } catch (error) {
-      console.error('❌ 导出到服务器失败:', error);
+      debugWarn('导出到服务器失败:', error);
       setInfoTitle('Error');
       setInfoMessage('保存失败，请检查控制台网络报错。');
       setIsInfoOpen(true);
@@ -184,77 +212,126 @@ const Workbench = () => {
     setActiveView('workbench');
   };
 
+  const handleDisableDebugMode = async () => {
+    setIsDebugModeUpdating(true);
+    try {
+      const enabled = await authApi.setDebugMode({ enabled: false });
+      setIsDebugModeEnabledState(enabled);
+      clearDebugModeEnabled();
+      if (activeView === 'agent') setActiveView('workbench');
+    } catch (err) {
+      debugWarn('Failed to disable debug mode:', err);
+    } finally {
+      setIsDebugModeUpdating(false);
+    }
+  };
+
   useEffect(() => {
+    if (!isDebugModeEnabled && activeView === 'agent') {
+      setActiveView('workbench');
+    }
     if (activeView === 'workbench' && selectedAssetForWorkbench) {
       setSelectedAssetForWorkbench(null);
     }
-  }, [activeView, selectedAssetForWorkbench]);
+  }, [activeView, isDebugModeEnabled, selectedAssetForWorkbench]);
 
   return (
-      <WorkbenchModelProvider>
-        <div className="flex h-screen overflow-hidden bg-[#050505] text-zinc-100 font-sans">
+    <WorkbenchModelProvider>
+      <div className="flex h-screen overflow-hidden bg-[#050505] text-zinc-100 font-sans">
+        <Sidebar
+          activeView={activeView}
+          setActiveView={setActiveView}
+          isDebugModeEnabled={isDebugModeEnabled}
+        />
 
-          <Sidebar activeView={activeView} setActiveView={setActiveView} />
+        <main className="flex-1 flex flex-col overflow-hidden relative">
+          <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-orange-900/10 to-transparent pointer-events-none z-0" />
 
-          <main className="flex-1 flex flex-col overflow-hidden relative">
-            <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-orange-900/10 to-transparent pointer-events-none z-0" />
+          {isDebugModeEnabled && (
+            <div className="absolute top-4 right-4 z-40">
+              <div className="flex items-center gap-3 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-4 py-2 text-xs text-emerald-100 backdrop-blur-sm">
+                <span className="font-bold tracking-widest uppercase">调试模式</span>
+                <button
+                  onClick={() => void handleDisableDebugMode()}
+                  disabled={isDebugModeUpdating}
+                  className="rounded-full bg-emerald-500/20 px-3 py-1 font-bold text-emerald-100 hover:bg-emerald-500/30 disabled:opacity-60"
+                >
+                  {isDebugModeUpdating ? '关闭中...' : '退出'}
+                </button>
+              </div>
+            </div>
+          )}
 
-            <div className={activeView === 'workbench' ? 'flex-1 h-full min-h-0' : 'hidden'}>
+          {activeView === 'workbench' && (
+            <div className="flex-1 h-full min-h-0">
               <WorkbenchView
-                  initialFileUrl={selectedAssetForWorkbench?.url}
-                  initialFileName={selectedAssetForWorkbench?.name}
-                  initialAssetSource={selectedAssetForWorkbench?.source}
-                  templateList={templateList}
-                  selectedTemplate={selectedTemplate}
-                  onSelectTemplate={setSelectedTemplate}
-                  generatedVideoUrl={generatedVideoUrl}
-                  setGeneratedVideoUrl={setGeneratedVideoUrl}
-                  onExportToServer={handleExportToServer}
+                initialFileUrl={selectedAssetForWorkbench?.url}
+                initialFileName={selectedAssetForWorkbench?.name}
+                initialAssetSource={selectedAssetForWorkbench?.source}
+                templateList={templateList}
+                selectedTemplate={selectedTemplate}
+                onSelectTemplate={setSelectedTemplate}
+                generatedVideoUrl={generatedVideoUrl}
+                setGeneratedVideoUrl={setGeneratedVideoUrl}
+                onExportToServer={handleExportToServer}
               />
             </div>
+          )}
 
-            {activeView === 'assets' && (
-                <AssetsView
-                    onSelectAsset={handleAssetSelect}
-                    currentFolderId={currentFolderId}
-                    setCurrentFolderId={setCurrentFolderId}
-                />
-            )}
+          {activeView === 'assets' && (
+            <AssetsView
+              onSelectAsset={handleAssetSelect}
+              currentFolderId={currentFolderId}
+              setCurrentFolderId={setCurrentFolderId}
+            />
+          )}
 
-            {activeView === 'templates' && (
-                <TemplatesView
-                    templateList={templateList}
-                    onEditTemplate={(t) => { setEditingTemplate(t); setActiveView('editor'); }}
-                    onCreateTemplate={() => { setEditingTemplate(null); setActiveView('editor'); }}
-                    refreshTemplates={loadTemplates}
-                />
-            )}
+          {activeView === 'templates' && (
+            <TemplatesView
+              templateList={templateList}
+              onEditTemplate={(t) => { setEditingTemplate(t); setActiveView('editor'); }}
+              onCreateTemplate={() => { setEditingTemplate(null); setActiveView('editor'); }}
+              refreshTemplates={loadTemplates}
+            />
+          )}
 
-            {activeView === 'editor' && (
-                <EditorView
-                    initialData={editingTemplate}
-                    onClose={() => setActiveView('templates')}
-                    onSaveSuccess={() => { loadTemplates(); setActiveView('templates'); }}
-                />
-            )}
+          {activeView === 'editor' && (
+            <EditorView
+              initialData={editingTemplate}
+              onClose={() => setActiveView('templates')}
+              onSaveSuccess={() => { loadTemplates(); setActiveView('templates'); }}
+            />
+          )}
 
-            {activeView === 'history' && <HistoryView />}
+          {activeView === 'history' && <HistoryView />}
 
-            {activeView === 'agent' && <AgentView />}
+          {activeView === 'agent' && isDebugModeEnabled && <AgentView />}
 
-            {activeView === 'billing' && <BillingView />}
+          {activeView === 'billing' && <BillingView />}
 
-            {activeView === 'profile' && <ProfileView theme={theme} setTheme={setTheme} />}
+          {activeView === 'profile' && (
+            <ProfileView
+              theme={theme}
+              setTheme={setTheme}
+              isDebugModeEnabled={isDebugModeEnabled}
+            />
+          )}
 
-            <TaskQueueWidget onPreview={handleTaskPreview} />
-            {isInfoOpen && (
-              <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={() => setIsInfoOpen(false)} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>OK</button></>}>
-                <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
-              </AppDialog>
-            )}
-          </main>
-        </div>
-      </WorkbenchModelProvider>
+          <TaskQueueWidget onPreview={handleTaskPreview} />
+
+          {isInfoOpen && (
+            <AppDialog
+              isOpen={isInfoOpen}
+              title={infoTitle || 'Notice'}
+              onClose={() => setIsInfoOpen(false)}
+              footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>OK</button></>}
+            >
+              <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
+            </AppDialog>
+          )}
+        </main>
+      </div>
+    </WorkbenchModelProvider>
   );
 };
 

@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authApi } from '../services/auth';
+import { clearDebugModeEnabled } from '../services/debugMode';
+import { debugLog, debugWarn, debugError } from '../services/debugMode';
 
 interface User {
   id: string | number; // Allow number
@@ -27,6 +29,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const toDisplayUrl = (pathOrUrl: string | null | undefined): string => {
+    if (!pathOrUrl) return '';
+    const raw = String(pathOrUrl).trim();
+    if (!raw) return '';
+    if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+    const normalized = raw.startsWith('/') ? raw : `/${raw}`;
+    const mediaBaseUrl = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
+    if (mediaBaseUrl && normalized.startsWith('/media/')) return `${mediaBaseUrl}${normalized}`;
+    return normalized;
+  };
+
+  const normalizeAvatar = (avatar: string | null | undefined): string => {
+    const raw = String(avatar || '').trim();
+    if (!raw) return '';
+    if (raw.includes('avatars/default.png')) return '';
+    return toDisplayUrl(raw);
+  };
+
   // 1. Initialize Auth State (Modified)
   // Verify session with backend instead of trusting localStorage blindly
   useEffect(() => {
@@ -47,7 +67,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             const verifiedUser: User = {
                 id: backendUser.user_id,
                 name: backendUser.nickname || backendUser.username || backendUser.phone || 'User',
-                avatar: backendUser.avatar || '', 
+                avatar: normalizeAvatar(backendUser.avatar),
                 plan: plan,
                 credits: backendUser.balance,
                 theme: (backendUser.theme as 'light' | 'dark' | 'dim') || 'light',
@@ -55,7 +75,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 token: undefined // We rely on Cookie Session, no JWT token needed in state
             };
 
-            console.log("✅ Session Verified:", verifiedUser);
+            debugLog('Session verified:', verifiedUser);
             setUser(verifiedUser);
             
             // Update localStorage to keep it fresh (optional, but good for sync)
@@ -64,7 +84,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             throw new Error("Not logged in");
         }
       } catch (e) {
-        console.warn("Auth check failed (Session expired or invalid):", e);
+        debugWarn('Auth check failed (session expired or invalid):', e);
         // Clean up invalid state
         setUser(null);
         localStorage.removeItem('vflow_ai_user');
@@ -79,7 +99,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const login = async (identifier: string, serverData?: any) => {
     setIsLoading(true);
     
-    console.log("🔍 Login Response Data:", serverData);
+    debugLog('Login response data:', serverData);
 
     // --- FIX: Find the correct User ID ---
     // Look in all common places API might return it
@@ -91,7 +111,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       serverData?.user?.id;
 
     if (!realUserId) {
-      console.warn("⚠️ No numeric User ID found. Backend calls might fail with 404.");
+      debugWarn('No numeric User ID found. Backend calls might fail with 404.');
     }
 
     // Try to find token (for reference, though we use Cookies now)
@@ -117,17 +137,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const newUser: User = {
       // Use the Real ID if found, otherwise crash/warn instead of using a fake string
-      id: realUserId || '1', 
+      id: realUserId || '1',
       name: serverData?.nickname || serverData?.data?.nickname || serverData?.data?.username || serverData?.username || identifier,
-      avatar: serverData?.avatar || serverData?.data?.avatar || '',
+      avatar: normalizeAvatar(serverData?.avatar || serverData?.data?.avatar || ''),
       plan: resolvedPlan,
       credits: serverData?.credits ?? serverData?.data?.balance ?? defaultCredits,
       theme: serverData?.theme || serverData?.data?.theme || 'light',
       hasPassword: (serverData?.has_password ?? serverData?.data?.has_password) === true,
-      token: token 
+      token: token
     };
 
-    console.log("✅ User Saved:", newUser);
+    debugLog('User saved:', newUser);
 
     // Save
     setUser(newUser);
@@ -144,6 +164,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     setUser(null);
     localStorage.removeItem('vflow_ai_user');
+    clearDebugModeEnabled();
     // Clear cookies explicitly if needed (though backend logout should handle it)
     document.cookie = "sessionid=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
     
@@ -153,11 +174,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const updateUser = (patch: Partial<User>) => {
     setUser(prev => {
-      const updated = { ...(prev as User || {}), ...patch } as User;
+      const nextPatch: Partial<User> = { ...patch };
+      if ('avatar' in nextPatch) {
+        nextPatch.avatar = normalizeAvatar((nextPatch as any).avatar);
+      }
+
+      const updated = { ...(prev as User || {}), ...nextPatch } as User;
       try {
         localStorage.setItem('vflow_ai_user', JSON.stringify(updated));
       } catch (e) {
-        console.error('Failed to persist user to localStorage', e);
+        debugError('Failed to persist user to localStorage', e);
       }
       return updated;
     });
@@ -168,7 +194,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (!prev) return prev;
       const newCredits = (prev.credits || 0) + delta;
       const updated = { ...prev, credits: newCredits } as User;
-      try { localStorage.setItem('vflow_ai_user', JSON.stringify(updated)); } catch (e) { console.error(e); }
+      try { localStorage.setItem('vflow_ai_user', JSON.stringify(updated)); } catch (e) { debugError(e); }
       return updated;
     });
   };

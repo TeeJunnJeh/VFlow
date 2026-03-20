@@ -1,9 +1,11 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder, SlidersHorizontal,
+  UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
-  Zap, Layers, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2
+  Zap, Layers, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift,
+  SlidersHorizontal,Palette, MapPin, Activity, Camera, Lightbulb, Music, Scissors, Megaphone, AlignLeft,
+  Languages, HelpCircle
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -24,9 +26,12 @@ import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { type Template } from '../../services/templates';
 import { AppDialog } from '../common/AppDialog';
+import { getWorkbenchPreferences } from '../../utils/preferences';
 
 const ENABLE_PROMPT_LAB = true;
-
+const ENABLE_STORYBOARD_PROMPT = false;
+// Storyboard editor is now a user-toggleable runtime setting (no longer a compile-time constant).
+// The state `enableStoryboardEditor` replaces the old `enableStoryboardEditor` const.
 
 // Types specific to Workbench View
 type ScriptItem = {
@@ -36,6 +41,19 @@ type ScriptItem = {
   dur: string;
   visual: string;
   audio: string;
+  audioTranslation: string;
+};
+
+type ScriptCreativeCard = {
+  style?: string;
+  environment?: string;
+  tonePacing?: string;
+  camera?: string;
+  lighting?: string;
+  actions?: string[];
+  backgroundSound?: string;
+  transitionEditing?: string;
+  callToAction?: string;
 };
 
 type ReferenceSummaryItem = {
@@ -48,6 +66,21 @@ type ScriptPage = {
   name: string;
   scripts: ScriptItem[];
   referenceSummary?: ReferenceSummaryItem[];
+  fullScript?: string;
+  continuityAnchor?: {
+    subject?: string;
+    scene?: string;
+    style?: string;
+  };
+  scriptStructure?: {
+    hook?: string;
+    development?: string;
+    payoff?: string;
+  };
+  sellingPoints?: string[];
+  sceneSuggestions?: string[];
+  styleTags?: string[];
+  creativeCard?: ScriptCreativeCard;
 };
 
 type QueuedAsset = {
@@ -68,6 +101,8 @@ type QueuedScript = {
   name: string;
   scripts: ScriptItem[];
   duration: number;
+  fullScript?: string;
+  creativeCard?: ScriptCreativeCard;
 };
 
 type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion';
@@ -95,12 +130,10 @@ type ActionRequired = {
   request_flag?: string | null;
 } | null;
 
-// What we persist to the backend for cross-refresh / cross-device restore.
-// Keep it JSON-serializable (no File / Blob / functions).
 type WorkbenchSnapshot = {
   version: 1;
   template_id: string | null;
-  timestamp: number; // client timestamp (ms)
+  timestamp: number;
 };
 
 type ProjectWorkspaceState = {
@@ -110,6 +143,14 @@ type ProjectWorkspaceState = {
   lastUploadedUrl: string | null;
   selectedAssetSource: 'product' | 'preference' | null;
   currentMaterialType: AssetLibraryTab | null;
+  productName: string;
+  productCategory: string;
+  coreSellingPoints: string;
+  targetAudience: string;
+  deliveryRegion: string;
+  videoType: string;
+  aspectRatio: '9:16' | '16:9';
+  hasAiRecognized: boolean;
   genPrompt: string;
   genDuration: number;
   soundSetting: 'on' | 'off';
@@ -164,33 +205,51 @@ const estimateProjectNameWidthEm = (value: string): number => {
 const createWorkspaceState = (params?: {
   scripts?: ScriptItem[];
   scriptPagePrefix?: string;
-}): ProjectWorkspaceState => ({
-  fileName: '',
-  uploadedFile: null,
-  selectedAssetUrl: null,
-  lastUploadedUrl: null,
-  selectedAssetSource: null,
-  currentMaterialType: null,
-  genPrompt: '',
-  genDuration: 10,
-  soundSetting: 'on',
-  scriptVariantCount: 1,
-  targetLanguage: 'en',
-  creationMode: 'fast',
-  reuseQueueEnabled: false,
-  scripts: params?.scripts || [],
-  scriptPages: [{
-    id: 'page-1',
-    name: `${params?.scriptPagePrefix || 'Script'} 1`,
+}): ProjectWorkspaceState => {
+  const prefs = getWorkbenchPreferences();
+  return {
+    fileName: '',
+    uploadedFile: null,
+    selectedAssetUrl: null,
+    lastUploadedUrl: null,
+    selectedAssetSource: null,
+    currentMaterialType: null,
+    productName: '',
+    productCategory: '',
+    coreSellingPoints: '',
+    targetAudience: '',
+    deliveryRegion: prefs.deliveryRegion || '中国',
+  videoType: prefs.videoType || '',
+  aspectRatio: prefs.aspectRatio === '16:9' ? '16:9' : '9:16',
+    hasAiRecognized: false,
+    genPrompt: '',
+    genDuration: prefs.genDuration || 10,
+    soundSetting: prefs.soundSetting === 'off' ? 'off' : 'on',
+    scriptVariantCount:
+      typeof prefs.scriptVariantCount === 'number' && prefs.scriptVariantCount > 0 ? prefs.scriptVariantCount : 1,
+    targetLanguage: prefs.targetLanguage || 'en',
+    creationMode: prefs.creationMode === 'replay' ? 'replay' : 'fast',
+    reuseQueueEnabled: false,
     scripts: params?.scripts || [],
-  }],
-  activeScriptPage: 0,
-  assetQueue: [],
-  scriptQueue: [],
-  selectedTemplateId: null,
-  selectedModelId: null,
-  generatedVideoUrl: null,
-});
+    scriptPages: [{
+      id: 'page-1',
+      name: `${params?.scriptPagePrefix || 'Script'} 1`,
+      scripts: params?.scripts || [],
+    }],
+    activeScriptPage: 0,
+    assetQueue: [],
+    scriptQueue: [],
+    selectedTemplateId: null,
+    selectedModelId:
+      prefs.selectedModelId === 'kling' ||
+      prefs.selectedModelId === 'sora2' ||
+      prefs.selectedModelId === 'sora2pro' ||
+      prefs.selectedModelId === 'seedance2.0'
+        ? prefs.selectedModelId
+        : null,
+    generatedVideoUrl: null,
+  };
+};
 
 const createDefaultProjectStore = (): LocalProjectStore => {
   const projectId = 'project_alpha_01';
@@ -214,8 +273,8 @@ const loadLocalProjectStore = (userId?: string | number | null): LocalProjectSto
     if (!parsed || typeof parsed !== 'object') return createDefaultProjectStore();
     if (!Array.isArray(parsed.projects) || parsed.projects.length === 0) return createDefaultProjectStore();
     const currentProjectId = typeof parsed.currentProjectId === 'string' && parsed.currentProjectId
-      ? parsed.currentProjectId
-      : parsed.projects[0].id;
+        ? parsed.currentProjectId
+        : parsed.projects[0].id;
     return {
       currentProjectId,
       projects: parsed.projects as LocalProjectMeta[],
@@ -229,9 +288,9 @@ const loadLocalProjectStore = (userId?: string | number | null): LocalProjectSto
 const ensureUniqueProjectName = (rawName: string, projects: LocalProjectMeta[], excludeId?: string): string => {
   const baseName = (rawName || '').trim() || 'Project';
   const names = new Set(
-    projects
-      .filter((project) => project.id !== excludeId)
-      .map((project) => project.name.toLowerCase())
+      projects
+          .filter((project) => project.id !== excludeId)
+          .map((project) => project.name.toLowerCase())
   );
   if (!names.has(baseName.toLowerCase())) return baseName;
   let suffix = 1;
@@ -244,17 +303,16 @@ const ensureUniqueProjectName = (rawName: string, projects: LocalProjectMeta[], 
 };
 
 const SoraStarIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
-    <path
-      d="M12 2.5l2.2 7.3 7.3 2.2-7.3 2.2-2.2 7.3-2.2-7.3-7.3-2.2 7.3-2.2L12 2.5Z"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinejoin="round"
-    />
-  </svg>
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path
+          d="M12 2.5l2.2 7.3 7.3 2.2-7.3 2.2-2.2 7.3-2.2-7.3-7.3-2.2 7.3-2.2L12 2.5Z"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinejoin="round"
+      />
+    </svg>
 );
 
-// Helper constants
 const RATIO_TO_RES: Record<string, string> = {
   '16:9': '1280*720',
   '9:16': '720*1280',
@@ -262,7 +320,6 @@ const RATIO_TO_RES: Record<string, string> = {
   '4:3': '1024*768',
 };
 
-const ICON_EMOJI_MAP: Record<string, string> = { 'flame': '🔥', 'gem': '💎', 'zap': '⚡' };
 const USER_CANCELLED_ADAPT = '__USER_CANCELLED_IMAGE_ADAPT__';
 
 const inferMediaKind = (value: { name?: string | null; url?: string | null; type?: string | null; file?: File | null }): 'image' | 'video' | 'audio' | 'file' => {
@@ -279,6 +336,57 @@ const inferMediaKind = (value: { name?: string | null; url?: string | null; type
   return 'file';
 };
 
+// 增加前端图片压缩函数
+const compressImage = async (file: File, maxWidth = 1920, maxHeight = 1920, quality = 0.8): Promise<File> => {
+  if (!file.type.startsWith('image/')) return file;
+  // 小于 500KB 的图片不压缩
+  if (file.size < 500 * 1024) return file;
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxWidth || height > maxHeight) {
+        const ratio = Math.min(maxWidth / width, maxHeight / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        URL.revokeObjectURL(objectUrl);
+        resolve(file);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+          (blob) => {
+            URL.revokeObjectURL(objectUrl);
+            if (blob) {
+              const compressedFile = new File([blob], file.name, {
+                type: 'image/jpeg',
+                lastModified: Date.now(),
+              });
+              resolve(compressedFile);
+            } else {
+              resolve(file);
+            }
+          },
+          'image/jpeg',
+          quality
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(file);
+    };
+    img.src = objectUrl;
+  });
+};
+
 type LangLabelKey =
     | 'lang_en'
     | 'lang_zh'
@@ -287,6 +395,14 @@ type LangLabelKey =
     | 'lang_ko'
     | 'lang_ms'
     | 'lang_vi';
+
+type RegionLabelKey =
+    | 'wb_region_us'
+    | 'wb_region_sea'
+    | 'wb_region_eu'
+    | 'wb_region_jp'
+    | 'wb_region_kr'
+    | 'wb_region_cn';
 
 type GuideStepKey = 'mode' | 'upload' | 'config' | 'scripts' | 'preview';
 
@@ -298,6 +414,15 @@ const TARGET_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: LangLabelKey }> 
   { value: 'ko', labelKey: 'lang_ko' },
   { value: 'ms', labelKey: 'lang_ms' },
   { value: 'vi', labelKey: 'lang_vi' },
+];
+
+const DELIVERY_REGION_OPTIONS: Array<{ value: string; labelKey: RegionLabelKey }> = [
+  { value: '中国', labelKey: 'wb_region_cn' },
+  { value: '美国', labelKey: 'wb_region_us' },
+  { value: '东南亚', labelKey: 'wb_region_sea' },
+  { value: '欧洲', labelKey: 'wb_region_eu' },
+  { value: '日本', labelKey: 'wb_region_jp' },
+  { value: '韩国', labelKey: 'wb_region_kr' },
 ];
 
 interface WorkbenchViewProps {
@@ -321,7 +446,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                                               selectedTemplate,
                                                               generatedVideoUrl,
                                                               setGeneratedVideoUrl,
-                                                              onExportToServer // ★ 接收新增的 prop
+                                                              onExportToServer
                                                             }) => {
   const { t, language } = useLanguage();
   const { user } = useAuth();
@@ -336,11 +461,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const scriptsSectionRef = useRef<HTMLDivElement | null>(null);
   const previewSectionRef = useRef<HTMLDivElement | null>(null);
 
-  // --- Prompt Lab (temporary, removable) ---
+  const toDisplayUrl = (pathOrUrl: string | null | undefined): string | null => {
+    if (!pathOrUrl) return null;
+    const raw = String(pathOrUrl).trim();
+    if (!raw) return null;
+    if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+    const normalized = raw.startsWith('/') ? raw : `/${raw}`;
+    const mediaBase: string = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
+    if (mediaBase && normalized.startsWith('/media/')) return `${mediaBase}${normalized}`;
+    return normalized;
+  };
+
   const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
   const [promptTemplates, setPromptTemplates] = useState<PromptStepTemplate[]>([]);
   const [promptOverrides, setPromptOverrides] = useState<PromptOverrides>(() =>
-    ENABLE_PROMPT_LAB ? loadPromptOverrides() : {}
+      ENABLE_PROMPT_LAB ? loadPromptOverrides() : {}
   );
   const [promptTemplatesLoading, setPromptTemplatesLoading] = useState(false);
   const [promptTemplatesError, setPromptTemplatesError] = useState<string | null>(null);
@@ -348,18 +483,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [guideStepIndex, setGuideStepIndex] = useState(0);
   const [guidePanelStyle, setGuidePanelStyle] = useState<React.CSSProperties>({});
   const promptOverridesPayload = useMemo(
-    () => (ENABLE_PROMPT_LAB ? buildBackendPromptOverrides(promptOverrides) : null),
-    [promptOverrides]
+      () => (ENABLE_PROMPT_LAB ? buildBackendPromptOverrides(promptOverrides) : null),
+      [promptOverrides]
   );
   const guideSteps = useMemo<Array<{ key: GuideStepKey; title: string; description: string }>>(
-    () => [
-      { key: 'mode', title: t.wb_guide_mode_title, description: t.wb_guide_mode_desc },
-      { key: 'upload', title: t.wb_guide_upload_title, description: t.wb_guide_upload_desc },
-      { key: 'config', title: t.wb_guide_config_title, description: t.wb_guide_config_desc },
-      { key: 'scripts', title: t.wb_guide_scripts_title, description: t.wb_guide_scripts_desc },
-      { key: 'preview', title: t.wb_guide_preview_title, description: t.wb_guide_preview_desc },
-    ],
-    [language]
+      () => [
+        { key: 'mode', title: t.wb_guide_mode_title, description: t.wb_guide_mode_desc },
+        { key: 'upload', title: t.wb_guide_upload_title, description: t.wb_guide_upload_desc },
+        { key: 'config', title: t.wb_guide_config_title, description: t.wb_guide_config_desc },
+        { key: 'scripts', title: t.wb_guide_scripts_title, description: t.wb_guide_scripts_desc },
+        { key: 'preview', title: t.wb_guide_preview_title, description: t.wb_guide_preview_desc },
+      ],
+      [language, t]
   );
 
   const loadPromptLabTemplates = async () => {
@@ -386,13 +521,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     await loadPromptLabTemplates();
   };
 
-  // --- Local State ---
   const [uploadedFile, setUploadedFile] = useState<string | null>(initialFileUrl || null);
   const [fileName, setFileName] = useState(initialFileName || '');
   const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null);
   const [selectedAssetSource, setSelectedAssetSource] = useState<'product' | 'preference' | null>(initialAssetSource || null);
   const [isDragUploadActive, setIsDragUploadActive] = useState(false);
-  // We use this to display the URL if provided initially
   const [selectedAssetUrl, setSelectedAssetUrl] = useState<string | null>(initialFileUrl || null);
   const [lastUploadedUrl, setLastUploadedUrl] = useState<string | null>(initialFileUrl || null);
   const [lastGeneratedProjectId, setLastGeneratedProjectId] = useState<string | null>(null);
@@ -406,13 +539,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [assetLibraryLoading, setAssetLibraryLoading] = useState(false);
   const [assetLibraryError, setAssetLibraryError] = useState<string | null>(null);
 
-  // Draft restore / autosave
   const [isRestoring, setIsRestoring] = useState(true);
   const [pendingTemplateId, setPendingTemplateId] = useState<string | null>(null);
-  // Track whether we actually restored a draft snapshot this session.
-  // If true, we must NOT auto-pick a template (draft selection has priority, including "Custom Config").
   const [wasDraftRestored, setWasDraftRestored] = useState(false);
-  // One-shot guard: don't keep forcing a template after the user intentionally switches back to "Custom Config".
   const hasAutoSelectedTemplateRef = useRef(false);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestSnapshotRef = useRef<WorkbenchSnapshot | null>(null);
@@ -420,24 +549,78 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const skipTemplateDurationSyncRef = useRef(false);
   const restoredDraftRef = useRef(false);
 
-  // Config State
+  const initialPrefs = useMemo(() => getWorkbenchPreferences(), []);
+
+
+
+  const [productName, setProductName] = useState('');
+  const [productCategory, setProductCategory] = useState('');
+  const [coreSellingPoints, setCoreSellingPoints] = useState('');
+  const [targetAudience, setTargetAudience] = useState('');
+  const [productInfoTouched, setProductInfoTouched] = useState({
+    name: false,
+    category: false,
+    sellingPoints: false,
+    audience: false,
+  });
+  const [deliveryRegion, setDeliveryRegion] = useState(() => initialPrefs.deliveryRegion || '中国');
+  const [videoType, setVideoType] = useState(() => initialPrefs.videoType || '');
+  const [aspectRatio, setAspectRatio] = useState<'9:16' | '16:9'>(() => (initialPrefs.aspectRatio === '16:9' ? '16:9' : '9:16'));
+  const [requiredErrors, setRequiredErrors] = useState<{
+    productName?: string;
+    productCategory?: string;
+    coreSellingPoints?: string;
+    videoType?: string;
+  }>({});
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const productNameFieldRef = useRef<HTMLInputElement | null>(null);
+  const productCategoryFieldRef = useRef<HTMLDivElement | null>(null);
+  const coreSellingPointsFieldRef = useRef<HTMLTextAreaElement | null>(null);
+  const videoTypeFieldRef = useRef<HTMLDivElement | null>(null);
   const [genPrompt, setGenPrompt] = useState('');
-  const [genDuration, setGenDuration] = useState<number>(selectedTemplate?.duration || 10);
-  const [soundSetting, setSoundSetting] = useState<'on' | 'off'>('on');
-  const [scriptVariantCount, setScriptVariantCount] = useState<number>(1);
-  const [targetLanguage, setTargetLanguage] = useState<string>('en');
-  const [creationMode, setCreationMode] = useState<'fast' | 'replay'>('fast');
+  const [genDuration, setGenDuration] = useState<number>(() => {
+    if (initialPrefs.genDuration === 5 || initialPrefs.genDuration === 10 || initialPrefs.genDuration === 15) {
+      return initialPrefs.genDuration;
+    }
+    return selectedTemplate?.duration || 10;
+  });
+  const [soundSetting, setSoundSetting] = useState<'on' | 'off'>(() => (initialPrefs.soundSetting === 'off' ? 'off' : 'on'));
+  const [scriptVariantCount, setScriptVariantCount] = useState<number>(() =>
+    typeof initialPrefs.scriptVariantCount === 'number' && initialPrefs.scriptVariantCount > 0 ? initialPrefs.scriptVariantCount : 1
+  );
+  const [targetLanguage, setTargetLanguage] = useState<string>(() => initialPrefs.targetLanguage || 'en');
+  const [translatingShots, setTranslatingShots] = useState<Record<number, boolean>>({});
+  const [creationMode, setCreationMode] = useState<'fast' | 'replay'>(() => (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
   const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
+  const [isAiRecognizing, setIsAiRecognizing] = useState(false);
+  const [hasAiRecognized, setHasAiRecognized] = useState(false);
+  const lastRecognizedSignatureRef = useRef<string>('');
+  const isAutoRecognizePromptingRef = useRef(false);
+  const LEFT_COLUMN_MIN_WIDTH = 260;
+  const SCRIPT_COLUMN_MIN_WIDTH = 320;
+  const LEFT_COLUMN_RATIO_KEY = `vflow_workbench_layout_ratio_v1_${user?.id ?? 'guest'}`;
+  const workspaceRowRef = useRef<HTMLDivElement | null>(null);
+  const isResizingRef = useRef(false);
+  const [leftColumnWidth, setLeftColumnWidth] = useState<number>(() => {
+    try {
+      const ratioRaw = sessionStorage.getItem(LEFT_COLUMN_RATIO_KEY);
+      const ratio = ratioRaw ? Number(ratioRaw) : NaN;
+      const fallback = 320;
+      if (!Number.isFinite(ratio) || ratio <= 0 || ratio >= 1) return fallback;
+      const width = Math.round(window.innerWidth * ratio);
+      return Math.min(640, Math.max(LEFT_COLUMN_MIN_WIDTH, width));
+    } catch {
+      return 320;
+    }
+  });
   const lastFastModelRef = useRef<'kling' | 'sora2' | 'sora2pro' | 'seedance2.0'>('kling');
-  const templateModelAsset = selectedTemplate?.default_model_asset ?? null;
-  const templateMotionAsset = selectedTemplate?.default_motion_asset ?? null;
   const currentAssetMediaKind = inferMediaKind({ name: fileName, url: selectedAssetUrl || uploadedFile, file: selectedFileObj });
-  
-  // Processing State
+
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
-  const [isExporting, setIsExporting] = useState(false); 
+  const [isExporting, setIsExporting] = useState(false);
   const [isPreparingDebug, setIsPreparingDebug] = useState(false);
   const [isSendingDebug, setIsSendingDebug] = useState(false);
   const [debugPayloadText, setDebugPayloadText] = useState('');
@@ -456,9 +639,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     t.wb_shot_type_general,
   ]);
 
-  // Video Player State
   const [isPlaying, setIsPlaying] = useState(false);
-  // Info dialog state to replace native alert()
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [infoTitle, setInfoTitle] = useState('');
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
@@ -467,35 +648,42 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setInfoMessage(message || null);
     setIsInfoOpen(true);
   };
-  // Confirm dialog helper (returns a Promise<boolean>)
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [confirmTitle, setConfirmTitle] = useState('');
   const [confirmMessage, setConfirmMessage] = useState('');
+  const [confirmOkLabel, setConfirmOkLabel] = useState('');
+  const [confirmCancelLabel, setConfirmCancelLabel] = useState('');
   const confirmResolveRef = useRef<((v: boolean) => void) | null>(null);
-  const openConfirm = (title: string, message: string) => {
+  const openConfirm = (
+      title: string,
+      message: string,
+      opts?: {
+        okLabel?: string;
+        cancelLabel?: string;
+      }
+  ) => {
     return new Promise<boolean>((resolve) => {
       confirmResolveRef.current = resolve;
       setConfirmTitle(title || '');
       setConfirmMessage(message || '');
+      setConfirmOkLabel(opts?.okLabel || t.wb_confirm_ok);
+      setConfirmCancelLabel(opts?.cancelLabel || t.wb_confirm_cancel);
       setIsConfirmOpen(true);
     });
   };
 
-  // Script State
-  const buildDemoScripts = () => ([
-    { id: 1, shot: '1', type: 'Medium', dur: '2s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio },
-    { id: 2, shot: '2', type: 'Detail', dur: '2s', visual: t.demo_shot2_visual, audio: t.demo_shot2_audio }
-  ]);
+  const buildDemoScripts = useCallback(() => ([
+    { id: 1, shot: '1', type: 'Medium', dur: '2s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio, audioTranslation: '' },
+    { id: 2, shot: '2', type: 'Detail', dur: '2s', visual: t.demo_shot2_visual, audio: t.demo_shot2_audio, audioTranslation: '' }
+  ]), [t]);
   const [scripts, setScripts] = useState<ScriptItem[]>(buildDemoScripts);
   const [scriptPages, setScriptPages] = useState<ScriptPage[]>(() => ([{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: buildDemoScripts() }]));
   const [activeScriptPage, setActiveScriptPage] = useState(0);
+  const [isShotBreakdownOpen, setIsShotBreakdownOpen] = useState(false);
+  const [enableStoryboardEditor, setEnableStoryboardEditor] = useState(false);
 
-  // Queue State
   const [assetQueue, setAssetQueue] = useState<QueuedAsset[]>([]);
   const [scriptQueue, setScriptQueue] = useState<QueuedScript[]>([]);
-  const [pendingUploadFiles, setPendingUploadFiles] = useState<File[]>([]);
-  const [isUploadTypeDialogOpen, setIsUploadTypeDialogOpen] = useState(false);
-  const [pendingUploadType, setPendingUploadType] = useState<AssetLibraryTab>('product');
   const [currentMaterialType, setCurrentMaterialType] = useState<AssetLibraryTab | null>(null);
   const [generatedBatch, setGeneratedBatch] = useState<Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }>>([]);
   const [selectedQueueAssetId, setSelectedQueueAssetId] = useState<string | null>(null);
@@ -521,8 +709,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const projectListRef = useRef<HTMLDivElement | null>(null);
   const isApplyingProjectWorkspaceRef = useRef(false);
   const currentProject = useMemo(
-    () => projectStore.projects.find((project) => project.id === projectStore.currentProjectId) || null,
-    [projectStore.currentProjectId, projectStore.projects]
+      () => projectStore.projects.find((project) => project.id === projectStore.currentProjectId) || null,
+      [projectStore.currentProjectId, projectStore.projects]
   );
 
   const projectUiText = useMemo(() => ({
@@ -559,8 +747,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const compactTimeLanguages = new Set(['zh', 'ko']);
   const useCompactTime = compactTimeLanguages.has(language);
   const sortedProjects = useMemo(
-    () => [...projectStore.projects].sort((a, b) => b.updatedAt - a.updatedAt),
-    [projectStore.projects]
+      () => [...projectStore.projects].sort((a, b) => b.updatedAt - a.updatedAt),
+      [projectStore.projects]
   );
   const filteredProjects = useMemo(() => {
     const keyword = projectSearch.trim().toLowerCase();
@@ -587,26 +775,80 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return useCompactTime ? `${days}${projectUiText.daysAgo}` : `${days} ${projectUiText.daysAgo}`;
   };
 
-  const applyWorkspaceState = (workspace: ProjectWorkspaceState) => {
+  const applyWorkspaceState = useCallback((workspace: ProjectWorkspaceState) => {
+    const normalizePersistedUrl = (value: string | null | undefined, fallback?: string | null | undefined) => {
+      const primary = value || '';
+      const backup = fallback || '';
+      if (primary && !primary.startsWith('blob:')) return primary;
+      if (backup && !backup.startsWith('blob:')) return backup;
+      return primary || backup || null;
+    };
+
     isApplyingProjectWorkspaceRef.current = true;
+
+    const restoredLastUploaded = workspace.lastUploadedUrl || null;
+    const restoredUploadedFileRaw = workspace.uploadedFile || null;
+    const restoredUploadedFile = (() => {
+      if (restoredUploadedFileRaw && restoredUploadedFileRaw.startsWith('blob:')) {
+        return toDisplayUrl(restoredLastUploaded);
+      }
+      return toDisplayUrl(restoredUploadedFileRaw) || restoredUploadedFileRaw;
+    })();
+
+    const restoredAssetQueue = (Array.isArray(workspace.assetQueue) ? workspace.assetQueue : []).map((item) => {
+      const rawPreview = item?.previewUrl || null;
+      const stablePreview =
+          (rawPreview && rawPreview.startsWith('blob:'))
+              ? (toDisplayUrl(item.uploadedPath || item.assetUrl) || null)
+              : (toDisplayUrl(rawPreview) || rawPreview);
+
+      return {
+        ...item,
+        previewUrl: stablePreview,
+        assetUrl: toDisplayUrl(item.assetUrl) || item.assetUrl,
+        uploadedPath: item.uploadedPath || null,
+        fileObj: null,
+      } as QueuedAsset;
+    });
+
     setFileName(workspace.fileName || '');
-    setUploadedFile(workspace.uploadedFile || null);
-    setSelectedAssetUrl(workspace.selectedAssetUrl || null);
-    setLastUploadedUrl(workspace.lastUploadedUrl || null);
+    setUploadedFile(restoredUploadedFile);
+    setSelectedAssetUrl(toDisplayUrl(workspace.selectedAssetUrl) || workspace.selectedAssetUrl || null);
+    setLastUploadedUrl(restoredLastUploaded);
     setSelectedAssetSource(workspace.selectedAssetSource || null);
     setCurrentMaterialType(workspace.currentMaterialType || null);
     setSelectedFileObj(null);
+    setProductName(workspace.productName || '');
+    setProductCategory(workspace.productCategory || '');
+    setCoreSellingPoints(workspace.coreSellingPoints || '');
+    setTargetAudience(workspace.targetAudience || '');
+    setDeliveryRegion(workspace.deliveryRegion || initialPrefs.deliveryRegion || '中国');
+    setVideoType(workspace.videoType || initialPrefs.videoType || '');
+    setAspectRatio(workspace.aspectRatio === '16:9' ? '16:9' : (initialPrefs.aspectRatio === '16:9' ? '16:9' : '9:16'));
+    setHasAiRecognized(!!workspace.hasAiRecognized);
     setGenPrompt(workspace.genPrompt || '');
-    setGenDuration(typeof workspace.genDuration === 'number' ? workspace.genDuration : 10);
-    setSoundSetting(workspace.soundSetting || 'on');
-    setScriptVariantCount(typeof workspace.scriptVariantCount === 'number' ? workspace.scriptVariantCount : 1);
-    setTargetLanguage(workspace.targetLanguage || 'en');
-    setCreationMode(workspace.creationMode || 'fast');
+    setGenDuration(() => {
+      if (workspace.genDuration === 5 || workspace.genDuration === 10 || workspace.genDuration === 15) {
+        return workspace.genDuration;
+      }
+      if (initialPrefs.genDuration === 5 || initialPrefs.genDuration === 10 || initialPrefs.genDuration === 15) {
+        return initialPrefs.genDuration;
+      }
+      return 10;
+    });
+    setSoundSetting(workspace.soundSetting || (initialPrefs.soundSetting === 'off' ? 'off' : 'on'));
+    setScriptVariantCount(
+      typeof workspace.scriptVariantCount === 'number'
+        ? workspace.scriptVariantCount
+        : (typeof initialPrefs.scriptVariantCount === 'number' && initialPrefs.scriptVariantCount > 0 ? initialPrefs.scriptVariantCount : 1)
+    );
+    setTargetLanguage(workspace.targetLanguage || initialPrefs.targetLanguage || 'en');
+    setCreationMode(workspace.creationMode || (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
     setReuseQueueEnabled(!!workspace.reuseQueueEnabled);
     setScripts(Array.isArray(workspace.scripts) ? workspace.scripts : []);
     setScriptPages(Array.isArray(workspace.scriptPages) && workspace.scriptPages.length > 0 ? workspace.scriptPages : [{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: [] }]);
     setActiveScriptPage(typeof workspace.activeScriptPage === 'number' ? workspace.activeScriptPage : 0);
-    setAssetQueue(Array.isArray(workspace.assetQueue) ? workspace.assetQueue : []);
+    setAssetQueue(restoredAssetQueue);
     setScriptQueue(Array.isArray(workspace.scriptQueue) ? workspace.scriptQueue : []);
     setGeneratedVideoUrl(workspace.generatedVideoUrl || null);
 
@@ -616,11 +858,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     } else {
       onSelectTemplate(null);
     }
-    if (workspace.selectedModelId) setSelectedModel(workspace.selectedModelId as any);
+    if (workspace.selectedModelId) {
+      setSelectedModel(workspace.selectedModelId as any);
+    } else if (
+      initialPrefs.selectedModelId === 'kling' ||
+      initialPrefs.selectedModelId === 'sora2' ||
+      initialPrefs.selectedModelId === 'sora2pro' ||
+      initialPrefs.selectedModelId === 'seedance2.0'
+    ) {
+      setSelectedModel(initialPrefs.selectedModelId as any);
+    }
     setTimeout(() => {
       isApplyingProjectWorkspaceRef.current = false;
     }, 0);
-  };
+  }, [onSelectTemplate, setSelectedModel, t.wb_script_page_prefix, templateList]);
 
   const beginHeaderRename = () => {
     if (!currentProject) return;
@@ -629,9 +880,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const commitProjectRename = (
-    projectId: string,
-    nameDraft: string,
-    options?: { keepEditingOnFail?: boolean; originalName?: string }
+      projectId: string,
+      nameDraft: string,
+      options?: { keepEditingOnFail?: boolean; originalName?: string }
   ) => {
     const trimmedName = (nameDraft || '').trim();
     if (trimmedName.length > MAX_PROJECT_NAME_LENGTH) {
@@ -641,8 +892,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         setRenameRetryState({ projectId, originalName: fallbackName });
       }
       openInfo(
-        t.assets_confirm_title || 'Notice',
-        messageTpl.replace('{max}', String(MAX_PROJECT_NAME_LENGTH))
+          t.assets_confirm_title || 'Notice',
+          messageTpl.replace('{max}', String(MAX_PROJECT_NAME_LENGTH))
       );
       return false;
     }
@@ -651,7 +902,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return {
         ...prev,
         projects: prev.projects.map((project) => (
-          project.id === projectId ? { ...project, name: nextName, updatedAt: Date.now() } : project
+            project.id === projectId ? { ...project, name: nextName, updatedAt: Date.now() } : project
         )),
       };
     });
@@ -719,7 +970,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const toggleProjectSelection = (projectId: string) => {
     setSelectedProjectIds((prev) => (
-      prev.includes(projectId) ? prev.filter((id) => id !== projectId) : [...prev, projectId]
+        prev.includes(projectId) ? prev.filter((id) => id !== projectId) : [...prev, projectId]
     ));
   };
 
@@ -728,8 +979,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setProjectStore((prev) => {
       const remaining = prev.projects.filter((project) => !idSet.has(project.id));
       const nextProjects = remaining.length > 0
-        ? remaining
-        : [{ id: 'project_alpha_01', name: DEFAULT_PROJECT_NAME, updatedAt: Date.now() }];
+          ? remaining
+          : [{ id: 'project_alpha_01', name: DEFAULT_PROJECT_NAME, updatedAt: Date.now() }];
       const nextCurrent = idSet.has(prev.currentProjectId) ? nextProjects[0].id : prev.currentProjectId;
       const nextWorkspaces = { ...prev.workspaces };
       ids.forEach((id) => { delete nextWorkspaces[id]; });
@@ -748,13 +999,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
   const injectedAssetSignaturesRef = useRef<Set<string>>(new Set());
 
-  // --- Effects ---
-
-  // Inject an asset from the Asset Library ("用于工作台") into the workbench.
-  // Because WorkbenchView is permanently mounted (shown/hidden via CSS), the
-  // useState initial values for initialFileUrl are set only once at mount. We
-  // need a useEffect that watches the prop and updates internal state whenever
-  // a new asset URL is pushed in from the parent.
   useEffect(() => {
     if (!initialFileUrl) return;
     const name = initialFileName || '未命名素材';
@@ -786,7 +1030,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         uploadedPath: initialFileUrl,
       }
     ]));
-  }, [initialAssetSource, initialFileName, initialFileUrl]); 
+  }, [initialAssetSource, initialFileName, initialFileUrl]);
 
   useEffect(() => {
     const currentProjectId = projectStore.currentProjectId;
@@ -799,8 +1043,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       scripts: buildDemoScripts(),
       scriptPagePrefix: t.wb_script_page_prefix,
     }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectStore.currentProjectId, templateList, t.wb_script_page_prefix, t.demo_shot1_visual, t.demo_shot1_audio, t.demo_shot2_visual, t.demo_shot2_audio]);
+  }, [projectStore.currentProjectId, applyWorkspaceState, buildDemoScripts, t.wb_script_page_prefix]);
 
   useEffect(() => {
     localStorage.setItem(getLocalProjectStoreKey(user?.id ?? null), JSON.stringify(projectStore));
@@ -815,13 +1058,43 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!projectStore.currentProjectId) return;
 
     const currentProjectId = projectStore.currentProjectId;
+
+    const persistedUploadedFile = (() => {
+      if (uploadedFile && uploadedFile.startsWith('blob:')) {
+        return lastUploadedUrl || selectedAssetUrl || null;
+      }
+      return uploadedFile;
+    })();
+
+    const persistedAssetQueue = assetQueue.map((item) => {
+      const rawPreview = item.previewUrl;
+      const stablePreview =
+          rawPreview && rawPreview.startsWith('blob:')
+              ? (item.uploadedPath || item.assetUrl || null)
+              : rawPreview;
+
+      return {
+        ...item,
+        previewUrl: stablePreview,
+        fileObj: null,
+      } as QueuedAsset;
+    });
+
     const workspace: ProjectWorkspaceState = {
       fileName,
-      uploadedFile,
+      uploadedFile: persistedUploadedFile,
       selectedAssetUrl,
       lastUploadedUrl,
       selectedAssetSource,
       currentMaterialType,
+      productName,
+      productCategory,
+      coreSellingPoints,
+      targetAudience,
+      deliveryRegion,
+      videoType,
+      aspectRatio,
+      hasAiRecognized,
       genPrompt,
       genDuration,
       soundSetting,
@@ -832,7 +1105,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       scripts,
       scriptPages,
       activeScriptPage,
-      assetQueue,
+      assetQueue: persistedAssetQueue,
       scriptQueue,
       selectedTemplateId: selectedTemplate?.id || null,
       selectedModelId: (selectedModel as string) || null,
@@ -845,7 +1118,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return {
         ...prev,
         projects: prev.projects.map((project) => (
-          project.id === currentProjectId ? { ...project, updatedAt: Date.now() } : project
+            project.id === currentProjectId ? { ...project, updatedAt: Date.now() } : project
         )),
         workspaces: {
           ...prev.workspaces,
@@ -861,6 +1134,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     lastUploadedUrl,
     selectedAssetSource,
     currentMaterialType,
+    productName,
+    productCategory,
+    coreSellingPoints,
+    targetAudience,
+    deliveryRegion,
+    videoType,
+    aspectRatio,
+    hasAiRecognized,
     genPrompt,
     genDuration,
     soundSetting,
@@ -908,37 +1189,43 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setProjectActionMenuId(null);
   }, [projectMenuOpen]);
 
-  useEffect(() => { 
-    // Reset or update duration when template changes
+  useEffect(() => {
     if (!selectedTemplate) {
       return;
     }
-
-    // When we apply a restored template, keep the duration we restored from the snapshot.
     if (skipTemplateDurationSyncRef.current) {
       skipTemplateDurationSyncRef.current = false;
       return;
     }
-
-    // During draft restore we may set duration from snapshot; don't override it.
     if (!isRestoring) setGenDuration(selectedTemplate.duration);
-
   }, [selectedTemplate, isRestoring]);
 
-  // When the preview video changes, reset play state until we receive onPlay/onPause from the new element.
   useEffect(() => {
     setIsPlaying(false);
   }, [generatedVideoUrl]);
 
-  // Keep a ref so unmount flush doesn't depend on hook dependency arrays.
+  useEffect(() => {
+    if (generatedBatch.length > 0) {
+      console.log('[WorkbenchView] generatedBatch updated:', generatedBatch);
+      generatedBatch.forEach(item => {
+        const task = tasks.find(t => t.id === item.taskId);
+        console.log(`[WorkbenchView] Batch item ${item.id} (taskId=${item.taskId}):`, {
+          found: !!task,
+          status: task?.status,
+          result: task?.result,
+          hasUrl: !!(task?.result?.video_url || task?.result?.url),
+          url: task?.result?.video_url || task?.result?.url
+        });
+      });
+    }
+  }, [generatedBatch, tasks]);
+
   useEffect(() => {
     canAutoSaveRef.current = !!user?.id && !isRestoring;
   }, [user?.id, isRestoring]);
 
-  // 1) Restore draft when entering workbench (mount) or after login
   useEffect(() => {
     let cancelled = false;
-
     const restoreDraft = async () => {
       setIsRestoring(true);
       restoredDraftRef.current = false;
@@ -949,7 +1236,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
 
       let restored = false;
-
       try {
         const res = await videoApi.getDraft();
         if (cancelled) return;
@@ -958,7 +1244,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (snap && typeof snap === 'object') {
           restoredDraftRef.current = true;
           restored = true;
-          // Template (may arrive before templateList is loaded)
           if (typeof snap.template_id === 'string' && snap.template_id) {
             setPendingTemplateId(snap.template_id);
           } else if (snap.template_id === null) {
@@ -969,28 +1254,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         console.warn("Failed to restore workbench draft:", err);
       } finally {
         if (cancelled) return;
-
         setWasDraftRestored(restored);
-
         setIsRestoring(false);
       }
     };
-
     restoreDraft();
-
     return () => {
       cancelled = true;
     };
-    // Intentionally only tied to auth identity; template selection is handled in a separate effect.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [user?.id, onSelectTemplate]);
 
-  // Apply restored template once templates are available
   useEffect(() => {
     if (!pendingTemplateId) return;
     if (isRestoring) return;
-
-    // If user already selected something manually, don't override.
     if (selectedTemplate?.id) {
       setPendingTemplateId(null);
       return;
@@ -1004,14 +1280,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
-    // Template was deleted or otherwise unavailable. Clear pending so we can fall back.
     if (templateList.length > 0) setPendingTemplateId(null);
   }, [pendingTemplateId, isRestoring, selectedTemplate?.id, templateList, onSelectTemplate]);
 
-  // If user has templates, "Custom Config" is not a valid/meaningful option:
-  // - Hide it in the dropdown (render logic below)
-  // - Ensure we always have a real template selected (default to the first)
-  // - Don't interrupt draft restore (pendingTemplateId) or in-progress restore
   useEffect(() => {
     if (isRestoring) return;
     if (pendingTemplateId) return;
@@ -1021,16 +1292,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const isValidSelection = !!selectedId && templateList.some(t => t.id === selectedId);
     if (isValidSelection) return;
 
-    // If we just restored a draft snapshot (that may have been "Custom Config"),
-    // preserve the restored duration instead of syncing to template default.
     if (restoredDraftRef.current) skipTemplateDurationSyncRef.current = true;
 
     onSelectTemplate(templateList[0]);
   }, [templateList, selectedTemplate?.id, pendingTemplateId, isRestoring, onSelectTemplate]);
 
-  // Default template selection:
-  // - If user has templates and there's NO restored draft, default to the first template (not "Custom Config").
-  // - If user has no templates, keep showing "Custom Config".
   useEffect(() => {
     if (isRestoring) return;
     if (wasDraftRestored) return;
@@ -1045,14 +1311,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     hasAutoSelectedTemplateRef.current = true;
   }, [isRestoring, wasDraftRestored, templateList, selectedTemplate?.id, onSelectTemplate]);
 
-  // Keep a best-effort "latest snapshot" for debounce + unmount flush.
   latestSnapshotRef.current = {
     version: 1,
     template_id: (selectedTemplate?.id as string | undefined) || null,
     timestamp: Date.now(),
   };
 
-  // 2) Auto-save (debounced)
   useEffect(() => {
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     if (!user?.id || isRestoring) return;
@@ -1068,7 +1332,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
   }, [user?.id, isRestoring, selectedTemplate?.id]);
 
-  // 3) Flush on unmount (e.g. leaving workbench tab) so we don't lose the last edits due to debounce cleanup
   useEffect(() => {
     return () => {
       if (!canAutoSaveRef.current) return;
@@ -1078,7 +1341,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
   }, []);
 
-  // 4) Best-effort save on page refresh/close (covers "F5" / tab close cases better than debounce alone)
   useEffect(() => {
     const handler = () => {
       if (!canAutoSaveRef.current) return;
@@ -1151,11 +1413,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const source: 'product' | 'preference' = asset.media_kind === 'video' ? 'preference' : 'product';
     const nextMaterialType: AssetLibraryTab = asset.media_kind === 'video' ? 'motion' : assetLibraryTab;
     const mediaKind: QueuedAsset['mediaKind'] =
-      asset.media_kind === 'video'
-        ? 'video'
-        : asset.media_kind === 'audio'
-          ? 'audio'
-          : (asset.media_kind === 'image' ? 'image' : inferMediaKind({ name: asset.name || '', url: assetUrl }));
+        asset.media_kind === 'video'
+            ? 'video'
+            : asset.media_kind === 'audio'
+                ? 'audio'
+                : (asset.media_kind === 'image' ? 'image' : inferMediaKind({ name: asset.name || '', url: assetUrl }));
     const queueId = `lib-${asset.id}`;
     const queuedAsset: QueuedAsset = {
       id: queueId,
@@ -1186,10 +1448,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setGeneratedVideoUrl(null);
   };
 
-  // Duration Logic
-  const currentScriptDuration = scripts.reduce((total, s) => {
-    return total + (parseFloat(s.dur.replace('s', '')) || 0);
-  }, 0);
+  const currentScriptDuration = enableStoryboardEditor
+      ? scripts.reduce((total, s) => total + (parseFloat(s.dur.replace('s', '')) || 0), 0)
+      : genDuration;
   const isDurationValid = Math.abs(currentScriptDuration - genDuration) < 0.1;
   const hasAnyReuseQueue = assetQueue.length > 0 || scriptQueue.length > 0;
   const isReuseReady = assetQueue.length > 0 && scriptQueue.length > 0;
@@ -1209,13 +1470,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     model: t.assets_tab_models || '模特',
     scene: t.assets_tab_scenes || '场景',
     motion: t.assets_tab_motion || '动作',
-  };
-
-  const materialTypeCycle: AssetLibraryTab[] = ['product', 'model', 'scene', 'motion'];
-  const getNextMaterialType = (current: AssetLibraryTab): AssetLibraryTab => {
-    const idx = materialTypeCycle.indexOf(current);
-    if (idx < 0) return materialTypeCycle[0];
-    return materialTypeCycle[(idx + 1) % materialTypeCycle.length];
   };
   const uploadDisplayAssets: QueuedAsset[] = useMemo(() => {
     if (assetQueue.length > 0) return assetQueue;
@@ -1251,13 +1505,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
     return next;
   }, [uploadDisplayAssets]);
-  const activeReferenceSummary = scriptPages[activeScriptPage]?.referenceSummary || [];
+  const activeScriptPlan = scriptPages[activeScriptPage];
+  const activeReferenceSummary = activeScriptPlan?.referenceSummary || [];
+  const activeFullScript = activeScriptPlan?.fullScript || '';
+  const activeCreativeCard = activeScriptPlan?.creativeCard;
   const activeGuideStep = isGuideOpen ? guideSteps[guideStepIndex] : null;
   const isGuideFocused = (key: GuideStepKey) => activeGuideStep?.key === key;
   const getGuideFocusClass = (key: GuideStepKey) => (
-    isGuideFocused(key)
-      ? 'relative z-[85] ring-2 ring-orange-400/80 ring-offset-2 ring-offset-black/60 shadow-[0_0_24px_rgba(251,146,60,0.35)] rounded-xl'
-      : ''
+      isGuideFocused(key)
+          ? 'relative z-[85] ring-2 ring-orange-400/80 ring-offset-2 ring-offset-black/60 shadow-[0_0_24px_rgba(251,146,60,0.35)] rounded-xl'
+          : ''
   );
 
   const getGuideTargetElement = useCallback(() => {
@@ -1343,12 +1600,54 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return uploadResp?.url || uploadResp?.file_url || uploadResp?.path || uploadResp?.data?.url || null;
   };
 
-  const buildCombinedScriptPrompt = (inputScripts: ScriptItem[]) => (
-    inputScripts.map((script) => {
+  const buildCreativeCardPrompt = (card?: ScriptCreativeCard) => {
+    if (!card) return '';
+    const sections: string[] = [];
+    if (card.style) sections.push(`[风格]: ${card.style}`);
+    if (card.environment) sections.push(`[环境]: ${card.environment}`);
+    if (card.tonePacing) sections.push(`[语调与节奏]: ${card.tonePacing}`);
+    if (card.camera) sections.push(`[镜头]: ${card.camera}`);
+    if (card.lighting) sections.push(`[光线]: ${card.lighting}`);
+    if (Array.isArray(card.actions) && card.actions.length > 0) {
+      const actions = card.actions.map((item, idx) => `- ${idx + 1}. ${item}`).join('\n');
+      sections.push(`[动作]:\n${actions}`);
+    }
+    if (card.backgroundSound) sections.push(`[背景音]: ${card.backgroundSound}`);
+    if (card.transitionEditing) sections.push(`[转场 / 剪辑]: ${card.transitionEditing}`);
+    if (card.callToAction) sections.push(`[行动号召]: ${card.callToAction}`);
+    return sections.join('\n');
+  };
+
+  const hasCreativeCardContent = (card?: ScriptCreativeCard) => {
+    if (!card) return false;
+    if ((card.style || '').trim()) return true;
+    if ((card.environment || '').trim()) return true;
+    if ((card.tonePacing || '').trim()) return true;
+    if ((card.camera || '').trim()) return true;
+    if ((card.lighting || '').trim()) return true;
+    if ((card.backgroundSound || '').trim()) return true;
+    if ((card.transitionEditing || '').trim()) return true;
+    if ((card.callToAction || '').trim()) return true;
+    if ((card.actions || []).some((item) => String(item || '').trim().length > 0)) return true;
+    return false;
+  };
+
+  const hasActiveScriptConcept = Boolean((activeFullScript || '').trim()) || hasCreativeCardContent(activeCreativeCard);
+
+  const buildCombinedScriptPrompt = (fullScript: string, card?: ScriptCreativeCard, inputScripts: ScriptItem[] = []) => {
+    const creativeCardPrompt = buildCreativeCardPrompt(card);
+    const masterScriptPrompt = (fullScript || '').trim() ? `[完整脚本]: ${(fullScript || '').trim()}` : '';
+    const shotPrompt = inputScripts.map((script) => {
       const audioMarker = (soundSetting === 'on' && script.audio) ? `【音频|【[旁白]】${script.audio}】` : '';
       return `${script.visual || ''} ${audioMarker}`.trim();
-    }).join(' ')
-  );
+    }).join(' ');
+    const basePrompt = [masterScriptPrompt, creativeCardPrompt].filter(Boolean).join('\n\n');
+    if (ENABLE_STORYBOARD_PROMPT && shotPrompt) {
+      if (basePrompt) return `${basePrompt}\n\n[分镜指引]: ${shotPrompt}`;
+      return `[分镜指引]: ${shotPrompt}`;
+    }
+    return basePrompt || shotPrompt;
+  };
 
   const resolveCurrentSingleAssetPath = async () => {
     let apiPath = lastUploadedUrl;
@@ -1366,11 +1665,240 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return apiPath;
   };
 
+  const buildScriptInputText = () => {
+    const parts: string[] = [];
+
+    const pushLine = (label: string, value: string) => {
+      const trimmed = (value || '').trim();
+      if (!trimmed) return;
+      parts.push(`${label}: ${trimmed}`);
+    };
+
+    pushLine(t.wb_field_product_name_label, productName);
+    pushLine(t.wb_field_product_category_label, productCategory);
+    pushLine(t.wb_field_core_selling_points_label, coreSellingPoints);
+    pushLine(t.wb_field_target_audience_label, targetAudience);
+    pushLine(t.wb_field_delivery_region_label, deliveryRegion);
+    pushLine(t.wb_field_video_language_label, targetLanguage);
+    pushLine(t.wb_field_video_type_label, videoType);
+    pushLine(t.wb_field_additional_requirements_label, genPrompt);
+
+    return parts.length > 0 ? parts.join('\n') : t.wb_script_prompt_fallback;
+  };
+
+  const getProductRecognitionSources = useCallback(() => {
+    return uploadDisplayAssets.filter(
+        (asset) => asset.materialType === 'product' && asset.mediaKind === 'image'
+    );
+  }, [uploadDisplayAssets]);
+
+  const resolveProductRecognitionImagePaths = useCallback(async () => {
+    const sources = getProductRecognitionSources();
+    const limited = sources.slice(0, 4);
+
+    const queuedPathUpdates: Record<string, string> = {};
+    const paths: string[] = [];
+
+    for (const asset of limited) {
+      let resolvedPath = asset.uploadedPath || asset.assetUrl || null;
+      if (!resolvedPath && asset.fileObj) {
+        const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
+        resolvedPath = extractUploadedAssetPath(uploadResp);
+      }
+      if (!resolvedPath) continue;
+
+      paths.push(resolvedPath);
+      if (asset.id && asset.id !== 'current-upload') {
+        queuedPathUpdates[asset.id] = resolvedPath;
+      } else if (asset.id === 'current-upload') {
+        setLastUploadedUrl(resolvedPath);
+      }
+    }
+
+    if (Object.keys(queuedPathUpdates).length > 0) {
+      setAssetQueue((prev) => prev.map((item) => (
+          queuedPathUpdates[item.id] ? { ...item, uploadedPath: queuedPathUpdates[item.id] } : item
+      )));
+    }
+
+    return paths;
+  }, [extractUploadedAssetPath, getProductRecognitionSources]);
+
+  const handleResizeMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const startX = event.clientX;
+    const startWidth = leftColumnWidth;
+
+    const layoutRect = workspaceRowRef.current?.getBoundingClientRect();
+    if (!layoutRect) return;
+
+    const GAP_PX = 24;
+    const SEPARATOR_HIT_WIDTH = 16;
+    const previewWidth = previewSectionRef.current?.getBoundingClientRect().width ?? 300;
+    const maxLeftByLayout = Math.floor(
+        layoutRect.width - previewWidth - SCRIPT_COLUMN_MIN_WIDTH - GAP_PX * 3 - SEPARATOR_HIT_WIDTH
+    );
+    const maxLeft = Math.max(LEFT_COLUMN_MIN_WIDTH, Math.min(640, maxLeftByLayout));
+
+    isResizingRef.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMove = (e: MouseEvent) => {
+      if (!isResizingRef.current) return;
+      const delta = e.clientX - startX;
+      const nextWidth = Math.min(maxLeft, Math.max(LEFT_COLUMN_MIN_WIDTH, startWidth + delta));
+      setLeftColumnWidth(nextWidth);
+      const ratio = layoutRect.width > 0 ? nextWidth / layoutRect.width : 0;
+      if (ratio > 0 && ratio < 1) {
+        try {
+          sessionStorage.setItem(LEFT_COLUMN_RATIO_KEY, String(ratio));
+        } catch {
+          void 0;
+        }
+      }
+    };
+
+    const onUp = () => {
+      isResizingRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [LEFT_COLUMN_MIN_WIDTH, LEFT_COLUMN_RATIO_KEY, SCRIPT_COLUMN_MIN_WIDTH, leftColumnWidth]);
+
+  const productImageSignature = useMemo(() => {
+    const sources = getProductRecognitionSources();
+    return sources
+        .map((asset) => {
+          if (asset.id) return String(asset.id);
+          if (asset.fileObj) {
+            return `${asset.fileObj.name}:${asset.fileObj.size}:${asset.fileObj.lastModified}`;
+          }
+          return String(asset.assetUrl || asset.previewUrl || '');
+        })
+        .filter(Boolean)
+        .join('|');
+  }, [getProductRecognitionSources]);
+
+  const handleAiRecognize = useCallback(
+      async (opts?: { skipOverwriteConfirm?: boolean }) => {
+        if (!user?.id) {
+          openInfo('Notice', 'Please log in first');
+          return;
+        }
+
+        const imagePaths = await resolveProductRecognitionImagePaths();
+        if (imagePaths.length === 0) {
+          openInfo('Notice', '请先上传至少 1 张商品图片');
+          return;
+        }
+
+        const signature = imagePaths.join('|');
+
+        const hasManualInput =
+            (productInfoTouched.name && productName.trim()) ||
+            (productInfoTouched.category && productCategory.trim()) ||
+            (productInfoTouched.sellingPoints && coreSellingPoints.trim()) ||
+            (productInfoTouched.audience && targetAudience.trim());
+
+        if (!opts?.skipOverwriteConfirm && hasManualInput) {
+          const ok = await openConfirm(t.wb_ai_overwrite_title, t.wb_ai_overwrite_message, {
+            okLabel: t.wb_ai_overwrite_confirm_ok,
+            cancelLabel: t.wb_ai_overwrite_confirm_cancel,
+          });
+          if (!ok) return;
+        }
+
+        setIsAiRecognizing(true);
+        try {
+          const resp = await videoApi.recognizeProductInfo({ image_paths: imagePaths, output_language: language });
+          const data = resp?.data || resp?.result || resp?.payload || resp;
+
+          const nextName = String(data?.product_name || '').trim();
+          const nextCategory = String(data?.product_category || '').trim();
+          const nextSelling = Array.isArray(data?.core_selling_points)
+              ? data.core_selling_points.filter(Boolean).join('\n')
+              : String(data?.core_selling_points || '').trim();
+          const nextAudience = String(data?.target_audience || '').trim();
+
+          setProductName(nextName);
+          setProductCategory(nextCategory);
+          setCoreSellingPoints(nextSelling);
+          setTargetAudience(nextAudience);
+          setProductInfoTouched({ name: false, category: false, sellingPoints: false, audience: false });
+
+          setHasAiRecognized(true);
+          lastRecognizedSignatureRef.current = productImageSignature || signature;
+        } catch (err: any) {
+          openInfo('Error', t.wb_ai_recognize_failed);
+        } finally {
+          setIsAiRecognizing(false);
+        }
+      },
+      [
+        coreSellingPoints,
+        openConfirm,
+        openInfo,
+        productCategory,
+        productImageSignature,
+        productInfoTouched,
+        productName,
+        resolveProductRecognitionImagePaths,
+        targetAudience,
+        user?.id,
+        t,
+        language
+      ]
+  );
+
+  useEffect(() => {
+    if (isAiRecognizing) return;
+
+    if (!productImageSignature) {
+      lastRecognizedSignatureRef.current = '';
+      return;
+    }
+
+    const prevSignature = lastRecognizedSignatureRef.current;
+
+    if (!prevSignature) {
+      lastRecognizedSignatureRef.current = productImageSignature;
+      return;
+    }
+
+    if (prevSignature === productImageSignature) return;
+    if (isAutoRecognizePromptingRef.current) return;
+
+    isAutoRecognizePromptingRef.current = true;
+    void (async () => {
+      const ok = await openConfirm(t.wb_ai_reprompt_title, t.wb_ai_reprompt_message, {
+        okLabel: t.wb_ai_reprompt_confirm_ok,
+        cancelLabel: t.wb_ai_reprompt_confirm_cancel,
+      });
+      isAutoRecognizePromptingRef.current = false;
+
+      if (!ok) {
+        lastRecognizedSignatureRef.current = productImageSignature;
+        return;
+      }
+
+      await handleAiRecognize({ skipOverwriteConfirm: true });
+      lastRecognizedSignatureRef.current = productImageSignature;
+    })();
+  }, [handleAiRecognize, isAiRecognizing, openConfirm, productImageSignature, t]);
+
   const buildSingleGeneratePayload = async (): Promise<GeneratePayload> => {
     const apiPath = await resolveCurrentSingleAssetPath();
     const payload: GeneratePayload = {
       model: backendModel,
-      prompt: buildCombinedScriptPrompt(scripts),
+      prompt: buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts),
       duration: genDuration,
       sound: soundSetting,
       asset_source: selectedAssetSource,
@@ -1384,6 +1912,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (apiPath) {
       if (currentAssetMediaKind === 'video') payload.motion_video_path = apiPath;
       else payload.image_path = apiPath;
+    }
+
+    if (selectedModel === 'sora2' || selectedModel === 'sora2pro') {
+      payload.size = aspectRatio === '9:16' ? '720x1280' : '1280x720';
     }
 
     return payload;
@@ -1400,11 +1932,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!user?.id) throw new Error('请先登录');
 
     const createResp = await videoApi.createProject(user.id, {
-      title: fileName || 'Video',
-      aspect_ratio: selectedTemplate?.aspect_ratio || '9:16',
+        title: fileName || 'Video',
+        aspect_ratio: aspectRatio || selectedTemplate?.aspect_ratio || '9:16',
       script_content: {
         duration: genDuration,
-        shots: scripts,
+        shots: enableStoryboardEditor ? scripts : [],
       }
     });
 
@@ -1463,17 +1995,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         throw err;
       }
 
-      // Avoid infinite retry loops when backend still rejects after user confirmation.
       if (payload[requestFlag]) {
         throw err;
       }
 
       const prompt =
-        (typeof actionRequired?.prompt === 'string' && actionRequired.prompt.trim())
-          ? actionRequired.prompt.trim()
-          : (requestFlag === 'allow_image_resize'
-            ? '当前图片不满足最小分辨率要求，是否自动放大后继续？'
-            : '当前图片超过 10MB，是否自动压缩后继续？');
+          (typeof actionRequired?.prompt === 'string' && actionRequired.prompt.trim())
+              ? actionRequired.prompt.trim()
+              : (requestFlag === 'allow_image_resize'
+                  ? '当前图片不满足最小分辨率要求，是否自动放大后继续？'
+                  : '当前图片超过 10MB，是否自动压缩后继续？');
 
       const confirmed = await openConfirm('Image Adjustment', prompt);
       if (!confirmed) {
@@ -1503,11 +2034,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       openInfo('Notice', 'Please upload a reference asset or select a template first!');
       return;
     }
-    if (scripts.length === 0) {
-      openInfo('Notice', 'Please generate or add scripts first!');
+    if (!hasActiveScriptConcept) {
+      openInfo('Notice', 'Please generate or complete a script concept card first!');
       return;
     }
-    if (!isDurationValid) {
+    if (enableStoryboardEditor && !isDurationValid) {
       openInfo('Warning', `Total script duration (${currentScriptDuration}s) must match requested duration (${genDuration}s)!`);
       return;
     }
@@ -1577,16 +2108,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const validateUploadFile = (file: File) => {
-    if (file.size > MAX_UPLOAD_BYTES) return `文件过大：${file.name}（>1GB）`;
+    if (file.size > MAX_UPLOAD_BYTES) return `${t.assets_upload_error_too_large || '文件过大'}：${file.name}（>1GB）`;
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
-    const isImage = file.type.startsWith('image/') || IMAGE_EXTS.includes(ext);
-    const isVideo = file.type.startsWith('video/') || VIDEO_EXTS.includes(ext);
-    const isAudio = file.type.startsWith('audio/') || AUDIO_EXTS.includes(ext);
-    if (!isImage && !isVideo && !isAudio) return `格式不支持：${file.name}`;
+    const isImage = IMAGE_EXTS.includes(ext);
+    const isVideo = VIDEO_EXTS.includes(ext);
+    const isAudio = AUDIO_EXTS.includes(ext);
+
+    if (!isImage && !isVideo && !isAudio) return `${t.assets_upload_error_unsupported || '格式不支持'}：${file.name}`;
     return null;
   };
-
-  // --- Handlers ---
 
   const applySelectedUploadType = (files: File[], selectedType: AssetLibraryTab) => {
     if (files.length === 0) return;
@@ -1606,6 +2136,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       mediaKind,
       uploadedPath: null,
     };
+    const queueId = latestItem.id;
 
     setUploadedFile((prev) => {
       if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
@@ -1620,45 +2151,93 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setGeneratedVideoUrl(null);
     setLastUploadedUrl(null);
 
-    setAssetQueue(prev => {
-      const next = prev.filter(item => item.materialType !== selectedType);
+    setAssetQueue((prev) => {
+      const next = prev.filter((item) => item.materialType !== selectedType);
       return [...next, latestItem];
     });
+
+    void (async () => {
+      try {
+        const uploadResp = await assetsApi.uploadTempAsset(latestFile);
+        const rawPath = extractUploadedAssetPath(uploadResp);
+        if (!rawPath) return;
+
+        const displayUrl = toDisplayUrl(rawPath);
+
+        setAssetQueue((prev) => prev.map((item) => (
+            item.id === latestItem.id
+                ? { ...item, uploadedPath: rawPath, previewUrl: displayUrl || item.previewUrl, fileObj: null }
+                : item
+        )));
+
+        setLastUploadedUrl(rawPath);
+        setSelectedFileObj(null);
+        setUploadedFile((prev) => {
+          if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+          return displayUrl || prev;
+        });
+      } catch {
+        void 0;
+      }
+    })();
+
+    void (async () => {
+      try {
+        const uploadResp = await assetsApi.uploadTempAsset(latestFile);
+        const persistedPath = extractUploadedAssetPath(uploadResp);
+        if (!persistedPath) return;
+
+        setAssetQueue(prev => prev.map(item => (
+            item.id === queueId
+                ? {
+                  ...item,
+                  previewUrl: persistedPath,
+                  assetUrl: persistedPath,
+                  uploadedPath: persistedPath,
+                }
+                : item
+        )));
+
+        setUploadedFile((prev) => {
+          if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+          return persistedPath;
+        });
+        setSelectedAssetUrl(persistedPath);
+        setLastUploadedUrl(persistedPath);
+      } catch (err) {
+        console.warn('Failed to persist local upload for preview:', err);
+      }
+    })();
   };
 
-  const queueFilesWithTypePrompt = (files: File[]) => {
+  const handleLocalFiles = async (files: File[]) => {
     if (files.length === 0) return;
 
     const errors: string[] = [];
     const validFiles: File[] = [];
-    files.forEach((file) => {
+
+    for (const file of files) {
       const err = validateUploadFile(file);
-      if (err) errors.push(err);
-      else validFiles.push(file);
-    });
+      if (err) {
+        errors.push(err);
+      } else {
+        const processedFile = await compressImage(file);
+        validFiles.push(processedFile);
+      }
+    }
 
     if (errors.length > 0) {
-      openInfo('Invalid file', `${errors.join('\n')}\n\n支持格式：${formatHint}`);
+      openInfo(
+          (t as any).assets_upload_formats_title || '提示',
+          `${errors.join('\n')}\n\n${(t as any).assets_upload_formats_title || '支持格式'}：${formatHint}`
+      );
     }
+
     if (validFiles.length === 0) return;
 
-    setPendingUploadFiles(validFiles);
-    setPendingUploadType(validFiles[0].type.startsWith('video/') ? 'motion' : 'product');
-    setIsUploadTypeDialogOpen(true);
-  };
-
-  const confirmUploadTypeSelection = () => {
-    const files = [...pendingUploadFiles];
-    const type = pendingUploadType;
-    setIsUploadTypeDialogOpen(false);
-    setPendingUploadFiles([]);
-    if (files.length === 0) return;
-    applySelectedUploadType(files, type);
-  };
-
-  const cancelUploadTypeSelection = () => {
-    setIsUploadTypeDialogOpen(false);
-    setPendingUploadFiles([]);
+    const firstMediaKind = inferMediaKind({ name: validFiles[0].name, file: validFiles[0] });
+    const defaultType = firstMediaKind === 'video' ? 'motion' : 'product';
+    applySelectedUploadType(validFiles, defaultType);
   };
 
   const markQueueAssetAsPrimaryFrame = (targetId: string) => {
@@ -1676,16 +2255,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     })));
     selectAssetFromQueue({ ...target, source: 'product', isPrimaryFrame: true });
   };
-
-  const handleLocalFiles = (files: File[]) => {
-    queueFilesWithTypePrompt(files);
-  };
-
-  // const applyAssetSource = (nextSource: 'product' | 'preference') => {
-  //   setSelectedAssetSource(nextSource);
-  //   if (!selectedQueueAssetId) return;
-  //   setAssetQueue(prev => prev.map(asset => (asset.id === selectedQueueAssetId ? { ...asset, source: nextSource } : asset)));
-  // };
 
   const handleWorkbenchUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -1763,12 +2332,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const handleDurationChange = (id: number, newValue: string) => {
+    const raw = newValue.trim();
     const newScripts = scripts.map(s => {
-      if (s.id === id) {
-        const num = parseFloat(newValue);
-        return { ...s, dur: isNaN(num) ? '0s' : `${num}s` };
-      }
-      return s;
+      if (s.id !== id) return s;
+
+      if (!raw) return s;
+
+      const num = Number(raw);
+      if (!Number.isFinite(num)) return s;
+
+      const clamped = Math.max(0.1, num);
+      const rounded = Math.round(clamped * 10) / 10;
+      return { ...s, dur: `${rounded}s` };
     });
     setScripts(newScripts);
   };
@@ -1777,6 +2352,31 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const normalizedType = newType.trim() || 'Medium';
     const newScripts = scripts.map((item) => (item.id === id ? { ...item, type: normalizedType } : item));
     updateScripts(newScripts);
+  };
+
+  // 台词翻译处理（直接翻译 / 创意翻译）
+  const handleTranslateShot = async (script: ScriptItem, index: number, mode: 'direct' | 'creative') => {
+    if (!script.audioTranslation?.trim() || !user?.id) return;
+    setTranslatingShots(prev => ({ ...prev, [script.id]: true }));
+    try {
+      const resp = await videoApi.translateAudioText(user.id, {
+        text: script.audioTranslation,
+        target_language: targetLanguage,
+        mode,
+        visual_description: script.visual,
+        product_category: productCategory,
+        product_selling_points: coreSellingPoints,
+      });
+      if (resp.code === 0 && resp.data?.translated_text) {
+        const ns = [...scripts];
+        ns[index].audio = resp.data.translated_text;
+        updateScripts(ns);
+      }
+    } catch (err) {
+      console.error('[handleTranslateShot] 翻译失败:', err);
+    } finally {
+      setTranslatingShots(prev => ({ ...prev, [script.id]: false }));
+    }
   };
 
   const updateScripts = (newScripts: ScriptItem[]) => {
@@ -1788,9 +2388,218 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     });
   };
 
+  const updateActiveScriptPageMeta = (updater: (page: ScriptPage) => ScriptPage) => {
+    setScriptPages((prev) => {
+      if (activeScriptPage < 0 || activeScriptPage >= prev.length) return prev;
+      const next = [...prev];
+      next[activeScriptPage] = updater(next[activeScriptPage]);
+      return next;
+    });
+  };
+
+  const updateActiveFullScript = (value: string) => {
+    updateActiveScriptPageMeta((page) => ({
+      ...page,
+      fullScript: value,
+    }));
+  };
+
+  const updateActiveCreativeCardField = (field: keyof ScriptCreativeCard, value: string) => {
+    updateActiveScriptPageMeta((page) => ({
+      ...page,
+      creativeCard: {
+        ...(page.creativeCard || {}),
+        [field]: value,
+      },
+    }));
+  };
+
+  const updateActiveCreativeCardAction = (index: number, value: string) => {
+    updateActiveScriptPageMeta((page) => {
+      const actions = [...(page.creativeCard?.actions || [])];
+      actions[index] = value;
+      return {
+        ...page,
+        creativeCard: {
+          ...(page.creativeCard || {}),
+          actions,
+        },
+      };
+    });
+  };
+
+  const addActiveCreativeCardAction = () => {
+    updateActiveScriptPageMeta((page) => ({
+      ...page,
+      creativeCard: {
+        ...(page.creativeCard || {}),
+        actions: [...(page.creativeCard?.actions || []), ''],
+      },
+    }));
+  };
+
+  const removeActiveCreativeCardAction = (index: number) => {
+    updateActiveScriptPageMeta((page) => ({
+      ...page,
+      creativeCard: {
+        ...(page.creativeCard || {}),
+        actions: (page.creativeCard?.actions || []).filter((_, idx) => idx !== index),
+      },
+    }));
+  };
+
+  const [themeClassSnapshot, setThemeClassSnapshot] = useState<string>('');
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    const sync = () => setThemeClassSnapshot(root.className || '');
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(root, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+
+  const isLightTheme = themeClassSnapshot.includes('theme-light');
+  const isDimTheme = themeClassSnapshot.includes('theme-dim');
+
+  const cardLabels = useMemo(() => {
+    const lang = String(language || 'en').toLowerCase();
+    if (lang.startsWith('zh')) {
+      return {
+        style: '[风格]:',
+        environment: '[环境]:',
+        tonePacing: '[语调与节奏]:',
+        camera: '[镜头]:',
+        lighting: '[光线]:',
+        actions: '[动作]:',
+        backgroundSound: '[背景音]:',
+        transitionEditing: '[转场 / 剪辑]:',
+        callToAction: '[行动号召]:',
+        addScene: '新增幕',
+        deleteScene: '删除',
+        scenePrefix: '第',
+        sceneSuffix: '幕',
+      };
+    }
+    if (lang.startsWith('ko')) {
+      return {
+        style: '[스타일]:',
+        environment: '[환경]:',
+        tonePacing: '[톤 & 페이싱]:',
+        camera: '[카메라]:',
+        lighting: '[조명]:',
+        actions: '[액션]:',
+        backgroundSound: '[배경음]:',
+        transitionEditing: '[전환 / 편집]:',
+        callToAction: '[콜 투 액션]:',
+        addScene: '씬 추가',
+        deleteScene: '삭제',
+        scenePrefix: '씬 ',
+        sceneSuffix: '',
+      };
+    }
+    if (lang.startsWith('vi')) {
+      return {
+        style: '[Phong cách]:',
+        environment: '[Bối cảnh]:',
+        tonePacing: '[Tông & Nhịp độ]:',
+        camera: '[Máy quay]:',
+        lighting: '[Ánh sáng]:',
+        actions: '[Hành động]:',
+        backgroundSound: '[Âm thanh nền]:',
+        transitionEditing: '[Chuyển cảnh / Dựng]:',
+        callToAction: '[Kêu gọi hành động]:',
+        addScene: 'Thêm cảnh',
+        deleteScene: 'Xóa',
+        scenePrefix: 'Cảnh ',
+        sceneSuffix: '',
+      };
+    }
+    if (lang.startsWith('ms')) {
+      return {
+        style: '[Gaya]:',
+        environment: '[Persekitaran]:',
+        tonePacing: '[Nada & Rentak]:',
+        camera: '[Kamera]:',
+        lighting: '[Pencahayaan]:',
+        actions: '[Aksi]:',
+        backgroundSound: '[Bunyi Latar]:',
+        transitionEditing: '[Peralihan / Suntingan]:',
+        callToAction: '[Seruan Tindakan]:',
+        addScene: 'Tambah babak',
+        deleteScene: 'Padam',
+        scenePrefix: 'Babak ',
+        sceneSuffix: '',
+      };
+    }
+    return {
+      style: '[Style]:',
+      environment: '[Environment]:',
+      tonePacing: '[Tone & Pacing]:',
+      camera: '[Camera]:',
+      lighting: '[Lighting]:',
+      actions: '[ACTIONS]:',
+      backgroundSound: '[Background Sound]:',
+      transitionEditing: '[Transition / Editing]:',
+      callToAction: '[Call to Action]:',
+      addScene: 'Add Scene',
+      deleteScene: 'Delete',
+      scenePrefix: 'Scene ',
+      sceneSuffix: '',
+    };
+  }, [language]);
+
+  const cardThemeClass = useMemo(() => {
+    if (isLightTheme) {
+      return {
+        shell: 'rounded-xl border border-slate-300 bg-slate-100/95 px-2.5 py-2.5 text-slate-800 shadow-sm',
+        label: 'font-semibold text-slate-800 tracking-tight',
+        input: 'mt-0.5 w-full min-h-[28px] rounded-md border border-slate-300 bg-white px-2 py-1 text-[12px] leading-4 text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400/40 resize-y custom-scroll',
+        actionItem: 'rounded-md border border-slate-300 bg-white p-1',
+        actionInput: 'w-full min-h-[28px] rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[12px] leading-4 text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400/30 resize-y custom-scroll',
+        button: 'text-[11px] px-2 py-0.5 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition',
+        dangerButton: 'text-[11px] px-1.5 py-0.5 rounded border border-slate-300 text-slate-600 hover:text-red-600 hover:border-red-300 hover:bg-red-50 transition',
+        subLabel: 'text-[11px] font-semibold text-slate-700',
+      };
+    }
+    if (isDimTheme) {
+      return {
+        shell: 'rounded-xl border border-slate-500/40 bg-slate-900/60 px-2.5 py-2.5 text-slate-100 shadow-[0_8px_20px_rgba(15,23,42,0.25)]',
+        label: 'font-semibold text-slate-100 tracking-tight',
+        input: 'mt-0.5 w-full min-h-[28px] rounded-md border border-slate-500/40 bg-slate-800/70 px-2 py-1 text-[12px] leading-4 text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-300/30 resize-y custom-scroll',
+        actionItem: 'rounded-md border border-slate-500/40 bg-slate-800/70 p-1',
+        actionInput: 'w-full min-h-[28px] rounded-md border border-slate-500/30 bg-slate-900/60 px-2 py-1 text-[12px] leading-4 text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-300/25 resize-y custom-scroll',
+        button: 'text-[11px] px-2 py-0.5 rounded-md border border-slate-400/40 bg-slate-700/60 text-slate-100 hover:bg-slate-700/80 transition',
+        dangerButton: 'text-[11px] px-1.5 py-0.5 rounded border border-slate-400/40 text-slate-300 hover:text-red-300 hover:border-red-300/40 hover:bg-red-500/10 transition',
+        subLabel: 'text-[11px] font-semibold text-slate-300',
+      };
+    }
+    return {
+      shell: 'rounded-xl border border-white/10 bg-zinc-900/45 px-2.5 py-2.5 text-zinc-100 shadow-[0_8px_20px_rgba(0,0,0,0.25)]',
+      label: 'font-semibold text-zinc-100 tracking-tight',
+      input: 'mt-0.5 w-full min-h-[28px] rounded-md border border-zinc-600 bg-zinc-800/80 px-2 py-1 text-[12px] leading-4 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-300/25 resize-y custom-scroll',
+      actionItem: 'rounded-md border border-zinc-600 bg-zinc-800/80 p-1',
+      actionInput: 'w-full min-h-[28px] rounded-md border border-zinc-500/60 bg-zinc-900/70 px-2 py-1 text-[12px] leading-4 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-300/20 resize-y custom-scroll',
+      button: 'text-[11px] px-2 py-0.5 rounded-md border border-zinc-500 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition',
+      dangerButton: 'text-[11px] px-1.5 py-0.5 rounded border border-zinc-500 text-zinc-300 hover:text-red-300 hover:border-red-300/40 hover:bg-red-500/10 transition',
+      subLabel: 'text-[11px] font-semibold text-zinc-300',
+    };
+  }, [isLightTheme, isDimTheme]);
+
+  const autoResizeCardTextarea = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
+  useEffect(() => {
+    const areas = document.querySelectorAll<HTMLTextAreaElement>('textarea[data-card-autosize="true"]');
+    areas.forEach((el) => autoResizeCardTextarea(el));
+  }, [activeScriptPage, scriptPages]);
+
   const addScript = () => {
     const newId = scripts.length > 0 ? Math.max(...scripts.map(s => s.id)) + 1 : 1;
-    updateScripts([...scripts, { id: newId, shot: (scripts.length + 1).toString(), type: 'Medium', dur: '2s', visual: '', audio: '' }]);
+    updateScripts([...scripts, { id: newId, shot: (scripts.length + 1).toString(), type: 'Medium', dur: '2s', visual: '', audio: '', audioTranslation: '' }]);
   };
 
   const removeScript = (id: number) => {
@@ -1798,7 +2607,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     updateScripts(remaining);
   };
 
-  // --- Queue Handlers ---
   const addCurrentAssetToQueue = () => {
     if (!selectedFileObj && !selectedAssetUrl && !uploadedFile) {
       openInfo('Notice', '请先选择或上传素材');
@@ -1810,8 +2618,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const mediaKind = inferMediaKind({ name, url: previewUrl, file: selectedFileObj });
 
     const nextMaterialType: AssetLibraryTab = currentAssetMediaKind === 'video'
-      ? 'motion'
-      : (currentMaterialType || 'product');
+        ? 'motion'
+        : (currentMaterialType || 'product');
     const nextItem: QueuedAsset = {
       id: newId,
       name,
@@ -1859,18 +2667,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const addCurrentScriptToQueue = () => {
-    if (scripts.length === 0) {
-      openInfo('Notice', '请先生成或添加脚本');
+    if (!hasActiveScriptConcept) {
+      openInfo('Notice', t.wb_script_plan_require_notice);
       return;
     }
-    if (!isDurationValid) {
+    if (enableStoryboardEditor && !isDurationValid) {
       openInfo('Warning', `脚本总时长(${currentScriptDuration.toFixed(1)}s)需要与配置时长(${genDuration}s)一致`);
       return;
     }
 
     const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const name = `${t.wb_script_page_prefix} ${scriptQueue.length + 1}`;
-    // Deep copy scripts
     const copiedScripts = scripts.map(s => ({ ...s }));
 
     setScriptQueue(prev => ([
@@ -1879,7 +2686,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         id: newId,
         name,
         scripts: copiedScripts,
-        duration: genDuration
+        duration: genDuration,
+        fullScript: activeFullScript,
+        creativeCard: activeScriptPlan?.creativeCard,
       }
     ]));
   };
@@ -1888,9 +2697,59 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setScriptQueue(prev => prev.filter(s => s.id !== id));
   };
 
-  // --- API Handlers ---
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = window.setTimeout(() => setToastMessage(null), 2500);
+    return () => window.clearTimeout(timer);
+  }, [toastMessage]);
+
   const handleGenerateScripts = async () => {
-    if (!user?.id) { openInfo('Notice', 'Please log in first'); return; }
+    if (!user?.id) {
+      openInfo('Notice', 'Please log in first');
+      return;
+    }
+
+    const nextErrors: {
+      productName?: string;
+      productCategory?: string;
+      coreSellingPoints?: string;
+      videoType?: string;
+    } = {};
+
+    if (!productName.trim()) nextErrors.productName = t.wb_required_product_name;
+    if (!productCategory.trim()) nextErrors.productCategory = t.wb_required_product_category;
+    if (!coreSellingPoints.trim()) nextErrors.coreSellingPoints = t.wb_required_core_selling_points;
+    if (!videoType.trim()) nextErrors.videoType = t.wb_required_video_type;
+
+    if (Object.keys(nextErrors).length > 0) {
+      setRequiredErrors(nextErrors);
+      setToastMessage(t.wb_required_toast);
+
+      const scrollOptions: ScrollIntoViewOptions = { behavior: 'smooth', block: 'center' };
+      const focusDropdownButton = (wrapper: HTMLDivElement | null) => {
+        const btn = wrapper?.querySelector('button') as HTMLButtonElement | null;
+        if (!btn) return;
+        window.requestAnimationFrame(() => btn.focus());
+      };
+
+      if (nextErrors.productName) {
+        productNameFieldRef.current?.scrollIntoView(scrollOptions);
+        productNameFieldRef.current?.focus();
+      } else if (nextErrors.productCategory) {
+        productCategoryFieldRef.current?.scrollIntoView(scrollOptions);
+        focusDropdownButton(productCategoryFieldRef.current);
+      } else if (nextErrors.coreSellingPoints) {
+        coreSellingPointsFieldRef.current?.scrollIntoView(scrollOptions);
+        coreSellingPointsFieldRef.current?.focus();
+      } else if (nextErrors.videoType) {
+        videoTypeFieldRef.current?.scrollIntoView(scrollOptions);
+        focusDropdownButton(videoTypeFieldRef.current);
+      }
+
+      return;
+    }
+
+    if (Object.keys(requiredErrors).length > 0) setRequiredErrors({});
 
     setIsGeneratingScript(true);
 
@@ -1938,56 +2797,38 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       if (Object.keys(queuedPathUpdates).length > 0) {
         setAssetQueue(prev => prev.map(item => (
-          queuedPathUpdates[item.id] ? { ...item, uploadedPath: queuedPathUpdates[item.id] } : item
+            queuedPathUpdates[item.id] ? { ...item, uploadedPath: queuedPathUpdates[item.id] } : item
         )));
       }
 
       let imagePath = referenceAssets.find((item) => item.type === 'product')?.image_path || referenceAssets[0]?.image_path || '';
 
-      // 2. Prepare Payload (Robust)
-      const promptText = genPrompt || "产品推广";
+      const promptText = buildScriptInputText();
 
-      // Values from Selected Template or Default
       const category = selectedTemplate?.product_category || "相机";
       const style = selectedTemplate?.visual_style || "写实";
-      const rawRatio = selectedTemplate?.aspect_ratio || "16:9";
+      const rawRatio = aspectRatio || selectedTemplate?.aspect_ratio || "16:9";
       const resolution = RATIO_TO_RES[rawRatio] || rawRatio || "1280*720";
       const duration = genDuration || selectedTemplate?.duration || 10;
       const shots = selectedTemplate?.shot_number || 5;
 
       const payload = {
-        model: backendModel,
-        // Root level prompt for backend safety
-        user_prompt: promptText,
-        prompt: promptText,
-        input: promptText,
-
         product_category: category,
         visual_style: style,
         aspect_ratio: resolution,
-        script_count: scriptVariantCount,
-
-        // Tell backend which language to use for script generation (UI language)
         user_language: language,
-        sound: soundSetting,
-        // Persist target audience language in payload for future backend extensions
         target_language: targetLanguage,
-
+        sound: soundSetting,
+        script_count: scriptVariantCount,
         script_content: {
-          duration: duration,
+          duration,
           shot_number: shots,
           custom: selectedTemplate?.custom_config || "",
-          // Inner level prompt
           input: promptText,
-          prompt: promptText,
-          user_prompt: promptText,
-          sound: soundSetting,
-          script_count: scriptVariantCount,
-          shots: []
+          shots: [],
         },
         ...(referenceAssets.length > 0 ? { reference_assets: referenceAssets } : {}),
         ...(imagePath ? { product_image_path: imagePath } : {}),
-        asset_source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference'),
         ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
       };
 
@@ -1996,15 +2837,75 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const response = await videoApi.generateScript(user.id, payload);
       console.log("✅ Script Generated:", response);
 
-      // 3. Helper to parse response
       const buildScriptsFromShots = (shots: any[]) => shots.map((shot: any) => ({
         id: shot.shot_index,
         shot: shot.shot_index.toString(),
         type: shot.type || 'Medium',
         dur: `${shot.duration_sec}s`,
         visual: shot.visual,
-        audio: shot.audio || shot.voiceover || ''
+        audio: shot.audio || shot.voiceover || '',
+        audioTranslation: shot.voiceover_translation || '',
       }));
+      const normalizeText = (value: any) => String(value || '').replace(/\s+/g, ' ').trim();
+      const parseStringList = (value: any, maxLen = 5) => {
+        if (!Array.isArray(value)) return [];
+        const next: string[] = [];
+        for (const item of value) {
+          const text = normalizeText(item);
+          if (!text) continue;
+          if (next.includes(text)) continue;
+          next.push(text);
+          if (next.length >= maxLen) break;
+        }
+        return next;
+      };
+      const buildFullScriptFallback = (scriptsList: ScriptItem[]) => (
+          scriptsList
+              .map((item) => normalizeText(item.visual))
+              .filter((text) => !!text)
+              .join(' ')
+      );
+      const parseScriptPage = (raw: any, idx: number): ScriptPage => {
+        const shots = buildScriptsFromShots(raw?.shots || raw?.script_content?.shots || []);
+        const scriptContent = raw?.script_content || raw || {};
+        const continuityAnchor = scriptContent?.continuity_anchor || {};
+        const scriptStructure = scriptContent?.script_structure || {};
+        const creativeCard = scriptContent?.creative_card || {};
+        const fullScript = normalizeText(scriptContent?.video_master_script) || buildFullScriptFallback(shots);
+        return {
+          id: `page-${idx + 1}`,
+          name: `${t.wb_script_page_prefix} ${idx + 1}`,
+          scripts: shots,
+          referenceSummary: parseReferenceSummary(
+              scriptContent?.reference_assets_summary || raw?.reference_assets_summary
+          ),
+          fullScript,
+          continuityAnchor: {
+            subject: normalizeText(continuityAnchor?.subject),
+            scene: normalizeText(continuityAnchor?.scene),
+            style: normalizeText(continuityAnchor?.style),
+          },
+          scriptStructure: {
+            hook: normalizeText(scriptStructure?.hook),
+            development: normalizeText(scriptStructure?.development),
+            payoff: normalizeText(scriptStructure?.payoff),
+          },
+          sellingPoints: parseStringList(scriptContent?.selling_points),
+          sceneSuggestions: parseStringList(scriptContent?.scene_suggestions),
+          styleTags: parseStringList(scriptContent?.style_tags),
+          creativeCard: {
+            style: normalizeText(creativeCard?.style),
+            environment: normalizeText(creativeCard?.environment),
+            tonePacing: normalizeText(creativeCard?.tone_pacing),
+            camera: normalizeText(creativeCard?.camera),
+            lighting: normalizeText(creativeCard?.lighting),
+            actions: parseStringList(creativeCard?.actions, 8),
+            backgroundSound: normalizeText(creativeCard?.background_sound),
+            transitionEditing: normalizeText(creativeCard?.transition_editing),
+            callToAction: normalizeText(creativeCard?.call_to_action),
+          },
+        };
+      };
       const parseReferenceSummary = (summary: any): ReferenceSummaryItem[] => {
         if (!Array.isArray(summary)) return [];
         const allowedTypes = new Set(['model', 'product', 'scene']);
@@ -2015,53 +2916,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           if (!allowedTypes.has(type)) continue;
           if (!Array.isArray(item.keywords)) continue;
           const keywords = item.keywords
-            .map((kw: any) => String(kw || '').trim())
-            .filter((kw: string, idx: number, arr: string[]) => kw.length > 0 && arr.indexOf(kw) === idx)
-            .slice(0, 3);
+              .map((kw: any) => String(kw || '').trim())
+              .filter((kw: string, idx: number, arr: string[]) => kw.length > 0 && arr.indexOf(kw) === idx)
+              .slice(0, 3);
           if (keywords.length === 0) continue;
           next.push({ type: type as ReferenceSummaryItem['type'], keywords });
         }
         return next;
       };
 
-      // 4. Handle various response formats from API
       const extractScriptPages = (data: any): ScriptPage[] => {
         if (!data) return [];
         if (Array.isArray(data.script_contents)) {
-          return data.script_contents.map((sc: any, idx: number) => ({
-            id: `page-${idx + 1}`,
-            name: `${t.wb_script_page_prefix} ${idx + 1}`,
-            scripts: buildScriptsFromShots(sc?.shots || []),
-            referenceSummary: parseReferenceSummary(sc?.reference_assets_summary),
-          }));
+          return data.script_contents.map((sc: any, idx: number) => parseScriptPage(sc, idx));
         }
         if (Array.isArray(data.script_variants)) {
-          return data.script_variants.map((variant: any, idx: number) => ({
-            id: `page-${idx + 1}`,
-            name: `${t.wb_script_page_prefix} ${idx + 1}`,
-            scripts: buildScriptsFromShots(variant?.script_content?.shots || variant?.shots || []),
-            referenceSummary: parseReferenceSummary(
-              variant?.script_content?.reference_assets_summary || variant?.reference_assets_summary
-            ),
-          }));
+          return data.script_variants.map((variant: any, idx: number) => parseScriptPage(variant, idx));
         }
         if (Array.isArray(data.variants)) {
-          return data.variants.map((variant: any, idx: number) => ({
-            id: `page-${idx + 1}`,
-            name: `${t.wb_script_page_prefix} ${idx + 1}`,
-            scripts: buildScriptsFromShots(variant?.script_content?.shots || variant?.shots || []),
-            referenceSummary: parseReferenceSummary(
-              variant?.script_content?.reference_assets_summary || variant?.reference_assets_summary
-            ),
-          }));
+          return data.variants.map((variant: any, idx: number) => parseScriptPage(variant, idx));
         }
         if (data.script_content?.shots) {
-          return [{
-            id: 'page-1',
-            name: `${t.wb_script_page_prefix} 1`,
-            scripts: buildScriptsFromShots(data.script_content.shots),
-            referenceSummary: parseReferenceSummary(data.script_content?.reference_assets_summary),
-          }];
+          return [parseScriptPage(data, 0)];
         }
         return [];
       };
@@ -2072,6 +2948,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           setScriptPages(pages);
           setActiveScriptPage(0);
           setScripts(pages[0].scripts);
+          setIsShotBreakdownOpen(false);
         } else {
           openInfo('Notice', "Script generation completed but returned unexpected data.");
         }
@@ -2093,8 +2970,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
   };
 
-  // --- Script Import / Export Functions ---
-
   const handleExportScripts = async () => {
     if (scripts.length === 0) { openInfo('Notice', 'No scripts to export!'); return; }
 
@@ -2113,8 +2988,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      // 上传到服务器 (如果父组件传了这个方法 且 启用了 Supabase)
-      // const enableSupabase = import.meta.env.VITE_ENABLE_SUPABASE === 'true';
       const enableSupabase = false;
       if (onExportToServer && enableSupabase) {
         await onExportToServer(scripts);
@@ -2135,7 +3008,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       try {
         const parsed = JSON.parse(event.target?.result as string);
 
-        // Validation: Check if array and has some expected fields
         if (Array.isArray(parsed) && parsed.length > 0 && ('visual' in parsed[0] || 'shot' in parsed[0])) {
           const validScripts = parsed.map((item: any, idx: number) => ({
             id: item.id || Date.now() + idx,
@@ -2143,9 +3015,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             type: item.type || 'Medium',
             dur: item.dur || '2s',
             visual: item.visual || '',
-            audio: item.audio || ''
+            audio: item.audio || '',
+            audioTranslation: item.audioTranslation || ''
           }));
-          // Update state
           setScripts(validScripts);
           setScriptPages(prev => {
             const next = [...prev];
@@ -2153,7 +3025,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             return next;
           });
 
-          // Optional: Update duration config to match imported script
           const newTotal = validScripts.reduce((acc: number, s: any) => acc + (parseFloat(s.dur.replace('s','')) || 0), 0);
           if (Math.abs(newTotal - genDuration) > 0.5) {
             setGenDuration(Math.ceil(newTotal));
@@ -2167,41 +3038,33 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
     };
     reader.readAsText(file);
-    // Reset file input so user can re-upload same file if needed
     e.target.value = '';
   };
 
-  // --- Script Pagination Handler ---
   const handleScriptPageChange = (nextIndex: number) => {
     if (nextIndex < 0 || nextIndex >= scriptPages.length) return;
 
-    // 1. Save current scripts to the current page before leaving
     setScriptPages(prev => {
       const next = [...prev];
       next[activeScriptPage] = { ...next[activeScriptPage], scripts: scripts };
       return next;
     });
 
-    // 2. Change Page Index
     setActiveScriptPage(nextIndex);
 
-    // 3. Load scripts from the new page
     setScripts(scriptPages[nextIndex]?.scripts || []);
+    setIsShotBreakdownOpen(false);
   };
 
-  // --- Safety: Sync Active Page if Pages Decrease ---
   useEffect(() => {
     if (activeScriptPage >= scriptPages.length && scriptPages.length > 0) {
-      // If current page index is invalid, jump to the last valid page
       const lastIndex = scriptPages.length - 1;
       setActiveScriptPage(lastIndex);
       setScripts(scriptPages[lastIndex].scripts || []);
     }
   }, [activeScriptPage, scriptPages]);
 
-  // --- Demo Script Auto-Translation ---
   useEffect(() => {
-    // Only update if we are still looking at the default demo scripts (ID 1 & 2)
     const isDemo = scripts.length === 2 && scripts[0].id === 1 && scripts[1].id === 2;
 
     if (isDemo) {
@@ -2209,17 +3072,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setScripts(newDemo);
       setScriptPages(prev => {
         const next = [...prev];
-        // Safely update the current page with translated scripts
         if (next[0]) {
           next[0] = { ...next[0], scripts: newDemo };
         }
         return next;
       });
     }
-  }, [t]); // Re-run when language (t) changes
+  }, [t, buildDemoScripts, scripts.length]);
 
   const formatI18nTemplate = (template: string, vars: Record<string, string | number>) =>
-    template.replace(/\{(\w+)\}/g, (match, key) => (Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : match));
+      template.replace(/\{(\w+)\}/g, (match, key) => (Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : match));
 
   const validateGenerateRequirements = () => {
     const issues: string[] = [];
@@ -2240,16 +3102,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!selectedTemplate?.id && !selectedFileObj && !selectedAssetUrl && !uploadedFile) {
       issues.push(t.wb_gen_req_issue_asset_or_template || 'Assets: upload an asset or select a template first.');
     }
-    if (scripts.length === 0) {
-      issues.push(t.wb_gen_req_issue_scripts_missing || 'Storyboard: generate or add scripts first.');
+    if (!hasActiveScriptConcept) {
+      issues.push(t.wb_gen_req_issue_master_script_missing);
     }
-    if (!isDurationValid) {
+    if (enableStoryboardEditor && !isDurationValid) {
       const template = t.wb_gen_req_issue_duration_mismatch || 'Storyboard: total shot duration ({scriptDuration}s) must match configured duration ({configDuration}s).';
       issues.push(
-        formatI18nTemplate(template, {
-          scriptDuration: currentScriptDuration.toFixed(1),
-          configDuration: genDuration,
-        })
+          formatI18nTemplate(template, {
+            scriptDuration: currentScriptDuration.toFixed(1),
+            configDuration: genDuration,
+          })
       );
     }
     if (!selectedTemplate?.id && !user?.id) {
@@ -2274,7 +3136,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
-    // 1. Batch Generation (Reuse Queue)
     if (reuseQueueEnabled) {
       setIsGenerating(true);
       setGeneratedVideoUrl(null);
@@ -2282,13 +3143,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       try {
         const batchItems: Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }> = [];
 
-        // 1) 处理素材：上传或复用已有路径
         const preparedAssets = await Promise.all(assetQueue.map(async (asset) => {
           let apiPath = asset.uploadedPath || asset.assetUrl || null;
 
           if (!apiPath && asset.fileObj) {
-              const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
-              let rawPath = null;
+            const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
+            let rawPath = null;
             if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
               rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
             } else {
@@ -2297,7 +3157,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             if (!rawPath) throw new Error("素材上传后未返回路径");
             apiPath = rawPath;
 
-            // 记录已上传路径，避免重复上传
             setAssetQueue(prev => prev.map(a => a.id === asset.id ? { ...a, uploadedPath: apiPath } : a));
           }
 
@@ -2306,13 +3165,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           return { ...asset, apiPath };
         }));
 
-        // 2) 逐条提交任务（素材 × 脚本）
         for (const asset of preparedAssets) {
           for (const scriptPack of scriptQueue) {
-            const combinedScriptPrompt = scriptPack.scripts.map(s => {
-              const audioMarker = (soundSetting === 'on' && s.audio) ? `【音频|【[旁白]】${s.audio}】` : '';
-              return `${s.visual || ''} ${audioMarker}`.trim();
-            }).join(' ');
+            const combinedScriptPrompt = buildCombinedScriptPrompt(
+                scriptPack.fullScript || '',
+                scriptPack.creativeCard,
+                scriptPack.scripts
+            );
 
             let newProjectId: string | undefined;
             if (selectedTemplate?.id) {
@@ -2333,22 +3192,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               if (!newProjectId) throw new Error('Failed to create project');
             }
 
-              const payload = {
-                model: backendModel,
-                prompt: combinedScriptPrompt,
-                project_id: newProjectId,
-                duration: scriptPack.duration,
-                ...(asset.mediaKind === 'video'
+            const payload = {
+              model: backendModel,
+              prompt: combinedScriptPrompt,
+              project_id: newProjectId,
+              duration: scriptPack.duration,
+              ...(asset.mediaKind === 'video'
                   ? { motion_video_path: (asset as any).apiPath }
                   : { image_path: (asset as any).apiPath }),
-                sound: soundSetting,
-                asset_source: asset.source,
-                user_language: language,
-                target_language: targetLanguage,
-                model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
-                motion_asset_id: asset.mediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
-                ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
-              };
+              sound: soundSetting,
+              asset_source: asset.source,
+              user_language: language,
+              target_language: targetLanguage,
+              model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
+              motion_asset_id: asset.mediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
+              ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
+            };
 
             const genResp = await generateWithAdaptiveImageConfirm(payload);
             const taskId = genResp?.data?.task_id || genResp?.task_id;
@@ -2383,12 +3242,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         } else {
           openInfo('Notice', '批量提交完成，但未返回有效任务ID');
         }
-    } catch (err: any) {
-      if (err?.message === USER_CANCELLED_ADAPT) {
-        openInfo('Notice', '已取消图片自动处理，批量生成已停止。');
-      } else {
-        openInfo('Error', `批量生成失败：${err?.message || '未知错误'}`);
-      }
+      } catch (err: any) {
+        if (err?.message === USER_CANCELLED_ADAPT) {
+          openInfo('Notice', '已取消图片自动处理，批量生成已停止。');
+        } else {
+          openInfo('Error', `批量生成失败：${err?.message || '未知错误'}`);
+        }
       } finally {
         setIsGenerating(false);
       }
@@ -2396,102 +3255,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
-    // 2. Single Video Generation
-
     setIsGenerating(true);
     setGeneratedVideoUrl(null);
 
     try {
       const payload = await buildSingleGeneratePayload();
       await submitSingleGeneration(payload);
-      /*
-      let apiPath = lastUploadedUrl; 
-      const uploadType = currentAssetMediaKind === 'video' ? 'motion' : 'product';
-      
-      if (!apiPath && selectedFileObj) {
-          console.log("🚀 Uploading reference image...");
-        const uploadResp = await assetsApi.uploadAsset(selectedFileObj, uploadType);
-          
-          let rawPath = null;
-          if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
-            rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
-          } else {
-            rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
-          }
-
-          if (!rawPath) throw new Error("Could not retrieve image path from upload response");
-
-          setLastUploadedUrl(rawPath);
-          apiPath = rawPath;
-      } else if (!apiPath && selectedAssetUrl) {
-        apiPath = selectedAssetUrl;
-      }
-
-      // It's valid to generate from a template or pure text-only prompt without an explicit image path.
-      // If we don't have an apiPath, proceed and let the backend decide (it may use model_asset_id or pure-text generation).
-
-      // Combine Scripts
-      const combinedScriptPrompt = scripts.map(s => {
-        const audioMarker = s.audio ? `【音频|【[旁白]】${s.audio}】` : '';
-        return `${s.visual || ''} ${audioMarker}`.trim();
-      }).join(' ');
-
-      // Clone Project (if template selected) or Create Project from scripts
-      let newProjectId: string | undefined;
-      if (selectedTemplate?.id) {
-        const cloneResp = await videoApi.cloneProject(selectedTemplate.id);
-        newProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
-        if (!newProjectId) throw new Error('Failed to clone project');
-      } else {
-        const createResp = await videoApi.createProject(user!.id, {
-          title: fileName || 'Video',
-          aspect_ratio: selectedTemplate?.aspect_ratio || '9:16',
-          script_content: {
-            duration: genDuration,
-            shots: scripts
-          }
-        });
-        newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
-        if (!newProjectId) throw new Error('Failed to create project');
-      }
-
-        const payload = {
-          model: backendModel,
-          prompt: combinedScriptPrompt,
-          project_id: newProjectId,
-          duration: genDuration,
-          ...(currentAssetMediaKind === 'video' ? { motion_video_path: apiPath } : { image_path: apiPath }),
-          sound: soundSetting,
-          asset_source: selectedAssetSource,
-          user_language: language,
-          target_language: targetLanguage,
-          model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
-          motion_asset_id: currentAssetMediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
-          ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
-        };
-
-      console.log("🚀 Sending Generation Request:", payload);
-
-      const genResp = await videoApi.generate(payload);
-      const taskId = genResp?.data?.task_id || genResp?.task_id;
-      const projectId = genResp?.data?.project_id || newProjectId;
-
-      if (genResp?.code === 0 && taskId) {
-        addTask({
-          id: taskId,
-          projectId: String(projectId),
-          type: 'video_generation',
-          status: 'processing',
-          name: `${selectedTemplate?.name || 'Video'} (${String(projectId).slice(0, 6)})`,
-          thumbnail: uploadedFile || undefined,
-          createdAt: Date.now(),
-        });
-        setLastGeneratedProjectId(String(projectId));
-        openInfo('Success', '任务已提交到后台运行，您可以继续修改参数生成下一个！');
-      } else {
-        openInfo('Notice', '提交成功，但未返回任务ID。');
-      }
-      */
     } catch (err: any) {
       if (err?.message === USER_CANCELLED_ADAPT) {
         openInfo('Notice', '已取消图片自动处理，未提交任务。');
@@ -2517,7 +3286,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     setIsPostingTikTok(true);
     try {
-      // 尝试检查授权状态
       let isAuthorized = false;
       let tiktokUserInfo = null;
       try {
@@ -2525,19 +3293,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         isAuthorized = status?.data?.authorized || false;
         tiktokUserInfo = status?.data?.tiktok_user || null;
       } catch (err: any) {
-        // 如果 getStatus 失败（401 等），说明需要授权，继续跳转到授权页面
         console.log('[TikTok] Status check failed, need authorization:', err);
         isAuthorized = false;
       }
 
-      // 如果未授权，跳转到授权页面
       if (!isAuthorized) {
         const authUrl = await tiktokApi.getAuthUrl(targetProjectId);
         window.location.href = authUrl;
         return;
       }
 
-      // 显示当前授权的TikTok账号，让用户确认
       let confirmMessage = '确认上传视频到TikTok草稿箱？\n\n';
       if (tiktokUserInfo && tiktokUserInfo.display_name) {
         confirmMessage += `当前授权账号: ${tiktokUserInfo.display_name}\n\n`;
@@ -2549,7 +3314,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       const userConfirmed = await openConfirm('Upload to TikTok', confirmMessage);
       if (!userConfirmed) {
-        // 用户点击了取消，询问是否要切换账号
         const switchAccount = await openConfirm(
             'Switch TikTok Account',
             '是否要切换TikTok账号？\n\n点击"确定"后：\n1. 系统将取消当前授权\n2. 跳转到TikTok授权页面\n3. 如需切换到其他账号，请在TikTok页面先退出当前账号，再登录新账号\n4. 授权成功后视频将自动上传到新账号的草稿箱'
@@ -2557,7 +3321,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (switchAccount) {
           try {
             await tiktokApi.revokeAuth();
-            // 取消授权成功，跳转到授权页面
             openInfo('Notice', '当前授权已取消，即将跳转到TikTok授权页面。\n\n如需切换账号，请在TikTok页面先退出当前账号。');
             const authUrl = await tiktokApi.getAuthUrl(targetProjectId);
             window.location.href = authUrl;
@@ -2570,7 +3333,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         return;
       }
 
-      // 已授权，尝试发布
       const result = await tiktokApi.publishDraft(targetProjectId);
       if (result.requiresAuth) {
         const authUrl = result.authUrl || await tiktokApi.getAuthUrl(targetProjectId);
@@ -2585,14 +3347,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setIsPostingTikTok(false);
     }
   };
-  // --- Video Controls ---
+
   const toggleVideoPlay = () => {
     const video = videoRef.current;
     if (!video) return;
 
     if (video.paused || video.ended) {
       const p = video.play();
-      // play() can reject (autoplay / permissions). Avoid unhandled promise rejection.
       if (p && typeof (p as Promise<void>).catch === 'function') p.catch(() => setIsPlaying(false));
     } else {
       video.pause();
@@ -2604,7 +3365,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!video) return;
 
     const next = Math.max(0, video.currentTime + seconds);
-    // duration may be NaN/Infinity until metadata is loaded (or for live streams).
     if (Number.isFinite(video.duration) && video.duration > 0) {
       video.currentTime = Math.min(next, video.duration);
     } else {
@@ -2612,15 +3372,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
   };
 
-  // --- Render Sections ---
-  
   useEffect(() => {
     if (creationMode !== 'fast') return;
     if (
-      selectedModel === 'kling' ||
-      selectedModel === 'sora2' ||
-      selectedModel === 'sora2pro' ||
-      selectedModel === 'seedance2.0'
+        selectedModel === 'kling' ||
+        selectedModel === 'sora2' ||
+        selectedModel === 'sora2pro' ||
+        selectedModel === 'seedance2.0'
     ) {
       lastFastModelRef.current = selectedModel;
     }
@@ -2632,17 +3390,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [creationMode, selectedModel, setSelectedModel]);
 
   const backendModel =
-    selectedModel === 'sora2pro'
-      ? 'sora-2-pro'
-      : selectedModel === 'sora2'
-        ? 'sora-2'
-        : selectedModel === 'kling'
-          ? 'kling-v2-6'
-          : 'seedance-2.0';
+      selectedModel === 'sora2pro'
+          ? 'sora-2-pro'
+          : selectedModel === 'sora2'
+              ? 'sora-2'
+              : selectedModel === 'kling'
+                  ? 'kling-v3'
+                  : 'seedance-2.0';
 
   const renderLeftColumn = () => {
     const segmentBase =
-      'group/seg relative flex-1 py-2.5 rounded-lg text-[10px] tracking-tight font-bold transition select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60';
+        'group/seg relative flex-1 py-2.5 rounded-lg text-[10px] tracking-tight font-bold transition select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60';
     const activeSegment = 'bg-gradient-to-r from-purple-600 to-orange-500 text-white shadow-lg shadow-orange-500/15';
     const inactiveSegment = 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5';
 
@@ -2663,61 +3421,61 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     );
 
     const legacyModelSelector = (
-      <div className="flex flex-col gap-3">
-        <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-          <Cpu className="w-3 h-3" /> {t.wb_model_title}
-        </h2>
-        <div className="glass-panel rounded-xl p-1 border border-white/10 bg-black/20 relative z-[90]">
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              aria-pressed={selectedModel === 'kling'}
-              onClick={() => setSelectedModel('kling')}
-              className={`${segmentBase} ${language === 'zh' ? 'text-[10px]' : ''} ${selectedModel === 'kling' ? activeSegment : inactiveSegment}`}
-            >
-              {language === 'zh' ? '可灵2.6' : 'Kling2.6'}
-              {tooltip(t.wb_model_tip_sora_kling, 'left')}
-            </button>
-            <button
-              type="button"
-              aria-pressed={selectedModel === 'sora2'}
-              onClick={() => setSelectedModel('sora2')}
-              className={`${segmentBase} ${selectedModel === 'sora2' ? activeSegment : inactiveSegment}`}
-            >
-              Sora 2
-              {tooltip(t.wb_model_tip_sora_kling, 'center')}
-            </button>
-            <button
-              type="button"
-              aria-pressed={selectedModel === 'sora2pro'}
-              onClick={() => setSelectedModel('sora2pro')}
-              className={`${segmentBase} ${selectedModel === 'sora2pro' ? activeSegment : inactiveSegment}`}
-            >
-              Sora 2 Pro
-              {tooltip(t.wb_model_tip_sora_kling, 'center')}
-            </button>
-            <button
-              type="button"
-              aria-pressed={selectedModel === 'seedance2.0'}
-              onClick={() => setSelectedModel('seedance2.0')}
-              className={`${segmentBase} ${selectedModel === 'seedance2.0' ? activeSegment : inactiveSegment}`}
-            >
-              Seedance 2.0
-              {tooltip(t.wb_model_tip_seedance, 'right')}
-            </button>
+        <div className="flex flex-col gap-3">
+          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+            <Cpu className="w-3 h-3" /> {t.wb_model_title}
+          </h2>
+          <div className="glass-panel rounded-xl p-1 border border-white/10 bg-black/20 relative z-[90]">
+            <div className="flex items-center gap-1">
+              <button
+                  type="button"
+                  aria-pressed={selectedModel === 'kling'}
+                  onClick={() => setSelectedModel('kling')}
+                  className={`${segmentBase} ${language === 'zh' ? 'text-[10px]' : ''} ${selectedModel === 'kling' ? activeSegment : inactiveSegment}`}
+              >
+                {language === 'zh' ? '可灵3.0' : 'Kling3.0'}
+                {tooltip(t.wb_model_tip_sora_kling, 'left')}
+              </button>
+              <button
+                  type="button"
+                  aria-pressed={selectedModel === 'sora2'}
+                  onClick={() => setSelectedModel('sora2')}
+                  className={`${segmentBase} ${selectedModel === 'sora2' ? activeSegment : inactiveSegment}`}
+              >
+                Sora 2
+                {tooltip(t.wb_model_tip_sora_kling, 'center')}
+              </button>
+              <button
+                  type="button"
+                  aria-pressed={selectedModel === 'sora2pro'}
+                  onClick={() => setSelectedModel('sora2pro')}
+                  className={`${segmentBase} ${selectedModel === 'sora2pro' ? activeSegment : inactiveSegment}`}
+              >
+                Sora 2 Pro
+                {tooltip(t.wb_model_tip_sora_kling, 'center')}
+              </button>
+              <button
+                  type="button"
+                  aria-pressed={selectedModel === 'seedance2.0'}
+                  onClick={() => setSelectedModel('seedance2.0')}
+                  className={`${segmentBase} ${selectedModel === 'seedance2.0' ? activeSegment : inactiveSegment}`}
+              >
+                Seedance 2.0
+                {tooltip(t.wb_model_tip_seedance, 'right')}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
     );
 
     const handleSetCreationMode = (next: 'fast' | 'replay') => {
       if (next === creationMode) return;
       if (next === 'replay') {
         if (
-          selectedModel === 'kling' ||
-          selectedModel === 'sora2' ||
-          selectedModel === 'sora2pro' ||
-          selectedModel === 'seedance2.0'
+            selectedModel === 'kling' ||
+            selectedModel === 'sora2' ||
+            selectedModel === 'sora2pro' ||
+            selectedModel === 'seedance2.0'
         ) {
           lastFastModelRef.current = selectedModel;
         }
@@ -2738,7 +3496,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }> = [
       {
         id: 'kling',
-        title: language === 'zh' ? '可灵 v2.6' : 'Kling v2.6',
+        title: language === 'zh' ? '可灵 3.0' : 'Kling 3.0',
         desc: t.wb_model_kling_desc,
         rate: 20,
         Icon: Zap,
@@ -2770,197 +3528,481 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const active = selectedModel === opt.id;
       const locked = creationMode === 'fast' && opt.id === 'seedance2.0';
       return (
-        <button
-          key={opt.id}
-          type="button"
-          onClick={() => {
-            if (locked) return;
-            setSelectedModel(opt.id);
-          }}
-          disabled={locked}
-          className={[
-            'w-full text-left rounded-2xl border p-3 transition flex items-center gap-4',
-            'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
-            active
-              ? 'border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10'
-              : 'border-white/10 bg-black/20 hover:bg-white/5',
-            locked ? 'cursor-not-allowed opacity-70' : '',
-          ].join(' ')}
-          aria-pressed={active}
-        >
-          <div
-            className={[
-              'w-10 h-10 rounded-2xl flex items-center justify-center shrink-0',
-              active
-                ? 'bg-orange-500/20 border border-orange-500/30'
-                : 'bg-zinc-900/60 border border-white/10',
-            ].join(' ')}
+          <button
+              key={opt.id}
+              type="button"
+              onClick={() => {
+                if (locked) return;
+                setSelectedModel(opt.id);
+              }}
+              disabled={locked}
+              className={[
+                'w-full text-left rounded-2xl border p-3 transition flex items-center gap-4',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                active
+                    ? 'border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10'
+                    : 'border-white/10 bg-black/20 hover:bg-white/5',
+                locked ? 'cursor-not-allowed opacity-70' : '',
+              ].join(' ')}
+              aria-pressed={active}
           >
-            <opt.Icon className={active ? 'w-5 h-5 text-orange-500' : 'w-5 h-5 text-zinc-400'} />
-          </div>
+            <div
+                className={[
+                  'w-10 h-10 rounded-2xl flex items-center justify-center shrink-0',
+                  active
+                      ? 'bg-orange-500/20 border border-orange-500/30'
+                      : 'bg-zinc-900/60 border border-white/10',
+                ].join(' ')}
+            >
+              <opt.Icon className={active ? 'w-5 h-5 text-orange-500' : 'w-5 h-5 text-zinc-400'} />
+            </div>
 
-          <div className="flex-1 min-w-0">
-            <div className="text-[12px] font-black tracking-wide text-zinc-200 truncate">{opt.title}</div>
-            <div
-              className={
-                language === 'zh'
-                  ? 'mt-1 text-[9px] font-medium text-zinc-400 truncate'
-                  : 'mt-1 text-[8px] font-medium text-zinc-400 whitespace-normal break-words leading-snug'
-              }
-            >
-              {opt.desc}
+            <div className="flex-1 min-w-0">
+              <div className="text-[12px] font-black tracking-wide text-zinc-200 truncate">{opt.title}</div>
+              <div
+                  className={
+                    language === 'zh'
+                        ? 'mt-1 text-[9px] font-medium text-zinc-400 truncate'
+                        : 'mt-1 text-[8px] font-medium text-zinc-400 whitespace-normal break-words leading-snug'
+                  }
+              >
+                {opt.desc}
+              </div>
             </div>
-          </div>
-          {locked ? (
-            <Lock className="w-4 h-4 text-zinc-400 shrink-0" aria-hidden="true" />
-          ) : (
-          <div className="flex flex-col items-center gap-2 shrink-0">
-            <div
-              className={[
-                'model-check w-4 h-4 rounded-full border flex items-center justify-center',
-                active ? 'border-orange-500 bg-orange-500' : 'model-check--inactive border-white/25 bg-transparent',
-              ].join(' ')}
-              aria-hidden="true"
-            >
-              {active ? <Check className="w-2.5 h-2.5 text-white" /> : null}
-            </div>
-            <div
-              className={[
-                'text-[8px] whitespace-nowrap',
-                active ? 'font-bold text-orange-500' : 'font-medium text-zinc-500',
-              ].join(' ')}
-            >
-              {opt.rate}{t.wb_vpoints_per_sec}
-            </div>
-          </div>
-          )}
-        </button>
+            {locked ? (
+                <Lock className="w-4 h-4 text-zinc-400 shrink-0" aria-hidden="true" />
+            ) : (
+                <div className="flex flex-col items-center gap-2 shrink-0">
+                  <div
+                      className={[
+                        'model-check w-4 h-4 rounded-full border flex items-center justify-center',
+                        active ? 'border-orange-500 bg-orange-500' : 'model-check--inactive border-white/25 bg-transparent',
+                      ].join(' ')}
+                      aria-hidden="true"
+                  >
+                    {active ? <Check className="w-2.5 h-2.5 text-white" /> : null}
+                  </div>
+                  <div
+                      className={[
+                        'text-[8px] whitespace-nowrap',
+                        active ? 'font-bold text-orange-500' : 'font-medium text-zinc-500',
+                      ].join(' ')}
+                  >
+                    {opt.rate}{t.wb_vpoints_per_sec}
+                  </div>
+                </div>
+            )}
+          </button>
       );
     };
 
     const modelSelector = (
-      <div className="flex flex-col gap-6">
-        <div>
-          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
-            <Wand2 className="w-3 h-3" /> {t.wb_creation_mode_title}
-          </h2>
-          <div className="creation-mode-toggle mx-3 rounded-2xl bg-white/5 border border-white/10 p-1 flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => handleSetCreationMode('fast')}
-              aria-pressed={creationMode === 'fast'}
-              className={[
-                'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
-                'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
-                creationMode === 'fast'
-                  ? 'bg-white text-zinc-900 shadow-md'
-                  : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
-              ].join(' ')}
-            >
-              <Zap className={creationMode === 'fast' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
-              <span className="text-[12px]">{t.wb_creation_mode_fast}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSetCreationMode('replay')}
-              aria-pressed={creationMode === 'replay'}
-              className={[
-                'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
-                'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
-                creationMode === 'replay'
-                  ? 'bg-white text-zinc-900 shadow-md'
-                  : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
-              ].join(' ')}
-            >
-              <Layers className={creationMode === 'replay' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
-              <span className="text-[12px]">{t.wb_creation_mode_replay}</span>
-            </button>
-          </div>
-        </div>
-
-        {creationMode === 'fast' ? (
-          <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
-            <div className="mb-3">
-              <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                <ArrowRight className="w-3 h-3 text-zinc-500" />
-                {t.wb_render_power_title}
-              </h2>
-            </div>
-            <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
-          </div>
-        ) : (
-          <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
-            <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-              <ArrowRight className="w-3 h-3 text-zinc-500" />
-              {t.wb_recommend_engine_title}
+        <div className="flex flex-col gap-6">
+          <div>
+            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
+              <Wand2 className="w-3 h-3" /> {t.wb_creation_mode_title}
             </h2>
-            <div className="w-full text-left rounded-2xl border border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10 p-4 flex items-center gap-4">
-              <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-orange-500/20 border border-orange-500/30">
-                <Video className="w-5 h-5 text-orange-400" />
-              </div>
-              <div className="flex-1 min-w-0"> 
-                <div className={language === 'vi' ? 'flex items-center gap-1.5' : 'flex items-center gap-2'}> 
-                  <div className="text-[12px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div> 
-                  <span
-                    className={[
-                      'rounded-full font-black bg-emerald-500 text-black whitespace-nowrap shrink-0',
-                      language === 'vi' ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-0.5 text-[10px]',
-                    ].join(' ')}
-                  > 
-                    {t.wb_engine_dedicated} 
-                  </span> 
-                </div> 
-                <div 
-                  className={ 
-                    language === 'zh' 
-                      ? 'mt-1 text-[9px] font-medium text-zinc-400 truncate' 
-                      : 'mt-1 text-[8px] font-medium text-zinc-400 whitespace-normal break-words leading-snug' 
-                  } 
-                > 
-                  {t.wb_recommend_engine_desc} 
-                </div> 
-              </div> 
-              <Lock className="w-4 h-4 text-zinc-500 shrink-0" aria-hidden="true" /> 
-            </div> 
+            <div className="creation-mode-toggle mx-3 rounded-2xl bg-white/5 border border-white/10 p-1 flex items-center gap-1">
+              <button
+                  type="button"
+                  onClick={() => handleSetCreationMode('fast')}
+                  aria-pressed={creationMode === 'fast'}
+                  className={[
+                    'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
+                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                    creationMode === 'fast'
+                        ? 'bg-white text-zinc-900 shadow-md'
+                        : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
+                  ].join(' ')}
+              >
+                <Zap className={creationMode === 'fast' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
+                <span className="text-[12px]">{t.wb_creation_mode_fast}</span>
+              </button>
+              <button
+                  type="button"
+                  onClick={() => handleSetCreationMode('replay')}
+                  aria-pressed={creationMode === 'replay'}
+                  className={[
+                    'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
+                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                    creationMode === 'replay'
+                        ? 'bg-white text-zinc-900 shadow-md'
+                        : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
+                  ].join(' ')}
+              >
+                <Layers className={creationMode === 'replay' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
+                <span className="text-[12px]">{t.wb_creation_mode_replay}</span>
+              </button>
+            </div>
+          </div>
 
-            <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 flex items-start gap-2">
-              <Info className="w-3 h-3 text-zinc-400 mt-0.5 shrink-0" />
-              <div className="text-[10px] font-normal text-zinc-400 leading-relaxed">
-                {t.wb_replay_seedance_only}
+          {creationMode === 'fast' ? (
+              <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
+                <div className="mb-3">
+                  <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                    <ArrowRight className="w-3 h-3 text-zinc-500" />
+                    {t.wb_render_power_title}
+                  </h2>
+                </div>
+                <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
+              </div>
+          ) : (
+              <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
+                <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                  <ArrowRight className="w-3 h-3 text-zinc-500" />
+                  {t.wb_recommend_engine_title}
+                </h2>
+                <div className="w-full text-left rounded-2xl border border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10 p-4 flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-orange-500/20 border border-orange-500/30">
+                    <Video className="w-5 h-5 text-orange-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className={language === 'vi' ? 'flex items-center gap-1.5' : 'flex items-center gap-2'}>
+                      <div className="text-[12px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div>
+                      <span
+                          className={[
+                            'rounded-full font-black bg-emerald-500 text-black whitespace-nowrap shrink-0',
+                            language === 'vi' ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-0.5 text-[10px]',
+                          ].join(' ')}
+                      >
+                    {t.wb_engine_dedicated}
+                  </span>
+                    </div>
+                    <div
+                        className={
+                          language === 'zh'
+                              ? 'mt-1 text-[9px] font-medium text-zinc-400 truncate'
+                              : 'mt-1 text-[8px] font-medium text-zinc-400 whitespace-normal break-words leading-snug'
+                        }
+                    >
+                      {t.wb_recommend_engine_desc}
+                    </div>
+                  </div>
+                  <Lock className="w-4 h-4 text-zinc-500 shrink-0" aria-hidden="true" />
+                </div>
+
+                <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 flex items-start gap-2">
+                  <Info className="w-3 h-3 text-zinc-400 mt-0.5 shrink-0" />
+                  <div className="text-[10px] font-normal text-zinc-400 leading-relaxed">
+                    {t.wb_replay_seedance_only}
+                  </div>
+                </div>
+              </div>
+          )}
+        </div>
+    );
+
+    const renderLeftColumnSettings = () => (
+        <div ref={configSectionRef} className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${getGuideFocusClass('config')}`}>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+              <Gift className="w-3 h-3" /> 商品信息
+            </h2>
+            <button
+                type="button"
+                onClick={() => {
+                  if (isAiRecognizing) {
+                    openInfo('Notice', t.wb_ai_recognizing_tip);
+                    return;
+                  }
+                  if (getProductRecognitionSources().length === 0) {
+                    openInfo('Notice', t.wb_ai_need_product_image);
+                    return;
+                  }
+                  void handleAiRecognize();
+                }}
+                className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border ${isAiRecognizing || getProductRecognitionSources().length === 0 ? 'border-white/10 bg-black/30 text-zinc-600 opacity-70 hover:bg-black/30' : 'border-orange-500/40 bg-orange-500/10 text-orange-300 hover:bg-orange-500/20'}`}
+            >
+              {isAiRecognizing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+              {isAiRecognizing ? t.wb_ai_recognizing_btn : t.wb_ai_recognize_btn}
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
+              <div ref={videoTypeFieldRef}>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+                  {t.wb_field_product_name_label}
+                  <span className="ml-1 text-red-400">*</span>
+                </label>
+                <input
+                    ref={productNameFieldRef}
+                    value={productName}
+                    onChange={(e) => {
+                      setProductName(e.target.value);
+                      setProductInfoTouched((prev) => ({ ...prev, name: true }));
+                      if (requiredErrors.productName && e.target.value.trim()) {
+                        setRequiredErrors((prev) => ({ ...prev, productName: undefined }));
+                      }
+                    }}
+                    placeholder={t.wb_field_product_name_placeholder}
+                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition"
+                />
+                {requiredErrors.productName && (
+                    <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.productName}</div>
+                )}
+              </div>
+
+              <div ref={productCategoryFieldRef}>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+                  {t.wb_field_product_category_label}
+                  <span className="ml-1 text-red-400">*</span>
+                </label>
+                <DropdownSelect
+                    value={productCategory}
+                    placeholder={t.wb_select_placeholder}
+                    options={[
+                      { value: '服装鞋靴', label: t.wb_product_category_apparel },
+                      { value: '美妆个护', label: t.wb_product_category_beauty },
+                      { value: '食品饮料', label: t.wb_product_category_food },
+                      { value: '3C数码', label: t.wb_product_category_digital },
+                      { value: '家居百货', label: t.wb_product_category_home },
+                    ]}
+                    onChange={(v) => {
+                      setProductCategory(v);
+                      setProductInfoTouched((prev) => ({ ...prev, category: true }));
+                      if (requiredErrors.productCategory && v.trim()) {
+                        setRequiredErrors((prev) => ({ ...prev, productCategory: undefined }));
+                      }
+                    }}
+                    buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                    labelClassName=""
+                    iconClassName="w-3 h-3 text-zinc-500"
+                    optionClassName="text-xs"
+                />
+                {requiredErrors.productCategory && (
+                    <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.productCategory}</div>
+                )}
+              </div>
+
+            <div>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+                {t.wb_field_core_selling_points_label}
+                <span className="ml-1 text-red-400">*</span>
+              </label>
+              <textarea
+                ref={coreSellingPointsFieldRef}
+                value={coreSellingPoints}
+                onChange={(e) => {
+                  setCoreSellingPoints(e.target.value);
+                  setProductInfoTouched((prev) => ({ ...prev, sellingPoints: true }));
+                  if (requiredErrors.coreSellingPoints && e.target.value.trim()) {
+                    setRequiredErrors((prev) => ({ ...prev, coreSellingPoints: undefined }));
+                  }
+                }}
+                placeholder={t.wb_field_core_selling_points_placeholder}
+                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition resize-y min-h-[80px]"
+              />
+              {requiredErrors.coreSellingPoints && (
+                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.coreSellingPoints}</div>
+              )}
+            </div>
+
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_target_audience_label}</label>
+                <input
+                    value={targetAudience}
+                    onChange={(e) => {
+                      setTargetAudience(e.target.value);
+                      setProductInfoTouched((prev) => ({ ...prev, audience: true }));
+                    }}
+                    placeholder={t.wb_field_target_audience_placeholder}
+                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition"
+                />
               </div>
             </div>
           </div>
-        )}
-      </div>
+
+          <div className="flex items-center justify-between gap-4 mt-2">
+            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+              <SlidersHorizontal className="w-3 h-3" /> {t.wb_generation_settings_title}
+            </h2>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_delivery_region_label}</label>
+                  <DropdownSelect
+                      value={deliveryRegion}
+                      options={DELIVERY_REGION_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
+                      onChange={setDeliveryRegion}
+                      buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                      labelClassName=""
+                      iconClassName="w-3 h-3 text-zinc-500"
+                      optionClassName="text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_video_language_label}</label>
+                  <DropdownSelect
+                      value={targetLanguage}
+                      options={TARGET_LANGUAGE_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
+                      onChange={setTargetLanguage}
+                      buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                      labelClassName=""
+                      iconClassName="w-3 h-3 text-zinc-500"
+                      optionClassName="text-xs"
+                  />
+                </div>
+              </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+                  {t.wb_field_video_type_label}
+                  <span className="ml-1 text-red-400">*</span>
+                </label>
+                <DropdownSelect
+                  value={videoType}
+                  placeholder={t.wb_select_placeholder}
+                  options={[
+                    { value: 'UGC种草', label: t.wb_video_type_ugc },
+                    { value: '产品口播', label: t.wb_video_type_talking },
+                    { value: '产品演示', label: t.wb_video_type_demo },
+                    { value: '痛点-解决', label: t.wb_video_type_problem_solution },
+                    { value: '前后对比', label: t.wb_video_type_before_after },
+                    { value: '反应展示', label: t.wb_video_type_reaction },
+                    { value: '故事讲述', label: t.wb_video_type_story },
+                  ]}
+                  onChange={(v) => {
+                    setVideoType(v);
+                    if (requiredErrors.videoType && v.trim()) {
+                      setRequiredErrors((prev) => ({ ...prev, videoType: undefined }));
+                    }
+                  }}
+                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  labelClassName=""
+                  iconClassName="w-3 h-3 text-zinc-500"
+                  optionClassName="text-xs"
+                />
+                {requiredErrors.videoType && (
+                  <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.videoType}</div>
+                )}
+              </div>
+
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.aspect_ratio}</label>
+                <DropdownSelect
+                  value={aspectRatio}
+                  options={[
+                    { value: '9:16', label: t.mobile },
+                    { value: '16:9', label: t.landscape },
+                  ]}
+                  onChange={(v) => setAspectRatio(v === '16:9' ? '16:9' : '9:16')}
+                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  labelClassName=""
+                  iconClassName="w-3 h-3 text-zinc-500"
+                  optionClassName="text-xs"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_additional_requirements_label}</label>
+              <textarea
+                readOnly={!hasCurrentAsset}
+                onFocus={() => {
+                  if (!hasCurrentAsset) openInfo('Notice', t.wb_additional_requirements_need_asset);
+                }}
+                onClick={() => {
+                  if (!hasCurrentAsset) openInfo('Notice', t.wb_additional_requirements_need_asset);
+                }}
+                className={`w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-y min-h-[80px] ${!hasCurrentAsset ? 'text-zinc-500 opacity-60' : 'text-zinc-300 focus:border-orange-500 focus:outline-none'}`}
+                placeholder={t.wb_field_additional_requirements_placeholder}
+                value={genPrompt}
+                onChange={(e) => {
+                  if (!hasCurrentAsset) return;
+                  setGenPrompt(e.target.value);
+                }}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
+                <DropdownSelect
+                  value={String(genDuration)}
+                  options={[
+                    { value: '5', label: '5s' },
+                    { value: '10', label: '10s' },
+                    { value: '15', label: '15s' },
+                  ]}
+                  onChange={(v) => {
+                    const next = Number(v);
+                    if (next === 5 || next === 10 || next === 15) {
+                      setGenDuration(next);
+                      return;
+                    }
+                    setGenDuration(10);
+                  }}
+                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  labelClassName=""
+                  iconClassName="w-3 h-3 text-zinc-500"
+                  optionClassName="text-xs"
+                />
+              </div>
+
+                <div>
+                  <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_audio}</label>
+                  <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
+                    <button onClick={() => setSoundSetting('on')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'on' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_on}</button>
+                    <button onClick={() => setSoundSetting('off')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'off' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_off}</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-white/5 my-1" />
+
+              <div className="flex flex-col gap-3">
+                <div className="flex justify-between items-center">
+                  <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_script_count_label}</label>
+                  <span className="text-[12px] font-bold text-orange-400">{scriptVariantCount} {t.wb_script_count_unit}</span>
+                </div>
+                <input
+                    type="range"
+                    min={1}
+                    max={10}
+                    value={scriptVariantCount}
+                    onChange={(e) => setScriptVariantCount(Number(e.target.value))}
+                    className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                />
+              </div>
+            </div>
+          </div>
+
+        </div>
     );
 
     return (
-    <div className="w-[280px] xl:w-[320px] flex flex-col gap-6 shrink-0 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
-      <div ref={modeSectionRef} className={getGuideFocusClass('mode')}>
-        {modelSelector}
-      </div>
-      {false && legacyModelSelector}
-      {/* Upload Section */}
-      <div ref={uploadSectionRef} className={`flex flex-col gap-3 ${getGuideFocusClass('upload')}`}>
-        <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
-        <div
-          onDragOver={handleUploadDragOver}
-          onDragEnter={handleUploadDragOver}
-          onDragLeave={handleUploadDragLeave}
-          onDrop={handleUploadDrop}
-          className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors min-h-32 relative group ${uploadDisplayAssets.length > 0 ? 'border-none' : ''} ${isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50'}`}
-        >
-          {isDragUploadActive && (
-            <div className="absolute inset-1 rounded-lg border border-dashed border-orange-500/60 bg-orange-500/10 pointer-events-none" />
-          )}
-          <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*,audio/*" multiple onChange={handleWorkbenchUpload} />
-          {uploadDisplayAssets.length === 0 ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center z-10 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-              <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition duration-300"><Plus className="w-4 h-4 text-zinc-500 group-hover:text-orange-500" /></div>
-              <p className="text-[10px] font-medium text-zinc-400">{t.wb_upload_click}</p>
-              <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[10px] text-zinc-300">
-                <span className="text-zinc-500">{t.wb_upload_support}</span>
-                <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
+        <div className="w-full flex flex-col gap-6 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
+          <div ref={modeSectionRef} className={getGuideFocusClass('mode')}>
+            {modelSelector}
+          </div>
+          {false && legacyModelSelector}
+          {/* Upload Section */}
+          <div ref={uploadSectionRef} className={`flex flex-col gap-3 ${getGuideFocusClass('upload')}`}>
+            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
+            <div
+                onDragOver={handleUploadDragOver}
+                onDragEnter={handleUploadDragOver}
+                onDragLeave={handleUploadDragLeave}
+                onDrop={handleUploadDrop}
+                className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors min-h-32 relative group ${uploadDisplayAssets.length > 0 ? 'border-none' : ''} ${isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50'}`}
+            >
+              {isDragUploadActive && (
+                  <div className="absolute inset-1 rounded-lg border border-dashed border-orange-500/60 bg-orange-500/10 pointer-events-none" />
+              )}
+              <input type="file" ref={fileInputRef} className="hidden" accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.mkv,.webm,.avi,.mp3,.wav,.flac" multiple onChange={handleWorkbenchUpload} />
+              {uploadDisplayAssets.length === 0 ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center z-10 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                    <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition duration-300"><Plus className="w-4 h-4 text-zinc-500 group-hover:text-orange-500" /></div>
+                    <p className="text-[10px] font-medium text-zinc-400">{t.wb_upload_click}</p>
+                    <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[10px] text-zinc-300">
+                      <span className="text-zinc-500">{t.wb_upload_support}</span>
+                      <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
                   {t.wb_upload_image}
                         <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
                     {imageFormats}
@@ -2988,132 +4030,133 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         const inQueue = assetQueue.find((item) => item.id === asset.id);
                         const selected = selectedQueueAssetId ? selectedQueueAssetId === asset.id : uploadedFile === asset.previewUrl;
                         return (
-                          <div
-                            key={asset.id}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => {
-                              if (inQueue) {
-                                selectAssetFromQueue(inQueue);
-                                return;
-                              }
-                              setUploadedFile(asset.previewUrl || null);
-                              setFileName(asset.name || '');
-                              setSelectedFileObj(asset.fileObj || null);
-                              setSelectedAssetUrl(asset.assetUrl || null);
-                              setSelectedAssetSource(asset.source || null);
-                              setCurrentMaterialType(asset.materialType || null);
-                              setSelectedQueueAssetId(null);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key !== 'Enter' && e.key !== ' ') return;
-                              e.preventDefault();
-                              if (inQueue) {
-                                selectAssetFromQueue(inQueue);
-                                return;
-                              }
-                              setUploadedFile(asset.previewUrl || null);
-                              setFileName(asset.name || '');
-                              setSelectedFileObj(asset.fileObj || null);
-                              setSelectedAssetUrl(asset.assetUrl || null);
-                              setSelectedAssetSource(asset.source || null);
-                              setCurrentMaterialType(asset.materialType || null);
-                              setSelectedQueueAssetId(null);
-                            }}
-                            className={`relative w-full h-24 rounded-md overflow-hidden border text-left transition ${selected ? 'border-orange-500/70 ring-1 ring-orange-500/50' : 'border-white/10 hover:border-white/20'}`}
-                          >
-                            {asset.previewUrl ? (asset.mediaKind === 'video' ? (
-                              <video src={asset.previewUrl} className="w-full h-full object-cover opacity-80" muted playsInline />
-                            ) : (
-                              <img src={asset.previewUrl} className="w-full h-full object-cover opacity-80" alt={asset.name} />
-                            )) : (
-                              <div className="w-full h-full flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
-                            )}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const currentType = asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product');
-                                const nextType = getNextMaterialType(currentType);
-                                if (inQueue) {
-                                  setAssetQueue(prev => prev.map(item => (item.id === asset.id ? { ...item, materialType: nextType } : item)));
-                                  if (selected) setCurrentMaterialType(nextType);
-                                } else {
-                                  setCurrentMaterialType(nextType);
-                                }
-                              }}
-                              className="absolute top-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-white/15 bg-black/60 text-zinc-100 hover:bg-black/75 transition"
+                            <div
+                                key={asset.id}
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => {
+                                  if (inQueue) {
+                                    selectAssetFromQueue(inQueue);
+                                    return;
+                                  }
+                                  setUploadedFile(asset.previewUrl || null);
+                                  setFileName(asset.name || '');
+                                  setSelectedFileObj(asset.fileObj || null);
+                                  setSelectedAssetUrl(asset.assetUrl || null);
+                                  setSelectedAssetSource(asset.source || null);
+                                  setCurrentMaterialType(asset.materialType || null);
+                                  setSelectedQueueAssetId(null);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key !== 'Enter' && e.key !== ' ') return;
+                                  e.preventDefault();
+                                  if (inQueue) {
+                                    selectAssetFromQueue(inQueue);
+                                    return;
+                                  }
+                                  setUploadedFile(asset.previewUrl || null);
+                                  setFileName(asset.name || '');
+                                  setSelectedFileObj(asset.fileObj || null);
+                                  setSelectedAssetUrl(asset.assetUrl || null);
+                                  setSelectedAssetSource(asset.source || null);
+                                  setCurrentMaterialType(asset.materialType || null);
+                                  setSelectedQueueAssetId(null);
+                                }}
+                                className={`relative w-full rounded-md overflow-hidden border text-left transition ${selected ? 'border-orange-500/70 ring-1 ring-orange-500/50' : 'border-white/10 hover:border-white/20'}`}
                             >
-                              {materialTypeLabelMap[asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product')]}
-                            </button>
-                            <div className="absolute top-1 right-1 flex items-center gap-1">
-                              {asset.mediaKind === 'image' && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const nextSource = (asset.source === 'product' || (!asset.source && selectedAssetSource === 'product')) ? 'preference' : 'product';
-                                    
-                                    if (inQueue) {
-                                      setAssetQueue(prev => prev.map(item => 
-                                        item.id === asset.id ? { ...item, source: nextSource } : item
-                                      ));
-                                    }
-                                    
-                                    if (selected) {
-                                      setSelectedAssetSource(nextSource);
-                                    }
-                                  }}
-                                  className={`rounded border px-1.5 py-0.5 text-[9px] font-bold transition ${(asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')) ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'}`}
-                                >
-                                  {(asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')) ? '首帧图' : '参考图'}
-                                </button>
+                              {asset.previewUrl ? (asset.mediaKind === 'video' ? (
+                                  <video src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" muted playsInline />
+                              ) : (
+                                  <img src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" alt={asset.name} />
+                              )) : (
+                                  <div className="w-full h-24 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
                               )}
-                              <button onClick={(e) => removeUpload(e, asset.id)} className="p-1 bg-black/50 hover:bg-red-500 rounded text-white transition"><X className="w-2.5 h-2.5" /></button>
+                              <div className="absolute top-1 left-1 z-10" onClick={(e) => e.stopPropagation()}>
+                                <select
+                                    className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
+                                    value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product')}
+                                    onChange={(e) => {
+                                      const newType = e.target.value as AssetLibraryTab;
+                                      setAssetQueue(prev => prev.map(item => item.id === asset.id ? { ...item, materialType: newType } : item));
+                                      if (selectedQueueAssetId === asset.id || uploadedFile === asset.previewUrl) {
+                                        setCurrentMaterialType(newType);
+                                      }
+                                    }}
+                                    style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
+                                >
+                                  <option value="product">{materialTypeLabelMap['product']}</option>
+                                  <option value="model">{materialTypeLabelMap['model']}</option>
+                                  <option value="scene">{materialTypeLabelMap['scene']}</option>
+                                  <option value="motion">{materialTypeLabelMap['motion']}</option>
+                                </select>
+                              </div>
+                              <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
+                                {asset.mediaKind === 'image' && (
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const nextSource = (asset.source === 'product' || (!asset.source && selectedAssetSource === 'product')) ? 'preference' : 'product';
+
+                                          if (inQueue) {
+                                            setAssetQueue(prev => prev.map(item =>
+                                                item.id === asset.id ? { ...item, source: nextSource } : item
+                                            ));
+                                          }
+
+                                          if (selected) {
+                                            setSelectedAssetSource(nextSource);
+                                          }
+                                        }}
+                                        className={`rounded border px-1.5 py-0.5 text-[9px] font-bold transition ${(asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')) ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'}`}
+                                    >
+                                      {(asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')) ? '首帧图' : '参考图'}
+                                    </button>
+                                )}
+                                <button onClick={(e) => removeUpload(e, asset.id)} className="p-1 bg-black/50 hover:bg-red-500 rounded text-white transition"><X className="w-2.5 h-2.5" /></button>
+                              </div>
+                              <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-10">
+                                <p className="text-[9px] text-white truncate drop-shadow-md">{asset.name}</p>
+                                {selected && <p className="text-[9px] text-green-400 flex items-center gap-1 drop-shadow-md"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p>}
+                              </div>
                             </div>
-                            <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent">
-                              <p className="text-[9px] text-white truncate">{asset.name}</p>
-                              {selected && <p className="text-[9px] text-green-400 flex items-center gap-1"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p>}
-                            </div>
-                          </div>
                         );
                       })}
                     </div>
                   </div>
-          )}
+              )}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                fileInputRef.current?.click();
-              }}
-              className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  fileInputRef.current?.click();
+                }}
+                className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
             >
               {t.wb_btn_upload_local_asset || '从本地上传素材'}
             </button>
             <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                openAssetLibraryPicker();
-              }}
-              className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openAssetLibraryPicker();
+                }}
+                className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
             >
               {t.wb_btn_choose_from_library || '从素材库选择素材'}
             </button>
           </div>
 
-          {/* Reuse Queues Section (Restored Buttons) */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> {t.wb_reuse_queue}</h2>
               <button
-                type="button"
-                onClick={() => setReuseQueueEnabled((prev) => !prev)}
-                className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold transition ${reuseQueueEnabled ? 'border-orange-500/60 bg-orange-500/15 text-orange-300' : 'border-white/10 bg-black/40 text-zinc-400 hover:bg-white/5'}`}
+                  type="button"
+                  onClick={() => setReuseQueueEnabled((prev) => !prev)}
+                  className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold transition ${reuseQueueEnabled ? 'border-orange-500/60 bg-orange-500/15 text-orange-300' : 'border-white/10 bg-black/40 text-zinc-400 hover:bg-white/5'}`}
               >
                 {reuseQueueEnabled ? (t.wb_reuse_queue_mode_on || '已开启') : (t.wb_reuse_queue_mode_off || '已关闭')}
               </button>
@@ -3129,238 +4172,124 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </p>
                 <p className={`mt-1 text-[10px] ${reuseQueueEnabled ? 'text-orange-300' : 'text-zinc-500'}`}>
                   {reuseQueueEnabled
-                    ? (t.wb_reuse_queue_enable_hint || '当前为批量模式：请把素材和脚本分别加入队列再生成。')
-                    : (t.wb_reuse_queue_disable_hint || '当前为单次模式：开启后才显示队列内容，适合大量复用场景。')}
+                      ? (t.wb_reuse_queue_enable_hint || '当前为批量模式：请把素材和脚本分别加入队列再生成。')
+                      : (t.wb_reuse_queue_disable_hint || '当前为单次模式：开启后才显示队列内容，适合大量复用场景。')}
                 </p>
               </div>
 
               {!reuseQueueEnabled ? (
-                <div className="text-[10px] text-zinc-500 border border-dashed border-white/10 rounded-lg px-3 py-2.5">
-                  {t.wb_reuse_queue_collapsed_hint || '复用队列已折叠。点击右上角按钮开启后即可维护队列。'}
-                </div>
+                  <div className="text-[10px] text-zinc-500 border border-dashed border-white/10 rounded-lg px-3 py-2.5">
+                    {t.wb_reuse_queue_collapsed_hint || '复用队列已折叠。点击右上角按钮开启后即可维护队列。'}
+                  </div>
               ) : (
-                <>
-              {/* Asset Queue */}
-              <div className="flex items-center justify-between">
-                <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_asset_queue}</div>
-                <button
-                    onClick={addCurrentAssetToQueue}
-                    disabled={!uploadedFile && !selectedAssetUrl}
-                    className={`text-[10px] px-2 py-1 rounded border border-white/10 ${!uploadedFile && !selectedAssetUrl ? 'text-zinc-600' : 'text-orange-500 hover:bg-white/5'}`}
-                >
-                  {t.wb_add_asset_queue}
-                </button>
-              </div>
-              <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
-                {assetQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_assets}</div> : assetQueue.map(item => (
-                    <div
-                        key={item.id}
-                        onClick={() => selectAssetFromQueue(item)}
-                        className={`flex items-center gap-2 rounded-lg p-2 border cursor-pointer transition ${selectedQueueAssetId === item.id ? 'bg-orange-500/10 border-orange-500/30' : 'bg-black/30 border-white/5 hover:bg-white/5'}`}
-                    >
-                      <div className="w-8 h-8 rounded bg-zinc-800 overflow-hidden shrink-0">
-                        {item.previewUrl && (item.mediaKind === 'video' ? (
-                          <video src={item.previewUrl} className="w-full h-full object-cover" muted playsInline />
-                        ) : (
-                          <img src={item.previewUrl} className="w-full h-full object-cover" />
-                        ))}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-zinc-300">
-                            {materialTypeLabelMap[item.materialType || 'product']}
-                          </span>
-                          <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
-                        </div>
-                      </div>
-                      <label
-                        className={`shrink-0 flex items-center gap-1 text-[9px] px-1.5 py-1 rounded border transition ${item.mediaKind === 'image' ? 'border-white/10 text-zinc-300 hover:bg-white/5 cursor-pointer' : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}
-                        onClick={(e) => e.stopPropagation()}
-                        title={item.mediaKind === 'image' ? '选择此素材作为首帧图' : '仅图片可作为首帧图'}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={!!item.isPrimaryFrame}
-                          disabled={item.mediaKind !== 'image'}
-                          onChange={() => markQueueAssetAsPrimaryFrame(item.id)}
-                          className="accent-orange-500"
-                        />
-                        <span>首帧</span>
-                      </label>
+                  <>
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_asset_queue}</div>
                       <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeAssetFromQueue(item.id);
-                          }}
+                          onClick={addCurrentAssetToQueue}
+                          disabled={!uploadedFile && !selectedAssetUrl}
+                          className={`text-[10px] px-2 py-1 rounded border border-white/10 ${!uploadedFile && !selectedAssetUrl ? 'text-zinc-600' : 'text-orange-500 hover:bg-white/5'}`}
                       >
-                        <X className="w-3 h-3 text-zinc-600 hover:text-red-400" />
+                        {t.wb_add_asset_queue}
                       </button>
                     </div>
-                ))}
-              </div>
-
-              {/* Script Queue */}
-              <div className="flex items-center justify-between">
-                <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_script_queue}</div>
-                <button
-                    onClick={addCurrentScriptToQueue}
-                    className="text-[10px] px-2 py-1 rounded border border-white/10 text-orange-500 hover:bg-white/5"
-                >
-                  {t.wb_add_script_queue}
-                </button>
-              </div>
-              <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
-                {scriptQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_scripts}</div> : scriptQueue.map(item => (
-                    <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
-                        <div className="text-[9px] text-zinc-500">{item.scripts.length} shots</div>
-                      </div>
-                      <button onClick={() => removeScriptFromQueue(item.id)}><X className="w-3 h-3 text-zinc-600 hover:text-red-400" /></button>
+                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
+                      {assetQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_assets}</div> : assetQueue.map(item => (
+                          <div
+                              key={item.id}
+                              onClick={() => selectAssetFromQueue(item)}
+                              className={`flex items-center gap-2 rounded-lg p-2 border cursor-pointer transition ${selectedQueueAssetId === item.id ? 'bg-orange-500/10 border-orange-500/30' : 'bg-black/30 border-white/5 hover:bg-white/5'}`}
+                          >
+                            <div className="w-8 h-8 rounded bg-zinc-800 overflow-hidden shrink-0">
+                              {item.previewUrl && (item.mediaKind === 'video' ? (
+                                  <video src={item.previewUrl} className="w-full h-full object-cover" muted playsInline />
+                              ) : (
+                                  <img src={item.previewUrl} className="w-full h-full object-cover" />
+                              ))}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-zinc-300">
+                                  {materialTypeLabelMap[item.materialType || 'product']}
+                                </span>
+                                <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
+                              </div>
+                            </div>
+                            <label
+                                className={`shrink-0 flex items-center gap-1 text-[9px] px-1.5 py-1 rounded border transition ${item.mediaKind === 'image' ? 'border-white/10 text-zinc-300 hover:bg-white/5 cursor-pointer' : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}
+                                onClick={(e) => e.stopPropagation()}
+                                title={item.mediaKind === 'image' ? '选择此素材作为首帧图' : '仅图片可作为首帧图'}
+                            >
+                              <input
+                                  type="checkbox"
+                                  checked={!!item.isPrimaryFrame}
+                                  disabled={item.mediaKind !== 'image'}
+                                  onChange={() => markQueueAssetAsPrimaryFrame(item.id)}
+                                  className="accent-orange-500"
+                              />
+                              <span>首帧</span>
+                            </label>
+                            <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeAssetFromQueue(item.id);
+                                }}
+                            >
+                              <X className="w-3 h-3 text-zinc-600 hover:text-red-400" />
+                            </button>
+                          </div>
+                      ))}
                     </div>
-                ))}
-              </div>
 
-              <div className="text-[10px] text-zinc-500 pt-2 border-t border-white/5">
-                {t.wb_estimated_generate}: {assetQueue.length} × {scriptQueue.length} = {expectedBatchCount}
-              </div>
-                </>
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_script_queue}</div>
+                      <button
+                          onClick={addCurrentScriptToQueue}
+                          className="text-[10px] px-2 py-1 rounded border border-white/10 text-orange-500 hover:bg-white/5"
+                      >
+                        {t.wb_add_script_queue}
+                      </button>
+                    </div>
+                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
+                      {scriptQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_scripts}</div> : scriptQueue.map(item => (
+                          <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
+                              <div className="text-[9px] text-zinc-500">{enableStoryboardEditor ? `${item.scripts.length} shots` : '完整脚本方案'}</div>
+                            </div>
+                            <button onClick={() => removeScriptFromQueue(item.id)}><X className="w-3 h-3 text-zinc-600 hover:text-red-400" /></button>
+                          </div>
+                      ))}
+                    </div>
+
+                    <div className="text-[10px] text-zinc-500 pt-2 border-t border-white/5">
+                      {t.wb_estimated_generate}: {assetQueue.length} × {scriptQueue.length} = {expectedBatchCount}
+                    </div>
+                  </>
               )}
             </div>
           </div>
 
-      {/* Config Panel (Restored Controls) */}
-      <div ref={configSectionRef} className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${getGuideFocusClass('config')}`}>
-        <div className="flex justify-between items-center"><h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><SlidersHorizontal className="w-3 h-3" /> {t.wb_config_title}</h2></div>
-        <div className="glass-panel rounded-xl p-5 flex flex-col gap-5">
-           {/* Template Selector */}
-           <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_template_label}</label>
-              <div className="relative">
-	                <DropdownSelect
-	                  value={selectedTemplate?.id || ''}
-	                  options={
-	                    templateList.length === 0
-	                      ? [{ value: '', label: t.wb_config_custom }]
-	                      : templateList.flatMap((tpl) =>
-	                          tpl.id
-	                            ? [
-	                                {
-	                                  value: tpl.id,
-	                                  label: `${ICON_EMOJI_MAP[tpl.icon] || '🔥'} ${tpl.name}`
-	                                }
-	                              ]
-	                            : []
-	                        )
-	                  }
-	                  onChange={(id) => onSelectTemplate(templateList.find((t) => t.id === id) || null)}
-	                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-orange-500 font-bold focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
-	                  labelClassName=""
-	                  iconClassName="w-3 h-3 text-zinc-500"
-	                  optionClassName="text-xs"
-	                />
-              </div>
-           </div>
+          {renderLeftColumnSettings()}
 
-           {/* Default Model Asset – selectable dropdown, refreshes on open */}
-           <div>
-             <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_model_label}</label>
-             {templateModelAsset ? (
-               <div className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2">
-                 <div className="flex items-center gap-2">
-                   <img
-                     src={templateModelAsset.url}
-                     alt={templateModelAsset.display_name}
-                     className="w-6 h-6 rounded-md object-cover border border-white/10 shrink-0"
-                   />
-                   <span className="text-xs text-zinc-200 font-bold truncate">{templateModelAsset.display_name}</span>
-                 </div>
-               </div>
-             ) : (
-               <div className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-400 font-bold">
-                 {t.wb_config_model_smart}
-               </div>
-             )}
-           </div>
-
-           <div>
-             <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_motion_label || '参考动作'}</label>
-             {templateMotionAsset ? (
-               <div className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2">
-                 <div className="flex items-center gap-2">
-                   <video
-                     src={templateMotionAsset.url}
-                     className="w-8 h-8 rounded-md object-cover border border-white/10 shrink-0"
-                     muted
-                     playsInline
-                   />
-                   <span className="text-xs text-zinc-200 font-bold truncate">{templateMotionAsset.display_name}</span>
-                 </div>
-               </div>
-             ) : (
-               <div className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-400 font-bold">
-                 {t.wb_config_motion_empty || '未绑定动作参考'}
-               </div>
-             )}
-           </div>
-
-              {/* Restored Inputs: Prompt, Duration, Audio, Count */}
-              <hr className="border-white/5" />
-              <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_prompt_label}</label>
-                <textarea
-                    disabled={!hasCurrentAsset}
-                    className={`w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-none min-h-[80px] ${!hasCurrentAsset ? 'text-zinc-500 cursor-not-allowed opacity-60' : 'text-zinc-300 focus:border-orange-500 focus:outline-none'}`}
-                    placeholder={t.wb_config_prompt_placeholder}
-                    value={genPrompt}
-                    onChange={(e) => setGenPrompt(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
-                <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
-                  {[5, 10, 15].map(d => (
-                      <button key={d} onClick={() => setGenDuration(d)} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${genDuration === d ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{d}s</button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_audio}</label>
-                <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
-                  <button onClick={() => setSoundSetting('on')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'on' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_on}</button>
-                  <button onClick={() => setSoundSetting('off')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'off' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_off}</button>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_script_count_label}</label>
-                <div className="flex items-center gap-2 bg-black/40 p-2 rounded-lg border border-white/5">
-                  <input type="number" min={1} max={10} value={scriptVariantCount} onChange={(e) => setScriptVariantCount(Number(e.target.value))} className="w-16 bg-transparent text-xs text-zinc-200 focus:outline-none text-center" />
-                  <span className="text-[10px] text-zinc-500">{t.wb_script_count_unit}</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_target_audience_language}</label>
-                <DropdownSelect
-                    value={targetLanguage}
-                    options={TARGET_LANGUAGE_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
-                    onChange={setTargetLanguage}
-                    buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
-                    labelClassName=""
-                    iconClassName="w-3 h-3 text-zinc-500"
-                    optionClassName="text-xs"
-                />
-              </div>
-
-              <button onClick={handleGenerateScripts} disabled={isGeneratingScript || !hasCurrentAsset} className={`w-full py-3 rounded-xl font-bold text-xs transition shadow-lg shadow-white/5 mt-2 flex items-center justify-center gap-2 group ${isGeneratingScript || !hasCurrentAsset ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed' : 'bg-white text-black hover:bg-orange-500 hover:text-white'}`}>
-                {isGeneratingScript ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />}
-                {isGeneratingScript ? 'Generating...' : t.wb_btn_gen_scripts}
-              </button>
-            </div>
-          </div>
+          <button
+              type="button"
+              onClick={() => {
+                if (isGeneratingScript) {
+                  openInfo('Notice', t.wb_generate_in_progress);
+                  return;
+                }
+                if (!hasCurrentAsset) {
+                  openInfo('Notice', t.wb_generate_need_asset);
+                  return;
+                }
+                void handleGenerateScripts();
+              }}
+              className={`w-full py-3 rounded-xl font-bold text-xs transition flex items-center justify-center gap-2 group border border-white/10 bg-black/30 text-zinc-200 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 ${isGeneratingScript || !hasCurrentAsset ? 'opacity-40 hover:bg-black/30' : ''}`}
+          >
+            {isGeneratingScript ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />}
+            {isGeneratingScript ? t.wb_generating : t.wb_btn_gen_scripts}
+          </button>
         </div>
     );
   };
@@ -3371,270 +4300,270 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           <div className="flex items-center gap-4">
             <div className="relative">
               <button
-                ref={projectMenuButtonRef}
-                type="button"
-                title={projectUiText.listTooltip}
-                onClick={() => {
-                  setProjectMenuOpen((prev) => !prev);
-                  setProjectActionMenuId(null);
-                }}
-                className="p-2 rounded-md border border-white/10 text-zinc-300 hover:text-white hover:border-white/30 hover:bg-white/10 transition"
+                  ref={projectMenuButtonRef}
+                  type="button"
+                  title={projectUiText.listTooltip}
+                  onClick={() => {
+                    setProjectMenuOpen((prev) => !prev);
+                    setProjectActionMenuId(null);
+                  }}
+                  className="p-2 rounded-md border border-white/10 text-zinc-300 hover:text-white hover:border-white/30 hover:bg-white/10 transition"
               >
                 <List className="w-4 h-4" />
               </button>
 
               {projectMenuOpen && (
-                <div
-                  ref={projectMenuRef}
-                  onMouseDown={(event) => {
-                    const target = event.target as HTMLElement;
-                    if (target.closest('[data-project-action-root="true"]')) return;
-                    setProjectActionMenuId(null);
-                  }}
-                  className="absolute top-11 left-0 w-[360px] rounded-xl border border-white/10 bg-zinc-950/95 backdrop-blur-xl shadow-2xl shadow-black/60 p-3 text-sm"
-                >
-                  <div className="text-sm font-bold text-zinc-100 px-2 pb-2">{projectUiText.switchTitle}</div>
-                  <div className="px-2">
-                    <input
-                      value={projectSearch}
-                      onChange={(e) => setProjectSearch(e.target.value)}
-                      placeholder={projectUiText.searchPlaceholder}
-                      className="w-full rounded-lg border border-white/10 bg-black/40 text-zinc-200 text-xs px-3 py-2 outline-none focus:border-orange-500"
-                    />
-                  </div>
-                  <div className="h-px bg-white/10 my-3" />
-                  <div className="px-2 pb-1 flex items-center justify-between">
-                    <div className="text-[11px] uppercase tracking-widest text-zinc-500">{projectUiText.recent}</div>
-                    {isProjectManageMode && (
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsProjectManageMode(false);
-                            setSelectedProjectIds([]);
-                          }}
-                          className="text-[11px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10"
-                        >
-                          {projectUiText.manageCancel || projectUiText.cancel}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={selectedProjectIds.length === 0}
-                          onClick={() => setDeleteProjectIds(selectedProjectIds)}
-                          className={`text-[11px] px-2 py-1 rounded text-white ${selectedProjectIds.length === 0 ? 'bg-red-600/40 cursor-not-allowed' : 'bg-red-600 hover:bg-red-500'}`}
-                        >
-                          {projectUiText.manageDelete || projectUiText.delete}
-                        </button>
-                      </div>
-                    )}
-                  </div>
                   <div
-                    ref={projectListRef}
-                    className="overflow-y-auto custom-scroll pr-1"
-                    style={{ maxHeight: 256, paddingBottom: PROJECT_ACTION_MENU_RESERVED_SPACE }}
+                      ref={projectMenuRef}
+                      onMouseDown={(event) => {
+                        const target = event.target as HTMLElement;
+                        if (target.closest('[data-project-action-root="true"]')) return;
+                        setProjectActionMenuId(null);
+                      }}
+                      className="absolute top-11 left-0 w-[360px] rounded-xl border border-white/10 bg-zinc-950/95 backdrop-blur-xl shadow-2xl shadow-black/60 p-3 text-sm"
                   >
-                    {filteredProjects.length === 0 && (
-                      <div className="px-2 py-3 text-xs text-zinc-500">{projectUiText.empty}</div>
-                    )}
-                    {filteredProjects.map((project) => {
-                      const isCurrent = project.id === projectStore.currentProjectId;
-                      const isRenaming = renamingProjectId === project.id;
-                      return (
-                        <div key={project.id} className="project-menu-item-row group relative flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (isProjectManageMode) {
-                                toggleProjectSelection(project.id);
-                                return;
-                              }
-                              switchProject(project.id);
-                            }}
-                            className="project-menu-item-btn flex-1 min-w-0 text-left bg-transparent border-0 appearance-none"
-                          >
-                            <div className="flex items-center gap-2">
-                              {isProjectManageMode && (
-                                <span
-                                  className={`w-4 h-4 rounded border shrink-0 inline-flex items-center justify-center ${selectedProjectIds.includes(project.id) ? 'bg-orange-500 border-orange-500 text-black' : 'border-white/30 text-transparent'}`}
-                                >
+                    <div className="text-sm font-bold text-zinc-100 px-2 pb-2">{projectUiText.switchTitle}</div>
+                    <div className="px-2">
+                      <input
+                          value={projectSearch}
+                          onChange={(e) => setProjectSearch(e.target.value)}
+                          placeholder={projectUiText.searchPlaceholder}
+                          className="w-full rounded-lg border border-white/10 bg-black/40 text-zinc-200 text-xs px-3 py-2 outline-none focus:border-orange-500"
+                      />
+                    </div>
+                    <div className="h-px bg-white/10 my-3" />
+                    <div className="px-2 pb-1 flex items-center justify-between">
+                      <div className="text-[11px] uppercase tracking-widest text-zinc-500">{projectUiText.recent}</div>
+                      {isProjectManageMode && (
+                          <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                  setIsProjectManageMode(false);
+                                  setSelectedProjectIds([]);
+                                }}
+                                className="text-[11px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10"
+                            >
+                              {projectUiText.manageCancel || projectUiText.cancel}
+                            </button>
+                            <button
+                                type="button"
+                                disabled={selectedProjectIds.length === 0}
+                                onClick={() => setDeleteProjectIds(selectedProjectIds)}
+                                className={`text-[11px] px-2 py-1 rounded text-white ${selectedProjectIds.length === 0 ? 'bg-red-600/40 cursor-not-allowed' : 'bg-red-600 hover:bg-red-500'}`}
+                            >
+                              {projectUiText.manageDelete || projectUiText.delete}
+                            </button>
+                          </div>
+                      )}
+                    </div>
+                    <div
+                        ref={projectListRef}
+                        className="overflow-y-auto custom-scroll pr-1"
+                        style={{ maxHeight: 256, paddingBottom: PROJECT_ACTION_MENU_RESERVED_SPACE }}
+                    >
+                      {filteredProjects.length === 0 && (
+                          <div className="px-2 py-3 text-xs text-zinc-500">{projectUiText.empty}</div>
+                      )}
+                      {filteredProjects.map((project) => {
+                        const isCurrent = project.id === projectStore.currentProjectId;
+                        const isRenaming = renamingProjectId === project.id;
+                        return (
+                            <div key={project.id} className="project-menu-item-row group relative flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5">
+                              <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (isProjectManageMode) {
+                                      toggleProjectSelection(project.id);
+                                      return;
+                                    }
+                                    switchProject(project.id);
+                                  }}
+                                  className="project-menu-item-btn flex-1 min-w-0 text-left bg-transparent border-0 appearance-none"
+                              >
+                                <div className="flex items-center gap-2">
+                                  {isProjectManageMode && (
+                                      <span
+                                          className={`w-4 h-4 rounded border shrink-0 inline-flex items-center justify-center ${selectedProjectIds.includes(project.id) ? 'bg-orange-500 border-orange-500 text-black' : 'border-white/30 text-transparent'}`}
+                                      >
                                   <Check className="w-3 h-3" />
                                 </span>
-                              )}
-                              <span className="shrink-0">
+                                  )}
+                                  <span className="shrink-0">
                                 {isCurrent ? (
-                                  <span className="inline-flex items-center justify-center whitespace-nowrap leading-none px-2 py-1 rounded-md bg-orange-500 text-black text-[10px] font-black">
+                                    <span className="inline-flex items-center justify-center whitespace-nowrap leading-none px-2 py-1 rounded-md bg-orange-500 text-black text-[10px] font-black">
                                     {projectUiText.currentTag}
                                   </span>
                                 ) : null}
                               </span>
-                              {isRenaming ? (
-                                <input
-                                  autoFocus
-                                  value={renamingProjectName}
-                                  onClick={(event) => event.stopPropagation()}
-                                  onChange={(event) => setRenamingProjectName(event.target.value)}
-                                  onBlur={() => {
-                                    const renameSuccess = commitProjectRename(project.id, renamingProjectName, {
-                                      keepEditingOnFail: true,
-                                      originalName: project.name,
-                                    });
-                                    if (renameSuccess) {
-                                      setRenamingProjectId(null);
-                                    } else {
-                                      setRenamingProjectName(project.name);
-                                    }
-                                  }}
-                                  onKeyDown={(event) => {
-                                    if (event.key === 'Enter') {
-                                      const renameSuccess = commitProjectRename(project.id, renamingProjectName, {
-                                        keepEditingOnFail: true,
-                                        originalName: project.name,
-                                      });
-                                      if (renameSuccess) {
-                                        setRenamingProjectId(null);
-                                      } else {
-                                        setRenamingProjectName(project.name);
+                                  {isRenaming ? (
+                                      <input
+                                          autoFocus
+                                          value={renamingProjectName}
+                                          onClick={(event) => event.stopPropagation()}
+                                          onChange={(event) => setRenamingProjectName(event.target.value)}
+                                          onBlur={() => {
+                                            const renameSuccess = commitProjectRename(project.id, renamingProjectName, {
+                                              keepEditingOnFail: true,
+                                              originalName: project.name,
+                                            });
+                                            if (renameSuccess) {
+                                              setRenamingProjectId(null);
+                                            } else {
+                                              setRenamingProjectName(project.name);
+                                            }
+                                          }}
+                                          onKeyDown={(event) => {
+                                            if (event.key === 'Enter') {
+                                              const renameSuccess = commitProjectRename(project.id, renamingProjectName, {
+                                                keepEditingOnFail: true,
+                                                originalName: project.name,
+                                              });
+                                              if (renameSuccess) {
+                                                setRenamingProjectId(null);
+                                              } else {
+                                                setRenamingProjectName(project.name);
+                                              }
+                                            } else if (event.key === 'Escape') {
+                                              setRenamingProjectId(null);
+                                            }
+                                          }}
+                                          className="w-[180px] rounded border border-white/10 bg-black/40 text-zinc-100 text-xs px-2 py-1 outline-none focus:border-orange-500"
+                                      />
+                                  ) : (
+                                      <span className="text-sm text-zinc-100 truncate">{project.name}</span>
+                                  )}
+                                  <span className="text-[11px] text-zinc-500 shrink-0">{formatProjectLastEdited(project.updatedAt)}</span>
+                                </div>
+                              </button>
+                              {!isProjectManageMode && <div className="relative" data-project-action-root="true">
+                                <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      const nextId = project.id;
+                                      const isClosing = projectActionMenuId === nextId;
+                                      if (isClosing) {
+                                        setProjectActionMenuId(null);
+                                        return;
                                       }
-                                    } else if (event.key === 'Escape') {
-                                      setRenamingProjectId(null);
-                                    }
-                                  }}
-                                  className="w-[180px] rounded border border-white/10 bg-black/40 text-zinc-100 text-xs px-2 py-1 outline-none focus:border-orange-500"
-                                />
-                              ) : (
-                                <span className="text-sm text-zinc-100 truncate">{project.name}</span>
-                              )}
-                              <span className="text-[11px] text-zinc-500 shrink-0">{formatProjectLastEdited(project.updatedAt)}</span>
+
+                                      setProjectActionMenuId(nextId);
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-400 hover:text-white hover:bg-white/10 transition"
+                                >
+                                  <MoreHorizontal className="w-4 h-4" />
+                                </button>
+                                {projectActionMenuId === project.id && (
+                                    <div data-project-action-menu="true" className="absolute right-0 top-7 w-28 rounded-lg border border-white/10 bg-zinc-900 shadow-xl p-1 z-20">
+                                      <button
+                                          type="button"
+                                          onClick={() => {
+                                            setProjectActionMenuId(null);
+                                            setRenamingProjectId(project.id);
+                                            setRenamingProjectName(project.name);
+                                          }}
+                                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-zinc-200 hover:bg-white/10"
+                                      >
+                                        <Pencil className="w-3.5 h-3.5" />
+                                        {projectUiText.rename}
+                                      </button>
+                                      <button
+                                          type="button"
+                                          onClick={() => {
+                                            setProjectActionMenuId(null);
+                                            setDeleteProjectTarget(project);
+                                          }}
+                                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-red-400 hover:bg-red-500/10"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        {projectUiText.delete}
+                                      </button>
+                                    </div>
+                                )}
+                              </div>}
                             </div>
-                          </button>
-                          {!isProjectManageMode && <div className="relative" data-project-action-root="true">
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                const nextId = project.id;
-                                const isClosing = projectActionMenuId === nextId;
-                                if (isClosing) {
-                                  setProjectActionMenuId(null);
-                                  return;
-                                }
+                        );
+                      })}
+                    </div>
 
-                                setProjectActionMenuId(nextId);
-                              }}
-                              className="opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-400 hover:text-white hover:bg-white/10 transition"
-                            >
-                              <MoreHorizontal className="w-4 h-4" />
-                            </button>
-                            {projectActionMenuId === project.id && (
-                              <div data-project-action-menu="true" className="absolute right-0 top-7 w-28 rounded-lg border border-white/10 bg-zinc-900 shadow-xl p-1 z-20">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setProjectActionMenuId(null);
-                                    setRenamingProjectId(project.id);
-                                    setRenamingProjectName(project.name);
-                                  }}
-                                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-zinc-200 hover:bg-white/10"
-                                >
-                                  <Pencil className="w-3.5 h-3.5" />
-                                  {projectUiText.rename}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setProjectActionMenuId(null);
-                                    setDeleteProjectTarget(project);
-                                  }}
-                                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-red-400 hover:bg-red-500/10"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                  {projectUiText.delete}
-                                </button>
-                              </div>
-                            )}
-                          </div>}
-                        </div>
-                      );
-                    })}
+                    <div className="h-px bg-white/10 my-3" />
+                    <div className="flex items-center justify-end gap-2 px-2">
+                      <button
+                          type="button"
+                          onClick={() => {
+                            setNewProjectNameDraft(projectUiText.defaultProjectName);
+                            setCreateProjectNameError('');
+                            setIsCreateProjectOpen(true);
+                          }}
+                          className="text-xs px-2 py-1 rounded text-orange-400 hover:text-orange-300 hover:bg-orange-500/10"
+                      >
+                        + {projectUiText.newProject}
+                      </button>
+                      <button
+                          type="button"
+                          onClick={() => {
+                            setIsProjectManageMode(true);
+                            setSelectedProjectIds([]);
+                            setProjectActionMenuId(null);
+                          }}
+                          className="text-xs px-2 py-1 rounded text-zinc-300 hover:text-white hover:bg-white/10"
+                      >
+                        {projectUiText.manageProjects}
+                      </button>
+                    </div>
                   </div>
-
-                  <div className="h-px bg-white/10 my-3" />
-                  <div className="flex items-center justify-end gap-2 px-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNewProjectNameDraft(projectUiText.defaultProjectName);
-                        setCreateProjectNameError('');
-                        setIsCreateProjectOpen(true);
-                      }}
-                      className="text-xs px-2 py-1 rounded text-orange-400 hover:text-orange-300 hover:bg-orange-500/10"
-                    >
-                      + {projectUiText.newProject}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsProjectManageMode(true);
-                        setSelectedProjectIds([]);
-                        setProjectActionMenuId(null);
-                      }}
-                      className="text-xs px-2 py-1 rounded text-zinc-300 hover:text-white hover:bg-white/10"
-                    >
-                      {projectUiText.manageProjects}
-                    </button>
-                  </div>
-                </div>
               )}
             </div>
             {isHeaderProjectEditing ? (
-              <input
-                autoFocus
-                value={headerProjectNameDraft}
-                onChange={(event) => setHeaderProjectNameDraft(event.target.value)}
-                onBlur={() => {
-                  if (currentProject) commitProjectRename(currentProject.id, headerProjectNameDraft);
-                  setIsHeaderProjectEditing(false);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    if (currentProject) commitProjectRename(currentProject.id, headerProjectNameDraft);
-                    setIsHeaderProjectEditing(false);
-                  } else if (event.key === 'Escape') {
-                    setIsHeaderProjectEditing(false);
-                  }
-                }}
-                style={{ width: `${Math.max(1.2, Math.min(estimateProjectNameWidthEm(headerProjectNameDraft || currentProject?.name || ''), 22))}em` }}
-                className="text-xl font-bold tracking-tight text-white bg-transparent border-b border-white/30 focus:border-orange-500 outline-none"
-              />
+                <input
+                    autoFocus
+                    value={headerProjectNameDraft}
+                    onChange={(event) => setHeaderProjectNameDraft(event.target.value)}
+                    onBlur={() => {
+                      if (currentProject) commitProjectRename(currentProject.id, headerProjectNameDraft);
+                      setIsHeaderProjectEditing(false);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        if (currentProject) commitProjectRename(currentProject.id, headerProjectNameDraft);
+                        setIsHeaderProjectEditing(false);
+                      } else if (event.key === 'Escape') {
+                        setIsHeaderProjectEditing(false);
+                      }
+                    }}
+                    style={{ width: `${Math.max(1.2, Math.min(estimateProjectNameWidthEm(headerProjectNameDraft || currentProject?.name || ''), 22))}em` }}
+                    className="text-xl font-bold tracking-tight text-white bg-transparent border-b border-white/30 focus:border-orange-500 outline-none"
+                />
             ) : (
-              <h1 className="text-xl font-bold tracking-tight text-white cursor-text" onClick={beginHeaderRename}>
-                {currentProject?.name || DEFAULT_PROJECT_NAME}
-              </h1>
+                <h1 className="text-xl font-bold tracking-tight text-white cursor-text" onClick={beginHeaderRename}>
+                  {currentProject?.name || DEFAULT_PROJECT_NAME}
+                </h1>
             )}
             <span className="px-2 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-400 border border-white/5">{t.wb_header_draft}</span>
             {ENABLE_PROMPT_LAB && (
-              <>
-                <button
-                  onClick={openPromptLab}
-                  className="flex items-center gap-1.5 px-2 py-1 rounded border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
-                  title="查看/编辑内置 prompts（临时功能）"
-                >
-                  <FileJson className="w-3.5 h-3.5" />
-                  <span className="text-[10px] font-bold">Prompt</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGuideStepIndex(0);
-                    setIsGuideOpen(true);
-                  }}
-                  className="flex items-center gap-1.5 px-2 py-1 rounded border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 transition"
-                  title={t.wb_guide_button_title}
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span className="text-[10px] font-bold">{t.wb_guide_button_label}</span>
-                </button>
-              </>
+                <>
+                  <button
+                      onClick={openPromptLab}
+                      className="flex items-center gap-1.5 px-2 py-1 rounded border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
+                      title="查看/编辑内置 prompts（临时功能）"
+                  >
+                    <FileJson className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-bold">Prompt</span>
+                  </button>
+                  <button
+                      type="button"
+                      onClick={() => {
+                        setGuideStepIndex(0);
+                        setIsGuideOpen(true);
+                      }}
+                      className="flex items-center gap-1.5 px-2 py-1 rounded border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 transition"
+                      title={t.wb_guide_button_title}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-bold">{t.wb_guide_button_label}</span>
+                  </button>
+                </>
             )}
           </div>
           <div className="flex items-center gap-4">
@@ -3644,495 +4573,810 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         </header>
 
         {ENABLE_PROMPT_LAB && isPromptLabOpen && (
-          <PromptLabWindow
-            templates={promptTemplates}
-            loading={promptTemplatesLoading}
-            error={promptTemplatesError}
-            onReload={loadPromptLabTemplates}
-            overrides={promptOverrides}
-            onChangeOverrides={setPromptOverrides}
-            debug={{
-              isPreparing: isPreparingDebug,
-              isSending: isSendingDebug,
-              payloadText: debugPayloadText,
-              onChangePayloadText: setDebugPayloadText,
-              preview: debugPreview,
-              onPrepare: handlePrepareDebug,
-              onRefresh: handleRefreshDebugPreview,
-              onSend: handleSendDebugPayload,
-            }}
-            onClose={() => setIsPromptLabOpen(false)}
-          />
+            <PromptLabWindow
+                templates={promptTemplates}
+                loading={promptTemplatesLoading}
+                error={promptTemplatesError}
+                onReload={loadPromptLabTemplates}
+                overrides={promptOverrides}
+                onChangeOverrides={setPromptOverrides}
+                debug={{
+                  isPreparing: isPreparingDebug,
+                  isSending: isSendingDebug,
+                  payloadText: debugPayloadText,
+                  onChangePayloadText: setDebugPayloadText,
+                  preview: debugPreview,
+                  onPrepare: handlePrepareDebug,
+                  onRefresh: handleRefreshDebugPreview,
+                  onSend: handleSendDebugPayload,
+                }}
+                onClose={() => setIsPromptLabOpen(false)}
+            />
         )}
 
         {isGuideOpen && (
-          <>
-            <div className="fixed inset-0 z-[70] bg-black/35 backdrop-blur-[1px]" onClick={() => setIsGuideOpen(false)} />
-            <div
-              className="fixed z-[90] rounded-2xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/60 p-4"
-              style={guidePanelStyle}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-base font-bold text-white">{t.wb_guide_title}</div>
-                  <div className="mt-1 text-xs text-zinc-400">{t.wb_guide_step} {guideStepIndex + 1} / {guideSteps.length}</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsGuideOpen(false)}
-                  className="text-zinc-400 hover:text-white"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="mt-3 rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-3">
-                <div className="text-sm font-bold text-orange-200">{activeGuideStep?.title}</div>
-                <div className="mt-2 text-sm text-zinc-100">{activeGuideStep?.description}</div>
-              </div>
-
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {guideSteps.map((step, index) => (
+            <>
+              <div className="fixed inset-0 z-[70] bg-black/35 backdrop-blur-[1px]" onClick={() => setIsGuideOpen(false)} />
+              <div
+                  className="fixed z-[90] rounded-2xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/60 p-4"
+                  style={guidePanelStyle}
+                  onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-base font-bold text-white">{t.wb_guide_title}</div>
+                    <div className="mt-1 text-xs text-zinc-400">{t.wb_guide_step} {guideStepIndex + 1} / {guideSteps.length}</div>
+                  </div>
                   <button
-                    key={step.key}
-                    type="button"
-                    onClick={() => setGuideStepIndex(index)}
-                    className={`text-left rounded-lg border px-3 py-2 text-xs transition ${guideStepIndex === index ? 'border-orange-500/70 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-black/40 text-zinc-300 hover:bg-white/5'}`}
+                      type="button"
+                      onClick={() => setIsGuideOpen(false)}
+                      className="text-zinc-400 hover:text-white"
                   >
-                    {index + 1}. {step.title}
+                    <X className="w-4 h-4" />
                   </button>
-                ))}
-              </div>
+                </div>
 
-              <div className="mt-4 flex justify-end gap-2">
-                <button
-                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                  onClick={() => setIsGuideOpen(false)}
-                >
-                  {t.wb_guide_close}
-                </button>
-                <button
-                  className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={guideStepIndex <= 0}
-                  onClick={() => setGuideStepIndex((prev) => Math.max(0, prev - 1))}
-                >
-                  {t.wb_guide_prev}
-                </button>
-                <button
-                  className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
-                  onClick={() => {
-                    if (guideStepIndex >= guideSteps.length - 1) {
-                      setIsGuideOpen(false);
-                      return;
-                    }
-                    setGuideStepIndex((prev) => Math.min(guideSteps.length - 1, prev + 1));
-                  }}
-                >
-                  {guideStepIndex >= guideSteps.length - 1 ? t.wb_guide_finish : t.wb_guide_next}
-                </button>
+                <div className="mt-3 rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-3">
+                  <div className="text-sm font-bold text-orange-200">{activeGuideStep?.title}</div>
+                  <div className="mt-2 text-sm text-zinc-100">{activeGuideStep?.description}</div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {guideSteps.map((step, index) => (
+                      <button
+                          key={step.key}
+                          type="button"
+                          onClick={() => setGuideStepIndex(index)}
+                          className={`text-left rounded-lg border px-3 py-2 text-xs transition ${guideStepIndex === index ? 'border-orange-500/70 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-black/40 text-zinc-300 hover:bg-white/5'}`}
+                      >
+                        {index + 1}. {step.title}
+                      </button>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex justify-end gap-2">
+                  <button
+                      className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                      onClick={() => setIsGuideOpen(false)}
+                  >
+                    {t.wb_guide_close}
+                  </button>
+                  <button
+                      className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={guideStepIndex <= 0}
+                      onClick={() => setGuideStepIndex((prev) => Math.max(0, prev - 1))}
+                  >
+                    {t.wb_guide_prev}
+                  </button>
+                  <button
+                      className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
+                      onClick={() => {
+                        if (guideStepIndex >= guideSteps.length - 1) {
+                          setIsGuideOpen(false);
+                          return;
+                        }
+                        setGuideStepIndex((prev) => Math.min(guideSteps.length - 1, prev + 1));
+                      }}
+                  >
+                    {guideStepIndex >= guideSteps.length - 1 ? t.wb_guide_finish : t.wb_guide_next}
+                  </button>
+                </div>
               </div>
+            </>
+        )}
+
+        {toastMessage && (
+            <div className="fixed left-6 bottom-6 z-[140] max-w-[360px] rounded-xl border border-white/10 bg-black/70 px-4 py-3 text-xs text-zinc-200 shadow-lg shadow-black/30">
+              {toastMessage}
             </div>
-          </>
         )}
 
         {isInfoOpen && (
-          <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={closeInfoDialog} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={closeInfoDialog}>OK</button></>}>
-            <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
-          </AppDialog>
+            <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={closeInfoDialog} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={closeInfoDialog}>OK</button></>}>
+              <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
+            </AppDialog>
         )}
         {isConfirmOpen && (
-          <AppDialog
-            isOpen={isConfirmOpen}
-            title={confirmTitle || 'Confirm'}
-            onClose={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}
-            footer={
-              <>
-                <button className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}>Cancel</button>
-                <button className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(true); confirmResolveRef.current = null; } }}>OK</button>
-              </>
-            }
-          >
-            <div className="whitespace-pre-line text-sm text-zinc-300">{confirmMessage}</div>
-          </AppDialog>
+            <AppDialog
+                isOpen={isConfirmOpen}
+                title={confirmTitle || 'Confirm'}
+                onClose={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}
+                footer={
+                  <>
+                    <button className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}>{confirmCancelLabel || t.wb_confirm_cancel}</button>
+                    <button className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(true); confirmResolveRef.current = null; } }}>{confirmOkLabel || t.wb_confirm_ok}</button>
+                  </>
+                }
+            >
+              <div className="whitespace-pre-line text-sm text-zinc-300">{confirmMessage}</div>
+            </AppDialog>
         )}
         {deleteProjectTarget && (
-          <AppDialog
-            isOpen={!!deleteProjectTarget}
-            title={projectUiText.deleteTitle}
-            onClose={() => setDeleteProjectTarget(null)}
-            footer={
-              <>
-                <button
-                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                  onClick={() => setDeleteProjectTarget(null)}
-                >
-                  {projectUiText.cancel}
-                </button>
-                <button
-                  className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500"
-                  onClick={() => {
-                    const target = deleteProjectTarget;
-                    if (!target) return;
-                    removeProjectsByIds([target.id]);
-                    setDeleteProjectTarget(null);
-                    setProjectMenuOpen(false);
-                  }}
-                >
-                  {projectUiText.delete}
-                </button>
-              </>
-            }
-          >
-            <div className="whitespace-pre-line text-sm text-zinc-300">{projectUiText.deleteDesc}</div>
-          </AppDialog>
+            <AppDialog
+                isOpen={!!deleteProjectTarget}
+                title={projectUiText.deleteTitle}
+                onClose={() => setDeleteProjectTarget(null)}
+                footer={
+                  <>
+                    <button
+                        className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                        onClick={() => setDeleteProjectTarget(null)}
+                    >
+                      {projectUiText.cancel}
+                    </button>
+                    <button
+                        className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500"
+                        onClick={() => {
+                          const target = deleteProjectTarget;
+                          if (!target) return;
+                          removeProjectsByIds([target.id]);
+                          setDeleteProjectTarget(null);
+                          setProjectMenuOpen(false);
+                        }}
+                    >
+                      {projectUiText.delete}
+                    </button>
+                  </>
+                }
+            >
+              <div className="whitespace-pre-line text-sm text-zinc-300">{projectUiText.deleteDesc}</div>
+            </AppDialog>
         )}
         {deleteProjectIds.length > 0 && (
-          <AppDialog
-            isOpen={deleteProjectIds.length > 0}
-            title={projectUiText.bulkDeleteTitle || projectUiText.deleteTitle}
-            onClose={() => setDeleteProjectIds([])}
-            footer={
-              <>
-                <button
-                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                  onClick={() => setDeleteProjectIds([])}
-                >
-                  {projectUiText.cancel}
-                </button>
-                <button
-                  className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500"
-                  onClick={() => {
-                    removeProjectsByIds(deleteProjectIds);
-                    setDeleteProjectIds([]);
-                    setSelectedProjectIds([]);
-                    setIsProjectManageMode(false);
-                  }}
-                >
-                  {projectUiText.delete}
-                </button>
-              </>
-            }
-          >
-            <div className="whitespace-pre-line text-sm text-zinc-300">{projectUiText.bulkDeleteDesc || projectUiText.deleteDesc}</div>
-          </AppDialog>
+            <AppDialog
+                isOpen={deleteProjectIds.length > 0}
+                title={projectUiText.bulkDeleteTitle || projectUiText.deleteTitle}
+                onClose={() => setDeleteProjectIds([])}
+                footer={
+                  <>
+                    <button
+                        className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                        onClick={() => setDeleteProjectIds([])}
+                    >
+                      {projectUiText.cancel}
+                    </button>
+                    <button
+                        className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500"
+                        onClick={() => {
+                          removeProjectsByIds(deleteProjectIds);
+                          setDeleteProjectIds([]);
+                          setSelectedProjectIds([]);
+                          setIsProjectManageMode(false);
+                        }}
+                    >
+                      {projectUiText.delete}
+                    </button>
+                  </>
+                }
+            >
+              <div className="whitespace-pre-line text-sm text-zinc-300">{projectUiText.bulkDeleteDesc || projectUiText.deleteDesc}</div>
+            </AppDialog>
         )}
         {isCreateProjectOpen && (
-          <AppDialog
-            isOpen={isCreateProjectOpen}
-            title={projectUiText.createTitle || projectUiText.newProject}
-            onClose={() => {
-              setIsCreateProjectOpen(false);
-              setCreateProjectNameError('');
-            }}
-            footer={
-              <>
-                <button
-                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                  onClick={() => {
-                    setIsCreateProjectOpen(false);
-                    setCreateProjectNameError('');
-                  }}
-                >
-                  {projectUiText.cancel}
-                </button>
-                <button
-                  className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
-                  onClick={() => createNewProject(newProjectNameDraft)}
-                >
-                  {projectUiText.createConfirm || projectUiText.newProject}
-                </button>
-              </>
-            }
-          >
-            <div className="space-y-2">
-              <div className="text-sm text-zinc-300">{projectUiText.createNameLabel || t.assets_name_label || 'Name'}</div>
-              <input
-                autoFocus
-                value={newProjectNameDraft}
-                onChange={(e) => {
-                  const nextName = e.target.value;
-                  setNewProjectNameDraft(nextName);
-                  if (createProjectNameError && nextName.trim().length <= MAX_PROJECT_NAME_LENGTH) {
-                    setCreateProjectNameError('');
-                  }
+            <AppDialog
+                isOpen={isCreateProjectOpen}
+                title={projectUiText.createTitle || projectUiText.newProject}
+                onClose={() => {
+                  setIsCreateProjectOpen(false);
+                  setCreateProjectNameError('');
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') createNewProject(newProjectNameDraft);
-                }}
-                placeholder={projectUiText.createNamePlaceholder || projectUiText.defaultProjectName}
-                className={`w-full rounded-lg border bg-black/40 text-zinc-100 px-3 py-2 text-sm outline-none focus:border-orange-500 ${createProjectNameError ? 'border-red-500' : 'border-white/10'}`}
-              />
-              {createProjectNameError && (
-                <div className="text-xs text-red-400">{createProjectNameError}</div>
-              )}
-            </div>
-          </AppDialog>
-        )}
-        {isUploadTypeDialogOpen && (
-          <AppDialog
-            isOpen={isUploadTypeDialogOpen}
-            title="请选择上传素材类别"
-            onClose={cancelUploadTypeSelection}
-            widthClassName="max-w-[min(92vw,700px)]"
-            footer={
-              <>
-                <button
-                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                  onClick={cancelUploadTypeSelection}
-                >
-                  取消
-                </button>
-                <button
-                  className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
-                  onClick={confirmUploadTypeSelection}
-                >
-                  确认并上传
-                </button>
-              </>
-            }
-          >
-            <div className="space-y-3 w-full">
-              <div className="text-sm text-zinc-300">本次将上传 {pendingUploadFiles.length} 个文件，请先选择它们所属的素材类别。</div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {(['product', 'model', 'scene', 'motion'] as AssetLibraryTab[]).map((type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => setPendingUploadType(type)}
-                    className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${pendingUploadType === type ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
-                  >
-                    {materialTypeLabelMap[type]}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </AppDialog>
-        )}
-        {isAssetLibraryOpen && (
-          <AppDialog
-            isOpen={isAssetLibraryOpen}
-            titleClassName="text-lg"
-            title={t.wb_dialog_choose_from_library || '从素材库选择'}
-            onClose={() => setIsAssetLibraryOpen(false)}
-            widthClassName="max-w-[min(92vw,980px)]"
-            footer={
-              <>
-                <button
-                  className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
-                  onClick={() => setIsAssetLibraryOpen(false)}
-                >
-                  关闭
-                </button>
-              </>
-            }
-          >
-            <div className="w-full h-[62vh] max-h-[600px] min-h-[440px] flex flex-col gap-2.5">
-              <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                {([
-                  { value: 'product', label: t.assets_tab_products || '商品' },
-                  { value: 'model', label: t.assets_tab_models || '模特' },
-                  { value: 'scene', label: t.assets_tab_scenes || '场景' },
-                  { value: 'motion', label: t.assets_tab_motion || '动作' },
-                ] as Array<{ value: AssetLibraryTab; label: string }>).map((tab) => (
-                  <button
-                    key={tab.value}
-                    type="button"
-                    onClick={() => {
-                      setAssetLibraryTab(tab.value);
-                      setAssetLibraryCurrentFolderId(null);
-                    }}
-                    className={`shrink-0 rounded-full border px-5 py-2 text-[14px] font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center gap-2 text-xs text-zinc-500 min-w-0">
-                <button
-                  type="button"
-                  onClick={() => setAssetLibraryCurrentFolderId(null)}
-                  className={`hover:text-white ${assetLibraryCurrentFolderId === null ? 'text-white' : ''}`}
-                >
-                  {t.assets_root || '根目录'}
-                </button>
-                {assetLibraryBreadcrumb.map((folder) => (
-                  <div key={folder.id} className="flex items-center gap-2 min-w-0">
-                    <span>/</span>
+                footer={
+                  <>
                     <button
-                      type="button"
-                      onClick={() => setAssetLibraryCurrentFolderId(folder.id)}
-                      className={`hover:text-white truncate ${assetLibraryCurrentFolderId === folder.id ? 'text-white' : ''}`}
+                        className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                        onClick={() => {
+                          setIsCreateProjectOpen(false);
+                          setCreateProjectNameError('');
+                        }}
                     >
-                      {folder.name}
+                      {projectUiText.cancel}
                     </button>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-1">
-                {assetLibraryLoading ? (
-                  <div className="h-52 flex items-center justify-center text-zinc-400">
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载中...
-                  </div>
-                ) : assetLibraryError ? (
-                  <div className="h-52 flex items-center justify-center text-red-300 text-sm">
-                    {assetLibraryError}
-                  </div>
-                ) : assetLibraryItems.length === 0 && assetLibraryFolders.length === 0 ? (
-                  <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">
-                    暂无素材
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-6 gap-2">
-                    {assetLibraryFolders.map((folder) => (
-                      <button
-                        key={folder.id}
-                        type="button"
-                        onClick={() => setAssetLibraryCurrentFolderId(folder.id)}
-                        className="text-left rounded-lg border border-white/10 bg-black/30 p-1 hover:border-orange-500/50 hover:bg-white/5 transition"
-                      >
-                        <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-900/60 relative flex items-center justify-center">
-                          <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center">
-                            <Folder className="w-5 h-5 text-zinc-300" />
-                          </div>
-                        </div>
-                        <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{folder.name}</div>
-                      </button>
-                    ))}
-                    {assetLibraryItems.map((asset) => (
-                      <button
-                        key={asset.id}
-                        type="button"
-                        onClick={() => selectAssetFromLibraryPopup(asset)}
-                        className="text-left rounded-lg border border-white/10 bg-black/30 p-1 hover:border-orange-500/50 hover:bg-white/5 transition"
-                      >
-                        <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
-                          {asset.media_kind === 'video' ? (
-                            <video src={asset.file_url} className="w-full h-full object-cover" muted playsInline />
-                          ) : (
-                            <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} />
-                          )}
-                        </div>
-                        <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{asset.name}</div>
-                      </button>
-                    ))}
-                  </div>
+                    <button
+                        className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
+                        onClick={() => createNewProject(newProjectNameDraft)}
+                    >
+                      {projectUiText.createConfirm || projectUiText.newProject}
+                    </button>
+                  </>
+                }
+            >
+              <div className="space-y-2">
+                <div className="text-sm text-zinc-300">{projectUiText.createNameLabel || t.assets_name_label || 'Name'}</div>
+                <input
+                    autoFocus
+                    value={newProjectNameDraft}
+                    onChange={(e) => {
+                      const nextName = e.target.value;
+                      setNewProjectNameDraft(nextName);
+                      if (createProjectNameError && nextName.trim().length <= MAX_PROJECT_NAME_LENGTH) {
+                        setCreateProjectNameError('');
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') createNewProject(newProjectNameDraft);
+                    }}
+                    placeholder={projectUiText.createNamePlaceholder || projectUiText.defaultProjectName}
+                    className={`w-full rounded-lg border bg-black/40 text-zinc-100 px-3 py-2 text-sm outline-none focus:border-orange-500 ${createProjectNameError ? 'border-red-500' : 'border-white/10'}`}
+                />
+                {createProjectNameError && (
+                    <div className="text-xs text-red-400">{createProjectNameError}</div>
                 )}
               </div>
-            </div>
-          </AppDialog>
+            </AppDialog>
         )}
 
-      <div className="flex-1 flex overflow-hidden p-6 gap-6">
-        {renderLeftColumn()}
-        
-        <div ref={scriptsSectionRef} className={`flex-auto flex flex-col gap-3 h-full min-w-[300px] ${getGuideFocusClass('scripts')}`}>
-           <div className="flex justify-between items-center shrink-0 h-[32px]">
+        {isAssetLibraryOpen && (
+            <AppDialog
+                isOpen={isAssetLibraryOpen}
+                titleClassName="text-lg"
+                title={t.wb_dialog_choose_from_library || '从素材库选择'}
+                onClose={() => setIsAssetLibraryOpen(false)}
+                widthClassName="max-w-[min(92vw,980px)]"
+                footer={
+                  <>
+                    <button
+                        className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
+                        onClick={() => setIsAssetLibraryOpen(false)}
+                    >
+                      关闭
+                    </button>
+                  </>
+                }
+            >
+              <div className="w-full h-[62vh] max-h-[600px] min-h-[440px] flex flex-col gap-2.5">
+                <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                  {([
+                    { value: 'product', label: t.assets_tab_products || '商品' },
+                    { value: 'model', label: t.assets_tab_models || '模特' },
+                    { value: 'scene', label: t.assets_tab_scenes || '场景' },
+                    { value: 'motion', label: t.assets_tab_motion || '动作' },
+                  ] as Array<{ value: AssetLibraryTab; label: string }>).map((tab) => (
+                      <button
+                          key={tab.value}
+                          type="button"
+                          onClick={() => {
+                            setAssetLibraryTab(tab.value);
+                            setAssetLibraryCurrentFolderId(null);
+                          }}
+                          className={`shrink-0 rounded-full border px-5 py-2 text-[14px] font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
+                      >
+                        {tab.label}
+                      </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-zinc-500 min-w-0">
+                  <button
+                      type="button"
+                      onClick={() => setAssetLibraryCurrentFolderId(null)}
+                      className={`hover:text-white ${assetLibraryCurrentFolderId === null ? 'text-white' : ''}`}
+                  >
+                    {t.assets_root || '根目录'}
+                  </button>
+                  {assetLibraryBreadcrumb.map((folder) => (
+                      <div key={folder.id} className="flex items-center gap-2 min-w-0">
+                        <span>/</span>
+                        <button
+                            type="button"
+                            onClick={() => setAssetLibraryCurrentFolderId(folder.id)}
+                            className={`hover:text-white truncate ${assetLibraryCurrentFolderId === folder.id ? 'text-white' : ''}`}
+                        >
+                          {folder.name}
+                        </button>
+                      </div>
+                  ))}
+                </div>
+
+                <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-1">
+                  {assetLibraryLoading ? (
+                      <div className="h-52 flex items-center justify-center text-zinc-400">
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载中...
+                      </div>
+                  ) : assetLibraryError ? (
+                      <div className="h-52 flex items-center justify-center text-red-300 text-sm">
+                        {assetLibraryError}
+                      </div>
+                  ) : assetLibraryItems.length === 0 && assetLibraryFolders.length === 0 ? (
+                      <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">
+                        暂无素材
+                      </div>
+                  ) : (
+                      <div className="grid grid-cols-6 gap-2">
+                        {assetLibraryFolders.map((folder) => (
+                            <button
+                                key={folder.id}
+                                type="button"
+                                onClick={() => setAssetLibraryCurrentFolderId(folder.id)}
+                                className="text-left rounded-lg border border-white/10 bg-black/30 p-1 hover:border-orange-500/50 hover:bg-white/5 transition"
+                            >
+                              <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-900/60 relative flex items-center justify-center">
+                                <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center">
+                                  <Folder className="w-5 h-5 text-zinc-300" />
+                                </div>
+                              </div>
+                              <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{folder.name}</div>
+                            </button>
+                        ))}
+                        {assetLibraryItems.map((asset) => (
+                            <button
+                                key={asset.id}
+                                type="button"
+                                onClick={() => selectAssetFromLibraryPopup(asset)}
+                                className="text-left rounded-lg border border-white/10 bg-black/30 p-1 hover:border-orange-500/50 hover:bg-white/5 transition"
+                            >
+                              <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
+                                {asset.media_kind === 'video' ? (
+                                    <video src={asset.file_url} className="w-full h-full object-cover" muted playsInline />
+                                ) : (
+                                    <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} />
+                                )}
+                              </div>
+                              <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{asset.name}</div>
+                            </button>
+                        ))}
+                      </div>
+                  )}
+                </div>
+              </div>
+            </AppDialog>
+        )}
+
+        <div ref={workspaceRowRef} className="flex-1 flex overflow-hidden p-6 gap-6">
+          <div style={{ width: leftColumnWidth }} className="shrink-0 h-full min-w-[260px] max-w-[640px]">
+            {renderLeftColumn()}
+          </div>
+
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          onMouseDown={handleResizeMouseDown}
+          className="group relative w-4 -mx-3 cursor-col-resize transition shrink-0 flex items-stretch justify-center hover:bg-white/5 rounded"
+          title="拖拽调整布局"
+        >
+          <div className="h-full w-px bg-white/15 transition-all group-hover:w-0.5 group-hover:bg-orange-500/70 group-hover:shadow-[0_0_14px_rgba(249,115,22,0.35)]" />
+          <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-4" />
+        </div>
+
+          <div ref={scriptsSectionRef} className={`flex-auto flex flex-col gap-3 h-full min-w-[300px] ${getGuideFocusClass('scripts')}`}>
+            <div className="flex justify-between items-center shrink-0 h-[32px]">
               <div className="flex items-center gap-3">
-                 <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
-                 <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{currentScriptDuration.toFixed(1)}s / {genDuration}s</div>
-                 {/* Icons for script handling */}
-                 <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
-                  <button 
-                    onClick={handleExportScripts}
-                    disabled={isExporting}
-                    className={`flex items-center gap-1.5 px-2 py-1 rounded transition ${isExporting ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
-                    title={t.wb_export_scripts}
+                <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
+                <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{currentScriptDuration.toFixed(1)}s / {genDuration}s</div>
+                <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
+                  <button
+                      onClick={handleExportScripts}
+                      disabled={isExporting}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded transition ${isExporting ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
+                      title={t.wb_export_scripts}
                   >
                     {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
                     <span className="text-[10px] font-medium">{t.wb_export_scripts}</span>
                   </button>
-                  
-                  <button 
-                    onClick={() => scriptFileInputRef.current?.click()} 
-                    className="flex items-center gap-1.5 px-2 py-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition" 
-                    title={t.wb_import_scripts}
+
+                  <button
+                      onClick={() => scriptFileInputRef.current?.click()}
+                      className="flex items-center gap-1.5 px-2 py-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition"
+                      title={t.wb_import_scripts}
                   >
                     <FileUp className="w-3.5 h-3.5" />
                     <span className="text-[10px] font-medium">{t.wb_import_scripts}</span>
                   </button>
-                  
-                  <input 
-                    type="file" 
-                    ref={scriptFileInputRef} 
-                    className="hidden" 
-                    accept=".json" 
-                    onChange={handleUploadScripts} 
+
+                  <input
+                      type="file"
+                      ref={scriptFileInputRef}
+                      className="hidden"
+                      accept=".json"
+                      onChange={handleUploadScripts}
                   />
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
-                <button 
-                  onClick={() => handleScriptPageChange(activeScriptPage - 1)} 
-                  disabled={scriptPages.length <= 1 || activeScriptPage === 0}
-                  className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
+                <button
+                    onClick={() => handleScriptPageChange(activeScriptPage - 1)}
+                    disabled={scriptPages.length <= 1 || activeScriptPage === 0}
+                    className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
                 >
                   <ArrowLeft className="w-3 h-3" />
                 </button>
-                
+
                 <div className="text-[10px] text-zinc-400 border border-white/10 px-2 py-0.5 rounded">
                   {t.wb_script_page_prefix} {activeScriptPage + 1} / {Math.max(scriptPages.length, 1)}
                 </div>
-                
-                <button 
-                  onClick={() => handleScriptPageChange(activeScriptPage + 1)} 
-                  disabled={scriptPages.length <= 1 || activeScriptPage === scriptPages.length - 1}
-                  className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === scriptPages.length - 1 ? 'opacity-40 cursor-not-allowed' : ''}`}
+
+                <button
+                    onClick={() => handleScriptPageChange(activeScriptPage + 1)}
+                    disabled={scriptPages.length <= 1 || activeScriptPage === scriptPages.length - 1}
+                    className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === scriptPages.length - 1 ? 'opacity-40 cursor-not-allowed' : ''}`}
                 >
                   <ArrowRight className="w-3 h-3" />
                 </button>
-            </div>
+              </div>
               <div className="flex items-center gap-2">
                 <button onClick={handleGenerateVideo} disabled={isGenerating} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
                   {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}{isGenerating ? 'Generating...' : t.wb_btn_gen_video}
-              </button>
+                </button>
               </div>
-           </div>
-           
-           <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
-              {activeReferenceSummary.length > 0 && (
-                <div className="glass-panel rounded-xl p-3 border border-white/10">
-                  <div className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2">{t.wb_upload_title}</div>
-                  <div className="space-y-2">
-                    {activeReferenceSummary.map((item, idx) => {
-                      const previewAsset = referencePreviewAssetsByType[item.type];
-                      const previewSrc = previewAsset?.previewUrl || previewAsset?.assetUrl || null;
-                      return (
-                        <div key={`${item.type}-${idx}`} className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 p-2">
-                          <div className="w-10 h-10 rounded-md overflow-hidden border border-white/10 bg-zinc-900 shrink-0 flex items-center justify-center">
-                            {previewSrc ? (
-                              <img src={previewSrc} alt={previewAsset?.name || item.type} className="w-full h-full object-cover" />
-                            ) : (
-                              <Layers className="w-4 h-4 text-zinc-500" />
-                            )}
+            </div>
+
+            <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
+              {activeScriptPlan && (
+                  <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-2xl relative overflow-hidden">
+                    {/* 装饰性背景光晕：极微弱的紫色透出 */}
+                    <div className="absolute -top-20 -right-20 w-72 h-72 bg-purple-500/10 rounded-full blur-[100px] pointer-events-none" />
+
+                    {/* 头部 */}
+                    <div className={`flex items-center justify-between gap-3 relative z-10 mb-6 pb-4 ${isLightTheme ? 'border-b border-slate-300/80' : 'border-b border-white/10'}`}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.15)]">
+                          <Sparkles className="w-4 h-4 text-purple-400" />
+                        </div>
+                        <div>
+                          <div className={`text-[13px] font-black tracking-wider flex items-center gap-2 ${isLightTheme ? 'text-slate-900' : 'text-zinc-100'}`}>
+                            {String(language || '').toLowerCase().startsWith('zh') ? '脚本方案卡' : 'Script Plan Card'}
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-normal tracking-normal ${isLightTheme
+                              ? 'border border-purple-300 bg-purple-100 text-purple-800'
+                              : 'border border-purple-500/30 bg-purple-500/20 text-purple-200'
+                            }`}>
+                              {String(language || '').toLowerCase().startsWith('zh') ? '可灵3.0提示词' : 'Kling 3.0 Prompt'}
+                            </span>
                           </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="text-[10px] text-zinc-300 font-semibold">
-                              {materialTypeLabelMap[item.type]}
+                          <div className={`text-[10px] mt-0.5 font-medium ${isLightTheme ? 'text-slate-600' : 'text-zinc-500'}`}>{t.wb_script_page_prefix} {activeScriptPage + 1}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 relative z-10">
+                      <div className={cardThemeClass.shell}>
+                        <div className="space-y-1 text-[12px] leading-4">
+                          <div>
+                            <div className={cardThemeClass.label}>{cardLabels.style}</div>
+                            <textarea
+                                rows={1}
+                                data-card-autosize="true"
+                                value={activeCreativeCard?.style || ''}
+                                onChange={(e) => updateActiveCreativeCardField('style', e.target.value)}
+                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                className={cardThemeClass.input}
+                            />
+                          </div>
+
+                          <div>
+                            <div className={cardThemeClass.label}>{cardLabels.environment}</div>
+                            <textarea
+                                rows={1}
+                                data-card-autosize="true"
+                                value={activeCreativeCard?.environment || ''}
+                                onChange={(e) => updateActiveCreativeCardField('environment', e.target.value)}
+                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                className={cardThemeClass.input}
+                            />
+                          </div>
+
+                          <div>
+                            <div className={cardThemeClass.label}>{cardLabels.tonePacing}</div>
+                            <textarea
+                                rows={1}
+                                data-card-autosize="true"
+                                value={activeCreativeCard?.tonePacing || ''}
+                                onChange={(e) => updateActiveCreativeCardField('tonePacing', e.target.value)}
+                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                className={cardThemeClass.input}
+                            />
+                          </div>
+
+                          <div>
+                            <div className={cardThemeClass.label}>{cardLabels.camera}</div>
+                            <textarea
+                                rows={1}
+                                data-card-autosize="true"
+                                value={activeCreativeCard?.camera || ''}
+                                onChange={(e) => updateActiveCreativeCardField('camera', e.target.value)}
+                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                className={cardThemeClass.input}
+                            />
+                          </div>
+
+                          <div>
+                            <div className={cardThemeClass.label}>{cardLabels.lighting}</div>
+                            <textarea
+                                rows={1}
+                                data-card-autosize="true"
+                                value={activeCreativeCard?.lighting || ''}
+                                onChange={(e) => updateActiveCreativeCardField('lighting', e.target.value)}
+                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                className={cardThemeClass.input}
+                            />
+                          </div>
+
+                          <div>
+                            <div className="mb-0.5 flex items-center justify-between">
+                              <span className={cardThemeClass.label}>{cardLabels.actions}</span>
+                              <button
+                                  type="button"
+                                  onClick={addActiveCreativeCardAction}
+                                  className={cardThemeClass.button}
+                              >
+                                {cardLabels.addScene}
+                              </button>
                             </div>
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {item.keywords.map((kw, kIdx) => (
-                                <span key={`${item.type}-${kIdx}-${kw}`} className="text-[10px] px-1.5 py-0.5 rounded border border-white/15 bg-white/5 text-zinc-200">
-                                  {kw}
-                                </span>
+                            <div className="space-y-1">
+                              {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0 ? activeCreativeCard.actions : ['']).map((item, idx) => (
+                                  <div key={`card-action-edit-${idx}`} className={cardThemeClass.actionItem}>
+                                    <div className="mb-0.5 flex items-center justify-between">
+                                      <span className={cardThemeClass.subLabel}>{`${cardLabels.scenePrefix}${idx + 1}${cardLabels.sceneSuffix}`}</span>
+                                      {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0) && (
+                                          <button
+                                              type="button"
+                                              onClick={() => removeActiveCreativeCardAction(idx)}
+                                              className={cardThemeClass.dangerButton}
+                                              title={cardLabels.deleteScene}
+                                          >
+                                            {cardLabels.deleteScene}
+                                          </button>
+                                      )}
+                                    </div>
+                                    <textarea
+                                        rows={1}
+                                        data-card-autosize="true"
+                                        value={item}
+                                        onChange={(e) => updateActiveCreativeCardAction(idx, e.target.value)}
+                                        onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                        placeholder={`${cardLabels.scenePrefix}${idx + 1}${cardLabels.sceneSuffix}...`}
+                                        className={cardThemeClass.actionInput}
+                                    />
+                                  </div>
                               ))}
                             </div>
                           </div>
+
+                          <div>
+                            <div className={cardThemeClass.label}>{cardLabels.backgroundSound}</div>
+                            <textarea
+                                rows={1}
+                                data-card-autosize="true"
+                                value={activeCreativeCard?.backgroundSound || ''}
+                                onChange={(e) => updateActiveCreativeCardField('backgroundSound', e.target.value)}
+                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                className={cardThemeClass.input}
+                            />
+                          </div>
+
+                          <div>
+                            <div className={cardThemeClass.label}>{cardLabels.transitionEditing}</div>
+                            <textarea
+                                rows={1}
+                                data-card-autosize="true"
+                                value={activeCreativeCard?.transitionEditing || ''}
+                                onChange={(e) => updateActiveCreativeCardField('transitionEditing', e.target.value)}
+                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                className={cardThemeClass.input}
+                            />
+                          </div>
+
+                          <div>
+                            <div className={cardThemeClass.label}>{cardLabels.callToAction}</div>
+                            <textarea
+                                rows={1}
+                                data-card-autosize="true"
+                                value={activeCreativeCard?.callToAction || ''}
+                                onChange={(e) => updateActiveCreativeCardField('callToAction', e.target.value)}
+                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                className={cardThemeClass.input}
+                            />
+                          </div>
                         </div>
-                      );
-                    })}
+                      </div>
+                    </div>
                   </div>
-                </div>
               )}
-              {scripts.length === 0 ? (
-                 <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
-                    <FileJson className="w-10 h-10 mb-2 opacity-50" />
-                    <p className="text-xs">No scripts yet.</p>
-                 </div>
+              {activeReferenceSummary.length > 0 && (
+                  <div className="glass-panel rounded-xl p-3 border border-white/10">
+                    <div className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2">{t.wb_upload_title}</div>
+                    <div className="space-y-2">
+                      {activeReferenceSummary.map((item, idx) => {
+                        const previewAsset = referencePreviewAssetsByType[item.type];
+                        const previewSrc = previewAsset?.previewUrl || previewAsset?.assetUrl || null;
+                        return (
+                            <div key={`${item.type}-${idx}`} className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 p-2">
+                              <div className="w-10 h-10 rounded-md overflow-hidden border border-white/10 bg-zinc-900 shrink-0 flex items-center justify-center">
+                                {previewSrc ? (
+                                    <img src={previewSrc} alt={previewAsset?.name || item.type} className="w-full h-full object-cover" />
+                                ) : (
+                                    <Layers className="w-4 h-4 text-zinc-500" />
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-[10px] text-zinc-300 font-semibold">
+                                  {materialTypeLabelMap[item.type]}
+                                </div>
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {item.keywords.map((kw, kIdx) => (
+                                      <span key={`${item.type}-${kIdx}-${kw}`} className="text-[10px] px-1.5 py-0.5 rounded border border-white/15 bg-white/5 text-zinc-200">
+                                  {kw}
+                                </span>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+              )}
+              {enableStoryboardEditor ? (
+                  <>
+                    <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                      <div className="text-[10px] text-zinc-400 uppercase tracking-widest">分镜结构（可编辑）</div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                            type="button"
+                            onClick={() => setIsShotBreakdownOpen((prev) => !prev)}
+                            className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
+                        >
+                          {isShotBreakdownOpen ? '收起分镜' : '展开分镜'}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setEnableStoryboardEditor(false); setIsShotBreakdownOpen(false); }}
+                            className="text-[10px] px-2 py-1 rounded border border-zinc-700 text-zinc-500 hover:text-red-400 hover:border-red-500/40 transition"
+                        >
+                          关闭分镜
+                        </button>
+                      </div>
+                    </div>
+                    {!isShotBreakdownOpen ? (
+                        <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
+                          当前默认展示完整脚本方案。点击“展开分镜”进行镜头级精修。
+                        </div>
+                    ) : scripts.length === 0 ? (
+                        <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
+                          <FileJson className="w-10 h-10 mb-2 opacity-50" />
+                          <p className="text-xs">No scripts yet.</p>
+                        </div>
+                    ) : (
+                        scripts.map((script, index) => (
+                            <div key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
+                              <div className="flex justify-between items-start mb-3">
+                                <div className="flex items-center gap-2">
+                                  <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
+                                  <select
+                                      value={script.type}
+                                      onChange={(e) => handleScriptTypeChange(script.id, e.target.value)}
+                                      className="text-[10px] text-zinc-300 border border-white/10 px-1.5 py-0.5 rounded bg-black/40 focus:outline-none focus:border-orange-500"
+                                      title={t.wb_shot_type_label || '镜头类型'}
+                                  >
+                                    {shotTypeOptions.map((option) => (
+                                        <option key={option.value} value={option.value} className="bg-black text-zinc-100">
+                                          {option.label}
+                                        </option>
+                                    ))}
+                                  </select>
+                                  <input type="number" min={0.1} step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
+                                  <span className="text-[10px] text-zinc-500">s</span>
+                                </div>
+                                <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
+                              </div>
+                              <div className="grid grid-cols-1 gap-3">
+                                <div className="flex flex-col gap-1.5">
+                                  <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_visual}</p>
+                                  <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll" value={script.visual} onChange={(e) => { const ns = [...scripts]; ns[index].visual = e.target.value; updateScripts(ns); }} />
+                                </div>
+                                <div className="flex flex-col gap-1.5">
+                                  <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
+                                  <input
+                                      type="text"
+                                      disabled={soundSetting === 'off'}
+                                      className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
+                                      value={soundSetting === 'off' ? '已关闭音频' : script.audio}
+                                      onChange={(e) => {
+                                        if (soundSetting === 'off') return;
+                                        const ns = [...scripts];
+                                        ns[index].audio = e.target.value;
+                                        updateScripts(ns);
+                                      }}
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                    <div className="flex items-center justify-between">
+                                      <p className="text-[10px] text-zinc-600 uppercase font-bold ml-1">{t.wb_audio_translation || 'Translation'}</p>
+                                      {soundSetting !== 'off' && (
+                                        <div className="relative group/translate">
+                                          <button
+                                            type="button"
+                                            className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-white/10 text-zinc-400 hover:text-orange-400 hover:border-orange-500/40 transition"
+                                            disabled={!script.audioTranslation?.trim() || translatingShots[script.id]}
+                                          >
+                                            {translatingShots[script.id] ? (
+                                              <>
+                                                <Loader2 className="w-3 h-3 animate-spin" />
+                                                <span>{t.wb_translating || '翻译中...'}</span>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Languages className="w-3 h-3" />
+                                                <span>{t.wb_btn_translate_to_target || '翻译成目标语言'}</span>
+                                              </>
+                                            )}
+                                          </button>
+                                          {/* 悬浮弹出菜单：直接翻译 / 创意翻译 */}
+                                          {!translatingShots[script.id] && script.audioTranslation?.trim() && (
+                                            <div className="absolute right-0 top-full pt-1 hidden group-hover/translate:flex flex-col z-50 min-w-[160px]">
+                                            <div className="flex flex-col gap-1 bg-zinc-900 border border-white/10 rounded-lg p-2 shadow-xl">
+                                              <button
+                                                type="button"
+                                                className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 hover:text-orange-400 px-2 py-1.5 rounded hover:bg-white/5 transition whitespace-nowrap"
+                                                onClick={() => handleTranslateShot(script, index, 'direct')}
+                                              >
+                                                <span>{t.wb_translate_direct || '直接翻译'}</span>
+                                                <span className="relative group/tip-d">
+                                                  <HelpCircle className="w-3 h-3 text-zinc-500" />
+                                                  <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden group-hover/tip-d:block bg-black/90 text-zinc-300 text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap border border-white/10">
+                                                    {t.wb_translate_direct_tip || '直接翻译，保持原文含义和语气'}
+                                                  </span>
+                                                </span>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 hover:text-purple-400 px-2 py-1.5 rounded hover:bg-white/5 transition whitespace-nowrap"
+                                                onClick={() => handleTranslateShot(script, index, 'creative')}
+                                              >
+                                                <span>{t.wb_translate_creative || '创意翻译'}</span>
+                                                <span className="relative group/tip-c">
+                                                  <HelpCircle className="w-3 h-3 text-zinc-500" />
+                                                  <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden group-hover/tip-c:block bg-black/90 text-zinc-300 text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap border border-white/10">
+                                                    {t.wb_translate_creative_tip || '结合产品特点和画面进行创意翻译'}
+                                                  </span>
+                                                </span>
+                                              </button>
+                                            </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <textarea
+                                      className="w-full bg-black/20 text-xs text-zinc-400 p-3 rounded-lg border border-white/5 resize-none min-h-[40px] focus:border-white/20 transition-colors outline-none italic"
+                                      value={script.audioTranslation}
+                                      placeholder={t.wb_audio_translation || 'Translation'}
+                                      onChange={(e) => {
+                                        const ns = [...scripts];
+                                        ns[index].audioTranslation = e.target.value;
+                                        updateScripts(ns);
+                                      }}
+                                    />
+                                  </div>
+                              </div>
+                            </div>
+                        ))
+                    )}
+                    {isShotBreakdownOpen && (
+                        <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
+                    )}
+                  </>
               ) : (
-                  scripts.map((script, index) => (
-                    <div key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
+                  <>
+                  <div className="flex items-center justify-between rounded-xl border border-dashed border-white/10 bg-black/20 px-3 py-3">
+                    <span className="text-[11px] text-zinc-500">当前使用完整脚本方案卡生成视频。</span>
+                    <button
+                        type="button"
+                        onClick={() => setEnableStoryboardEditor(true)}
+                        className="text-[10px] px-2.5 py-1 rounded border border-orange-500/40 text-orange-400 hover:bg-orange-500/10 transition whitespace-nowrap"
+                    >
+                      启用分镜结构
+                    </button>
+                  </div>
+                  {!isShotBreakdownOpen ? (
+                    <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
+                      {t.wb_storyboard_hint_default_master}
+                    </div>
+                  ) : scripts.length === 0 ? (
+                    <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
+                      <FileJson className="w-10 h-10 mb-2 opacity-50" />
+                      <p className="text-xs">{t.wb_empty_scripts}</p>
+                    </div>
+                  ) : (
+                    scripts.map((script, index) => (
+                      <div key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
                         <div className="flex justify-between items-start mb-3">
                             <div className="flex items-center gap-2">
                                 <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
@@ -4148,7 +5392,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                     </option>
                                   ))}
                                 </select>
-                                <input type="number" step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
+                                <input type="number" min={0.1} step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
                                 <span className="text-[10px] text-zinc-500">s</span>
                               </div>
                               <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
@@ -4174,12 +5418,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 />
                             </div>
                         </div>
-                    </div>
-                  ))
+                      </div>
+                    ))
+                  )}
+                  {isShotBreakdownOpen && (
+                    <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
+                  )}
+                </>
               )}
-              <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
-           </div>
-        </div>
+            </div>
+          </div>
 
           {/* Right Column: Preview & Results */}
           <div ref={previewSectionRef} className={`w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full ${getGuideFocusClass('preview')}`}>
@@ -4190,20 +5438,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             <div className="glass-panel flex-1 rounded-2xl p-1 relative flex flex-col overflow-hidden">
               <div className="flex-1 bg-black rounded-xl relative overflow-hidden group flex items-center justify-center">
                 {generatedVideoUrl ? (
-                  <video
-                    ref={videoRef}
-                    src={generatedVideoUrl}
-                    controls
-                    autoPlay
-                    loop
-                    className="w-full h-full object-contain"
+                    <video
+                        ref={videoRef}
+                        src={generatedVideoUrl}
+                        controls
+                        autoPlay
+                        loop
+                        className="w-full h-full object-contain"
                         onPlay={() => setIsPlaying(true)}
                         onPause={() => setIsPlaying(false)}
-                  />
+                    />
                 ) : (
-                  <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Submitting…' : t.wb_waiting}</p></div>
+                    <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Submitting…' : t.wb_waiting}</p></div>
                 )}
-                
+
               </div>
               <div className="h-14 flex items-center justify-between px-4 border-t border-white/5 bg-zinc-900/50">
                 <div className="flex gap-4">
@@ -4254,15 +5502,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </button>
             </div>
 
-            {/* Batch Results Panel (Restored) */}
             <div className="glass-panel rounded-2xl p-4 border border-white/5 max-h-56 overflow-y-auto custom-scroll">
               <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3">{t.wb_batch_results}</div>
-              {generatedBatch.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_batch_no_results}</div> : <div className="space-y-2">{generatedBatch.map(item => { const task = tasks.find(t => t.id === item.taskId); const status = task?.status; const url = task?.result?.video_url || task?.result?.url; return (<div key={item.id} className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>{status === 'success' && url ? (<button onClick={() => setGeneratedVideoUrl(url)} className="text-orange-400 hover:text-orange-300 transition">预览</button>) : status === 'failed' ? (<span className="text-red-400">失败</span>) : (<span className="text-zinc-500">生成中…</span>)}</div>); })}</div>}
+              {generatedBatch.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_batch_no_results}</div> : <div className="space-y-2">{generatedBatch.map(item => {
+                const task = tasks.find(t => t.id === item.taskId);
+                const status = task?.status;
+                const url = task?.result?.video_url || task?.result?.url;
+                return (<div key={item.id} className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>{status === 'success' && url ? (<button onClick={() => setGeneratedVideoUrl(url)} className="text-orange-400 hover:text-orange-300 transition">预览</button>) : status === 'failed' ? (<span className="text-red-400">失败</span>) : (<span className="text-zinc-500">生成中…</span>)}</div>);
+              })}</div>}
             </div>
           </div>
         </div>
-
       </div>
   );
 };
-

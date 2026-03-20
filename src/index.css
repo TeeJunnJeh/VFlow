@@ -32,6 +32,22 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.wb-script-plan-card [class*="text-emerald-"] { color: rgba(253, 186, 116, 0.95) !important; }
+.wb-script-plan-card [class*="border-emerald-"] { border-color: rgba(249, 115, 22, 0.25) !important; }
+.wb-script-plan-card [class*="bg-emerald-"] { background-color: rgba(249, 115, 22, 0.12) !important; }
+.wb-script-plan-card textarea:focus,
+.wb-script-plan-card input:focus {
+  border-color: rgba(249, 115, 22, 0.55) !important;
+}
+
+.theme-light .wb-script-plan-card [class*="text-emerald-"] { color: rgba(154, 52, 18, 0.95) !important; }
+.theme-light .wb-script-plan-card [class*="border-emerald-"] { border-color: rgba(234, 88, 12, 0.22) !important; }
+.theme-light .wb-script-plan-card [class*="bg-emerald-"] { background-color: rgba(234, 88, 12, 0.08) !important; }
+
+.theme-dim .wb-script-plan-card [class*="text-emerald-"] { color: rgba(253, 186, 116, 0.92) !important; }
+.theme-dim .wb-script-plan-card [class*="border-emerald-"] { border-color: rgba(249, 115, 22, 0.22) !important; }
+.theme-dim .wb-script-plan-card [class*="bg-emerald-"] { background-color: rgba(249, 115, 22, 0.10) !important; }
+
 /* --- Asset card helpers (theme-aware) --- */
 .asset-thumb-fade {
   background: linear-gradient(

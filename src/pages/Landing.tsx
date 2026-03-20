@@ -215,6 +215,17 @@ const LandingPage = () => {
           </motion.div>
         </main>
 
+        <footer className="absolute bottom-4 inset-x-0 z-10 text-center">
+          <a
+            href="http://beian.miit.gov.cn"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+          >
+            粤ICP备2026027661号
+          </a>
+        </footer>
+
         {isDebugDialogOpen && (
           <AppDialog
             isOpen={isDebugDialogOpen}

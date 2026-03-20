@@ -28,7 +28,8 @@ import { AppDialog } from '../common/AppDialog';
 
 const ENABLE_PROMPT_LAB = true;
 const ENABLE_STORYBOARD_PROMPT = false;
-const ENABLE_STORYBOARD_EDITOR = false;
+// Storyboard editor is now a user-toggleable runtime setting (no longer a compile-time constant).
+// The state `enableStoryboardEditor` replaces the old `enableStoryboardEditor` const.
 
 // Types specific to Workbench View
 type ScriptItem = {
@@ -38,6 +39,7 @@ type ScriptItem = {
   dur: string;
   visual: string;
   audio: string;
+  audioTranslation: string;
 };
 
 type ScriptCreativeCard = {
@@ -651,6 +653,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [scriptPages, setScriptPages] = useState<ScriptPage[]>(() => ([{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: buildDemoScripts() }]));
   const [activeScriptPage, setActiveScriptPage] = useState(0);
   const [isShotBreakdownOpen, setIsShotBreakdownOpen] = useState(false);
+  const [enableStoryboardEditor, setEnableStoryboardEditor] = useState(false);
 
   const [assetQueue, setAssetQueue] = useState<QueuedAsset[]>([]);
   const [scriptQueue, setScriptQueue] = useState<QueuedScript[]>([]);
@@ -1372,7 +1375,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setGeneratedVideoUrl(null);
   };
 
-  const currentScriptDuration = ENABLE_STORYBOARD_EDITOR
+  const currentScriptDuration = enableStoryboardEditor
       ? scripts.reduce((total, s) => total + (parseFloat(s.dur.replace('s', '')) || 0), 0)
       : genDuration;
   const isDurationValid = Math.abs(currentScriptDuration - genDuration) < 0.1;
@@ -1860,7 +1863,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       aspect_ratio: selectedTemplate?.aspect_ratio || '9:16',
       script_content: {
         duration: genDuration,
-        shots: ENABLE_STORYBOARD_EDITOR ? scripts : [],
+        shots: enableStoryboardEditor ? scripts : [],
       }
     });
 
@@ -1962,7 +1965,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       openInfo('Notice', 'Please generate or complete a script concept card first!');
       return;
     }
-    if (ENABLE_STORYBOARD_EDITOR && !isDurationValid) {
+    if (enableStoryboardEditor && !isDurationValid) {
       openInfo('Warning', `Total script duration (${currentScriptDuration}s) must match requested duration (${genDuration}s)!`);
       return;
     }
@@ -2349,7 +2352,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const addScript = () => {
     const newId = scripts.length > 0 ? Math.max(...scripts.map(s => s.id)) + 1 : 1;
-    updateScripts([...scripts, { id: newId, shot: (scripts.length + 1).toString(), type: 'Medium', dur: '2s', visual: '', audio: '' }]);
+    updateScripts([...scripts, { id: newId, shot: (scripts.length + 1).toString(), type: 'Medium', dur: '2s', visual: '', audio: '', audioTranslation: '' }]);
   };
 
   const removeScript = (id: number) => {
@@ -2421,7 +2424,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       openInfo('Notice', '请先生成或完善脚本方案卡');
       return;
     }
-    if (ENABLE_STORYBOARD_EDITOR && !isDurationValid) {
+    if (enableStoryboardEditor && !isDurationValid) {
       openInfo('Warning', `脚本总时长(${currentScriptDuration.toFixed(1)}s)需要与配置时长(${genDuration}s)一致`);
       return;
     }
@@ -2567,6 +2570,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         visual_style: style,
         aspect_ratio: resolution,
         user_language: language,
+        target_language: targetLanguage,
         sound: soundSetting,
         script_count: scriptVariantCount,
         script_content: {
@@ -2592,7 +2596,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         type: shot.type || 'Medium',
         dur: `${shot.duration_sec}s`,
         visual: shot.visual,
-        audio: shot.audio || shot.voiceover || ''
+        audio: shot.audio || shot.voiceover || '',
+        audioTranslation: shot.voiceover_translation || '',
       }));
       const normalizeText = (value: any) => String(value || '').replace(/\s+/g, ' ').trim();
       const parseStringList = (value: any, maxLen = 5) => {
@@ -2852,7 +2857,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!hasActiveScriptConcept) {
       issues.push('脚本方案卡：请先生成或完善完整脚本内容。');
     }
-    if (ENABLE_STORYBOARD_EDITOR && !isDurationValid) {
+    if (enableStoryboardEditor && !isDurationValid) {
       const template = t.wb_gen_req_issue_duration_mismatch || 'Storyboard: total shot duration ({scriptDuration}s) must match configured duration ({configDuration}s).';
       issues.push(
           formatI18nTemplate(template, {
@@ -3975,7 +3980,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
                             <div className="flex-1 min-w-0">
                               <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
-                              <div className="text-[9px] text-zinc-500">{ENABLE_STORYBOARD_EDITOR ? `${item.scripts.length} shots` : '完整脚本方案'}</div>
+                              <div className="text-[9px] text-zinc-500">{enableStoryboardEditor ? `${item.scripts.length} shots` : '完整脚本方案'}</div>
                             </div>
                             <button onClick={() => removeScriptFromQueue(item.id)}><X className="w-3 h-3 text-zinc-600 hover:text-red-400" /></button>
                           </div>
@@ -4929,17 +4934,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </div>
                   </div>
               )}
-              {ENABLE_STORYBOARD_EDITOR ? (
+              {enableStoryboardEditor ? (
                   <>
                     <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                       <div className="text-[10px] text-zinc-400 uppercase tracking-widest">分镜结构（可编辑）</div>
-                      <button
-                          type="button"
-                          onClick={() => setIsShotBreakdownOpen((prev) => !prev)}
-                          className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
-                      >
-                        {isShotBreakdownOpen ? '收起分镜' : '展开分镜'}
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                            type="button"
+                            onClick={() => setIsShotBreakdownOpen((prev) => !prev)}
+                            className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
+                        >
+                          {isShotBreakdownOpen ? '收起分镜' : '展开分镜'}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setEnableStoryboardEditor(false); setIsShotBreakdownOpen(false); }}
+                            className="text-[10px] px-2 py-1 rounded border border-zinc-700 text-zinc-500 hover:text-red-400 hover:border-red-500/40 transition"
+                        >
+                          关闭分镜
+                        </button>
+                      </div>
                     </div>
                     {!isShotBreakdownOpen ? (
                         <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
@@ -4993,6 +5007,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                       }}
                                   />
                                 </div>
+                                {script.audioTranslation && (
+                                  <div className="flex flex-col gap-1">
+                                    <p className="text-[10px] text-zinc-600 uppercase font-bold ml-1">{t.wb_audio_translation || 'Translation'}</p>
+                                    <p className="w-full text-xs text-zinc-500 p-3 rounded-lg border border-white/5 bg-black/10 italic">
+                                      {script.audioTranslation}
+                                    </p>
+                                  </div>
+                                )}
                               </div>
                             </div>
                         ))
@@ -5002,8 +5024,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     )}
                   </>
               ) : (
-                  <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
-                    分镜功能已临时关闭，当前仅使用完整脚本方案卡生成视频。
+                  <div className="flex items-center justify-between rounded-xl border border-dashed border-white/10 bg-black/20 px-3 py-3">
+                    <span className="text-[11px] text-zinc-500">当前使用完整脚本方案卡生成视频。</span>
+                    <button
+                        type="button"
+                        onClick={() => setEnableStoryboardEditor(true)}
+                        className="text-[10px] px-2.5 py-1 rounded border border-orange-500/40 text-orange-400 hover:bg-orange-500/10 transition whitespace-nowrap"
+                    >
+                      启用分镜结构
+                    </button>
                   </div>
               )}
             </div>

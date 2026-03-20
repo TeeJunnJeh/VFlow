@@ -344,6 +344,7 @@ export const translations = {
     wb_shot_type_general: "General",
     wb_visual: "Visual",
     wb_audio: "Audio",
+    wb_audio_translation: "Translation",
     wb_btn_add_shot: "Add Shot",
 
     // Right Col
@@ -943,6 +944,7 @@ export const translations = {
     wb_shot_type_general: "通用",
     wb_visual: "画面描述",
     wb_audio: "音频/台词",
+    wb_audio_translation: "台词翻译",
     wb_btn_add_shot: "添加镜头",
 
     wb_col_preview: "预览",
@@ -1463,6 +1465,7 @@ export const translations = {
     wb_shot: "Syot",
     wb_visual: "Visual",
     wb_audio: "Audio",
+    wb_audio_translation: "Terjemahan",
     wb_btn_add_shot: "Tambah Syot",
 
     wb_col_preview: "Pratonton",
@@ -1932,6 +1935,7 @@ export const translations = {
     wb_shot: "Cảnh",
     wb_visual: "Hình ảnh",
     wb_audio: "Âm thanh",
+    wb_audio_translation: "Bản dịch",
     wb_btn_add_shot: "Thêm cảnh",
 
     wb_col_preview: "Xem trước",
@@ -2411,6 +2415,7 @@ export const translations = {
     wb_shot: "샷",
     wb_visual: "시각적 설명",
     wb_audio: "오디오/대사",
+    wb_audio_translation: "번역",
     wb_btn_add_shot: "샷 추가",
 
     wb_col_preview: "미리보기",

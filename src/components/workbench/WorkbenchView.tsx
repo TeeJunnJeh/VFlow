@@ -673,8 +673,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const buildDemoScripts = useCallback(() => ([
-    { id: 1, shot: '1', type: 'Medium', dur: '2s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio },
-    { id: 2, shot: '2', type: 'Detail', dur: '2s', visual: t.demo_shot2_visual, audio: t.demo_shot2_audio }
+    { id: 1, shot: '1', type: 'Medium', dur: '2s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio, audioTranslation: '' },
+    { id: 2, shot: '2', type: 'Detail', dur: '2s', visual: t.demo_shot2_visual, audio: t.demo_shot2_audio, audioTranslation: '' }
   ]), [t]);
   const [scripts, setScripts] = useState<ScriptItem[]>(buildDemoScripts);
   const [scriptPages, setScriptPages] = useState<ScriptPage[]>(() => ([{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: buildDemoScripts() }]));
@@ -2866,7 +2866,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             type: item.type || 'Medium',
             dur: item.dur || '2s',
             visual: item.visual || '',
-            audio: item.audio || ''
+            audio: item.audio || '',
+            audioTranslation: item.audioTranslation || ''
           }));
           setScripts(validScripts);
           setScriptPages(prev => {

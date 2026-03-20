@@ -25,6 +25,7 @@ import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { type Template } from '../../services/templates';
 import { AppDialog } from '../common/AppDialog';
+import { getWorkbenchPreferences } from '../../utils/preferences';
 
 const ENABLE_PROMPT_LAB = true;
 const ENABLE_STORYBOARD_PROMPT = false;
@@ -203,40 +204,50 @@ const estimateProjectNameWidthEm = (value: string): number => {
 const createWorkspaceState = (params?: {
   scripts?: ScriptItem[];
   scriptPagePrefix?: string;
-}): ProjectWorkspaceState => ({
-  fileName: '',
-  uploadedFile: null,
-  selectedAssetUrl: null,
-  lastUploadedUrl: null,
-  selectedAssetSource: null,
-  currentMaterialType: null,
-  productName: '',
-  productCategory: '',
-  coreSellingPoints: '',
-  targetAudience: '',
-  deliveryRegion: '中国',
-  videoType: '',
-  hasAiRecognized: false,
-  genPrompt: '',
-  genDuration: 10,
-  soundSetting: 'on',
-  scriptVariantCount: 1,
-  targetLanguage: 'en',
-  creationMode: 'fast',
-  reuseQueueEnabled: false,
-  scripts: params?.scripts || [],
-  scriptPages: [{
-    id: 'page-1',
-    name: `${params?.scriptPagePrefix || 'Script'} 1`,
+}): ProjectWorkspaceState => {
+  const prefs = getWorkbenchPreferences();
+  return {
+    fileName: '',
+    uploadedFile: null,
+    selectedAssetUrl: null,
+    lastUploadedUrl: null,
+    selectedAssetSource: null,
+    currentMaterialType: null,
+    productName: '',
+    productCategory: '',
+    coreSellingPoints: '',
+    targetAudience: '',
+    deliveryRegion: prefs.deliveryRegion || '中国',
+    videoType: prefs.videoType || '',
+    hasAiRecognized: false,
+    genPrompt: '',
+    genDuration: prefs.genDuration || 10,
+    soundSetting: prefs.soundSetting === 'off' ? 'off' : 'on',
+    scriptVariantCount:
+      typeof prefs.scriptVariantCount === 'number' && prefs.scriptVariantCount > 0 ? prefs.scriptVariantCount : 1,
+    targetLanguage: prefs.targetLanguage || 'en',
+    creationMode: prefs.creationMode === 'replay' ? 'replay' : 'fast',
+    reuseQueueEnabled: false,
     scripts: params?.scripts || [],
-  }],
-  activeScriptPage: 0,
-  assetQueue: [],
-  scriptQueue: [],
-  selectedTemplateId: null,
-  selectedModelId: null,
-  generatedVideoUrl: null,
-});
+    scriptPages: [{
+      id: 'page-1',
+      name: `${params?.scriptPagePrefix || 'Script'} 1`,
+      scripts: params?.scripts || [],
+    }],
+    activeScriptPage: 0,
+    assetQueue: [],
+    scriptQueue: [],
+    selectedTemplateId: null,
+    selectedModelId:
+      prefs.selectedModelId === 'kling' ||
+      prefs.selectedModelId === 'sora2' ||
+      prefs.selectedModelId === 'sora2pro' ||
+      prefs.selectedModelId === 'seedance2.0'
+        ? prefs.selectedModelId
+        : null,
+    generatedVideoUrl: null,
+  };
+};
 
 const createDefaultProjectStore = (): LocalProjectStore => {
   const projectId = 'project_alpha_01';
@@ -493,6 +504,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const skipTemplateDurationSyncRef = useRef(false);
   const restoredDraftRef = useRef(false);
 
+  const initialPrefs = useMemo(() => getWorkbenchPreferences(), []);
+
   // Config State
   const [productName, setProductName] = useState('');
   const [productCategory, setProductCategory] = useState('');
@@ -504,8 +517,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     sellingPoints: false,
     audience: false,
   });
-  const [deliveryRegion, setDeliveryRegion] = useState('中国');
-  const [videoType, setVideoType] = useState('');
+  const [deliveryRegion, setDeliveryRegion] = useState(() => initialPrefs.deliveryRegion || '中国');
+  const [videoType, setVideoType] = useState(() => initialPrefs.videoType || '');
   const [requiredErrors, setRequiredErrors] = useState<{
     productName?: string;
     productCategory?: string;
@@ -519,11 +532,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const coreSellingPointsFieldRef = useRef<HTMLTextAreaElement | null>(null);
   const videoTypeFieldRef = useRef<HTMLDivElement | null>(null);
   const [genPrompt, setGenPrompt] = useState('');
-  const [genDuration, setGenDuration] = useState<number>(selectedTemplate?.duration || 10);
-  const [soundSetting, setSoundSetting] = useState<'on' | 'off'>('on');
-  const [scriptVariantCount, setScriptVariantCount] = useState<number>(1);
-  const [targetLanguage, setTargetLanguage] = useState<string>('en');
-  const [creationMode, setCreationMode] = useState<'fast' | 'replay'>('fast');
+  const [genDuration, setGenDuration] = useState<number>(() => {
+    if (initialPrefs.genDuration === 5 || initialPrefs.genDuration === 10 || initialPrefs.genDuration === 15) {
+      return initialPrefs.genDuration;
+    }
+    return selectedTemplate?.duration || 10;
+  });
+  const [soundSetting, setSoundSetting] = useState<'on' | 'off'>(() => (initialPrefs.soundSetting === 'off' ? 'off' : 'on'));
+  const [scriptVariantCount, setScriptVariantCount] = useState<number>(() =>
+    typeof initialPrefs.scriptVariantCount === 'number' && initialPrefs.scriptVariantCount > 0 ? initialPrefs.scriptVariantCount : 1
+  );
+  const [targetLanguage, setTargetLanguage] = useState<string>(() => initialPrefs.targetLanguage || 'en');
+  const [creationMode, setCreationMode] = useState<'fast' | 'replay'>(() => (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
   const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
   const [isAiRecognizing, setIsAiRecognizing] = useState(false);
   const [hasAiRecognized, setHasAiRecognized] = useState(false);
@@ -775,15 +795,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setProductCategory(workspace.productCategory || '');
     setCoreSellingPoints(workspace.coreSellingPoints || '');
     setTargetAudience(workspace.targetAudience || '');
-    setDeliveryRegion(workspace.deliveryRegion || '中国');
-    setVideoType(workspace.videoType || '');
+    setDeliveryRegion(workspace.deliveryRegion || initialPrefs.deliveryRegion || '中国');
+    setVideoType(workspace.videoType || initialPrefs.videoType || '');
     setHasAiRecognized(!!workspace.hasAiRecognized);
     setGenPrompt(workspace.genPrompt || '');
-    setGenDuration(typeof workspace.genDuration === 'number' ? workspace.genDuration : 10);
-    setSoundSetting(workspace.soundSetting || 'on');
-    setScriptVariantCount(typeof workspace.scriptVariantCount === 'number' ? workspace.scriptVariantCount : 1);
-    setTargetLanguage(workspace.targetLanguage || 'en');
-    setCreationMode(workspace.creationMode || 'fast');
+    setGenDuration(() => {
+      if (workspace.genDuration === 5 || workspace.genDuration === 10 || workspace.genDuration === 15) {
+        return workspace.genDuration;
+      }
+      if (initialPrefs.genDuration === 5 || initialPrefs.genDuration === 10 || initialPrefs.genDuration === 15) {
+        return initialPrefs.genDuration;
+      }
+      return 10;
+    });
+    setSoundSetting(workspace.soundSetting || (initialPrefs.soundSetting === 'off' ? 'off' : 'on'));
+    setScriptVariantCount(
+      typeof workspace.scriptVariantCount === 'number'
+        ? workspace.scriptVariantCount
+        : (typeof initialPrefs.scriptVariantCount === 'number' && initialPrefs.scriptVariantCount > 0 ? initialPrefs.scriptVariantCount : 1)
+    );
+    setTargetLanguage(workspace.targetLanguage || initialPrefs.targetLanguage || 'en');
+    setCreationMode(workspace.creationMode || (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
     setReuseQueueEnabled(!!workspace.reuseQueueEnabled);
     setScripts(Array.isArray(workspace.scripts) ? workspace.scripts : []);
     setScriptPages(Array.isArray(workspace.scriptPages) && workspace.scriptPages.length > 0 ? workspace.scriptPages : [{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: [] }]);
@@ -798,7 +830,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     } else {
       onSelectTemplate(null);
     }
-    if (workspace.selectedModelId) setSelectedModel(workspace.selectedModelId as any);
+    if (workspace.selectedModelId) {
+      setSelectedModel(workspace.selectedModelId as any);
+    } else if (
+      initialPrefs.selectedModelId === 'kling' ||
+      initialPrefs.selectedModelId === 'sora2' ||
+      initialPrefs.selectedModelId === 'sora2pro' ||
+      initialPrefs.selectedModelId === 'seedance2.0'
+    ) {
+      setSelectedModel(initialPrefs.selectedModelId as any);
+    }
     setTimeout(() => {
       isApplyingProjectWorkspaceRef.current = false;
     }, 0);
@@ -2492,7 +2533,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const addCurrentScriptToQueue = () => {
     if (!hasActiveScriptConcept) {
-      openInfo('Notice', '请先生成或完善脚本方案卡');
+      openInfo('Notice', t.wb_script_plan_require_notice);
       return;
     }
     if (ENABLE_STORYBOARD_EDITOR && !isDurationValid) {
@@ -2954,7 +2995,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       issues.push(t.wb_gen_req_issue_asset_or_template || 'Assets: upload an asset or select a template first.');
     }
     if (!hasActiveScriptConcept) {
-      issues.push('脚本方案卡：请先生成或完善完整脚本内容。');
+      issues.push(t.wb_gen_req_issue_master_script_missing);
     }
     if (ENABLE_STORYBOARD_EDITOR && !isDurationValid) {
       const template = t.wb_gen_req_issue_duration_mismatch || 'Storyboard: total shot duration ({scriptDuration}s) must match configured duration ({configDuration}s).';
@@ -3861,17 +3902,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
-                <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
-                  {[5, 10, 15].map((d) => (
-                    <button
-                      key={d}
-                      onClick={() => setGenDuration(d)}
-                      className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${genDuration === d ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}
-                    >
-                      {d}s
-                    </button>
-                  ))}
-                </div>
+                <DropdownSelect
+                  value={String(genDuration)}
+                  options={[
+                    { value: '5', label: '5s' },
+                    { value: '10', label: '10s' },
+                    { value: '15', label: '15s' },
+                  ]}
+                  onChange={(v) => {
+                    const next = Number(v);
+                    if (next === 5 || next === 10 || next === 15) {
+                      setGenDuration(next);
+                      return;
+                    }
+                    setGenDuration(10);
+                  }}
+                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  labelClassName=""
+                  iconClassName="w-3 h-3 text-zinc-500"
+                  optionClassName="text-xs"
+                />
               </div>
 
               <div>
@@ -4171,7 +4221,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
                       <div className="flex-1 min-w-0">
                         <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
-                        <div className="text-[9px] text-zinc-500">{ENABLE_STORYBOARD_EDITOR ? `${item.scripts.length} shots` : '完整脚本方案'}</div>
+                        <div className="text-[9px] text-zinc-500">{ENABLE_STORYBOARD_EDITOR ? `${item.scripts.length} shots` : t.wb_script_plan_full_label}</div>
                       </div>
                       <button onClick={() => removeScriptFromQueue(item.id)}><X className="w-3 h-3 text-zinc-600 hover:text-red-400" /></button>
                     </div>
@@ -4963,21 +5013,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         <Sparkles className="w-3.5 h-3.5 text-emerald-200" />
                       </div>
                       <div>
-                        <div className="text-[10px] uppercase tracking-[0.18em] text-emerald-200/90">脚本方案卡</div>
+                        <div className="text-[10px] uppercase tracking-[0.18em] text-emerald-200/90">{t.wb_script_plan_card_title}</div>
                         <div className="text-[11px] text-zinc-400">{t.wb_script_page_prefix} {activeScriptPage + 1}</div>
                       </div>
                     </div>
                     <div className="text-[10px] px-2 py-1 rounded-full border border-emerald-300/30 bg-emerald-400/10 text-emerald-100">
-                      可灵3.0提示词
+                      {t.wb_script_plan_card_badge}
                     </div>
                   </div>
 
                   <div className="mt-3 rounded-xl border border-white/10 bg-black/35 p-3">
-                    <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">完整脚本</div>
+                    <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">{t.wb_script_plan_full_script_label}</div>
                     <textarea
                       value={activeFullScript}
                       onChange={(e) => updateActiveFullScript(e.target.value)}
-                      placeholder="输入完整脚本方案..."
+                      placeholder={t.wb_script_plan_full_script_placeholder}
                       className="w-full min-h-[96px] bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-[12px] leading-6 text-zinc-100 placeholder:text-zinc-600 resize-y focus:outline-none focus:border-emerald-300/50"
                     />
                   </div>
@@ -4985,7 +5035,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <div className="mt-3 space-y-3">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                       <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                        <div className="text-[10px] text-emerald-200 mb-1">[风格]</div>
+                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_style}</div>
                         <textarea
                           value={activeCreativeCard?.style || ''}
                           onChange={(e) => updateActiveCreativeCardField('style', e.target.value)}
@@ -4993,7 +5043,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         />
                       </div>
                       <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                        <div className="text-[10px] text-emerald-200 mb-1">[环境]</div>
+                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_environment}</div>
                         <textarea
                           value={activeCreativeCard?.environment || ''}
                           onChange={(e) => updateActiveCreativeCardField('environment', e.target.value)}
@@ -5001,7 +5051,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         />
                       </div>
                       <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                        <div className="text-[10px] text-emerald-200 mb-1">[语调与节奏]</div>
+                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_tone_pacing}</div>
                         <textarea
                           value={activeCreativeCard?.tonePacing || ''}
                           onChange={(e) => updateActiveCreativeCardField('tonePacing', e.target.value)}
@@ -5009,7 +5059,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         />
                       </div>
                       <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                        <div className="text-[10px] text-emerald-200 mb-1">[镜头]</div>
+                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_camera}</div>
                         <textarea
                           value={activeCreativeCard?.camera || ''}
                           onChange={(e) => updateActiveCreativeCardField('camera', e.target.value)}
@@ -5017,7 +5067,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         />
                       </div>
                       <div className="rounded-xl border border-white/10 bg-black/30 p-2.5 md:col-span-2">
-                        <div className="text-[10px] text-emerald-200 mb-1">[光线]</div>
+                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_lighting}</div>
                         <textarea
                           value={activeCreativeCard?.lighting || ''}
                           onChange={(e) => updateActiveCreativeCardField('lighting', e.target.value)}
@@ -5028,13 +5078,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
                     <div className="rounded-xl border border-white/10 bg-black/30 p-3">
                       <div className="flex items-center justify-between mb-2">
-                        <div className="text-[10px] text-emerald-200">[动作]</div>
+                        <div className="text-[10px] text-emerald-200">{t.wb_script_plan_field_actions}</div>
                         <button
                           type="button"
                           onClick={addActiveCreativeCardAction}
                           className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
                         >
-                          新增动作
+                          {t.wb_script_plan_add_action}
                         </button>
                       </div>
                       <div className="space-y-2">
@@ -5064,7 +5114,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                       <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                        <div className="text-[10px] text-emerald-200 mb-1">[背景音]</div>
+                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_background_sound}</div>
                         <textarea
                           value={activeCreativeCard?.backgroundSound || ''}
                           onChange={(e) => updateActiveCreativeCardField('backgroundSound', e.target.value)}
@@ -5072,7 +5122,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         />
                       </div>
                       <div className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                        <div className="text-[10px] text-emerald-200 mb-1">[转场 / 剪辑]</div>
+                        <div className="text-[10px] text-emerald-200 mb-1">{t.wb_script_plan_field_transition_editing}</div>
                         <textarea
                           value={activeCreativeCard?.transitionEditing || ''}
                           onChange={(e) => updateActiveCreativeCardField('transitionEditing', e.target.value)}
@@ -5082,7 +5132,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </div>
 
                     <div className="rounded-xl border border-orange-300/30 bg-orange-400/10 p-2.5">
-                      <div className="text-[10px] text-orange-100 mb-1">[行动号召]</div>
+                      <div className="text-[10px] text-orange-100 mb-1">{t.wb_script_plan_field_call_to_action}</div>
                       <textarea
                         value={activeCreativeCard?.callToAction || ''}
                         onChange={(e) => updateActiveCreativeCardField('callToAction', e.target.value)}
@@ -5129,23 +5179,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               {ENABLE_STORYBOARD_EDITOR ? (
                 <>
                   <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                    <div className="text-[10px] text-zinc-400 uppercase tracking-widest">分镜结构（可编辑）</div>
+                    <div className="text-[10px] text-zinc-400 uppercase tracking-widest">{t.wb_storyboard_title}</div>
                     <button
                       type="button"
                       onClick={() => setIsShotBreakdownOpen((prev) => !prev)}
                       className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
                     >
-                      {isShotBreakdownOpen ? '收起分镜' : '展开分镜'}
+                      {isShotBreakdownOpen ? t.wb_storyboard_collapse : t.wb_storyboard_expand}
                     </button>
                   </div>
                   {!isShotBreakdownOpen ? (
                     <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
-                      当前默认展示完整脚本方案。点击“展开分镜”进行镜头级精修。
+                      {t.wb_storyboard_hint_default_master}
                     </div>
                   ) : scripts.length === 0 ? (
                     <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
                       <FileJson className="w-10 h-10 mb-2 opacity-50" />
-                      <p className="text-xs">No scripts yet.</p>
+                      <p className="text-xs">{t.wb_empty_scripts}</p>
                     </div>
                   ) : (
                     scripts.map((script, index) => (
@@ -5200,7 +5250,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </>
               ) : (
                 <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
-                  分镜功能已临时关闭，当前仅使用完整脚本方案卡生成视频。
+                  {t.wb_storyboard_disabled_hint}
                 </div>
               )}
            </div>

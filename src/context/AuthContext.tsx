@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authApi } from '../services/auth';
+import { clearDebugModeEnabled } from '../services/debugMode';
+import { debugLog, debugWarn, debugError } from '../services/debugMode';
 
 interface User {
   id: string | number; // Allow number
@@ -73,7 +75,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 token: undefined // We rely on Cookie Session, no JWT token needed in state
             };
 
-            console.log("✅ Session Verified:", verifiedUser);
+            debugLog('Session verified:', verifiedUser);
             setUser(verifiedUser);
             
             // Update localStorage to keep it fresh (optional, but good for sync)
@@ -82,7 +84,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             throw new Error("Not logged in");
         }
       } catch (e) {
-        console.warn("Auth check failed (Session expired or invalid):", e);
+        debugWarn('Auth check failed (session expired or invalid):', e);
         // Clean up invalid state
         setUser(null);
         localStorage.removeItem('vflow_ai_user');
@@ -97,7 +99,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const login = async (identifier: string, serverData?: any) => {
     setIsLoading(true);
     
-    console.log("🔍 Login Response Data:", serverData);
+    debugLog('Login response data:', serverData);
 
     // --- FIX: Find the correct User ID ---
     // Look in all common places API might return it
@@ -109,7 +111,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       serverData?.user?.id;
 
     if (!realUserId) {
-      console.warn("⚠️ No numeric User ID found. Backend calls might fail with 404.");
+      debugWarn('No numeric User ID found. Backend calls might fail with 404.');
     }
 
     // Try to find token (for reference, though we use Cookies now)
@@ -145,7 +147,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       token: token
     };
 
-    console.log("✅ User Saved:", newUser);
+    debugLog('User saved:', newUser);
 
     // Save
     setUser(newUser);
@@ -162,6 +164,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     setUser(null);
     localStorage.removeItem('vflow_ai_user');
+    clearDebugModeEnabled();
     // Clear cookies explicitly if needed (though backend logout should handle it)
     document.cookie = "sessionid=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
     
@@ -180,7 +183,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         localStorage.setItem('vflow_ai_user', JSON.stringify(updated));
       } catch (e) {
-        console.error('Failed to persist user to localStorage', e);
+        debugError('Failed to persist user to localStorage', e);
       }
       return updated;
     });
@@ -191,7 +194,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (!prev) return prev;
       const newCredits = (prev.credits || 0) + delta;
       const updated = { ...prev, credits: newCredits } as User;
-      try { localStorage.setItem('vflow_ai_user', JSON.stringify(updated)); } catch (e) { console.error(e); }
+      try { localStorage.setItem('vflow_ai_user', JSON.stringify(updated)); } catch (e) { debugError(e); }
       return updated;
     });
   };

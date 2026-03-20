@@ -1,5 +1,8 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  // 开启基于 class 的暗色模式支持
+  darkMode: 'class',
+
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
@@ -71,4 +74,3 @@ export default {
     require("tailwindcss-animate")
   ],
 }
-

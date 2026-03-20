@@ -12,6 +12,7 @@ import { getWorkbenchPreferences, setWorkbenchPreferences, type WorkbenchPrefere
 interface ProfileViewProps {
   theme: 'dark' | 'light' | 'dim';
   setTheme: (t: 'dark' | 'light' | 'dim') => void;
+  isDebugModeEnabled: boolean;
 }
 
 type OpenClawKeyState = {
@@ -22,7 +23,7 @@ type OpenClawKeyState = {
   updatedAt: string | null;
 };
 
-export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => {
+export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDebugModeEnabled }) => {
   const { t } = useLanguage();
   const { user, updateUser, logout } = useAuth();
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -133,8 +134,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
   };
 
   useEffect(() => {
+    if (!isDebugModeEnabled) return;
     loadOpenClawStatus();
-  }, []);
+  }, [isDebugModeEnabled]);
 
   useEffect(() => {
     if (!showBilling) return;
@@ -288,59 +290,59 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
         </div>
         
         <div className="flex items-center gap-6">
-          {/* --- DEBUG TOOLBAR --- */}
-          <div className="flex items-center gap-2 bg-zinc-900/80 border border-white/5 p-1 rounded-xl">
-            <div className="text-[10px] font-bold text-zinc-600 px-2 uppercase tracking-widest">{t.profile_debug || 'Debug'}</div>
-            <div className="flex gap-1">
-              {['free', 'plus', 'pro'].map((p) => (
-                <button 
-                  key={p} 
-                  onClick={async (e) => { 
-                    e.stopPropagation(); 
-                    const newPlan = p as any; 
-                    let newCredits = user?.credits; 
-                    if (newPlan === 'free') newCredits = 50; 
-                    else if (newPlan === 'plus') newCredits = 200; 
-                    else if (newPlan === 'pro') newCredits = 9999; 
-                    
-                    try { 
-                      const res = await authApi.updateProfile({ tier: newPlan, credits: newCredits }); 
-                      let resolvedPlan: any = 'free'; 
-                      if (res.data.tier === 'PRO') resolvedPlan = 'plus'; 
-                      else if (res.data.tier === 'ENTERPRISE') resolvedPlan = 'pro'; 
-                      updateUser({ plan: resolvedPlan, credits: res.data.balance }); 
-                    } catch (err) { 
-                      openInfo('Error', 'Failed to update plan via debug'); 
+          {isDebugModeEnabled && (
+            <div className="flex items-center gap-2 bg-zinc-900/80 border border-white/5 p-1 rounded-xl">
+              <div className="text-[10px] font-bold text-zinc-600 px-2 uppercase tracking-widest">{t.profile_debug || 'Debug'}</div>
+              <div className="flex gap-1">
+                {['free', 'plus', 'pro'].map((p) => (
+                  <button 
+                    key={p} 
+                    onClick={async (e) => { 
+                      e.stopPropagation(); 
+                      const newPlan = p as any; 
+                      let newCredits = user?.credits; 
+                      if (newPlan === 'free') newCredits = 50; 
+                      else if (newPlan === 'plus') newCredits = 200; 
+                      else if (newPlan === 'pro') newCredits = 9999; 
+                      
+                      try { 
+                        const res = await authApi.updateProfile({ tier: newPlan, credits: newCredits }); 
+                        let resolvedPlan: any = 'free'; 
+                        if (res.data.tier === 'PRO') resolvedPlan = 'plus'; 
+                        else if (res.data.tier === 'ENTERPRISE') resolvedPlan = 'pro'; 
+                        updateUser({ plan: resolvedPlan, credits: res.data.balance }); 
+                      } catch (err) { 
+                        openInfo('Error', 'Failed to update plan via debug'); 
+                      } 
+                    }} 
+                    className={`px-2 py-0.5 rounded text-[9px] font-bold border transition ${user?.plan === p ? 'bg-orange-500/20 border-orange-500/50 text-orange-500' : 'bg-transparent border-white/5 text-zinc-500 hover:text-white'}`}
+                  >
+                    {p.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <div className="w-px h-3 bg-white/5 mx-1" />
+              <div className="flex items-center gap-1 pr-1">
+                <input 
+                  type="number" 
+                  className="w-12 bg-zinc-800 text-[10px] px-1 py-0.5 rounded text-white border border-white/10 outline-none focus:border-orange-500" 
+                  defaultValue={100} 
+                      onKeyDown={async (e) => { 
+                    if (e.key === 'Enter') { 
+                      const val = Number((e.currentTarget as HTMLInputElement).value); 
+                      try { 
+                        const res = await authApi.updateProfile({ credits: val }); 
+                        updateUser({ credits: res.data.balance }); 
+                      } catch (err) { 
+                        openInfo('Error', 'Failed to update credits via debug'); 
+                      } 
                     } 
                   }} 
-                  className={`px-2 py-0.5 rounded text-[9px] font-bold border transition ${user?.plan === p ? 'bg-orange-500/20 border-orange-500/50 text-orange-500' : 'bg-transparent border-white/5 text-zinc-500 hover:text-white'}`}
-                >
-                  {p.toUpperCase()}
-                </button>
-              ))}
+                />
+                <span className="text-[8px] text-zinc-600">V</span>
+              </div>
             </div>
-            <div className="w-px h-3 bg-white/5 mx-1" />
-            <div className="flex items-center gap-1 pr-1">
-              <input 
-                type="number" 
-                className="w-12 bg-zinc-800 text-[10px] px-1 py-0.5 rounded text-white border border-white/10 outline-none focus:border-orange-500" 
-                defaultValue={100} 
-                    onKeyDown={async (e) => { 
-                  if (e.key === 'Enter') { 
-                    const val = Number((e.currentTarget as HTMLInputElement).value); 
-                    try { 
-                      const res = await authApi.updateProfile({ credits: val }); 
-                      updateUser({ credits: res.data.balance }); 
-                    } catch (err) { 
-                      openInfo('Error', 'Failed to update credits via debug'); 
-                    } 
-                  } 
-                }} 
-              />
-              <span className="text-[8px] text-zinc-600">V</span>
-            </div>
-          </div>
-          {/* --- END DEBUG TOOLBAR --- */}
+          )}
 
           <LanguageSwitcher />
         </div>
@@ -496,7 +498,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                <hr className="mt-6 mb-6 border-white/5" />
                
                {/* Footer Buttons */}
-               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pb-12">
+               <div className={`grid grid-cols-1 gap-4 pb-12 ${isDebugModeEnabled ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
                   <button
                     type="button"
                     onClick={openPreferencesDialog}
@@ -521,21 +523,23 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme }) => 
                       </div>
                   </button>
 
-                  <button
-                    onClick={() => {
-                      setIsOpenClawDialogOpen(true);
-                      setOpenClawKey('');
-                    }}
-                    className="w-full flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/key shadow-sm hover:shadow-orange-500/5"
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/key:text-orange-500 transition-colors"><KeyRound className="w-6 h-6" /></div>
-                      <div className="text-left">
-                        <div className="text-base font-bold text-white">{t.profile_openclaw_title || 'OpenClaw Key'}</div>
-                        <div className="text-xs text-zinc-600 mt-0.5">{openClawStatus.enabled ? (t.profile_openclaw_status_enabled || 'Enabled') : (t.profile_openclaw_status_disabled || 'Disabled')} · {openClawStatus.hasKey ? openClawStatus.maskedKey : (t.profile_openclaw_not_generated || 'Not Generated')}</div>
+                  {isDebugModeEnabled && (
+                    <button
+                      onClick={() => {
+                        setIsOpenClawDialogOpen(true);
+                        setOpenClawKey('');
+                      }}
+                      className="w-full flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/key shadow-sm hover:shadow-orange-500/5"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/key:text-orange-500 transition-colors"><KeyRound className="w-6 h-6" /></div>
+                        <div className="text-left">
+                          <div className="text-base font-bold text-white">{t.profile_openclaw_title || 'OpenClaw Key'}</div>
+                          <div className="text-xs text-zinc-600 mt-0.5">{openClawStatus.enabled ? (t.profile_openclaw_status_enabled || 'Enabled') : (t.profile_openclaw_status_disabled || 'Disabled')} · {openClawStatus.hasKey ? openClawStatus.maskedKey : (t.profile_openclaw_not_generated || 'Not Generated')}</div>
+                        </div>
                       </div>
-                    </div>
-                  </button>
+                    </button>
+                  )}
                   
                   <button onClick={logout} className="w-full flex items-center justify-between p-6 rounded-2xl bg-red-500/5 hover:bg-red-500/10 transition group/logout border border-red-500/10 hover:border-red-500/20">
                       <div className="flex items-center gap-4">

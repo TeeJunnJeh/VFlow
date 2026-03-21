@@ -90,7 +90,8 @@ type QueuedAsset = {
   previewUrl: string | null;
   fileObj?: File | null;
   assetUrl?: string | null;
-  source: 'product' | 'preference';
+  assetId?: string | null;
+  source: 'product' | 'preference' | 'subject';
   materialType?: AssetLibraryTab;
   isPrimaryFrame?: boolean;
   mediaKind?: 'image' | 'video' | 'audio' | 'file';
@@ -116,7 +117,12 @@ type GeneratePayload = {
   project_id?: string;
   image_path?: string | null;
   motion_video_path?: string | null;
-  asset_source?: 'product' | 'preference' | null;
+  asset_source?: 'product' | 'preference' | 'subject' | null;
+  kling_mode?: 'first_frame' | 'subject';
+  omni_assets?: Array<{ role: 'first_frame' | 'reference' | 'subject'; image_url: string; asset_id?: string | null; name?: string }>;
+  subject_description_hint?: string;
+  aspect_ratio?: '9:16' | '16:9' | '1:1';
+  mode?: 'pro' | 'std';
   user_language: string;
   target_language: string;
   model_asset_id: string | number | null;
@@ -142,7 +148,8 @@ type ProjectWorkspaceState = {
   uploadedFile: string | null;
   selectedAssetUrl: string | null;
   lastUploadedUrl: string | null;
-  selectedAssetSource: 'product' | 'preference' | null;
+  selectedAssetSource: 'product' | 'preference' | 'subject' | null;
+  klingGenerateMode: 'first_frame' | 'subject';
   currentMaterialType: AssetLibraryTab | null;
   productName: string;
   productCategory: string;
@@ -214,6 +221,7 @@ const createWorkspaceState = (params?: {
     selectedAssetUrl: null,
     lastUploadedUrl: null,
     selectedAssetSource: null,
+    klingGenerateMode: 'first_frame',
     currentMaterialType: null,
     productName: '',
     productCategory: '',
@@ -525,7 +533,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [uploadedFile, setUploadedFile] = useState<string | null>(initialFileUrl || null);
   const [fileName, setFileName] = useState(initialFileName || '');
   const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null);
-  const [selectedAssetSource, setSelectedAssetSource] = useState<'product' | 'preference' | null>(initialAssetSource || null);
+  const [selectedAssetSource, setSelectedAssetSource] = useState<'product' | 'preference' | 'subject' | null>(initialAssetSource || null);
+  const [klingGenerateMode, setKlingGenerateMode] = useState<'first_frame' | 'subject'>('first_frame');
   const [isDragUploadActive, setIsDragUploadActive] = useState(false);
   const [selectedAssetUrl, setSelectedAssetUrl] = useState<string | null>(initialFileUrl || null);
   const [lastUploadedUrl, setLastUploadedUrl] = useState<string | null>(initialFileUrl || null);
@@ -723,6 +732,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const projectActionMenuIdRef = useRef<string | null>(null);
   const projectListRef = useRef<HTMLDivElement | null>(null);
   const isApplyingProjectWorkspaceRef = useRef(false);
+  const skipNextKlingNormalizeRef = useRef(false);
   const currentProject = useMemo(
       () => projectStore.projects.find((project) => project.id === projectStore.currentProjectId) || null,
       [projectStore.currentProjectId, projectStore.projects]
@@ -800,6 +810,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
 
     isApplyingProjectWorkspaceRef.current = true;
+    skipNextKlingNormalizeRef.current = true;
 
     const restoredLastUploaded = workspace.lastUploadedUrl || null;
     const restoredUploadedFileRaw = workspace.uploadedFile || null;
@@ -831,6 +842,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setSelectedAssetUrl(toDisplayUrl(workspace.selectedAssetUrl) || workspace.selectedAssetUrl || null);
     setLastUploadedUrl(restoredLastUploaded);
     setSelectedAssetSource(workspace.selectedAssetSource || null);
+    setKlingGenerateMode(workspace.klingGenerateMode === 'subject' ? 'subject' : 'first_frame');
     setCurrentMaterialType(workspace.currentMaterialType || null);
     setSelectedFileObj(null);
     setProductName(workspace.productName || '');
@@ -1101,6 +1113,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       selectedAssetUrl,
       lastUploadedUrl,
       selectedAssetSource,
+      klingGenerateMode,
       currentMaterialType,
       productName,
       productCategory,
@@ -1148,6 +1161,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     selectedAssetUrl,
     lastUploadedUrl,
     selectedAssetSource,
+    klingGenerateMode,
     currentMaterialType,
     productName,
     productCategory,
@@ -1425,7 +1439,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const selectAssetFromLibraryPopup = (asset: LibraryAsset) => {
     const assetUrl = asset.file_url || null;
     if (!assetUrl) return;
-    const source: 'product' | 'preference' = asset.media_kind === 'video' ? 'preference' : 'product';
+    const source: QueuedAsset['source'] = asset.media_kind === 'video'
+        ? 'preference'
+        : (isKlingOmniMode ? (klingGenerateMode === 'subject' ? 'subject' : 'product') : 'product');
     const nextMaterialType: AssetLibraryTab = asset.media_kind === 'video' ? 'motion' : assetLibraryTab;
     const mediaKind: QueuedAsset['mediaKind'] =
         asset.media_kind === 'video'
@@ -1440,6 +1456,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       previewUrl: assetUrl,
       fileObj: null,
       assetUrl,
+      assetId: asset.id,
       source,
       materialType: nextMaterialType,
       isPrimaryFrame: source === 'product',
@@ -1448,8 +1465,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
 
     setAssetQueue(prev => {
-      const next = prev.filter(item => item.materialType !== nextMaterialType);
-      return [...next, queuedAsset];
+      const next = isKlingOmniMode ? [...prev, queuedAsset] : prev.filter(item => item.materialType !== nextMaterialType).concat(queuedAsset);
+      return normalizeQueueSourcesForKlingMode(next, klingGenerateMode);
     });
 
     setUploadedFile(assetUrl);
@@ -1512,6 +1529,75 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     selectedFileObj,
     uploadedFile,
   ]);
+  const isKlingOmniMode = selectedModel === 'kling';
+  const klingRoleLabel = (source: QueuedAsset['source']) => {
+    if (source === 'subject') return '主体参考';
+    if (source === 'product') return '首帧图';
+    return '其他参考';
+  };
+  const canBeKlingSubject = useCallback((asset: QueuedAsset) => (
+      asset.mediaKind === 'image' && (asset.materialType === 'model' || asset.materialType === 'product')
+  ), []);
+  const sortKlingQueueAssets = useCallback((assets: QueuedAsset[]) => {
+    const priority = (asset: QueuedAsset) => {
+      if (asset.source === 'subject' || asset.source === 'product') return 0;
+      return 1;
+    };
+    return [...assets].sort((a, b) => priority(a) - priority(b));
+  }, []);
+  const normalizeQueueSourcesForKlingMode = useCallback((assets: QueuedAsset[], mode: 'first_frame' | 'subject'): QueuedAsset[] => {
+    let primaryAssigned = false;
+    let subjectAssigned = false;
+
+      const normalized = assets.map((item, index): QueuedAsset => {
+      if (item.mediaKind !== 'image') {
+        return { ...item, source: 'preference', isPrimaryFrame: false };
+      }
+      if (mode === 'first_frame') {
+        const wantsPrimary = item.source === 'product';
+        if (wantsPrimary && !primaryAssigned) {
+          primaryAssigned = true;
+          return { ...item, source: 'product', isPrimaryFrame: true };
+        }
+        return { ...item, source: 'preference', isPrimaryFrame: false };
+      }
+
+      const wantsSubject = canBeKlingSubject(item) && item.source === 'subject';
+      if (wantsSubject && !subjectAssigned) {
+        subjectAssigned = true;
+        return { ...item, source: 'subject', isPrimaryFrame: false };
+      }
+      return { ...item, source: 'preference', isPrimaryFrame: false };
+    });
+      return sortKlingQueueAssets(normalized);
+  }, [canBeKlingSubject, sortKlingQueueAssets]);
+  const applyKlingPrimarySelection = useCallback((assetId: string, primarySource: 'product' | 'subject') => {
+    setAssetQueue(prev => {
+      const next = prev.map((item): QueuedAsset => {
+        if (item.mediaKind !== 'image') return item;
+        if (item.id === assetId) {
+          if (primarySource === 'subject' && !canBeKlingSubject(item)) {
+            openInfo('Notice', '主体图只能选择商品或模特素材');
+            return { ...item, source: 'preference', isPrimaryFrame: false };
+          }
+          return { ...item, source: primarySource, isPrimaryFrame: primarySource === 'product' };
+        }
+        return { ...item, source: 'preference', isPrimaryFrame: false };
+      });
+      const normalized = normalizeQueueSourcesForKlingMode(next, klingGenerateMode);
+      const selectedAsset = normalized.find(item => item.id === assetId);
+      if (selectedAsset) {
+        setSelectedQueueAssetId(selectedAsset.id);
+        setUploadedFile(selectedAsset.previewUrl || null);
+        setFileName(selectedAsset.name || '');
+        setSelectedFileObj(selectedAsset.fileObj || null);
+        setSelectedAssetUrl(selectedAsset.assetUrl || null);
+        setSelectedAssetSource(selectedAsset.source || null);
+        setCurrentMaterialType(selectedAsset.materialType || null);
+      }
+      return normalized;
+    });
+  }, [canBeKlingSubject, klingGenerateMode, normalizeQueueSourcesForKlingMode, openInfo]);
   const referencePreviewAssetsByType = useMemo(() => {
     const next: Partial<Record<'model' | 'product' | 'scene', QueuedAsset>> = {};
     for (const asset of uploadDisplayAssets) {
@@ -1520,6 +1606,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
     return next;
   }, [uploadDisplayAssets]);
+  useEffect(() => {
+    if (!isKlingOmniMode) return;
+    if (skipNextKlingNormalizeRef.current) {
+      skipNextKlingNormalizeRef.current = false;
+      return;
+    }
+    setAssetQueue((prev) => normalizeQueueSourcesForKlingMode(prev, klingGenerateMode));
+    setSelectedAssetSource((prev) => {
+      if (klingGenerateMode === 'first_frame') {
+        return prev === 'product' ? 'product' : 'preference';
+      }
+      return prev === 'subject' ? 'subject' : 'preference';
+    });
+  }, [isKlingOmniMode, klingGenerateMode, normalizeQueueSourcesForKlingMode]);
   const activeScriptPlan = scriptPages[activeScriptPage];
   const activeReferenceSummary = activeScriptPlan?.referenceSummary || [];
   const activeFullScript = activeScriptPlan?.fullScript || '';
@@ -1959,6 +2059,64 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [handleAiRecognize, isAiRecognizing, openConfirm, productImageSignature, t]);
 
   const buildSingleGeneratePayload = async (): Promise<GeneratePayload> => {
+    if (selectedModel === 'kling') {
+      const imageAssets = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image');
+      const normalizedAssets = normalizeQueueSourcesForKlingMode(imageAssets, klingGenerateMode);
+      const firstFrameCount = normalizedAssets.filter((asset) => asset.source === 'product').length;
+      const subjectCount = normalizedAssets.filter((asset) => asset.source === 'subject').length;
+
+      if (klingGenerateMode === 'first_frame' && firstFrameCount !== 1) {
+        throw new Error('可灵首帧模式需要且仅允许 1 张首帧图');
+      }
+      if (klingGenerateMode === 'subject' && subjectCount > 1) {
+        throw new Error('可灵主体模式仅允许不多于 1 张主体图');
+      }
+
+      const omniAssets: NonNullable<GeneratePayload['omni_assets']> = [];
+      for (const asset of normalizedAssets) {
+        let apiPath = asset.uploadedPath || asset.assetUrl || null;
+        if (!apiPath && asset.fileObj) {
+          const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
+          apiPath = extractUploadedAssetPath(uploadResp);
+        }
+        if (!apiPath) continue;
+
+        omniAssets.push({
+          role:
+              asset.source === 'subject'
+                  ? 'subject'
+                  : asset.source === 'product'
+                      ? 'first_frame'
+                      : 'reference',
+          image_url: apiPath,
+          asset_id: asset.assetId || null,
+          name: asset.name,
+        });
+      }
+
+      if (omniAssets.length === 0) {
+        throw new Error('可灵生成至少需要 1 张图片素材');
+      }
+
+      return {
+        model: backendModel,
+        prompt: buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts),
+        duration: genDuration,
+        sound: 'off',
+        kling_mode: klingGenerateMode,
+        omni_assets: omniAssets,
+        user_language: language,
+        target_language: targetLanguage,
+        model_asset_id: null,
+        motion_asset_id: null,
+        aspect_ratio: aspectRatio,
+        mode: 'pro',
+        subject_description_hint: coreSellingPoints.trim() || undefined,
+        asset_source: (normalizedAssets[0]?.source ?? null) as GeneratePayload['asset_source'],
+        ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
+      };
+    }
+
     const apiPath = await resolveCurrentSingleAssetPath();
     const payload: GeneratePayload = {
       model: backendModel,
@@ -2019,6 +2177,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     console.log('🚀 Sending Generation Request:', requestPayload);
 
     const genResp = await generateWithAdaptiveImageConfirm(requestPayload);
+    if (genResp?.data?.debug_trace) {
+      console.log('🧩 Kling Subject Debug Trace:', genResp.data.debug_trace);
+    }
     const taskId = genResp?.data?.task_id || genResp?.task_id;
 
     if (genResp?.code === 0 && taskId) {
@@ -2187,7 +2348,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const latestFile = files[files.length - 1];
     const mediaKind = inferMediaKind({ name: latestFile.name, file: latestFile });
-    const source: QueuedAsset['source'] = mediaKind === 'video' ? 'preference' : 'product';
+    const source: QueuedAsset['source'] = mediaKind === 'video'
+        ? 'preference'
+        : (isKlingOmniMode ? (klingGenerateMode === 'subject' ? 'subject' : 'product') : 'product');
     const latestItem: QueuedAsset = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-0`,
       name: latestFile.name,
@@ -2216,8 +2379,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setLastUploadedUrl(null);
 
     setAssetQueue((prev) => {
-      const next = prev.filter((item) => item.materialType !== selectedType);
-      return [...next, latestItem];
+      const next = isKlingOmniMode ? [...prev, latestItem] : prev.filter((item) => item.materialType !== selectedType).concat(latestItem);
+      return normalizeQueueSourcesForKlingMode(next, klingGenerateMode);
     });
 
     void (async () => {
@@ -2309,6 +2472,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!target) return;
     if (target.mediaKind !== 'image') {
       openInfo('Notice', '只有图片素材可设为首帧图');
+      return;
+    }
+    if (isKlingOmniMode && klingGenerateMode === 'subject' && !canBeKlingSubject(target)) {
+      openInfo('Notice', '主体图只能选择商品或模特素材');
+      return;
+    }
+
+    const primarySource: QueuedAsset['source'] = isKlingOmniMode
+        ? (klingGenerateMode === 'subject' ? 'subject' : 'product')
+        : 'product';
+
+    if (isKlingOmniMode) {
+      applyKlingPrimarySelection(targetId, primarySource);
       return;
     }
 
@@ -2690,6 +2866,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       previewUrl,
       fileObj: selectedFileObj,
       assetUrl: selectedAssetUrl,
+      assetId: null,
       source: selectedAssetSource || (selectedFileObj ? 'product' : 'preference'),
       materialType: nextMaterialType,
       isPrimaryFrame: mediaKind === 'image',
@@ -2698,8 +2875,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
 
     setAssetQueue(prev => {
-      const next = prev.filter(item => item.materialType !== nextMaterialType);
-      return [...next, nextItem];
+      const next = isKlingOmniMode ? [...prev, nextItem] : prev.filter(item => item.materialType !== nextMaterialType).concat(nextItem);
+      return normalizeQueueSourcesForKlingMode(next, klingGenerateMode);
     });
     setSelectedQueueAssetId(newId);
 
@@ -2729,6 +2906,149 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setCurrentMaterialType(asset.materialType || null);
     setGeneratedVideoUrl(null);
   };
+
+  const klingPrimarySlotAsset = useMemo(
+      () => uploadDisplayAssets.find((asset) => klingGenerateMode === 'subject' ? asset.source === 'subject' : asset.source === 'product') || null,
+      [uploadDisplayAssets, klingGenerateMode]
+  );
+  const klingReferenceSlotAssets = useMemo(
+      () => uploadDisplayAssets.filter((asset) => asset.id !== klingPrimarySlotAsset?.id),
+      [uploadDisplayAssets, klingPrimarySlotAsset]
+  );
+  const renderUploadAssetCard = useCallback((asset: QueuedAsset, compact = false) => {
+    const inQueue = assetQueue.find((item) => item.id === asset.id);
+    const selected = selectedQueueAssetId ? selectedQueueAssetId === asset.id : uploadedFile === asset.previewUrl;
+    const highlighted = isKlingOmniMode
+        ? (klingGenerateMode === 'subject'
+            ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
+            : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product'))
+        : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product');
+
+    return (
+        <div
+            key={asset.id}
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (inQueue) {
+                selectAssetFromQueue(inQueue);
+                return;
+              }
+              setUploadedFile(asset.previewUrl || null);
+              setFileName(asset.name || '');
+              setSelectedFileObj(asset.fileObj || null);
+              setSelectedAssetUrl(asset.assetUrl || null);
+              setSelectedAssetSource(asset.source || null);
+              setCurrentMaterialType(asset.materialType || null);
+              setSelectedQueueAssetId(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter' && e.key !== ' ') return;
+              e.preventDefault();
+              e.stopPropagation();
+              if (inQueue) {
+                selectAssetFromQueue(inQueue);
+                return;
+              }
+              setUploadedFile(asset.previewUrl || null);
+              setFileName(asset.name || '');
+              setSelectedFileObj(asset.fileObj || null);
+              setSelectedAssetUrl(asset.assetUrl || null);
+              setSelectedAssetSource(asset.source || null);
+              setCurrentMaterialType(asset.materialType || null);
+              setSelectedQueueAssetId(null);
+            }}
+            className={`relative w-full rounded-md overflow-hidden border text-left transition ${selected ? 'border-orange-500/70 ring-1 ring-orange-500/50' : 'border-white/10 hover:border-white/20'}`}
+        >
+          {asset.previewUrl ? (asset.mediaKind === 'video' ? (
+              <video src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" muted playsInline />
+          ) : (
+            <img src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" alt={asset.name} />
+          )) : (
+            <div className="w-full h-24 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
+          )}
+          <div className="absolute top-1 left-1 z-10" onClick={(e) => e.stopPropagation()}>
+            <select
+                className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
+                value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product')}
+                onChange={(e) => {
+                  const newType = e.target.value as AssetLibraryTab;
+                  setAssetQueue(prev => {
+                    const next = prev.map((item): QueuedAsset => item.id === asset.id ? { ...item, materialType: newType } : item);
+                    return isKlingOmniMode ? normalizeQueueSourcesForKlingMode(next, klingGenerateMode) : next;
+                  });
+                  if (selectedQueueAssetId === asset.id || uploadedFile === asset.previewUrl) {
+                    setCurrentMaterialType(newType);
+                  }
+                }}
+                style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
+            >
+              <option value="product">{materialTypeLabelMap['product']}</option>
+              <option value="model">{materialTypeLabelMap['model']}</option>
+              <option value="scene">{materialTypeLabelMap['scene']}</option>
+              <option value="motion">{materialTypeLabelMap['motion']}</option>
+            </select>
+          </div>
+          <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
+            {asset.mediaKind === 'image' && (
+                <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const primarySource: QueuedAsset['source'] = isKlingOmniMode
+                          ? (klingGenerateMode === 'subject' ? 'subject' : 'product')
+                          : 'product';
+                      const nextSource: QueuedAsset['source'] = highlighted ? 'preference' : primarySource;
+
+                      if (inQueue) {
+                        if (isKlingOmniMode && nextSource !== 'preference') {
+                          applyKlingPrimarySelection(asset.id, nextSource);
+                        } else {
+                          setAssetQueue(prev => prev.map((item): QueuedAsset => (
+                              item.id === asset.id
+                                  ? { ...item, source: 'preference', isPrimaryFrame: false }
+                                  : item
+                          )));
+                        }
+                      }
+
+                      if (selected) {
+                        setSelectedAssetSource(nextSource);
+                      }
+                    }}
+                    className={`rounded border px-1.5 py-0.5 text-[9px] font-bold transition ${
+                        highlighted
+                            ? 'border-orange-500/70 bg-orange-500/20 text-orange-300'
+                            : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'
+                    }`}
+                >
+                  {highlighted
+                      ? (isKlingOmniMode ? klingRoleLabel(klingGenerateMode === 'subject' ? 'subject' : 'product') : '首帧图')
+                      : (isKlingOmniMode ? klingRoleLabel('preference') : '参考图')}
+                </button>
+            )}
+            <button onClick={(e) => removeUpload(e, asset.id)} className="p-1 bg-black/50 hover:bg-red-500 rounded text-white transition"><X className="w-2.5 h-2.5" /></button>
+          </div>
+          <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-10">
+            <p className="text-[9px] text-white truncate drop-shadow-md">{asset.name}</p>
+            {selected && <p className="text-[9px] text-green-400 flex items-center gap-1 drop-shadow-md"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p>}
+          </div>
+        </div>
+    );
+  }, [
+    applyKlingPrimarySelection,
+    assetQueue,
+    isKlingOmniMode,
+    klingGenerateMode,
+    materialTypeLabelMap,
+    normalizeQueueSourcesForKlingMode,
+    removeUpload,
+    selectedAssetSource,
+    selectedQueueAssetId,
+    t.wb_ready,
+    uploadedFile,
+  ]);
 
   const addCurrentScriptToQueue = () => {
     if (!hasActiveScriptConcept) {
@@ -2869,7 +3189,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       const promptText = buildScriptInputText();
 
-      const category = selectedTemplate?.product_category || "相机";
+      const category = productCategory.trim() || selectedTemplate?.product_category || "相机";
       const style = selectedTemplate?.visual_style || "写实";
       const rawRatio = aspectRatio || selectedTemplate?.aspect_ratio || "16:9";
       const resolution = RATIO_TO_RES[rawRatio] || rawRatio || "1280*720";
@@ -3151,6 +3471,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const issues: string[] = [];
 
     if (reuseQueueEnabled) {
+      if (selectedModel === 'kling') {
+        issues.push('Kling 当前版本暂不支持批量复用队列生成。');
+      }
       if (assetQueue.length === 0 && scriptQueue.length === 0) {
         issues.push(t.wb_reuse_queue_enable_hint || 'Batch mode is on: add both assets and scripts into queues before generating.');
       }
@@ -3165,6 +3488,25 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     if (!selectedTemplate?.id && !selectedFileObj && !selectedAssetUrl && !uploadedFile) {
       issues.push(t.wb_gen_req_issue_asset_or_template || 'Assets: upload an asset or select a template first.');
+    }
+    if (selectedModel === 'kling') {
+      const imageAssets = normalizeQueueSourcesForKlingMode(
+          uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image'),
+          klingGenerateMode
+      );
+      const firstFrameCount = imageAssets.filter((asset) => asset.source === 'product').length;
+      const subjectCount = imageAssets.filter((asset) => asset.source === 'subject').length;
+      const referenceCount = imageAssets.filter((asset) => asset.source === 'preference').length;
+
+      if (klingGenerateMode === 'first_frame' && firstFrameCount !== 1) {
+        issues.push('Kling首帧模式需要且仅允许1张首帧图。');
+      }
+      if (klingGenerateMode === 'subject' && subjectCount > 1) {
+        issues.push('Kling主体模式需要且仅允许1张主体图。');
+      }
+      if (subjectCount + referenceCount > 7 || firstFrameCount + referenceCount > 7) {
+        issues.push('Kling参考图片数量不能超过7张。');
+      }
     }
     if (!hasActiveScriptConcept) {
       issues.push(t.wb_gen_req_issue_master_script_missing);
@@ -3459,7 +3801,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           : selectedModel === 'sora2'
               ? 'sora-2'
               : selectedModel === 'kling'
-                  ? 'kling-v3'
+                  ? 'kling-video-o1'
                   : 'seedance-2.0';
 
   const renderLeftColumn = () => {
@@ -4069,6 +4411,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           {/* Upload Section */}
           <div ref={uploadSectionRef} className={`flex flex-col gap-3 ${getGuideFocusClass('upload')}`}>
             <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
+            {isKlingOmniMode && (
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                      type="button"
+                      onClick={() => setKlingGenerateMode('first_frame')}
+                      className={`rounded-xl border px-3 py-2 text-left transition ${klingGenerateMode === 'first_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                  >
+                    <div className="text-[11px] font-bold">首帧模式</div>
+                    <div className="mt-1 text-[10px] text-zinc-400">必选1张首帧图 + 多张参考图</div>
+                  </button>
+                  <button
+                      type="button"
+                      onClick={() => setKlingGenerateMode('subject')}
+                      className={`rounded-xl border px-3 py-2 text-left transition ${klingGenerateMode === 'subject' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                  >
+                    <div className="text-[11px] font-bold">主体模式</div>
+                    <div className="mt-1 text-[10px] text-zinc-400">可选1个主体 + 多张参考图</div>
+                  </button>
+                </div>
+            )}
             <div
                 onDragOver={handleUploadDragOver}
                 onDragEnter={handleUploadDragOver}
@@ -4109,6 +4471,38 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
               ) : (
                   <div className="rounded-lg bg-zinc-900/80 p-2">
+                    {isKlingOmniMode ? (
+                        <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scroll pr-1">
+                          <div
+                              className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
+                              onClick={() => fileInputRef.current?.click()}
+                          >
+                            <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                              {klingGenerateMode === 'subject' ? '主体图' : '首帧图'}
+                            </div>
+                            {klingPrimarySlotAsset ? renderUploadAssetCard(klingPrimarySlotAsset) : (
+                                <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-white/10 bg-black/20 text-[11px] text-zinc-500">
+                                  {klingGenerateMode === 'subject' ? '主体图' : '首帧图'}
+                                </div>
+                            )}
+                          </div>
+                          <div
+                              className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
+                              onClick={() => fileInputRef.current?.click()}
+                          >
+                            <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">参考图</div>
+                            {klingReferenceSlotAssets.length > 0 ? (
+                                <div className={`${klingReferenceSlotAssets.length > 2 ? 'grid grid-cols-2 gap-2' : 'flex flex-col gap-2'} max-h-60 overflow-y-auto custom-scroll pr-1`}>
+                                  {klingReferenceSlotAssets.map((asset) => renderUploadAssetCard(asset, klingReferenceSlotAssets.length > 2))}
+                                </div>
+                            ) : (
+                                <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-white/10 bg-black/20 text-[11px] text-zinc-500">
+                                  参考图
+                                </div>
+                            )}
+                          </div>
+                        </div>
+                    ) : (
                     <div className="flex flex-col gap-2 max-h-72 overflow-y-auto custom-scroll pr-1">
                       {uploadDisplayAssets.map((asset) => {
                         const inQueue = assetQueue.find((item) => item.id === asset.id);
@@ -4161,7 +4555,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                     value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product')}
                                     onChange={(e) => {
                                       const newType = e.target.value as AssetLibraryTab;
-                                      setAssetQueue(prev => prev.map(item => item.id === asset.id ? { ...item, materialType: newType } : item));
+                                      setAssetQueue(prev => {
+                                        const next = prev.map((item): QueuedAsset => item.id === asset.id ? { ...item, materialType: newType } : item);
+                                        return isKlingOmniMode ? normalizeQueueSourcesForKlingMode(next, klingGenerateMode) : next;
+                                      });
                                       if (selectedQueueAssetId === asset.id || uploadedFile === asset.previewUrl) {
                                         setCurrentMaterialType(newType);
                                       }
@@ -4180,21 +4577,57 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                         type="button"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          const nextSource = (asset.source === 'product' || (!asset.source && selectedAssetSource === 'product')) ? 'preference' : 'product';
+                                          const isHighlighted = isKlingOmniMode
+                                              ? klingGenerateMode === 'subject'
+                                                  ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
+                                                  : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                              : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product');
+                                          const primarySource: QueuedAsset['source'] = isKlingOmniMode
+                                              ? (klingGenerateMode === 'subject' ? 'subject' : 'product')
+                                              : 'product';
+                                          const nextSource: QueuedAsset['source'] = isHighlighted ? 'preference' : primarySource;
 
                                           if (inQueue) {
-                                            setAssetQueue(prev => prev.map(item =>
-                                                item.id === asset.id ? { ...item, source: nextSource } : item
-                                            ));
+                                            if (isKlingOmniMode && nextSource !== 'preference') {
+                                              applyKlingPrimarySelection(asset.id, nextSource);
+                                            } else {
+                                              setAssetQueue(prev => prev.map((item): QueuedAsset => (
+                                                  item.id === asset.id
+                                                      ? { ...item, source: 'preference', isPrimaryFrame: false }
+                                                      : item
+                                              )));
+                                            }
                                           }
 
                                           if (selected) {
                                             setSelectedAssetSource(nextSource);
                                           }
                                         }}
-                                        className={`rounded border px-1.5 py-0.5 text-[9px] font-bold transition ${(asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')) ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'}`}
+                                        className={`rounded border px-1.5 py-0.5 text-[9px] font-bold transition ${
+                                            (
+                                                isKlingOmniMode
+                                                    ? (
+                                                        klingGenerateMode === 'subject'
+                                                            ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
+                                                            : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                                    )
+                                                    : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                            )
+                                                ? 'border-orange-500/70 bg-orange-500/20 text-orange-300'
+                                                : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'
+                                        }`}
                                     >
-                                      {(asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')) ? '首帧图' : '参考图'}
+                                      {(
+                                          isKlingOmniMode
+                                              ? (
+                                                  klingGenerateMode === 'subject'
+                                                      ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
+                                                      : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                              )
+                                              : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                      )
+                                          ? (isKlingOmniMode ? klingRoleLabel(klingGenerateMode === 'subject' ? 'subject' : 'product') : '首帧图')
+                                          : (isKlingOmniMode ? klingRoleLabel('preference') : '参考图')}
                                     </button>
                                 )}
                                 <button onClick={(e) => removeUpload(e, asset.id)} className="p-1 bg-black/50 hover:bg-red-500 rounded text-white transition"><X className="w-2.5 h-2.5" /></button>
@@ -4207,6 +4640,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         );
                       })}
                     </div>
+                    )}
                   </div>
               )}
             </div>
@@ -4303,16 +4737,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             <label
                                 className={`shrink-0 flex items-center gap-1 text-[9px] px-1.5 py-1 rounded border transition ${item.mediaKind === 'image' ? 'border-white/10 text-zinc-300 hover:bg-white/5 cursor-pointer' : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}
                                 onClick={(e) => e.stopPropagation()}
-                                title={item.mediaKind === 'image' ? '选择此素材作为首帧图' : '仅图片可作为首帧图'}
+                                title={item.mediaKind === 'image'
+                                    ? (isKlingOmniMode
+                                        ? (klingGenerateMode === 'subject' ? '选择此素材作为主体参考' : '选择此素材作为首帧图')
+                                        : '选择此素材作为首帧图')
+                                    : '仅图片可作为主参考素材'}
                             >
                               <input
                                   type="checkbox"
-                                  checked={!!item.isPrimaryFrame}
+                                  checked={isKlingOmniMode
+                                      ? (klingGenerateMode === 'subject' ? item.source === 'subject' : item.source === 'product')
+                                      : !!item.isPrimaryFrame}
                                   disabled={item.mediaKind !== 'image'}
                                   onChange={() => markQueueAssetAsPrimaryFrame(item.id)}
                                   className="accent-orange-500"
                               />
-                              <span>首帧</span>
+                              <span>{isKlingOmniMode ? (klingGenerateMode === 'subject' ? '主体' : '首帧') : '首帧'}</span>
                             </label>
                             <button
                                 onClick={(e) => {

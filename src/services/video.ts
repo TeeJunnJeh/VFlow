@@ -373,7 +373,7 @@ export const videoApi = {
     return await response.json();
   },
 
-  recognizeProductInfo: async (payload: { image_paths: string[]; output_language?: string }) => {
+  recognizeProductInfo: async (payload: { image_paths: string[]; output_language?: string; mode?: 'product' | 'subject' }) => {
     const csrftoken = getCookie('csrftoken');
 
     const response = await fetch(`${API_BASE_URL}/recognize-product/`, {
@@ -389,6 +389,28 @@ export const videoApi = {
 
     if (!response.ok) {
       const fallback = `商品识别失败: ${response.status} ${response.statusText || ''}`.trim();
+      throw await readApiErrorDetail(response, fallback);
+    }
+
+    return await response.json();
+  },
+
+  recognizeSubjectInfo: async (payload: { image_paths: string[]; output_language?: string }) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/recognize-subject/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const fallback = `主体描述识别失败: ${response.status} ${response.statusText || ''}`.trim();
       throw await readApiErrorDetail(response, fallback);
     }
 

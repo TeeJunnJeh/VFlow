@@ -5,6 +5,7 @@ import {
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext'
 import { assetsApi, type Asset, type AssetFolder, type PlazaAssetItem, type PlazaCollectPolicy } from '../../services/assets';
+import { videoApi } from '../../services/video';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 
 type AssetType = 'model' | 'product' | 'scene' | 'motion';
@@ -22,7 +23,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   currentFolderId, 
   setCurrentFolderId 
 }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { updateUser } = useAuth();
   const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
   const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
@@ -140,8 +141,39 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   // 4. Preview
   const [isAssetPreviewOpen, setIsAssetPreviewOpen] = useState(false);
   const [assetPreview, setAssetPreview] = useState<Asset | null>(null);
+  const [assetDescriptionDraft, setAssetDescriptionDraft] = useState('');
+  const [isGeneratingAssetDescription, setIsGeneratingAssetDescription] = useState(false);
+  const [isSavingAssetDescription, setIsSavingAssetDescription] = useState(false);
 
   const assetInputRef = useRef<HTMLInputElement>(null);
+
+  const getAssetSubjectMeta = useCallback((asset: Asset | null | undefined) => {
+    const raw = asset?.meta_data?.kling_subject;
+    return raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  }, []);
+
+  const getAssetSubjectName = useCallback((asset: Asset | null | undefined) => {
+    const meta = getAssetSubjectMeta(asset);
+    return String(meta.name || asset?.name || '').trim();
+  }, [getAssetSubjectMeta]);
+
+  const getAssetSubjectDescription = useCallback((asset: Asset | null | undefined) => {
+    const meta = getAssetSubjectMeta(asset);
+    return String(meta.description || '').trim();
+  }, [getAssetSubjectMeta]);
+  const getAssetSubjectStatus = useCallback((asset: Asset | null | undefined) => {
+    const meta = getAssetSubjectMeta(asset);
+    return String(meta.status || '').trim().toLowerCase();
+  }, [getAssetSubjectMeta]);
+  const normalizeSubjectDescriptionText = useCallback((value: string) => (
+    value
+      .replace(/\s+/g, ' ')
+      .replace(/([，。！？；：,.!?;:])\1+/g, '$1')
+      .replace(/。[,，]/g, '。')
+      .replace(/，\s*[，。]/g, '，')
+      .trim()
+      .slice(0, 60)
+  ), []);
 
   // --- API Loaders ---
   const loadData = useCallback(async () => {
@@ -458,6 +490,77 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       renameIgnoreBlurRef.current = false;
     }
   };
+
+  const syncPreviewAssetMeta = useCallback((assetId: string, nextMeta: Record<string, unknown>) => {
+    setAssetList(prev => prev.map(item => (
+      item.id === assetId ? { ...item, meta_data: nextMeta } : item
+    )));
+    setAssetPreview(prev => (
+      prev && prev.id === assetId ? { ...prev, meta_data: nextMeta } : prev
+    ));
+  }, []);
+
+  const saveAssetDescription = useCallback(async () => {
+    if (!assetPreview) return;
+    const nextDescription = assetDescriptionDraft.trim();
+    setIsSavingAssetDescription(true);
+    try {
+      const currentSubjectMeta = getAssetSubjectMeta(assetPreview);
+      const response = await assetsApi.patchAssetMeta(assetPreview.id, {
+        kling_subject: {
+          ...currentSubjectMeta,
+          name: String(currentSubjectMeta.name || assetPreview.name || '').trim(),
+          description: nextDescription,
+        },
+      });
+      const nextMeta = (response?.meta_data || {
+        ...(assetPreview.meta_data || {}),
+        kling_subject: {
+          ...currentSubjectMeta,
+          name: String(currentSubjectMeta.name || assetPreview.name || '').trim(),
+          description: nextDescription,
+        },
+      }) as Record<string, unknown>;
+      syncPreviewAssetMeta(assetPreview.id, nextMeta);
+      openInfo(t.assets_confirm_title || 'Notice', t.assets_save || 'Saved');
+    } catch (err) {
+      openInfo(t.assets_confirm_title || 'Notice', String(err instanceof Error ? err.message : err));
+    } finally {
+      setIsSavingAssetDescription(false);
+    }
+  }, [assetDescriptionDraft, assetPreview, getAssetSubjectMeta, openInfo, syncPreviewAssetMeta, t.assets_confirm_title, t.assets_save]);
+
+  const generateAssetDescription = useCallback(async () => {
+    if (!assetPreview?.file_url) return;
+    setIsGeneratingAssetDescription(true);
+    try {
+      const response = assetPreview.type === 'model'
+        ? await videoApi.recognizeSubjectInfo({
+            image_paths: [assetPreview.file_url],
+            output_language: language,
+          })
+        : await videoApi.recognizeProductInfo({
+            image_paths: [assetPreview.file_url],
+            output_language: language,
+          });
+      const data = response?.data || {};
+      const nextDescription = assetPreview.type === 'model'
+        ? normalizeSubjectDescriptionText(String(data.subject_description || '').trim() || String(data.subject_name || '').trim())
+        : [
+            String(data.product_name || '').trim(),
+            ...(Array.isArray(data.core_selling_points) ? data.core_selling_points.map((item: unknown) => String(item || '').trim()) : []),
+          ].filter(Boolean).join('，').slice(0, 100);
+      if (!nextDescription) {
+        openInfo(t.assets_confirm_title || 'Notice', '当前素材未生成可用描述，请手动编辑。');
+        return;
+      }
+      setAssetDescriptionDraft(nextDescription);
+    } catch (err) {
+      openInfo(t.assets_confirm_title || 'Notice', String(err instanceof Error ? err.message : err));
+    } finally {
+      setIsGeneratingAssetDescription(false);
+    }
+  }, [assetPreview, getAssetSubjectMeta, language, openInfo, syncPreviewAssetMeta, t.assets_confirm_title]);
 
   const exitSelectionMode = () => {
     setIsSelectionMode(false);
@@ -1113,6 +1216,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                                 return;
                               }
                               setAssetPreview(asset);
+                              setAssetDescriptionDraft(getAssetSubjectDescription(asset));
                               setIsAssetPreviewOpen(true);
                             }}
                           >
@@ -1361,27 +1465,100 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
        {/* 1. Preview Modal */}
        {isAssetPreviewOpen && assetPreview && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6" onClick={() => setIsAssetPreviewOpen(false)}>
-            <div className="glass-panel rounded-2xl p-4 md:p-6 border border-white/10 w-auto max-w-[calc(100vw-3rem)] max-h-[calc(100vh-3rem)] overflow-auto">
+            <div className="glass-panel rounded-2xl p-4 md:p-6 border border-white/10 w-full max-w-4xl max-h-[calc(100vh-3rem)] overflow-auto" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between gap-4 mb-4"><div className="min-w-0"><h3 className="text-sm font-bold text-zinc-200">{t.assets_preview_title}</h3><div className="text-xs text-zinc-500 truncate">{assetPreview.name}</div></div><button className="text-zinc-400 hover:text-white" onClick={() => setIsAssetPreviewOpen(false)}><X className="w-5 h-5"/></button></div>
-              <div className="flex items-center justify-center">
-                 {assetPreview.media_kind === 'video' ? (
-                   <video
-                     src={getDisplayUrl(assetPreview.file_url) || undefined}
-                     className="block rounded-lg max-w-full max-h-[calc(100vh-10rem)] object-contain"
-                     controls
-                     autoPlay
-                     loop
-                     playsInline
-                   />
-                 ) : (
-                   <img
-                     src={getDisplayUrl(assetPreview.file_url) || ASSET_PLACEHOLDER_DATA_URL}
-                     alt={assetPreview.name}
-                     className="block rounded-lg max-w-full max-h-[calc(100vh-10rem)] object-contain"
-                     onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }}
-                   />
-                 )}
+              {(assetPreview.type === 'product' || assetPreview.type === 'model') ? (
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)] gap-5">
+                <div className="flex items-center justify-center">
+                   {assetPreview.media_kind === 'video' ? (
+                     <video
+                       src={getDisplayUrl(assetPreview.file_url) || undefined}
+                       className="block rounded-lg max-w-full max-h-[calc(100vh-10rem)] object-contain"
+                       controls
+                       autoPlay
+                       loop
+                       playsInline
+                     />
+                   ) : (
+                     <img
+                       src={getDisplayUrl(assetPreview.file_url) || ASSET_PLACEHOLDER_DATA_URL}
+                       alt={assetPreview.name}
+                       className="block rounded-lg max-w-full max-h-[calc(100vh-10rem)] object-contain"
+                       onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }}
+                     />
+                   )}
+                </div>
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="text-xs text-zinc-500 mb-1">主体名称</div>
+                    <div className="text-base font-bold text-zinc-100 break-words">{getAssetSubjectName(assetPreview) || assetPreview.name}</div>
+                    <div className="mt-2 text-[11px] text-zinc-400">
+                      主体状态：{(() => {
+                        const status = getAssetSubjectStatus(assetPreview);
+                        if (status === 'succeed') return '已创建';
+                        if (status === 'processing') return '创建中';
+                        if (status === 'failed') return '创建失败';
+                        if (status === 'deleted') return '已删除';
+                        return '未创建';
+                      })()}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <div className="text-xs text-zinc-500">主体描述</div>
+                      {assetPreview.media_kind === 'image' && (
+                        <button
+                          type="button"
+                          disabled={isGeneratingAssetDescription}
+                          onClick={() => void generateAssetDescription()}
+                          className="rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-1 text-[11px] font-bold text-orange-200 disabled:opacity-60"
+                        >
+                          {isGeneratingAssetDescription ? '生成中...' : 'AI生成描述'}
+                        </button>
+                      )}
+                    </div>
+                    <textarea
+                      value={assetDescriptionDraft}
+                      onChange={(e) => setAssetDescriptionDraft(e.target.value)}
+                      rows={6}
+                      className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-orange-500/50"
+                      placeholder="未生成描述，可点击 AI生成描述 或手动编辑"
+                    />
+                    <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-zinc-500">
+                      <span>{assetPreview.created_at ? `更新于 ${String(assetPreview.created_at).slice(0, 10)}` : ''}</span>
+                      <button
+                        type="button"
+                        disabled={isSavingAssetDescription}
+                        onClick={() => void saveAssetDescription()}
+                        className="rounded-lg bg-white px-3 py-1.5 text-[11px] font-bold text-black disabled:opacity-60"
+                      >
+                        {isSavingAssetDescription ? '保存中...' : '保存描述'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
+              ) : (
+                <div className="flex items-center justify-center">
+                  {assetPreview.media_kind === 'video' ? (
+                    <video
+                      src={getDisplayUrl(assetPreview.file_url) || undefined}
+                      className="block rounded-lg max-w-full max-h-[calc(100vh-10rem)] object-contain"
+                      controls
+                      autoPlay
+                      loop
+                      playsInline
+                    />
+                  ) : (
+                    <img
+                      src={getDisplayUrl(assetPreview.file_url) || ASSET_PLACEHOLDER_DATA_URL}
+                      alt={assetPreview.name}
+                      className="block rounded-lg max-w-full max-h-[calc(100vh-10rem)] object-contain"
+                      onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }}
+                    />
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

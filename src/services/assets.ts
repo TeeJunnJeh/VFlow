@@ -40,6 +40,7 @@ export interface Asset {
   status: 'ready' | 'processing' | 'failed';
   created_at: string;
   folder_id?: string | null;
+  meta_data?: Record<string, unknown>;
 }
 
 // Backend Interface (Internal use)
@@ -51,10 +52,11 @@ interface BackendAsset {
   url: string;
   folder_id?: number | null;
   meta_data: {
-    width: number;
-    height: number;
-    size_bytes: number;
-    format: string;
+    width?: number;
+    height?: number;
+    size_bytes?: number;
+    format?: string;
+    [key: string]: unknown;
   };
   created_at: string;
 }
@@ -178,10 +180,11 @@ export const assetsApi = {
           type: item.type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion',
           file_url: fullUrl,
           media_kind: mediaKind,
-          size: (item.meta_data.size_bytes / 1024 / 1024).toFixed(2) + ' MB',
+          size: (((item.meta_data?.size_bytes || 0) as number) / 1024 / 1024).toFixed(2) + ' MB',
           status: 'ready',
           created_at: item.created_at,
-          folder_id: item.folder_id?.toString() ?? null
+          folder_id: item.folder_id?.toString() ?? null,
+          meta_data: item.meta_data || {},
         };
       });
 
@@ -301,7 +304,7 @@ export const assetsApi = {
   },
 
   // 4. RENAME (Asset)
-  renameAsset: async (assetId: string, displayName: string) => {
+  renameAsset: async (assetId: string, displayName: string, metaDataPatch?: Record<string, unknown>) => {
     const csrftoken = getCookie('csrftoken');
     const response = await fetch(`${API_BASE_URL}/${assetId}/`, {
       method: 'POST',
@@ -311,7 +314,27 @@ export const assetsApi = {
         'X-Requested-With': 'XMLHttpRequest',
       },
       credentials: 'include',
-      body: JSON.stringify({ display_name: displayName }),
+      body: JSON.stringify({
+        display_name: displayName,
+        ...(metaDataPatch ? { meta_data_patch: metaDataPatch } : {}),
+      }),
+    });
+
+    if (!response.ok) throw new Error(await readApiError(response));
+    return await response.json();
+  },
+
+  patchAssetMeta: async (assetId: string, metaDataPatch: Record<string, unknown>) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/${assetId}/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ meta_data_patch: metaDataPatch }),
     });
 
     if (!response.ok) throw new Error(await readApiError(response));

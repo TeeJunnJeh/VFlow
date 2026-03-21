@@ -5022,7 +5022,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-4" />
         </div>
 
-          <div ref={scriptsSectionRef} className={`flex-auto flex flex-col gap-3 h-full min-w-[300px] ${getGuideFocusClass('scripts')}`}>
+          <div
+            ref={scriptsSectionRef}
+            style={{ flex: scriptPreviewRatio }}
+            className={`flex-auto flex flex-col gap-3 h-full min-w-[300px] ${getGuideFocusClass('scripts')}`}
+          >
             <div className="flex justify-between items-center shrink-0 h-[32px]">
               <div className="flex items-center gap-3">
                 <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>

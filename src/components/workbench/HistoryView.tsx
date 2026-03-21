@@ -382,14 +382,12 @@ export const HistoryView = () => {
     setTogglingFavoriteId(proj.id);
     try {
       const result = await videoApi.toggleFavorite(proj.id);
-      // Update the project in the list with new favorite status
-      setProjects((prev) => 
-        prev.map((item) => 
-          item.id === proj.id 
-            ? { ...item, is_favorited: result.is_favorited }
-            : item
-        )
-      );
+      setProjects((prev) => {
+        if (showOnlyFavorites && !result.is_favorited) {
+          return prev.filter((item) => item.id !== proj.id);
+        }
+        return prev.map((item) => (item.id === proj.id ? { ...item, is_favorited: result.is_favorited } : item));
+      });
     } catch (err: unknown) {
       setFeedbackMessage(getErrorMessage(err, t.hist_favorite_toggle_failed || 'Failed to update favorite status'));
     } finally {
@@ -471,10 +469,31 @@ export const HistoryView = () => {
                       setSortBy('updated_at_desc');
                       setSearchInput('');
                       setSearchKeyword('');
+                      setShowOnlyFavorites(false);
                     }}
                     className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-200 hover:bg-white/10 transition"
                   >
                     {t.hist_filter_reset}
+                  </button>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={showOnlyFavorites}
+                    onClick={() => setShowOnlyFavorites((prev) => !prev)}
+                    className={`rounded-lg border px-3 py-2 text-xs font-bold transition flex items-center gap-3 ${showOnlyFavorites ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10'}`}
+                  >
+                    <span>{t.hist_favorites_toggle_only || '只看收藏'}</span>
+                    <span
+                      aria-hidden="true"
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full border transition ${showOnlyFavorites ? 'bg-orange-500/20 border-orange-500/60' : 'bg-white/5 border-white/10'}`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 rounded-full transition-transform ${showOnlyFavorites ? 'translate-x-4 bg-orange-400' : 'translate-x-1 bg-zinc-400'}`}
+                      />
+                    </span>
                   </button>
                 </div>
               </div>
@@ -526,6 +545,7 @@ export const HistoryView = () => {
                       setSortBy('updated_at_desc');
                       setSearchInput('');
                       setSearchKeyword('');
+                      setShowOnlyFavorites(false);
                     }}
                     className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-200 hover:bg-white/10 transition"
                   >
@@ -559,11 +579,20 @@ export const HistoryView = () => {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setShowOnlyFavorites(!showOnlyFavorites)}
-                    className={`rounded-lg border px-3 py-2 text-xs font-bold transition flex items-center gap-2 ${showOnlyFavorites ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10'}`}
+                    role="switch"
+                    aria-checked={showOnlyFavorites}
+                    onClick={() => setShowOnlyFavorites((prev) => !prev)}
+                    className={`rounded-lg border px-3 py-2 text-xs font-bold transition flex items-center gap-3 ${showOnlyFavorites ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10'}`}
                   >
-                    <Star className="w-4 h-4" />
-                    {showOnlyFavorites ? (t.hist_favorites_toggle_view_all || 'Show All') : (t.hist_favorites_toggle_only || 'My Favorites')}
+                    <span>{t.hist_favorites_toggle_only || '只看收藏'}</span>
+                    <span
+                      aria-hidden="true"
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full border transition ${showOnlyFavorites ? 'bg-orange-500/20 border-orange-500/60' : 'bg-white/5 border-white/10'}`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 rounded-full transition-transform ${showOnlyFavorites ? 'translate-x-4 bg-orange-400' : 'translate-x-1 bg-zinc-400'}`}
+                      />
+                    </span>
                   </button>
                 </div>
                 <div className="mt-2 text-xs text-zinc-500">{projects.length} {t.hist_results_label}</div>

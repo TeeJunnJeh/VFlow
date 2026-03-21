@@ -4,6 +4,7 @@ import { clearDebugModeEnabled } from '../services/debugMode';
 import { debugLog, debugWarn, debugError } from '../services/debugMode';
 
 interface User {
+  account: string,
   id: string | number; // Allow number
   name: string;
   avatar: string;
@@ -65,6 +66,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
             // Construct valid user object
             const verifiedUser: User = {
+                account: backendUser.account,
                 id: backendUser.user_id,
                 name: backendUser.nickname || backendUser.username || backendUser.phone || 'User',
                 avatar: normalizeAvatar(backendUser.avatar),
@@ -137,6 +139,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const newUser: User = {
       // Use the Real ID if found, otherwise crash/warn instead of using a fake string
+      account: serverData?.account,
       id: realUserId || '1',
       name: serverData?.nickname || serverData?.data?.nickname || serverData?.data?.username || serverData?.username || identifier,
       avatar: normalizeAvatar(serverData?.avatar || serverData?.data?.avatar || ''),

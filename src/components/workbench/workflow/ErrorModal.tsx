@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, AlertCircle } from 'lucide-react';
+import { useLanguage } from '../../../context/LanguageContext';
 
 export interface ErrorModalProps {
   isOpen: boolean;
@@ -26,10 +27,11 @@ export const ErrorModal: React.FC<ErrorModalProps> = ({
   actions,
   onClose,
 }) => {
+  const { t } = useLanguage();
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div
         className="bg-zinc-900 border border-red-500/60 rounded-2xl max-w-md w-full p-6 animate-in fade-in scale-95 duration-200"
         onClick={(e) => e.stopPropagation()}
@@ -42,7 +44,7 @@ export const ErrorModal: React.FC<ErrorModalProps> = ({
               <h2 className="text-lg font-semibold text-zinc-100">{title}</h2>
               {code && (
                 <p className="text-xs text-red-400 mt-1">
-                  错误代码: {code}
+                  {(t.wf_error_code_label || 'Error code')}: {code}
                 </p>
               )}
             </div>
@@ -59,7 +61,7 @@ export const ErrorModal: React.FC<ErrorModalProps> = ({
         {details && (
           <details className="mb-4 text-xs text-zinc-400 bg-zinc-800/40 p-3 rounded-lg">
             <summary className="cursor-pointer font-semibold text-zinc-300 mb-2">
-              技术详情
+              {t.wf_error_tech_details || 'Technical details'}
             </summary>
             <pre className="text-[10px] overflow-auto max-h-32 p-2 bg-zinc-900 rounded">
               {details}
@@ -70,7 +72,7 @@ export const ErrorModal: React.FC<ErrorModalProps> = ({
         {/* Suggestions */}
         {suggestions && suggestions.length > 0 && (
           <div className="mb-4">
-            <h3 className="text-xs font-semibold text-zinc-300 mb-2">建议解决方案</h3>
+            <h3 className="text-xs font-semibold text-zinc-300 mb-2">{t.wf_error_suggestions || 'Suggestions'}</h3>
             <ul className="text-xs text-zinc-400 space-y-1">
               {suggestions.map((suggestion, idx) => (
                 <li key={idx} className="flex gap-2">
@@ -109,7 +111,7 @@ export const ErrorModal: React.FC<ErrorModalProps> = ({
             onClick={onClose}
             className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-white/5 text-zinc-300 border border-white/10 hover:bg-white/10 transition"
           >
-            关闭
+            {t.wf_error_close || t.wb_debug_close || 'Close'}
           </button>
         </div>
       </div>

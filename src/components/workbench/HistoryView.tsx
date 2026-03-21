@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Download, Loader2, Play, Trash2, Video, FileJson, X } from 'lucide-react';
+import { AlertCircle, Download, Loader2, Play, Trash2, Video, FileJson, X, Star } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
@@ -80,6 +80,8 @@ export const HistoryView = () => {
   const [sortBy, setSortBy] = useState<HistorySort>('updated_at_desc');
   const [searchInput, setSearchInput] = useState('');
   const [searchKeyword, setSearchKeyword] = useState('');
+  const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
+  const [togglingFavoriteId, setTogglingFavoriteId] = useState<string | null>(null);
 
   const categoryLabels: Record<string, string> = {
     camera: t.opt_cat_camera,
@@ -142,7 +144,9 @@ export const HistoryView = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await videoApi.getHistory(historyQuery);
+      const data = showOnlyFavorites 
+        ? await videoApi.getFavorites(historyQuery)
+        : await videoApi.getHistory(historyQuery);
       setProjects(Array.isArray(data) ? data : []);
     } catch (e: unknown) {
       setError(getErrorMessage(e, 'Failed to load history'));
@@ -175,7 +179,9 @@ export const HistoryView = () => {
       setError(null);
 
       try {
-        const data = await videoApi.getHistory(historyQuery);
+        const data = showOnlyFavorites 
+          ? await videoApi.getFavorites(historyQuery)
+          : await videoApi.getHistory(historyQuery);
         if (cancelled) return;
         setProjects(Array.isArray(data) ? data : []);
       } catch (e: unknown) {
@@ -191,7 +197,7 @@ export const HistoryView = () => {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, historyQuery]);
+  }, [user?.id, historyQuery, showOnlyFavorites]);
 
   useEffect(() => {
     if (!playingVideo) return;
@@ -370,6 +376,27 @@ export const HistoryView = () => {
     setPromptProject(proj);
   };
 
+  const handleToggleFavorite = async (proj: HistoryProject, e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    setTogglingFavoriteId(proj.id);
+    try {
+      const result = await videoApi.toggleFavorite(proj.id);
+      // Update the project in the list with new favorite status
+      setProjects((prev) => 
+        prev.map((item) => 
+          item.id === proj.id 
+            ? { ...item, is_favorited: result.is_favorited }
+            : item
+        )
+      );
+    } catch (err: unknown) {
+      setFeedbackMessage(getErrorMessage(err, t.hist_favorite_toggle_failed || 'Failed to update favorite status'));
+    } finally {
+      setTogglingFavoriteId(null);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300 relative">
       <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
@@ -530,6 +557,14 @@ export const HistoryView = () => {
                   >
                     {t.hist_bulk_delete_action} ({selectedCount})
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowOnlyFavorites(!showOnlyFavorites)}
+                    className={`rounded-lg border px-3 py-2 text-xs font-bold transition flex items-center gap-2 ${showOnlyFavorites ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10'}`}
+                  >
+                    <Star className="w-4 h-4" />
+                    {showOnlyFavorites ? (t.hist_favorites_toggle_view_all || 'Show All') : (t.hist_favorites_toggle_only || 'My Favorites')}
+                  </button>
                 </div>
                 <div className="mt-2 text-xs text-zinc-500">{projects.length} {t.hist_results_label}</div>
               </div>
@@ -639,6 +674,19 @@ export const HistoryView = () => {
                           title={t.hist_action_download}
                         >
                           <Download className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          onClick={(e) => handleToggleFavorite(proj, e)}
+                          disabled={togglingFavoriteId === proj.id}
+                          className="p-1.5 text-zinc-600 hover:text-orange-400 hover:bg-orange-500/10 rounded transition disabled:opacity-50 disabled:cursor-not-allowed"
+                          title={proj.is_favorited ? (t.hist_favorite_remove_title || 'Unfavorite') : (t.hist_favorite_add_title || 'Favorite')}
+                        >
+                          {togglingFavoriteId === proj.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Star className={`w-3.5 h-3.5 ${proj.is_favorited ? 'fill-current text-orange-400' : ''}`} />
+                          )}
                         </button>
 
                         <button

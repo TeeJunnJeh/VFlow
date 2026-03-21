@@ -533,6 +533,19 @@ export const translations = {
     hist_delete_confirm_message: "This project will be permanently removed.",
     hist_delete_failed: "Failed to delete project",
     hist_untitled_project: "Untitled Project",
+    hist_favorites_toggle_view_all: "Show All",
+    hist_favorites_toggle_only: "My Favorites",
+    hist_favorite_add_title: "Favorite",
+    hist_favorite_remove_title: "Unfavorite",
+    hist_favorite_toggle_failed: "Failed to update favorite status",
+
+    wb_resize_layout_title: "Drag to resize layout",
+    wb_resize_script_preview_title: "Drag to resize scripts and preview",
+
+    wf_error_code_label: "Error code",
+    wf_error_tech_details: "Technical details",
+    wf_error_suggestions: "Suggestions",
+    wf_error_close: "Close",
 
     // Editor Labels
     editor_label_category: "PRODUCT CATEGORY",
@@ -1188,6 +1201,19 @@ export const translations = {
     hist_delete_confirm_message: "该项目会被永久删除。",
     hist_delete_failed: "删除项目失败",
     hist_untitled_project: "未命名项目",
+    hist_favorites_toggle_view_all: "显示全部",
+    hist_favorites_toggle_only: "我的收藏",
+    hist_favorite_add_title: "收藏",
+    hist_favorite_remove_title: "取消收藏",
+    hist_favorite_toggle_failed: "切换收藏失败",
+
+    wb_resize_layout_title: "拖拽调整布局",
+    wb_resize_script_preview_title: "拖拽调整脚本和预览比例",
+
+    wf_error_code_label: "错误代码",
+    wf_error_tech_details: "技术详情",
+    wf_error_suggestions: "建议解决方案",
+    wf_error_close: "关闭",
 
     editor_label_category: "产品品类",
     editor_label_style: "视觉风格",
@@ -1755,6 +1781,19 @@ export const translations = {
     hist_delete_confirm_message: "Projek ini akan dipadamkan secara kekal.",
     hist_delete_failed: "Gagal memadam projek",
     hist_untitled_project: "Projek Tanpa Nama",
+    hist_favorites_toggle_view_all: "Tunjukkan Semua",
+    hist_favorites_toggle_only: "Kegemaran Saya",
+    hist_favorite_add_title: "Kegemaran",
+    hist_favorite_remove_title: "Buang Kegemaran",
+    hist_favorite_toggle_failed: "Gagal mengemas kini status kegemaran",
+
+    wb_resize_layout_title: "Seret untuk ubah saiz susun atur",
+    wb_resize_script_preview_title: "Seret untuk ubah saiz skrip dan pratonton",
+
+    wf_error_code_label: "Kod ralat",
+    wf_error_tech_details: "Butiran teknikal",
+    wf_error_suggestions: "Cadangan",
+    wf_error_close: "Tutup",
 
     editor_label_category: "KATEGORI PRODUK",
     editor_label_style: "GAYA VISUAL",
@@ -2285,6 +2324,19 @@ export const translations = {
     hist_delete_confirm_message: "Dự án này sẽ bị xóa vĩnh viễn.",
     hist_delete_failed: "Xóa dự án thất bại",
     hist_untitled_project: "Dự án chưa đặt tên",
+    hist_favorites_toggle_view_all: "Hiện tất cả",
+    hist_favorites_toggle_only: "Yêu thích của tôi",
+    hist_favorite_add_title: "Yêu thích",
+    hist_favorite_remove_title: "Bỏ yêu thích",
+    hist_favorite_toggle_failed: "Cập nhật trạng thái yêu thích thất bại",
+
+    wb_resize_layout_title: "Kéo để thay đổi bố cục",
+    wb_resize_script_preview_title: "Kéo để thay đổi tỷ lệ kịch bản và xem trước",
+
+    wf_error_code_label: "Mã lỗi",
+    wf_error_tech_details: "Chi tiết kỹ thuật",
+    wf_error_suggestions: "Gợi ý",
+    wf_error_close: "Đóng",
 
     editor_label_category: "DANH MỤC SẢN PHẨM",
     editor_label_style: "PHONG CÁCH HÌNH ẢNH",
@@ -2818,6 +2870,19 @@ export const translations = {
     hist_delete_confirm_message: "이 프로젝트는 영구적으로 삭제됩니다.",
     hist_delete_failed: "프로젝트 삭제에 실패했습니다",
     hist_untitled_project: "제목 없는 프로젝트",
+    hist_favorites_toggle_view_all: "전체 보기",
+    hist_favorites_toggle_only: "내 즐겨찾기",
+    hist_favorite_add_title: "즐겨찾기",
+    hist_favorite_remove_title: "즐겨찾기 해제",
+    hist_favorite_toggle_failed: "즐겨찾기 상태를 업데이트하지 못했습니다",
+
+    wb_resize_layout_title: "드래그하여 레이아웃 크기 조절",
+    wb_resize_script_preview_title: "드래그하여 스크립트와 미리보기 비율 조절",
+
+    wf_error_code_label: "오류 코드",
+    wf_error_tech_details: "기술 세부 정보",
+    wf_error_suggestions: "해결 제안",
+    wf_error_close: "닫기",
 
     editor_label_category: "제품 카테고리",
     editor_label_style: "비주얼 스타일",

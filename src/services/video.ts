@@ -37,6 +37,7 @@ export interface HistoryProject {
   duration: number;
   created_at: string;
   updated_at: string;
+  is_favorited?: boolean;
   platform_stats?: Record<string, unknown>;
   request_payload?: Record<string, unknown> | null;
   model_request?: Record<string, unknown> | null;
@@ -546,6 +547,79 @@ export const videoApi = {
       deleted_count: Number(data.deleted_count || 0),
       missing_ids: Array.isArray(data.missing_ids) ? data.missing_ids : [],
     };
+  },
+
+  // 7. Toggle favorite status for a project
+  toggleFavorite: async (projectId: string): Promise<{ is_favorited: boolean }> => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/${projectId}/favorite/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw new Error(await readApiError(response));
+    }
+
+    if (response.redirected) throw new Error('Unauthorized');
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      return { is_favorited: false };
+    }
+
+    const json = (await response.json()) as ApiEnvelope<{ is_favorited?: boolean }>;
+    if (json?.code !== undefined && json.code !== 0) {
+      throw new Error((json?.message || 'Failed to toggle favorite') as string);
+    }
+
+    const data = json?.data || {};
+    return {
+      is_favorited: Boolean(data.is_favorited),
+    };
+  },
+
+  // 8. Get favorites list
+  getFavorites: async (params?: HistoryQueryParams): Promise<HistoryProject[]> => {
+    const query = new URLSearchParams();
+    if (params?.keyword && params.keyword.trim()) {
+      query.set('keyword', params.keyword.trim());
+    }
+    if (params?.sort) {
+      query.set('sort', params.sort);
+    }
+
+    const queryString = query.toString();
+    const url = `${API_BASE_URL}/favorites/${queryString ? `?${queryString}` : ''}`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw new Error(await readApiError(response));
+    }
+
+    if (response.redirected) throw new Error('Unauthorized');
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) throw new Error('Unexpected response');
+
+    const json = (await response.json()) as ApiEnvelope<HistoryProject[]>;
+    if (json?.code !== undefined && json.code !== 0) {
+      throw new Error((json?.message || 'Failed to fetch favorites') as string);
+    }
+    const data = json?.data;
+    return Array.isArray(data) ? data : [];
   },
 };
 

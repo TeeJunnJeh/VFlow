@@ -14,6 +14,7 @@ import { useWorkbenchModel } from '../../context/WorkbenchModelContext';
 import { videoApi, VideoApiError, type GeneratePreviewData } from '../../services/video';
 import { assetsApi, type Asset as LibraryAsset, type AssetFolder } from '../../services/assets';
 import { tiktokApi } from '../../services/tiktok';
+import { getDebugModeEnabled } from '../../services/debugMode';
 import {
   PromptLabWindow,
   buildBackendPromptOverrides,
@@ -593,15 +594,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [translatingShots, setTranslatingShots] = useState<Record<number, boolean>>({});
   const [creationMode, setCreationMode] = useState<'fast' | 'replay'>(() => (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
   const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
+  const [isModelSectionCollapsed, setIsModelSectionCollapsed] = useState(false);
   const [isAiRecognizing, setIsAiRecognizing] = useState(false);
   const [hasAiRecognized, setHasAiRecognized] = useState(false);
   const lastRecognizedSignatureRef = useRef<string>('');
   const isAutoRecognizePromptingRef = useRef(false);
   const LEFT_COLUMN_MIN_WIDTH = 260;
   const SCRIPT_COLUMN_MIN_WIDTH = 320;
+  const PREVIEW_COLUMN_MIN_WIDTH = 260;
   const LEFT_COLUMN_RATIO_KEY = `vflow_workbench_layout_ratio_v1_${user?.id ?? 'guest'}`;
+  const SCRIPT_PREVIEW_RATIO_KEY = `vflow_workbench_script_preview_ratio_v1_${user?.id ?? 'guest'}`;
   const workspaceRowRef = useRef<HTMLDivElement | null>(null);
   const isResizingRef = useRef(false);
+  const isResizingScriptPreviewRef = useRef(false);
   const [leftColumnWidth, setLeftColumnWidth] = useState<number>(() => {
     try {
       const ratioRaw = sessionStorage.getItem(LEFT_COLUMN_RATIO_KEY);
@@ -612,6 +617,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return Math.min(640, Math.max(LEFT_COLUMN_MIN_WIDTH, width));
     } catch {
       return 320;
+    }
+  });
+  const [scriptPreviewRatio, setScriptPreviewRatio] = useState<number>(() => {
+    try {
+      const ratioRaw = sessionStorage.getItem(SCRIPT_PREVIEW_RATIO_KEY);
+      const ratio = ratioRaw ? Number(ratioRaw) : NaN;
+      if (!Number.isFinite(ratio) || ratio <= 0.3 || ratio >= 0.8) return 0.55;
+      return ratio;
+    } catch {
+      return 0.55;
     }
   });
   const lastFastModelRef = useRef<'kling' | 'sora2' | 'sora2pro' | 'seedance2.0'>('kling');
@@ -1772,6 +1787,55 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   }, [LEFT_COLUMN_MIN_WIDTH, LEFT_COLUMN_RATIO_KEY, SCRIPT_COLUMN_MIN_WIDTH, leftColumnWidth]);
+
+  const handleScriptPreviewResize = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const startX = event.clientX;
+    const startRatio = scriptPreviewRatio;
+
+    const scriptElement = scriptsSectionRef.current;
+    const previewElement = previewSectionRef.current;
+    if (!scriptElement || !previewElement) return;
+
+    const scriptRect = scriptElement.getBoundingClientRect();
+    const previewRect = previewElement.getBoundingClientRect();
+    const totalWidth = scriptRect.width + previewRect.width;
+
+    isResizingScriptPreviewRef.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMove = (e: MouseEvent) => {
+      if (!isResizingScriptPreviewRef.current) return;
+      const delta = e.clientX - startX;
+      const newScriptWidth = scriptRect.width + delta;
+      const newRatio = newScriptWidth / totalWidth;
+
+      if (newScriptWidth >= SCRIPT_COLUMN_MIN_WIDTH && 
+          (totalWidth - newScriptWidth) >= PREVIEW_COLUMN_MIN_WIDTH &&
+          newRatio > 0.2 && newRatio < 0.9) {
+        setScriptPreviewRatio(newRatio);
+        try {
+          sessionStorage.setItem(SCRIPT_PREVIEW_RATIO_KEY, String(newRatio));
+        } catch {
+          void 0;
+        }
+      }
+    };
+
+    const onUp = () => {
+      isResizingScriptPreviewRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [scriptPreviewRatio, SCRIPT_COLUMN_MIN_WIDTH, PREVIEW_COLUMN_MIN_WIDTH, SCRIPT_PREVIEW_RATIO_KEY]);
 
   const productImageSignature = useMemo(() => {
     const sources = getProductRecognitionSources();
@@ -3597,56 +3661,74 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
 
     const modelSelector = (
-        <div className="flex flex-col gap-6">
-          <div>
-            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
-              <Wand2 className="w-3 h-3" /> {t.wb_creation_mode_title}
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+              <Cpu className="w-3 h-3" /> {t.wb_model_title}
             </h2>
-            <div className="creation-mode-toggle mx-3 rounded-2xl bg-white/5 border border-white/10 p-1 flex items-center gap-1">
-              <button
-                  type="button"
-                  onClick={() => handleSetCreationMode('fast')}
-                  aria-pressed={creationMode === 'fast'}
-                  className={[
-                    'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
-                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
-                    creationMode === 'fast'
-                        ? 'bg-white text-zinc-900 shadow-md'
-                        : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
-                  ].join(' ')}
-              >
-                <Zap className={creationMode === 'fast' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
-                <span className="text-[12px]">{t.wb_creation_mode_fast}</span>
-              </button>
-              <button
-                  type="button"
-                  onClick={() => handleSetCreationMode('replay')}
-                  aria-pressed={creationMode === 'replay'}
-                  className={[
-                    'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
-                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
-                    creationMode === 'replay'
-                        ? 'bg-white text-zinc-900 shadow-md'
-                        : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
-                  ].join(' ')}
-              >
-                <Layers className={creationMode === 'replay' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
-                <span className="text-[12px]">{t.wb_creation_mode_replay}</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setIsModelSectionCollapsed(!isModelSectionCollapsed)}
+              className="p-1.5 text-zinc-600 hover:text-zinc-300 transition rounded"
+              title={isModelSectionCollapsed ? '展开' : '折叠'}
+            >
+              <svg className={`w-4 h-4 transition-transform duration-200 ${isModelSectionCollapsed ? 'rotate-0' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+              </svg>
+            </button>
           </div>
 
-          {creationMode === 'fast' ? (
-              <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
-                <div className="mb-3">
-                  <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                    <ArrowRight className="w-3 h-3 text-zinc-500" />
-                    {t.wb_render_power_title}
-                  </h2>
+          {!isModelSectionCollapsed && (
+            <div className="flex flex-col gap-6">
+              <div>
+                <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
+                  <Wand2 className="w-3 h-3" /> {t.wb_creation_mode_title}
+                </h2>
+                <div className="creation-mode-toggle mx-3 rounded-2xl bg-white/5 border border-white/10 p-1 flex items-center gap-1">
+                  <button
+                      type="button"
+                      onClick={() => handleSetCreationMode('fast')}
+                      aria-pressed={creationMode === 'fast'}
+                      className={[
+                        'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
+                        'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                        creationMode === 'fast'
+                            ? 'bg-white text-zinc-900 shadow-md'
+                            : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
+                      ].join(' ')}
+                  >
+                    <Zap className={creationMode === 'fast' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
+                    <span className="text-[12px]">{t.wb_creation_mode_fast}</span>
+                  </button>
+                  <button
+                      type="button"
+                      onClick={() => handleSetCreationMode('replay')}
+                      aria-pressed={creationMode === 'replay'}
+                      className={[
+                        'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
+                        'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                        creationMode === 'replay'
+                            ? 'bg-white text-zinc-900 shadow-md'
+                            : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
+                      ].join(' ')}
+                  >
+                    <Layers className={creationMode === 'replay' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
+                    <span className="text-[12px]">{t.wb_creation_mode_replay}</span>
+                  </button>
                 </div>
-                <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
               </div>
-          ) : (
+
+              {creationMode === 'fast' ? (
+                  <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
+                    <div className="mb-3">
+                      <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                        <ArrowRight className="w-3 h-3 text-zinc-500" />
+                        {t.wb_render_power_title}
+                      </h2>
+                    </div>
+                    <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
+                  </div>
+              ) : (
               <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
                 <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-2">
                   <ArrowRight className="w-3 h-3 text-zinc-500" />
@@ -3688,6 +3770,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
                 </div>
               </div>
+            )}
+            </div>
           )}
         </div>
     );
@@ -4150,6 +4234,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </button>
           </div>
 
+          {getDebugModeEnabled() && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> {t.wb_reuse_queue}</h2>
@@ -4269,6 +4354,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               )}
             </div>
           </div>
+          )}
 
           {renderLeftColumnSettings()}
 
@@ -4930,7 +5016,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           aria-orientation="vertical"
           onMouseDown={handleResizeMouseDown}
           className="group relative w-4 -mx-3 cursor-col-resize transition shrink-0 flex items-stretch justify-center hover:bg-white/5 rounded"
-          title="拖拽调整布局"
+          title={t.wb_resize_layout_title || 'Drag to resize layout'}
         >
           <div className="h-full w-px bg-white/15 transition-all group-hover:w-0.5 group-hover:bg-orange-500/70 group-hover:shadow-[0_0_14px_rgba(249,115,22,0.35)]" />
           <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-4" />
@@ -5429,8 +5515,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
           </div>
 
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          onMouseDown={handleScriptPreviewResize}
+          className="group relative w-4 -mx-2 cursor-col-resize transition shrink-0 flex items-stretch justify-center hover:bg-white/5 rounded"
+          title={t.wb_resize_script_preview_title || 'Drag to resize scripts and preview'}
+        >
+          <div className="h-full w-px bg-white/15 transition-all group-hover:w-0.5 group-hover:bg-orange-500/70 group-hover:shadow-[0_0_14px_rgba(249,115,22,0.35)]" />
+          <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-4" />
+        </div>
+
           {/* Right Column: Preview & Results */}
-          <div ref={previewSectionRef} className={`w-[300px] xl:w-[380px] flex flex-col gap-3 shrink-0 h-full ${getGuideFocusClass('preview')}`}>
+          <div ref={previewSectionRef} style={{ flex: 1 - scriptPreviewRatio }} className={`flex flex-col gap-3 shrink-0 h-full ${getGuideFocusClass('preview')}`}>
             <div className="flex justify-between items-end shrink-0 h-[32px]">
               <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-3 h-3" /> {t.wb_col_preview}</h2>
             </div>

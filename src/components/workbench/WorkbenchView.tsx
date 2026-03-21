@@ -3576,7 +3576,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         id: 'sora2pro',
         title: 'Sora 2 Pro',
         desc: t.wb_model_sora2pro_desc,
-        rate: 150,
+        rate: 300,
         Icon: Sparkles,
       },
       {

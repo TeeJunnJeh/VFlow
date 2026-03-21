@@ -74,6 +74,7 @@ export const HistoryView = () => {
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [promptProject, setPromptProject] = useState<HistoryProject | null>(null);
   const [selectedProjects, setSelectedProjects] = useState<Record<string, { id: string; title: string; video_url: string | null }>>({});
+  const [isBatchDownloading, setIsBatchDownloading] = useState(false);
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'ALL' | HistoryProject['status']>('ALL');
@@ -299,15 +300,36 @@ export const HistoryView = () => {
     });
   };
 
-  const triggerDownload = (url: string, fileName: string) => {
-    const link = document.createElement('a');
-    link.href = url;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const triggerDownload = async (url: string, fileName: string) => {
+    try {
+      // 对于跨域视频，先 fetch 获取 blob 再下载
+      const response = await fetch(url, { method: 'GET', credentials: 'omit' });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // 延迟释放 blob URL
+      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+    } catch {
+      // 如果 fetch 失败，回退到原方式（可能打开新标签页）
+      const link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
   };
 
   const buildDownloadName = (title: string, index?: number) => {
@@ -316,16 +338,16 @@ export const HistoryView = () => {
     return `${safe}${suffix}.mp4`;
   };
 
-  const handleDownload = (proj: { title: string; video_url: string | null }) => {
+  const handleDownload = async (proj: { title: string; video_url: string | null }) => {
     const url = toDisplayUrl(proj.video_url);
     if (!url) {
       setFeedbackMessage(t.hist_video_not_ready);
       return;
     }
-    triggerDownload(url, buildDownloadName(proj.title || t.hist_untitled_project));
+    await triggerDownload(url, buildDownloadName(proj.title || t.hist_untitled_project));
   };
 
-  const handleBatchDownload = () => {
+  const handleBatchDownload = async () => {
     const selectedList = selectedIds.map((id) => selectedProjects[id]).filter(Boolean);
     const downloadable = selectedList.filter((item) => Boolean(item.video_url));
     if (downloadable.length === 0) {
@@ -333,13 +355,39 @@ export const HistoryView = () => {
       return;
     }
 
-    downloadable.forEach((item, index) => {
-      window.setTimeout(() => {
-        const url = toDisplayUrl(item.video_url);
-        if (!url) return;
-        triggerDownload(url, buildDownloadName(item.title || t.hist_untitled_project, index));
-      }, index * 180);
-    });
+    setIsBatchDownloading(true);
+    let successCount = 0;
+    const failedItems: string[] = [];
+
+    for (let i = 0; i < downloadable.length; i++) {
+      const item = downloadable[i];
+      const url = toDisplayUrl(item.video_url);
+      if (!url) {
+        failedItems.push(item.title || t.hist_untitled_project);
+        continue;
+      }
+
+      try {
+        await triggerDownload(url, buildDownloadName(item.title || t.hist_untitled_project, i));
+        successCount++;
+      } catch {
+        failedItems.push(item.title || t.hist_untitled_project);
+      }
+
+      // 增加间隔时间避免浏览器阻止批量下载
+      if (i < downloadable.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 800));
+      }
+    }
+
+    setIsBatchDownloading(false);
+
+    // 显示下载结果反馈
+    if (failedItems.length === 0) {
+      setFeedbackMessage(`Successfully started downloading ${successCount} video(s).`);
+    } else {
+      setFeedbackMessage(`Downloaded ${successCount} video(s). Failed to download: ${failedItems.join(', ')}`);
+    }
   };
 
   const confirmBulkDelete = async () => {
@@ -563,10 +611,10 @@ export const HistoryView = () => {
                   <button
                     type="button"
                     onClick={handleBatchDownload}
-                    disabled={selectedCount === 0}
-                    className={`rounded-lg border px-3 py-2 text-xs font-bold transition flex items-center gap-1 ${selectedCount > 0 ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed'}`}
+                    disabled={selectedCount === 0 || isBatchDownloading}
+                    className={`rounded-lg border px-3 py-2 text-xs font-bold transition flex items-center gap-1 ${selectedCount > 0 && !isBatchDownloading ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed'}`}
                   >
-                    <Download className="w-4 h-4" />
+                    {isBatchDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                     {t.hist_bulk_download_action}
                   </button>
                   <button

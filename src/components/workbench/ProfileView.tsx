@@ -52,7 +52,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
   const { isInfoOpen, setIsInfoOpen, infoTitle, infoMessage, openInfo } = useProfileInfo();
 
   const buildPrefsDraft = (): WorkbenchPreferences => {
-    const stored = getWorkbenchPreferences();
+    const stored = getWorkbenchPreferences(user?.id ?? null);
     const creationMode = stored.creationMode === 'replay' ? 'replay' : 'fast';
     const selectedModelId =
       creationMode === 'replay'
@@ -104,7 +104,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
       targetLanguage: (prefsDraft.targetLanguage || '').trim() ? prefsDraft.targetLanguage : 'en',
     };
 
-    setWorkbenchPreferences(next);
+    setWorkbenchPreferences(next, user?.id ?? null);
     setIsPreferencesDialogOpen(false);
 
     if (next.theme !== theme) {

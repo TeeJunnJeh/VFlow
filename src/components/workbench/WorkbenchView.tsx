@@ -5807,6 +5807,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                       }}
                                   />
                                 </div>
+                                {language !== targetLanguage && (
                                 <div className="flex flex-col gap-1">
                                     <div className="flex items-center justify-between">
                                       <p className="text-[10px] text-zinc-600 uppercase font-bold ml-1">{t.wb_audio_translation || 'Translation'}</p>
@@ -5876,6 +5877,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                       }}
                                     />
                                   </div>
+                                )}
                               </div>
                             </div>
                         ))

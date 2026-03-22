@@ -332,19 +332,58 @@ export const HistoryView = () => {
     }
   };
 
-  const buildDownloadName = (title: string, index?: number) => {
-    const safe = title.replace(/[\\/:*?"<>|]+/g, '_').trim() || 'video';
-    const suffix = typeof index === 'number' ? `_${index + 1}` : '';
+  const buildTitleKey = (title: string) => {
+    return title.replace(/[\\/:*?"<>|]+/g, '_').trim() || 'video';
+  };
+
+  const projectsById = useMemo(() => {
+    const map = new Map<string, HistoryProject>();
+    projects.forEach((p) => map.set(p.id, p));
+    return map;
+  }, [projects]);
+
+  const titleGroups = useMemo(() => {
+    const map = new Map<string, HistoryProject[]>();
+    projects.forEach((p) => {
+      const key = buildTitleKey(p.title || t.hist_untitled_project);
+      const list = map.get(key) || [];
+      list.push(p);
+      map.set(key, list);
+    });
+    map.forEach((list, key) => {
+      const sorted = [...list].sort((a, b) => {
+        const ta = Date.parse(a.created_at || '') || 0;
+        const tb = Date.parse(b.created_at || '') || 0;
+        if (ta === tb) return String(a.id).localeCompare(String(b.id));
+        return ta - tb;
+      });
+      map.set(key, sorted);
+    });
+    return map;
+  }, [projects, t.hist_untitled_project]);
+
+  const buildDownloadName = (title: string, opts?: { seq?: number; total?: number }) => {
+    const safe = buildTitleKey(title);
+    const total = typeof opts?.total === 'number' ? opts.total : 1;
+    const seq = typeof opts?.seq === 'number' ? opts.seq : 1;
+    const suffix = total > 1 ? `（${seq}）` : '';
     return `${safe}${suffix}.mp4`;
   };
 
-  const handleDownload = async (proj: { title: string; video_url: string | null }) => {
+  const handleDownload = async (proj: { id: string; title: string; video_url: string | null }) => {
     const url = toDisplayUrl(proj.video_url);
     if (!url) {
       setFeedbackMessage(t.hist_video_not_ready);
       return;
     }
-    await triggerDownload(url, buildDownloadName(proj.title || t.hist_untitled_project));
+
+    const title = proj.title || t.hist_untitled_project;
+    const key = buildTitleKey(title);
+    const group = titleGroups.get(key) || [];
+    const total = group.length > 0 ? group.length : 1;
+    const seq = Math.max(1, group.findIndex((p) => p.id === proj.id) + 1);
+
+    await triggerDownload(url, buildDownloadName(title, { seq, total }));
   };
 
   const handleBatchDownload = async () => {
@@ -367,14 +406,20 @@ export const HistoryView = () => {
         continue;
       }
 
+      const proj = projectsById.get(item.id);
+      const title = item.title || t.hist_untitled_project;
+      const key = buildTitleKey(title);
+      const group = titleGroups.get(key) || [];
+      const total = group.length > 0 ? group.length : 1;
+      const seq = proj ? Math.max(1, group.findIndex((p) => p.id === proj.id) + 1) : 1;
+
       try {
-        await triggerDownload(url, buildDownloadName(item.title || t.hist_untitled_project, i));
+        await triggerDownload(url, buildDownloadName(title, { seq, total }));
         successCount++;
       } catch {
-        failedItems.push(item.title || t.hist_untitled_project);
+        failedItems.push(title);
       }
 
-      // 增加间隔时间避免浏览器阻止批量下载
       if (i < downloadable.length - 1) {
         await new Promise(resolve => setTimeout(resolve, 800));
       }
@@ -382,7 +427,6 @@ export const HistoryView = () => {
 
     setIsBatchDownloading(false);
 
-    // 显示下载结果反馈
     if (failedItems.length === 0) {
       setFeedbackMessage(`Successfully started downloading ${successCount} video(s).`);
     } else {
@@ -746,7 +790,7 @@ export const HistoryView = () => {
                         </div>
 
                         <button
-                          onClick={() => handleDownload({ title: proj.title || t.hist_untitled_project, video_url: proj.video_url })}
+                          onClick={() => handleDownload({ id: proj.id, title: proj.title || t.hist_untitled_project, video_url: proj.video_url })}
                           className="p-1.5 text-zinc-600 hover:text-zinc-200 hover:bg-zinc-500/10 rounded transition"
                           title={t.hist_action_download}
                         >

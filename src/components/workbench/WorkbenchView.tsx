@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
@@ -2065,12 +2065,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const normalizedAssets = normalizeQueueSourcesForKlingMode(imageAssets, klingGenerateMode);
       const firstFrameCount = normalizedAssets.filter((asset) => asset.source === 'product').length;
       const subjectCount = normalizedAssets.filter((asset) => asset.source === 'subject').length;
+      const referenceCount = normalizedAssets.filter((asset) => asset.source === 'preference').length;
 
       if (klingGenerateMode === 'first_frame' && firstFrameCount !== 1) {
         throw new Error('可灵首帧模式需要且仅允许 1 张首帧图');
       }
-      if (klingGenerateMode === 'subject' && subjectCount > 1) {
+      if (klingGenerateMode === 'subject' && subjectCount !== 1) {
         throw new Error('可灵主体模式仅允许不多于 1 张主体图');
+      }
+
+      if (klingGenerateMode === 'subject' && referenceCount < 1) {
+        throw new Error('可灵主体模式需要再提供 1 到 3 张其他参考图');
+      }
+      if (klingGenerateMode === 'subject' && referenceCount > 3) {
+        throw new Error('可灵主体模式最多只允许 3 张其他参考图');
       }
 
       const omniAssets: NonNullable<GeneratePayload['omni_assets']> = [];
@@ -3502,10 +3510,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       if (klingGenerateMode === 'first_frame' && firstFrameCount !== 1) {
         issues.push('Kling首帧模式需要且仅允许1张首帧图。');
       }
-      if (klingGenerateMode === 'subject' && subjectCount > 1) {
+      if (klingGenerateMode === 'subject' && subjectCount !== 1) {
         issues.push('Kling主体模式需要且仅允许1张主体图。');
       }
-      if (subjectCount + referenceCount > 7 || firstFrameCount + referenceCount > 7) {
+      if (klingGenerateMode === 'subject' && referenceCount < 1) {
+        issues.push('可灵主体模式需要再提供 1 到 3 张其他参考图。');
+      }
+      if (klingGenerateMode === 'subject' && referenceCount > 3) {
+        issues.push('可灵主体模式最多只允许 3 张其他参考图。');
+      }
+      if (klingGenerateMode === 'first_frame' && firstFrameCount + referenceCount > 7) {
         issues.push('Kling参考图片数量不能超过7张。');
       }
     }
@@ -4420,7 +4434,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       className={`rounded-xl border px-3 py-2 text-left transition ${klingGenerateMode === 'first_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
                     <div className="text-[11px] font-bold">首帧模式</div>
-                    <div className="mt-1 text-[10px] text-zinc-400">必选1张首帧图 + 多张参考图</div>
+                    <div className="mt-1 text-[10px] text-zinc-400">1张首帧图 + 最多6张参考图</div>
                   </button>
                   <button
                       type="button"
@@ -4428,7 +4442,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       className={`rounded-xl border px-3 py-2 text-left transition ${klingGenerateMode === 'subject' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
                     <div className="text-[11px] font-bold">主体模式</div>
-                    <div className="mt-1 text-[10px] text-zinc-400">可选1个主体 + 多张参考图</div>
+                    <div className="mt-1 text-[10px] text-zinc-400">1个主体 + 1~3张其他参考图</div>
                   </button>
                 </div>
             )}
@@ -4481,6 +4495,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
                               {klingGenerateMode === 'subject' ? '主体图' : '首帧图'}
                             </div>
+                            <div className="mb-1 text-[10px] text-zinc-500">{klingGenerateMode === 'subject' ? '1~3张其他参考图' : '最多6张参考图'}</div>
                             {klingPrimarySlotAsset ? renderUploadAssetCard(klingPrimarySlotAsset) : (
                                 <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-white/10 bg-black/20 text-[11px] text-zinc-500">
                                   {klingGenerateMode === 'subject' ? '主体图' : '首帧图'}

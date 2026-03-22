@@ -213,8 +213,9 @@ const estimateProjectNameWidthEm = (value: string): number => {
 const createWorkspaceState = (params?: {
   scripts?: ScriptItem[];
   scriptPagePrefix?: string;
+  userId?: string | number | null;
 }): ProjectWorkspaceState => {
-  const prefs = getWorkbenchPreferences();
+  const prefs = getWorkbenchPreferences(params?.userId ?? null);
   return {
     fileName: '',
     uploadedFile: null,
@@ -560,7 +561,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const skipTemplateDurationSyncRef = useRef(false);
   const restoredDraftRef = useRef(false);
 
-  const initialPrefs = useMemo(() => getWorkbenchPreferences(), []);
+  const initialPrefs = useMemo(() => getWorkbenchPreferences(user?.id ?? null), [user?.id]);
   const prefSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [productName, setProductName] = useState('');
@@ -660,7 +661,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         scriptVariantCount,
         creationMode,
         selectedModelId: effectiveModel,
-      });
+      }, user?.id ?? null);
     }, 400);
 
     return () => {
@@ -676,6 +677,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     selectedModel,
     soundSetting,
     targetLanguage,
+    user?.id,
     videoType,
   ]);
 
@@ -1016,6 +1018,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const nextWorkspace = createWorkspaceState({
         scripts: demoScripts,
         scriptPagePrefix: t.wb_script_page_prefix,
+        userId: user?.id ?? null,
       });
       return {
         currentProjectId: projectId,
@@ -1055,6 +1058,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         nextWorkspaces[nextCurrent] = createWorkspaceState({
           scripts: buildDemoScripts(),
           scriptPagePrefix: t.wb_script_page_prefix,
+          userId: user?.id ?? null,
         });
       }
       return {
@@ -1109,6 +1113,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     applyWorkspaceState(createWorkspaceState({
       scripts: buildDemoScripts(),
       scriptPagePrefix: t.wb_script_page_prefix,
+      userId: user?.id ?? null,
     }));
   }, [projectStore.currentProjectId, applyWorkspaceState, buildDemoScripts, t.wb_script_page_prefix]);
 
@@ -2141,6 +2146,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return {
         model: backendModel,
         prompt: buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts),
+        product_name: productName,
         duration: genDuration,
         sound: 'off',
         kling_mode: klingGenerateMode,
@@ -2161,6 +2167,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const payload: GeneratePayload = {
       model: backendModel,
       prompt: buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts),
+      product_name: productName,
       duration: genDuration,
       sound: soundSetting,
       asset_source: selectedAssetSource,
@@ -2194,7 +2201,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!user?.id) throw new Error('请先登录');
 
     const createResp = await videoApi.createProject(user.id, {
-        title: fileName || 'Video',
+        title: (productName || '').trim() || fileName || 'Video',
         aspect_ratio: aspectRatio || selectedTemplate?.aspect_ratio || '9:16',
       script_content: {
         duration: genDuration,
@@ -3627,7 +3634,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             } else {
               if (!user?.id) throw new Error('请先登录');
               const createResp = await videoApi.createProject(user.id, {
-                title: `${asset.name} × ${scriptPack.name}`,
+                title: (productName || '').trim() || `${asset.name} × ${scriptPack.name}`,
                 aspect_ratio: '9:16',
                 script_content: {
                   duration: scriptPack.duration,
@@ -3641,6 +3648,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             const payload = {
               model: backendModel,
               prompt: combinedScriptPrompt,
+              product_name: productName,
               project_id: newProjectId,
               duration: scriptPack.duration,
               ...(asset.mediaKind === 'video'
@@ -5578,7 +5586,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={handleGenerateVideo} disabled={isGenerating} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
-                  {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}{isGenerating ? 'Generating...' : t.wb_btn_gen_video}
+                  {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}{isGenerating ? t.wb_generating : t.wb_btn_gen_video}
                 </button>
               </div>
             </div>

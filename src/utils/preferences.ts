@@ -11,17 +11,24 @@ export type WorkbenchPreferences = {
   theme: 'dark' | 'light' | 'dim';
 };
 
-const STORAGE_KEY = 'vflow_workbench_preferences_v1';
+const STORAGE_KEY_PREFIX = 'vflow_workbench_preferences_v1';
+const LEGACY_STORAGE_KEY = 'vflow_workbench_preferences_v1';
+const LEGACY_OWNER_KEY = 'vflow_workbench_preferences_v1_owner';
 
 const ALLOWED_DURATIONS = new Set([5, 10, 15]);
 
 const isBrowser = () => typeof window !== 'undefined' && typeof localStorage !== 'undefined';
 
-export function getWorkbenchPreferences(): Partial<WorkbenchPreferences> {
-  if (!isBrowser()) return {};
+const normalizeUserKey = (userId?: string | number | null): string => {
+  if (userId === null || userId === undefined || userId === '') return 'guest';
+  return String(userId);
+};
+
+const getStorageKey = (userId?: string | number | null): string => `${STORAGE_KEY_PREFIX}_${normalizeUserKey(userId)}`;
+
+const parsePreferences = (raw: string | null): Partial<WorkbenchPreferences> => {
+  if (!raw) return {};
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
     const parsed = JSON.parse(raw) as Partial<WorkbenchPreferences> | null;
     if (!parsed || typeof parsed !== 'object') return {};
 
@@ -56,16 +63,52 @@ export function getWorkbenchPreferences(): Partial<WorkbenchPreferences> {
   } catch {
     return {};
   }
+};
+
+export function getWorkbenchPreferences(userId?: string | number | null): Partial<WorkbenchPreferences> {
+  if (!isBrowser()) return {};
+
+  const storageKey = getStorageKey(userId);
+  const raw = (() => {
+    try {
+      return localStorage.getItem(storageKey);
+    } catch {
+      return null;
+    }
+  })();
+
+  if (raw) return parsePreferences(raw);
+
+  const normalized = normalizeUserKey(userId);
+  if (normalized === 'guest') return {};
+
+  try {
+    const owner = localStorage.getItem(LEGACY_OWNER_KEY);
+    if (owner !== normalized) return {};
+
+    const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    const legacyParsed = parsePreferences(legacyRaw);
+    if (Object.keys(legacyParsed).length === 0) return {};
+
+    localStorage.setItem(storageKey, JSON.stringify(legacyParsed));
+    return legacyParsed;
+  } catch {
+    return {};
+  }
 }
 
-export function setWorkbenchPreferences(next: Partial<WorkbenchPreferences>) {
+export function setWorkbenchPreferences(next: Partial<WorkbenchPreferences>, userId?: string | number | null) {
   if (!isBrowser()) return;
 
-  const current = getWorkbenchPreferences();
+  const current = getWorkbenchPreferences(userId);
   const merged: Partial<WorkbenchPreferences> = { ...current, ...next };
 
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    const storageKey = getStorageKey(userId);
+    localStorage.setItem(storageKey, JSON.stringify(merged));
+
+    const normalized = normalizeUserKey(userId);
+    if (normalized !== 'guest') localStorage.setItem(LEGACY_OWNER_KEY, normalized);
   } catch {
     void 0;
   }

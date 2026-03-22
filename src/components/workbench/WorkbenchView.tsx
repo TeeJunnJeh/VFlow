@@ -27,7 +27,7 @@ import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { type Template } from '../../services/templates';
 import { AppDialog } from '../common/AppDialog';
-import { getWorkbenchPreferences } from '../../utils/preferences';
+import { getWorkbenchPreferences, setWorkbenchPreferences } from '../../utils/preferences';
 
 const ENABLE_PROMPT_LAB = true;
 const ENABLE_STORYBOARD_PROMPT = false;
@@ -561,8 +561,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const restoredDraftRef = useRef(false);
 
   const initialPrefs = useMemo(() => getWorkbenchPreferences(), []);
-
-
+  const prefSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [productName, setProductName] = useState('');
   const [productCategory, setProductCategory] = useState('');
@@ -641,6 +640,44 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   });
   const lastFastModelRef = useRef<'kling' | 'sora2' | 'sora2pro' | 'seedance2.0'>('kling');
   const currentAssetMediaKind = inferMediaKind({ name: fileName, url: selectedAssetUrl || uploadedFile, file: selectedFileObj });
+
+  useEffect(() => {
+    if (isRestoring) return;
+    if (isApplyingProjectWorkspaceRef.current) return;
+
+    if (prefSyncTimerRef.current) window.clearTimeout(prefSyncTimerRef.current);
+
+    prefSyncTimerRef.current = window.setTimeout(() => {
+      const effectiveModel = creationMode === 'replay' ? 'seedance2.0' : selectedModel;
+
+      setWorkbenchPreferences({
+        deliveryRegion,
+        targetLanguage,
+        videoType,
+        aspectRatio,
+        genDuration,
+        soundSetting,
+        scriptVariantCount,
+        creationMode,
+        selectedModelId: effectiveModel,
+      });
+    }, 400);
+
+    return () => {
+      if (prefSyncTimerRef.current) window.clearTimeout(prefSyncTimerRef.current);
+    };
+  }, [
+    aspectRatio,
+    creationMode,
+    deliveryRegion,
+    genDuration,
+    isRestoring,
+    scriptVariantCount,
+    selectedModel,
+    soundSetting,
+    targetLanguage,
+    videoType,
+  ]);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
@@ -747,6 +784,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     empty: t.wb_project_empty,
     newProject: t.wb_project_new,
     manageProjects: t.wb_project_manage,
+    manageSelectAll: t.wb_project_manage_select_all,
+    manageUnselectAll: t.wb_project_manage_unselect_all,
     manageSoon: t.wb_project_manage_placeholder,
     manageCancel: t.wb_project_manage_cancel,
     manageDelete: t.wb_project_manage_delete,
@@ -4863,6 +4902,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       <div className="text-[11px] uppercase tracking-widest text-zinc-500">{projectUiText.recent}</div>
                       {isProjectManageMode && (
                           <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                  const ids = filteredProjects.map((p) => p.id);
+                                  const allSelected = ids.length > 0 && ids.every((id) => selectedProjectIds.includes(id));
+                                  setSelectedProjectIds(allSelected ? [] : ids);
+                                }}
+                                className="text-[11px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10"
+                            >
+                              {(() => {
+                                const ids = filteredProjects.map((p) => p.id);
+                                const allSelected = ids.length > 0 && ids.every((id) => selectedProjectIds.includes(id));
+                                return allSelected ? projectUiText.manageUnselectAll : projectUiText.manageSelectAll;
+                              })()}
+                            </button>
                             <button
                                 type="button"
                                 onClick={() => {

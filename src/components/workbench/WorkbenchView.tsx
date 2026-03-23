@@ -4079,7 +4079,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           : selectedModel === 'sora2'
               ? 'sora-2'
               : selectedModel === 'kling'
-                  ? 'kling-video-o1'
+                  ? 'kling'
                   : 'seedance-2.0';
 
   const renderLeftColumn = () => {

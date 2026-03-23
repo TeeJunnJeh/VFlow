@@ -158,7 +158,7 @@ type ProjectWorkspaceState = {
   targetAudience: string;
   deliveryRegion: string;
   videoType: string;
-  aspectRatio: '9:16' | '16:9';
+  aspectRatio: '9:16' | '16:9' | '1:1';
   hasAiRecognized: boolean;
   genPrompt: string;
   genDuration: number;
@@ -231,7 +231,7 @@ const createWorkspaceState = (params?: {
     targetAudience: '',
     deliveryRegion: prefs.deliveryRegion || '中国',
   videoType: prefs.videoType || '',
-  aspectRatio: prefs.aspectRatio === '16:9' ? '16:9' : '9:16',
+  aspectRatio: prefs.aspectRatio === '16:9' ? '16:9' : (prefs.aspectRatio === '1:1' ? '1:1' : '9:16'),
     hasAiRecognized: false,
     genPrompt: '',
     genDuration: prefs.genDuration || 10,
@@ -589,7 +589,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   });
   const [deliveryRegion, setDeliveryRegion] = useState(() => initialPrefs.deliveryRegion || '中国');
   const [videoType, setVideoType] = useState(() => initialPrefs.videoType || '');
-  const [aspectRatio, setAspectRatio] = useState<'9:16' | '16:9'>(() => (initialPrefs.aspectRatio === '16:9' ? '16:9' : '9:16'));
+  const [aspectRatio, setAspectRatio] = useState<'9:16' | '16:9' | '1:1'>(() => (
+    initialPrefs.aspectRatio === '16:9' ? '16:9' : (initialPrefs.aspectRatio === '1:1' ? '1:1' : '9:16')
+  ));
   const [requiredErrors, setRequiredErrors] = useState<{
     productName?: string;
     productCategory?: string;
@@ -906,7 +908,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setTargetAudience(workspace.targetAudience || '');
     setDeliveryRegion(workspace.deliveryRegion || initialPrefs.deliveryRegion || '中国');
     setVideoType(workspace.videoType || initialPrefs.videoType || '');
-    setAspectRatio(workspace.aspectRatio === '16:9' ? '16:9' : (initialPrefs.aspectRatio === '16:9' ? '16:9' : '9:16'));
+    setAspectRatio(
+      workspace.aspectRatio === '16:9'
+        ? '16:9'
+        : (workspace.aspectRatio === '1:1'
+          ? '1:1'
+          : (initialPrefs.aspectRatio === '16:9' ? '16:9' : (initialPrefs.aspectRatio === '1:1' ? '1:1' : '9:16')))
+    );
     setHasAiRecognized(!!workspace.hasAiRecognized);
     setGenPrompt(workspace.genPrompt || '');
     setGenDuration(() => {
@@ -4596,21 +4604,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 )}
               </div>
 
-              <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.aspect_ratio}</label>
-                <DropdownSelect
-                  value={aspectRatio}
-                  options={[
-                    { value: '9:16', label: t.mobile },
-                    { value: '16:9', label: t.landscape },
-                  ]}
-                  onChange={(v) => setAspectRatio(v === '16:9' ? '16:9' : '9:16')}
-                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
-                  labelClassName=""
-                  iconClassName="w-3 h-3 text-zinc-500"
-                  optionClassName="text-xs"
-                />
-              </div>
+              {!(selectedModel === 'kling' && klingGenerateMode === 'first_frame') && (
+                <div>
+                  <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.aspect_ratio}</label>
+                  <DropdownSelect
+                    value={aspectRatio}
+                    options={[
+                      { value: '9:16', label: t.mobile },
+                      { value: '16:9', label: t.landscape },
+                      ...(selectedModel === 'kling' && klingGenerateMode === 'subject'
+                        ? [{ value: '1:1', label: t.square }]
+                        : []),
+                    ]}
+                    onChange={(v) => setAspectRatio(v === '16:9' ? '16:9' : (v === '1:1' ? '1:1' : '9:16'))}
+                    buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                    labelClassName=""
+                    iconClassName="w-3 h-3 text-zinc-500"
+                    optionClassName="text-xs"
+                  />
+                </div>
+              )}
             </div>
 
             <div>

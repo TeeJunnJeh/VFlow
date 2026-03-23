@@ -3348,26 +3348,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       };
 
       const referenceSources = uploadDisplayAssets;
-      const latestByType = new Map<'model' | 'product' | 'scene', QueuedAsset>();
-      for (const asset of referenceSources) {
-        if (asset.mediaKind !== 'image') continue;
-        if (asset.materialType !== 'model' && asset.materialType !== 'product' && asset.materialType !== 'scene') continue;
-        latestByType.set(asset.materialType, asset);
-      }
-
-      const referenceAssets: ScriptReferenceAsset[] = [];
       const queuedPathUpdates: Record<string, string> = {};
-      const orderedTypes: Array<'model' | 'product' | 'scene'> = ['model', 'product', 'scene'];
-      for (const type of orderedTypes) {
-        const asset = latestByType.get(type);
-        if (!asset) continue;
-
+      const resolveQueuedAssetPath = async (asset: QueuedAsset) => {
         let resolvedPath = asset.uploadedPath || asset.assetUrl || null;
         if (!resolvedPath && asset.fileObj) {
           const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
           resolvedPath = extractUploadedAssetPath(uploadResp);
         }
-        if (!resolvedPath) continue;
+        if (!resolvedPath) return null;
 
         if (asset.id && asset.id !== 'current-upload') {
           queuedPathUpdates[asset.id] = resolvedPath;
@@ -3375,6 +3363,38 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (selectedQueueAssetId && selectedQueueAssetId === asset.id) {
           setLastUploadedUrl(resolvedPath);
         }
+        return resolvedPath;
+      };
+      const imageReferenceSources = referenceSources.filter((asset) => asset.mediaKind === 'image');
+      const resolvedImagePaths = new Map<string, string>();
+      for (const asset of imageReferenceSources) {
+        const resolvedPath = await resolveQueuedAssetPath(asset);
+        if (resolvedPath) {
+          resolvedImagePaths.set(asset.id, resolvedPath);
+        }
+      }
+      const normalizedImageAssets = selectedModel === 'kling'
+        ? normalizeQueueSourcesForKlingMode(imageReferenceSources, klingGenerateMode)
+        : imageReferenceSources;
+      const latestByType = new Map<'model' | 'product' | 'scene', QueuedAsset>();
+      for (const asset of normalizedImageAssets) {
+        if (asset.mediaKind !== 'image') continue;
+        if (asset.materialType !== 'model' && asset.materialType !== 'product' && asset.materialType !== 'scene') continue;
+        if (selectedModel === 'kling' && asset.source !== 'preference') continue;
+        latestByType.set(asset.materialType, asset);
+      }
+
+      const referenceAssets: ScriptReferenceAsset[] = [];
+      const orderedTypes: Array<'model' | 'product' | 'scene'> = ['model', 'product', 'scene'];
+      for (const type of orderedTypes) {
+        const asset = latestByType.get(type);
+        if (!asset) continue;
+
+        let resolvedPath = resolvedImagePaths.get(asset.id) || null;
+        if (!resolvedPath) {
+          resolvedPath = await resolveQueuedAssetPath(asset);
+        }
+        if (!resolvedPath) continue;
 
         referenceAssets.push({
           type,
@@ -3388,9 +3408,48 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         )));
       }
 
-      let imagePath = referenceAssets.find((item) => item.type === 'product')?.image_path || referenceAssets[0]?.image_path || '';
+      let imagePath = selectedModel === 'kling'
+        ? ''
+        : (referenceAssets.find((item) => item.type === 'product')?.image_path || referenceAssets[0]?.image_path || '');
 
       const promptText = buildScriptInputText();
+      const klingContext = (() => {
+        if (selectedModel !== 'kling') return null;
+
+        const firstFrameAsset = normalizedImageAssets.find((asset) => asset.source === 'product') || null;
+        const subjectAsset = normalizedImageAssets.find((asset) => asset.source === 'subject') || null;
+
+        const subjectLibraryAsset = subjectAsset?.assetId
+          ? assetLibraryItems.find((item) => item.id === subjectAsset.assetId) || null
+          : null;
+        const rawSubjectMeta = subjectLibraryAsset?.meta_data?.kling_subject;
+        const subjectMeta = rawSubjectMeta && typeof rawSubjectMeta === 'object'
+          ? rawSubjectMeta as Record<string, unknown>
+          : null;
+        const subjectName = String(subjectMeta?.name || subjectAsset?.name || '').trim();
+        const subjectDescription = String(subjectMeta?.description || '').trim();
+
+        return {
+          engine: 'kling',
+          kling_mode: klingGenerateMode,
+          ...(subjectName ? { subject_name: subjectName } : {}),
+          ...(subjectDescription ? { subject_description: subjectDescription } : {}),
+        };
+      })();
+      const klingPrimaryImage = selectedModel === 'kling'
+        ? (() => {
+            const primaryAsset = normalizedImageAssets.find((asset) => asset.source === (klingGenerateMode === 'subject' ? 'subject' : 'product')) || null;
+            if (!primaryAsset) return null;
+            const primaryPath = resolvedImagePaths.get(primaryAsset.id) || '';
+            if (!primaryPath) return null;
+            return {
+              path: primaryPath,
+              type: (primaryAsset.materialType === 'model' || primaryAsset.materialType === 'product' || primaryAsset.materialType === 'scene')
+                ? primaryAsset.materialType
+                : 'product',
+            };
+          })()
+        : null;
 
       const category = productCategory.trim() || selectedTemplate?.product_category || "相机";
       const style = selectedTemplate?.visual_style || "写实";
@@ -3414,6 +3473,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           input: promptText,
           shots: [],
         },
+        ...(klingContext ? { generation_context: klingContext } : {}),
+        ...(selectedModel === 'kling' && klingGenerateMode === 'first_frame' && klingPrimaryImage
+          ? { first_frame_image_path: klingPrimaryImage.path, first_frame_image_type: klingPrimaryImage.type }
+          : {}),
+        ...(selectedModel === 'kling' && klingGenerateMode === 'subject' && klingPrimaryImage
+          ? { subject_image_path: klingPrimaryImage.path, subject_image_type: klingPrimaryImage.type }
+          : {}),
         ...(referenceAssets.length > 0 ? { reference_assets: referenceAssets } : {}),
         ...(imagePath ? { product_image_path: imagePath } : {}),
         ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),

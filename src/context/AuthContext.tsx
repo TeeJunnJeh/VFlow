@@ -137,9 +137,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const defaultCredits = 50; // default balance to 50 for Free
 
+    const resolvedAccount =
+      serverData?.account ||
+      serverData?.data?.account ||
+      serverData?.data?.username ||
+      serverData?.username ||
+      serverData?.data?.phone ||
+      serverData?.phone ||
+      identifier;
+
     const newUser: User = {
       // Use the Real ID if found, otherwise crash/warn instead of using a fake string
-      account: serverData?.account,
+      account: resolvedAccount,
       id: realUserId || '1',
       name: serverData?.nickname || serverData?.data?.nickname || serverData?.data?.username || serverData?.username || identifier,
       avatar: normalizeAvatar(serverData?.avatar || serverData?.data?.avatar || ''),

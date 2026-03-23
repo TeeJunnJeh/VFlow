@@ -405,7 +405,8 @@ type LangLabelKey =
     | 'lang_ja'
     | 'lang_ko'
     | 'lang_ms'
-    | 'lang_vi';
+    | 'lang_vi'
+    | 'lang_id';
 
 type RegionLabelKey =
     | 'wb_region_us'
@@ -413,7 +414,8 @@ type RegionLabelKey =
     | 'wb_region_eu'
     | 'wb_region_jp'
     | 'wb_region_kr'
-    | 'wb_region_cn';
+    | 'wb_region_cn'
+    | 'wb_region_mx';
 
 type GuideStepKey = 'mode' | 'upload' | 'config' | 'scripts' | 'preview';
 
@@ -425,6 +427,7 @@ const TARGET_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: LangLabelKey }> 
   { value: 'ko', labelKey: 'lang_ko' },
   { value: 'ms', labelKey: 'lang_ms' },
   { value: 'vi', labelKey: 'lang_vi' },
+  { value: 'id', labelKey: 'lang_id' },
 ];
 
 const DELIVERY_REGION_OPTIONS: Array<{ value: string; labelKey: RegionLabelKey }> = [
@@ -434,6 +437,7 @@ const DELIVERY_REGION_OPTIONS: Array<{ value: string; labelKey: RegionLabelKey }
   { value: '欧洲', labelKey: 'wb_region_eu' },
   { value: '日本', labelKey: 'wb_region_jp' },
   { value: '韩国', labelKey: 'wb_region_kr' },
+  { value: '墨西哥', labelKey: 'wb_region_mx' },
 ];
 
 interface WorkbenchViewProps {

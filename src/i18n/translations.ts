@@ -270,6 +270,7 @@ export const translations = {
     wb_region_jp: "Japan",
     wb_region_kr: "Korea",
     wb_region_cn: "China",
+    wb_region_mx: "Mexico",
 
     wb_video_type_ugc: "UGC Seeding",
     wb_video_type_talking: "Talking Head",
@@ -354,6 +355,7 @@ export const translations = {
     lang_ko: "Korean",
     lang_ms: "Malay",
     lang_vi: "Vietnamese",
+    lang_id: "Indonesian",
 
     // Middle Col
     wb_col_scripts: "Scripts",
@@ -965,6 +967,7 @@ export const translations = {
     wb_region_jp: "日本",
     wb_region_kr: "韩国",
     wb_region_cn: "中国",
+    wb_region_mx: "墨西哥",
 
     wb_video_type_ugc: "UGC种草",
     wb_video_type_talking: "产品口播",
@@ -1049,6 +1052,7 @@ export const translations = {
     lang_ko: "韩语",
     lang_ms: "马来语",
     lang_vi: "越南语",
+    lang_id: "印尼语",
 
     wb_col_scripts: "分镜脚本",
     wb_export_scripts: "导出",
@@ -1670,6 +1674,7 @@ export const translations = {
     lang_ko: "Korea",
     lang_ms: "Melayu",
     lang_vi: "Vietnam",
+    lang_id: "Indonesia",
 
     wb_col_scripts: "Skrip",
     wb_export_scripts: "Eksport",
@@ -2234,6 +2239,7 @@ export const translations = {
     lang_ko: "Tiếng Hàn",
     lang_ms: "Tiếng Mã Lai",
     lang_vi: "Tiếng Việt",
+    lang_id: "Tiếng Indonesia",
 
     wb_col_scripts: "Kịch bản",
     wb_export_scripts: "Xuất",
@@ -2808,6 +2814,7 @@ export const translations = {
     lang_ko: "한국어",
     lang_ms: "말레이어",
     lang_vi: "베트남어",
+    lang_id: "인도네시아어",
 
     wb_col_scripts: "스크립트",
     wb_export_scripts: "내보내기",

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Zap, Image as ImageIcon, LayoutTemplate, History, Sparkles, User as UserIcon, CreditCard } from 'lucide-react';
+import { Zap, Image as ImageIcon, History, Sparkles, User as UserIcon, CreditCard } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 // 1. Import the type
@@ -40,7 +40,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
       <div className="flex flex-col gap-4 w-full px-2">
         <InternalNav icon={Zap} view="workbench" label={t.wb_nav_workbench} />
         <InternalNav icon={ImageIcon} view="assets" label={t.wb_nav_assets} />
-        <InternalNav icon={LayoutTemplate} view="templates" label={t.wb_nav_templates} />
         <InternalNav icon={History} view="history" label={t.wb_nav_history} />
         {isDebugModeEnabled && <InternalNav icon={Sparkles} view="agent" label={t.wb_nav_agent} />}
         <InternalNav icon={CreditCard} view="billing" label={t.wb_nav_billing || 'Billing'} />

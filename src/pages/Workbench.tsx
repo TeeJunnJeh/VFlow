@@ -235,14 +235,18 @@ const Workbench = () => {
     }
   }, [activeView, isDebugModeEnabled]);
 
+  const shouldShowSidebar = activeView !== 'templates' && activeView !== 'editor';
+
   return (
     <WorkbenchModelProvider>
       <div className="flex h-screen overflow-hidden bg-[#050505] text-zinc-100 font-sans">
-        <Sidebar
-          activeView={activeView}
-          setActiveView={setActiveView}
-          isDebugModeEnabled={isDebugModeEnabled}
-        />
+        {shouldShowSidebar && (
+          <Sidebar
+            activeView={activeView}
+            setActiveView={setActiveView}
+            isDebugModeEnabled={isDebugModeEnabled}
+          />
+        )}
 
         <main className="flex-1 flex flex-col overflow-hidden relative">
           <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-orange-900/10 to-transparent pointer-events-none z-0" />
@@ -293,6 +297,7 @@ const Workbench = () => {
               templateList={templateList}
               onEditTemplate={(t) => { setEditingTemplate(t); setActiveView('editor'); }}
               onCreateTemplate={() => { setEditingTemplate(null); setActiveView('editor'); }}
+              onClose={() => setActiveView('workbench')}
               refreshTemplates={loadTemplates}
             />
           )}

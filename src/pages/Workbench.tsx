@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { templatesApi, type Template } from '../services/templates';
-import { assetsApi } from '../services/assets';
+import { assetsApi, type Asset as LibraryAsset } from '../services/assets';
 import { authApi } from '../services/auth';
 import { getDebugModeEnabled, setDebugModeEnabled, clearDebugModeEnabled, debugLog, debugWarn } from '../services/debugMode';
 
@@ -39,9 +39,8 @@ const Workbench = () => {
 
   // --- Data Passing State ---
   const [selectedAssetForWorkbench, setSelectedAssetForWorkbench] = useState<{
-    url: string | null;
-    name: string;
-    source: 'product' | 'preference';
+    asset: LibraryAsset;
+    token: string;
   } | null>(null);
 
   // --- Template State ---
@@ -156,11 +155,13 @@ const Workbench = () => {
   };
 
   // --- Event Handlers ---
-  const handleAssetSelect = (asset: any) => {
+  const handleAssetSelect = (asset: LibraryAsset) => {
     setSelectedAssetForWorkbench({
-      url: getDisplayUrl(asset.file_url) || null,
-      name: asset.name || '',
-      source: 'preference'
+      asset: {
+        ...asset,
+        file_url: getDisplayUrl(asset.file_url) || asset.file_url || '',
+      },
+      token: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     });
     setGeneratedVideoUrl(null);
     setActiveView('workbench');
@@ -169,13 +170,15 @@ const Workbench = () => {
   const location = useLocation();
 
   useEffect(() => {
-    const state = location.state as { fromAssetLibrary?: boolean; selectedAsset?: any } | null;
+    const state = location.state as { fromAssetLibrary?: boolean; selectedAsset?: LibraryAsset } | null;
     if (state?.fromAssetLibrary && state?.selectedAsset) {
       const asset = state.selectedAsset;
       setSelectedAssetForWorkbench({
-        url: getDisplayUrl(asset.previewUrl || asset.file_url) || null,
-        name: asset.name || '',
-        source: 'preference'
+        asset: {
+          ...asset,
+          file_url: getDisplayUrl((asset as any).previewUrl || asset.file_url) || asset.file_url || '',
+        },
+        token: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       });
       setGeneratedVideoUrl(null);
       setActiveView('workbench');
@@ -230,10 +233,7 @@ const Workbench = () => {
     if (!isDebugModeEnabled && activeView === 'agent') {
       setActiveView('workbench');
     }
-    if (activeView === 'workbench' && selectedAssetForWorkbench) {
-      setSelectedAssetForWorkbench(null);
-    }
-  }, [activeView, isDebugModeEnabled, selectedAssetForWorkbench]);
+  }, [activeView, isDebugModeEnabled]);
 
   return (
     <WorkbenchModelProvider>
@@ -265,9 +265,11 @@ const Workbench = () => {
           {activeView === 'workbench' && (
             <div className="flex-1 h-full min-h-0">
               <WorkbenchView
-                initialFileUrl={selectedAssetForWorkbench?.url}
-                initialFileName={selectedAssetForWorkbench?.name}
-                initialAssetSource={selectedAssetForWorkbench?.source}
+                initialFileUrl={selectedAssetForWorkbench?.asset?.file_url || null}
+                initialFileName={selectedAssetForWorkbench?.asset?.name}
+                initialLibraryAsset={selectedAssetForWorkbench?.asset || null}
+                initialLibraryAssetToken={selectedAssetForWorkbench?.token || null}
+                onInitialLibraryAssetHandled={() => setSelectedAssetForWorkbench(null)}
                 templateList={templateList}
                 selectedTemplate={selectedTemplate}
                 onSelectTemplate={setSelectedTemplate}

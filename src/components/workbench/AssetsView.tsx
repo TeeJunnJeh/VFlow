@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
-  FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil, Search, Heart, Download, Library, Globe, Info, Settings
+  FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil, Search, Heart, Download, Library, Globe, Info, Settings, Eye, EyeOff, Layers3, Plus
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext'
@@ -84,6 +84,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [openFolderMenuId, setOpenFolderMenuId] = useState<string | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
+  const [hideReferencedOtherViews, setHideReferencedOtherViews] = useState(false);
+  const [referencedOtherViewIds, setReferencedOtherViewIds] = useState<Set<string>>(new Set());
 
   // Inline rename (asset)
   const [renamingAssetId, setRenamingAssetId] = useState<string | null>(null);
@@ -144,8 +146,21 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [assetDescriptionDraft, setAssetDescriptionDraft] = useState('');
   const [isGeneratingAssetDescription, setIsGeneratingAssetDescription] = useState(false);
   const [isSavingAssetDescription, setIsSavingAssetDescription] = useState(false);
+  const [subjectLibraryAssets, setSubjectLibraryAssets] = useState<Asset[]>([]);
+  const [subjectPickerAssetsList, setSubjectPickerAssetsList] = useState<Asset[]>([]);
+  const [subjectLibraryFolders, setSubjectLibraryFolders] = useState<AssetFolder[]>([]);
+  const [subjectPickerFolderId, setSubjectPickerFolderId] = useState<string | null>(null);
+  const [subjectPickerBreadcrumb, setSubjectPickerBreadcrumb] = useState<AssetFolder[]>([]);
+  const [subjectPickerSlotIndex, setSubjectPickerSlotIndex] = useState<number | null>(null);
+  const [isSubjectPickerOpen, setIsSubjectPickerOpen] = useState(false);
+  const [isSubjectPickerLoading, setIsSubjectPickerLoading] = useState(false);
+  const [isSubjectGroupEditing, setIsSubjectGroupEditing] = useState(false);
+  const [subjectSlotActionIndex, setSubjectSlotActionIndex] = useState<number | null>(null);
+  const [subjectPreviewImage, setSubjectPreviewImage] = useState<Asset | null>(null);
+  const [isSavingSubjectGroup, setIsSavingSubjectGroup] = useState(false);
 
   const assetInputRef = useRef<HTMLInputElement>(null);
+  const subjectOtherViewUploadRef = useRef<HTMLInputElement>(null);
 
   const getAssetSubjectMeta = useCallback((asset: Asset | null | undefined) => {
     const raw = asset?.meta_data?.kling_subject;
@@ -165,6 +180,51 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     const meta = getAssetSubjectMeta(asset);
     return String(meta.status || '').trim().toLowerCase();
   }, [getAssetSubjectMeta]);
+  const getAssetSubjectOtherViewIds = useCallback((asset: Asset | null | undefined) => {
+    const meta = getAssetSubjectMeta(asset);
+    const raw = meta.other_view_asset_ids;
+    if (!Array.isArray(raw)) return [];
+    return raw.map((item) => String(item || '').trim()).filter(Boolean);
+  }, [getAssetSubjectMeta]);
+  const getAssetParentSubjectId = useCallback((asset: Asset | null | undefined) => {
+    const meta = getAssetSubjectMeta(asset);
+    const value = String(meta.parent_subject_id || '').trim();
+    return value || null;
+  }, [getAssetSubjectMeta]);
+  const buildInvalidatedSubjectMeta = useCallback((asset: Asset, overrides: Record<string, unknown> = {}) => {
+    const currentSubjectMeta = getAssetSubjectMeta(asset);
+    return {
+      ...currentSubjectMeta,
+      name: String(currentSubjectMeta.name || asset.name || '').trim(),
+      ...overrides,
+      element_id: null,
+      create_task_id: null,
+      status: '',
+      last_error: '',
+    };
+  }, [getAssetSubjectMeta]);
+  const syncAssetMetaBatch = useCallback((updates: Record<string, Record<string, unknown>>) => {
+    const nextMap = new Map(Object.entries(updates));
+    if (nextMap.size === 0) return;
+    setAssetList(prev => prev.map(item => (
+      nextMap.has(item.id) ? { ...item, meta_data: nextMap.get(item.id)! } : item
+    )));
+    setSubjectLibraryAssets(prev => prev.map(item => (
+      nextMap.has(item.id) ? { ...item, meta_data: nextMap.get(item.id)! } : item
+    )));
+    setAssetPreview(prev => (
+      prev && nextMap.has(prev.id) ? { ...prev, meta_data: nextMap.get(prev.id)! } : prev
+    ));
+  }, []);
+  const closeSubjectPicker = useCallback(() => {
+    setIsSubjectPickerOpen(false);
+    setSubjectPickerSlotIndex(null);
+    setSubjectSlotActionIndex(null);
+    setSubjectPickerFolderId(null);
+    setSubjectPickerBreadcrumb([]);
+    setSubjectLibraryFolders([]);
+    setSubjectPickerAssetsList([]);
+  }, []);
   const normalizeSubjectDescriptionText = useCallback((value: string) => (
     value
       .replace(/\s+/g, ' ')
@@ -174,6 +234,19 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       .trim()
       .slice(0, 60)
   ), []);
+  const refreshReferencedOtherViewIds = useCallback(async () => {
+    const [products, models] = await Promise.all([
+      assetsApi.getAssets({ type: 'product' }),
+      assetsApi.getAssets({ type: 'model' }),
+    ]);
+    const next = new Set<string>();
+    [...products, ...models].forEach((asset) => {
+      const parentSubjectId = getAssetParentSubjectId(asset);
+      if (parentSubjectId) next.add(asset.id);
+      getAssetSubjectOtherViewIds(asset).forEach((id) => next.add(id));
+    });
+    setReferencedOtherViewIds(next);
+  }, [getAssetParentSubjectId, getAssetSubjectOtherViewIds]);
 
   // --- API Loaders ---
   const loadData = useCallback(async () => {
@@ -249,6 +322,92 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     }, 0);
     return () => window.clearTimeout(timer);
   }, [renamingAssetId]);
+
+  useEffect(() => {
+    if (!hideReferencedOtherViews) {
+      setReferencedOtherViewIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    const loadReferencedOtherViewIds = async () => {
+      try {
+        await refreshReferencedOtherViewIds();
+        if (cancelled) return;
+      } catch (err) {
+        if (cancelled) return;
+        console.error('Failed to load referenced other-view assets', err);
+        setReferencedOtherViewIds(new Set());
+      }
+    };
+    void loadReferencedOtherViewIds();
+    return () => {
+      cancelled = true;
+    };
+  }, [hideReferencedOtherViews, refreshReferencedOtherViewIds]);
+
+  useEffect(() => {
+    if (!assetPreview || (assetPreview.type !== 'product' && assetPreview.type !== 'model')) {
+      setSubjectLibraryAssets([]);
+      setIsSubjectGroupEditing(false);
+      setSubjectSlotActionIndex(null);
+      closeSubjectPicker();
+      return;
+    }
+    let cancelled = false;
+    const loadSubjectAssets = async () => {
+      try {
+        const assets = await assetsApi.getAssets({ type: assetPreview.type });
+        if (cancelled) return;
+        setSubjectLibraryAssets(Array.isArray(assets) ? assets : []);
+      } catch (err) {
+        if (cancelled) return;
+        console.error('Failed to load subject library assets', err);
+        setSubjectLibraryAssets([]);
+      }
+    };
+    void loadSubjectAssets();
+    return () => {
+      cancelled = true;
+    };
+  }, [assetPreview, closeSubjectPicker]);
+
+  useEffect(() => {
+    if (!isSubjectPickerOpen || !assetPreview || (assetPreview.type !== 'product' && assetPreview.type !== 'model')) return;
+    let cancelled = false;
+    const loadSubjectPickerData = async () => {
+      setIsSubjectPickerLoading(true);
+      try {
+        const [assets, folderData] = await Promise.all([
+          assetsApi.getAssets({ type: assetPreview.type, folderId: subjectPickerFolderId }),
+          assetsApi.getFolders({ type: assetPreview.type, parentId: subjectPickerFolderId }),
+        ]);
+        if (cancelled) return;
+        setSubjectPickerAssetsList(Array.isArray(assets) ? assets : []);
+        setSubjectLibraryFolders(folderData.folders);
+        setSubjectPickerBreadcrumb(folderData.breadcrumb);
+      } catch (err) {
+        if (cancelled) return;
+        console.error('Failed to load subject picker assets', err);
+        setSubjectPickerAssetsList([]);
+        setSubjectLibraryFolders([]);
+        setSubjectPickerBreadcrumb([]);
+      } finally {
+        if (!cancelled) setIsSubjectPickerLoading(false);
+      }
+    };
+    void loadSubjectPickerData();
+    return () => {
+      cancelled = true;
+    };
+  }, [assetPreview, isSubjectPickerOpen, subjectPickerFolderId]);
+
+  useEffect(() => {
+    if (isAssetPreviewOpen) return;
+    setIsSubjectGroupEditing(false);
+    setSubjectSlotActionIndex(null);
+    setSubjectPreviewImage(null);
+    closeSubjectPicker();
+  }, [closeSubjectPicker, isAssetPreviewOpen]);
 
   const uploadFiles = async (files: FileList | File[]) => {
     const errors: string[] = [];
@@ -505,21 +664,16 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     const nextDescription = assetDescriptionDraft.trim();
     setIsSavingAssetDescription(true);
     try {
-      const currentSubjectMeta = getAssetSubjectMeta(assetPreview);
       const response = await assetsApi.patchAssetMeta(assetPreview.id, {
-        kling_subject: {
-          ...currentSubjectMeta,
-          name: String(currentSubjectMeta.name || assetPreview.name || '').trim(),
+        kling_subject: buildInvalidatedSubjectMeta(assetPreview, {
           description: nextDescription,
-        },
+        }),
       });
       const nextMeta = (response?.meta_data || {
         ...(assetPreview.meta_data || {}),
-        kling_subject: {
-          ...currentSubjectMeta,
-          name: String(currentSubjectMeta.name || assetPreview.name || '').trim(),
+        kling_subject: buildInvalidatedSubjectMeta(assetPreview, {
           description: nextDescription,
-        },
+        }),
       }) as Record<string, unknown>;
       syncPreviewAssetMeta(assetPreview.id, nextMeta);
       openInfo(t.assets_confirm_title || 'Notice', t.assets_save || 'Saved');
@@ -528,7 +682,122 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     } finally {
       setIsSavingAssetDescription(false);
     }
-  }, [assetDescriptionDraft, assetPreview, getAssetSubjectMeta, openInfo, syncPreviewAssetMeta, t.assets_confirm_title, t.assets_save]);
+  }, [assetDescriptionDraft, assetPreview, buildInvalidatedSubjectMeta, openInfo, syncPreviewAssetMeta, t.assets_confirm_title, t.assets_save]);
+
+  const persistSubjectOtherViews = useCallback(async (subjectAsset: Asset, nextChildIds: string[]) => {
+    const uniqueChildIds = Array.from(new Set(nextChildIds.filter(Boolean))).slice(0, 3);
+    const previousChildIds = getAssetSubjectOtherViewIds(subjectAsset);
+    const previousChildIdSet = new Set(previousChildIds);
+    const nextChildIdSet = new Set(uniqueChildIds);
+    const updates: Record<string, Record<string, unknown>> = {};
+    const nextSubjectMeta = buildInvalidatedSubjectMeta(subjectAsset, {
+      other_view_asset_ids: uniqueChildIds,
+    });
+    updates[subjectAsset.id] = {
+      ...(subjectAsset.meta_data || {}),
+      kling_subject: nextSubjectMeta,
+    };
+
+    for (const childId of previousChildIds) {
+      if (nextChildIdSet.has(childId)) continue;
+      const childAsset = subjectLibraryAssets.find((item) => item.id === childId) || assetList.find((item) => item.id === childId);
+      if (!childAsset) continue;
+      const childSubjectMeta = getAssetSubjectMeta(childAsset);
+      updates[childId] = {
+        ...(childAsset.meta_data || {}),
+        kling_subject: {
+          ...childSubjectMeta,
+          parent_subject_id: null,
+        },
+      };
+    }
+
+    for (const childId of uniqueChildIds) {
+      const childAsset = subjectLibraryAssets.find((item) => item.id === childId) || assetList.find((item) => item.id === childId);
+      if (!childAsset) continue;
+      const childSubjectMeta = getAssetSubjectMeta(childAsset);
+      if (previousChildIdSet.has(childId) && getAssetParentSubjectId(childAsset) === subjectAsset.id) continue;
+      updates[childId] = {
+        ...(childAsset.meta_data || {}),
+        kling_subject: {
+          ...childSubjectMeta,
+          parent_subject_id: subjectAsset.id,
+        },
+      };
+    }
+
+    setIsSavingSubjectGroup(true);
+    try {
+      await Promise.all(Object.entries(updates).map(async ([assetId, meta]) => {
+        await assetsApi.patchAssetMeta(assetId, meta);
+      }));
+      syncAssetMetaBatch(updates);
+      if (hideReferencedOtherViews) {
+        await refreshReferencedOtherViewIds();
+      }
+    } finally {
+      setIsSavingSubjectGroup(false);
+    }
+  }, [assetList, buildInvalidatedSubjectMeta, getAssetParentSubjectId, getAssetSubjectMeta, getAssetSubjectOtherViewIds, hideReferencedOtherViews, refreshReferencedOtherViewIds, subjectLibraryAssets, syncAssetMetaBatch]);
+
+  const appendSubjectOtherView = useCallback(async (candidate: Asset) => {
+    if (!assetPreview) return;
+    const currentIds = getAssetSubjectOtherViewIds(assetPreview);
+    if (currentIds.includes(candidate.id)) return;
+    if (currentIds.length >= 3) {
+      openInfo(t.assets_confirm_title || 'Notice', 'Limit reached');
+      return;
+    }
+    const parentSubjectId = getAssetParentSubjectId(candidate);
+    if (parentSubjectId && parentSubjectId !== assetPreview.id) {
+      openInfo(t.assets_confirm_title || 'Notice', 'This asset is already linked to another subject');
+      return;
+    }
+    await persistSubjectOtherViews(assetPreview, [...currentIds, candidate.id]);
+    closeSubjectPicker();
+  }, [assetPreview, closeSubjectPicker, getAssetParentSubjectId, getAssetSubjectOtherViewIds, openInfo, persistSubjectOtherViews, t.assets_confirm_title]);
+
+  const removeSubjectOtherView = useCallback(async (childId: string) => {
+    if (!assetPreview) return;
+    const currentIds = getAssetSubjectOtherViewIds(assetPreview);
+    await persistSubjectOtherViews(assetPreview, currentIds.filter((id) => id !== childId));
+  }, [assetPreview, getAssetSubjectOtherViewIds, persistSubjectOtherViews]);
+
+  const openSubjectPicker = useCallback((slotIndex: number) => {
+    setSubjectPickerSlotIndex(slotIndex);
+    setSubjectPickerFolderId(null);
+    setIsSubjectPickerOpen(true);
+    setSubjectSlotActionIndex(null);
+  }, []);
+
+  const handleSubjectOtherViewUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0 || !assetPreview) return;
+    const file = files[0];
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const isImage = file.type.startsWith('image/') || IMAGE_EXTS.includes(ext);
+    if (!isImage) {
+      openInfo(t.assets_confirm_title || 'Notice', 'Image only');
+      e.target.value = '';
+      return;
+    }
+    try {
+      const uploadResp = await assetsApi.uploadAsset(file, assetPreview.type, assetPreview.folder_id ?? null);
+      await loadData();
+      const allAssets = await assetsApi.getAssets({ type: assetPreview.type });
+      setSubjectLibraryAssets(allAssets);
+      const createdId = String(uploadResp?.data?.id || uploadResp?.id || '').trim();
+      const uploadedAsset = allAssets.find((item) => item.id === createdId) || allAssets.find((item) => item.name === file.name);
+      if (uploadedAsset) {
+        await appendSubjectOtherView(uploadedAsset);
+      }
+    } catch (err) {
+      openInfo(t.assets_confirm_title || 'Notice', String(err instanceof Error ? err.message : err));
+    } finally {
+      e.target.value = '';
+      setSubjectSlotActionIndex(null);
+    }
+  }, [IMAGE_EXTS, appendSubjectOtherView, assetPreview, loadData, openInfo, t.assets_confirm_title]);
 
   const generateAssetDescription = useCallback(async () => {
     if (!assetPreview?.file_url) return;
@@ -577,9 +846,36 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     });
   };
 
+  const visibleAssets = useMemo(() => (
+    assetList.filter((asset) => (
+      asset.type === activeAssetTab
+      && (!hideReferencedOtherViews || !referencedOtherViewIds.has(asset.id))
+    ))
+  ), [activeAssetTab, assetList, hideReferencedOtherViews, referencedOtherViewIds]);
+  const subjectOtherViewAssets = useMemo(() => {
+    if (!assetPreview) return [] as Asset[];
+    const ids = getAssetSubjectOtherViewIds(assetPreview);
+    if (ids.length === 0) return [] as Asset[];
+    const map = new Map<string, Asset>();
+    [...subjectLibraryAssets, ...assetList].forEach((item) => {
+      map.set(item.id, item);
+    });
+    return ids.map((id) => map.get(id)).filter((item): item is Asset => Boolean(item));
+  }, [assetList, assetPreview, getAssetSubjectOtherViewIds, subjectLibraryAssets]);
+  const subjectPickerAssets = useMemo(() => {
+    if (!assetPreview) return [] as Asset[];
+    const currentIds = new Set(getAssetSubjectOtherViewIds(assetPreview));
+    return subjectPickerAssetsList.filter((item) => (
+      item.id !== assetPreview.id
+      && item.type === assetPreview.type
+      && item.media_kind === 'image'
+      && !currentIds.has(item.id)
+      && (!getAssetParentSubjectId(item) || getAssetParentSubjectId(item) === assetPreview.id)
+    ));
+  }, [assetPreview, getAssetParentSubjectId, getAssetSubjectOtherViewIds, subjectPickerAssetsList]);
+
   const selectAllVisibleAssets = () => {
-    const visible = assetList.filter(a => a.type === activeAssetTab);
-    setSelectedAssetIds(new Set(visible.map(a => a.id)));
+    setSelectedAssetIds(new Set(visibleAssets.map(a => a.id)));
   };
 
   const deselectAllVisibleAssets = () => {
@@ -849,7 +1145,6 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
      return mediaBaseUrl ? `${mediaBaseUrl}${path}` : path;
   };
 
-  const visibleAssets = assetList.filter(a => a.type === activeAssetTab);
   const selectedCount = selectedAssetIds.size;
   const isAllVisibleSelected = visibleAssets.length > 0 && visibleAssets.every(a => selectedAssetIds.has(a.id));
 
@@ -1081,12 +1376,23 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               </div>
 
               {!isSelectionMode && (
-                <button
-                  onClick={() => setIsSelectionMode(true)}
-                  className="bg-zinc-800 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-zinc-700 transition flex items-center gap-2 shrink-0"
-                >
-                  <CheckCircle className="w-4 h-4" /> {t.assets_select}
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {(activeAssetTab === 'product' || activeAssetTab === 'model') && (
+                    <button
+                      type="button"
+                      onClick={() => setHideReferencedOtherViews((prev) => !prev)}
+                      className={`w-9 h-9 rounded-lg border transition flex items-center justify-center ${hideReferencedOtherViews ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-zinc-800 text-zinc-200 hover:bg-zinc-700'}`}
+                    >
+                      {hideReferencedOtherViews ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setIsSelectionMode(true)}
+                    className="bg-zinc-800 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-zinc-700 transition flex items-center gap-2 shrink-0"
+                  >
+                    <CheckCircle className="w-4 h-4" /> {t.assets_select}
+                  </button>
+                </div>
               )}
             </div>
 
@@ -1180,6 +1486,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                     {/* Assets */}
                     {visibleAssets.map(asset => {
                       const isSelected = selectedAssetIds.has(asset.id);
+                      const subjectOtherViewCount = getAssetSubjectOtherViewIds(asset).length;
                       return (
                         <div
                           key={asset.id}
@@ -1220,6 +1527,11 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                               setIsAssetPreviewOpen(true);
                             }}
                           >
+                            {subjectOtherViewCount > 0 && (
+                              <div className="absolute top-2 right-2 z-20 rounded-full bg-black/55 border border-white/15 p-1.5 text-white shadow-lg">
+                                <Layers3 className="w-3.5 h-3.5" />
+                              </div>
+                            )}
                             {asset.file_url && asset.media_kind === 'video' ? (
                               <video
                                 src={getDisplayUrl(asset.file_url) || undefined}
@@ -1536,6 +1848,91 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       </button>
                     </div>
                   </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-xs text-zinc-500">Other Views</div>
+                        <div className="mt-1 text-[11px] text-zinc-400">Up to 3 same-type images</div>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={isSavingSubjectGroup}
+                        onClick={() => {
+                          setIsSubjectGroupEditing((prev) => !prev);
+                          setSubjectSlotActionIndex(null);
+                        }}
+                        className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-bold text-zinc-100 disabled:opacity-60"
+                      >
+                        {isSubjectGroupEditing ? 'Done' : 'Edit'}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      {[0, 1, 2].map((slotIndex) => {
+                        const slotAsset = subjectOtherViewAssets[slotIndex] || null;
+                        const canOpenAction = !slotAsset && slotIndex === subjectOtherViewAssets.length && subjectOtherViewAssets.length < 3;
+                        return (
+                          <div key={slotIndex} className="relative aspect-square rounded-2xl border border-white/10 bg-black/20 overflow-hidden">
+                            {slotAsset ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className="absolute inset-0"
+                                  onClick={() => setSubjectPreviewImage(slotAsset)}
+                                >
+                                  <img
+                                    src={getDisplayUrl(slotAsset.file_url) || ASSET_PLACEHOLDER_DATA_URL}
+                                    alt={slotAsset.name}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }}
+                                  />
+                                </button>
+                                {isSubjectGroupEditing && (
+                                  <button
+                                    type="button"
+                                    disabled={isSavingSubjectGroup}
+                                    onClick={() => void removeSubjectOtherView(slotAsset.id)}
+                                    className="absolute top-2 right-2 z-10 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center shadow-lg disabled:opacity-60"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </>
+                            ) : canOpenAction ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className="absolute inset-0 flex items-center justify-center bg-white/[0.03] hover:bg-white/[0.06] transition"
+                                  onClick={() => setSubjectSlotActionIndex((prev) => prev === slotIndex ? null : slotIndex)}
+                                >
+                                  <div className="flex items-center justify-center w-16 h-16 rounded-full border border-white/10 bg-white/5 text-zinc-200">
+                                    <Plus className="w-8 h-8" />
+                                  </div>
+                                </button>
+                                {subjectSlotActionIndex === slotIndex && (
+                                  <div className="absolute inset-x-2 bottom-2 z-10 rounded-xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl">
+                                    <button
+                                      type="button"
+                                      className="w-full h-9 rounded-lg bg-white text-black px-3 text-xs font-bold hover:bg-orange-500 hover:text-white transition"
+                                      onClick={() => openSubjectPicker(slotIndex)}
+                                    >
+                                      From Library
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="mt-2 w-full h-9 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-bold text-zinc-100 hover:bg-white/10 transition"
+                                      onClick={() => subjectOtherViewUploadRef.current?.click()}
+                                    >
+                                      Upload
+                                    </button>
+                                  </div>
+                                )}
+                              </>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               </div>
               ) : (
@@ -1562,6 +1959,107 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
             </div>
           </div>
         )}
+
+        {subjectPreviewImage && (
+          <div className="fixed inset-0 z-[111] flex items-center justify-center bg-black/80 backdrop-blur-sm p-6" onClick={() => setSubjectPreviewImage(null)}>
+            <div className="glass-panel rounded-2xl p-4 md:p-6 border border-white/10 w-full max-w-4xl max-h-[calc(100vh-3rem)] overflow-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between gap-4 mb-4">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-zinc-200">{t.assets_preview_title}</h3>
+                  <div className="text-xs text-zinc-500 truncate">{subjectPreviewImage.name}</div>
+                </div>
+                <button className="text-zinc-400 hover:text-white" onClick={() => setSubjectPreviewImage(null)}>
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex items-center justify-center">
+                <img
+                  src={getDisplayUrl(subjectPreviewImage.file_url) || ASSET_PLACEHOLDER_DATA_URL}
+                  alt={subjectPreviewImage.name}
+                  className="block rounded-lg max-w-full max-h-[calc(100vh-10rem)] object-contain"
+                  onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isSubjectPickerOpen && assetPreview && (
+          <div className="fixed inset-0 z-[112] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6" onClick={closeSubjectPicker}>
+            <div className="w-full max-w-5xl max-h-[calc(100vh-3rem)] overflow-hidden glass-panel rounded-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-white/10">
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-zinc-100">Select Asset</div>
+                  <div className="mt-1 flex items-center gap-2 text-xs text-zinc-500 min-w-0">
+                    <button type="button" onClick={() => setSubjectPickerFolderId(null)} className="hover:text-white">
+                      Root
+                    </button>
+                    {subjectPickerBreadcrumb.map((folder) => (
+                      <React.Fragment key={folder.id}>
+                        <span>/</span>
+                        <button type="button" onClick={() => setSubjectPickerFolderId(folder.id)} className="truncate hover:text-white">
+                          {folder.name}
+                        </button>
+                      </React.Fragment>
+                    ))}
+                  </div>
+                </div>
+                <button className="text-zinc-400 hover:text-white" onClick={closeSubjectPicker}>
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-5">
+                {isSubjectPickerLoading ? (
+                  <div className="h-48 flex items-center justify-center text-zinc-400">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  </div>
+                ) : (
+                  <div className="max-h-[calc(100vh-12rem)] overflow-y-auto custom-scroll">
+                    <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-4">
+                      {subjectLibraryFolders.map((folder) => (
+                        <button
+                          key={folder.id}
+                          type="button"
+                          onClick={() => setSubjectPickerFolderId(folder.id)}
+                          className="aspect-[3/4] rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 transition flex flex-col items-center justify-center gap-3 text-zinc-200"
+                        >
+                          <Folder className="w-8 h-8 text-zinc-400" />
+                          <span className="px-3 text-xs font-bold truncate max-w-full">{folder.name}</span>
+                        </button>
+                      ))}
+                      {subjectPickerAssets.map((asset) => (
+                        <button
+                          key={asset.id}
+                          type="button"
+                          onClick={() => void appendSubjectOtherView(asset)}
+                          className="group text-left rounded-2xl overflow-hidden border border-white/10 bg-white/5 hover:border-orange-500/50 transition"
+                        >
+                          <div className="aspect-[3/4] relative bg-zinc-900">
+                            <img
+                              src={getDisplayUrl(asset.file_url) || ASSET_PLACEHOLDER_DATA_URL}
+                              alt={asset.name}
+                              className="absolute inset-0 w-full h-full object-cover"
+                              onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }}
+                            />
+                          </div>
+                          <div className="px-3 py-2 text-xs font-bold text-zinc-100 truncate">{asset.name}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <input
+          ref={subjectOtherViewUploadRef}
+          type="file"
+          className="hidden"
+          accept="image/*"
+          onChange={handleSubjectOtherViewUpload}
+        />
 
         {/* 1.5 Plaza Detail Dialog */}
         {plazaDetailItem && (

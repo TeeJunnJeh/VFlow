@@ -589,6 +589,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                      { value: '欧洲', label: t.wb_region_eu },
                      { value: '日本', label: t.wb_region_jp },
                      { value: '韩国', label: t.wb_region_kr },
+                     { value: '墨西哥', label: t.wb_region_mx },
                    ]}
                    onChange={(v) => setPrefsDraft((prev) => ({ ...prev, deliveryRegion: v }))}
                    buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
@@ -609,6 +610,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                      { value: 'ko', label: t.lang_ko },
                      { value: 'ms', label: t.lang_ms },
                      { value: 'vi', label: t.lang_vi },
+                     { value: 'id', label: t.lang_id },
                    ]}
                    onChange={(v) => setPrefsDraft((prev) => ({ ...prev, targetLanguage: v }))}
                    buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"

@@ -533,8 +533,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const openPromptLab = async () => {
     const account = Number(user?.account);
-    console.log(user?.account);
-    if (user && account >= 13800000100 && account <= 13800000199) return;
+    if (user?.account && account >= 13800000100 && account <= 13800000199) return;
     if (!ENABLE_PROMPT_LAB) return;
     setIsPromptLabOpen(true);
     if (promptTemplates.length > 0) return;

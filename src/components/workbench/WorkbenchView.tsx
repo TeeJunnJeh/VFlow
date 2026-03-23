@@ -3,7 +3,7 @@ import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
-  Zap, Layers, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift,
+  Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift,
   SlidersHorizontal,Palette, MapPin, Activity, Camera, Lightbulb, Music, Scissors, Megaphone, AlignLeft,
   Languages, HelpCircle
 } from 'lucide-react';
@@ -5693,6 +5693,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 className="text-left rounded-lg border border-white/10 bg-black/30 p-1 hover:border-orange-500/50 hover:bg-white/5 transition"
                             >
                               <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
+                                {isKlingOmniMode && hasSubjectOtherViews(asset) && (
+                                  <div className="absolute top-1.5 right-1.5 z-10 rounded-full bg-black/55 border border-white/15 p-1 text-white shadow-lg">
+                                    <Layers3 className="w-3.5 h-3.5" />
+                                  </div>
+                                )}
                                 {asset.media_kind === 'video' ? (
                                     <video src={asset.file_url} className="w-full h-full object-cover" muted playsInline />
                                 ) : (

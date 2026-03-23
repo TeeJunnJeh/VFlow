@@ -604,15 +604,75 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     }
   };
 
-  const deleteAssetById = async (id: string) => {
+  const deleteAssetById = useCallback(async (id: string) => {
     try {
+      const targetAsset = assetList.find((item) => item.id === id)
+        || subjectLibraryAssets.find((item) => item.id === id)
+        || (assetPreview?.id === id ? assetPreview : null);
+      const parentSubjectId = getAssetParentSubjectId(targetAsset);
+      if (parentSubjectId) {
+        const subjectAsset = subjectLibraryAssets.find((item) => item.id === parentSubjectId)
+          || assetList.find((item) => item.id === parentSubjectId)
+          || (assetPreview?.id === parentSubjectId ? assetPreview : null)
+          || (await assetsApi.getAssets({ type: targetAsset?.type === 'model' ? 'model' : 'product' })).find((item) => item.id === parentSubjectId)
+          || null;
+        if (subjectAsset) {
+          const nextChildIds = getAssetSubjectOtherViewIds(subjectAsset).filter((childId) => childId !== id);
+          const response = await assetsApi.patchAssetMeta(subjectAsset.id, {
+            kling_subject: buildInvalidatedSubjectMeta(subjectAsset, {
+              other_view_asset_ids: nextChildIds,
+            }),
+          });
+          const nextMeta = (response?.meta_data || {
+            ...(subjectAsset.meta_data || {}),
+            kling_subject: buildInvalidatedSubjectMeta(subjectAsset, {
+              other_view_asset_ids: nextChildIds,
+            }),
+          }) as Record<string, unknown>;
+          syncAssetMetaBatch({
+            [subjectAsset.id]: nextMeta,
+          });
+        }
+      }
+      if (targetAsset) {
+        const childIds = getAssetSubjectOtherViewIds(targetAsset);
+        if (childIds.length > 0) {
+          const subjectType = targetAsset.type === 'model' ? 'model' : targetAsset.type === 'product' ? 'product' : null;
+          const allTypedAssets = subjectType ? await assetsApi.getAssets({ type: subjectType }) : [];
+          const childUpdates: Record<string, Record<string, unknown>> = {};
+          for (const childId of childIds) {
+            const childAsset = allTypedAssets.find((item) => item.id === childId)
+              || subjectLibraryAssets.find((item) => item.id === childId)
+              || assetList.find((item) => item.id === childId)
+              || null;
+            if (!childAsset) continue;
+            const childSubjectMeta = getAssetSubjectMeta(childAsset);
+            childUpdates[childId] = {
+              ...(childAsset.meta_data || {}),
+              kling_subject: {
+                ...childSubjectMeta,
+                parent_subject_id: null,
+              },
+            };
+          }
+          await Promise.all(Object.entries(childUpdates).map(async ([assetId, meta]) => {
+            await assetsApi.patchAssetMeta(assetId, meta);
+          }));
+          syncAssetMetaBatch(childUpdates);
+        }
+      }
       await assetsApi.deleteAsset(id);
       setAssetList(prev => prev.filter(a => a.id !== id));
+      setSubjectLibraryAssets(prev => prev.filter((item) => item.id !== id));
+      setAssetPreview((prev) => (prev?.id === id ? null : prev));
+      if (hideReferencedOtherViews) {
+        await refreshReferencedOtherViewIds();
+      }
     } catch (err) {
       console.error(err);
       openInfo((t as any).assets_delete_failed || 'Failed to delete asset', String(err instanceof Error ? err.message : err));
     }
-  };
+  }, [assetList, assetPreview, buildInvalidatedSubjectMeta, getAssetParentSubjectId, getAssetSubjectMeta, getAssetSubjectOtherViewIds, hideReferencedOtherViews, openInfo, refreshReferencedOtherViewIds, subjectLibraryAssets, syncAssetMetaBatch, t]);
 
   const beginRenameAsset = (asset: Asset) => {
     setRenamingAssetId(asset.id);
@@ -1428,10 +1488,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                         danger: true,
                         onConfirm: async () => {
                           const ids = Array.from(selectedAssetIds);
-                          const results = await Promise.allSettled(ids.map(id => assetsApi.deleteAsset(id)));
+                          const results = await Promise.allSettled(ids.map(id => deleteAssetById(id)));
                           const failed = results.filter(r => r.status === 'rejected');
                           if (failed.length > 0) openInfo((t as any).assets_delete_failed || 'Failed to delete some assets', `Failed to delete ${failed.length} assets`);
-                          await loadData();
                           setSelectedAssetIds(new Set());
                           setIsSelectionMode(false);
                         }

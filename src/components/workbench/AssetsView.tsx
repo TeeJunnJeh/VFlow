@@ -161,6 +161,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
   const assetInputRef = useRef<HTMLInputElement>(null);
   const subjectOtherViewUploadRef = useRef<HTMLInputElement>(null);
+  const subjectSlotActionRef = useRef<HTMLDivElement>(null);
 
   const getAssetSubjectMeta = useCallback((asset: Asset | null | undefined) => {
     const raw = asset?.meta_data?.kling_subject;
@@ -191,6 +192,28 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     const value = String(meta.parent_subject_id || '').trim();
     return value || null;
   }, [getAssetSubjectMeta]);
+
+  useEffect(() => {
+    if (subjectSlotActionIndex === null) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const container = subjectSlotActionRef.current;
+      if (!container) return;
+      if (container.contains(event.target as Node)) return;
+      setSubjectSlotActionIndex(null);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSubjectSlotActionIndex(null);
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [subjectSlotActionIndex]);
   const buildInvalidatedSubjectMeta = useCallback((asset: Asset, overrides: Record<string, unknown> = {}) => {
     const currentSubjectMeta = getAssetSubjectMeta(asset);
     return {
@@ -1441,6 +1464,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                     <button
                       type="button"
                       onClick={() => setHideReferencedOtherViews((prev) => !prev)}
+                      title={hideReferencedOtherViews ? t.assets_show_referenced_other_views_tooltip : t.assets_hide_referenced_other_views_tooltip}
                       className={`w-9 h-9 rounded-lg border transition flex items-center justify-center ${hideReferencedOtherViews ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-zinc-800 text-zinc-200 hover:bg-zinc-700'}`}
                     >
                       {hideReferencedOtherViews ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -1861,22 +1885,22 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                 </div>
                 <div className="space-y-4">
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <div className="text-xs text-zinc-500 mb-1">主体名称</div>
+                    <div className="text-xs text-zinc-500 mb-1">{t.assets_subject_name}</div>
                     <div className="text-base font-bold text-zinc-100 break-words">{getAssetSubjectName(assetPreview) || assetPreview.name}</div>
                     <div className="mt-2 text-[11px] text-zinc-400">
-                      主体状态：{(() => {
+                      {t.assets_subject_status}: {(() => {
                         const status = getAssetSubjectStatus(assetPreview);
-                        if (status === 'succeed') return '已创建';
-                        if (status === 'processing') return '创建中';
-                        if (status === 'failed') return '创建失败';
-                        if (status === 'deleted') return '已删除';
-                        return '未创建';
+                        if (status === 'succeed') return t.assets_subject_status_succeed;
+                        if (status === 'processing') return t.assets_subject_status_processing;
+                        if (status === 'failed') return t.assets_subject_status_failed;
+                        if (status === 'deleted') return t.assets_subject_status_deleted;
+                        return t.assets_subject_status_not_created;
                       })()}
                     </div>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                     <div className="flex items-center justify-between gap-3 mb-2">
-                      <div className="text-xs text-zinc-500">主体描述</div>
+                      <div className="text-xs text-zinc-500">{t.assets_subject_description}</div>
                       {assetPreview.media_kind === 'image' && (
                         <button
                           type="button"
@@ -1884,7 +1908,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           onClick={() => void generateAssetDescription()}
                           className="rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-1 text-[11px] font-bold text-orange-200 disabled:opacity-60"
                         >
-                          {isGeneratingAssetDescription ? '生成中...' : 'AI生成描述'}
+                          {isGeneratingAssetDescription ? t.wb_generating : t.assets_ai_generate_description}
                         </button>
                       )}
                     </div>
@@ -1893,25 +1917,25 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       onChange={(e) => setAssetDescriptionDraft(e.target.value)}
                       rows={6}
                       className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-orange-500/50"
-                      placeholder="未生成描述，可点击 AI生成描述 或手动编辑"
+                      placeholder={t.assets_description_placeholder}
                     />
                     <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-zinc-500">
-                      <span>{assetPreview.created_at ? `更新于 ${String(assetPreview.created_at).slice(0, 10)}` : ''}</span>
+                      <span>{assetPreview.created_at ? `${t.assets_updated_at} ${String(assetPreview.created_at).slice(0, 10)}` : ''}</span>
                       <button
                         type="button"
                         disabled={isSavingAssetDescription}
                         onClick={() => void saveAssetDescription()}
                         className="rounded-lg bg-white px-3 py-1.5 text-[11px] font-bold text-black disabled:opacity-60"
                       >
-                        {isSavingAssetDescription ? '保存中...' : '保存描述'}
+                        {isSavingAssetDescription ? t.assets_saving_description : t.assets_save_description}
                       </button>
                     </div>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <div>
-                        <div className="text-xs text-zinc-500">Other Views</div>
-                        <div className="mt-1 text-[11px] text-zinc-400">Up to 3 same-type images</div>
+                        <div className="text-xs text-zinc-500">{t.assets_other_views}</div>
+                        <div className="mt-1 text-[11px] text-zinc-400">{t.assets_other_views_hint}</div>
                       </div>
                       <button
                         type="button"
@@ -1920,9 +1944,13 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           setIsSubjectGroupEditing((prev) => !prev);
                           setSubjectSlotActionIndex(null);
                         }}
-                        className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-bold text-zinc-100 disabled:opacity-60"
+                        className={`rounded-lg px-3 py-1.5 text-[11px] font-bold disabled:opacity-60 ${
+                          isSubjectGroupEditing
+                            ? 'border border-orange-400 bg-orange-500 text-white shadow-sm shadow-orange-500/30 hover:bg-orange-400'
+                            : 'border border-white/10 bg-white/5 text-zinc-100 hover:bg-white/10'
+                        }`}
                       >
-                        {isSubjectGroupEditing ? 'Done' : 'Edit'}
+                        {isSubjectGroupEditing ? t.assets_done : t.assets_edit}
                       </button>
                     </div>
                     <div className="grid grid-cols-3 gap-3">
@@ -1930,7 +1958,11 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                         const slotAsset = subjectOtherViewAssets[slotIndex] || null;
                         const canOpenAction = !slotAsset && slotIndex === subjectOtherViewAssets.length && subjectOtherViewAssets.length < 3;
                         return (
-                          <div key={slotIndex} className="relative aspect-square rounded-2xl border border-white/10 bg-black/20 overflow-hidden">
+                          <div
+                            key={slotIndex}
+                            ref={canOpenAction ? subjectSlotActionRef : null}
+                            className="relative aspect-square rounded-2xl border border-white/10 bg-black/20 overflow-hidden"
+                          >
                             {slotAsset ? (
                               <>
                                 <button
@@ -1971,17 +2003,17 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                                   <div className="absolute inset-x-2 bottom-2 z-10 rounded-xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl">
                                     <button
                                       type="button"
-                                      className="w-full h-9 rounded-lg bg-white text-black px-3 text-xs font-bold hover:bg-orange-500 hover:text-white transition"
+                                      className="w-full h-8 rounded-lg bg-white text-black px-2.5 text-xs font-bold leading-none whitespace-nowrap hover:bg-orange-500 hover:text-white transition"
                                       onClick={() => openSubjectPicker(slotIndex)}
                                     >
-                                      From Library
+                                      {t.assets_from_library}
                                     </button>
                                     <button
                                       type="button"
-                                      className="mt-2 w-full h-9 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-bold text-zinc-100 hover:bg-white/10 transition"
+                                      className="mt-1.5 w-full h-8 rounded-lg border border-white/10 bg-white/5 px-2.5 text-xs font-bold leading-none whitespace-nowrap text-zinc-100 hover:bg-white/10 transition"
                                       onClick={() => subjectOtherViewUploadRef.current?.click()}
                                     >
-                                      Upload
+                                      {t.assets_btn_upload}
                                     </button>
                                   </div>
                                 )}

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, ArrowRight, Trash2, Zap, Gem, Flame, Loader2 } from 'lucide-react';
+import { Plus, ArrowLeft, ArrowRight, Trash2, Zap, Gem, Flame, Loader2 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { templatesApi, type Template } from '../../services/templates';
 import { useAuth } from '../../context/AuthContext';
@@ -10,6 +10,7 @@ interface TemplatesViewProps {
   templateList: Template[];
   onEditTemplate: (t: Template) => void;
   onCreateTemplate: () => void;
+  onClose: () => void;
   refreshTemplates: () => void;
 }
 
@@ -17,6 +18,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
   templateList, 
   onEditTemplate, 
   onCreateTemplate,
+  onClose,
   refreshTemplates 
 }) => {
   const { t } = useLanguage();
@@ -74,7 +76,12 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({
   return (
     <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
        <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
-          <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.tpl_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.tpl_subtitle}</p></div>
+          <div className="flex items-center gap-4">
+            <button onClick={onClose} className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center hover:bg-zinc-700 transition">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div><h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.tpl_title}</h1><p className="text-zinc-500 text-xs mt-1">{t.tpl_subtitle}</p></div>
+          </div>
           <div className="flex items-center gap-3"><LanguageSwitcher /><button onClick={onCreateTemplate} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20"><Plus className="w-4 h-4" /> {t.tpl_btn_new}</button></div>
        </header>
        <div className="flex-1 overflow-y-auto p-10 custom-scroll">

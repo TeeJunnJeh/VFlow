@@ -3456,14 +3456,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const category = productCategory.trim() || selectedTemplate?.product_category || "相机";
       const style = selectedTemplate?.visual_style || "写实";
       const rawRatio = aspectRatio || selectedTemplate?.aspect_ratio || "16:9";
-      const resolution = RATIO_TO_RES[rawRatio] || rawRatio || "1280*720";
       const duration = genDuration || selectedTemplate?.duration || 10;
       const shots = selectedTemplate?.shot_number || 5;
 
       const payload = {
         product_category: category,
         visual_style: style,
-        aspect_ratio: resolution,
+        aspect_ratio: rawRatio,
         user_language: language,
         target_language: targetLanguage,
         sound: soundSetting,
@@ -3580,19 +3579,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         return next;
       };
 
+      const unwrapScriptPayload = (data: any) => {
+        if (!data || typeof data !== 'object') return data;
+        if (data.data && typeof data.data === 'object') return data.data;
+        return data;
+      };
+
       const extractScriptPages = (data: any): ScriptPage[] => {
-        if (!data) return [];
-        if (Array.isArray(data.script_contents)) {
-          return data.script_contents.map((sc: any, idx: number) => parseScriptPage(sc, idx));
+        const root = unwrapScriptPayload(data);
+        if (!root) return [];
+        if (Array.isArray(root.script_contents)) {
+          return root.script_contents.map((sc: any, idx: number) => parseScriptPage(sc, idx));
         }
-        if (Array.isArray(data.script_variants)) {
-          return data.script_variants.map((variant: any, idx: number) => parseScriptPage(variant, idx));
+        if (Array.isArray(root.script_variants)) {
+          return root.script_variants.map((variant: any, idx: number) => parseScriptPage(variant, idx));
         }
-        if (Array.isArray(data.variants)) {
-          return data.variants.map((variant: any, idx: number) => parseScriptPage(variant, idx));
+        if (Array.isArray(root.variants)) {
+          return root.variants.map((variant: any, idx: number) => parseScriptPage(variant, idx));
         }
-        if (data.script_content?.shots) {
-          return [parseScriptPage(data, 0)];
+        if (root.script_content?.shots || root.script_content?.video_master_script || root.script_content?.creative_card) {
+          return [parseScriptPage(root, 0)];
         }
         return [];
       };

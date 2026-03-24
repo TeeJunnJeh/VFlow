@@ -2904,36 +2904,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }));
   };
 
-  const updateActiveCreativeCardAction = (index: number, value: string) => {
-    updateActiveScriptPageMeta((page) => {
-      const actions = [...(page.creativeCard?.actions || [])];
-      actions[index] = value;
-      return {
-        ...page,
-        creativeCard: {
-          ...(page.creativeCard || {}),
-          actions,
-        },
-      };
-    });
-  };
-
-  const addActiveCreativeCardAction = () => {
+  const updateActiveCreativeCardActionsText = (value: string) => {
     updateActiveScriptPageMeta((page) => ({
       ...page,
       creativeCard: {
         ...(page.creativeCard || {}),
-        actions: [...(page.creativeCard?.actions || []), ''],
-      },
-    }));
-  };
-
-  const removeActiveCreativeCardAction = (index: number) => {
-    updateActiveScriptPageMeta((page) => ({
-      ...page,
-      creativeCard: {
-        ...(page.creativeCard || {}),
-        actions: (page.creativeCard?.actions || []).filter((_, idx) => idx !== index),
+        actions: value.trim() ? [value] : [],
       },
     }));
   };
@@ -2965,10 +2941,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         backgroundSound: '背景音',
         transitionEditing: '转场 / 剪辑',
         callToAction: '行动号召',
-        addScene: '新增幕',
-        deleteScene: '删除',
-        scenePrefix: '第',
-        sceneSuffix: '幕',
       };
     }
     if (lang.startsWith('ko')) {
@@ -2982,10 +2954,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         backgroundSound: '배경음',
         transitionEditing: '전환 / 편집',
         callToAction: '콜 투 액션',
-        addScene: '씬 추가',
-        deleteScene: '삭제',
-        scenePrefix: '씬 ',
-        sceneSuffix: '',
       };
     }
     if (lang.startsWith('vi')) {
@@ -2999,10 +2967,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         backgroundSound: 'Âm thanh nền',
         transitionEditing: 'Chuyển cảnh / Dựng',
         callToAction: 'Kêu gọi hành động',
-        addScene: 'Thêm cảnh',
-        deleteScene: 'Xóa',
-        scenePrefix: 'Cảnh ',
-        sceneSuffix: '',
       };
     }
     if (lang.startsWith('ms')) {
@@ -3016,10 +2980,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         backgroundSound: 'Bunyi Latar',
         transitionEditing: 'Peralihan / Suntingan',
         callToAction: 'Seruan Tindakan',
-        addScene: 'Tambah babak',
-        deleteScene: 'Padam',
-        scenePrefix: 'Babak ',
-        sceneSuffix: '',
       };
     }
     return {
@@ -3032,10 +2992,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       backgroundSound: 'Background Sound',
       transitionEditing: 'Transition / Editing',
       callToAction: 'Call to Action',
-      addScene: 'Add Scene',
-      deleteScene: 'Delete',
-      scenePrefix: 'Scene ',
-      sceneSuffix: '',
     };
   }, [language]);
 
@@ -6169,39 +6125,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             <div className={cardThemeClass.actionsBlock}>
                               <div className="mb-0.5 flex items-center justify-between">
                                 <span className={cardThemeClass.subLabel}>{cardLabels.actions}</span>
-                                <button
-                                    type="button"
-                                    onClick={addActiveCreativeCardAction}
-                                    className={cardThemeClass.button}
-                                >
-                                  {cardLabels.addScene}
-                                </button>
                               </div>
-                              <div className="space-y-1">
-                                {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0 ? activeCreativeCard.actions : ['']).map((item, idx) => (
-                                    <div key={`card-action-edit-${idx}`} className={cardThemeClass.actionRow}>
-                                      <span className={cardThemeClass.actionIndex}>{idx + 1}.</span>
-                                      <textarea
-                                          rows={1}
-                                          data-card-autosize="true"
-                                          value={item}
-                                          onChange={(e) => updateActiveCreativeCardAction(idx, e.target.value)}
-                                          onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                          placeholder={`${cardLabels.scenePrefix}${idx + 1}${cardLabels.sceneSuffix}...`}
-                                          className={cardThemeClass.textarea}
-                                      />
-                                      {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0) && (
-                                          <button
-                                              type="button"
-                                              onClick={() => removeActiveCreativeCardAction(idx)}
-                                              className={cardThemeClass.dangerButton}
-                                              title={cardLabels.deleteScene}
-                                          >
-                                            {cardLabels.deleteScene}
-                                          </button>
-                                      )}
-                                    </div>
-                                ))}
+                              <div className={cardThemeClass.actionRow}>
+                                <textarea
+                                    rows={1}
+                                    data-card-autosize="true"
+                                    value={(activeCreativeCard?.actions || []).join('\n')}
+                                    onChange={(e) => updateActiveCreativeCardActionsText(e.target.value)}
+                                    onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                    className={cardThemeClass.textarea}
+                                />
                               </div>
                             </div>
 

@@ -2932,15 +2932,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const lang = String(language || 'en').toLowerCase();
     if (lang.startsWith('zh')) {
       return {
-        style: '[风格]:',
-        environment: '[环境]:',
-        tonePacing: '[语调与节奏]:',
-        camera: '[镜头]:',
-        lighting: '[光线]:',
-        actions: '[动作]:',
-        backgroundSound: '[背景音]:',
-        transitionEditing: '[转场 / 剪辑]:',
-        callToAction: '[行动号召]:',
+        style: '风格',
+        environment: '环境',
+        tonePacing: '语调与节奏',
+        camera: '镜头',
+        lighting: '光线',
+        actions: '动作',
+        backgroundSound: '背景音',
+        transitionEditing: '转场 / 剪辑',
+        callToAction: '行动号召',
         addScene: '新增幕',
         deleteScene: '删除',
         scenePrefix: '第',
@@ -2949,15 +2949,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
     if (lang.startsWith('ko')) {
       return {
-        style: '[스타일]:',
-        environment: '[환경]:',
-        tonePacing: '[톤 & 페이싱]:',
-        camera: '[카메라]:',
-        lighting: '[조명]:',
-        actions: '[액션]:',
-        backgroundSound: '[배경음]:',
-        transitionEditing: '[전환 / 편집]:',
-        callToAction: '[콜 투 액션]:',
+        style: '스타일',
+        environment: '환경',
+        tonePacing: '톤 & 페이싱',
+        camera: '카메라',
+        lighting: '조명',
+        actions: '액션',
+        backgroundSound: '배경음',
+        transitionEditing: '전환 / 편집',
+        callToAction: '콜 투 액션',
         addScene: '씬 추가',
         deleteScene: '삭제',
         scenePrefix: '씬 ',
@@ -2966,15 +2966,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
     if (lang.startsWith('vi')) {
       return {
-        style: '[Phong cách]:',
-        environment: '[Bối cảnh]:',
-        tonePacing: '[Tông & Nhịp độ]:',
-        camera: '[Máy quay]:',
-        lighting: '[Ánh sáng]:',
-        actions: '[Hành động]:',
-        backgroundSound: '[Âm thanh nền]:',
-        transitionEditing: '[Chuyển cảnh / Dựng]:',
-        callToAction: '[Kêu gọi hành động]:',
+        style: 'Phong cách',
+        environment: 'Bối cảnh',
+        tonePacing: 'Tông & Nhịp độ',
+        camera: 'Máy quay',
+        lighting: 'Ánh sáng',
+        actions: 'Hành động',
+        backgroundSound: 'Âm thanh nền',
+        transitionEditing: 'Chuyển cảnh / Dựng',
+        callToAction: 'Kêu gọi hành động',
         addScene: 'Thêm cảnh',
         deleteScene: 'Xóa',
         scenePrefix: 'Cảnh ',
@@ -2983,15 +2983,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
     if (lang.startsWith('ms')) {
       return {
-        style: '[Gaya]:',
-        environment: '[Persekitaran]:',
-        tonePacing: '[Nada & Rentak]:',
-        camera: '[Kamera]:',
-        lighting: '[Pencahayaan]:',
-        actions: '[Aksi]:',
-        backgroundSound: '[Bunyi Latar]:',
-        transitionEditing: '[Peralihan / Suntingan]:',
-        callToAction: '[Seruan Tindakan]:',
+        style: 'Gaya',
+        environment: 'Persekitaran',
+        tonePacing: 'Nada & Rentak',
+        camera: 'Kamera',
+        lighting: 'Pencahayaan',
+        actions: 'Aksi',
+        backgroundSound: 'Bunyi Latar',
+        transitionEditing: 'Peralihan / Suntingan',
+        callToAction: 'Seruan Tindakan',
         addScene: 'Tambah babak',
         deleteScene: 'Padam',
         scenePrefix: 'Babak ',
@@ -2999,15 +2999,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       };
     }
     return {
-      style: '[Style]:',
-      environment: '[Environment]:',
-      tonePacing: '[Tone & Pacing]:',
-      camera: '[Camera]:',
-      lighting: '[Lighting]:',
-      actions: '[ACTIONS]:',
-      backgroundSound: '[Background Sound]:',
-      transitionEditing: '[Transition / Editing]:',
-      callToAction: '[Call to Action]:',
+      style: 'Style',
+      environment: 'Environment',
+      tonePacing: 'Tone & Pacing',
+      camera: 'Camera',
+      lighting: 'Lighting',
+      actions: 'Actions',
+      backgroundSound: 'Background Sound',
+      transitionEditing: 'Transition / Editing',
+      callToAction: 'Call to Action',
       addScene: 'Add Scene',
       deleteScene: 'Delete',
       scenePrefix: 'Scene ',
@@ -3018,37 +3018,55 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const cardThemeClass = useMemo(() => {
     if (isLightTheme) {
       return {
-        shell: 'rounded-xl border border-slate-300 bg-slate-100/95 px-2.5 py-2.5 text-slate-800 shadow-sm',
+        shell: 'rounded-2xl px-0 py-0 text-slate-800',
+        panel: 'rounded-xl border border-slate-300/85 bg-white/90 p-1.5',
+        row: 'flex items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-100/85 border border-transparent focus-within:border-purple-300/60 focus-within:bg-purple-50/35',
+        actionsBlock: 'rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-100/85 border border-transparent focus-within:border-purple-300/60 focus-within:bg-purple-50/35',
+        actionRow: 'flex items-start gap-2 rounded-md px-1.5 py-1 border border-slate-200/80 bg-white/70',
+        actionIndex: 'mt-0.5 text-[11px] font-semibold text-slate-600',
         label: 'font-semibold text-slate-800 tracking-tight',
         input: 'mt-0.5 w-full min-h-[28px] rounded-md border border-slate-300 bg-white px-2 py-1 text-[12px] leading-4 text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400/40 resize-y custom-scroll',
         actionItem: 'rounded-md border border-slate-300 bg-white p-1',
         actionInput: 'w-full min-h-[28px] rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[12px] leading-4 text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400/30 resize-y custom-scroll',
         button: 'text-[11px] px-2 py-0.5 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition',
         dangerButton: 'text-[11px] px-1.5 py-0.5 rounded border border-slate-300 text-slate-600 hover:text-red-600 hover:border-red-300 hover:bg-red-50 transition',
-        subLabel: 'text-[11px] font-semibold text-slate-700',
+        subLabel: 'shrink-0 mt-0.5 text-[10px] leading-4 font-semibold text-emerald-800 border border-emerald-300 bg-emerald-50 rounded-full px-2 py-0.5',
+        textarea: 'flex-1 bg-transparent border-0 p-0 text-[12px] leading-5 focus:outline-none resize-none text-slate-800 placeholder:text-slate-400',
       };
     }
     if (isDimTheme) {
       return {
-        shell: 'rounded-xl border border-slate-500/40 bg-slate-900/60 px-2.5 py-2.5 text-slate-100 shadow-[0_8px_20px_rgba(15,23,42,0.25)]',
+        shell: 'rounded-2xl px-0 py-0 text-slate-100',
+        panel: 'rounded-xl border border-slate-500/35 bg-slate-950/45 p-1.5',
+        row: 'flex items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-800/55 border border-transparent focus-within:border-emerald-400/45 focus-within:bg-emerald-500/10',
+        actionsBlock: 'rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-800/55 border border-transparent focus-within:border-emerald-400/45 focus-within:bg-emerald-500/10',
+        actionRow: 'flex items-start gap-2 rounded-md px-1.5 py-1 border border-slate-500/35 bg-slate-900/55',
+        actionIndex: 'mt-0.5 text-[11px] font-semibold text-slate-400',
         label: 'font-semibold text-slate-100 tracking-tight',
         input: 'mt-0.5 w-full min-h-[28px] rounded-md border border-slate-500/40 bg-slate-800/70 px-2 py-1 text-[12px] leading-4 text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-300/30 resize-y custom-scroll',
         actionItem: 'rounded-md border border-slate-500/40 bg-slate-800/70 p-1',
         actionInput: 'w-full min-h-[28px] rounded-md border border-slate-500/30 bg-slate-900/60 px-2 py-1 text-[12px] leading-4 text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-300/25 resize-y custom-scroll',
         button: 'text-[11px] px-2 py-0.5 rounded-md border border-slate-400/40 bg-slate-700/60 text-slate-100 hover:bg-slate-700/80 transition',
         dangerButton: 'text-[11px] px-1.5 py-0.5 rounded border border-slate-400/40 text-slate-300 hover:text-red-300 hover:border-red-300/40 hover:bg-red-500/10 transition',
-        subLabel: 'text-[11px] font-semibold text-slate-300',
+        subLabel: 'shrink-0 mt-0.5 text-[10px] leading-4 font-semibold text-emerald-300 border border-emerald-400/40 bg-emerald-500/10 rounded-full px-2 py-0.5',
+        textarea: 'flex-1 bg-transparent border-0 p-0 text-[12px] leading-5 focus:outline-none resize-none text-slate-100 placeholder:text-slate-500',
       };
     }
     return {
-      shell: 'rounded-xl border border-white/10 bg-zinc-900/45 px-2.5 py-2.5 text-zinc-100 shadow-[0_8px_20px_rgba(0,0,0,0.25)]',
+      shell: 'rounded-2xl px-0 py-0 text-zinc-100',
+      panel: 'rounded-xl border border-zinc-600/40 bg-zinc-950/45 p-1.5',
+      row: 'flex items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/5 border border-transparent focus-within:border-emerald-400/40 focus-within:bg-emerald-500/10',
+      actionsBlock: 'rounded-lg px-2 py-1.5 transition-colors hover:bg-white/5 border border-transparent focus-within:border-emerald-400/40 focus-within:bg-emerald-500/10',
+      actionRow: 'flex items-start gap-2 rounded-md px-1.5 py-1 border border-zinc-600/45 bg-zinc-900/60',
+      actionIndex: 'mt-0.5 text-[11px] font-semibold text-zinc-400',
       label: 'font-semibold text-zinc-100 tracking-tight',
       input: 'mt-0.5 w-full min-h-[28px] rounded-md border border-zinc-600 bg-zinc-800/80 px-2 py-1 text-[12px] leading-4 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-300/25 resize-y custom-scroll',
       actionItem: 'rounded-md border border-zinc-600 bg-zinc-800/80 p-1',
       actionInput: 'w-full min-h-[28px] rounded-md border border-zinc-500/60 bg-zinc-900/70 px-2 py-1 text-[12px] leading-4 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-300/20 resize-y custom-scroll',
       button: 'text-[11px] px-2 py-0.5 rounded-md border border-zinc-500 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition',
       dangerButton: 'text-[11px] px-1.5 py-0.5 rounded border border-zinc-500 text-zinc-300 hover:text-red-300 hover:border-red-300/40 hover:bg-red-500/10 transition',
-      subLabel: 'text-[11px] font-semibold text-zinc-300',
+      subLabel: 'shrink-0 mt-0.5 text-[10px] leading-4 font-semibold text-emerald-300 border border-emerald-400/35 bg-emerald-500/10 rounded-full px-2 py-0.5',
+      textarea: 'flex-1 bg-transparent border-0 p-0 text-[12px] leading-5 focus:outline-none resize-none text-zinc-100 placeholder:text-zinc-500',
     };
   }, [isLightTheme, isDimTheme]);
 
@@ -5960,83 +5978,92 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
                     <div className="space-y-1.5 relative z-10">
                       <div className={cardThemeClass.shell}>
-                        <div className="space-y-1 text-[12px] leading-4">
-                          <div>
-                            <div className={cardThemeClass.label}>{cardLabels.style}</div>
-                            <textarea
-                                rows={1}
-                                data-card-autosize="true"
-                                value={activeCreativeCard?.style || ''}
-                                onChange={(e) => updateActiveCreativeCardField('style', e.target.value)}
-                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                className={cardThemeClass.input}
-                            />
-                          </div>
-
-                          <div>
-                            <div className={cardThemeClass.label}>{cardLabels.environment}</div>
-                            <textarea
-                                rows={1}
-                                data-card-autosize="true"
-                                value={activeCreativeCard?.environment || ''}
-                                onChange={(e) => updateActiveCreativeCardField('environment', e.target.value)}
-                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                className={cardThemeClass.input}
-                            />
-                          </div>
-
-                          <div>
-                            <div className={cardThemeClass.label}>{cardLabels.tonePacing}</div>
-                            <textarea
-                                rows={1}
-                                data-card-autosize="true"
-                                value={activeCreativeCard?.tonePacing || ''}
-                                onChange={(e) => updateActiveCreativeCardField('tonePacing', e.target.value)}
-                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                className={cardThemeClass.input}
-                            />
-                          </div>
-
-                          <div>
-                            <div className={cardThemeClass.label}>{cardLabels.camera}</div>
-                            <textarea
-                                rows={1}
-                                data-card-autosize="true"
-                                value={activeCreativeCard?.camera || ''}
-                                onChange={(e) => updateActiveCreativeCardField('camera', e.target.value)}
-                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                className={cardThemeClass.input}
-                            />
-                          </div>
-
-                          <div>
-                            <div className={cardThemeClass.label}>{cardLabels.lighting}</div>
-                            <textarea
-                                rows={1}
-                                data-card-autosize="true"
-                                value={activeCreativeCard?.lighting || ''}
-                                onChange={(e) => updateActiveCreativeCardField('lighting', e.target.value)}
-                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                className={cardThemeClass.input}
-                            />
-                          </div>
-
-                          <div>
-                            <div className="mb-0.5 flex items-center justify-between">
-                              <span className={cardThemeClass.label}>{cardLabels.actions}</span>
-                              <button
-                                  type="button"
-                                  onClick={addActiveCreativeCardAction}
-                                  className={cardThemeClass.button}
-                              >
-                                {cardLabels.addScene}
-                              </button>
+                        <div className={cardThemeClass.panel}>
+                          <div className={`space-y-1 ${isLightTheme ? 'text-slate-800' : 'text-zinc-100'}`}>
+                            <div className={cardThemeClass.row}>
+                              <span className={cardThemeClass.subLabel}>{cardLabels.style}</span>
+                              <textarea
+                                  rows={1}
+                                  data-card-autosize="true"
+                                  value={activeCreativeCard?.style || ''}
+                                  onChange={(e) => updateActiveCreativeCardField('style', e.target.value)}
+                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                  className={cardThemeClass.textarea}
+                              />
                             </div>
-                            <div className="space-y-1">
-                              {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0 ? activeCreativeCard.actions : ['']).map((item, idx) => (
-                                  <div key={`card-action-edit-${idx}`} className={cardThemeClass.actionItem}>
-                                    <div className="mb-0.5 flex items-center justify-between">
-                                      <span className={cardThemeClass.subLabel}>{`${cardLabels.scenePrefix}${idx + 1}${cardLabels.sceneSuffix}`}</span>
+
+                            <div className={cardThemeClass.row}>
+                              <span className={cardThemeClass.subLabel}>{cardLabels.environment}</span>
+                              <textarea
+                                  rows={1}
+                                  data-card-autosize="true"
+                                  value={activeCreativeCard?.environment || ''}
+                                  onChange={(e) => updateActiveCreativeCardField('environment', e.target.value)}
+                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                  className={cardThemeClass.textarea}
+                              />
+                            </div>
+
+                            <div className={cardThemeClass.row}>
+                              <span className={cardThemeClass.subLabel}>{cardLabels.tonePacing}</span>
+                              <textarea
+                                  rows={1}
+                                  data-card-autosize="true"
+                                  value={activeCreativeCard?.tonePacing || ''}
+                                  onChange={(e) => updateActiveCreativeCardField('tonePacing', e.target.value)}
+                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                  className={cardThemeClass.textarea}
+                              />
+                            </div>
+
+                            <div className={cardThemeClass.row}>
+                              <span className={cardThemeClass.subLabel}>{cardLabels.camera}</span>
+                              <textarea
+                                  rows={1}
+                                  data-card-autosize="true"
+                                  value={activeCreativeCard?.camera || ''}
+                                  onChange={(e) => updateActiveCreativeCardField('camera', e.target.value)}
+                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                  className={cardThemeClass.textarea}
+                              />
+                            </div>
+
+                            <div className={cardThemeClass.row}>
+                              <span className={cardThemeClass.subLabel}>{cardLabels.lighting}</span>
+                              <textarea
+                                  rows={1}
+                                  data-card-autosize="true"
+                                  value={activeCreativeCard?.lighting || ''}
+                                  onChange={(e) => updateActiveCreativeCardField('lighting', e.target.value)}
+                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                  className={cardThemeClass.textarea}
+                              />
+                            </div>
+
+                            <div className={cardThemeClass.actionsBlock}>
+                              <div className="mb-0.5 flex items-center justify-between">
+                                <span className={cardThemeClass.subLabel}>{cardLabels.actions}</span>
+                                <button
+                                    type="button"
+                                    onClick={addActiveCreativeCardAction}
+                                    className={cardThemeClass.button}
+                                >
+                                  {cardLabels.addScene}
+                                </button>
+                              </div>
+                              <div className="space-y-1">
+                                {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0 ? activeCreativeCard.actions : ['']).map((item, idx) => (
+                                    <div key={`card-action-edit-${idx}`} className={cardThemeClass.actionRow}>
+                                      <span className={cardThemeClass.actionIndex}>{idx + 1}.</span>
+                                      <textarea
+                                          rows={1}
+                                          data-card-autosize="true"
+                                          value={item}
+                                          onChange={(e) => updateActiveCreativeCardAction(idx, e.target.value)}
+                                          onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                          placeholder={`${cardLabels.scenePrefix}${idx + 1}${cardLabels.sceneSuffix}...`}
+                                          className={cardThemeClass.textarea}
+                                      />
                                       {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0) && (
                                           <button
                                               type="button"
@@ -6048,54 +6075,45 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                           </button>
                                       )}
                                     </div>
-                                    <textarea
-                                        rows={1}
-                                        data-card-autosize="true"
-                                        value={item}
-                                        onChange={(e) => updateActiveCreativeCardAction(idx, e.target.value)}
-                                        onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                        placeholder={`${cardLabels.scenePrefix}${idx + 1}${cardLabels.sceneSuffix}...`}
-                                        className={cardThemeClass.actionInput}
-                                    />
-                                  </div>
-                              ))}
+                                ))}
+                              </div>
                             </div>
-                          </div>
 
-                          <div>
-                            <div className={cardThemeClass.label}>{cardLabels.backgroundSound}</div>
-                            <textarea
-                                rows={1}
-                                data-card-autosize="true"
-                                value={activeCreativeCard?.backgroundSound || ''}
-                                onChange={(e) => updateActiveCreativeCardField('backgroundSound', e.target.value)}
-                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                className={cardThemeClass.input}
-                            />
-                          </div>
+                            <div className={cardThemeClass.row}>
+                              <span className={cardThemeClass.subLabel}>{cardLabels.backgroundSound}</span>
+                              <textarea
+                                  rows={1}
+                                  data-card-autosize="true"
+                                  value={activeCreativeCard?.backgroundSound || ''}
+                                  onChange={(e) => updateActiveCreativeCardField('backgroundSound', e.target.value)}
+                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                  className={cardThemeClass.textarea}
+                              />
+                            </div>
 
-                          <div>
-                            <div className={cardThemeClass.label}>{cardLabels.transitionEditing}</div>
-                            <textarea
-                                rows={1}
-                                data-card-autosize="true"
-                                value={activeCreativeCard?.transitionEditing || ''}
-                                onChange={(e) => updateActiveCreativeCardField('transitionEditing', e.target.value)}
-                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                className={cardThemeClass.input}
-                            />
-                          </div>
+                            <div className={cardThemeClass.row}>
+                              <span className={cardThemeClass.subLabel}>{cardLabels.transitionEditing}</span>
+                              <textarea
+                                  rows={1}
+                                  data-card-autosize="true"
+                                  value={activeCreativeCard?.transitionEditing || ''}
+                                  onChange={(e) => updateActiveCreativeCardField('transitionEditing', e.target.value)}
+                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                  className={cardThemeClass.textarea}
+                              />
+                            </div>
 
-                          <div>
-                            <div className={cardThemeClass.label}>{cardLabels.callToAction}</div>
-                            <textarea
-                                rows={1}
-                                data-card-autosize="true"
-                                value={activeCreativeCard?.callToAction || ''}
-                                onChange={(e) => updateActiveCreativeCardField('callToAction', e.target.value)}
-                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                className={cardThemeClass.input}
-                            />
+                            <div className={cardThemeClass.row}>
+                              <span className={cardThemeClass.subLabel}>{cardLabels.callToAction}</span>
+                              <textarea
+                                  rows={1}
+                                  data-card-autosize="true"
+                                  value={activeCreativeCard?.callToAction || ''}
+                                  onChange={(e) => updateActiveCreativeCardField('callToAction', e.target.value)}
+                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                  className={cardThemeClass.textarea}
+                              />
+                            </div>
                           </div>
                         </div>
                       </div>

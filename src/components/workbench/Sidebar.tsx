@@ -1,5 +1,5 @@
 import React from 'react';
-import { Zap, Image as ImageIcon, History, Sparkles, User as UserIcon, CreditCard } from 'lucide-react';
+import { Zap, Image as ImageIcon, History, Sparkles, User as UserIcon, CreditCard, LayoutDashboard } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 // 1. Import the type
@@ -41,6 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
         <InternalNav icon={Zap} view="workbench" label={t.wb_nav_workbench} />
         <InternalNav icon={ImageIcon} view="assets" label={t.wb_nav_assets} />
         <InternalNav icon={History} view="history" label={t.wb_nav_history} />
+        <InternalNav icon={LayoutDashboard} view="canvas" label={t.wb_nav_canvas || 'Canvas'} />
         {isDebugModeEnabled && <InternalNav icon={Sparkles} view="agent" label={t.wb_nav_agent} />}
         <InternalNav icon={CreditCard} view="billing" label={t.wb_nav_billing || 'Billing'} />
       </div>

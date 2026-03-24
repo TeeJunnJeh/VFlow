@@ -537,3 +537,15 @@ html.theme-dim .hist-workbar-toggle-active {
   background-color: #232333 !important;
   color: #ffffff !important;
 }
+
+/* --- Canvas: ReactFlow selection highlight (bright for dark mode) --- */
+.react-flow {
+  --xy-selection-background-color: rgba(249, 115, 22, 0.12);
+  --xy-selection-border: 1.5px dashed rgba(249, 115, 22, 0.7);
+  --xy-node-boxshadow-selected: 0 0 0 2px rgba(249, 115, 22, 0.6);
+}
+.theme-light .react-flow {
+  --xy-selection-background-color: rgba(249, 115, 22, 0.08);
+  --xy-selection-border: 1.5px dashed rgba(234, 88, 12, 0.5);
+  --xy-node-boxshadow-selected: 0 0 0 2px rgba(234, 88, 12, 0.45);
+}

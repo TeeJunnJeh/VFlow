@@ -16,6 +16,7 @@ import { EditorView } from '../components/workbench/EditorView';
 import { ProfileView } from '../components/workbench/ProfileView';
 import { BillingView } from '../components/workbench/BillingView';
 import { Sidebar } from '../components/workbench/Sidebar';
+import { CanvasEditor } from '../components/canvas/CanvasEditor';
 import type { ViewType } from '../components/workbench/types';
 import { useLocation } from 'react-router-dom';
 import { WorkbenchModelProvider } from '../context/WorkbenchModelContext';
@@ -315,6 +316,12 @@ const Workbench = () => {
           {activeView === 'agent' && isDebugModeEnabled && <AgentView />}
 
           {activeView === 'billing' && <BillingView />}
+
+          {activeView === 'canvas' && (
+            <div className="flex-1 h-full min-h-0">
+              <CanvasEditor />
+            </div>
+          )}
 
           {activeView === 'profile' && (
             <ProfileView

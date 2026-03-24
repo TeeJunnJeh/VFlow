@@ -7,4 +7,5 @@ export type ViewType =
   | 'agent'
   | 'editor'
   | 'profile'
-  | 'billing';
+  | 'billing'
+  | 'canvas';

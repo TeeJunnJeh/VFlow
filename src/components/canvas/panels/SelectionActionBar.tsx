@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Video, FileText, ImageIcon, Trash2, Copy, Play, Loader2, X, ScrollText, Film } from 'lucide-react';
 import { useCanvasStore } from '../canvasStore';
 import { useLanguage } from '../../../context/LanguageContext';
-import type { CanvasNodeData, VideoNodeData, CanvasNode } from '../canvasTypes';
+import type { CanvasNodeData, VideoNodeData, CanvasNode, TextNodeData, ScriptNodeData } from '../canvasTypes';
 
 const MODEL_OPTIONS = [
   { value: 'kling', label: 'Kling' },
@@ -23,10 +23,14 @@ type GenStep = null | 'choose' | 'video' | 'script';
 interface SelectionActionBarProps {
   onBatchGenerate?: (
     imageNodes: CanvasNode[],
+    scriptNodes: CanvasNode[],
+    textNodes: CanvasNode[],
     prompt: string,
     model: string,
     duration: number,
-    aspectRatio: VideoNodeData['aspectRatio']
+    aspectRatio: VideoNodeData['aspectRatio'],
+    sound: boolean,
+    scriptTextContext: string
   ) => void;
   onGenerateScript?: (
     imageNodes: CanvasNode[],
@@ -71,6 +75,26 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
   const imageNodes = selectedNodes.filter((n) => (n.data as CanvasNodeData).kind === 'image');
   const textNodes = selectedNodes.filter((n) => (n.data as CanvasNodeData).kind === 'text');
   const videoNodes = selectedNodes.filter((n) => (n.data as CanvasNodeData).kind === 'video');
+  const scriptNodes = selectedNodes.filter((n) => (n.data as CanvasNodeData).kind === 'script');
+
+  // Build context from script + text nodes for video generation
+  const hasScriptOrTextContext = scriptNodes.length > 0 || textNodes.length > 0;
+  const scriptTextContext = (() => {
+    const parts: string[] = [];
+    textNodes.forEach((n) => {
+      const d = n.data as TextNodeData;
+      if (d.content.trim()) parts.push(d.content.trim());
+    });
+    scriptNodes.forEach((n) => {
+      const d = n.data as ScriptNodeData;
+      if (d.shots) {
+        d.shots.forEach((shot) => {
+          if (shot.visual) parts.push(`[Shot ${shot.shot_index}] ${shot.visual}`);
+        });
+      }
+    });
+    return parts.join('\n');
+  })();
 
   const handleDeleteSelected = () => {
     removeNodes(selectedNodes.map((n) => n.id));
@@ -89,10 +113,10 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
   };
 
   const handleBatchGenerateVideo = async () => {
-    if (!batchPrompt.trim() || imageNodes.length === 0) return;
+    if ((!batchPrompt.trim() && !hasScriptOrTextContext) || imageNodes.length === 0) return;
     setIsGenerating(true);
     try {
-      onBatchGenerate?.(imageNodes, batchPrompt, batchModel, batchDuration, batchRatio);
+      onBatchGenerate?.(imageNodes, scriptNodes, textNodes, batchPrompt, batchModel, batchDuration, batchRatio, batchSound, scriptTextContext);
     } finally {
       setIsGenerating(false);
       setStep('choose');
@@ -212,11 +236,19 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
           </div>
           <p className="text-[10px] text-zinc-500">{basedOn}</p>
 
+          {/* Script/text context indicator */}
+          {hasScriptOrTextContext && (
+            <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-orange-500/10 border border-orange-500/20">
+              <ScrollText className="w-3.5 h-3.5 text-orange-400 flex-shrink-0" />
+              <span className="text-[11px] text-orange-300">{t.canvas_video_has_script_context}</span>
+            </div>
+          )}
+
           {/* Prompt */}
           <textarea
             value={batchPrompt}
             onChange={(e) => setBatchPrompt(e.target.value)}
-            placeholder={t.canvas_prompt_input_placeholder}
+            placeholder={hasScriptOrTextContext ? t.canvas_video_supplement_prompt : t.canvas_prompt_input_placeholder}
             rows={2}
             className="w-full px-2.5 py-1.5 text-xs bg-zinc-800 border border-white/10 rounded-md text-zinc-300 resize-none focus:outline-none focus:border-purple-500/50"
           />
@@ -282,7 +314,7 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
             </button>
             <button
               onClick={handleBatchGenerateVideo}
-              disabled={isGenerating || !batchPrompt.trim()}
+              disabled={isGenerating || (!batchPrompt.trim() && !hasScriptOrTextContext)}
               className="px-4 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-purple-600 hover:bg-purple-500 text-white"
             >
               {isGenerating ? (

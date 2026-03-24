@@ -24,7 +24,10 @@ import { SelectionActionBar } from './panels/SelectionActionBar';
 import { ContextMenu, type ContextMenuPosition } from './panels/ContextMenu';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
+import { useTasks } from '../../context/TaskContext';
 import { videoApi } from '../../services/video';
+import { assetsApi } from '../../services/assets';
+import { generateScriptForCanvas } from './canvasScriptService';
 import type { CanvasSnapshot, CanvasNode, CanvasNodeData, ImageNodeData, VideoNodeData, TextNodeData, ScriptNodeData } from './canvasTypes';
 
 // Register custom node/edge types
@@ -99,6 +102,19 @@ function nextId() {
   return `node_${Date.now()}_${++nodeIdCounter}`;
 }
 
+/** Upload a blob/object URL to the server, return the server path. Non-blob URLs pass through. */
+async function resolveImagePath(url: string): Promise<string> {
+  if (!url.startsWith('blob:')) return url;
+  const resp = await fetch(url);
+  const blob = await resp.blob();
+  const ext = blob.type.split('/')[1] || 'jpg';
+  const file = new File([blob], `canvas_${Date.now()}.${ext}`, { type: blob.type });
+  const uploadResp = await assetsApi.uploadTempAsset(file);
+  const path = uploadResp?.url || uploadResp?.data?.url || uploadResp?.file_url || uploadResp?.path;
+  if (!path) throw new Error('Failed to upload image');
+  return path;
+}
+
 function CanvasEditorInner() {
   const {
     nodes,
@@ -119,6 +135,7 @@ function CanvasEditorInner() {
 
   const { t, language } = useLanguage();
   const { user } = useAuth();
+  const { addTask, tasks } = useTasks();
   const { screenToFlowPosition } = useReactFlow();
   const [isSaving, setIsSaving] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -423,44 +440,14 @@ function CanvasEditorInner() {
         });
       });
 
-      // Call API
+      // Call API via encapsulated service
       try {
         const userId = user?.id;
         if (!userId) throw new Error('User not authenticated');
 
-        const payload = {
-          product_category: config.category,
-          visual_style: config.style,
-          aspect_ratio: config.aspectRatio,
-          user_language: language,
-          target_language: language,
-          sound: 'on',
-          script_count: 1,
-          script_content: {
-            duration: config.duration,
-            shot_number: config.shotCount,
-            custom: config.notes,
-            input: textContent,
-            shots: [],
-          },
-          reference_assets: imagePaths.map((path) => ({
-            path,
-            type: 'reference_image',
-          })),
-        };
-
-        const response = await videoApi.generateScript(userId, payload);
-        const data = response?.data || response;
-        const shots = data?.shots || data?.script_content?.shots || [];
-
-        const parsedShots = shots.map((shot: Record<string, unknown>, idx: number) => ({
-          shot_index: (shot.shot_index as number) ?? idx + 1,
-          type: (shot.type as string) || 'Medium',
-          duration_sec: (shot.duration_sec as number) || 3,
-          visual: (shot.visual as string) || '',
-          audio: (shot.audio as string) || '',
-          voiceover: (shot.voiceover as string) || '',
-        }));
+        const parsedShots = await generateScriptForCanvas(
+          userId, config, imagePaths, textContent, language
+        );
 
         updateNodeData(newId, { status: 'completed', shots: parsedShots } as Partial<ScriptNodeData>);
       } catch (err) {
@@ -471,33 +458,44 @@ function CanvasEditorInner() {
     [addNode, updateNodeData, user, language]
   );
 
-  // Batch generate: create ONE Video node connected to ALL selected images
+  // Batch generate: create ONE Video node, call API, add to TaskContext
   const handleBatchGenerate = useCallback(
-    (
+    async (
       imageNodes: CanvasNode[],
+      scriptNodes: CanvasNode[],
+      textNodes: CanvasNode[],
       prompt: string,
       model: string,
       duration: number,
-      aspectRatio: VideoNodeData['aspectRatio']
+      aspectRatio: VideoNodeData['aspectRatio'],
+      sound: boolean,
+      scriptTextContext: string
     ) => {
       if (imageNodes.length === 0) return;
 
-      // Compute position: right of rightmost image, vertically centered
+      // Compute position: right of rightmost source node, vertically centered
+      const allSourceNodes = [...imageNodes, ...scriptNodes, ...textNodes];
       let maxX = -Infinity;
       let sumY = 0;
       const imagePaths: string[] = [];
-      imageNodes.forEach((imgNode) => {
-        const imgData = imgNode.data as ImageNodeData;
-        if (imgNode.position.x > maxX) maxX = imgNode.position.x;
-        sumY += imgNode.position.y;
-        if (imgData.imageUrl) imagePaths.push(imgData.imageUrl);
+      allSourceNodes.forEach((n) => {
+        if (n.position.x > maxX) maxX = n.position.x;
+        sumY += n.position.y;
       });
-      const avgY = sumY / imageNodes.length;
+      imageNodes.forEach((n) => {
+        const d = n.data as ImageNodeData;
+        if (d.imageUrl) imagePaths.push(d.imageUrl);
+      });
+      const avgY = sumY / allSourceNodes.length;
 
+      // Combine prompt: script/text context + user input
+      const fullPrompt = [scriptTextContext, prompt].filter(Boolean).join('\n\n');
+
+      // Create VideoNode in running state
       const videoData: VideoNodeData = {
-        kind: 'video', label: 'Video', status: 'idle',
+        kind: 'video', label: 'Video', status: 'running',
         videoUrl: null, thumbnailUrl: null, taskId: null, projectId: null,
-        prompt,
+        prompt: fullPrompt,
         model,
         duration,
         aspectRatio,
@@ -506,18 +504,142 @@ function CanvasEditorInner() {
       const newId = nextId();
       addNode({ id: newId, type: 'video', position: { x: maxX + 350, y: avgY }, data: videoData } as CanvasNode);
 
-      // Connect ALL images → single video node
-      imageNodes.forEach((imgNode) => {
+      // Connect ALL source nodes → single video node
+      allSourceNodes.forEach((n) => {
         useCanvasStore.getState().onConnect({
-          source: imgNode.id,
+          source: n.id,
           target: newId,
           sourceHandle: null,
           targetHandle: null,
         });
       });
+
+      // Call API
+      try {
+        const userId = user?.id;
+        if (!userId) throw new Error('User not authenticated');
+
+        // Step 1: Create project
+        const createResp = await videoApi.createProject(userId, {
+          title: fullPrompt.slice(0, 50) || 'Canvas Video',
+          aspect_ratio: aspectRatio,
+        });
+        const respData = createResp?.data || createResp;
+        const projectId = String(respData?.id || respData?.project_id || '');
+        if (!projectId) throw new Error('Failed to create project');
+
+        updateNodeData(newId, { projectId } as Partial<VideoNodeData>);
+
+        // Step 2: Upload all images to server (blob URLs → /media/... paths)
+        const uploadedPaths: string[] = [];
+        for (const path of imagePaths) {
+          const serverPath = await resolveImagePath(path);
+          uploadedPaths.push(serverPath);
+        }
+
+        // Step 3: Build payload aligned with workbench (WV:2264-2329)
+        // Model mapping (WV:4114-4121)
+        const backendModel = model === 'sora2pro' ? 'sora-2-pro'
+          : model === 'sora2' ? 'sora-2'
+          : model; // 'kling' stays as-is
+        const isKling = backendModel === 'kling';
+
+        let generatePayload: Record<string, unknown>;
+
+        if (isKling && uploadedPaths.length > 0) {
+          // Kling payload — match workbench exactly (WV:2312-2329)
+          generatePayload = {
+            model: backendModel,
+            prompt: fullPrompt,
+            duration,
+            sound: 'off',                      // Kling always 'off' (WV:2317)
+            kling_mode: 'first_frame',
+            omni_assets: uploadedPaths.map((url, i) => ({
+              role: i === 0 ? 'first_frame' : 'reference',
+              image_url: url,
+              asset_id: null,
+              name: `canvas_image_${i}`,
+            })),
+            user_language: language,
+            target_language: language,
+            model_asset_id: null,
+            motion_asset_id: null,
+            aspect_ratio: aspectRatio,
+            mode: 'pro',
+            project_id: projectId,
+          };
+        } else {
+          // Sora / other models payload (WV:2332-2356)
+          generatePayload = {
+            model: backendModel,
+            prompt: fullPrompt,
+            duration,
+            sound: sound ? 'on' : 'off',
+            project_id: projectId,
+            aspect_ratio: aspectRatio,
+            user_language: language,
+            target_language: language,
+            mode: 'pro',
+            model_asset_id: null,
+            motion_asset_id: null,
+          };
+          if (uploadedPaths[0]) {
+            generatePayload.image_path = uploadedPaths[0];
+          }
+          if (backendModel.startsWith('sora')) {
+            generatePayload.size = aspectRatio === '9:16' ? '720x1280' : '1280x720';
+          }
+        }
+
+        const genResp = await videoApi.generate(generatePayload);
+        const genData = genResp?.data || genResp;
+        const taskId = genData?.task_id;
+        if (!taskId) throw new Error('No task_id returned from generate');
+
+        updateNodeData(newId, { taskId: String(taskId) } as Partial<VideoNodeData>);
+
+        // Step 4: Add to TaskContext for polling
+        addTask({
+          id: taskId,
+          projectId,
+          type: 'video_generation',
+          status: 'processing',
+          name: fullPrompt.slice(0, 30) || 'Canvas Video',
+          thumbnail: imagePaths[0] || undefined,
+          createdAt: Date.now(),
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Video generation failed';
+        updateNodeData(newId, { status: 'failed', error: msg } as Partial<VideoNodeData>);
+      }
     },
-    [addNode]
+    [addNode, updateNodeData, user, language, addTask]
   );
+
+  // Sync task status from TaskContext → VideoNode status
+  useEffect(() => {
+    nodes.forEach((node) => {
+      if (node.type !== 'video') return;
+      const vData = node.data as VideoNodeData;
+      if (!vData.taskId) return;
+
+      const task = tasks.find((t) => String(t.id) === String(vData.taskId));
+      if (!task) return;
+
+      if (task.status === 'success' && vData.status !== 'completed') {
+        updateNodeData(node.id, {
+          status: 'completed',
+          videoUrl: task.result?.video_url || task.result?.output_url || null,
+          thumbnailUrl: task.result?.cover_url || task.result?.thumbnail_url || null,
+        } as Partial<VideoNodeData>);
+      } else if (task.status === 'failed' && vData.status !== 'failed') {
+        updateNodeData(node.id, {
+          status: 'failed',
+          error: task.result?.error || 'Generation failed',
+        } as Partial<VideoNodeData>);
+      }
+    });
+  }, [tasks, nodes, updateNodeData]);
 
   if (!isLoaded) {
     return (

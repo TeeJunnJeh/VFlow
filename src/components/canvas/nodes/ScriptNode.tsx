@@ -39,7 +39,7 @@ export const ScriptNode: React.FC<NodeProps<CanvasNode>> = ({ data: rawData, sel
 
         {/* Shot list */}
         {hasShots && (
-          <div className="space-y-1.5 max-h-[240px] overflow-y-auto custom-scroll">
+          <div className="space-y-1.5 max-h-[240px] overflow-y-auto custom-scroll nowheel">
             {data.shots.map((shot, idx) => (
               <div
                 key={shot.shot_index ?? idx}

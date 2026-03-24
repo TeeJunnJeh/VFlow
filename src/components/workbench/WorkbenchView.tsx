@@ -3003,7 +3003,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         panel: 'rounded-xl border border-slate-300/85 bg-white/90 p-1.5',
         row: 'flex items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-100/85 border border-transparent focus-within:border-purple-300/60 focus-within:bg-purple-50/35',
         actionsBlock: 'rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-100/85 border border-transparent focus-within:border-purple-300/60 focus-within:bg-purple-50/35',
-        actionRow: 'flex items-start gap-2 rounded-md px-1.5 py-1 border border-slate-200/80 bg-white/70',
         actionIndex: 'mt-0.5 text-[11px] font-semibold text-slate-600',
         label: 'font-semibold text-slate-800 tracking-tight',
         input: 'mt-0.5 w-full min-h-[28px] rounded-md border border-slate-300 bg-white px-2 py-1 text-[12px] leading-4 text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400/40 resize-y custom-scroll',
@@ -3021,7 +3020,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         panel: 'rounded-xl border border-slate-500/35 bg-slate-950/45 p-1.5',
         row: 'flex items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-800/55 border border-transparent focus-within:border-emerald-400/45 focus-within:bg-emerald-500/10',
         actionsBlock: 'rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-800/55 border border-transparent focus-within:border-emerald-400/45 focus-within:bg-emerald-500/10',
-        actionRow: 'flex items-start gap-2 rounded-md px-1.5 py-1 border border-slate-500/35 bg-slate-900/55',
         actionIndex: 'mt-0.5 text-[11px] font-semibold text-slate-400',
         label: 'font-semibold text-slate-100 tracking-tight',
         input: 'mt-0.5 w-full min-h-[28px] rounded-md border border-slate-500/40 bg-slate-800/70 px-2 py-1 text-[12px] leading-4 text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-300/30 resize-y custom-scroll',
@@ -3038,7 +3036,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       panel: 'rounded-xl border border-zinc-600/40 bg-zinc-950/45 p-1.5',
       row: 'flex items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/5 border border-transparent focus-within:border-emerald-400/40 focus-within:bg-emerald-500/10',
       actionsBlock: 'rounded-lg px-2 py-1.5 transition-colors hover:bg-white/5 border border-transparent focus-within:border-emerald-400/40 focus-within:bg-emerald-500/10',
-      actionRow: 'flex items-start gap-2 rounded-md px-1.5 py-1 border border-zinc-600/45 bg-zinc-900/60',
       actionIndex: 'mt-0.5 text-[11px] font-semibold text-zinc-400',
       label: 'font-semibold text-zinc-100 tracking-tight',
       input: 'mt-0.5 w-full min-h-[28px] rounded-md border border-zinc-600 bg-zinc-800/80 px-2 py-1 text-[12px] leading-4 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-300/25 resize-y custom-scroll',
@@ -6123,20 +6120,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               />
                             </div>
 
-                            <div className={cardThemeClass.actionsBlock}>
-                              <div className="mb-0.5 flex items-center justify-between">
-                                <span className={cardThemeClass.subLabel}>{cardLabels.actions}</span>
-                              </div>
-                              <div className={cardThemeClass.actionRow}>
-                                <textarea
-                                    rows={1}
-                                    data-card-autosize="true"
-                                    value={(activeCreativeCard?.actions || []).join('\n')}
-                                    onChange={(e) => updateActiveCreativeCardActionsText(e.target.value)}
-                                    onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                    className={cardThemeClass.textarea}
-                                />
-                              </div>
+                            <div className={cardThemeClass.row}>
+                              <span className={cardThemeClass.subLabel}>{cardLabels.actions}</span>
+                              <textarea
+                                  rows={1}
+                                  data-card-autosize="true"
+                                  value={(activeCreativeCard?.actions || []).join('\n')}
+                                  onChange={(e) => updateActiveCreativeCardActionsText(e.target.value)}
+                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                  className={cardThemeClass.textarea}
+                              />
                             </div>
 
                             <div className={cardThemeClass.row}>

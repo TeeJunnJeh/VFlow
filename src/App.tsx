@@ -6,6 +6,7 @@ import { AppDialog } from './components/common/AppDialog';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TaskProvider } from './context/TaskContext';
 import { LanguageProvider } from './context/LanguageContext';
+import { useLanguage } from './context/LanguageContext';
 import LoginPage from './pages/Login';
 import LandingPage from './pages/Landing';
 import Workbench from './pages/Workbench';
@@ -61,11 +62,57 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
  */
 const AnimatedRoutes = () => {
     const location = useLocation();
+    const { t } = useLanguage();
 
     // 1. 修复：必须将 useState 移到 useEffect 之前，防止 ReferenceError
     const [isInfoOpen, setIsInfoOpen] = React.useState(false);
     const [infoTitle, setInfoTitle] = React.useState('');
     const [infoMessage, setInfoMessage] = React.useState<string | null>(null);
+
+    React.useEffect(() => {
+        const parseErrorMessage = (value: unknown) => {
+            if (value instanceof Error) return value.message || '未知错误';
+            if (typeof value === 'string') return value;
+            if (value && typeof value === 'object' && 'message' in (value as any)) {
+                return String((value as any).message || '未知错误');
+            }
+            return '未知错误';
+        };
+
+        const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+            const msg = parseErrorMessage(event.reason);
+            if (!msg) return;
+            setInfoTitle(t.ui_dialog_error);
+            setInfoMessage(`${t.app_error_unhandled}：${msg}`);
+            setIsInfoOpen(true);
+        };
+
+        const onWindowError = (event: ErrorEvent) => {
+            const msg = parseErrorMessage(event.error || event.message);
+            if (!msg) return;
+            setInfoTitle(t.ui_dialog_error);
+            setInfoMessage(`${t.app_error_runtime}：${msg}`);
+            setIsInfoOpen(true);
+        };
+
+        const onAppError = (event: Event) => {
+            const custom = event as CustomEvent<{ title?: string; message?: string }>;
+            const title = custom?.detail?.title || t.ui_dialog_error;
+            const message = custom?.detail?.message || '发生未知错误';
+            setInfoTitle(title);
+            setInfoMessage(message);
+            setIsInfoOpen(true);
+        };
+
+        window.addEventListener('unhandledrejection', onUnhandledRejection);
+        window.addEventListener('error', onWindowError);
+        window.addEventListener('vflow-app-error', onAppError as EventListener);
+        return () => {
+            window.removeEventListener('unhandledrejection', onUnhandledRejection);
+            window.removeEventListener('error', onWindowError);
+            window.removeEventListener('vflow-app-error', onAppError as EventListener);
+        };
+    }, []);
 
     React.useEffect(() => {
         const params = new URLSearchParams(location.search);
@@ -94,10 +141,10 @@ const AnimatedRoutes = () => {
             try {
                 // Validate required params before calling API
                 if (error) {
-                    throw new Error(errorDescription || error || '授权被拒绝');
+                    throw new Error(errorDescription || error || t.app_tiktok_auth_rejected);
                 }
                 if (!code || !state) {
-                    throw new Error('授权参数不完整');
+                    throw new Error(t.app_tiktok_auth_incomplete);
                 }
 
                 debugLog('[TikTok OAuth] Calling completeAuth...');
@@ -111,18 +158,18 @@ const AnimatedRoutes = () => {
 
                 // 显示成功消息，告知用户视频已上传到哪个账号
                 if (result?.message) {
-                    setInfoTitle('Success');
+                    setInfoTitle(t.ui_dialog_success);
                     setInfoMessage(String(result.message));
                     setIsInfoOpen(true);
                 } else {
-                    setInfoTitle('Success');
-                    setInfoMessage('TikTok 授权成功，视频已上传到草稿箱');
+                    setInfoTitle(t.ui_dialog_success);
+                    setInfoMessage(t.app_tiktok_auth_success_default);
                     setIsInfoOpen(true);
                 }
             } catch (err: any) {
                 debugError('[TikTok OAuth] Error:', err);
-                setInfoTitle('Error');
-                setInfoMessage(`TikTok 授权失败：${err?.message || '未知错误'}`);
+                setInfoTitle(t.ui_dialog_error);
+                setInfoMessage(`${t.app_tiktok_auth_failed}：${err?.message || '未知错误'}`);
                 setIsInfoOpen(true);
             } finally {
                 (window as any).__tiktok_callback_processing = false;
@@ -160,7 +207,7 @@ const AnimatedRoutes = () => {
             {isInfoOpen && (
                 <AppDialog
                     isOpen={isInfoOpen}
-                    title={infoTitle || 'Notice'}
+                    title={infoTitle || t.ui_dialog_notice}
                     onClose={() => setIsInfoOpen(false)}
                     footer={
                         <>
@@ -168,7 +215,7 @@ const AnimatedRoutes = () => {
                                 className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
                                 onClick={() => setIsInfoOpen(false)}
                             >
-                                OK
+                                {t.ui_dialog_ok}
                             </button>
                         </>
                     }

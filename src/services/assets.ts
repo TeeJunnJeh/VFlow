@@ -114,7 +114,12 @@ function getCookie(name: string) {
 async function readApiError(response: Response): Promise<string> {
   try {
     const json = await response.json();
-    return (json?.error || json?.message || 'Request failed') as string;
+    const msg = (json?.error || json?.message || 'Request failed') as string;
+    const trackingId = json?.tracking_id;
+    if (trackingId) {
+      return `${msg} (Tracking ID: ${trackingId})`;
+    }
+    return msg;
   } catch {
     return response.statusText || 'Request failed';
   }

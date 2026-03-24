@@ -517,6 +517,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       ],
       [language, t]
   );
+  const formatMessage = (template: string, values: Record<string, string | number>) =>
+      template.replace(/\{(\w+)\}/g, (match, key) => (Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : match));
+  const popupTitles = {
+    success: t.ui_dialog_success,
+    notice: t.ui_dialog_notice,
+    error: t.ui_dialog_error,
+    warning: t.ui_dialog_warning,
+  };
 
   const loadPromptLabTemplates = async () => {
     if (!ENABLE_PROMPT_LAB) return;
@@ -1740,7 +1748,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     if (slot === 'primary') {
       if (isKlingOmniMode && klingGenerateMode === 'subject' && !canBeKlingSubject(target)) {
-        openInfo('Notice', '该素材没有其他视角，不能成为主体');
+          openInfo(popupTitles.notice, t.wb_popup_no_other_view);
         return;
       }
       const primarySource: QueuedAsset['source'] = isKlingOmniMode
@@ -1772,7 +1780,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (item.mediaKind !== 'image') return item;
         if (item.id === assetId) {
           if (primarySource === 'subject' && !canBeKlingSubject(item)) {
-            openInfo('Notice', '该素材没有其他视角，不能成为主体');
+            openInfo(popupTitles.notice, t.wb_popup_no_other_view);
             return { ...item, source: 'preference', isPrimaryFrame: false };
           }
           return { ...item, source: primarySource, isPrimaryFrame: primarySource === 'product' };
@@ -2149,13 +2157,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const handleAiRecognize = useCallback(
       async (opts?: { skipOverwriteConfirm?: boolean }) => {
         if (!user?.id) {
-          openInfo('Notice', 'Please log in first');
+          openInfo(popupTitles.notice, t.wb_popup_not_logged_in);
           return;
         }
 
         const imagePaths = await resolveProductRecognitionImagePaths();
         if (imagePaths.length === 0) {
-          openInfo('Notice', '请先上传至少 1 张商品图片');
+          openInfo(popupTitles.notice, t.wb_popup_need_product_image_first);
           return;
         }
 
@@ -2196,7 +2204,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           setHasAiRecognized(true);
           lastRecognizedSignatureRef.current = productImageSignature || signature;
         } catch (err: any) {
-          openInfo('Error', t.wb_ai_recognize_failed);
+          openInfo(popupTitles.error, t.wb_ai_recognize_failed);
         } finally {
           setIsAiRecognizing(false);
         }
@@ -2398,11 +2406,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         createdAt: Date.now(),
       });
       setLastGeneratedProjectId(projectId);
-      openInfo('Success', '任务已提交到后台运行，您可以继续修改参数生成下一个！');
+      openInfo(popupTitles.success, t.wb_popup_submit_success);
       return;
     }
 
-    openInfo('Notice', '提交成功，但未返回任务ID。');
+    openInfo(popupTitles.notice, t.wb_popup_submit_no_task_id);
   };
 
   const getActionRequiredFromError = (err: unknown): ActionRequired => {
@@ -2410,6 +2418,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return err.actionRequired || null;
     }
     return null;
+  };
+
+  const formatWorkbenchError = (err: unknown, fallback: string) => {
+    if (err instanceof VideoApiError) {
+      const base = String(err.message || fallback);
+      if (err.trackingId) {
+        return `${base}\nTracking ID: ${err.trackingId}`;
+      }
+      return base;
+    }
+    const raw = (err as any)?.message;
+    if (typeof raw === 'string' && raw.trim()) return raw.trim();
+    return fallback;
   };
 
   const generateWithAdaptiveImageConfirm = async (payload: GeneratePayload) => {
@@ -2436,7 +2457,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   ? '当前图片不满足最小分辨率要求，是否自动放大后继续？'
                   : '当前图片超过 10MB，是否自动压缩后继续？');
 
-      const confirmed = await openConfirm('Image Adjustment', prompt);
+      const confirmed = await openConfirm(t.wb_popup_image_adjustment_title, prompt);
       if (!confirmed) {
         throw new Error(USER_CANCELLED_ADAPT);
       }
@@ -2457,19 +2478,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const handlePrepareDebug = async () => {
     if (isBatchDebugMode) {
-      openInfo('Notice', t.wb_debug_batch_unsupported);
+      openInfo(popupTitles.notice, t.wb_debug_batch_unsupported);
       return;
     }
     if (!selectedTemplate?.id && !selectedFileObj && !selectedAssetUrl && !uploadedFile) {
-      openInfo('Notice', 'Please upload a reference asset or select a template first!');
+      openInfo(popupTitles.notice, t.wb_popup_need_reference_or_template);
       return;
     }
     if (!hasActiveScriptConcept) {
-      openInfo('Notice', 'Please generate or complete a script concept card first!');
+      openInfo(popupTitles.notice, t.wb_popup_need_script_concept);
       return;
     }
     if (enableStoryboardEditor && !isDurationValid) {
-      openInfo('Warning', `Total script duration (${currentScriptDuration}s) must match requested duration (${genDuration}s)!`);
+      openInfo(popupTitles.warning, formatMessage(t.wb_popup_duration_mismatch, { current: currentScriptDuration, target: genDuration }));
       return;
     }
 
@@ -2483,7 +2504,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const preview = await refreshDebugPreview(payload as Record<string, unknown>);
       setDebugPayloadText(JSON.stringify(preview.request_payload || payload, null, 2));
     } catch (err: any) {
-      openInfo('Error', String(err?.message || 'Failed to prepare debug payload'));
+      openInfo(popupTitles.error, formatWorkbenchError(err, t.wb_popup_generation_failed));
     } finally {
       setIsPreparingDebug(false);
     }
@@ -2498,7 +2519,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       parsed = next as Record<string, unknown>;
     } catch {
-      openInfo('Error', t.wb_debug_invalid_json);
+      openInfo(popupTitles.error, t.wb_debug_invalid_json);
       return;
     }
 
@@ -2507,7 +2528,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const preview = await refreshDebugPreview(parsed);
       setDebugPayloadText(JSON.stringify(preview.request_payload || parsed, null, 2));
     } catch (err: any) {
-      openInfo('Error', String(err?.message || 'Failed to refresh preview'));
+      openInfo(popupTitles.error, formatWorkbenchError(err, t.wb_popup_generation_failed));
     } finally {
       setIsPreparingDebug(false);
     }
@@ -2522,7 +2543,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       parsed = next as GeneratePayload;
     } catch {
-      openInfo('Error', t.wb_debug_invalid_json);
+      openInfo(popupTitles.error, t.wb_debug_invalid_json);
       return;
     }
 
@@ -2531,7 +2552,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     try {
       await submitSingleGeneration(parsed);
     } catch (err: any) {
-      openInfo('Error', `Error: ${err.message || 'Generation failed'}`);
+      openInfo(popupTitles.error, formatWorkbenchError(err, t.wb_popup_generation_failed));
     } finally {
       setIsSendingDebug(false);
     }
@@ -2676,11 +2697,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const target = assetQueue.find((item) => item.id === targetId);
     if (!target) return;
     if (target.mediaKind !== 'image') {
-      openInfo('Notice', '只有图片素材可设为首帧图');
+      openInfo(popupTitles.notice, t.wb_popup_only_image_first_frame);
       return;
     }
     if (isKlingOmniMode && klingGenerateMode === 'subject' && !canBeKlingSubject(target)) {
-      openInfo('Notice', '该素材没有其他视角，不能成为主体');
+      openInfo(popupTitles.notice, t.wb_popup_no_other_view);
       return;
     }
 
@@ -3054,7 +3075,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const addCurrentAssetToQueue = () => {
     if (!selectedFileObj && !selectedAssetUrl && !uploadedFile) {
-      openInfo('Notice', '请先选择或上传素材');
+      openInfo(popupTitles.notice, t.wb_popup_choose_or_upload_asset);
       return;
     }
     const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -3268,11 +3289,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const addCurrentScriptToQueue = () => {
     if (!hasActiveScriptConcept) {
-      openInfo('Notice', t.wb_script_plan_require_notice);
+      openInfo(popupTitles.notice, t.wb_script_plan_require_notice);
       return;
     }
     if (enableStoryboardEditor && !isDurationValid) {
-      openInfo('Warning', `脚本总时长(${currentScriptDuration.toFixed(1)}s)需要与配置时长(${genDuration}s)一致`);
+      openInfo(popupTitles.warning, formatMessage(t.wb_popup_duration_mismatch, { current: currentScriptDuration.toFixed(1), target: genDuration }));
       return;
     }
 
@@ -3305,7 +3326,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const handleGenerateScripts = async () => {
     if (!user?.id) {
-      openInfo('Notice', 'Please log in first');
+      openInfo(popupTitles.notice, t.wb_popup_not_logged_in);
       return;
     }
 
@@ -3622,10 +3643,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           setScripts(pages[0].scripts);
           setIsShotBreakdownOpen(false);
         } else {
-          openInfo('Notice', "Script generation completed but returned unexpected data.");
+          openInfo(popupTitles.notice, t.wb_popup_script_unexpected);
         }
       } else {
-        openInfo('Notice', "Script generation completed but returned unexpected data.");
+        openInfo(popupTitles.notice, t.wb_popup_script_unexpected);
       }
 
     } catch (err: any) {
@@ -3636,14 +3657,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         const parsed = JSON.parse(jsonPart);
         if (parsed.message) msg = parsed.message;
       } catch (e) {}
-      openInfo('Error', `Script Generation Failed: ${msg}`);
+      openInfo(popupTitles.error, `${t.wb_popup_script_failed}：${msg}`);
     } finally {
       setIsGeneratingScript(false);
     }
   };
 
   const handleExportScripts = async () => {
-    if (scripts.length === 0) { openInfo('Notice', 'No scripts to export!'); return; }
+    if (scripts.length === 0) { openInfo(popupTitles.notice, t.wb_popup_no_scripts); return; }
 
     setIsExporting(true);
 
@@ -3706,7 +3727,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         }
       } catch (err) {
         console.error(err);
-        openInfo('Error', 'Failed to parse script file.');
+        openInfo(popupTitles.error, t.wb_popup_parse_script_failed);
       }
     };
     reader.readAsText(file);
@@ -3939,15 +3960,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
         if (batchItems.length > 0) {
           setGeneratedBatch(prev => [...batchItems, ...prev]);
-          openInfo('Success', `批量任务已提交，共 ${batchItems.length} 个`);
+          openInfo(popupTitles.success, formatMessage(t.wb_popup_batch_success, { count: batchItems.length }));
         } else {
-          openInfo('Notice', '批量提交完成，但未返回有效任务ID');
+          openInfo(popupTitles.notice, t.wb_popup_batch_no_task_id);
         }
       } catch (err: any) {
         if (err?.message === USER_CANCELLED_ADAPT) {
-          openInfo('Notice', '已取消图片自动处理，批量生成已停止。');
+          openInfo(popupTitles.notice, t.wb_popup_batch_cancelled);
         } else {
-          openInfo('Error', `批量生成失败：${err?.message || '未知错误'}`);
+          openInfo(popupTitles.error, `${t.wb_popup_batch_failed}：${formatWorkbenchError(err, t.wb_popup_generation_failed)}`);
         }
       } finally {
         setIsGenerating(false);
@@ -3964,9 +3985,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       await submitSingleGeneration(payload);
     } catch (err: any) {
       if (err?.message === USER_CANCELLED_ADAPT) {
-        openInfo('Notice', '已取消图片自动处理，未提交任务。');
+        openInfo(popupTitles.notice, t.wb_popup_batch_cancelled);
       } else {
-        openInfo('Error', `Error: ${err.message || 'Generation failed'}`);
+        openInfo(popupTitles.error, formatWorkbenchError(err, t.wb_popup_generation_failed));
       }
     } finally {
       setIsGenerating(false);
@@ -3975,13 +3996,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const handlePublishToTikTok = async () => {
     if (!generatedVideoUrl) {
-      openInfo('Notice', '请先生成并预览视频');
+      openInfo(popupTitles.notice, t.wb_popup_need_preview_video);
       return;
     }
 
     const targetProjectId = previewProjectId || lastGeneratedProjectId;
     if (!targetProjectId) {
-      openInfo('Notice', '未找到视频对应的项目ID，请稍后重试');
+      openInfo(popupTitles.notice, t.wb_popup_no_video_project);
       return;
     }
 
@@ -4022,12 +4043,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (switchAccount) {
           try {
             await tiktokApi.revokeAuth();
-            openInfo('Notice', '当前授权已取消，即将跳转到TikTok授权页面。\n\n如需切换账号，请在TikTok页面先退出当前账号。');
+            openInfo(popupTitles.notice, t.wb_popup_tiktok_switch_cancelled);
             const authUrl = await tiktokApi.getAuthUrl(targetProjectId);
             window.location.href = authUrl;
             return;
           } catch (err: any) {
-            openInfo('Error', err?.message || '切换账号失败');
+            openInfo(popupTitles.error, err?.message || t.wb_popup_tiktok_switch_failed);
           }
         }
         setIsPostingTikTok(false);
@@ -4041,9 +4062,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         return;
       }
 
-      openInfo('Success', '已上传到TikTok草稿箱，请在App中查看并发布');
+      openInfo(popupTitles.success, t.wb_popup_tiktok_upload_success);
     } catch (err: any) {
-      openInfo('Error', err?.message || '上传失败');
+      openInfo(popupTitles.error, err?.message || t.wb_popup_tiktok_upload_failed);
     } finally {
       setIsPostingTikTok(false);
     }
@@ -4423,11 +4444,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 type="button"
                 onClick={() => {
                   if (isAiRecognizing) {
-                    openInfo('Notice', t.wb_ai_recognizing_tip);
+                    openInfo(popupTitles.notice, t.wb_ai_recognizing_tip);
                     return;
                   }
                   if (getProductRecognitionSources().length === 0) {
-                    openInfo('Notice', t.wb_ai_need_product_image);
+                    openInfo(popupTitles.notice, t.wb_ai_need_product_image);
                     return;
                   }
                   void handleAiRecognize();
@@ -4631,10 +4652,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <textarea
                 readOnly={!hasCurrentAsset}
                 onFocus={() => {
-                  if (!hasCurrentAsset) openInfo('Notice', t.wb_additional_requirements_need_asset);
+                  if (!hasCurrentAsset) openInfo(popupTitles.notice, t.wb_additional_requirements_need_asset);
                 }}
                 onClick={() => {
-                  if (!hasCurrentAsset) openInfo('Notice', t.wb_additional_requirements_need_asset);
+                  if (!hasCurrentAsset) openInfo(popupTitles.notice, t.wb_additional_requirements_need_asset);
                 }}
                 className={`w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-y min-h-[80px] ${!hasCurrentAsset ? 'text-zinc-500 opacity-60' : 'text-zinc-300 focus:border-orange-500 focus:outline-none'}`}
                 placeholder={t.wb_field_additional_requirements_placeholder}
@@ -5140,11 +5161,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               type="button"
               onClick={() => {
                 if (isGeneratingScript) {
-                  openInfo('Notice', t.wb_generate_in_progress);
+                  openInfo(popupTitles.notice, t.wb_generate_in_progress);
                   return;
                 }
                 if (!hasCurrentAsset) {
-                  openInfo('Notice', t.wb_generate_need_asset);
+                  openInfo(popupTitles.notice, t.wb_generate_need_asset);
                   return;
                 }
                 void handleGenerateScripts();

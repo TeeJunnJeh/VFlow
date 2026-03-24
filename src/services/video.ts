@@ -65,6 +65,7 @@ export class VideoApiError extends Error {
   status: number;
   code?: number;
   errorType?: string;
+  trackingId?: string;
   data?: Record<string, unknown> | null;
   actionRequired?: ApiActionRequired;
 
@@ -72,6 +73,7 @@ export class VideoApiError extends Error {
     status: number;
     code?: number;
     errorType?: string;
+    trackingId?: string;
     data?: Record<string, unknown> | null;
     actionRequired?: ApiActionRequired;
   }) {
@@ -80,6 +82,7 @@ export class VideoApiError extends Error {
     this.status = opts.status;
     this.code = opts.code;
     this.errorType = opts.errorType;
+    this.trackingId = opts.trackingId;
     this.data = opts.data;
     this.actionRequired = opts.actionRequired;
   }
@@ -103,6 +106,7 @@ async function readApiErrorDetail(response: Response, fallbackMessage: string): 
   let message = fallbackMessage;
   let code: number | undefined;
   let errorType: string | undefined;
+  let trackingId: string | undefined;
   let data: Record<string, unknown> | null = null;
   let actionRequired: ApiActionRequired = null;
 
@@ -116,6 +120,7 @@ async function readApiErrorDetail(response: Response, fallbackMessage: string): 
         if (typeof msg === 'string' && msg.trim()) message = msg.trim();
         if (typeof rec.code === 'number') code = rec.code;
         if (typeof rec.error_type === 'string' && rec.error_type.trim()) errorType = rec.error_type.trim();
+        if (typeof rec.tracking_id === 'string' && rec.tracking_id.trim()) trackingId = rec.tracking_id.trim();
         data = asRecord(rec.data);
         const action = data ? asRecord(data.action_required) : null;
         actionRequired = action as ApiActionRequired;
@@ -139,6 +144,7 @@ async function readApiErrorDetail(response: Response, fallbackMessage: string): 
     status: response.status,
     code,
     errorType,
+    trackingId,
     data,
     actionRequired,
   });

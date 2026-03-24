@@ -131,6 +131,20 @@ export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
     const validUpdates = updates.filter(Boolean) as Array<{ id: Task['id']; status: TaskStatus; result?: any }>;
     if (validUpdates.length === 0) return;
 
+    validUpdates.forEach((update) => {
+      if (update.status !== 'failed') return;
+      const result = update.result || {};
+      const baseError = result?.error || '后台任务执行失败';
+      const trackingId = result?.tracking_id;
+      const message = trackingId ? `${baseError}\nTracking ID: ${trackingId}` : String(baseError);
+      window.dispatchEvent(new CustomEvent('vflow-app-error', {
+        detail: {
+          title: '任务失败',
+          message,
+        },
+      }));
+    });
+
     setTasks(prev => prev.map(t => {
       const update = validUpdates.find(u => u.id === t.id);
       if (!update) return t;

@@ -6,7 +6,12 @@ const API_BASE_URL = '/api/auth';
 const extractErrorMessage = async (response: Response, fallback: string) => {
   try {
     const errorData = await response.json();
-    return errorData?.message || errorData?.error || fallback;
+    const baseMsg = errorData?.message || errorData?.error || fallback;
+    const trackingId = errorData?.tracking_id;
+    if (trackingId) {
+      return `${baseMsg} (Tracking ID: ${trackingId})`;
+    }
+    return baseMsg;
   } catch (e) {
     return fallback;
   }

@@ -1961,7 +1961,10 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
            <div className={`w-full max-w-4xl rounded-3xl border shadow-2xl ${isLightTheme ? 'border-slate-300 bg-white shadow-black/15' : isDimTheme ? 'border-slate-500/40 bg-slate-900 shadow-black/30' : 'border-white/10 bg-[#120C09] shadow-black/40'}`}>
              <div className={`border-b px-6 py-5 ${isLightTheme ? 'border-slate-200' : isDimTheme ? 'border-slate-500/40' : 'border-white/10'}`}>
                <div className={`text-lg font-bold ${isLightTheme ? 'text-slate-900' : isDimTheme ? 'text-slate-100' : 'text-zinc-100'}`}>主体创建说明</div>
-               <div className={`mt-1 text-sm ${isLightTheme ? 'text-slate-600' : isDimTheme ? 'text-slate-300' : 'text-zinc-400'}`}>首次使用主体模式前，先了解主体素材应如何创建与管理。</div>
+              <div className={`mt-1 text-sm ${isLightTheme ? 'text-slate-600' : isDimTheme ? 'text-slate-300' : 'text-zinc-400'}`}>
+                <div>首次使用主体模式前，先了解主体素材应如何创建与管理。</div>
+                <div>作为“场景”标签上传的素材暂不支持创建为主体。</div>
+              </div>
              </div>
              <div className="custom-scroll max-h-[70vh] overflow-y-auto px-6 py-5 pr-4">
                 <div className="space-y-5">

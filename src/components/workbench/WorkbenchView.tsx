@@ -1752,6 +1752,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setDraggingWorkbenchAssetId(null);
   }, []);
 
+  const handleInvalidKlingSubjectTarget = useCallback((target: QueuedAsset) => {
+    if (target.materialType === 'scene') {
+      openInfo(popupTitles.notice, '场景类型的素材不支持作为主体');
+      return;
+    }
+    openKlingSubjectGuide();
+  }, [openInfo, openKlingSubjectGuide, popupTitles.notice]);
+
   const handleWorkbenchAssetDragStart = useCallback((asset: QueuedAsset, event: React.DragEvent) => {
     setDraggingWorkbenchAssetId(asset.id);
     event.dataTransfer.effectAllowed = 'move';
@@ -1764,7 +1772,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     if (slot === 'primary') {
       if (isKlingOmniMode && klingGenerateMode === 'subject' && !canBeKlingSubject(target)) {
-          openKlingSubjectGuide();
+          handleInvalidKlingSubjectTarget(target);
         return;
       }
       const primarySource: QueuedAsset['source'] = isKlingOmniMode
@@ -1796,7 +1804,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (item.mediaKind !== 'image') return item;
         if (item.id === assetId) {
           if (primarySource === 'subject' && !canBeKlingSubject(item)) {
-            openKlingSubjectGuide();
+            handleInvalidKlingSubjectTarget(item);
             return { ...item, source: 'preference', isPrimaryFrame: false };
           }
           return { ...item, source: primarySource, isPrimaryFrame: primarySource === 'product' };
@@ -1816,7 +1824,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       return normalized;
     });
-  }, [canBeKlingSubject, klingGenerateMode, normalizeQueueSourcesForKlingMode, openKlingSubjectGuide]);
+  }, [canBeKlingSubject, handleInvalidKlingSubjectTarget, klingGenerateMode, normalizeQueueSourcesForKlingMode]);
   const referencePreviewAssetsByType = useMemo(() => {
     const next: Partial<Record<'model' | 'product' | 'scene', QueuedAsset>> = {};
     for (const asset of uploadDisplayAssets) {
@@ -2717,7 +2725,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
     if (isKlingOmniMode && klingGenerateMode === 'subject' && !canBeKlingSubject(target)) {
-      openKlingSubjectGuide();
+      handleInvalidKlingSubjectTarget(target);
       return;
     }
 

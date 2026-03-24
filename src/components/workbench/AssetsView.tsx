@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { 
-  FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil, Search, Heart, Download, Library, Globe, Info, Settings, Eye, EyeOff, Layers3, Plus, Sparkles
+import {
+  FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil, Search, Heart, Download, Library, Globe, Info, Settings, Eye, EyeOff, Layers3, Plus, Sparkles, AlertCircle
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext'
@@ -1962,6 +1962,13 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
              <div className={`border-b px-6 py-5 ${isLightTheme ? 'border-slate-200' : isDimTheme ? 'border-slate-500/40' : 'border-white/10'}`}>
                <div className={`text-lg font-bold ${isLightTheme ? 'text-slate-900' : isDimTheme ? 'text-slate-100' : 'text-zinc-100'}`}>主体创建说明</div>
               <div className={`mt-1 text-sm ${isLightTheme ? 'text-slate-600' : isDimTheme ? 'text-slate-300' : 'text-zinc-400'}`}>
+                <div>首次使用主体模式前，先了解主体素材应如何创建与管理。</div>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-orange-500" />
+                  <span>作为“场景”上传的素材暂不支持创建为主体。</span>
+                </div>
+              </div>
+              <div className="hidden">
                 <div>首次使用主体模式前，先了解主体素材应如何创建与管理。</div>
                 <div>作为“场景”标签上传的素材暂不支持创建为主体。</div>
               </div>

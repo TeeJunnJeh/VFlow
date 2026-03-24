@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { templatesApi, type Template } from '../services/templates';
 import { assetsApi, type Asset as LibraryAsset } from '../services/assets';
@@ -20,6 +20,11 @@ import { CanvasEditor } from '../components/canvas/CanvasEditor';
 import type { ViewType } from '../components/workbench/types';
 import { useLocation } from 'react-router-dom';
 import { WorkbenchModelProvider } from '../context/WorkbenchModelContext';
+
+type AssetsNavigationIntent =
+  | 'open_assets_for_subject_creation'
+  | 'open_assets_for_subject_creation_first_time'
+  | null;
 
 // Helper to get display URL for asset passing
 const getDisplayUrl = (path: string | null): string | null => {
@@ -56,6 +61,7 @@ const Workbench = () => {
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
   const [isDebugModeEnabled, setIsDebugModeEnabledState] = useState(getDebugModeEnabled());
   const [isDebugModeUpdating, setIsDebugModeUpdating] = useState(false);
+  const [assetsNavigationIntent, setAssetsNavigationIntent] = useState<AssetsNavigationIntent>(null);
 
   // --- Effects ---
   useEffect(() => {
@@ -216,6 +222,33 @@ const Workbench = () => {
     setActiveView('workbench');
   };
 
+  const getSubjectGuideSeenKey = useCallback(() => `vflow_subject_guide_seen_${user?.id ?? 'guest'}`, [user?.id]);
+
+  const hasSeenSubjectGuide = useCallback(() => {
+    try {
+      return window.localStorage.getItem(getSubjectGuideSeenKey()) === '1';
+    } catch {
+      return false;
+    }
+  }, [getSubjectGuideSeenKey]);
+
+  const markSubjectGuideSeen = useCallback(() => {
+    try {
+      window.localStorage.setItem(getSubjectGuideSeenKey(), '1');
+    } catch {
+      // Ignore localStorage failures and keep the guide non-blocking.
+    }
+  }, [getSubjectGuideSeenKey]);
+
+  const handleNavigateToAssetsLibrary = useCallback(() => {
+    setAssetsNavigationIntent(
+      hasSeenSubjectGuide()
+        ? 'open_assets_for_subject_creation'
+        : 'open_assets_for_subject_creation_first_time'
+    );
+    setActiveView('assets');
+  }, [hasSeenSubjectGuide]);
+
   const handleDisableDebugMode = async () => {
     setIsDebugModeUpdating(true);
     try {
@@ -281,6 +314,7 @@ const Workbench = () => {
                 generatedVideoUrl={generatedVideoUrl}
                 setGeneratedVideoUrl={setGeneratedVideoUrl}
                 onExportToServer={handleExportToServer}
+                onNavigateToAssetsLibrary={handleNavigateToAssetsLibrary}
               />
             </div>
           )}
@@ -290,6 +324,9 @@ const Workbench = () => {
               onSelectAsset={handleAssetSelect}
               currentFolderId={currentFolderId}
               setCurrentFolderId={setCurrentFolderId}
+              navigationIntent={assetsNavigationIntent}
+              onNavigationIntentHandled={() => setAssetsNavigationIntent(null)}
+              onSubjectGuideCompleted={markSubjectGuideSeen}
             />
           )}
 

@@ -5,7 +5,7 @@ import {
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift,
   SlidersHorizontal,Palette, MapPin, Activity, Camera, Lightbulb, Music, Scissors, Megaphone, AlignLeft,
-  Languages, HelpCircle
+  Languages, HelpCircle, AlertCircle
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -453,6 +453,7 @@ interface WorkbenchViewProps {
   generatedVideoUrl: string | null;
   setGeneratedVideoUrl: (url: string | null) => void;
   onExportToServer?: (data: any) => Promise<void>;
+  onNavigateToAssetsLibrary?: () => void;
 }
 
 export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
@@ -467,7 +468,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                                               selectedTemplate,
                                                               generatedVideoUrl,
                                                               setGeneratedVideoUrl,
-                                                              onExportToServer
+                                                              onExportToServer,
+                                                              onNavigateToAssetsLibrary
                                                             }) => {
   const { t, language } = useLanguage();
   const { user } = useAuth();
@@ -571,6 +573,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [assetLibraryLoading, setAssetLibraryLoading] = useState(false);
   const [assetLibraryError, setAssetLibraryError] = useState<string | null>(null);
   const [draggingWorkbenchAssetId, setDraggingWorkbenchAssetId] = useState<string | null>(null);
+  const [isKlingSubjectGuideOpen, setIsKlingSubjectGuideOpen] = useState(false);
+  const [isKlingSubjectModeHintDismissed, setIsKlingSubjectModeHintDismissed] = useState(false);
 
   const [isRestoring, setIsRestoring] = useState(true);
   const [pendingTemplateId, setPendingTemplateId] = useState<string | null>(null);
@@ -584,6 +588,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const initialPrefs = useMemo(() => getWorkbenchPreferences(user?.id ?? null), [user?.id]);
   const prefSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const normalizeDurationForModel = useCallback((value: number | null | undefined, model: string) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 10;
+    if (model === 'kling') return Math.min(10, Math.max(3, Math.round(numeric)));
+    return numeric === 5 || numeric === 10 || numeric === 15 ? numeric : 10;
+  }, []);
 
   const [productName, setProductName] = useState('');
   const [productCategory, setProductCategory] = useState('');
@@ -613,12 +623,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const coreSellingPointsFieldRef = useRef<HTMLTextAreaElement | null>(null);
   const videoTypeFieldRef = useRef<HTMLDivElement | null>(null);
   const [genPrompt, setGenPrompt] = useState('');
-  const [genDuration, setGenDuration] = useState<number>(() => {
-    if (initialPrefs.genDuration === 5 || initialPrefs.genDuration === 10 || initialPrefs.genDuration === 15) {
-      return initialPrefs.genDuration;
-    }
-    return selectedTemplate?.duration || 10;
-  });
+  const [genDuration, setGenDuration] = useState<number>(() => normalizeDurationForModel(initialPrefs.genDuration ?? selectedTemplate?.duration ?? 10, selectedModel));
   const [soundSetting, setSoundSetting] = useState<'on' | 'off'>(() => (initialPrefs.soundSetting === 'off' ? 'off' : 'on'));
   const [scriptVariantCount, setScriptVariantCount] = useState<number>(() =>
     typeof initialPrefs.scriptVariantCount === 'number' && initialPrefs.scriptVariantCount > 0 ? initialPrefs.scriptVariantCount : 1
@@ -873,6 +878,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       if (backup && !backup.startsWith('blob:')) return backup;
       return primary || backup || null;
     };
+    const restoredModelId =
+      workspace.selectedModelId === 'kling' ||
+      workspace.selectedModelId === 'sora2' ||
+      workspace.selectedModelId === 'sora2pro' ||
+      workspace.selectedModelId === 'seedance2.0'
+        ? workspace.selectedModelId
+        : (
+          initialPrefs.selectedModelId === 'kling' ||
+          initialPrefs.selectedModelId === 'sora2' ||
+          initialPrefs.selectedModelId === 'sora2pro' ||
+          initialPrefs.selectedModelId === 'seedance2.0'
+            ? initialPrefs.selectedModelId
+            : 'sora2'
+        );
 
     isApplyingProjectWorkspaceRef.current = true;
     skipNextKlingNormalizeRef.current = true;
@@ -925,15 +944,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     );
     setHasAiRecognized(!!workspace.hasAiRecognized);
     setGenPrompt(workspace.genPrompt || '');
-    setGenDuration(() => {
-      if (workspace.genDuration === 5 || workspace.genDuration === 10 || workspace.genDuration === 15) {
-        return workspace.genDuration;
-      }
-      if (initialPrefs.genDuration === 5 || initialPrefs.genDuration === 10 || initialPrefs.genDuration === 15) {
-        return initialPrefs.genDuration;
-      }
-      return 10;
-    });
+    setGenDuration(normalizeDurationForModel(
+      workspace.genDuration ?? initialPrefs.genDuration ?? 10,
+      restoredModelId
+    ));
     setSoundSetting(workspace.soundSetting || (initialPrefs.soundSetting === 'off' ? 'off' : 'on'));
     setScriptVariantCount(
       typeof workspace.scriptVariantCount === 'number'
@@ -956,20 +970,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     } else {
       onSelectTemplate(null);
     }
-    if (workspace.selectedModelId) {
-      setSelectedModel(workspace.selectedModelId as any);
-    } else if (
-      initialPrefs.selectedModelId === 'kling' ||
-      initialPrefs.selectedModelId === 'sora2' ||
-      initialPrefs.selectedModelId === 'sora2pro' ||
-      initialPrefs.selectedModelId === 'seedance2.0'
-    ) {
-      setSelectedModel(initialPrefs.selectedModelId as any);
-    }
+    setSelectedModel(restoredModelId);
     setTimeout(() => {
       isApplyingProjectWorkspaceRef.current = false;
     }, 0);
-  }, [onSelectTemplate, setSelectedModel, t.wb_script_page_prefix, templateList]);
+  }, [initialPrefs.genDuration, initialPrefs.selectedModelId, normalizeDurationForModel, onSelectTemplate, setSelectedModel, t.wb_script_page_prefix, templateList]);
 
   const beginHeaderRename = () => {
     if (!currentProject) return;
@@ -1312,8 +1317,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       skipTemplateDurationSyncRef.current = false;
       return;
     }
-    if (!isRestoring) setGenDuration(selectedTemplate.duration);
-  }, [selectedTemplate, isRestoring]);
+    if (!isRestoring) setGenDuration(normalizeDurationForModel(selectedTemplate.duration, selectedModel));
+  }, [selectedTemplate, isRestoring, normalizeDurationForModel, selectedModel]);
 
   useEffect(() => {
     setIsPlaying(false);
@@ -1521,6 +1526,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setAssetLibraryCurrentFolderId(null);
     setIsAssetLibraryOpen(true);
   };
+  const openSubjectCreationLibrary = useCallback(() => {
+    onNavigateToAssetsLibrary?.();
+  }, [onNavigateToAssetsLibrary]);
+  const openKlingSubjectGuide = useCallback(() => {
+    setIsKlingSubjectGuideOpen(true);
+  }, []);
+  const handleKlingGenerateModeChange = useCallback((mode: 'first_frame' | 'subject') => {
+    setKlingGenerateMode(mode);
+    if (mode === 'subject') {
+      setIsKlingSubjectModeHintDismissed(false);
+    }
+  }, []);
 
   const isKlingOmniMode = selectedModel === 'kling';
 
@@ -1736,6 +1753,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setDraggingWorkbenchAssetId(null);
   }, []);
 
+  const handleInvalidKlingSubjectTarget = useCallback((target: QueuedAsset) => {
+    if (target.materialType === 'scene') {
+      openInfo(popupTitles.notice, '场景类型的素材不支持作为主体');
+      return;
+    }
+    openKlingSubjectGuide();
+  }, [openInfo, openKlingSubjectGuide, popupTitles.notice]);
+
   const handleWorkbenchAssetDragStart = useCallback((asset: QueuedAsset, event: React.DragEvent) => {
     setDraggingWorkbenchAssetId(asset.id);
     event.dataTransfer.effectAllowed = 'move';
@@ -1748,7 +1773,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     if (slot === 'primary') {
       if (isKlingOmniMode && klingGenerateMode === 'subject' && !canBeKlingSubject(target)) {
-          openInfo(popupTitles.notice, t.wb_popup_no_other_view);
+          handleInvalidKlingSubjectTarget(target);
         return;
       }
       const primarySource: QueuedAsset['source'] = isKlingOmniMode
@@ -1780,7 +1805,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (item.mediaKind !== 'image') return item;
         if (item.id === assetId) {
           if (primarySource === 'subject' && !canBeKlingSubject(item)) {
-            openInfo(popupTitles.notice, t.wb_popup_no_other_view);
+            handleInvalidKlingSubjectTarget(item);
             return { ...item, source: 'preference', isPrimaryFrame: false };
           }
           return { ...item, source: primarySource, isPrimaryFrame: primarySource === 'product' };
@@ -1800,7 +1825,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       return normalized;
     });
-  }, [canBeKlingSubject, klingGenerateMode, normalizeQueueSourcesForKlingMode, openInfo]);
+  }, [canBeKlingSubject, handleInvalidKlingSubjectTarget, klingGenerateMode, normalizeQueueSourcesForKlingMode]);
   const referencePreviewAssetsByType = useMemo(() => {
     const next: Partial<Record<'model' | 'product' | 'scene', QueuedAsset>> = {};
     for (const asset of uploadDisplayAssets) {
@@ -2321,7 +2346,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         target_language: targetLanguage,
         model_asset_id: null,
         motion_asset_id: null,
-        aspect_ratio: aspectRatio,
+        ...(klingGenerateMode === 'subject' ? { aspect_ratio: aspectRatio } : {}),
         mode: 'pro',
         subject_description_hint: coreSellingPoints.trim() || undefined,
         asset_source: (normalizedAssets[0]?.source ?? null) as GeneratePayload['asset_source'],
@@ -2701,7 +2726,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
     if (isKlingOmniMode && klingGenerateMode === 'subject' && !canBeKlingSubject(target)) {
-      openInfo(popupTitles.notice, t.wb_popup_no_other_view);
+      handleInvalidKlingSubjectTarget(target);
       return;
     }
 
@@ -2880,36 +2905,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }));
   };
 
-  const updateActiveCreativeCardAction = (index: number, value: string) => {
-    updateActiveScriptPageMeta((page) => {
-      const actions = [...(page.creativeCard?.actions || [])];
-      actions[index] = value;
-      return {
-        ...page,
-        creativeCard: {
-          ...(page.creativeCard || {}),
-          actions,
-        },
-      };
-    });
-  };
-
-  const addActiveCreativeCardAction = () => {
+  const updateActiveCreativeCardActionsText = (value: string) => {
     updateActiveScriptPageMeta((page) => ({
       ...page,
       creativeCard: {
         ...(page.creativeCard || {}),
-        actions: [...(page.creativeCard?.actions || []), ''],
-      },
-    }));
-  };
-
-  const removeActiveCreativeCardAction = (index: number) => {
-    updateActiveScriptPageMeta((page) => ({
-      ...page,
-      creativeCard: {
-        ...(page.creativeCard || {}),
-        actions: (page.creativeCard?.actions || []).filter((_, idx) => idx !== index),
+        actions: value.trim() ? [value] : [],
       },
     }));
   };
@@ -2932,123 +2933,118 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const lang = String(language || 'en').toLowerCase();
     if (lang.startsWith('zh')) {
       return {
-        style: '[风格]:',
-        environment: '[环境]:',
-        tonePacing: '[语调与节奏]:',
-        camera: '[镜头]:',
-        lighting: '[光线]:',
-        actions: '[动作]:',
-        backgroundSound: '[背景音]:',
-        transitionEditing: '[转场 / 剪辑]:',
-        callToAction: '[行动号召]:',
-        addScene: '新增幕',
-        deleteScene: '删除',
-        scenePrefix: '第',
-        sceneSuffix: '幕',
+        style: '风格',
+        environment: '环境',
+        tonePacing: '语调与节奏',
+        camera: '镜头',
+        lighting: '光线',
+        actions: '动作',
+        backgroundSound: '背景音',
+        transitionEditing: '转场 / 剪辑',
+        callToAction: '行动号召',
       };
     }
     if (lang.startsWith('ko')) {
       return {
-        style: '[스타일]:',
-        environment: '[환경]:',
-        tonePacing: '[톤 & 페이싱]:',
-        camera: '[카메라]:',
-        lighting: '[조명]:',
-        actions: '[액션]:',
-        backgroundSound: '[배경음]:',
-        transitionEditing: '[전환 / 편집]:',
-        callToAction: '[콜 투 액션]:',
-        addScene: '씬 추가',
-        deleteScene: '삭제',
-        scenePrefix: '씬 ',
-        sceneSuffix: '',
+        style: '스타일',
+        environment: '환경',
+        tonePacing: '톤 & 페이싱',
+        camera: '카메라',
+        lighting: '조명',
+        actions: '액션',
+        backgroundSound: '배경음',
+        transitionEditing: '전환 / 편집',
+        callToAction: '콜 투 액션',
       };
     }
     if (lang.startsWith('vi')) {
       return {
-        style: '[Phong cách]:',
-        environment: '[Bối cảnh]:',
-        tonePacing: '[Tông & Nhịp độ]:',
-        camera: '[Máy quay]:',
-        lighting: '[Ánh sáng]:',
-        actions: '[Hành động]:',
-        backgroundSound: '[Âm thanh nền]:',
-        transitionEditing: '[Chuyển cảnh / Dựng]:',
-        callToAction: '[Kêu gọi hành động]:',
-        addScene: 'Thêm cảnh',
-        deleteScene: 'Xóa',
-        scenePrefix: 'Cảnh ',
-        sceneSuffix: '',
+        style: 'Phong cách',
+        environment: 'Bối cảnh',
+        tonePacing: 'Tông & Nhịp độ',
+        camera: 'Máy quay',
+        lighting: 'Ánh sáng',
+        actions: 'Hành động',
+        backgroundSound: 'Âm thanh nền',
+        transitionEditing: 'Chuyển cảnh / Dựng',
+        callToAction: 'Kêu gọi hành động',
       };
     }
     if (lang.startsWith('ms')) {
       return {
-        style: '[Gaya]:',
-        environment: '[Persekitaran]:',
-        tonePacing: '[Nada & Rentak]:',
-        camera: '[Kamera]:',
-        lighting: '[Pencahayaan]:',
-        actions: '[Aksi]:',
-        backgroundSound: '[Bunyi Latar]:',
-        transitionEditing: '[Peralihan / Suntingan]:',
-        callToAction: '[Seruan Tindakan]:',
-        addScene: 'Tambah babak',
-        deleteScene: 'Padam',
-        scenePrefix: 'Babak ',
-        sceneSuffix: '',
+        style: 'Gaya',
+        environment: 'Persekitaran',
+        tonePacing: 'Nada & Rentak',
+        camera: 'Kamera',
+        lighting: 'Pencahayaan',
+        actions: 'Aksi',
+        backgroundSound: 'Bunyi Latar',
+        transitionEditing: 'Peralihan / Suntingan',
+        callToAction: 'Seruan Tindakan',
       };
     }
     return {
-      style: '[Style]:',
-      environment: '[Environment]:',
-      tonePacing: '[Tone & Pacing]:',
-      camera: '[Camera]:',
-      lighting: '[Lighting]:',
-      actions: '[ACTIONS]:',
-      backgroundSound: '[Background Sound]:',
-      transitionEditing: '[Transition / Editing]:',
-      callToAction: '[Call to Action]:',
-      addScene: 'Add Scene',
-      deleteScene: 'Delete',
-      scenePrefix: 'Scene ',
-      sceneSuffix: '',
+      style: 'Style',
+      environment: 'Environment',
+      tonePacing: 'Tone & Pacing',
+      camera: 'Camera',
+      lighting: 'Lighting',
+      actions: 'Actions',
+      backgroundSound: 'Background Sound',
+      transitionEditing: 'Transition / Editing',
+      callToAction: 'Call to Action',
     };
   }, [language]);
 
   const cardThemeClass = useMemo(() => {
     if (isLightTheme) {
       return {
-        shell: 'rounded-xl border border-slate-300 bg-slate-100/95 px-2.5 py-2.5 text-slate-800 shadow-sm',
+        shell: 'rounded-2xl px-0 py-0 text-slate-800',
+        panel: 'rounded-xl border border-slate-300/85 bg-white/90 p-1.5',
+        row: 'flex items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-100/85 border border-transparent focus-within:border-purple-300/60 focus-within:bg-purple-50/35',
+        actionsBlock: 'rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-100/85 border border-transparent focus-within:border-purple-300/60 focus-within:bg-purple-50/35',
+        actionIndex: 'mt-0.5 text-[11px] font-semibold text-slate-600',
         label: 'font-semibold text-slate-800 tracking-tight',
         input: 'mt-0.5 w-full min-h-[28px] rounded-md border border-slate-300 bg-white px-2 py-1 text-[12px] leading-4 text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400/40 resize-y custom-scroll',
         actionItem: 'rounded-md border border-slate-300 bg-white p-1',
         actionInput: 'w-full min-h-[28px] rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[12px] leading-4 text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400/30 resize-y custom-scroll',
         button: 'text-[11px] px-2 py-0.5 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition',
         dangerButton: 'text-[11px] px-1.5 py-0.5 rounded border border-slate-300 text-slate-600 hover:text-red-600 hover:border-red-300 hover:bg-red-50 transition',
-        subLabel: 'text-[11px] font-semibold text-slate-700',
+        subLabel: 'shrink-0 mt-0.5 text-[10px] leading-4 font-semibold text-emerald-800 border border-emerald-300 bg-emerald-50 rounded-full px-2 py-0.5',
+        textarea: 'flex-1 bg-transparent border-0 p-0 text-[12px] leading-5 focus:outline-none resize-none text-slate-800 placeholder:text-slate-400',
       };
     }
     if (isDimTheme) {
       return {
-        shell: 'rounded-xl border border-slate-500/40 bg-slate-900/60 px-2.5 py-2.5 text-slate-100 shadow-[0_8px_20px_rgba(15,23,42,0.25)]',
+        shell: 'rounded-2xl px-0 py-0 text-slate-100',
+        panel: 'rounded-xl border border-slate-500/35 bg-slate-950/45 p-1.5',
+        row: 'flex items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-800/55 border border-transparent focus-within:border-emerald-400/45 focus-within:bg-emerald-500/10',
+        actionsBlock: 'rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-800/55 border border-transparent focus-within:border-emerald-400/45 focus-within:bg-emerald-500/10',
+        actionIndex: 'mt-0.5 text-[11px] font-semibold text-slate-400',
         label: 'font-semibold text-slate-100 tracking-tight',
         input: 'mt-0.5 w-full min-h-[28px] rounded-md border border-slate-500/40 bg-slate-800/70 px-2 py-1 text-[12px] leading-4 text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-300/30 resize-y custom-scroll',
         actionItem: 'rounded-md border border-slate-500/40 bg-slate-800/70 p-1',
         actionInput: 'w-full min-h-[28px] rounded-md border border-slate-500/30 bg-slate-900/60 px-2 py-1 text-[12px] leading-4 text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-300/25 resize-y custom-scroll',
         button: 'text-[11px] px-2 py-0.5 rounded-md border border-slate-400/40 bg-slate-700/60 text-slate-100 hover:bg-slate-700/80 transition',
         dangerButton: 'text-[11px] px-1.5 py-0.5 rounded border border-slate-400/40 text-slate-300 hover:text-red-300 hover:border-red-300/40 hover:bg-red-500/10 transition',
-        subLabel: 'text-[11px] font-semibold text-slate-300',
+        subLabel: 'shrink-0 mt-0.5 text-[10px] leading-4 font-semibold text-emerald-300 border border-emerald-400/40 bg-emerald-500/10 rounded-full px-2 py-0.5',
+        textarea: 'flex-1 bg-transparent border-0 p-0 text-[12px] leading-5 focus:outline-none resize-none text-slate-100 placeholder:text-slate-500',
       };
     }
     return {
-      shell: 'rounded-xl border border-white/10 bg-zinc-900/45 px-2.5 py-2.5 text-zinc-100 shadow-[0_8px_20px_rgba(0,0,0,0.25)]',
+      shell: 'rounded-2xl px-0 py-0 text-zinc-100',
+      panel: 'rounded-xl border border-zinc-600/40 bg-zinc-950/45 p-1.5',
+      row: 'flex items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/5 border border-transparent focus-within:border-emerald-400/40 focus-within:bg-emerald-500/10',
+      actionsBlock: 'rounded-lg px-2 py-1.5 transition-colors hover:bg-white/5 border border-transparent focus-within:border-emerald-400/40 focus-within:bg-emerald-500/10',
+      actionIndex: 'mt-0.5 text-[11px] font-semibold text-zinc-400',
       label: 'font-semibold text-zinc-100 tracking-tight',
       input: 'mt-0.5 w-full min-h-[28px] rounded-md border border-zinc-600 bg-zinc-800/80 px-2 py-1 text-[12px] leading-4 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-300/25 resize-y custom-scroll',
       actionItem: 'rounded-md border border-zinc-600 bg-zinc-800/80 p-1',
       actionInput: 'w-full min-h-[28px] rounded-md border border-zinc-500/60 bg-zinc-900/70 px-2 py-1 text-[12px] leading-4 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-300/20 resize-y custom-scroll',
       button: 'text-[11px] px-2 py-0.5 rounded-md border border-zinc-500 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition',
       dangerButton: 'text-[11px] px-1.5 py-0.5 rounded border border-zinc-500 text-zinc-300 hover:text-red-300 hover:border-red-300/40 hover:bg-red-500/10 transition',
-      subLabel: 'text-[11px] font-semibold text-zinc-300',
+      subLabel: 'shrink-0 mt-0.5 text-[10px] leading-4 font-semibold text-emerald-300 border border-emerald-400/35 bg-emerald-500/10 rounded-full px-2 py-0.5',
+      textarea: 'flex-1 bg-transparent border-0 p-0 text-[12px] leading-5 focus:outline-none resize-none text-zinc-100 placeholder:text-zinc-500',
     };
   }, [isLightTheme, isDimTheme]);
 
@@ -3141,6 +3137,29 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       () => uploadDisplayAssets.filter((asset) => asset.id !== klingPrimarySlotAsset?.id),
       [uploadDisplayAssets, klingPrimarySlotAsset]
   );
+  const klingPrimarySlotHint = klingPrimarySlotAsset ? (
+      <span className="inline-flex items-center gap-1 text-[10px] font-medium normal-case tracking-normal text-green-400">
+        1/1
+        <CheckCircle className="h-3 w-3" />
+      </span>
+  ) : (
+      <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">
+        {klingGenerateMode === 'subject' ? '必传1个主体' : '必传1张'}
+      </span>
+  );
+  const klingReferenceLimit = klingGenerateMode === 'subject' ? 3 : 6;
+  const isKlingReferenceOverflow = klingReferenceSlotAssets.length > klingReferenceLimit;
+  const klingReferenceSlotHint = klingReferenceSlotAssets.length > 0 ? (
+      <span className={`inline-flex items-center gap-1 text-[10px] font-medium normal-case tracking-normal ${isKlingReferenceOverflow ? 'text-red-400' : 'text-green-400'}`}>
+        {klingReferenceSlotAssets.length}/{klingReferenceLimit}
+        {!isKlingReferenceOverflow ? <CheckCircle className="h-3 w-3" /> : null}
+        {isKlingReferenceOverflow ? <span>{klingGenerateMode === 'subject' ? '最多3张' : '最多6张'}</span> : null}
+      </span>
+  ) : (
+      <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">
+        {klingGenerateMode === 'subject' ? '1~3张' : '可选 · ≤6张'}
+      </span>
+  );
   const renderUploadAssetCard = useCallback((asset: QueuedAsset, compact = false) => {
     const inQueue = assetQueue.find((item) => item.id === asset.id);
     const selected = selectedQueueAssetId ? selectedQueueAssetId === asset.id : uploadedFile === asset.previewUrl;
@@ -3203,7 +3222,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           )) : (
             <div className="w-full h-24 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
           )}
-          <div className="absolute top-1 left-1 z-10" onClick={(e) => e.stopPropagation()}>
+          <div className="absolute top-1 left-1 z-10 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+            {isKlingOmniMode && klingGenerateMode === 'subject' && hasSubjectOtherViews(asset) && (asset.materialType === 'product' || asset.materialType === 'model') && (
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm">
+                  <Layers3 className="h-3 w-3" />
+                </span>
+            )}
             <select
                 className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
                 value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product')}
@@ -3267,7 +3291,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           </div>
           <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-10">
             <p className="text-[9px] text-white truncate drop-shadow-md">{asset.name}</p>
-            {selected && <p className="text-[9px] text-green-400 flex items-center gap-1 drop-shadow-md"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p>}
           </div>
         </div>
     );
@@ -3720,7 +3743,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
           const newTotal = validScripts.reduce((acc: number, s: any) => acc + (parseFloat(s.dur.replace('s','')) || 0), 0);
           if (Math.abs(newTotal - genDuration) > 0.5) {
-            setGenDuration(Math.ceil(newTotal));
+            setGenDuration(normalizeDurationForModel(Math.ceil(newTotal), selectedModel));
           }
         } else {
           openInfo('Invalid file', 'Invalid script format. Please upload a valid JSON file.');
@@ -4110,6 +4133,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (creationMode !== 'replay') return;
     if (selectedModel !== 'seedance2.0') setSelectedModel('seedance2.0');
   }, [creationMode, selectedModel, setSelectedModel]);
+
+  useEffect(() => {
+    setGenDuration((prev) => normalizeDurationForModel(prev, selectedModel));
+  }, [normalizeDurationForModel, selectedModel]);
 
   const backendModel =
       selectedModel === 'sora2pro'
@@ -4669,27 +4696,47 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
-                <DropdownSelect
-                  value={String(genDuration)}
-                  options={[
-                    { value: '5', label: '5s' },
-                    { value: '10', label: '10s' },
-                    { value: '15', label: '15s' },
-                  ]}
-                  onChange={(v) => {
-                    const next = Number(v);
-                    if (next === 5 || next === 10 || next === 15) {
-                      setGenDuration(next);
-                      return;
-                    }
-                    setGenDuration(10);
-                  }}
-                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
-                  labelClassName=""
-                  iconClassName="w-3 h-3 text-zinc-500"
-                  optionClassName="text-xs"
-                />
+                {selectedModel === 'kling' ? (
+                  <div className="flex flex-col gap-3">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_config_duration}</label>
+                      <span className="text-[12px] font-bold text-orange-400">{genDuration}s</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={3}
+                      max={10}
+                      step={1}
+                      value={genDuration}
+                      onChange={(e) => setGenDuration(Number(e.target.value))}
+                      className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
+                    <DropdownSelect
+                      value={String(genDuration)}
+                      options={[
+                        { value: '5', label: '5s' },
+                        { value: '10', label: '10s' },
+                        { value: '15', label: '15s' },
+                      ]}
+                      onChange={(v) => {
+                        const next = Number(v);
+                        if (next === 5 || next === 10 || next === 15) {
+                          setGenDuration(next);
+                          return;
+                        }
+                        setGenDuration(10);
+                      }}
+                      buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                      labelClassName=""
+                      iconClassName="w-3 h-3 text-zinc-500"
+                      optionClassName="text-xs"
+                    />
+                  </>
+                )}
               </div>
 
                 <div>
@@ -4736,34 +4783,75 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 <div className="grid grid-cols-2 gap-2">
                   <button
                       type="button"
-                      onClick={() => setKlingGenerateMode('first_frame')}
-                      className={`rounded-xl border px-3 py-2 text-left transition ${klingGenerateMode === 'first_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                      onClick={() => handleKlingGenerateModeChange('first_frame')}
+                      className={`relative overflow-visible rounded-xl border px-3 py-2 text-left transition hover:z-20 ${klingGenerateMode === 'first_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
-                    <div className="text-[11px] font-bold">首帧模式</div>
-                    <div className="mt-1 text-[10px] text-zinc-400">1张首帧图 + 最多6张参考图</div>
+                    <div className="flex items-center gap-1 text-[11px] font-bold">
+                      <span>首帧模式</span>
+                      <span className="relative z-10 inline-flex items-center group/info hover:z-20">
+                        <Info className="h-3 w-3 text-zinc-400" />
+                        <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 ml-6 w-40 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
+                          <span className="block">素材要求：</span>
+                          <span className="block">1张首帧图+0-6张参考图</span>
+                        </span>
+                      </span>
+                    </div>
+                    <div className="mt-1 text-[10px] text-zinc-400">{t.wb_kling_first_frame_desc}</div>
                   </button>
                   <button
                       type="button"
-                      onClick={() => setKlingGenerateMode('subject')}
-                      className={`rounded-xl border px-3 py-2 text-left transition ${klingGenerateMode === 'subject' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                      onClick={() => handleKlingGenerateModeChange('subject')}
+                      className={`relative overflow-visible rounded-xl border px-3 py-2 text-left transition hover:z-20 ${klingGenerateMode === 'subject' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
-                    <div className="text-[11px] font-bold">主体模式</div>
-                    <div className="mt-1 text-[10px] text-zinc-400">1个主体 + 1~3张其他参考图</div>
+                    <div className="flex items-center gap-1 text-[11px] font-bold">
+                      <span>主体模式</span>
+                      <span className="relative z-10 inline-flex items-center group/info hover:z-20">
+                        <Info className="h-3 w-3 text-zinc-400" />
+                        <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 ml-6 w-44 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
+                          <span className="block">素材要求：</span>
+                          <span className="block">1个主体+1-3张参考图</span>
+                          <span className="mt-1 block text-zinc-300">主体是同一人物/物体的多角度素材集合，不是单张图片，须先在素材库创建才能使用。</span>
+                        </span>
+                      </span>
+                    </div>
+                    <div className="mt-1 text-[10px] text-zinc-400">{t.wb_kling_subject_desc}</div>
+                  </button>
+                </div>
+            )}
+            {isKlingOmniMode && klingGenerateMode === 'subject' && !isKlingSubjectModeHintDismissed && (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                  <div className="flex items-center gap-2 text-[11px] text-zinc-300">
+                    <button
+                        type="button"
+                        className="text-zinc-500 transition hover:text-zinc-300"
+                        onClick={() => setIsKlingSubjectModeHintDismissed(true)}
+                        aria-label="关闭提示"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                    <span>使用前需先在素材库创建主体</span>
+                  </div>
+                  <button
+                      type="button"
+                      className="rounded-xl border border-orange-500/70 bg-orange-500/10 px-3 py-1.5 text-[10px] font-bold text-orange-200 transition hover:bg-orange-500/20"
+                      onClick={openSubjectCreationLibrary}
+                  >
+                    去创建主体
                   </button>
                 </div>
             )}
             <div
-                onDragOver={handleUploadDragOver}
-                onDragEnter={handleUploadDragOver}
-                onDragLeave={handleUploadDragLeave}
-                onDrop={handleUploadDrop}
-                className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors min-h-32 relative group ${uploadDisplayAssets.length > 0 ? 'border-none' : ''} ${isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50'}`}
+                onDragOver={isKlingOmniMode ? undefined : handleUploadDragOver}
+                onDragEnter={isKlingOmniMode ? undefined : handleUploadDragOver}
+                onDragLeave={isKlingOmniMode ? undefined : handleUploadDragLeave}
+                onDrop={isKlingOmniMode ? undefined : handleUploadDrop}
+                className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors min-h-32 relative group ${uploadDisplayAssets.length > 0 ? 'border-none' : ''} ${isKlingOmniMode ? 'border-none' : (isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50')}`}
             >
-              {isDragUploadActive && (
+              {!isKlingOmniMode && isDragUploadActive && (
                   <div className="absolute inset-1 rounded-lg border border-dashed border-orange-500/60 bg-orange-500/10 pointer-events-none" />
               )}
               <input type="file" ref={fileInputRef} className="hidden" accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.mkv,.webm,.avi,.mp3,.wav,.flac" multiple onChange={handleWorkbenchUpload} />
-              {uploadDisplayAssets.length === 0 ? (
+              {!isKlingOmniMode && uploadDisplayAssets.length === 0 ? (
                   <div className="absolute inset-0 flex flex-col items-center justify-center z-10 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
                     <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition duration-300"><Plus className="w-4 h-4 text-zinc-500 group-hover:text-orange-500" /></div>
                     <p className="text-[10px] font-medium text-zinc-400">{t.wb_upload_click}</p>
@@ -4810,8 +4898,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 clearWorkbenchDragState();
                               }}
                           >
-                            <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
-                              {klingGenerateMode === 'subject' ? '主体图' : '首帧图'}
+                            <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                              <span>{klingGenerateMode === 'subject' ? '主体图' : '首帧图'}</span>
+                              {klingPrimarySlotHint}
                             </div>
                             {klingPrimarySlotAsset ? renderUploadAssetCard(klingPrimarySlotAsset) : (
                                 <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20" />
@@ -4833,7 +4922,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 clearWorkbenchDragState();
                               }}
                           >
-                            <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">参考图</div>
+                            <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                              <span>参考图</span>
+                              {klingReferenceSlotHint}
+                            </div>
                             {klingReferenceSlotAssets.length > 0 ? (
                                 <div className="flex flex-col gap-2 max-h-60 overflow-y-auto custom-scroll pr-1">
                                   {klingReferenceSlotAssets.map((asset) => (
@@ -5591,6 +5683,36 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <div className="whitespace-pre-line text-sm text-zinc-300">{confirmMessage}</div>
             </AppDialog>
         )}
+        {isKlingSubjectGuideOpen && (
+            <AppDialog
+                isOpen={isKlingSubjectGuideOpen}
+                title="提示"
+                onClose={() => setIsKlingSubjectGuideOpen(false)}
+                footer={
+                  <>
+                    <button
+                        className="rounded-xl border border-orange-500/70 bg-orange-500/10 px-4 py-2 text-sm font-bold text-orange-200 hover:bg-orange-500/20"
+                        onClick={() => {
+                          setIsKlingSubjectGuideOpen(false);
+                          openSubjectCreationLibrary();
+                        }}
+                    >
+                      去创建主体
+                    </button>
+                    <button
+                        className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                        onClick={() => setIsKlingSubjectGuideOpen(false)}
+                    >
+                      取消
+                    </button>
+                  </>
+                }
+            >
+              <div className="whitespace-pre-line text-sm text-zinc-300">{`主体模式不能直接使用单张图片。
+请先去素材库创建“主体”，上传同一主体的多张不同角度图片，例如正面、侧面、背面或不同姿态。
+创建完成后，再回到这里选择该主体。`}</div>
+            </AppDialog>
+        )}
         {deleteProjectTarget && (
             <AppDialog
                 isOpen={!!deleteProjectTarget}
@@ -5936,142 +6058,115 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
                     <div className="space-y-1.5 relative z-10">
                       <div className={cardThemeClass.shell}>
-                        <div className="space-y-1 text-[12px] leading-4">
-                          <div>
-                            <div className={cardThemeClass.label}>{cardLabels.style}</div>
-                            <textarea
-                                rows={1}
-                                data-card-autosize="true"
-                                value={activeCreativeCard?.style || ''}
-                                onChange={(e) => updateActiveCreativeCardField('style', e.target.value)}
-                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                className={cardThemeClass.input}
-                            />
-                          </div>
-
-                          <div>
-                            <div className={cardThemeClass.label}>{cardLabels.environment}</div>
-                            <textarea
-                                rows={1}
-                                data-card-autosize="true"
-                                value={activeCreativeCard?.environment || ''}
-                                onChange={(e) => updateActiveCreativeCardField('environment', e.target.value)}
-                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                className={cardThemeClass.input}
-                            />
-                          </div>
-
-                          <div>
-                            <div className={cardThemeClass.label}>{cardLabels.tonePacing}</div>
-                            <textarea
-                                rows={1}
-                                data-card-autosize="true"
-                                value={activeCreativeCard?.tonePacing || ''}
-                                onChange={(e) => updateActiveCreativeCardField('tonePacing', e.target.value)}
-                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                className={cardThemeClass.input}
-                            />
-                          </div>
-
-                          <div>
-                            <div className={cardThemeClass.label}>{cardLabels.camera}</div>
-                            <textarea
-                                rows={1}
-                                data-card-autosize="true"
-                                value={activeCreativeCard?.camera || ''}
-                                onChange={(e) => updateActiveCreativeCardField('camera', e.target.value)}
-                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                className={cardThemeClass.input}
-                            />
-                          </div>
-
-                          <div>
-                            <div className={cardThemeClass.label}>{cardLabels.lighting}</div>
-                            <textarea
-                                rows={1}
-                                data-card-autosize="true"
-                                value={activeCreativeCard?.lighting || ''}
-                                onChange={(e) => updateActiveCreativeCardField('lighting', e.target.value)}
-                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                className={cardThemeClass.input}
-                            />
-                          </div>
-
-                          <div>
-                            <div className="mb-0.5 flex items-center justify-between">
-                              <span className={cardThemeClass.label}>{cardLabels.actions}</span>
-                              <button
-                                  type="button"
-                                  onClick={addActiveCreativeCardAction}
-                                  className={cardThemeClass.button}
-                              >
-                                {cardLabels.addScene}
-                              </button>
+                        <div className={cardThemeClass.panel}>
+                          <div className={`space-y-1 ${isLightTheme ? 'text-slate-800' : 'text-zinc-100'}`}>
+                            <div className={cardThemeClass.row}>
+                              <span className={cardThemeClass.subLabel}>{cardLabels.style}</span>
+                              <textarea
+                                  rows={1}
+                                  data-card-autosize="true"
+                                  value={activeCreativeCard?.style || ''}
+                                  onChange={(e) => updateActiveCreativeCardField('style', e.target.value)}
+                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                  className={cardThemeClass.textarea}
+                              />
                             </div>
-                            <div className="space-y-1">
-                              {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0 ? activeCreativeCard.actions : ['']).map((item, idx) => (
-                                  <div key={`card-action-edit-${idx}`} className={cardThemeClass.actionItem}>
-                                    <div className="mb-0.5 flex items-center justify-between">
-                                      <span className={cardThemeClass.subLabel}>{`${cardLabels.scenePrefix}${idx + 1}${cardLabels.sceneSuffix}`}</span>
-                                      {(activeCreativeCard?.actions && activeCreativeCard.actions.length > 0) && (
-                                          <button
-                                              type="button"
-                                              onClick={() => removeActiveCreativeCardAction(idx)}
-                                              className={cardThemeClass.dangerButton}
-                                              title={cardLabels.deleteScene}
-                                          >
-                                            {cardLabels.deleteScene}
-                                          </button>
-                                      )}
-                                    </div>
-                                    <textarea
-                                        rows={1}
-                                        data-card-autosize="true"
-                                        value={item}
-                                        onChange={(e) => updateActiveCreativeCardAction(idx, e.target.value)}
-                                        onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                        placeholder={`${cardLabels.scenePrefix}${idx + 1}${cardLabels.sceneSuffix}...`}
-                                        className={cardThemeClass.actionInput}
-                                    />
-                                  </div>
-                              ))}
+
+                            <div className={cardThemeClass.row}>
+                              <span className={cardThemeClass.subLabel}>{cardLabels.environment}</span>
+                              <textarea
+                                  rows={1}
+                                  data-card-autosize="true"
+                                  value={activeCreativeCard?.environment || ''}
+                                  onChange={(e) => updateActiveCreativeCardField('environment', e.target.value)}
+                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                  className={cardThemeClass.textarea}
+                              />
                             </div>
-                          </div>
 
-                          <div>
-                            <div className={cardThemeClass.label}>{cardLabels.backgroundSound}</div>
-                            <textarea
-                                rows={1}
-                                data-card-autosize="true"
-                                value={activeCreativeCard?.backgroundSound || ''}
-                                onChange={(e) => updateActiveCreativeCardField('backgroundSound', e.target.value)}
-                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                className={cardThemeClass.input}
-                            />
-                          </div>
+                            <div className={cardThemeClass.row}>
+                              <span className={cardThemeClass.subLabel}>{cardLabels.tonePacing}</span>
+                              <textarea
+                                  rows={1}
+                                  data-card-autosize="true"
+                                  value={activeCreativeCard?.tonePacing || ''}
+                                  onChange={(e) => updateActiveCreativeCardField('tonePacing', e.target.value)}
+                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                  className={cardThemeClass.textarea}
+                              />
+                            </div>
 
-                          <div>
-                            <div className={cardThemeClass.label}>{cardLabels.transitionEditing}</div>
-                            <textarea
-                                rows={1}
-                                data-card-autosize="true"
-                                value={activeCreativeCard?.transitionEditing || ''}
-                                onChange={(e) => updateActiveCreativeCardField('transitionEditing', e.target.value)}
-                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                className={cardThemeClass.input}
-                            />
-                          </div>
+                            <div className={cardThemeClass.row}>
+                              <span className={cardThemeClass.subLabel}>{cardLabels.camera}</span>
+                              <textarea
+                                  rows={1}
+                                  data-card-autosize="true"
+                                  value={activeCreativeCard?.camera || ''}
+                                  onChange={(e) => updateActiveCreativeCardField('camera', e.target.value)}
+                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                  className={cardThemeClass.textarea}
+                              />
+                            </div>
 
-                          <div>
-                            <div className={cardThemeClass.label}>{cardLabels.callToAction}</div>
-                            <textarea
-                                rows={1}
-                                data-card-autosize="true"
-                                value={activeCreativeCard?.callToAction || ''}
-                                onChange={(e) => updateActiveCreativeCardField('callToAction', e.target.value)}
-                                onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                className={cardThemeClass.input}
-                            />
+                            <div className={cardThemeClass.row}>
+                              <span className={cardThemeClass.subLabel}>{cardLabels.lighting}</span>
+                              <textarea
+                                  rows={1}
+                                  data-card-autosize="true"
+                                  value={activeCreativeCard?.lighting || ''}
+                                  onChange={(e) => updateActiveCreativeCardField('lighting', e.target.value)}
+                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                  className={cardThemeClass.textarea}
+                              />
+                            </div>
+
+                            <div className={cardThemeClass.row}>
+                              <span className={cardThemeClass.subLabel}>{cardLabels.actions}</span>
+                              <textarea
+                                  rows={1}
+                                  data-card-autosize="true"
+                                  value={(activeCreativeCard?.actions || []).join('\n')}
+                                  onChange={(e) => updateActiveCreativeCardActionsText(e.target.value)}
+                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                  className={cardThemeClass.textarea}
+                              />
+                            </div>
+
+                            <div className={cardThemeClass.row}>
+                              <span className={cardThemeClass.subLabel}>{cardLabels.backgroundSound}</span>
+                              <textarea
+                                  rows={1}
+                                  data-card-autosize="true"
+                                  value={activeCreativeCard?.backgroundSound || ''}
+                                  onChange={(e) => updateActiveCreativeCardField('backgroundSound', e.target.value)}
+                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                  className={cardThemeClass.textarea}
+                              />
+                            </div>
+
+                            <div className={cardThemeClass.row}>
+                              <span className={cardThemeClass.subLabel}>{cardLabels.transitionEditing}</span>
+                              <textarea
+                                  rows={1}
+                                  data-card-autosize="true"
+                                  value={activeCreativeCard?.transitionEditing || ''}
+                                  onChange={(e) => updateActiveCreativeCardField('transitionEditing', e.target.value)}
+                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                  className={cardThemeClass.textarea}
+                              />
+                            </div>
+
+                            <div className={cardThemeClass.row}>
+                              <span className={cardThemeClass.subLabel}>{cardLabels.callToAction}</span>
+                              <textarea
+                                  rows={1}
+                                  data-card-autosize="true"
+                                  value={activeCreativeCard?.callToAction || ''}
+                                  onChange={(e) => updateActiveCreativeCardField('callToAction', e.target.value)}
+                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                                  className={cardThemeClass.textarea}
+                              />
+                            </div>
                           </div>
                         </div>
                       </div>

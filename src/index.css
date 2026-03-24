@@ -285,6 +285,14 @@ body {
 .theme-light .project-menu-item-row:hover {
   background-color: #ffffff !important;
 }
+.theme-light button.subject-guide-confirm-btn {
+  background-color: #f97316 !important;
+  color: #ffffff !important;
+}
+.theme-light button.subject-guide-confirm-btn:hover {
+  background-color: #ea580c !important;
+  color: #ffffff !important;
+}
 .theme-light .glass-card, .theme-light .glass-panel {
   background: rgba(255,255,255,0.85) !important;
   border-color: rgba(15,23,42,0.06) !important;

@@ -1,19 +1,27 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { 
-  FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil, Search, Heart, Download, Library, Globe, Info, Settings, Eye, EyeOff, Layers3, Plus
+import {
+  FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil, Search, Heart, Download, Library, Globe, Info, Settings, Eye, EyeOff, Layers3, Plus, Sparkles, AlertCircle
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext'
 import { assetsApi, type Asset, type AssetFolder, type PlazaAssetItem, type PlazaCollectPolicy } from '../../services/assets';
 import { videoApi } from '../../services/video';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
+import { subjectGuideContent } from './subjectGuideContent';
 
 type AssetType = 'model' | 'product' | 'scene' | 'motion';
+type AssetsNavigationIntent =
+  | 'open_assets_for_subject_creation'
+  | 'open_assets_for_subject_creation_first_time'
+  | null;
 
 interface AssetsViewProps {
   onSelectAsset: (asset: Asset) => void;
   currentFolderId: string | null;
   setCurrentFolderId: (id: string | null) => void;
+  navigationIntent?: AssetsNavigationIntent;
+  onNavigationIntentHandled?: () => void;
+  onSubjectGuideCompleted?: () => void;
 }
 
 const ASSET_PLACEHOLDER_DATA_URL = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiB2aWV3Qm94PSIwIDAgMzAwIDQwMCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzFmMjkzNyIvPjx0ZXh0IHg9IjE1MCIgeT0iMjAwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiBmaWxsPSIjOWNhM2FmIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiPk5vIFByZXZpZXc8L3RleHQ+PC9zdmc+';
@@ -21,7 +29,10 @@ const ASSET_PLACEHOLDER_DATA_URL = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaH
 export const AssetsView: React.FC<AssetsViewProps> = ({ 
   onSelectAsset, 
   currentFolderId, 
-  setCurrentFolderId 
+  setCurrentFolderId,
+  navigationIntent,
+  onNavigationIntentHandled,
+  onSubjectGuideCompleted,
 }) => {
   const { t, language } = useLanguage();
   const { updateUser } = useAuth();
@@ -50,6 +61,18 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     scene: t.assets_tab_scenes,
     motion: t.assets_tab_motion
   };
+  const [themeClassSnapshot, setThemeClassSnapshot] = useState<string>('');
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    const sync = () => setThemeClassSnapshot(root.className || '');
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(root, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+  const isLightTheme = themeClassSnapshot.includes('theme-light');
+  const isDimTheme = themeClassSnapshot.includes('theme-dim');
 
   const [viewMode, setViewMode] = useState<'library' | 'plaza'>('library');
   
@@ -134,11 +157,75 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [infoTitle, setInfoTitle] = useState('');
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [isSubjectGuideModalOpen, setIsSubjectGuideModalOpen] = useState(false);
+  const [isSubjectGuideSpotlightOpen, setIsSubjectGuideSpotlightOpen] = useState(false);
+  const [shouldRunSubjectGuideSpotlight, setShouldRunSubjectGuideSpotlight] = useState(false);
+  const [subjectGuideHighlightStyle, setSubjectGuideHighlightStyle] = useState<React.CSSProperties>({});
+  const [subjectGuideTooltipStyle, setSubjectGuideTooltipStyle] = useState<React.CSSProperties>({});
+  const subjectGuideButtonRef = useRef<HTMLButtonElement>(null);
   const openInfo = (title: string, message: string | null = null) => {
     setInfoTitle(title || '');
     setInfoMessage(message || null);
     setIsInfoOpen(true);
   };
+  const openSubjectGuideModal = useCallback((withSpotlight = false) => {
+    setShouldRunSubjectGuideSpotlight(withSpotlight);
+    setIsSubjectGuideModalOpen(true);
+  }, []);
+  const updateSubjectGuideSpotlightPosition = useCallback(() => {
+    const target = subjectGuideButtonRef.current;
+    if (!target) return;
+
+    const rect = target.getBoundingClientRect();
+    const padding = 8;
+    const tooltipWidth = 288;
+    const nextLeft = Math.max(24, Math.min(window.innerWidth - tooltipWidth - 24, rect.left + rect.width - 44));
+
+    setSubjectGuideHighlightStyle({
+      top: rect.top - padding,
+      left: rect.left - padding,
+      width: rect.width + padding * 2,
+      height: rect.height + padding * 2,
+    });
+    setSubjectGuideTooltipStyle({
+      top: rect.bottom + 20,
+      left: nextLeft,
+      width: tooltipWidth,
+    });
+  }, []);
+  const closeSubjectGuideSpotlight = useCallback(() => {
+    setIsSubjectGuideSpotlightOpen(false);
+    onSubjectGuideCompleted?.();
+  }, [onSubjectGuideCompleted]);
+
+  useEffect(() => {
+    if (!isSubjectGuideSpotlightOpen) return;
+
+    updateSubjectGuideSpotlightPosition();
+    const handleReposition = () => updateSubjectGuideSpotlightPosition();
+    window.addEventListener('resize', handleReposition);
+    window.addEventListener('scroll', handleReposition, true);
+    return () => {
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition, true);
+    };
+  }, [isSubjectGuideSpotlightOpen, updateSubjectGuideSpotlightPosition]);
+
+  useEffect(() => {
+    if (!navigationIntent) return;
+
+    setViewMode('library');
+    setCurrentFolderId(null);
+    setFolderBreadcrumb([]);
+    setIsSelectionMode(false);
+    setOpenFolderMenuId(null);
+
+    if (navigationIntent === 'open_assets_for_subject_creation_first_time') {
+      openSubjectGuideModal(true);
+    }
+
+    onNavigationIntentHandled?.();
+  }, [navigationIntent, onNavigationIntentHandled, openSubjectGuideModal, setCurrentFolderId]);
 
   // 4. Preview
   const [isAssetPreviewOpen, setIsAssetPreviewOpen] = useState(false);
@@ -1355,6 +1442,18 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
             </div>
           </div>
           <div className="flex gap-3 items-center">
+             {viewMode === 'library' && (
+               <button
+                 type="button"
+                 ref={subjectGuideButtonRef}
+                 onClick={() => openSubjectGuideModal(false)}
+                 className={`flex items-center gap-1.5 px-2 py-1 rounded border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 transition ${isSubjectGuideSpotlightOpen ? 'relative z-[151]' : ''}`}
+                 title="主体创建说明"
+               >
+                 <Sparkles className="w-3.5 h-3.5" />
+                 <span className="text-[10px] font-bold">主体创建说明</span>
+               </button>
+             )}
              <LanguageSwitcher />
              {viewMode === 'library' ? (
                <>
@@ -1857,6 +1956,81 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
        {/* --- MODALS --- */}
 
+       {isSubjectGuideModalOpen && (
+         <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6">
+           <div className={`w-full max-w-4xl rounded-3xl border shadow-2xl ${isLightTheme ? 'border-slate-300 bg-white shadow-black/15' : isDimTheme ? 'border-slate-500/40 bg-slate-900 shadow-black/30' : 'border-white/10 bg-[#120C09] shadow-black/40'}`}>
+             <div className={`border-b px-6 py-5 ${isLightTheme ? 'border-slate-200' : isDimTheme ? 'border-slate-500/40' : 'border-white/10'}`}>
+               <div className={`text-lg font-bold ${isLightTheme ? 'text-slate-900' : isDimTheme ? 'text-slate-100' : 'text-zinc-100'}`}>主体创建说明</div>
+              <div className={`mt-1 text-sm ${isLightTheme ? 'text-slate-600' : isDimTheme ? 'text-slate-300' : 'text-zinc-400'}`}>
+                <div>首次使用主体模式前，先了解主体素材应如何创建与管理。</div>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-orange-500" />
+                  <span>作为“场景”上传的素材暂不支持创建为主体。</span>
+                </div>
+              </div>
+              <div className="hidden">
+                <div>首次使用主体模式前，先了解主体素材应如何创建与管理。</div>
+                <div>作为“场景”标签上传的素材暂不支持创建为主体。</div>
+              </div>
+             </div>
+             <div className="custom-scroll max-h-[70vh] overflow-y-auto px-6 py-5 pr-4">
+                <div className="space-y-5">
+                  {subjectGuideContent.map((item, index) => (
+                    <div key={`${item.title}-${index}`} className={`rounded-2xl border p-4 ${isLightTheme ? 'border-slate-200 bg-slate-50' : isDimTheme ? 'border-slate-500/35 bg-slate-800/70' : 'border-white/10 bg-white/5'}`}>
+                     {item.illustration}
+                     <div className={`mt-4 text-base font-bold ${isLightTheme ? 'text-slate-900' : isDimTheme ? 'text-slate-100' : 'text-zinc-100'}`}>{`步骤 ${index + 1} · ${item.title}`}</div>
+                     <div className={`mt-2 text-sm leading-6 ${isLightTheme ? 'text-slate-700' : isDimTheme ? 'text-slate-300' : 'text-zinc-300'}`}>{item.description}</div>
+                   </div>
+                 ))}
+               </div>
+             </div>
+             <div className={`flex justify-end border-t px-6 py-4 ${isLightTheme ? 'border-slate-200' : isDimTheme ? 'border-slate-500/40' : 'border-white/10'}`}>
+              <button
+                 type="button"
+                 className="subject-guide-confirm-btn rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-orange-500/20 transition hover:bg-orange-600"
+                 onClick={() => {
+                   setIsSubjectGuideModalOpen(false);
+                   if (!shouldRunSubjectGuideSpotlight) return;
+                   setShouldRunSubjectGuideSpotlight(false);
+                   requestAnimationFrame(() => {
+                     updateSubjectGuideSpotlightPosition();
+                     setIsSubjectGuideSpotlightOpen(true);
+                   });
+                 }}
+               >
+                 我知道了
+               </button>
+             </div>
+           </div>
+         </div>
+       )}
+
+       {isSubjectGuideSpotlightOpen && (
+         <div className="fixed inset-0 z-[150]">
+           <div
+             className="absolute rounded-2xl border-2 border-orange-400/90 bg-transparent pointer-events-none shadow-[0_0_0_9999px_rgba(0,0,0,0.78),0_0_32px_rgba(249,115,22,0.35)]"
+             style={subjectGuideHighlightStyle}
+           />
+           <div
+             className="absolute rounded-2xl border border-orange-500/40 bg-zinc-950/95 px-4 py-4 shadow-2xl shadow-black/40"
+             style={subjectGuideTooltipStyle}
+           >
+             <div className="absolute -top-2 left-10 h-4 w-4 rotate-45 border-l border-t border-orange-500/40 bg-zinc-950/95" />
+             <div className="text-sm font-bold text-white">主体创建说明在这里</div>
+             <div className="mt-2 text-xs leading-5 text-zinc-300">以后如果你想再看主体创建方法，随时都可以从这里重新打开。</div>
+             <div className="mt-4 flex justify-end">
+               <button
+                 type="button"
+                 className="rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-orange-600"
+                 onClick={closeSubjectGuideSpotlight}
+               >
+                 知道了
+               </button>
+             </div>
+           </div>
+         </div>
+       )}
+
        {/* 1. Preview Modal */}
        {isAssetPreviewOpen && assetPreview && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6" onClick={() => setIsAssetPreviewOpen(false)}>
@@ -1886,7 +2060,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                 <div className="space-y-4">
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                     <div className="text-xs text-zinc-500 mb-1">{t.assets_subject_name}</div>
-                    <div className="text-base font-bold text-zinc-100 break-words">{getAssetSubjectName(assetPreview) || assetPreview.name}</div>
+                    <div className="text-base font-bold text-zinc-100 break-words">{assetPreview.name}</div>
                     <div className="mt-2 text-[11px] text-zinc-400">
                       {t.assets_subject_status}: {(() => {
                         const status = getAssetSubjectStatus(assetPreview);
@@ -2080,10 +2254,10 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
             <div className="w-full max-w-5xl max-h-[calc(100vh-3rem)] overflow-hidden glass-panel rounded-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-white/10">
                 <div className="min-w-0">
-                  <div className="text-sm font-bold text-zinc-100">Select Asset</div>
+                  <div className="text-sm font-bold text-zinc-100">{t.wb_dialog_choose_from_library || '选择素材'}</div>
                   <div className="mt-1 flex items-center gap-2 text-xs text-zinc-500 min-w-0">
                     <button type="button" onClick={() => setSubjectPickerFolderId(null)} className="hover:text-white">
-                      Root
+                      {t.assets_root}
                     </button>
                     {subjectPickerBreadcrumb.map((folder) => (
                       <React.Fragment key={folder.id}>

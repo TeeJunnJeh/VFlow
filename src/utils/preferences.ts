@@ -15,7 +15,7 @@ const STORAGE_KEY_PREFIX = 'vflow_workbench_preferences_v1';
 const LEGACY_STORAGE_KEY = 'vflow_workbench_preferences_v1';
 const LEGACY_OWNER_KEY = 'vflow_workbench_preferences_v1_owner';
 
-const ALLOWED_DURATIONS = new Set([5, 10, 15]);
+const ALLOWED_DURATIONS = new Set([3, 4, 5, 6, 7, 8, 9, 10, 15]);
 
 const isBrowser = () => typeof window !== 'undefined' && typeof localStorage !== 'undefined';
 

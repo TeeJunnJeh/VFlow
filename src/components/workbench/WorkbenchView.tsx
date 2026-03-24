@@ -584,6 +584,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const initialPrefs = useMemo(() => getWorkbenchPreferences(user?.id ?? null), [user?.id]);
   const prefSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const normalizeDurationForModel = useCallback((value: number | null | undefined, model: string) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 10;
+    if (model === 'kling') return Math.min(10, Math.max(3, Math.round(numeric)));
+    return numeric === 5 || numeric === 10 || numeric === 15 ? numeric : 10;
+  }, []);
 
   const [productName, setProductName] = useState('');
   const [productCategory, setProductCategory] = useState('');
@@ -613,12 +619,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const coreSellingPointsFieldRef = useRef<HTMLTextAreaElement | null>(null);
   const videoTypeFieldRef = useRef<HTMLDivElement | null>(null);
   const [genPrompt, setGenPrompt] = useState('');
-  const [genDuration, setGenDuration] = useState<number>(() => {
-    if (initialPrefs.genDuration === 5 || initialPrefs.genDuration === 10 || initialPrefs.genDuration === 15) {
-      return initialPrefs.genDuration;
-    }
-    return selectedTemplate?.duration || 10;
-  });
+  const [genDuration, setGenDuration] = useState<number>(() => normalizeDurationForModel(initialPrefs.genDuration ?? selectedTemplate?.duration ?? 10, selectedModel));
   const [soundSetting, setSoundSetting] = useState<'on' | 'off'>(() => (initialPrefs.soundSetting === 'off' ? 'off' : 'on'));
   const [scriptVariantCount, setScriptVariantCount] = useState<number>(() =>
     typeof initialPrefs.scriptVariantCount === 'number' && initialPrefs.scriptVariantCount > 0 ? initialPrefs.scriptVariantCount : 1
@@ -925,15 +926,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     );
     setHasAiRecognized(!!workspace.hasAiRecognized);
     setGenPrompt(workspace.genPrompt || '');
-    setGenDuration(() => {
-      if (workspace.genDuration === 5 || workspace.genDuration === 10 || workspace.genDuration === 15) {
-        return workspace.genDuration;
-      }
-      if (initialPrefs.genDuration === 5 || initialPrefs.genDuration === 10 || initialPrefs.genDuration === 15) {
-        return initialPrefs.genDuration;
-      }
-      return 10;
-    });
+    setGenDuration(normalizeDurationForModel(
+      workspace.genDuration ?? initialPrefs.genDuration ?? 10,
+      (
+        workspace.selectedModelId ||
+        initialPrefs.selectedModelId ||
+        selectedModel
+      ) as string
+    ));
     setSoundSetting(workspace.soundSetting || (initialPrefs.soundSetting === 'off' ? 'off' : 'on'));
     setScriptVariantCount(
       typeof workspace.scriptVariantCount === 'number'
@@ -969,7 +969,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setTimeout(() => {
       isApplyingProjectWorkspaceRef.current = false;
     }, 0);
-  }, [onSelectTemplate, setSelectedModel, t.wb_script_page_prefix, templateList]);
+  }, [initialPrefs.genDuration, initialPrefs.selectedModelId, normalizeDurationForModel, onSelectTemplate, selectedModel, setSelectedModel, t.wb_script_page_prefix, templateList]);
 
   const beginHeaderRename = () => {
     if (!currentProject) return;
@@ -1312,8 +1312,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       skipTemplateDurationSyncRef.current = false;
       return;
     }
-    if (!isRestoring) setGenDuration(selectedTemplate.duration);
-  }, [selectedTemplate, isRestoring]);
+    if (!isRestoring) setGenDuration(normalizeDurationForModel(selectedTemplate.duration, selectedModel));
+  }, [selectedTemplate, isRestoring, normalizeDurationForModel, selectedModel]);
 
   useEffect(() => {
     setIsPlaying(false);
@@ -2321,7 +2321,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         target_language: targetLanguage,
         model_asset_id: null,
         motion_asset_id: null,
-        aspect_ratio: aspectRatio,
+        ...(klingGenerateMode === 'subject' ? { aspect_ratio: aspectRatio } : {}),
         mode: 'pro',
         subject_description_hint: coreSellingPoints.trim() || undefined,
         asset_source: (normalizedAssets[0]?.source ?? null) as GeneratePayload['asset_source'],
@@ -3720,7 +3720,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
           const newTotal = validScripts.reduce((acc: number, s: any) => acc + (parseFloat(s.dur.replace('s','')) || 0), 0);
           if (Math.abs(newTotal - genDuration) > 0.5) {
-            setGenDuration(Math.ceil(newTotal));
+            setGenDuration(normalizeDurationForModel(Math.ceil(newTotal), selectedModel));
           }
         } else {
           openInfo('Invalid file', 'Invalid script format. Please upload a valid JSON file.');
@@ -4110,6 +4110,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (creationMode !== 'replay') return;
     if (selectedModel !== 'seedance2.0') setSelectedModel('seedance2.0');
   }, [creationMode, selectedModel, setSelectedModel]);
+
+  useEffect(() => {
+    setGenDuration((prev) => normalizeDurationForModel(prev, selectedModel));
+  }, [normalizeDurationForModel, selectedModel]);
 
   const backendModel =
       selectedModel === 'sora2pro'
@@ -4669,27 +4673,47 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
-                <DropdownSelect
-                  value={String(genDuration)}
-                  options={[
-                    { value: '5', label: '5s' },
-                    { value: '10', label: '10s' },
-                    { value: '15', label: '15s' },
-                  ]}
-                  onChange={(v) => {
-                    const next = Number(v);
-                    if (next === 5 || next === 10 || next === 15) {
-                      setGenDuration(next);
-                      return;
-                    }
-                    setGenDuration(10);
-                  }}
-                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
-                  labelClassName=""
-                  iconClassName="w-3 h-3 text-zinc-500"
-                  optionClassName="text-xs"
-                />
+                {selectedModel === 'kling' ? (
+                  <div className="flex flex-col gap-3">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_config_duration}</label>
+                      <span className="text-[12px] font-bold text-orange-400">{genDuration}s</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={3}
+                      max={10}
+                      step={1}
+                      value={genDuration}
+                      onChange={(e) => setGenDuration(Number(e.target.value))}
+                      className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
+                    <DropdownSelect
+                      value={String(genDuration)}
+                      options={[
+                        { value: '5', label: '5s' },
+                        { value: '10', label: '10s' },
+                        { value: '15', label: '15s' },
+                      ]}
+                      onChange={(v) => {
+                        const next = Number(v);
+                        if (next === 5 || next === 10 || next === 15) {
+                          setGenDuration(next);
+                          return;
+                        }
+                        setGenDuration(10);
+                      }}
+                      buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                      labelClassName=""
+                      iconClassName="w-3 h-3 text-zinc-500"
+                      optionClassName="text-xs"
+                    />
+                  </>
+                )}
               </div>
 
                 <div>
@@ -4740,7 +4764,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       className={`rounded-xl border px-3 py-2 text-left transition ${klingGenerateMode === 'first_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
                     <div className="text-[11px] font-bold">首帧模式</div>
-                    <div className="mt-1 text-[10px] text-zinc-400">1张首帧图 + 最多6张参考图</div>
+                    <div className="mt-1 text-[10px] text-zinc-400">{t.wb_kling_first_frame_desc}</div>
                   </button>
                   <button
                       type="button"
@@ -4748,7 +4772,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       className={`rounded-xl border px-3 py-2 text-left transition ${klingGenerateMode === 'subject' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
                     <div className="text-[11px] font-bold">主体模式</div>
-                    <div className="mt-1 text-[10px] text-zinc-400">1个主体 + 1~3张其他参考图</div>
+                    <div className="mt-1 text-[10px] text-zinc-400">{t.wb_kling_subject_desc}</div>
                   </button>
                 </div>
             )}

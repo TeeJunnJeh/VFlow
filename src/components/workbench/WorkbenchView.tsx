@@ -5,7 +5,7 @@ import {
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift,
   SlidersHorizontal,Palette, MapPin, Activity, Camera, Lightbulb, Music, Scissors, Megaphone, AlignLeft,
-  Languages, HelpCircle
+  Languages, HelpCircle, AlertCircle
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -453,6 +453,7 @@ interface WorkbenchViewProps {
   generatedVideoUrl: string | null;
   setGeneratedVideoUrl: (url: string | null) => void;
   onExportToServer?: (data: any) => Promise<void>;
+  onNavigateToAssetsLibrary?: () => void;
 }
 
 export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
@@ -467,7 +468,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                                               selectedTemplate,
                                                               generatedVideoUrl,
                                                               setGeneratedVideoUrl,
-                                                              onExportToServer
+                                                              onExportToServer,
+                                                              onNavigateToAssetsLibrary
                                                             }) => {
   const { t, language } = useLanguage();
   const { user } = useAuth();
@@ -571,6 +573,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [assetLibraryLoading, setAssetLibraryLoading] = useState(false);
   const [assetLibraryError, setAssetLibraryError] = useState<string | null>(null);
   const [draggingWorkbenchAssetId, setDraggingWorkbenchAssetId] = useState<string | null>(null);
+  const [isKlingSubjectGuideOpen, setIsKlingSubjectGuideOpen] = useState(false);
+  const [isKlingSubjectModeHintDismissed, setIsKlingSubjectModeHintDismissed] = useState(false);
 
   const [isRestoring, setIsRestoring] = useState(true);
   const [pendingTemplateId, setPendingTemplateId] = useState<string | null>(null);
@@ -1521,6 +1525,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setAssetLibraryCurrentFolderId(null);
     setIsAssetLibraryOpen(true);
   };
+  const openSubjectCreationLibrary = useCallback(() => {
+    onNavigateToAssetsLibrary?.();
+  }, [onNavigateToAssetsLibrary]);
+  const openKlingSubjectGuide = useCallback(() => {
+    setIsKlingSubjectGuideOpen(true);
+  }, []);
+  const handleKlingGenerateModeChange = useCallback((mode: 'first_frame' | 'subject') => {
+    setKlingGenerateMode(mode);
+    if (mode === 'subject') {
+      setIsKlingSubjectModeHintDismissed(false);
+    }
+  }, []);
 
   const isKlingOmniMode = selectedModel === 'kling';
 
@@ -1748,7 +1764,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     if (slot === 'primary') {
       if (isKlingOmniMode && klingGenerateMode === 'subject' && !canBeKlingSubject(target)) {
-          openInfo(popupTitles.notice, t.wb_popup_no_other_view);
+          openKlingSubjectGuide();
         return;
       }
       const primarySource: QueuedAsset['source'] = isKlingOmniMode
@@ -1780,7 +1796,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (item.mediaKind !== 'image') return item;
         if (item.id === assetId) {
           if (primarySource === 'subject' && !canBeKlingSubject(item)) {
-            openInfo(popupTitles.notice, t.wb_popup_no_other_view);
+            openKlingSubjectGuide();
             return { ...item, source: 'preference', isPrimaryFrame: false };
           }
           return { ...item, source: primarySource, isPrimaryFrame: primarySource === 'product' };
@@ -1800,7 +1816,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       return normalized;
     });
-  }, [canBeKlingSubject, klingGenerateMode, normalizeQueueSourcesForKlingMode, openInfo]);
+  }, [canBeKlingSubject, klingGenerateMode, normalizeQueueSourcesForKlingMode, openKlingSubjectGuide]);
   const referencePreviewAssetsByType = useMemo(() => {
     const next: Partial<Record<'model' | 'product' | 'scene', QueuedAsset>> = {};
     for (const asset of uploadDisplayAssets) {
@@ -2701,7 +2717,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
     if (isKlingOmniMode && klingGenerateMode === 'subject' && !canBeKlingSubject(target)) {
-      openInfo(popupTitles.notice, t.wb_popup_no_other_view);
+      openKlingSubjectGuide();
       return;
     }
 
@@ -3141,6 +3157,29 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       () => uploadDisplayAssets.filter((asset) => asset.id !== klingPrimarySlotAsset?.id),
       [uploadDisplayAssets, klingPrimarySlotAsset]
   );
+  const klingPrimarySlotHint = klingPrimarySlotAsset ? (
+      <span className="inline-flex items-center gap-1 text-[10px] font-medium normal-case tracking-normal text-green-400">
+        1/1
+        <CheckCircle className="h-3 w-3" />
+      </span>
+  ) : (
+      <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">
+        {klingGenerateMode === 'subject' ? '必传1个主体' : '必传1张'}
+      </span>
+  );
+  const klingReferenceLimit = klingGenerateMode === 'subject' ? 3 : 6;
+  const isKlingReferenceOverflow = klingReferenceSlotAssets.length > klingReferenceLimit;
+  const klingReferenceSlotHint = klingReferenceSlotAssets.length > 0 ? (
+      <span className={`inline-flex items-center gap-1 text-[10px] font-medium normal-case tracking-normal ${isKlingReferenceOverflow ? 'text-red-400' : 'text-green-400'}`}>
+        {klingReferenceSlotAssets.length}/{klingReferenceLimit}
+        {!isKlingReferenceOverflow ? <CheckCircle className="h-3 w-3" /> : null}
+        {isKlingReferenceOverflow ? <span>{klingGenerateMode === 'subject' ? '最多3张' : '最多6张'}</span> : null}
+      </span>
+  ) : (
+      <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">
+        {klingGenerateMode === 'subject' ? '1~3张' : '可选 · ≤6张'}
+      </span>
+  );
   const renderUploadAssetCard = useCallback((asset: QueuedAsset, compact = false) => {
     const inQueue = assetQueue.find((item) => item.id === asset.id);
     const selected = selectedQueueAssetId ? selectedQueueAssetId === asset.id : uploadedFile === asset.previewUrl;
@@ -3203,7 +3242,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           )) : (
             <div className="w-full h-24 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
           )}
-          <div className="absolute top-1 left-1 z-10" onClick={(e) => e.stopPropagation()}>
+          <div className="absolute top-1 left-1 z-10 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+            {isKlingOmniMode && klingGenerateMode === 'subject' && hasSubjectOtherViews(asset) && (asset.materialType === 'product' || asset.materialType === 'model') && (
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm">
+                  <Layers3 className="h-3 w-3" />
+                </span>
+            )}
             <select
                 className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
                 value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product')}
@@ -3267,7 +3311,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           </div>
           <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-10">
             <p className="text-[9px] text-white truncate drop-shadow-md">{asset.name}</p>
-            {selected && <p className="text-[9px] text-green-400 flex items-center gap-1 drop-shadow-md"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p>}
           </div>
         </div>
     );
@@ -4760,34 +4803,75 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 <div className="grid grid-cols-2 gap-2">
                   <button
                       type="button"
-                      onClick={() => setKlingGenerateMode('first_frame')}
-                      className={`rounded-xl border px-3 py-2 text-left transition ${klingGenerateMode === 'first_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                      onClick={() => handleKlingGenerateModeChange('first_frame')}
+                      className={`relative overflow-visible rounded-xl border px-3 py-2 text-left transition hover:z-20 ${klingGenerateMode === 'first_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
-                    <div className="text-[11px] font-bold">首帧模式</div>
+                    <div className="flex items-center gap-1 text-[11px] font-bold">
+                      <span>首帧模式</span>
+                      <span className="relative z-10 inline-flex items-center group/info hover:z-20">
+                        <Info className="h-3 w-3 text-zinc-400" />
+                        <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 ml-6 w-40 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
+                          <span className="block">素材要求：</span>
+                          <span className="block">1张首帧图+0-6张参考图</span>
+                        </span>
+                      </span>
+                    </div>
                     <div className="mt-1 text-[10px] text-zinc-400">{t.wb_kling_first_frame_desc}</div>
                   </button>
                   <button
                       type="button"
-                      onClick={() => setKlingGenerateMode('subject')}
-                      className={`rounded-xl border px-3 py-2 text-left transition ${klingGenerateMode === 'subject' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                      onClick={() => handleKlingGenerateModeChange('subject')}
+                      className={`relative overflow-visible rounded-xl border px-3 py-2 text-left transition hover:z-20 ${klingGenerateMode === 'subject' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
-                    <div className="text-[11px] font-bold">主体模式</div>
+                    <div className="flex items-center gap-1 text-[11px] font-bold">
+                      <span>主体模式</span>
+                      <span className="relative z-10 inline-flex items-center group/info hover:z-20">
+                        <Info className="h-3 w-3 text-zinc-400" />
+                        <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 ml-6 w-44 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
+                          <span className="block">素材要求：</span>
+                          <span className="block">1个主体+1-3张参考图</span>
+                          <span className="mt-1 block text-zinc-300">主体是同一人物/物体的多角度素材集合，不是单张图片，须先在素材库创建才能使用。</span>
+                        </span>
+                      </span>
+                    </div>
                     <div className="mt-1 text-[10px] text-zinc-400">{t.wb_kling_subject_desc}</div>
                   </button>
                 </div>
             )}
+            {isKlingOmniMode && klingGenerateMode === 'subject' && !isKlingSubjectModeHintDismissed && (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                  <div className="flex items-center gap-2 text-[11px] text-zinc-300">
+                    <button
+                        type="button"
+                        className="text-zinc-500 transition hover:text-zinc-300"
+                        onClick={() => setIsKlingSubjectModeHintDismissed(true)}
+                        aria-label="关闭提示"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                    <span>使用前需先在素材库创建主体</span>
+                  </div>
+                  <button
+                      type="button"
+                      className="rounded-xl border border-orange-500/70 bg-orange-500/10 px-3 py-1.5 text-[10px] font-bold text-orange-200 transition hover:bg-orange-500/20"
+                      onClick={openSubjectCreationLibrary}
+                  >
+                    去创建主体
+                  </button>
+                </div>
+            )}
             <div
-                onDragOver={handleUploadDragOver}
-                onDragEnter={handleUploadDragOver}
-                onDragLeave={handleUploadDragLeave}
-                onDrop={handleUploadDrop}
-                className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors min-h-32 relative group ${uploadDisplayAssets.length > 0 ? 'border-none' : ''} ${isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50'}`}
+                onDragOver={isKlingOmniMode ? undefined : handleUploadDragOver}
+                onDragEnter={isKlingOmniMode ? undefined : handleUploadDragOver}
+                onDragLeave={isKlingOmniMode ? undefined : handleUploadDragLeave}
+                onDrop={isKlingOmniMode ? undefined : handleUploadDrop}
+                className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors min-h-32 relative group ${uploadDisplayAssets.length > 0 ? 'border-none' : ''} ${isKlingOmniMode ? 'border-none' : (isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50')}`}
             >
-              {isDragUploadActive && (
+              {!isKlingOmniMode && isDragUploadActive && (
                   <div className="absolute inset-1 rounded-lg border border-dashed border-orange-500/60 bg-orange-500/10 pointer-events-none" />
               )}
               <input type="file" ref={fileInputRef} className="hidden" accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.mkv,.webm,.avi,.mp3,.wav,.flac" multiple onChange={handleWorkbenchUpload} />
-              {uploadDisplayAssets.length === 0 ? (
+              {!isKlingOmniMode && uploadDisplayAssets.length === 0 ? (
                   <div className="absolute inset-0 flex flex-col items-center justify-center z-10 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
                     <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition duration-300"><Plus className="w-4 h-4 text-zinc-500 group-hover:text-orange-500" /></div>
                     <p className="text-[10px] font-medium text-zinc-400">{t.wb_upload_click}</p>
@@ -4834,8 +4918,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 clearWorkbenchDragState();
                               }}
                           >
-                            <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
-                              {klingGenerateMode === 'subject' ? '主体图' : '首帧图'}
+                            <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                              <span>{klingGenerateMode === 'subject' ? '主体图' : '首帧图'}</span>
+                              {klingPrimarySlotHint}
                             </div>
                             {klingPrimarySlotAsset ? renderUploadAssetCard(klingPrimarySlotAsset) : (
                                 <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20" />
@@ -4857,7 +4942,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 clearWorkbenchDragState();
                               }}
                           >
-                            <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">参考图</div>
+                            <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                              <span>参考图</span>
+                              {klingReferenceSlotHint}
+                            </div>
                             {klingReferenceSlotAssets.length > 0 ? (
                                 <div className="flex flex-col gap-2 max-h-60 overflow-y-auto custom-scroll pr-1">
                                   {klingReferenceSlotAssets.map((asset) => (
@@ -5613,6 +5701,36 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 }
             >
               <div className="whitespace-pre-line text-sm text-zinc-300">{confirmMessage}</div>
+            </AppDialog>
+        )}
+        {isKlingSubjectGuideOpen && (
+            <AppDialog
+                isOpen={isKlingSubjectGuideOpen}
+                title="提示"
+                onClose={() => setIsKlingSubjectGuideOpen(false)}
+                footer={
+                  <>
+                    <button
+                        className="rounded-xl border border-orange-500/70 bg-orange-500/10 px-4 py-2 text-sm font-bold text-orange-200 hover:bg-orange-500/20"
+                        onClick={() => {
+                          setIsKlingSubjectGuideOpen(false);
+                          openSubjectCreationLibrary();
+                        }}
+                    >
+                      去创建主体
+                    </button>
+                    <button
+                        className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                        onClick={() => setIsKlingSubjectGuideOpen(false)}
+                    >
+                      取消
+                    </button>
+                  </>
+                }
+            >
+              <div className="whitespace-pre-line text-sm text-zinc-300">{`主体模式不能直接使用单张图片。
+请先去素材库创建“主体”，上传同一主体的多张不同角度图片，例如正面、侧面、背面或不同姿态。
+创建完成后，再回到这里选择该主体。`}</div>
             </AppDialog>
         )}
         {deleteProjectTarget && (

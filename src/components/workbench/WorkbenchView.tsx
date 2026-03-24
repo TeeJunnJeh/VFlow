@@ -878,6 +878,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       if (backup && !backup.startsWith('blob:')) return backup;
       return primary || backup || null;
     };
+    const restoredModelId =
+      workspace.selectedModelId === 'kling' ||
+      workspace.selectedModelId === 'sora2' ||
+      workspace.selectedModelId === 'sora2pro' ||
+      workspace.selectedModelId === 'seedance2.0'
+        ? workspace.selectedModelId
+        : (
+          initialPrefs.selectedModelId === 'kling' ||
+          initialPrefs.selectedModelId === 'sora2' ||
+          initialPrefs.selectedModelId === 'sora2pro' ||
+          initialPrefs.selectedModelId === 'seedance2.0'
+            ? initialPrefs.selectedModelId
+            : 'sora2'
+        );
 
     isApplyingProjectWorkspaceRef.current = true;
     skipNextKlingNormalizeRef.current = true;
@@ -932,11 +946,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setGenPrompt(workspace.genPrompt || '');
     setGenDuration(normalizeDurationForModel(
       workspace.genDuration ?? initialPrefs.genDuration ?? 10,
-      (
-        workspace.selectedModelId ||
-        initialPrefs.selectedModelId ||
-        selectedModel
-      ) as string
+      restoredModelId
     ));
     setSoundSetting(workspace.soundSetting || (initialPrefs.soundSetting === 'off' ? 'off' : 'on'));
     setScriptVariantCount(
@@ -960,20 +970,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     } else {
       onSelectTemplate(null);
     }
-    if (workspace.selectedModelId) {
-      setSelectedModel(workspace.selectedModelId as any);
-    } else if (
-      initialPrefs.selectedModelId === 'kling' ||
-      initialPrefs.selectedModelId === 'sora2' ||
-      initialPrefs.selectedModelId === 'sora2pro' ||
-      initialPrefs.selectedModelId === 'seedance2.0'
-    ) {
-      setSelectedModel(initialPrefs.selectedModelId as any);
-    }
+    setSelectedModel(restoredModelId);
     setTimeout(() => {
       isApplyingProjectWorkspaceRef.current = false;
     }, 0);
-  }, [initialPrefs.genDuration, initialPrefs.selectedModelId, normalizeDurationForModel, onSelectTemplate, selectedModel, setSelectedModel, t.wb_script_page_prefix, templateList]);
+  }, [initialPrefs.genDuration, initialPrefs.selectedModelId, normalizeDurationForModel, onSelectTemplate, setSelectedModel, t.wb_script_page_prefix, templateList]);
 
   const beginHeaderRename = () => {
     if (!currentProject) return;

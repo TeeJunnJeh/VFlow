@@ -164,6 +164,39 @@ body {
 .theme-dim .text-zinc-100 { color: #f1f5f9 !important; }
 .theme-dim .text-zinc-500 { color: #94a3b8 !important; }
 .theme-dim .text-zinc-400 { color: #94a3b8 !important; }
+
+/* History filters: primary dark/dim styles (integrated) */
+.dark .hist-filter-input,
+.theme-dim .hist-filter-input,
+.dark .hist-filter-select,
+.theme-dim .hist-filter-select {
+  background-color: #a1a1aa !important;
+  border-color: #52525b !important;
+  color: #111827 !important;
+}
+
+.dark .hist-filter-input::placeholder,
+.theme-dim .hist-filter-input::placeholder {
+  color: #52525b !important;
+}
+
+.dark .hist-filter-select:hover,
+.theme-dim .hist-filter-select:hover,
+.dark .hist-filter-input:hover,
+.theme-dim .hist-filter-input:hover {
+  background-color: #8f8f99 !important;
+}
+
+.dark .hist-filter-option,
+.theme-dim .hist-filter-option {
+  background-color: #a1a1aa !important;
+  color: #111827 !important;
+}
+
+.dark .hist-filter-icon,
+.theme-dim .hist-filter-icon {
+  color: #3f3f46 !important;
+}
 .theme-dim .bg-zinc-950 { background-color: #0b1120 !important; }
 .theme-dim .bg-zinc-900 { background-color: #111827 !important; }
 .theme-dim .bg-zinc-800 { background-color: #1f2937 !important; }
@@ -399,4 +432,108 @@ body {
   border: 1px solid rgba(249, 115, 22, 0.34) !important;
   box-shadow: 0 10px 20px rgba(249, 115, 22, 0.12) !important;
   color: #9a3412 !important;
+}
+
+/* History workbar unified style */
+html.light .hist-workbar-item,
+html.light .hist-filter-input,
+html.light .hist-filter-select,
+html.light .hist-filter-option,
+.theme-light .hist-workbar-item,
+.theme-light .hist-filter-input,
+.theme-light .hist-filter-select,
+.theme-light .hist-filter-option,
+html:not(.dark):not(.theme-dim) .hist-workbar-item,
+html:not(.dark):not(.theme-dim) .hist-filter-input,
+html:not(.dark):not(.theme-dim) .hist-filter-select,
+html:not(.dark):not(.theme-dim) .hist-filter-option {
+  background-color: #ffffff !important;
+  color: #111111 !important;
+}
+
+html.light .hist-workbar-item,
+html.light .hist-filter-input,
+html.light .hist-filter-select,
+html.light .hist-workbar-group,
+.theme-light .hist-workbar-item,
+.theme-light .hist-filter-input,
+.theme-light .hist-filter-select,
+.theme-light .hist-workbar-group,
+html:not(.dark):not(.theme-dim) .hist-workbar-item,
+html:not(.dark):not(.theme-dim) .hist-filter-input,
+html:not(.dark):not(.theme-dim) .hist-filter-select,
+html:not(.dark):not(.theme-dim) .hist-workbar-group {
+  border-color: #e4e4e7 !important;
+}
+
+html.light .hist-filter-input::placeholder,
+.theme-light .hist-filter-input::placeholder,
+html:not(.dark):not(.theme-dim) .hist-filter-input::placeholder {
+  color: #71717a !important;
+}
+
+html.light .hist-filter-icon,
+html.light .hist-workbar-toggle,
+.theme-light .hist-filter-icon,
+.theme-light .hist-workbar-toggle,
+html:not(.dark):not(.theme-dim) .hist-filter-icon,
+html:not(.dark):not(.theme-dim) .hist-workbar-toggle {
+  color: #3f3f46 !important;
+}
+
+html.light .hist-filter-select:hover,
+html.light .hist-workbar-item:hover,
+.theme-light .hist-filter-select:hover,
+.theme-light .hist-workbar-item:hover,
+html:not(.dark):not(.theme-dim) .hist-filter-select:hover,
+html:not(.dark):not(.theme-dim) .hist-workbar-item:hover {
+  background-color: #fafafa !important;
+}
+
+html.dark:not(.theme-light) .hist-workbar-item,
+html.theme-dim .hist-workbar-item,
+html.dark:not(.theme-light) .hist-filter-input,
+html.theme-dim .hist-filter-input,
+html.dark:not(.theme-light) .hist-filter-select,
+html.theme-dim .hist-filter-select,
+html.dark:not(.theme-light) .hist-filter-option,
+html.theme-dim .hist-filter-option {
+  background-color: #0f0f17 !important;
+  color: #ffffff !important;
+}
+
+html.dark:not(.theme-light) .hist-workbar-item,
+html.theme-dim .hist-workbar-item,
+html.dark:not(.theme-light) .hist-filter-input,
+html.theme-dim .hist-filter-input,
+html.dark:not(.theme-light) .hist-filter-select,
+html.theme-dim .hist-filter-select,
+html.dark:not(.theme-light) .hist-workbar-group,
+html.theme-dim .hist-workbar-group {
+  border-color: #2a2a35 !important;
+}
+
+html.dark:not(.theme-light) .hist-filter-input::placeholder,
+html.theme-dim .hist-filter-input::placeholder {
+  color: #c8c8d6 !important;
+}
+
+html.dark:not(.theme-light) .hist-filter-icon,
+html.theme-dim .hist-filter-icon,
+html.dark:not(.theme-light) .hist-workbar-toggle,
+html.theme-dim .hist-workbar-toggle {
+  color: #ffffff !important;
+}
+
+html.dark:not(.theme-light) .hist-filter-select:hover,
+html.theme-dim .hist-filter-select:hover,
+html.dark:not(.theme-light) .hist-workbar-item:hover,
+html.theme-dim .hist-workbar-item:hover {
+  background-color: #161621 !important;
+}
+
+html.dark:not(.theme-light) .hist-workbar-toggle-active,
+html.theme-dim .hist-workbar-toggle-active {
+  background-color: #232333 !important;
+  color: #ffffff !important;
 }

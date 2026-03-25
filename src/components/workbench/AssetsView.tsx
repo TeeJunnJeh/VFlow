@@ -7,7 +7,7 @@ import { useAuth } from '../../context/AuthContext'
 import { assetsApi, type Asset, type AssetFolder, type PlazaAssetItem, type PlazaCollectPolicy } from '../../services/assets';
 import { videoApi } from '../../services/video';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
-import { subjectGuideContent } from './subjectGuideContent';
+import { getSubjectGuideContent } from './subjectGuideContent';
 
 type AssetType = 'model' | 'product' | 'scene' | 'motion';
 type AssetsNavigationIntent =
@@ -108,6 +108,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
   const [hideReferencedOtherViews, setHideReferencedOtherViews] = useState(false);
+  const subjectGuideContent = useMemo(() => getSubjectGuideContent(t, language), [t, language]);
   const [referencedOtherViewIds, setReferencedOtherViewIds] = useState<Set<string>>(new Set());
 
   // Inline rename (asset)
@@ -335,6 +336,15 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     setSubjectLibraryFolders([]);
     setSubjectPickerAssetsList([]);
   }, []);
+  const subjectDescriptionLimit = ({
+    zh: 60,
+    ja: 60,
+    ko: 75,
+    en: 140,
+    es: 140,
+    ms: 140,
+    vi: 140,
+  } as const)[language] ?? 60;
   const normalizeSubjectDescriptionText = useCallback((value: string) => (
     value
       .replace(/\s+/g, ' ')
@@ -342,8 +352,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       .replace(/。[,，]/g, '。')
       .replace(/，\s*[，。]/g, '，')
       .trim()
-      .slice(0, 60)
-  ), []);
+      .slice(0, subjectDescriptionLimit)
+  ), [subjectDescriptionLimit]);
   const refreshReferencedOtherViewIds = useCallback(async () => {
     const [products, models] = await Promise.all([
       assetsApi.getAssets({ type: 'product' }),
@@ -1448,10 +1458,10 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                  ref={subjectGuideButtonRef}
                  onClick={() => openSubjectGuideModal(false)}
                  className={`flex items-center gap-1.5 px-2 py-1 rounded border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 transition ${isSubjectGuideSpotlightOpen ? 'relative z-[151]' : ''}`}
-                 title="主体创建说明"
+                 title={t.assets_subject_guide_button || '主体创建说明'}
                >
                  <Sparkles className="w-3.5 h-3.5" />
-                 <span className="text-[10px] font-bold">主体创建说明</span>
+                 <span className="text-[10px] font-bold">{t.assets_subject_guide_button || '主体创建说明'}</span>
                </button>
              )}
              <LanguageSwitcher />
@@ -1960,17 +1970,17 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
          <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6">
            <div className={`w-full max-w-4xl rounded-3xl border shadow-2xl ${isLightTheme ? 'border-slate-300 bg-white shadow-black/15' : isDimTheme ? 'border-slate-500/40 bg-slate-900 shadow-black/30' : 'border-white/10 bg-[#120C09] shadow-black/40'}`}>
              <div className={`border-b px-6 py-5 ${isLightTheme ? 'border-slate-200' : isDimTheme ? 'border-slate-500/40' : 'border-white/10'}`}>
-               <div className={`text-lg font-bold ${isLightTheme ? 'text-slate-900' : isDimTheme ? 'text-slate-100' : 'text-zinc-100'}`}>主体创建说明</div>
+               <div className={`text-lg font-bold ${isLightTheme ? 'text-slate-900' : isDimTheme ? 'text-slate-100' : 'text-zinc-100'}`}>{t.assets_subject_guide_modal_title || '主体创建说明'}</div>
               <div className={`mt-1 text-sm ${isLightTheme ? 'text-slate-600' : isDimTheme ? 'text-slate-300' : 'text-zinc-400'}`}>
-                <div>首次使用主体模式前，先了解主体素材应如何创建与管理。</div>
+                <div>{t.assets_subject_guide_intro || '首次使用主体模式前，先了解主体素材应如何创建与管理。'}</div>
                 <div className="mt-1 flex items-center gap-1.5">
                   <AlertCircle className="h-4 w-4 shrink-0 text-orange-500" />
-                  <span>作为“场景”上传的素材暂不支持创建为主体。</span>
+                  <span>{t.assets_subject_guide_scene_note || '作为“场景”上传的素材暂不支持创建为主体。'}</span>
                 </div>
               </div>
               <div className="hidden">
-                <div>首次使用主体模式前，先了解主体素材应如何创建与管理。</div>
-                <div>作为“场景”标签上传的素材暂不支持创建为主体。</div>
+                <div>{t.assets_subject_guide_intro || '首次使用主体模式前，先了解主体素材应如何创建与管理。'}</div>
+                <div>{t.assets_subject_guide_scene_note || '作为“场景”标签上传的素材暂不支持创建为主体。'}</div>
               </div>
              </div>
              <div className="custom-scroll max-h-[70vh] overflow-y-auto px-6 py-5 pr-4">
@@ -1978,7 +1988,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                   {subjectGuideContent.map((item, index) => (
                     <div key={`${item.title}-${index}`} className={`rounded-2xl border p-4 ${isLightTheme ? 'border-slate-200 bg-slate-50' : isDimTheme ? 'border-slate-500/35 bg-slate-800/70' : 'border-white/10 bg-white/5'}`}>
                      {item.illustration}
-                     <div className={`mt-4 text-base font-bold ${isLightTheme ? 'text-slate-900' : isDimTheme ? 'text-slate-100' : 'text-zinc-100'}`}>{`步骤 ${index + 1} · ${item.title}`}</div>
+                     <div className={`mt-4 text-base font-bold ${isLightTheme ? 'text-slate-900' : isDimTheme ? 'text-slate-100' : 'text-zinc-100'}`}>{`${t.wb_guide_step || '步骤'} ${index + 1} · ${item.title}`}</div>
                      <div className={`mt-2 text-sm leading-6 ${isLightTheme ? 'text-slate-700' : isDimTheme ? 'text-slate-300' : 'text-zinc-300'}`}>{item.description}</div>
                    </div>
                  ))}
@@ -1998,7 +2008,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                    });
                  }}
                >
-                 我知道了
+                 {t.assets_subject_guide_confirm || '我知道了'}
                </button>
              </div>
            </div>
@@ -2016,15 +2026,15 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
              style={subjectGuideTooltipStyle}
            >
              <div className="absolute -top-2 left-10 h-4 w-4 rotate-45 border-l border-t border-orange-500/40 bg-zinc-950/95" />
-             <div className="text-sm font-bold text-white">主体创建说明在这里</div>
-             <div className="mt-2 text-xs leading-5 text-zinc-300">以后如果你想再看主体创建方法，随时都可以从这里重新打开。</div>
+             <div className="text-sm font-bold text-white">{t.assets_subject_guide_spotlight_title || '主体创建说明在这里'}</div>
+             <div className="mt-2 text-xs leading-5 text-zinc-300">{t.assets_subject_guide_spotlight_desc || '以后如果你想再看主体创建方法，随时都可以从这里重新打开。'}</div>
              <div className="mt-4 flex justify-end">
                <button
                  type="button"
                  className="rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-orange-600"
                  onClick={closeSubjectGuideSpotlight}
                >
-                 知道了
+                 {t.assets_subject_guide_confirm || '知道了'}
                </button>
              </div>
            </div>
@@ -2177,14 +2187,14 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                                   <div className="absolute inset-x-2 bottom-2 z-10 rounded-xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl">
                                     <button
                                       type="button"
-                                      className="w-full h-8 rounded-lg bg-white text-black px-2.5 text-xs font-bold leading-none whitespace-nowrap hover:bg-orange-500 hover:text-white transition"
+                                      className="flex w-full h-8 items-center justify-center rounded-lg bg-white px-2.5 text-[11px] font-bold leading-none whitespace-nowrap text-black hover:bg-orange-500 hover:text-white transition"
                                       onClick={() => openSubjectPicker(slotIndex)}
                                     >
                                       {t.assets_from_library}
                                     </button>
                                     <button
                                       type="button"
-                                      className="mt-1.5 w-full h-8 rounded-lg border border-white/10 bg-white/5 px-2.5 text-xs font-bold leading-none whitespace-nowrap text-zinc-100 hover:bg-white/10 transition"
+                                      className="mt-1.5 flex w-full h-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 px-2.5 text-[11px] font-bold leading-none whitespace-nowrap text-zinc-100 hover:bg-white/10 transition"
                                       onClick={() => subjectOtherViewUploadRef.current?.click()}
                                     >
                                       {t.assets_btn_upload}

@@ -3165,7 +3165,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       </span>
   ) : (
       <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">
-        {klingGenerateMode === 'subject' ? '必传1个主体' : '必传1张'}
+        {klingGenerateMode === 'subject'
+          ? (t.wb_kling_primary_slot_subject_required || '必传1个主体')
+          : (t.wb_kling_primary_slot_first_frame_required || '必传1张')}
       </span>
   );
   const klingReferenceLimit = klingGenerateMode === 'subject' ? 3 : 6;
@@ -3174,11 +3176,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       <span className={`inline-flex items-center gap-1 text-[10px] font-medium normal-case tracking-normal ${isKlingReferenceOverflow ? 'text-red-400' : 'text-green-400'}`}>
         {klingReferenceSlotAssets.length}/{klingReferenceLimit}
         {!isKlingReferenceOverflow ? <CheckCircle className="h-3 w-3" /> : null}
-        {isKlingReferenceOverflow ? <span>{klingGenerateMode === 'subject' ? '最多3张' : '最多6张'}</span> : null}
+        {isKlingReferenceOverflow ? (
+          <span>
+            {klingGenerateMode === 'subject'
+              ? (t.wb_kling_reference_slot_subject_max || '最多3张')
+              : (t.wb_kling_reference_slot_first_frame_max || '最多6张')}
+          </span>
+        ) : null}
       </span>
   ) : (
       <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">
-        {klingGenerateMode === 'subject' ? '1~3张' : '可选 · ≤6张'}
+        {klingGenerateMode === 'subject'
+          ? (t.wb_kling_reference_slot_subject_range || '1~3张')
+          : (t.wb_kling_reference_slot_first_frame_optional || '可选 · ≤6张')}
       </span>
   );
   const renderUploadAssetCard = useCallback((asset: QueuedAsset, compact = false) => {

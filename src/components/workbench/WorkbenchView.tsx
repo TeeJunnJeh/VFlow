@@ -1703,9 +1703,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     uploadedFile,
   ]);
   const klingRoleLabel = (source: QueuedAsset['source']) => {
-    if (source === 'subject') return '主体参考';
-    if (source === 'product') return '首帧图';
-    return '其他参考';
+    if (source === 'subject') return t.wb_label_subject_reference || 'Subject Reference';
+    if (source === 'product') return t.wb_label_first_frame || 'First Frame';
+    return t.wb_label_reference_image || 'Reference';
   };
   const canBeKlingSubject = useCallback((asset: QueuedAsset) => (
       asset.mediaKind === 'image'
@@ -3303,9 +3303,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'
                     }`}
                 >
-                  {highlighted
-                      ? (isKlingOmniMode ? klingRoleLabel(klingGenerateMode === 'subject' ? 'subject' : 'product') : '首帧图')
-                      : (isKlingOmniMode ? klingRoleLabel('preference') : '参考图')}
+                    {highlighted
+                      ? (isKlingOmniMode ? klingRoleLabel(klingGenerateMode === 'subject' ? 'subject' : 'product') : (t.wb_label_first_frame || 'First Frame'))
+                      : (isKlingOmniMode ? klingRoleLabel('preference') : (t.wb_label_reference_image || 'Reference'))}
                 </button>
             )}
             <button onClick={(e) => removeUpload(e, asset.id)} className="p-1 bg-black/50 hover:bg-red-500 rounded text-white transition"><X className="w-2.5 h-2.5" /></button>
@@ -4368,9 +4368,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const modelSelector = (
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-2 mb-1">
             <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-              <Cpu className="w-3 h-3" /> {t.wb_model_title}
+              <Wand2 className="w-3 h-3" /> {t.wb_creation_mode_title}
             </h2>
             <button
               type="button"
@@ -4387,9 +4387,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           {!isModelSectionCollapsed && (
             <div className="flex flex-col gap-6">
               <div>
-                <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
-                  <Wand2 className="w-3 h-3" /> {t.wb_creation_mode_title}
-                </h2>
                 <div className="creation-mode-toggle mx-3 rounded-2xl bg-white/5 border border-white/10 p-1 flex items-center gap-1">
                   <button
                       type="button"
@@ -4920,7 +4917,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               }}
                           >
                             <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
-                              <span>{klingGenerateMode === 'subject' ? '主体图' : '首帧图'}</span>
+                              <span>{klingGenerateMode === 'subject' ? (t.wb_label_subject_image || 'Subject') : (t.wb_label_first_frame || 'First Frame')}</span>
                               {klingPrimarySlotHint}
                             </div>
                             {klingPrimarySlotAsset ? renderUploadAssetCard(klingPrimarySlotAsset) : (
@@ -4944,7 +4941,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               }}
                           >
                             <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
-                              <span>参考图</span>
+                              <span>{t.wb_label_reference_image || 'Reference'}</span>
                               {klingReferenceSlotHint}
                             </div>
                             {klingReferenceSlotAssets.length > 0 ? (
@@ -5098,8 +5095,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                               )
                                               : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
                                       )
-                                          ? (isKlingOmniMode ? klingRoleLabel(klingGenerateMode === 'subject' ? 'subject' : 'product') : '首帧图')
-                                          : (isKlingOmniMode ? klingRoleLabel('preference') : '参考图')}
+                                            ? (isKlingOmniMode ? klingRoleLabel(klingGenerateMode === 'subject' ? 'subject' : 'product') : (t.wb_label_first_frame || 'First Frame'))
+                                              : (isKlingOmniMode ? klingRoleLabel('preference') : (t.wb_label_reference_image || 'Reference'))}
                                     </button>
                                 )}
                                 <button onClick={(e) => removeUpload(e, asset.id)} className="p-1 bg-black/50 hover:bg-red-500 rounded text-white transition"><X className="w-2.5 h-2.5" /></button>
@@ -5211,9 +5208,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 onClick={(e) => e.stopPropagation()}
                                 title={item.mediaKind === 'image'
                                     ? (isKlingOmniMode
-                                        ? (klingGenerateMode === 'subject' ? '选择此素材作为主体参考' : '选择此素材作为首帧图')
-                                        : '选择此素材作为首帧图')
-                                    : '仅图片可作为主参考素材'}
+                                    ? (klingGenerateMode === 'subject' ? (t.wb_select_as_subject_reference || 'Use this asset as subject reference') : (t.wb_select_as_first_frame || 'Use this asset as first frame'))
+                                    : (t.wb_select_as_first_frame || 'Use this asset as first frame'))
+                                  : (t.wb_only_image_as_primary || 'Only image assets can be used as primary reference')}
                             >
                               <input
                                   type="checkbox"
@@ -5224,7 +5221,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                   onChange={() => markQueueAssetAsPrimaryFrame(item.id)}
                                   className="accent-orange-500"
                               />
-                              <span>{isKlingOmniMode ? (klingGenerateMode === 'subject' ? '主体' : '首帧') : '首帧'}</span>
+                              <span>{isKlingOmniMode ? (klingGenerateMode === 'subject' ? (t.wb_label_subject_short || 'Subject') : (t.wb_label_first_frame_short || 'First')) : (t.wb_label_first_frame_short || 'First')}</span>
                             </label>
                             <button
                                 onClick={(e) => {

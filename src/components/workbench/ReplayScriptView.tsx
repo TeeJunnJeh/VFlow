@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Clapperboard, Link2, UploadCloud, Wand2, Loader2, Sparkles } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { LanguageSwitcher } from '../common/LanguageSwitcher';
 
 export type ReplayReusePayload = {
   prompt: string;
@@ -60,9 +61,12 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
     <div className="h-full overflow-y-auto custom-scroll px-8 py-6">
       <div className="max-w-5xl mx-auto flex flex-col gap-6">
         <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
-          <div className="flex items-center gap-2 text-zinc-200">
-            <Clapperboard className="w-5 h-5 text-orange-400" />
-            <h1 className="text-lg font-black tracking-wide">{t.replay_page_title || '视频解析反向生成脚本'}</h1>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-zinc-200">
+              <Clapperboard className="w-5 h-5 text-orange-400" />
+              <h1 className="text-lg font-black tracking-wide">{t.replay_page_title || '视频解析反向生成脚本'}</h1>
+            </div>
+            <LanguageSwitcher />
           </div>
           <p className="mt-2 text-sm text-zinc-400">{t.replay_page_desc || '上传视频或粘贴视频链接，解析其节奏与风格，生成可复用到工作台的脚本提示。'}</p>
         </div>

@@ -28,6 +28,7 @@ import { DropdownSelect } from '../common/DropdownSelect';
 import { type Template } from '../../services/templates';
 import { AppDialog } from '../common/AppDialog';
 import { getWorkbenchPreferences, setWorkbenchPreferences } from '../../utils/preferences';
+import { type ReplayReusePayload } from './ReplayScriptView';
 
 const ENABLE_PROMPT_LAB = true;
 const ENABLE_STORYBOARD_PROMPT = false;
@@ -454,6 +455,8 @@ interface WorkbenchViewProps {
   setGeneratedVideoUrl: (url: string | null) => void;
   onExportToServer?: (data: any) => Promise<void>;
   onNavigateToAssetsLibrary?: () => void;
+  replayReusePayload?: ReplayReusePayload | null;
+  onReplayReusePayloadHandled?: () => void;
 }
 
 export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
@@ -469,7 +472,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                                               generatedVideoUrl,
                                                               setGeneratedVideoUrl,
                                                               onExportToServer,
-                                                              onNavigateToAssetsLibrary
+                                                              onNavigateToAssetsLibrary,
+                                                              replayReusePayload,
+                                                              onReplayReusePayloadHandled
                                                             }) => {
   const { t, language } = useLanguage();
   const { user } = useAuth();
@@ -617,6 +622,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     videoType?: string;
   }>({});
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!replayReusePayload) return;
+    const nextCategory = String(replayReusePayload.productCategory || '').trim();
+    const nextSellingPoints = String(replayReusePayload.coreSellingPoints || '').trim();
+    const nextPrompt = String(replayReusePayload.prompt || '').trim();
+
+    if (nextCategory) setProductCategory(nextCategory);
+    if (nextSellingPoints) setCoreSellingPoints(nextSellingPoints);
+    if (nextPrompt) setGenPrompt(nextPrompt);
+    setCreationMode('replay');
+    setSelectedModel('seedance2.0');
+
+    setToastMessage(t.wb_replay_applied_to_workbench || '复刻结果已带入工作台，可继续上传图片并生成新脚本。');
+    onReplayReusePayloadHandled?.();
+  }, [onReplayReusePayloadHandled, replayReusePayload, setSelectedModel, t.wb_replay_applied_to_workbench]);
 
   const productNameFieldRef = useRef<HTMLInputElement | null>(null);
   const productCategoryFieldRef = useRef<HTMLDivElement | null>(null);
@@ -4355,7 +4376,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               type="button"
               onClick={() => setIsModelSectionCollapsed(!isModelSectionCollapsed)}
               className="p-1.5 text-zinc-600 hover:text-zinc-300 transition rounded"
-              title={isModelSectionCollapsed ? '展开' : '折叠'}
+              title={isModelSectionCollapsed ? t.wb_expand : t.wb_collapse}
             >
               <svg className={`w-4 h-4 transition-transform duration-200 ${isModelSectionCollapsed ? 'rotate-0' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
@@ -4787,12 +4808,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       className={`relative overflow-visible rounded-xl border px-3 py-2 text-left transition hover:z-20 ${klingGenerateMode === 'first_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
                     <div className="flex items-center gap-1 text-[11px] font-bold">
-                      <span>首帧模式</span>
+                      <span>{t.wb_kling_mode_first_frame}</span>
                       <span className="relative z-10 inline-flex items-center group/info hover:z-20">
                         <Info className="h-3 w-3 text-zinc-400" />
                         <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 ml-6 w-40 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
-                          <span className="block">素材要求：</span>
-                          <span className="block">1张首帧图+0-6张参考图</span>
+                          <span className="block">{t.wb_material_requirement_title}</span>
+                          <span className="block">{t.wb_kling_first_frame_requirement}</span>
                         </span>
                       </span>
                     </div>
@@ -4804,13 +4825,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       className={`relative overflow-visible rounded-xl border px-3 py-2 text-left transition hover:z-20 ${klingGenerateMode === 'subject' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
                     <div className="flex items-center gap-1 text-[11px] font-bold">
-                      <span>主体模式</span>
+                      <span>{t.wb_kling_mode_subject}</span>
                       <span className="relative z-10 inline-flex items-center group/info hover:z-20">
                         <Info className="h-3 w-3 text-zinc-400" />
                         <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 ml-6 w-44 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
-                          <span className="block">素材要求：</span>
-                          <span className="block">1个主体+1-3张参考图</span>
-                          <span className="mt-1 block text-zinc-300">主体是同一人物/物体的多角度素材集合，不是单张图片，须先在素材库创建才能使用。</span>
+                          <span className="block">{t.wb_material_requirement_title}</span>
+                          <span className="block">{t.wb_kling_subject_requirement}</span>
+                          <span className="mt-1 block text-zinc-300">{t.wb_kling_subject_requirement_note}</span>
                         </span>
                       </span>
                     </div>
@@ -4825,18 +4846,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         type="button"
                         className="text-zinc-500 transition hover:text-zinc-300"
                         onClick={() => setIsKlingSubjectModeHintDismissed(true)}
-                        aria-label="关闭提示"
+                        aria-label={t.wb_close_tip}
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
-                    <span>使用前需先在素材库创建主体</span>
+                    <span>{t.wb_subject_need_create_hint}</span>
                   </div>
                   <button
                       type="button"
                       className="rounded-xl border border-orange-500/70 bg-orange-500/10 px-3 py-1.5 text-[10px] font-bold text-orange-200 transition hover:bg-orange-500/20"
                       onClick={openSubjectCreationLibrary}
                   >
-                    去创建主体
+                    {t.wb_subject_create_now}
                   </button>
                 </div>
             )}
@@ -6362,13 +6383,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               ) : (
                   <>
                   <div className="flex items-center justify-between rounded-xl border border-dashed border-white/10 bg-black/20 px-3 py-3">
-                    <span className="text-[11px] text-zinc-500">当前使用完整脚本方案卡生成视频。</span>
+                    <span className="text-[11px] text-zinc-500">{t.wb_storyboard_master_mode_hint}</span>
                     <button
                         type="button"
                         onClick={() => setEnableStoryboardEditor(true)}
                         className="text-[10px] px-2.5 py-1 rounded border border-orange-500/40 text-orange-400 hover:bg-orange-500/10 transition whitespace-nowrap"
                     >
-                      启用分镜结构
+                      {t.wb_enable_storyboard}
                     </button>
                   </div>
                   {!isShotBreakdownOpen ? (

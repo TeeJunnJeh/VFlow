@@ -1,5 +1,5 @@
 import React from 'react';
-import { Zap, Image as ImageIcon, History, Sparkles, User as UserIcon, CreditCard } from 'lucide-react';
+import { Zap, Image as ImageIcon, History, Sparkles, User as UserIcon, CreditCard, Flame } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 // 1. Import the type
@@ -45,6 +45,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
         <InternalNav icon={CreditCard} view="billing" label={t.wb_nav_billing || 'Billing'} />
       </div>
       <div className="mt-auto pb-6 w-full px-2 flex flex-col items-center gap-4">
+        <button
+          type="button"
+          onClick={() => setActiveView('replay_lab')}
+          className={`w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative ${activeView === 'replay_lab' ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_15px_rgba(249,115,22,0.2)]' : 'border-white/5 bg-zinc-900/50 hover:border-white/20'}`}
+          title={t.wb_replay_dev_entry || '正在开发'}
+        >
+          <div className={`transition-colors ${activeView === 'replay_lab' ? 'text-orange-500' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
+            <Flame className="w-5 h-5" />
+          </div>
+          <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
+            {t.wb_replay_dev_entry || '正在开发'}
+          </div>
+        </button>
         <div 
           onClick={() => setActiveView('profile')}
           className={`w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative ${activeView === 'profile' ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_15px_rgba(249,115,22,0.2)]' : 'border-white/5 bg-zinc-900/50 hover:border-white/20'}`}

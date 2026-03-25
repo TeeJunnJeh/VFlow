@@ -15,6 +15,7 @@ import { AgentView } from '../components/workbench/AgentView_v2';
 import { EditorView } from '../components/workbench/EditorView';
 import { ProfileView } from '../components/workbench/ProfileView';
 import { BillingView } from '../components/workbench/BillingView';
+import { ReplayScriptView, type ReplayReusePayload } from '../components/workbench/ReplayScriptView';
 import { Sidebar } from '../components/workbench/Sidebar';
 import type { ViewType } from '../components/workbench/types';
 import { useLocation } from 'react-router-dom';
@@ -61,6 +62,7 @@ const Workbench = () => {
   const [isDebugModeEnabled, setIsDebugModeEnabledState] = useState(getDebugModeEnabled());
   const [isDebugModeUpdating, setIsDebugModeUpdating] = useState(false);
   const [assetsNavigationIntent, setAssetsNavigationIntent] = useState<AssetsNavigationIntent>(null);
+  const [replayReusePayload, setReplayReusePayload] = useState<ReplayReusePayload | null>(null);
 
   // --- Effects ---
   useEffect(() => {
@@ -314,8 +316,19 @@ const Workbench = () => {
                 setGeneratedVideoUrl={setGeneratedVideoUrl}
                 onExportToServer={handleExportToServer}
                 onNavigateToAssetsLibrary={handleNavigateToAssetsLibrary}
+                replayReusePayload={replayReusePayload}
+                onReplayReusePayloadHandled={() => setReplayReusePayload(null)}
               />
             </div>
+          )}
+
+          {activeView === 'replay_lab' && (
+            <ReplayScriptView
+              onReuseToWorkbench={(payload) => {
+                setReplayReusePayload(payload);
+                setActiveView('workbench');
+              }}
+            />
           )}
 
           {activeView === 'assets' && (

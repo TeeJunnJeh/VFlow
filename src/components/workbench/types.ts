@@ -2,6 +2,7 @@
 export type ViewType =
   | 'workbench'
   | 'assets'
+  | 'replay_lab'
   | 'templates'
   | 'history'
   | 'agent'

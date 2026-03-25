@@ -60,6 +60,8 @@ export const translations = {
     ui_dialog_warning: "Warning",
     ui_dialog_ok: "OK",
     ui_dialog_cancel: "Cancel",
+    mobile_unsupported_title: "Mobile devices are not supported yet",
+    mobile_unsupported_desc: "Please use a desktop device to access this site",
 
     // App / runtime error dialogs
     app_error_unhandled: "System caught an unhandled exception",
@@ -898,6 +900,8 @@ export const translations = {
     ui_dialog_warning: "警告",
     ui_dialog_ok: "确定",
     ui_dialog_cancel: "取消",
+    mobile_unsupported_title: "暂不支持手机端使用",
+    mobile_unsupported_desc: "请使用桌面端访问",
 
     app_error_unhandled: "系统捕获到未处理异常",
     app_error_runtime: "系统捕获到运行时错误",
@@ -1225,7 +1229,7 @@ export const translations = {
     wb_config_prompt_label: "创意描述 (选填)",
     wb_config_prompt_placeholder: "例如：未来感咖啡广告，节奏快...",
     wb_config_duration: "时长",
-    wb_kling_first_frame_desc: "从指定画面起，自然延伸镜头",
+    wb_kling_first_frame_desc: "以指定画面（首帧）为起点，智能延伸镜头轨迹",
     wb_kling_subject_desc: "锁定核心主体（物体/人物），增强特征一致性",
     wb_config_audio: "音频",
     wb_config_audio_on: "开启",
@@ -1724,6 +1728,8 @@ export const translations = {
     ui_dialog_warning: "Amaran",
     ui_dialog_ok: "OK",
     ui_dialog_cancel: "Batal",
+    mobile_unsupported_title: "Peranti mudah alih belum disokong",
+    mobile_unsupported_desc: "Sila gunakan peranti desktop untuk mengakses laman ini",
 
     // App / runtime error dialogs
     app_error_unhandled: "Sistem mengesan pengecualian yang tidak dikendalikan",
@@ -2429,6 +2435,8 @@ export const translations = {
     ui_dialog_warning: "Cảnh báo",
     ui_dialog_ok: "OK",
     ui_dialog_cancel: "Hủy",
+    mobile_unsupported_title: "Hiện chưa hỗ trợ thiết bị di động",
+    mobile_unsupported_desc: "Vui lòng dùng thiết bị desktop để truy cập",
 
     // App / runtime error dialogs
     app_error_unhandled: "Hệ thống đã bắt được một ngoại lệ chưa được xử lý",
@@ -3144,6 +3152,8 @@ export const translations = {
     ui_dialog_warning: "경고",
     ui_dialog_ok: "확인",
     ui_dialog_cancel: "취소",
+    mobile_unsupported_title: "모바일 기기는 아직 지원되지 않습니다",
+    mobile_unsupported_desc: "데스크톱 기기로 접속해 주세요",
 
     // App / runtime error dialogs
     app_error_unhandled: "시스템이 처리되지 않은 예외를 감지했습니다",

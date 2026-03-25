@@ -4588,7 +4588,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   }
                 }}
                 placeholder={t.wb_field_core_selling_points_placeholder}
-                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition resize-y min-h-[80px]"
+                className="w-full h-[96px] overflow-y-auto custom-scroll bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition resize-none"
               />
               {requiredErrors.coreSellingPoints && (
                 <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.coreSellingPoints}</div>
@@ -5083,17 +5083,29 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                           }
                                         }}
                                         className={`rounded border px-1.5 py-0.5 text-[9px] font-bold transition ${
-                                            (
-                                                isKlingOmniMode
-                                                    ? (
-                                                        klingGenerateMode === 'subject'
-                                                            ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
-                                                            : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
-                                                    )
-                                                    : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
-                                            )
-                                                ? 'border-orange-500/70 bg-orange-500/20 text-orange-300'
-                                                : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'
+                                            selectedModel === 'sora2' || selectedModel === 'sora2pro'
+                                                ? ((
+                                                    isKlingOmniMode
+                                                        ? (
+                                                            klingGenerateMode === 'subject'
+                                                                ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
+                                                                : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                                        )
+                                                        : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                                )
+                                                    ? 'border-orange-500 bg-orange-500 text-white'
+                                                    : 'border-slate-600 bg-slate-600 text-white hover:bg-slate-500 hover:border-slate-500')
+                                                : ((
+                                                    isKlingOmniMode
+                                                        ? (
+                                                            klingGenerateMode === 'subject'
+                                                                ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
+                                                                : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                                        )
+                                                        : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                                )
+                                                    ? 'border-orange-500/70 bg-orange-500/20 text-orange-300'
+                                                    : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65')
                                         }`}
                                     >
                                       {(

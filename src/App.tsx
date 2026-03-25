@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { tiktokApi } from './services/tiktok';
 import { AnimatePresence } from 'framer-motion';
 import { AppDialog } from './components/common/AppDialog';
+import { LanguageSwitcher } from './components/common/LanguageSwitcher';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TaskProvider } from './context/TaskContext';
 import { LanguageProvider } from './context/LanguageContext';
@@ -13,6 +14,83 @@ import Workbench from './pages/Workbench';
 import TermsOfServicePage from './pages/TermsOfService';
 import PrivacyPolicyPage from './pages/PrivacyPolicy';
 import { debugLog, debugError } from './services/debugMode';
+
+const MobileBlockedApp = () => {
+    const { t } = useLanguage();
+    const [isMobileBlocked, setIsMobileBlocked] = React.useState(false);
+
+    React.useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const media = window.matchMedia('(max-width: 768px)');
+        const coarsePointerMedia = window.matchMedia('(pointer: coarse)');
+        const sync = () => {
+            const ua = navigator.userAgent || '';
+            const isMobileUa = /Android|iPhone|iPod|Windows Phone|webOS|BlackBerry|Opera Mini|IEMobile/i.test(ua);
+            const viewportWidth = window.visualViewport?.width || window.innerWidth || 0;
+            setIsMobileBlocked(Boolean(
+                media.matches
+                || isMobileUa
+                || (coarsePointerMedia.matches && viewportWidth <= 1024)
+            ));
+        };
+        sync();
+        if (typeof media.addEventListener === 'function') {
+            media.addEventListener('change', sync);
+            coarsePointerMedia.addEventListener('change', sync);
+            window.addEventListener('resize', sync);
+            return () => {
+                media.removeEventListener('change', sync);
+                coarsePointerMedia.removeEventListener('change', sync);
+                window.removeEventListener('resize', sync);
+            };
+        }
+        media.addListener(sync);
+        coarsePointerMedia.addListener(sync);
+        window.addEventListener('resize', sync);
+        return () => {
+            media.removeListener(sync);
+            coarsePointerMedia.removeListener(sync);
+            window.removeEventListener('resize', sync);
+        };
+    }, []);
+
+    if (isMobileBlocked) {
+        return (
+            <div className="relative min-h-screen flex items-center justify-center px-6 bg-[radial-gradient(circle_at_50%_0%,#2e1065_0%,#1e1b4b_42%,#3b0a45_100%)] text-white">
+                <div className="absolute right-4 top-4 z-10">
+                    <LanguageSwitcher />
+                </div>
+                <div className="w-full max-w-sm text-center">
+                    <div className="mx-auto mb-8 flex h-28 w-28 items-center justify-center rounded-[28px] border border-white/20 bg-white/8 shadow-[0_20px_60px_rgba(15,23,42,0.35)] backdrop-blur-sm">
+                        <div className="h-16 w-16 rounded-full bg-gradient-to-br from-orange-400 to-violet-400" />
+                    </div>
+                    <div className="mb-6 text-5xl font-black italic tracking-tight text-violet-200">VFLOW AI</div>
+                    <div className="text-xl font-bold text-white">{t.mobile_unsupported_title || '暂不支持手机端使用'}</div>
+                    <div className="mt-3 text-sm leading-6 text-violet-100/80">{t.mobile_unsupported_desc || '请使用桌面端访问'}</div>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <BrowserRouter>
+            <Routes>
+                <Route path="/terms-of-service" element={<TermsOfServicePage />} />
+                <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+                <Route
+                    path="/*"
+                    element={
+                        <AuthProvider>
+                            <TaskProvider>
+                                <AnimatedRoutes />
+                            </TaskProvider>
+                        </AuthProvider>
+                    }
+                />
+            </Routes>
+        </BrowserRouter>
+    );
+};
 
 /**
  * 访客路由封装 (GuestRoute)
@@ -230,22 +308,7 @@ const AnimatedRoutes = () => {
 function App() {
     return (
         <LanguageProvider>
-            <BrowserRouter>
-                <Routes>
-                    <Route path="/terms-of-service" element={<TermsOfServicePage />} />
-                    <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
-                    <Route
-                        path="/*"
-                        element={
-                            <AuthProvider>
-                                <TaskProvider>
-                                    <AnimatedRoutes />
-                                </TaskProvider>
-                            </AuthProvider>
-                        }
-                    />
-                </Routes>
-            </BrowserRouter>
+            <MobileBlockedApp />
         </LanguageProvider>
     );
 }

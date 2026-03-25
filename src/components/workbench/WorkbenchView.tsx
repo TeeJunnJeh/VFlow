@@ -5,7 +5,7 @@ import {
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift,
   SlidersHorizontal,Palette, MapPin, Activity, Camera, Lightbulb, Music, Scissors, Megaphone, AlignLeft,
-  Languages, HelpCircle, AlertCircle
+  Languages, HelpCircle, AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -802,6 +802,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [selectedQueueAssetId, setSelectedQueueAssetId] = useState<string | null>(null);
   const [projectStore, setProjectStore] = useState<LocalProjectStore>(() => loadLocalProjectStore(user?.id ?? null));
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [isTaskQueueOpen, setIsTaskQueueOpen] = useState(false);
+  const taskQueueButtonRef = useRef<HTMLButtonElement | null>(null);
+  const taskQueuePanelRef = useRef<HTMLDivElement | null>(null);
+  const [taskQueueNowTs, setTaskQueueNowTs] = useState<number>(Date.now());
+  const taskQueueTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [isCompletedCollapsed, setIsCompletedCollapsed] = useState(true);
   const [projectSearch, setProjectSearch] = useState('');
   const [projectActionMenuId, setProjectActionMenuId] = useState<string | null>(null);
   const [isProjectManageMode, setIsProjectManageMode] = useState(false);
@@ -820,12 +826,29 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const projectMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const projectActionMenuIdRef = useRef<string | null>(null);
   const projectListRef = useRef<HTMLDivElement | null>(null);
+  const swipeStartXRef = useRef<number | null>(null);
+  const swipeStartYRef = useRef<number | null>(null);
+  const swipeStartTsRef = useRef<number | null>(null);
+  const swipeActiveRef = useRef<boolean>(false);
   const isApplyingProjectWorkspaceRef = useRef(false);
+  const isSwitchingProjectRef = useRef(false);
   const skipNextKlingNormalizeRef = useRef(false);
   const currentProject = useMemo(
       () => projectStore.projects.find((project) => project.id === projectStore.currentProjectId) || null,
       [projectStore.currentProjectId, projectStore.projects]
   );
+
+  const activeVideoTasks = useMemo(
+    () => tasks.filter((task) => task.type === 'video_generation' && (task.status === 'pending' || task.status === 'processing')),
+    [tasks]
+  );
+  const activeVideoTaskCount = activeVideoTasks.length;
+
+  const completedVideoTasks = useMemo(
+    () => tasks.filter((task) => task.type === 'video_generation' && task.status === 'success'),
+    [tasks]
+  );
+  const completedVideoTaskCount = completedVideoTasks.length;
 
   const projectUiText = useMemo(() => ({
     listTooltip: t.wb_project_list_tooltip,
@@ -862,10 +885,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const compactTimeLanguages = new Set(['zh', 'ko']);
   const useCompactTime = compactTimeLanguages.has(language);
-  const sortedProjects = useMemo(
-      () => [...projectStore.projects].sort((a, b) => b.updatedAt - a.updatedAt),
+  const sortedProjects: LocalProjectMeta[] = useMemo(
+      () => [...projectStore.projects].sort((a, b) => a.updatedAt - b.updatedAt),
       [projectStore.projects]
   );
+  const currentProjectIndex = useMemo(() => (
+    sortedProjects.findIndex((p) => p.id === projectStore.currentProjectId)
+  ), [sortedProjects, projectStore.currentProjectId]);
+  const [rowStyle, setRowStyle] = useState<React.CSSProperties>({ transition: 'transform 420ms cubic-bezier(.22,.61,.36,1)', transform: 'translate3d(0,0,0)', willChange: 'transform' });
   const filteredProjects = useMemo(() => {
     const keyword = projectSearch.trim().toLowerCase();
     if (!keyword) return sortedProjects;
@@ -994,7 +1021,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setSelectedModel(restoredModelId);
     setTimeout(() => {
       isApplyingProjectWorkspaceRef.current = false;
-    }, 0);
+      isSwitchingProjectRef.current = false;
+    }, 600);
   }, [initialPrefs.genDuration, initialPrefs.selectedModelId, normalizeDurationForModel, onSelectTemplate, setSelectedModel, t.wb_script_page_prefix, templateList]);
 
   const beginHeaderRename = () => {
@@ -1050,6 +1078,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setProjectMenuOpen(false);
       return;
     }
+    isSwitchingProjectRef.current = true;
     setProjectStore((prev) => ({ ...prev, currentProjectId: projectId }));
     setProjectMenuOpen(false);
     setProjectActionMenuId(null);
@@ -1057,6 +1086,36 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setSelectedProjectIds([]);
     setRenamingProjectId(null);
   };
+
+  const goToPrevProject = useCallback(() => {
+    const list = sortedProjects;
+    const idx = list.findIndex((p) => p.id === projectStore.currentProjectId);
+    if (idx > 0) {
+      setRowStyle({ transition: 'transform 420ms cubic-bezier(.22,.61,.36,1)', transform: 'translate3d(110%,0,0)', willChange: 'transform' });
+      window.setTimeout(() => {
+        switchProject(list[idx - 1].id);
+        setRowStyle({ transition: 'none', transform: 'translate3d(-110%,0,0)' });
+        window.requestAnimationFrame(() => {
+          setRowStyle({ transition: 'transform 420ms cubic-bezier(.22,.61,.36,1)', transform: 'translate3d(0,0,0)', willChange: 'transform' });
+        });
+      }, 420);
+    }
+  }, [sortedProjects, projectStore.currentProjectId, switchProject]);
+
+  const goToNextProject = useCallback(() => {
+    const list = sortedProjects;
+    const idx = list.findIndex((p) => p.id === projectStore.currentProjectId);
+    if (idx >= 0 && idx < list.length - 1) {
+      setRowStyle({ transition: 'transform 420ms cubic-bezier(.22,.61,.36,1)', transform: 'translate3d(-110%,0,0)', willChange: 'transform' });
+      window.setTimeout(() => {
+        switchProject(list[idx + 1].id);
+        setRowStyle({ transition: 'none', transform: 'translate3d(110%,0,0)' });
+        window.requestAnimationFrame(() => {
+          setRowStyle({ transition: 'transform 420ms cubic-bezier(.22,.61,.36,1)', transform: 'translate3d(0,0,0)', willChange: 'transform' });
+        });
+      }, 420);
+    }
+  }, [sortedProjects, projectStore.currentProjectId, switchProject]);
 
   const createNewProject = (nameDraft?: string) => {
     const rawName = (nameDraft || '').trim() || projectUiText.defaultProjectName;
@@ -1322,6 +1381,94 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, []);
 
   useEffect(() => {
+    if (taskQueueTimerRef.current) {
+      clearInterval(taskQueueTimerRef.current);
+      taskQueueTimerRef.current = null;
+    }
+
+    if (isTaskQueueOpen || activeVideoTaskCount > 0) {
+      taskQueueTimerRef.current = setInterval(() => {
+        setTaskQueueNowTs(Date.now());
+      }, 1000);
+    }
+
+    return () => {
+      if (taskQueueTimerRef.current) {
+        clearInterval(taskQueueTimerRef.current);
+        taskQueueTimerRef.current = null;
+      }
+    };
+  }, [activeVideoTaskCount, isTaskQueueOpen]);
+
+  useEffect(() => {
+    if (!isTaskQueueOpen) return;
+
+    const onClickOutsideQueue = (event: MouseEvent) => {
+      const target = event.target as Node;
+      const withinButton = taskQueueButtonRef.current?.contains(target);
+      const withinPanel = taskQueuePanelRef.current?.contains(target);
+      if (!withinButton && !withinPanel) {
+        setIsTaskQueueOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', onClickOutsideQueue);
+    return () => document.removeEventListener('mousedown', onClickOutsideQueue);
+  }, [isTaskQueueOpen]);
+
+  useEffect(() => {
+    const start = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      swipeStartXRef.current = t.clientX;
+      swipeStartYRef.current = t.clientY;
+      swipeStartTsRef.current = Date.now();
+      swipeActiveRef.current = true;
+    };
+    const move = (e: TouchEvent) => {
+      if (!swipeActiveRef.current) return;
+      const t = e.touches[0];
+      const dx = t.clientX - (swipeStartXRef.current || 0);
+      const dy = t.clientY - (swipeStartYRef.current || 0);
+      if (Math.abs(dy) > Math.abs(dx) + 10) swipeActiveRef.current = false;
+    };
+    const end = (e: TouchEvent) => {
+      if (!swipeActiveRef.current) return;
+      const endTs = Date.now();
+      const duration = endTs - (swipeStartTsRef.current || endTs);
+      const threshold = 50;
+      const maxDur = 800;
+      const startX = swipeStartXRef.current || 0;
+      const startY = swipeStartYRef.current || 0;
+      const touch = (e.changedTouches && e.changedTouches[0]) || null;
+      const endX = touch ? touch.clientX : startX;
+      const endY = touch ? touch.clientY : startY;
+      const dx = endX - startX;
+      const dy = endY - startY;
+      swipeActiveRef.current = false;
+      swipeStartXRef.current = null;
+      swipeStartYRef.current = null;
+      swipeStartTsRef.current = null;
+      if (Math.abs(dx) >= threshold && Math.abs(dy) <= 40 && duration <= maxDur) {
+        if (dx < 0) {
+          goToNextProject();
+        } else {
+          goToPrevProject();
+        }
+      }
+    };
+
+    window.addEventListener('touchstart', start, { passive: true });
+    window.addEventListener('touchmove', move, { passive: true });
+    window.addEventListener('touchend', end, { passive: true });
+    return () => {
+      window.removeEventListener('touchstart', start);
+      window.removeEventListener('touchmove', move);
+      window.removeEventListener('touchend', end);
+    };
+  }, [sortedProjects, projectStore.currentProjectId, goToNextProject, goToPrevProject]);
+
+  useEffect(() => {
     if (projectMenuOpen) return;
     setRenamingProjectId(null);
     setRenamingProjectName('');
@@ -1500,11 +1647,52 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return () => window.removeEventListener('beforeunload', handler);
   }, []);
 
+  const taskStatusSnapshotRef = useRef<Record<string, string>>({});
+  const autoPreviewedTaskIdsRef = useRef<Record<string, true>>({});
+
   useEffect(() => {
     if (!generatedVideoUrl) return;
     const matched = tasks.find(t => (t.result?.video_url || t.result?.url) === generatedVideoUrl);
     if (matched?.projectId) setPreviewProjectId(matched.projectId);
   }, [generatedVideoUrl, tasks]);
+
+  useEffect(() => {
+    const preferredProjectId = lastGeneratedProjectId || projectStore.currentProjectId;
+
+    const nextSnapshot: Record<string, string> = {};
+    const newlySucceeded = tasks.filter((task) => {
+      const key = String(task.id);
+      nextSnapshot[key] = String(task.status);
+      const prev = taskStatusSnapshotRef.current[key];
+      return prev !== 'success' && task.status === 'success';
+    });
+    taskStatusSnapshotRef.current = nextSnapshot;
+
+    if (!preferredProjectId || newlySucceeded.length === 0) return;
+
+    const candidates = newlySucceeded
+      .filter((task) => task.type === 'video_generation' && task.projectId === preferredProjectId)
+      .map((task) => {
+        const url = task.result?.video_url || task.result?.url;
+        return { task, url: typeof url === 'string' ? url : null };
+      })
+      .filter((item) => Boolean(item.url) && !autoPreviewedTaskIdsRef.current[String(item.task.id)]);
+
+    if (candidates.length === 0) return;
+
+    candidates.sort((a, b) => {
+      const at = (a.task.updatedAt || a.task.createdAt || 0);
+      const bt = (b.task.updatedAt || b.task.createdAt || 0);
+      return bt - at;
+    });
+
+    const picked = candidates[0];
+    if (!picked?.url) return;
+
+    autoPreviewedTaskIdsRef.current[String(picked.task.id)] = true;
+    setGeneratedVideoUrl(picked.url);
+    setPreviewProjectId(picked.task.projectId);
+  }, [tasks, lastGeneratedProjectId, projectStore.currentProjectId, setGeneratedVideoUrl]);
 
   useEffect(() => {
     if (!isAssetLibraryOpen) return;
@@ -2279,6 +2467,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
+    // Skip auto re-prompt during project workspace application or explicit project switching
+    if (isApplyingProjectWorkspaceRef.current || isSwitchingProjectRef.current) {
+      lastRecognizedSignatureRef.current = productImageSignature;
+      return;
+    }
+
     const prevSignature = lastRecognizedSignatureRef.current;
 
     if (!prevSignature) {
@@ -2447,7 +2641,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         projectId,
         type: 'video_generation',
         status: 'processing',
-        name: `${selectedTemplate?.name || 'Video'} (${projectId.slice(0, 6)})`,
+        name: `${currentProject?.name || DEFAULT_PROJECT_NAME} / ${scriptPages[activeScriptPage]?.name || selectedTemplate?.name || 'Video'}`,
         thumbnail: uploadedFile || undefined,
         createdAt: Date.now(),
       });
@@ -3985,7 +4179,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 projectId: String(projectId),
                 type: 'video_generation',
                 status: 'processing',
-                name: `${asset.name} × ${scriptPack.name}`,
+                name: `${(productName || '').trim() || `${asset.name} × ${scriptPack.name}`} / ${scriptPack.name}`,
                 thumbnail: asset.previewUrl || undefined,
                 createdAt: Date.now(),
               });
@@ -5290,7 +5484,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   return (
-      <div className="flex flex-col h-full z-10 animate-in fade-in zoom-in-95 duration-300">
+      <div className="relative flex flex-col h-full z-10 rounded-3xl overflow-hidden border border-white/10 bg-zinc-950/80 shadow-2xl backdrop-blur-xl">
+        {sortedProjects.length > 1 && (
+          <>
+            <button
+              type="button"
+              onClick={goToPrevProject}
+              className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200"
+              title="上一项目"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={goToNextProject}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200"
+              title="下一项目"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </>
+        )}
         <header className="flex justify-between items-center px-8 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm shrink-0 relative z-50">
           <div className="flex items-center gap-4">
             <div className="relative">
@@ -5546,9 +5760,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     className="text-xl font-bold tracking-tight text-white bg-transparent border-b border-white/30 focus:border-orange-500 outline-none"
                 />
             ) : (
-                <h1 className="text-xl font-bold tracking-tight text-white cursor-text" onClick={beginHeaderRename}>
-                  {currentProject?.name || DEFAULT_PROJECT_NAME}
-                </h1>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={goToPrevProject}
+                    className="p-1 rounded text-zinc-400 hover:text-white hover:bg-white/10"
+                    title="上一项目"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <h1 className="text-xl font-bold tracking-tight text-white cursor-text" onClick={beginHeaderRename}>
+                    {currentProject?.name || DEFAULT_PROJECT_NAME}
+                  </h1>
+                  <button
+                    type="button"
+                    onClick={goToNextProject}
+                    className="p-1 rounded text-zinc-400 hover:text-white hover:bg-white/10"
+                    title="下一项目"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
             )}
             <span className="px-2 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-400 border border-white/5">{t.wb_header_draft}</span>
             {ENABLE_PROMPT_LAB && (
@@ -5576,8 +5808,126 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </>
             )}
           </div>
-          <div className="flex items-center gap-4">
-            <div className="text-xs text-zinc-500">{t.wb_header_save}</div>
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <button
+                ref={taskQueueButtonRef}
+                type="button"
+                onClick={() => setIsTaskQueueOpen((prev) => !prev)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200 transition"
+                title="查看正在生成的视频队列"
+              >
+                <List className="w-4 h-4" />
+                <span className="text-[11px] font-bold">生成队列</span>
+                {activeVideoTaskCount > 0 ? (
+                  <span className="ml-1 px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300 text-[10px] font-black border border-orange-500/30">
+                    {activeVideoTaskCount}
+                  </span>
+                ) : null}
+              </button>
+
+              {isTaskQueueOpen && (
+                <div
+                  ref={taskQueuePanelRef}
+                  className="absolute right-0 mt-2 w-96 rounded-xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/60 backdrop-blur p-3 z-50"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                      正在生成 {activeVideoTaskCount > 0 ? `(${activeVideoTaskCount})` : ''}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsTaskQueueOpen(false)}
+                      className="text-zinc-400 hover:text-white"
+                      title="关闭"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {activeVideoTaskCount === 0 ? (
+                    <div className="mt-3 text-xs text-zinc-500">暂无正在生成的任务</div>
+                  ) : (
+                    <div className="mt-3 space-y-2 max-h-64 overflow-y-auto custom-scroll pr-1">
+                      {activeVideoTasks.slice(0, 12).map((task) => {
+                        const elapsed = Math.max(0, Math.floor((taskQueueNowTs - task.createdAt) / 1000));
+                        const left = Math.max(0, 120 - elapsed);
+                        const countdownText = left > 0 ? `剩余 ${left}s` : '马上完成';
+
+                        return (
+                          <div key={task.id} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2.5 py-2">
+                            <Loader2 className="w-4 h-4 animate-spin text-orange-500 shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs text-zinc-100 truncate" title={task.name || `Task ${task.id}`}>
+                                {task.name || `Task ${task.id}`}
+                              </div>
+                              <div className="text-[10px] text-zinc-500 truncate">ID: {String(task.id)}</div>
+                            </div>
+                            <div className="text-[11px] text-zinc-300 shrink-0">{countdownText}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                        生成完成 {completedVideoTaskCount > 0 ? `(${completedVideoTaskCount})` : ''}
+                      </div>
+                      {completedVideoTaskCount > 3 && (
+                        <button
+                          type="button"
+                          onClick={() => setIsCompletedCollapsed(prev => !prev)}
+                          className="text-zinc-400 hover:text-white"
+                          aria-label={isCompletedCollapsed ? '展开' : '折叠'}
+                          title={isCompletedCollapsed ? '展开' : '折叠'}
+                        >
+                          {isCompletedCollapsed ? (
+                            <ChevronDown className="w-4 h-4" />
+                          ) : (
+                            <ChevronUp className="w-4 h-4" />
+                          )}
+                        </button>
+                      )}
+                    </div>
+
+                    {completedVideoTaskCount === 0 ? (
+                      <div className="mt-2 text-xs text-zinc-500">暂无生成完成的任务</div>
+                    ) : isCompletedCollapsed ? null : (
+                      <div className="mt-2 space-y-2 max-h-48 overflow-y-auto custom-scroll pr-1">
+                        {completedVideoTasks.slice(0, 12).map((task) => {
+                          const rawUrl = task.result?.video_url || task.result?.url;
+                          const url = typeof rawUrl === 'string' ? rawUrl : '';
+                          const canPreview = !!url;
+                          return (
+                            <button
+                              key={task.id}
+                              onClick={() => {
+                                if (canPreview) {
+                                  setGeneratedVideoUrl(url);
+                                  setPreviewProjectId(task.projectId);
+                                }
+                              }}
+                              className={`w-full flex items-center gap-2 rounded-lg border px-2.5 py-2 ${canPreview ? 'border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200' : 'border-white/5 bg-white/5 text-zinc-500 cursor-not-allowed'}`}
+                              title={task.name || `Task ${task.id}`}
+                            >
+                              <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
+                              <div className="min-w-0 flex-1">
+                                <div className="text-xs truncate">{task.name || `Task ${task.id}`}</div>
+                                <div className="text-[10px] text-zinc-500 truncate">ID: {String(task.id)}</div>
+                              </div>
+                              <div className="text-[11px] text-zinc-400 shrink-0">{canPreview ? '预览' : '暂无视频'}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <LanguageSwitcher />
           </div>
         </header>
@@ -5965,7 +6315,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </AppDialog>
         )}
 
-        <div ref={workspaceRowRef} className="flex-1 flex overflow-hidden p-6 gap-6">
+        <div ref={workspaceRowRef} className="flex-1 flex overflow-hidden p-6 gap-6" style={rowStyle}>
           <div style={{ width: leftColumnWidth }} className="shrink-0 h-full min-w-[260px] max-w-[640px]">
             {renderLeftColumn()}
           </div>

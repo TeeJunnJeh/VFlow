@@ -12,6 +12,8 @@ export const TaskQueueWidget: React.FC<TaskQueueWidgetProps> = ({ onPreview }) =
   const [hasOverflow, setHasOverflow] = React.useState(false);
   const autoHideTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = React.useRef<HTMLDivElement | null>(null);
+  const [nowTs, setNowTs] = React.useState<number>(Date.now());
+  const countdownTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
   const activeCount = tasks.filter(t => t.status === 'pending' || t.status === 'processing').length;
   const recentTasks = tasks.slice(0, 6);
@@ -44,6 +46,24 @@ export const TaskQueueWidget: React.FC<TaskQueueWidgetProps> = ({ onPreview }) =
       }
     };
   }, [activeCount, tasks.length]);
+
+  React.useEffect(() => {
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
+    if (activeCount > 0) {
+      countdownTimerRef.current = setInterval(() => {
+        setNowTs(Date.now());
+      }, 1000);
+    }
+    return () => {
+      if (countdownTimerRef.current) {
+        clearInterval(countdownTimerRef.current);
+        countdownTimerRef.current = null;
+      }
+    };
+  }, [activeCount]);
 
   React.useEffect(() => {
     const checkOverflow = () => {
@@ -95,6 +115,17 @@ export const TaskQueueWidget: React.FC<TaskQueueWidgetProps> = ({ onPreview }) =
               >
                 {t.name || `Task ${t.id}`}
               </button>
+
+              {(() => {
+                const elapsed = Math.max(0, Math.floor((nowTs - t.createdAt) / 1000));
+                const left = Math.max(0, 120 - elapsed);
+                const text = isActive ? (left > 0 ? `剩余 ${left}s` : '马上完成') : '';
+                return (
+                  <span className="text-[10px] text-zinc-500 shrink-0 min-w-[64px] text-right">
+                    {text}
+                  </span>
+                );
+              })()}
 
               <button
                 onClick={() => removeTask(t.id)}

@@ -6121,9 +6121,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       {t.wb_confirm_cancel}
                     </button>
                     <button
-                        className={`px-4 py-2 rounded-lg text-sm font-bold text-white ${isAiOptimizeGenerating ? 'bg-orange-500/60 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600'}`}
-                        onClick={() => void handleGenerateOptimizedImages()}
-                        disabled={isAiOptimizeGenerating}
+                        title={t.wb_ai_opt_coming_soon || '敬请期待。'}
+                        className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-orange-500 hover:bg-orange-600 cursor-help"
+                        // onClick={() => void handleGenerateOptimizedImages()}
                     >
                       {isAiOptimizeGenerating
                         ? (t.wb_ai_opt_generating || '生成中...')

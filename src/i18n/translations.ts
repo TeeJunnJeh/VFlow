@@ -381,6 +381,7 @@ export const translations = {
     wb_ai_opt_keyword_lighting: "Premium lighting",
     wb_ai_opt_keyword_clean: "Clean background",
     wb_ai_opt_keyword_conversion: "E-commerce conversion focused",
+    wb_ai_opt_coming_soon: "Coming soon.",
 
     wb_select_placeholder: "Select",
 
@@ -1249,6 +1250,7 @@ export const translations = {
     wb_ai_opt_keyword_lighting: "质感灯光",
     wb_ai_opt_keyword_clean: "干净背景",
     wb_ai_opt_keyword_conversion: "电商转化导向",
+    wb_ai_opt_coming_soon: "敬请期待。",
 
     wb_select_placeholder: "请选择",
 
@@ -1839,6 +1841,7 @@ export const translations = {
     wb_popup_tiktok_switch_failed: "Gagal menukar akaun",
     wb_popup_tiktok_upload_success: "Dimuat naik ke draf TikTok, sila semak dan terbitkan dalam aplikasi",
     wb_popup_tiktok_upload_failed: "Muat naik gagal",
+    wb_ai_opt_coming_soon: "Akan datang.",
 
     // Generate Page
     header_title_prefix: "Apa yang anda ingin",
@@ -2546,6 +2549,7 @@ export const translations = {
     wb_popup_tiktok_switch_failed: "Không thể chuyển tài khoản",
     wb_popup_tiktok_upload_success: "Đã tải lên bản nháp TikTok, vui lòng kiểm tra và đăng trong ứng dụng",
     wb_popup_tiktok_upload_failed: "Tải lên thất bại",
+    wb_ai_opt_coming_soon: "Sắp ra mắt.",
 
     // Generate Page
     header_title_prefix: "Hôm nay bạn muốn",
@@ -3263,6 +3267,7 @@ export const translations = {
     wb_popup_tiktok_switch_failed: "계정 전환 실패",
     wb_popup_tiktok_upload_success: "TikTok 초안에 업로드되었습니다. 앱에서 확인하고 게시하세요",
     wb_popup_tiktok_upload_failed: "업로드 실패",
+    wb_ai_opt_coming_soon: "곧 제공됩니다.",
 
     // Generate Page
     header_title_prefix: "오늘 무엇을",

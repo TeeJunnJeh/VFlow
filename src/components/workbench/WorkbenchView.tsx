@@ -183,6 +183,7 @@ type LocalProjectMeta = {
   id: string;
   name: string;
   updatedAt: number;
+  createdAt?: number;
 };
 
 type LocalProjectStore = {
@@ -268,7 +269,7 @@ const createDefaultProjectStore = (): LocalProjectStore => {
   const projectId = 'project_alpha_01';
   return {
     currentProjectId: projectId,
-    projects: [{ id: projectId, name: DEFAULT_PROJECT_NAME, updatedAt: Date.now() }],
+    projects: [{ id: projectId, name: DEFAULT_PROJECT_NAME, updatedAt: Date.now(), createdAt: Date.now() }],
     workspaces: {},
   };
 };
@@ -290,7 +291,10 @@ const loadLocalProjectStore = (userId?: string | number | null): LocalProjectSto
         : parsed.projects[0].id;
     return {
       currentProjectId,
-      projects: parsed.projects as LocalProjectMeta[],
+      projects: (parsed.projects as LocalProjectMeta[]).map(p => ({
+        ...p,
+        createdAt: p.createdAt || p.updatedAt || Date.now(),
+      })),
       workspaces: (parsed.workspaces as Record<string, ProjectWorkspaceState>) || {},
     };
   } catch {
@@ -899,7 +903,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const compactTimeLanguages = new Set(['zh', 'ko']);
   const useCompactTime = compactTimeLanguages.has(language);
   const sortedProjects: LocalProjectMeta[] = useMemo(
-      () => [...projectStore.projects].sort((a, b) => a.updatedAt - b.updatedAt),
+      () => [...projectStore.projects].sort((a, b) => (b.createdAt || b.updatedAt) - (a.createdAt || a.updatedAt)),
       [projectStore.projects]
   );
   const currentProjectIndex = useMemo(() => (
@@ -1093,12 +1097,47 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const switchProject = (projectId: string) => {
-    if (projectId === projectStore.currentProjectId) {
+    const normalizedId = String(projectId || '').trim();
+    if (!normalizedId) return;
+
+    if (normalizedId === projectStore.currentProjectId) {
       setProjectMenuOpen(false);
       return;
     }
+
     isSwitchingProjectRef.current = true;
-    setProjectStore((prev) => ({ ...prev, currentProjectId: projectId }));
+
+    setProjectStore((prev) => {
+      const now = Date.now();
+      const hasProject = prev.projects.some((p) => p.id === normalizedId);
+      const projects = hasProject
+        ? prev.projects
+        : [{
+          id: normalizedId,
+          name: ensureUniqueProjectName(`Project ${normalizedId.slice(0, 6)}`, prev.projects),
+          updatedAt: now,
+          createdAt: now,
+        }, ...prev.projects];
+
+      const workspaces = prev.workspaces[normalizedId]
+        ? prev.workspaces
+        : {
+          ...prev.workspaces,
+          [normalizedId]: createWorkspaceState({
+            scripts: buildDemoScripts(),
+            scriptPagePrefix: t.wb_script_page_prefix,
+            userId: user?.id ?? null,
+          }),
+        };
+
+      return {
+        ...prev,
+        currentProjectId: normalizedId,
+        projects,
+        workspaces,
+      };
+    });
+
     setProjectMenuOpen(false);
     setProjectActionMenuId(null);
     setIsProjectManageMode(false);
@@ -1136,6 +1175,124 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
   }, [sortedProjects, projectStore.currentProjectId, switchProject]);
 
+  const ensureProjectInStore = useCallback((projectId: string) => {
+    const rawProjectId: unknown = projectId;
+    const normalizedId = (typeof rawProjectId === 'string' || typeof rawProjectId === 'number')
+      ? String(rawProjectId).trim()
+      : '';
+
+    if (!normalizedId || normalizedId === 'undefined' || normalizedId === 'null' || normalizedId === '[object Object]') {
+      console.warn('[TaskQueue] ensureProjectInStore: invalid projectId', { rawProjectId, normalizedId });
+      return;
+    }
+
+    setProjectStore((prev) => {
+      const now = Date.now();
+      const existing = prev.projects.find((p) => p.id === normalizedId) || null;
+      const hasWorkspace = !!prev.workspaces[normalizedId];
+
+      console.debug('[TaskQueue] ensureProjectInStore', {
+        rawProjectId,
+        normalizedId,
+        existed: !!existing,
+        hasWorkspace,
+        prevProjectCount: prev.projects.length,
+        currentProjectId: prev.currentProjectId,
+      });
+
+      if (existing) {
+        const nextProjects = prev.projects.map((p) => (p.id === normalizedId ? { ...p, updatedAt: now } : p));
+        if (hasWorkspace) return { ...prev, projects: nextProjects };
+        return {
+          ...prev,
+          projects: nextProjects,
+          workspaces: {
+            ...prev.workspaces,
+            [normalizedId]: createWorkspaceState({
+              scripts: buildDemoScripts(),
+              scriptPagePrefix: t.wb_script_page_prefix,
+              userId: user?.id ?? null,
+            }),
+          },
+        };
+      }
+
+      const baseName = `Project ${normalizedId.slice(0, 6)}`;
+      const name = ensureUniqueProjectName(baseName, prev.projects);
+
+      return {
+        ...prev,
+        projects: [{ id: normalizedId, name, updatedAt: now, createdAt: now }, ...prev.projects],
+        workspaces: {
+          ...prev.workspaces,
+          [normalizedId]: createWorkspaceState({
+            scripts: buildDemoScripts(),
+            scriptPagePrefix: t.wb_script_page_prefix,
+            userId: user?.id ?? null,
+          }),
+        },
+      };
+    });
+  }, [buildDemoScripts, t.wb_script_page_prefix, user?.id]);
+
+  const goToProject = useCallback((projectId: string, onSwitched?: () => void) => {
+    const list = sortedProjects;
+    const idx = list.findIndex((p) => p.id === projectStore.currentProjectId);
+    const targetIdx = list.findIndex((p) => p.id === projectId);
+
+    // If current or target not found in list, or same project, fall back to direct switch
+    if (idx === -1 || targetIdx === -1) {
+      console.debug('[TaskQueue] goToProject fallback switch', {
+        currentProjectId: projectStore.currentProjectId,
+        targetProjectId: projectId,
+        idx,
+        targetIdx,
+        knownProjects: list.slice(0, 8).map((p) => p.id),
+        totalProjects: list.length,
+      });
+      switchProject(projectId);
+      if (onSwitched) onSwitched();
+      return;
+    }
+
+    if (idx === targetIdx) {
+      if (onSwitched) onSwitched();
+      return;
+    }
+
+    // if target is before current, animate right-to-left (prev style)
+    if (targetIdx < idx) {
+      setRowStyle({ transition: 'transform 420ms cubic-bezier(.22,.61,.36,1)', transform: 'translate3d(110%,0,0)', willChange: 'transform' });
+      window.setTimeout(() => {
+        switchProject(projectId);
+        setRowStyle({ transition: 'none', transform: 'translate3d(-110%,0,0)' });
+        window.requestAnimationFrame(() => {
+          setRowStyle({ transition: 'transform 420ms cubic-bezier(.22,.61,.36,1)', transform: 'translate3d(0,0,0)', willChange: 'transform' });
+        });
+        // ensure switching flag cleared and then run callback
+        window.setTimeout(() => {
+          isSwitchingProjectRef.current = false;
+          if (onSwitched) onSwitched();
+        }, 80);
+      }, 420);
+      return;
+    }
+
+    // target is after current, animate left-to-right (next style)
+    setRowStyle({ transition: 'transform 420ms cubic-bezier(.22,.61,.36,1)', transform: 'translate3d(-110%,0,0)', willChange: 'transform' });
+    window.setTimeout(() => {
+      switchProject(projectId);
+      setRowStyle({ transition: 'none', transform: 'translate3d(110%,0,0)' });
+      window.requestAnimationFrame(() => {
+        setRowStyle({ transition: 'transform 420ms cubic-bezier(.22,.61,.36,1)', transform: 'translate3d(0,0,0)', willChange: 'transform' });
+      });
+      window.setTimeout(() => {
+        isSwitchingProjectRef.current = false;
+        if (onSwitched) onSwitched();
+      }, 80);
+    }, 420);
+  }, [sortedProjects, projectStore.currentProjectId, switchProject]);
+
   const createNewProject = (nameDraft?: string) => {
     const rawName = (nameDraft || '').trim() || projectUiText.defaultProjectName;
     if (rawName.length > MAX_PROJECT_NAME_LENGTH) {
@@ -1155,7 +1312,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       });
       return {
         currentProjectId: projectId,
-        projects: [{ id: projectId, name: projectName, updatedAt: Date.now() }, ...prev.projects],
+        projects: [{ id: projectId, name: projectName, updatedAt: Date.now(), createdAt: Date.now() }, ...prev.projects],
         workspaces: {
           ...prev.workspaces,
           [projectId]: nextWorkspace,
@@ -1183,7 +1340,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const remaining = prev.projects.filter((project) => !idSet.has(project.id));
       const nextProjects = remaining.length > 0
           ? remaining
-          : [{ id: 'project_alpha_01', name: DEFAULT_PROJECT_NAME, updatedAt: Date.now() }];
+          : [{ id: 'project_alpha_01', name: DEFAULT_PROJECT_NAME, updatedAt: Date.now(), createdAt: Date.now() }];
       const nextCurrent = idSet.has(prev.currentProjectId) ? nextProjects[0].id : prev.currentProjectId;
       const nextWorkspaces = { ...prev.workspaces };
       ids.forEach((id) => { delete nextWorkspaces[id]; });
@@ -1249,6 +1406,45 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [initialAssetSource, initialFileName, initialFileUrl, initialLibraryAsset, isRestoring]);
 
   useEffect(() => {
+    const currentProjectId = String(projectStore.currentProjectId || '').trim();
+    if (!currentProjectId) return;
+
+    setProjectStore((prev) => {
+      const now = Date.now();
+      const hasProject = prev.projects.some((p) => p.id === currentProjectId);
+      const hasWorkspace = !!prev.workspaces[currentProjectId];
+
+      if (hasProject && hasWorkspace) return prev;
+
+      const projects = hasProject
+        ? prev.projects
+        : [{
+          id: currentProjectId,
+          name: ensureUniqueProjectName(`Project ${currentProjectId.slice(0, 6)}`, prev.projects),
+          updatedAt: now,
+          createdAt: now,
+        }, ...prev.projects];
+
+      const workspaces = hasWorkspace
+        ? prev.workspaces
+        : {
+          ...prev.workspaces,
+          [currentProjectId]: createWorkspaceState({
+            scripts: buildDemoScripts(),
+            scriptPagePrefix: t.wb_script_page_prefix,
+            userId: user?.id ?? null,
+          }),
+        };
+
+      return {
+        ...prev,
+        projects,
+        workspaces,
+      };
+    });
+  }, [buildDemoScripts, projectStore.currentProjectId, t.wb_script_page_prefix, user?.id]);
+
+  useEffect(() => {
     const currentProjectId = projectStore.currentProjectId;
     const workspace = projectStore.workspaces[currentProjectId];
     if (workspace) {
@@ -1264,6 +1460,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   useEffect(() => {
     localStorage.setItem(getLocalProjectStoreKey(user?.id ?? null), JSON.stringify(projectStore));
+    window.dispatchEvent(new CustomEvent('vflow-workbench-projects-updated'));
   }, [projectStore, user?.id]);
 
   useEffect(() => {
@@ -3033,9 +3230,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       addTask({
         id: taskId,
         projectId,
+        workbenchProjectId: projectStore.currentProjectId,
         type: 'video_generation',
         status: 'processing',
-        name: `${currentProject?.name || DEFAULT_PROJECT_NAME} / ${scriptPages[activeScriptPage]?.name || selectedTemplate?.name || 'Video'}`,
+        name: `${(productName || '').trim() || fileName || scriptPages[activeScriptPage]?.name || selectedTemplate?.name || 'Video'}`,
         thumbnail: uploadedFile || undefined,
         createdAt: Date.now(),
       });
@@ -3966,7 +4164,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   useEffect(() => {
     if (!toastMessage) return;
-    const timer = window.setTimeout(() => setToastMessage(null), 2500);
+    const timer = window.setTimeout(() => setToastMessage(null), 10000);
     return () => window.clearTimeout(timer);
   }, [toastMessage]);
 
@@ -4592,9 +4790,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               addTask({
                 id: taskId,
                 projectId: String(projectId),
+                workbenchProjectId: projectStore.currentProjectId,
                 type: 'video_generation',
                 status: 'processing',
-                name: `${(productName || '').trim() || `${asset.name} × ${scriptPack.name}`} / ${scriptPack.name}`,
+                name: `${(productName || '').trim() || asset.name || `${asset.name} × ${scriptPack.name}`}`,
                 thumbnail: asset.previewUrl || undefined,
                 createdAt: Date.now(),
               });
@@ -5963,26 +6162,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   return (
       <div className="relative flex flex-col h-full z-10 rounded-3xl overflow-hidden border border-white/10 bg-zinc-950/80 shadow-2xl backdrop-blur-xl">
-        {sortedProjects.length > 1 && (
-          <>
-            <button
-              type="button"
-              onClick={goToPrevProject}
-              className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200"
-              title="上一项目"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </button>
-            <button
-              type="button"
-              onClick={goToNextProject}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200"
-              title="下一项目"
-            >
-              <ChevronRight className="w-5 h-5" />
-            </button>
-          </>
-        )}
         <header className="flex justify-between items-center px-8 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm shrink-0 relative z-50">
           <div className="flex items-center gap-4">
             <div className="relative">
@@ -6260,7 +6439,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </button>
                 </div>
             )}
-            <span className="px-2 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-400 border border-white/5">{t.wb_header_draft}</span>
             {ENABLE_PROMPT_LAB && (
                 <>
                   <button
@@ -6331,13 +6509,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         const elapsed = Math.max(0, Math.floor((taskQueueNowTs - task.createdAt) / 1000));
                         const left = Math.max(0, 120 - elapsed);
                         const countdownText = left > 0 ? `剩余 ${left}s` : '马上完成';
+                        const backendProjectId = String(task.projectId || '').trim();
+                        const workbenchProjectId = String((task as any)?.workbenchProjectId || '').trim();
+                        const displayProjectId = workbenchProjectId || backendProjectId;
+                        const projectName = projectStore.projects.find((p) => p.id === displayProjectId)?.name || (displayProjectId ? `Project ${displayProjectId.slice(0, 6)}` : DEFAULT_PROJECT_NAME);
+                        const baseName = task.name || `Task ${task.id}`;
+                        const displayName = `${projectName} / ${baseName}`;
 
                         return (
                           <div key={task.id} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2.5 py-2">
                             <Loader2 className="w-4 h-4 animate-spin text-orange-500 shrink-0" />
                             <div className="min-w-0 flex-1">
-                              <div className="text-xs text-zinc-100 truncate" title={task.name || `Task ${task.id}`}>
-                                {task.name || `Task ${task.id}`}
+                              <div className="text-xs text-zinc-100 truncate" title={displayName}>
+                                {displayName}
                               </div>
                               <div className="text-[10px] text-zinc-500 truncate">ID: {String(task.id)}</div>
                             </div>
@@ -6372,27 +6556,57 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
                     {completedVideoTaskCount === 0 ? (
                       <div className="mt-2 text-xs text-zinc-500">暂无生成完成的任务</div>
-                    ) : isCompletedCollapsed ? null : (
+                    ) : (isCompletedCollapsed && completedVideoTaskCount > 3) ? null : (
                       <div className="mt-2 space-y-2 max-h-48 overflow-y-auto custom-scroll pr-1">
                         {completedVideoTasks.slice(0, 12).map((task) => {
                           const rawUrl = task.result?.video_url || task.result?.url;
                           const url = typeof rawUrl === 'string' ? rawUrl : '';
                           const canPreview = !!url;
+                          const backendProjectId = String(task.projectId || '').trim();
+                          const workbenchProjectId = String((task as any)?.workbenchProjectId || '').trim();
+                          const displayProjectId = workbenchProjectId || backendProjectId;
+                          const projectName = projectStore.projects.find((p) => p.id === displayProjectId)?.name || (displayProjectId ? `Project ${displayProjectId.slice(0, 6)}` : DEFAULT_PROJECT_NAME);
+                          const baseName = task.name || `Task ${task.id}`;
+                          const displayName = `${projectName} / ${baseName}`;
+
                           return (
                             <button
                               key={task.id}
                               onClick={() => {
-                                if (canPreview) {
-                                  setGeneratedVideoUrl(url);
-                                  setPreviewProjectId(task.projectId);
+                                const debugPayload = {
+                                  taskId: task.id,
+                                  backendProjectId: (task as any)?.projectId,
+                                  workbenchProjectId: (task as any)?.workbenchProjectId,
+                                  normalizedBackendProjectId: backendProjectId,
+                                  normalizedWorkbenchProjectId: workbenchProjectId,
+                                  displayProjectId,
+                                  hasUrl: !!url,
+                                };
+                                console.log('[TaskQueue] click completed item', debugPayload);
+                                setToastMessage(`Task ${String(task.id)} → project ${displayProjectId.slice(0, 10)}`);
+
+                                if (!canPreview) return;
+
+                                if (workbenchProjectId && projectStore.projects.some((p) => p.id === workbenchProjectId)) {
+                                  setIsTaskQueueOpen(false);
+                                  goToProject(workbenchProjectId, () => {
+                                    setGeneratedVideoUrl(url);
+                                    setPreviewProjectId(workbenchProjectId);
+                                    setLastGeneratedProjectId(backendProjectId || null);
+                                    setTimeout(() => previewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
+                                  });
+                                  return;
                                 }
+
+                                console.warn('[TaskQueue] completed item has no mapped workbenchProjectId; skip creating placeholder project', debugPayload);
+                                setToastMessage('该任务未绑定到工作台项目（旧数据），无法跳转项目');
                               }}
                               className={`w-full flex items-center gap-2 rounded-lg border px-2.5 py-2 ${canPreview ? 'border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200' : 'border-white/5 bg-white/5 text-zinc-500 cursor-not-allowed'}`}
-                              title={task.name || `Task ${task.id}`}
+                              title={displayName}
                             >
                               <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
                               <div className="min-w-0 flex-1">
-                                <div className="text-xs truncate">{task.name || `Task ${task.id}`}</div>
+                                <div className="text-xs truncate">{displayName}</div>
                                 <div className="text-[10px] text-zinc-500 truncate">ID: {String(task.id)}</div>
                               </div>
                               <div className="text-[11px] text-zinc-400 shrink-0">{canPreview ? '预览' : '暂无视频'}</div>

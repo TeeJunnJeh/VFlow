@@ -6,6 +6,7 @@ export type TaskStatus = 'pending' | 'processing' | 'success' | 'failed';
 export interface Task {
   id: string | number;       // backend GenerationTask.id
   projectId: string;         // projects.Project UUID
+  workbenchProjectId?: string; // Workbench local project id
   type: 'video_generation';
   status: TaskStatus;
   name?: string;

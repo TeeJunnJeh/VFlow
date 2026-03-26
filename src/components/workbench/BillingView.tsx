@@ -1,16 +1,24 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { billingApi } from '../../services/billing';
 import { AppDialog } from '../common/AppDialog';
 import { useLanguage } from '../../context/LanguageContext';
+import { QRCodeSVG } from 'qrcode.react';
 
 export const BillingView: React.FC = () => {
   const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
   const [overview, setOverview] = useState<any | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
+  
+  // Dialog controls
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [dialogTitle, setDialogTitle] = useState('');
   const [dialogMessage, setDialogMessage] = useState<string | null>(null);
+
+  // Payment State
+  const [showPayQR, setShowPayQR] = useState(false);
+  const [payOrder, setPayOrder] = useState<any>(null);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   const openInfo = (title: string, message: string) => {
     setDialogTitle(title);
@@ -37,14 +45,54 @@ export const BillingView: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
   }, []);
+
+  const startPolling = (outTradeNo: string) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    
+    pollingRef.current = setInterval(async () => {
+      try {
+        const res = await billingApi.getRechargeStatus(outTradeNo);
+        if (res?.code === 0 && res.data.status === 'PAID') {
+          if (pollingRef.current) clearInterval(pollingRef.current);
+          setShowPayQR(false);
+          await loadData();
+          openInfo('Success', 'Payment received successfully!');
+        } else if (res?.code === 0 && (res.data.status === 'CANCELLED' || res.data.status === 'FAILED')) {
+          if (pollingRef.current) clearInterval(pollingRef.current);
+          setShowPayQR(false);
+          openInfo('Payment Terminated', `Order status: ${res.data.status}`);
+        }
+      } catch (e) {
+        console.error("Polling error", e);
+      }
+    }, 3000);
+  };
 
   const handleRecharge = async (amount: number) => {
     try {
       setLoading(true);
-      await billingApi.createRecharge(amount);
-      await loadData();
-      openInfo('Success', `${amount} 元充值成功（当前为模拟自动成功模式）`);
+      const res = await billingApi.createRecharge(amount);
+      
+      const payParams = res?.data?.pay_params;
+      const order = res?.data?.order;
+
+      if (payParams?.code_url) {
+        setPayOrder({
+          amount: order.amount / 100, // fen to yuan
+          out_trade_no: order.out_trade_no,
+          code_url: payParams.code_url
+        });
+        setShowPayQR(true);
+        startPolling(order.out_trade_no);
+      } else {
+        // Fallback for mock/auto-success
+        await loadData();
+        openInfo('Success', res.message || 'Recharge completed');
+      }
     } catch (err: any) {
       openInfo('Error', err?.message || 'Recharge failed');
     } finally {
@@ -54,6 +102,7 @@ export const BillingView: React.FC = () => {
 
   const balance = overview?.balance ?? 0;
   const planMeta = overview?.plan_meta || {};
+  const rechargeAmounts = [0.01, 9, 29, 99, 199];
 
   const getTxTypeLabel = (tx: any) => {
     const byType: Record<string, string> = {
@@ -123,20 +172,20 @@ export const BillingView: React.FC = () => {
             {t.billing_recharge_title || 'Quick Recharge'}
           </h2>
           <div className="flex flex-wrap gap-3">
-            {[9, 29, 99, 199].map((amt) => (
+            {rechargeAmounts.map((amt) => (
               <button
                 key={amt}
                 disabled={loading}
                 onClick={() => handleRecharge(amt)}
                 className="px-4 py-2 rounded-xl bg-zinc-900 border border-white/10 text-sm text-zinc-100 hover:border-orange-500 hover:text-orange-400 transition disabled:opacity-50"
               >
-                ¥{amt}
+                ¥{amt < 1 ? amt.toFixed(2) : amt}
               </button>
             ))}
           </div>
           <p className="text-xs text-zinc-500 mt-2">
             {t.billing_recharge_hint ||
-              'Current environment uses mock mode: balance will update immediately after clicking.'}
+              'Select an amount to recharge via WeChat Pay.'}
           </p>
         </section>
 
@@ -188,6 +237,36 @@ export const BillingView: React.FC = () => {
           </div>
         </section>
       </main>
+
+      {/* Payment QR Modal */}
+      {showPayQR && (
+        <AppDialog
+          isOpen={showPayQR}
+          title="Scan to Pay"
+          onClose={() => {
+            setShowPayQR(false);
+            if (pollingRef.current) clearInterval(pollingRef.current);
+          }}
+        >
+          <div className="flex flex-col items-center py-4 bg-white rounded-lg">
+             <QRCodeSVG value={payOrder?.code_url} size={200} />
+             <p className="mt-4 text-zinc-900 font-bold text-lg">¥{payOrder?.amount}</p>
+             <p className="text-zinc-500 text-xs mt-1">Please use WeChat to scan the QR code</p>
+             <p className="text-zinc-400 text-[10px] mt-2">Order ID: {payOrder?.out_trade_no}</p>
+          </div>
+          <div className="mt-4 flex justify-center">
+            <button 
+               onClick={() => {
+                 setShowPayQR(false);
+                 if (pollingRef.current) clearInterval(pollingRef.current);
+               }}
+               className="text-zinc-400 hover:text-white text-xs underline"
+            >
+              Cancel Payment
+            </button>
+          </div>
+        </AppDialog>
+      )}
 
       {isDialogOpen && (
         <AppDialog

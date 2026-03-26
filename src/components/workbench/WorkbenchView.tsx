@@ -3,7 +3,7 @@ import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
-  Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift,
+  Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift, ImagePlus,
   SlidersHorizontal,Palette, MapPin, Activity, Camera, Lightbulb, Music, Scissors, Megaphone, AlignLeft,
   Languages, HelpCircle, AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight
 } from 'lucide-react';
@@ -92,7 +92,7 @@ type QueuedAsset = {
   fileObj?: File | null;
   assetUrl?: string | null;
   assetId?: string | null;
-  source: 'product' | 'preference' | 'subject';
+  source: 'product' | 'preference' | 'subject' | 'tail';
   materialType?: AssetLibraryTab;
   isPrimaryFrame?: boolean;
   mediaKind?: 'image' | 'video' | 'audio' | 'file';
@@ -110,6 +110,7 @@ type QueuedScript = {
 };
 
 type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion';
+type AiOptimizeResolution = 'sd' | 'hd' | 'uhd';
 
 type GeneratePayload = {
   model: string;
@@ -119,9 +120,9 @@ type GeneratePayload = {
   project_id?: string;
   image_path?: string | null;
   motion_video_path?: string | null;
-  asset_source?: 'product' | 'preference' | 'subject' | null;
-  kling_mode?: 'first_frame' | 'subject';
-  omni_assets?: Array<{ role: 'first_frame' | 'reference' | 'subject'; image_url: string; asset_id?: string | null; name?: string }>;
+  asset_source?: 'product' | 'preference' | 'subject' | 'tail' | null;
+  kling_mode?: 'first_frame' | 'subject' | 'first_last_frame';
+  omni_assets?: Array<{ role: 'first_frame' | 'last_frame' | 'reference' | 'subject'; image_url: string; asset_id?: string | null; name?: string }>;
   subject_description_hint?: string;
   aspect_ratio?: '9:16' | '16:9' | '1:1';
   mode?: 'pro' | 'std';
@@ -150,8 +151,8 @@ type ProjectWorkspaceState = {
   uploadedFile: string | null;
   selectedAssetUrl: string | null;
   lastUploadedUrl: string | null;
-  selectedAssetSource: 'product' | 'preference' | 'subject' | null;
-  klingGenerateMode: 'first_frame' | 'subject';
+  selectedAssetSource: 'product' | 'preference' | 'subject' | 'tail' | null;
+  klingGenerateMode: 'first_frame' | 'subject' | 'first_last_frame';
   currentMaterialType: AssetLibraryTab | null;
   productName: string;
   productCategory: string;
@@ -562,8 +563,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [uploadedFile, setUploadedFile] = useState<string | null>(initialFileUrl || null);
   const [fileName, setFileName] = useState(initialFileName || '');
   const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null);
-  const [selectedAssetSource, setSelectedAssetSource] = useState<'product' | 'preference' | 'subject' | null>(initialAssetSource || null);
-  const [klingGenerateMode, setKlingGenerateMode] = useState<'first_frame' | 'subject'>('first_frame');
+  const [selectedAssetSource, setSelectedAssetSource] = useState<'product' | 'preference' | 'subject' | 'tail' | null>(initialAssetSource || null);
+  const [klingGenerateMode, setKlingGenerateMode] = useState<'first_frame' | 'subject' | 'first_last_frame'>('first_frame');
+  const [isGeneratingKlingBoundaryFrames, setIsGeneratingKlingBoundaryFrames] = useState(false);
   const [isDragUploadActive, setIsDragUploadActive] = useState(false);
   const [selectedAssetUrl, setSelectedAssetUrl] = useState<string | null>(initialFileUrl || null);
   const [lastUploadedUrl, setLastUploadedUrl] = useState<string | null>(initialFileUrl || null);
@@ -800,6 +802,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [currentMaterialType, setCurrentMaterialType] = useState<AssetLibraryTab | null>(null);
   const [generatedBatch, setGeneratedBatch] = useState<Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }>>([]);
   const [selectedQueueAssetId, setSelectedQueueAssetId] = useState<string | null>(null);
+  const [isAiOptimizeOpen, setIsAiOptimizeOpen] = useState(false);
+  const [aiOptimizeReferenceId, setAiOptimizeReferenceId] = useState<string | null>(null);
+  const [aiOptimizeCategory, setAiOptimizeCategory] = useState('');
+  const [aiOptimizeKeywords, setAiOptimizeKeywords] = useState<string[]>([]);
+  const [aiOptimizePrompt, setAiOptimizePrompt] = useState('');
+  const [aiOptimizeAspectRatio, setAiOptimizeAspectRatio] = useState<'9:16' | '16:9' | '1:1'>('9:16');
+  const [aiOptimizeResolution, setAiOptimizeResolution] = useState<AiOptimizeResolution>('hd');
+  const [aiOptimizeStyleStrength, setAiOptimizeStyleStrength] = useState(60);
+  const [aiOptimizeCount, setAiOptimizeCount] = useState(2);
+  const [isAiOptimizeGenerating, setIsAiOptimizeGenerating] = useState(false);
+  const [aiOptimizeResults, setAiOptimizeResults] = useState<Array<{ id: string; url: string }>>([]);
   const [projectStore, setProjectStore] = useState<LocalProjectStore>(() => loadLocalProjectStore(user?.id ?? null));
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [isTaskQueueOpen, setIsTaskQueueOpen] = useState(false);
@@ -974,7 +987,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setSelectedAssetUrl(toDisplayUrl(workspace.selectedAssetUrl) || workspace.selectedAssetUrl || null);
     setLastUploadedUrl(restoredLastUploaded);
     setSelectedAssetSource(workspace.selectedAssetSource || null);
-    setKlingGenerateMode(workspace.klingGenerateMode === 'subject' ? 'subject' : 'first_frame');
+    setKlingGenerateMode(
+      workspace.klingGenerateMode === 'subject'
+        ? 'subject'
+        : workspace.klingGenerateMode === 'first_last_frame'
+          ? 'first_last_frame'
+          : 'first_frame'
+    );
     setCurrentMaterialType(workspace.currentMaterialType || null);
     setSelectedFileObj(null);
     setProductName(workspace.productName || '');
@@ -1741,7 +1760,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const openKlingSubjectGuide = useCallback(() => {
     setIsKlingSubjectGuideOpen(true);
   }, []);
-  const handleKlingGenerateModeChange = useCallback((mode: 'first_frame' | 'subject') => {
+  const handleKlingGenerateModeChange = useCallback((mode: 'first_frame' | 'subject' | 'first_last_frame') => {
     setKlingGenerateMode(mode);
     if (mode === 'subject') {
       setIsKlingSubjectModeHintDismissed(false);
@@ -1818,9 +1837,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!queuedAsset || !assetUrl) return null;
 
     setAssetQueue(prev => {
+      const adjustedQueuedAsset: QueuedAsset = (
+        isKlingOmniMode
+        && klingGenerateMode === 'first_last_frame'
+        && queuedAsset.mediaKind === 'image'
+      )
+        ? { ...queuedAsset, source: suggestKlingImageSourceForMode(prev), isPrimaryFrame: false }
+        : queuedAsset;
       const next = isKlingOmniMode
-        ? [...prev, queuedAsset]
-        : prev.filter(item => item.materialType !== queuedAsset.materialType).concat(queuedAsset);
+        ? [...prev, adjustedQueuedAsset]
+        : prev.filter(item => item.materialType !== adjustedQueuedAsset.materialType).concat(adjustedQueuedAsset);
       return isKlingOmniMode ? normalizeQueueSourcesForKlingMode(next, klingGenerateMode) : next;
     });
 
@@ -1890,9 +1916,227 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     selectedFileObj,
     uploadedFile,
   ]);
+  const aiOptimizeImageCandidates = useMemo(
+    () => uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image'),
+    [uploadDisplayAssets]
+  );
+  const aiOptimizeKeywordChoices = useMemo(
+    () => ([
+      t.wb_ai_opt_keyword_white_bg || '白底商品图',
+      t.wb_ai_opt_keyword_lifestyle || '生活化场景',
+      t.wb_ai_opt_keyword_detail || '高清细节',
+      t.wb_ai_opt_keyword_lighting || '质感灯光',
+      t.wb_ai_opt_keyword_clean || '干净背景',
+      t.wb_ai_opt_keyword_conversion || '电商转化导向',
+    ]),
+    [
+      t.wb_ai_opt_keyword_clean,
+      t.wb_ai_opt_keyword_conversion,
+      t.wb_ai_opt_keyword_detail,
+      t.wb_ai_opt_keyword_lifestyle,
+      t.wb_ai_opt_keyword_lighting,
+      t.wb_ai_opt_keyword_white_bg,
+    ]
+  );
+  const buildAiOptimizePromptScript = useCallback((referenceAsset?: QueuedAsset | null) => {
+    const lines: string[] = [];
+    const refName = (referenceAsset?.name || '').trim();
+    if (refName) lines.push(`${t.wb_ai_opt_prompt_ref || '参考素材'}: ${refName}`);
+    const category = (aiOptimizeCategory || productCategory || '').trim();
+    if (category) lines.push(`${t.wb_field_product_category_label}: ${category}`);
+    const product = (productName || '').trim();
+    if (product) lines.push(`${t.wb_field_product_name_label}: ${product}`);
+    const selling = (coreSellingPoints || '').trim();
+    if (selling) lines.push(`${t.wb_field_core_selling_points_label}: ${selling.replace(/\n+/g, ' / ')}`);
+    if (aiOptimizeKeywords.length > 0) {
+      lines.push(`${t.wb_ai_opt_keywords_label || '关键词'}: ${aiOptimizeKeywords.join('、')}`);
+    }
+    lines.push(`${t.wb_ai_opt_prompt_goal || '目标'}: ${t.wb_ai_opt_prompt_goal_default || '保留主体形态与核心卖点，提升电商展示质感和清晰度。'}`);
+    lines.push(`${t.wb_ai_opt_prompt_constraints || '约束'}: ${t.wb_ai_opt_prompt_constraints_default || '仅输出商品图，不添加文字水印，不改变商品结构。'}`);
+    return lines.join('\n');
+  }, [
+    aiOptimizeCategory,
+    aiOptimizeKeywords,
+    coreSellingPoints,
+    productCategory,
+    productName,
+    t,
+  ]);
+  const openAiOptimizeDialog = useCallback(() => {
+    if (aiOptimizeImageCandidates.length === 0) {
+      openInfo(popupTitles.notice, t.wb_ai_opt_need_image || '请先上传至少 1 张图片素材。');
+      return;
+    }
+    const preferred = aiOptimizeImageCandidates.find((asset) => asset.id === selectedQueueAssetId)
+      || aiOptimizeImageCandidates.find((asset) => asset.previewUrl === uploadedFile)
+      || aiOptimizeImageCandidates[0];
+    const nextReferenceId = preferred?.id || null;
+
+    setAiOptimizeReferenceId(nextReferenceId);
+    setAiOptimizeCategory(productCategory || '');
+    setAiOptimizeKeywords([]);
+    setAiOptimizeAspectRatio(aspectRatio);
+    setAiOptimizeResolution('hd');
+    setAiOptimizeStyleStrength(60);
+    setAiOptimizeCount(2);
+    setAiOptimizeResults([]);
+    setAiOptimizePrompt(buildAiOptimizePromptScript(preferred || null));
+    setIsAiOptimizeOpen(true);
+  }, [
+    aiOptimizeImageCandidates,
+    aspectRatio,
+    buildAiOptimizePromptScript,
+    openInfo,
+    popupTitles.notice,
+    productCategory,
+    selectedQueueAssetId,
+    t.wb_ai_opt_need_image,
+    uploadedFile,
+  ]);
+  const resolveAiOptimizeReferencePath = useCallback(async (asset: QueuedAsset) => {
+    let referencePath = asset.uploadedPath || asset.assetUrl || null;
+    if (!referencePath && asset.fileObj) {
+      const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
+      referencePath =
+        (Array.isArray(uploadResp?.assets) && uploadResp.assets[0]
+          ? (uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path)
+          : null)
+        || uploadResp?.url
+        || uploadResp?.file_url
+        || uploadResp?.path
+        || uploadResp?.data?.url
+        || null;
+    }
+    if (!referencePath && asset.previewUrl) {
+      referencePath = asset.previewUrl;
+    }
+    return referencePath;
+  }, []);
+  const handleGenerateOptimizedImages = useCallback(async () => {
+    const selectedAsset = aiOptimizeImageCandidates.find((asset) => asset.id === aiOptimizeReferenceId);
+    if (!selectedAsset) {
+      openInfo(popupTitles.notice, t.wb_ai_opt_need_image || '请先上传至少 1 张图片素材。');
+      return;
+    }
+
+    const prompt = aiOptimizePrompt.trim();
+    if (!prompt) {
+      openInfo(popupTitles.notice, t.wb_ai_opt_need_prompt || '请先生成或填写提示词脚本。');
+      return;
+    }
+
+    setIsAiOptimizeGenerating(true);
+    try {
+      const referencePath = await resolveAiOptimizeReferencePath(selectedAsset);
+      const resp = await videoApi.generateOptimizedImage({
+        prompt,
+        aspect_ratio: aiOptimizeAspectRatio,
+        resolution: aiOptimizeResolution,
+        style_strength: Math.max(0, Math.min(100, Math.round(aiOptimizeStyleStrength))),
+        generate_count: Math.max(1, Math.min(4, Math.round(aiOptimizeCount))),
+        product_category: aiOptimizeCategory || undefined,
+        keyword_tags: aiOptimizeKeywords,
+        reference_image_url: referencePath || undefined,
+        reference_image_path: referencePath || undefined,
+        output_language: language,
+      });
+
+      const body = resp?.data || resp?.result || resp;
+      const rawImages = Array.isArray(body?.images)
+        ? body.images
+        : (Array.isArray(body?.results) ? body.results : []);
+      const nextImages = rawImages
+        .map((item: any, idx: number) => {
+          const raw = typeof item === 'string'
+            ? item
+            : (item?.url || item?.image_url || item?.file_url || item?.path || '');
+          const finalUrl = toDisplayUrl(raw);
+          if (!finalUrl) return null;
+          return {
+            id: String(item?.id || `ai-opt-${Date.now()}-${idx}`),
+            url: finalUrl,
+          };
+        })
+        .filter(Boolean) as Array<{ id: string; url: string }>;
+
+      if (nextImages.length === 0) {
+        openInfo(popupTitles.notice, t.wb_ai_opt_no_result || '后端未返回可用图片，请稍后重试。');
+        return;
+      }
+      setAiOptimizeResults(nextImages);
+    } catch (err: any) {
+      if (err instanceof VideoApiError && err.status === 404) {
+        openInfo(popupTitles.notice, t.wb_ai_opt_backend_not_ready || '后端暂未接入图生图接口。');
+      } else {
+        openInfo(popupTitles.error, err?.message || t.wb_ai_opt_generate_failed || '图片优化失败，请稍后重试。');
+      }
+    } finally {
+      setIsAiOptimizeGenerating(false);
+    }
+  }, [
+    aiOptimizeAspectRatio,
+    aiOptimizeCategory,
+    aiOptimizeCount,
+    aiOptimizeImageCandidates,
+    aiOptimizeKeywords,
+    aiOptimizePrompt,
+    aiOptimizeReferenceId,
+    aiOptimizeResolution,
+    aiOptimizeStyleStrength,
+    language,
+    openInfo,
+    popupTitles.error,
+    popupTitles.notice,
+    resolveAiOptimizeReferencePath,
+    t.wb_ai_opt_backend_not_ready,
+    t.wb_ai_opt_generate_failed,
+    t.wb_ai_opt_need_image,
+    t.wb_ai_opt_need_prompt,
+    t.wb_ai_opt_no_result,
+  ]);
+  const handleReplaceWithOptimizedImage = useCallback((imageUrl: string) => {
+    const finalUrl = toDisplayUrl(imageUrl);
+    if (!finalUrl) return;
+
+    const targetId = aiOptimizeReferenceId || selectedQueueAssetId;
+    if (targetId && assetQueue.length > 0) {
+      setAssetQueue((prev) => prev.map((item): QueuedAsset => (
+        item.id === targetId
+          ? {
+            ...item,
+            previewUrl: finalUrl,
+            assetUrl: finalUrl,
+            uploadedPath: finalUrl,
+            fileObj: null,
+            mediaKind: 'image',
+          }
+          : item
+      )));
+      setSelectedQueueAssetId(targetId);
+    }
+
+    setUploadedFile(finalUrl);
+    setSelectedFileObj(null);
+    setSelectedAssetUrl(finalUrl);
+    setLastUploadedUrl(finalUrl);
+    setSelectedAssetSource((prev) => prev || 'product');
+    setCurrentMaterialType((prev) => prev || 'product');
+    setGeneratedVideoUrl(null);
+    setIsAiOptimizeOpen(false);
+    openInfo(popupTitles.success, t.wb_ai_opt_replace_success || '已替换为优化结果。');
+  }, [
+    aiOptimizeReferenceId,
+    assetQueue.length,
+    openInfo,
+    popupTitles.success,
+    selectedQueueAssetId,
+    setGeneratedVideoUrl,
+    t.wb_ai_opt_replace_success,
+  ]);
   const klingRoleLabel = (source: QueuedAsset['source']) => {
     if (source === 'subject') return t.wb_label_subject_reference || 'Subject Reference';
     if (source === 'product') return t.wb_label_first_frame || 'First Frame';
+    if (source === 'tail') return 'Tail Frame';
     return t.wb_label_reference_image || 'Reference';
   };
   const canBeKlingSubject = useCallback((asset: QueuedAsset) => (
@@ -1902,16 +2146,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   ), [hasSubjectOtherViews]);
   const sortKlingQueueAssets = useCallback((assets: QueuedAsset[]) => {
     const priority = (asset: QueuedAsset) => {
-      if (asset.source === 'subject' || asset.source === 'product') return 0;
+      if (asset.source === 'subject' || asset.source === 'product' || asset.source === 'tail') return 0;
       return 1;
     };
     return [...assets].sort((a, b) => priority(a) - priority(b));
   }, []);
-  const normalizeQueueSourcesForKlingMode = useCallback((assets: QueuedAsset[], mode: 'first_frame' | 'subject'): QueuedAsset[] => {
+  const normalizeQueueSourcesForKlingMode = useCallback((assets: QueuedAsset[], mode: 'first_frame' | 'subject' | 'first_last_frame'): QueuedAsset[] => {
     let primaryAssigned = false;
     let subjectAssigned = false;
+    let tailAssigned = false;
 
-      const normalized = assets.map((item, index): QueuedAsset => {
+      const normalized = assets.map((item): QueuedAsset => {
       if (item.mediaKind !== 'image') {
         return { ...item, source: 'preference', isPrimaryFrame: false };
       }
@@ -1920,6 +2165,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (wantsPrimary && !primaryAssigned) {
           primaryAssigned = true;
           return { ...item, source: 'product', isPrimaryFrame: true };
+        }
+        return { ...item, source: 'preference', isPrimaryFrame: false };
+      }
+
+      if (mode === 'first_last_frame') {
+        const wantsPrimary = item.source === 'product';
+        if ((wantsPrimary || !primaryAssigned) && !primaryAssigned) {
+          primaryAssigned = true;
+          return { ...item, source: 'product', isPrimaryFrame: true };
+        }
+        const wantsTail = item.source === 'tail';
+        if ((wantsTail || !tailAssigned) && !tailAssigned) {
+          tailAssigned = true;
+          return { ...item, source: 'tail', isPrimaryFrame: false };
         }
         return { ...item, source: 'preference', isPrimaryFrame: false };
       }
@@ -1933,6 +2192,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     });
       return sortKlingQueueAssets(normalized);
   }, [canBeKlingSubject, sortKlingQueueAssets]);
+
+  const suggestKlingImageSourceForMode = useCallback((existing: QueuedAsset[]): QueuedAsset['source'] => {
+    if (klingGenerateMode === 'subject') return 'subject';
+    if (klingGenerateMode === 'first_last_frame') {
+      const hasPrimary = existing.some((item) => item.mediaKind === 'image' && item.source === 'product');
+      if (!hasPrimary) return 'product';
+      const hasTail = existing.some((item) => item.mediaKind === 'image' && item.source === 'tail');
+      if (!hasTail) return 'tail';
+      return 'preference';
+    }
+    return 'product';
+  }, [klingGenerateMode]);
 
   const reorderReferenceAssets = useCallback((assets: QueuedAsset[], movedId: string, beforeId?: string | null): QueuedAsset[] => {
     const moved = assets.find((item) => item.id === movedId);
@@ -2053,6 +2324,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setSelectedAssetSource((prev) => {
       if (klingGenerateMode === 'first_frame') {
         return prev === 'product' ? 'product' : 'preference';
+      }
+      if (klingGenerateMode === 'first_last_frame') {
+        return prev === 'product' || prev === 'tail' ? prev : 'preference';
       }
       return prev === 'subject' ? 'subject' : 'preference';
     });
@@ -2501,11 +2775,123 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     })();
   }, [handleAiRecognize, isAiRecognizing, openConfirm, productImageSignature, t]);
 
+  const handleGenerateKlingBoundaryFrames = async () => {
+    if (selectedModel !== 'kling') return;
+    if (isGeneratingKlingBoundaryFrames) return;
+
+    const imageAssets = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image');
+    if (imageAssets.length === 0) {
+      openInfo(popupTitles.notice, '请先上传至少 1 张参考图，再生成首尾帧');
+      return;
+    }
+
+    setIsGeneratingKlingBoundaryFrames(true);
+    try {
+      const projectId = await ensureSingleProjectId();
+      const resolvedImagePaths: string[] = [];
+      for (const asset of imageAssets) {
+        let path = asset.uploadedPath || asset.assetUrl || null;
+        if (!path && asset.fileObj) {
+          const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
+          path = extractUploadedAssetPath(uploadResp);
+        }
+        if (path) resolvedImagePaths.push(path);
+      }
+
+      if (resolvedImagePaths.length === 0) {
+        throw new Error('参考图上传失败，请重试');
+      }
+
+      const basePrompt = buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts).trim()
+        || coreSellingPoints.trim()
+        || productName.trim()
+        || '电商商品短视频';
+
+      const [firstResp, lastResp] = await Promise.all([
+        videoApi.generateFusionImage({
+          project_id: projectId,
+          image_paths: resolvedImagePaths,
+          prompt: `${basePrompt}，生成视频开场首帧，主体清晰，构图完整，画面稳定`,
+          aspect_ratio: aspectRatio,
+          resolution: '2K',
+        }),
+        videoApi.generateFusionImage({
+          project_id: projectId,
+          image_paths: resolvedImagePaths,
+          prompt: `${basePrompt}，生成视频结束尾帧，动作收束，主体清晰，构图完整`,
+          aspect_ratio: aspectRatio,
+          resolution: '2K',
+        }),
+      ]);
+
+      const firstPath = String(firstResp?.data?.image_url || firstResp?.image_url || '').trim();
+      const lastPath = String(lastResp?.data?.image_url || lastResp?.image_url || '').trim();
+      if (!firstPath || !lastPath) {
+        throw new Error('生图成功但未返回首尾帧地址');
+      }
+
+      const firstDisplay = toDisplayUrl(firstPath) || firstPath;
+      const lastDisplay = toDisplayUrl(lastPath) || lastPath;
+      const firstId = `kling-first-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const lastId = `kling-tail-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+      setKlingGenerateMode('first_last_frame');
+      setAssetQueue((prev) => {
+        const demoted = prev.map((item): QueuedAsset => (
+          item.mediaKind === 'image' ? { ...item, source: 'preference', isPrimaryFrame: false } : item
+        ));
+        const next: QueuedAsset[] = [
+          ...demoted,
+          {
+            id: firstId,
+            name: 'AI首帧图',
+            previewUrl: firstDisplay,
+            fileObj: null,
+            assetUrl: firstPath,
+            source: 'product',
+            materialType: 'product',
+            isPrimaryFrame: true,
+            mediaKind: 'image',
+            uploadedPath: firstPath,
+          },
+          {
+            id: lastId,
+            name: 'AI尾帧图',
+            previewUrl: lastDisplay,
+            fileObj: null,
+            assetUrl: lastPath,
+            source: 'tail',
+            materialType: 'product',
+            isPrimaryFrame: false,
+            mediaKind: 'image',
+            uploadedPath: lastPath,
+          },
+        ];
+        return normalizeQueueSourcesForKlingMode(next, 'first_last_frame');
+      });
+
+      setSelectedQueueAssetId(firstId);
+      setUploadedFile(firstDisplay);
+      setFileName('AI首帧图');
+      setSelectedFileObj(null);
+      setSelectedAssetUrl(firstPath);
+      setSelectedAssetSource('product');
+      setCurrentMaterialType('product');
+      setLastUploadedUrl(firstPath);
+      openInfo(popupTitles.success, '已生成并写入首尾帧，可直接用于可灵首尾帧模式');
+    } catch (err) {
+      openInfo(popupTitles.error, formatWorkbenchError(err, '首尾帧生成失败'));
+    } finally {
+      setIsGeneratingKlingBoundaryFrames(false);
+    }
+  };
+
   const buildSingleGeneratePayload = async (): Promise<GeneratePayload> => {
     if (selectedModel === 'kling') {
       const imageAssets = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image');
       const normalizedAssets = normalizeQueueSourcesForKlingMode(imageAssets, klingGenerateMode);
       const firstFrameCount = normalizedAssets.filter((asset) => asset.source === 'product').length;
+      const tailFrameCount = normalizedAssets.filter((asset) => asset.source === 'tail').length;
       const subjectCount = normalizedAssets.filter((asset) => asset.source === 'subject').length;
       const referenceCount = normalizedAssets.filter((asset) => asset.source === 'preference').length;
 
@@ -2514,6 +2900,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       if (klingGenerateMode === 'subject' && subjectCount !== 1) {
         throw new Error('可灵主体模式仅允许不多于 1 张主体图');
+      }
+      if (klingGenerateMode === 'first_last_frame' && firstFrameCount !== 1) {
+        throw new Error('可灵首尾帧模式需要且仅允许 1 张首帧图');
+      }
+      if (klingGenerateMode === 'first_last_frame' && tailFrameCount !== 1) {
+        throw new Error('可灵首尾帧模式需要且仅允许 1 张尾帧图');
       }
 
       if (klingGenerateMode === 'subject' && referenceCount < 1) {
@@ -2536,6 +2928,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           role:
               asset.source === 'subject'
                   ? 'subject'
+                  : asset.source === 'tail'
+                      ? 'last_frame'
                   : asset.source === 'product'
                       ? 'first_frame'
                       : 'reference',
@@ -2816,7 +3210,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const mediaKind = inferMediaKind({ name: latestFile.name, file: latestFile });
     const source: QueuedAsset['source'] = mediaKind === 'video'
         ? 'preference'
-        : (isKlingOmniMode ? (klingGenerateMode === 'subject' ? 'subject' : 'product') : 'product');
+        : (isKlingOmniMode ? suggestKlingImageSourceForMode(assetQueue) : 'product');
     const latestItem: QueuedAsset = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-0`,
       name: latestFile.name,
@@ -3348,9 +3742,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       () => uploadDisplayAssets.find((asset) => klingGenerateMode === 'subject' ? asset.source === 'subject' : asset.source === 'product') || null,
       [uploadDisplayAssets, klingGenerateMode]
   );
+  const klingTailSlotAsset = useMemo(
+      () => uploadDisplayAssets.find((asset) => asset.source === 'tail') || null,
+      [uploadDisplayAssets]
+  );
   const klingReferenceSlotAssets = useMemo(
-      () => uploadDisplayAssets.filter((asset) => asset.id !== klingPrimarySlotAsset?.id),
-      [uploadDisplayAssets, klingPrimarySlotAsset]
+      () => uploadDisplayAssets.filter((asset) => asset.id !== klingPrimarySlotAsset?.id && asset.id !== klingTailSlotAsset?.id),
+      [uploadDisplayAssets, klingPrimarySlotAsset, klingTailSlotAsset]
   );
   const klingPrimarySlotHint = klingPrimarySlotAsset ? (
       <span className="inline-flex items-center gap-1 text-[10px] font-medium normal-case tracking-normal text-green-400">
@@ -3359,7 +3757,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       </span>
   ) : (
       <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">
-        {klingGenerateMode === 'subject' ? '必传1个主体' : '必传1张'}
+        {klingGenerateMode === 'subject'
+          ? (t.wb_kling_primary_slot_subject_required || '必传1个主体')
+          : (t.wb_kling_primary_slot_first_frame_required || '必传1张')}
       </span>
   );
   const klingReferenceLimit = klingGenerateMode === 'subject' ? 3 : 6;
@@ -3368,11 +3768,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       <span className={`inline-flex items-center gap-1 text-[10px] font-medium normal-case tracking-normal ${isKlingReferenceOverflow ? 'text-red-400' : 'text-green-400'}`}>
         {klingReferenceSlotAssets.length}/{klingReferenceLimit}
         {!isKlingReferenceOverflow ? <CheckCircle className="h-3 w-3" /> : null}
-        {isKlingReferenceOverflow ? <span>{klingGenerateMode === 'subject' ? '最多3张' : '最多6张'}</span> : null}
+        {isKlingReferenceOverflow ? (
+          <span>
+            {klingGenerateMode === 'subject'
+              ? (t.wb_kling_reference_slot_subject_max || '最多3张')
+              : (t.wb_kling_reference_slot_first_frame_max || '最多6张')}
+          </span>
+        ) : null}
       </span>
   ) : (
       <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">
-        {klingGenerateMode === 'subject' ? '1~3张' : '可选 · ≤6张'}
+        {klingGenerateMode === 'subject'
+          ? (t.wb_kling_reference_slot_subject_range || '1~3张')
+          : (t.wb_kling_reference_slot_first_frame_optional || '可选 · ≤6张')}
       </span>
   );
   const renderUploadAssetCard = useCallback((asset: QueuedAsset, compact = false) => {
@@ -4042,6 +4450,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           klingGenerateMode
       );
       const firstFrameCount = imageAssets.filter((asset) => asset.source === 'product').length;
+      const tailFrameCount = imageAssets.filter((asset) => asset.source === 'tail').length;
       const subjectCount = imageAssets.filter((asset) => asset.source === 'subject').length;
       const referenceCount = imageAssets.filter((asset) => asset.source === 'preference').length;
 
@@ -4050,6 +4459,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       if (klingGenerateMode === 'subject' && subjectCount !== 1) {
         issues.push('Kling主体模式需要且仅允许1张主体图。');
+      }
+      if (klingGenerateMode === 'first_last_frame' && firstFrameCount !== 1) {
+        issues.push('Kling首尾帧模式需要且仅允许1张首帧图。');
+      }
+      if (klingGenerateMode === 'first_last_frame' && tailFrameCount !== 1) {
+        issues.push('Kling首尾帧模式需要且仅允许1张尾帧图。');
       }
       if (klingGenerateMode === 'subject' && referenceCount < 1) {
         issues.push('可灵主体模式需要再提供 1 到 3 张其他参考图。');
@@ -4397,7 +4812,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   onClick={() => setSelectedModel('kling')}
                   className={`${segmentBase} ${language === 'zh' ? 'text-[10px]' : ''} ${selectedModel === 'kling' ? activeSegment : inactiveSegment}`}
               >
-                {language === 'zh' ? '可灵3.0' : 'Kling3.0'}
+                {t.wb_model_kling_title || (language === 'zh' ? '可灵 o1' : 'Kling o1')}
                 {tooltip(t.wb_model_tip_sora_kling, 'left')}
               </button>
               <button
@@ -4460,7 +4875,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }> = [
       {
         id: 'kling',
-        title: language === 'zh' ? '可灵 3.0' : 'Kling 3.0',
+        title: t.wb_model_kling_title || (language === 'zh' ? '可灵 o1' : 'Kling o1'),
         desc: t.wb_model_kling_desc,
         rate: 20,
         Icon: Zap,
@@ -4772,7 +5187,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   }
                 }}
                 placeholder={t.wb_field_core_selling_points_placeholder}
-                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition resize-y min-h-[80px]"
+                className="w-full h-[96px] overflow-y-auto custom-scroll bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition resize-none"
               />
               {requiredErrors.coreSellingPoints && (
                 <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.coreSellingPoints}</div>
@@ -4992,7 +5407,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           <div ref={uploadSectionRef} className={`flex flex-col gap-3 ${getGuideFocusClass('upload')}`}>
             <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
             {isKlingOmniMode && (
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                       type="button"
                       onClick={() => handleKlingGenerateModeChange('first_frame')}
@@ -5027,6 +5442,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       </span>
                     </div>
                     <div className="mt-1 text-[10px] text-zinc-400">{t.wb_kling_subject_desc}</div>
+                  </button>
+                  <button
+                      type="button"
+                      onClick={() => handleKlingGenerateModeChange('first_last_frame')}
+                      className={`relative overflow-visible rounded-xl border px-3 py-2 text-left transition hover:z-20 ${klingGenerateMode === 'first_last_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                  >
+                    <div className="flex items-center gap-1 text-[11px] font-bold">
+                      <span>首尾帧模式</span>
+                      <span className="relative z-10 inline-flex items-center group/info hover:z-20">
+                        <Info className="h-3 w-3 text-zinc-400" />
+                        <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 ml-6 w-44 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
+                          <span className="block">素材要求：</span>
+                          <span className="block">1张首帧图 + 1张尾帧图 + 0-6张参考图</span>
+                        </span>
+                      </span>
+                    </div>
+                    <div className="mt-1 text-[10px] text-zinc-400">通过首尾关键帧约束视频开头与结尾</div>
                   </button>
                 </div>
             )}
@@ -5118,6 +5550,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20" />
                             )}
                           </div>
+                          {klingGenerateMode === 'first_last_frame' && (
+                            <div className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                              <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                                <span>尾帧图</span>
+                                <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">必传1张</span>
+                              </div>
+                              {klingTailSlotAsset ? renderUploadAssetCard(klingTailSlotAsset) : (
+                                  <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20" />
+                              )}
+                            </div>
+                          )}
                           <div
                               className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
                               onClick={() => fileInputRef.current?.click()}
@@ -5267,17 +5710,29 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                           }
                                         }}
                                         className={`rounded border px-1.5 py-0.5 text-[9px] font-bold transition ${
-                                            (
-                                                isKlingOmniMode
-                                                    ? (
-                                                        klingGenerateMode === 'subject'
-                                                            ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
-                                                            : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
-                                                    )
-                                                    : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
-                                            )
-                                                ? 'border-orange-500/70 bg-orange-500/20 text-orange-300'
-                                                : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'
+                                            selectedModel === 'sora2' || selectedModel === 'sora2pro'
+                                                ? ((
+                                                    isKlingOmniMode
+                                                        ? (
+                                                            klingGenerateMode === 'subject'
+                                                                ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
+                                                                : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                                        )
+                                                        : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                                )
+                                                    ? 'border-orange-500 bg-orange-500 text-white'
+                                                    : 'border-slate-600 bg-slate-600 text-white hover:bg-slate-500 hover:border-slate-500')
+                                                : ((
+                                                    isKlingOmniMode
+                                                        ? (
+                                                            klingGenerateMode === 'subject'
+                                                                ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
+                                                                : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                                        )
+                                                        : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                                )
+                                                    ? 'border-orange-500/70 bg-orange-500/20 text-orange-300'
+                                                    : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65')
                                         }`}
                                     >
                                       {(
@@ -5308,7 +5763,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               )}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className={`grid gap-2 ${isKlingOmniMode ? 'grid-cols-3' : 'grid-cols-2'}`}>
             <button
                 type="button"
                 onClick={(e) => {
@@ -5329,6 +5784,29 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             >
               {t.wb_btn_choose_from_library || '从素材库选择素材'}
             </button>
+            <button
+                type="button"
+                onClick={openAiOptimizeDialog}
+                className="col-span-2 rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-[10px] font-bold text-orange-200 hover:bg-orange-500/20"
+            >
+              <span className="inline-flex items-center justify-center gap-1.5">
+                <ImagePlus className="w-3.5 h-3.5" />
+                {t.wb_ai_opt_open_btn || 'AI智能优化'}
+              </span>
+            </button>
+            {isKlingOmniMode && (
+              <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleGenerateKlingBoundaryFrames();
+                  }}
+                  disabled={isGeneratingKlingBoundaryFrames}
+                  className={`rounded-lg border px-3 py-2 text-[10px] font-bold transition ${isGeneratingKlingBoundaryFrames ? 'border-orange-500/30 bg-orange-500/10 text-orange-300/70' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+              >
+                {isGeneratingKlingBoundaryFrames ? '生成中...' : '参考图生首尾帧'}
+              </button>
+            )}
           </div>
 
           {getDebugModeEnabled() && (
@@ -6191,6 +6669,210 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 {createProjectNameError && (
                     <div className="text-xs text-red-400">{createProjectNameError}</div>
                 )}
+              </div>
+            </AppDialog>
+        )}
+
+        {isAiOptimizeOpen && (
+            <AppDialog
+                isOpen={isAiOptimizeOpen}
+                title={t.wb_ai_opt_title || 'AI智能优化'}
+                onClose={() => setIsAiOptimizeOpen(false)}
+                widthClassName="max-w-[min(92vw,980px)]"
+                footer={
+                  <>
+                    <button
+                        className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                        onClick={() => setIsAiOptimizeOpen(false)}
+                    >
+                      {t.wb_confirm_cancel}
+                    </button>
+                    <button
+                        title={t.wb_ai_opt_coming_soon || '敬请期待。'}
+                        className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-orange-500 hover:bg-orange-600 cursor-help"
+                        // onClick={() => void handleGenerateOptimizedImages()}
+                    >
+                      {isAiOptimizeGenerating
+                        ? (t.wb_ai_opt_generating || '生成中...')
+                        : (t.wb_ai_opt_generate_btn || '生成优化图')}
+                    </button>
+                  </>
+                }
+            >
+              <div className="w-full max-h-[72vh] overflow-y-auto custom-scroll pr-1 flex flex-col gap-4">
+                <div className="space-y-2">
+                  <div className="text-sm font-bold text-zinc-200">{t.wb_ai_opt_reference_title || '选择参考图'}</div>
+                  <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+                    {aiOptimizeImageCandidates.map((asset) => {
+                      const active = asset.id === aiOptimizeReferenceId;
+                      return (
+                          <button
+                              key={asset.id}
+                              type="button"
+                              onClick={() => setAiOptimizeReferenceId(asset.id)}
+                              className={`text-left rounded-lg border p-1 transition ${active ? 'border-orange-500/70 bg-orange-500/10' : 'border-white/10 bg-black/20 hover:border-orange-500/40'}`}
+                          >
+                            <div className="w-full aspect-[3/4] rounded-md overflow-hidden bg-zinc-900">
+                              <img src={asset.previewUrl || ''} alt={asset.name} className="w-full h-full object-cover" />
+                            </div>
+                            <div className="mt-1 text-[10px] text-zinc-200 truncate">{asset.name}</div>
+                          </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-400">{t.wb_field_product_category_label}</label>
+                    <input
+                        value={aiOptimizeCategory}
+                        onChange={(e) => setAiOptimizeCategory(e.target.value)}
+                        placeholder={t.wb_select_placeholder}
+                        className="w-full rounded-lg border border-white/10 bg-black/30 text-zinc-100 px-3 py-2 text-sm outline-none focus:border-orange-500"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_keywords_label || '关键词'}</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {aiOptimizeKeywordChoices.map((keyword) => {
+                        const active = aiOptimizeKeywords.includes(keyword);
+                        return (
+                            <button
+                                key={keyword}
+                                type="button"
+                                onClick={() => {
+                                  setAiOptimizeKeywords((prev) => (
+                                    prev.includes(keyword)
+                                      ? prev.filter((item) => item !== keyword)
+                                      : [...prev, keyword]
+                                  ));
+                                }}
+                                className={`text-[11px] px-2 py-1 rounded-full border transition ${active ? 'border-orange-500/70 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                            >
+                              {keyword}
+                            </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_prompt_label || '提示词脚本'}</label>
+                    <button
+                        type="button"
+                        onClick={() => {
+                          const selected = aiOptimizeImageCandidates.find((item) => item.id === aiOptimizeReferenceId) || null;
+                          setAiOptimizePrompt(buildAiOptimizePromptScript(selected));
+                        }}
+                        className="text-[11px] px-2 py-1 rounded border border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20"
+                    >
+                      {t.wb_ai_opt_build_prompt_btn || '生成提示词脚本'}
+                    </button>
+                  </div>
+                  <textarea
+                      value={aiOptimizePrompt}
+                      onChange={(e) => setAiOptimizePrompt(e.target.value)}
+                      rows={6}
+                      placeholder={t.wb_ai_opt_prompt_placeholder || '请生成或手动编辑提示词脚本'}
+                      className="w-full rounded-lg border border-white/10 bg-black/30 text-zinc-100 px-3 py-2 text-sm outline-none focus:border-orange-500 resize-y"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-400">{t.aspect_ratio || '视频比例'}</label>
+                    <DropdownSelect
+                        value={aiOptimizeAspectRatio}
+                        options={[
+                          { value: '9:16', label: '9:16' },
+                          { value: '16:9', label: '16:9' },
+                          { value: '1:1', label: '1:1' },
+                        ]}
+                        onChange={(v) => {
+                          if (v === '9:16' || v === '16:9' || v === '1:1') setAiOptimizeAspectRatio(v);
+                        }}
+                        buttonClassName="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300"
+                        iconClassName="w-3 h-3 text-zinc-500"
+                        optionClassName="text-xs"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_resolution_label || '分辨率'}</label>
+                    <DropdownSelect
+                        value={aiOptimizeResolution}
+                        options={[
+                          { value: 'sd', label: t.wb_ai_opt_resolution_sd || '标清' },
+                          { value: 'hd', label: t.wb_ai_opt_resolution_hd || '高清' },
+                          { value: 'uhd', label: t.wb_ai_opt_resolution_uhd || '超清' },
+                        ]}
+                        onChange={(v) => {
+                          if (v === 'sd' || v === 'hd' || v === 'uhd') setAiOptimizeResolution(v);
+                        }}
+                        buttonClassName="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300"
+                        iconClassName="w-3 h-3 text-zinc-500"
+                        optionClassName="text-xs"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_style_strength || '风格强度'}: {aiOptimizeStyleStrength}</label>
+                    <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={aiOptimizeStyleStrength}
+                        onChange={(e) => setAiOptimizeStyleStrength(Number(e.target.value))}
+                        className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_generate_count || '生成数量'}</label>
+                    <DropdownSelect
+                        value={String(aiOptimizeCount)}
+                        options={[
+                          { value: '1', label: '1' },
+                          { value: '2', label: '2' },
+                          { value: '3', label: '3' },
+                          { value: '4', label: '4' },
+                        ]}
+                        onChange={(v) => {
+                          const next = Number(v);
+                          if (Number.isFinite(next)) setAiOptimizeCount(Math.max(1, Math.min(4, next)));
+                        }}
+                        buttonClassName="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300"
+                        iconClassName="w-3 h-3 text-zinc-500"
+                        optionClassName="text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-sm font-bold text-zinc-200">{t.wb_ai_opt_result_title || '生成结果'}</div>
+                  {aiOptimizeResults.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-white/10 bg-black/20 px-3 py-6 text-center text-xs text-zinc-500">
+                        {t.wb_ai_opt_result_empty || '生成后会在这里展示可一键替换的图片结果'}
+                      </div>
+                  ) : (
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        {aiOptimizeResults.map((item) => (
+                            <div key={item.id} className="rounded-lg border border-white/10 bg-black/20 p-1.5">
+                              <div className="w-full aspect-[3/4] rounded-md overflow-hidden bg-zinc-900">
+                                <img src={item.url} alt={item.id} className="w-full h-full object-cover" />
+                              </div>
+                              <button
+                                  type="button"
+                                  onClick={() => handleReplaceWithOptimizedImage(item.url)}
+                                  className="mt-2 w-full rounded-md border border-orange-500/60 bg-orange-500/15 px-2 py-1.5 text-[11px] font-bold text-orange-200 hover:bg-orange-500/25"
+                              >
+                                {t.wb_ai_opt_replace_btn || '一键替换'}
+                              </button>
+                            </div>
+                        ))}
+                      </div>
+                  )}
+                </div>
               </div>
             </AppDialog>
         )}

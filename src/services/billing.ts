@@ -97,4 +97,23 @@ export const billingApi = {
 
     return await response.json();
   },
+
+  getRechargeStatus: async (outTradeNo: string) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/recharge/${outTradeNo}/status/`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return await response.json();
+  },
 };

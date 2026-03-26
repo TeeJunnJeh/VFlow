@@ -97,6 +97,14 @@ export type GeneratePreviewData = {
   resolved_assets?: Record<string, unknown>;
 };
 
+export type GenerateFusionImagePayload = {
+  project_id: string;
+  image_paths: string[];
+  prompt: string;
+  aspect_ratio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
+  resolution?: '1K' | '2K' | '4K';
+};
+
 const asRecord = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== 'object') return null;
   return value as Record<string, unknown>;
@@ -191,6 +199,28 @@ export const videoApi = {
     if (!response.ok) {
       const msg = await readApiError(response);
       throw new Error(msg);
+    }
+
+    return await response.json();
+  },
+
+  generateFusionImage: async (payload: GenerateFusionImagePayload) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/generate_fusion_image`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const fallback = `生图失败: ${response.status} ${response.statusText || ''}`.trim();
+      throw await readApiErrorDetail(response, fallback);
     }
 
     return await response.json();

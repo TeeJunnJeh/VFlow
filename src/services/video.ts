@@ -423,6 +423,39 @@ export const videoApi = {
     return await response.json();
   },
 
+  generateOptimizedImage: async (payload: {
+    prompt: string;
+    aspect_ratio: '9:16' | '16:9' | '1:1';
+    resolution: 'sd' | 'hd' | 'uhd';
+    style_strength: number;
+    generate_count: number;
+    product_category?: string;
+    keyword_tags?: string[];
+    reference_image_url?: string;
+    reference_image_path?: string;
+    output_language?: string;
+  }) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/generate-image/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const fallback = `Image optimization failed: ${response.status} ${response.statusText || ''}`.trim();
+      throw await readApiErrorDetail(response, fallback);
+    }
+
+    return await response.json();
+  },
+
   // 3. Workbench Draft (cross-refresh/cross-device state)
   getDraft: async () => {
     const response = await fetch(`${API_BASE_URL}/draft/`, {

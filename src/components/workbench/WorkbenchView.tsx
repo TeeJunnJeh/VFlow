@@ -3,7 +3,7 @@ import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder,
   Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
-  Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift,
+  Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift, ImagePlus,
   SlidersHorizontal,Palette, MapPin, Activity, Camera, Lightbulb, Music, Scissors, Megaphone, AlignLeft,
   Languages, HelpCircle, AlertCircle
 } from 'lucide-react';
@@ -110,6 +110,7 @@ type QueuedScript = {
 };
 
 type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion';
+type AiOptimizeResolution = 'sd' | 'hd' | 'uhd';
 
 type GeneratePayload = {
   model: string;
@@ -800,6 +801,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [currentMaterialType, setCurrentMaterialType] = useState<AssetLibraryTab | null>(null);
   const [generatedBatch, setGeneratedBatch] = useState<Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }>>([]);
   const [selectedQueueAssetId, setSelectedQueueAssetId] = useState<string | null>(null);
+  const [isAiOptimizeOpen, setIsAiOptimizeOpen] = useState(false);
+  const [aiOptimizeReferenceId, setAiOptimizeReferenceId] = useState<string | null>(null);
+  const [aiOptimizeCategory, setAiOptimizeCategory] = useState('');
+  const [aiOptimizeKeywords, setAiOptimizeKeywords] = useState<string[]>([]);
+  const [aiOptimizePrompt, setAiOptimizePrompt] = useState('');
+  const [aiOptimizeAspectRatio, setAiOptimizeAspectRatio] = useState<'9:16' | '16:9' | '1:1'>('9:16');
+  const [aiOptimizeResolution, setAiOptimizeResolution] = useState<AiOptimizeResolution>('hd');
+  const [aiOptimizeStyleStrength, setAiOptimizeStyleStrength] = useState(60);
+  const [aiOptimizeCount, setAiOptimizeCount] = useState(2);
+  const [isAiOptimizeGenerating, setIsAiOptimizeGenerating] = useState(false);
+  const [aiOptimizeResults, setAiOptimizeResults] = useState<Array<{ id: string; url: string }>>([]);
   const [projectStore, setProjectStore] = useState<LocalProjectStore>(() => loadLocalProjectStore(user?.id ?? null));
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectSearch, setProjectSearch] = useState('');
@@ -1701,6 +1713,223 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     selectedAssetUrl,
     selectedFileObj,
     uploadedFile,
+  ]);
+  const aiOptimizeImageCandidates = useMemo(
+    () => uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image'),
+    [uploadDisplayAssets]
+  );
+  const aiOptimizeKeywordChoices = useMemo(
+    () => ([
+      t.wb_ai_opt_keyword_white_bg || '白底商品图',
+      t.wb_ai_opt_keyword_lifestyle || '生活化场景',
+      t.wb_ai_opt_keyword_detail || '高清细节',
+      t.wb_ai_opt_keyword_lighting || '质感灯光',
+      t.wb_ai_opt_keyword_clean || '干净背景',
+      t.wb_ai_opt_keyword_conversion || '电商转化导向',
+    ]),
+    [
+      t.wb_ai_opt_keyword_clean,
+      t.wb_ai_opt_keyword_conversion,
+      t.wb_ai_opt_keyword_detail,
+      t.wb_ai_opt_keyword_lifestyle,
+      t.wb_ai_opt_keyword_lighting,
+      t.wb_ai_opt_keyword_white_bg,
+    ]
+  );
+  const buildAiOptimizePromptScript = useCallback((referenceAsset?: QueuedAsset | null) => {
+    const lines: string[] = [];
+    const refName = (referenceAsset?.name || '').trim();
+    if (refName) lines.push(`${t.wb_ai_opt_prompt_ref || '参考素材'}: ${refName}`);
+    const category = (aiOptimizeCategory || productCategory || '').trim();
+    if (category) lines.push(`${t.wb_field_product_category_label}: ${category}`);
+    const product = (productName || '').trim();
+    if (product) lines.push(`${t.wb_field_product_name_label}: ${product}`);
+    const selling = (coreSellingPoints || '').trim();
+    if (selling) lines.push(`${t.wb_field_core_selling_points_label}: ${selling.replace(/\n+/g, ' / ')}`);
+    if (aiOptimizeKeywords.length > 0) {
+      lines.push(`${t.wb_ai_opt_keywords_label || '关键词'}: ${aiOptimizeKeywords.join('、')}`);
+    }
+    lines.push(`${t.wb_ai_opt_prompt_goal || '目标'}: ${t.wb_ai_opt_prompt_goal_default || '保留主体形态与核心卖点，提升电商展示质感和清晰度。'}`);
+    lines.push(`${t.wb_ai_opt_prompt_constraints || '约束'}: ${t.wb_ai_opt_prompt_constraints_default || '仅输出商品图，不添加文字水印，不改变商品结构。'}`);
+    return lines.join('\n');
+  }, [
+    aiOptimizeCategory,
+    aiOptimizeKeywords,
+    coreSellingPoints,
+    productCategory,
+    productName,
+    t,
+  ]);
+  const openAiOptimizeDialog = useCallback(() => {
+    if (aiOptimizeImageCandidates.length === 0) {
+      openInfo(popupTitles.notice, t.wb_ai_opt_need_image || '请先上传至少 1 张图片素材。');
+      return;
+    }
+    const preferred = aiOptimizeImageCandidates.find((asset) => asset.id === selectedQueueAssetId)
+      || aiOptimizeImageCandidates.find((asset) => asset.previewUrl === uploadedFile)
+      || aiOptimizeImageCandidates[0];
+    const nextReferenceId = preferred?.id || null;
+
+    setAiOptimizeReferenceId(nextReferenceId);
+    setAiOptimizeCategory(productCategory || '');
+    setAiOptimizeKeywords([]);
+    setAiOptimizeAspectRatio(aspectRatio);
+    setAiOptimizeResolution('hd');
+    setAiOptimizeStyleStrength(60);
+    setAiOptimizeCount(2);
+    setAiOptimizeResults([]);
+    setAiOptimizePrompt(buildAiOptimizePromptScript(preferred || null));
+    setIsAiOptimizeOpen(true);
+  }, [
+    aiOptimizeImageCandidates,
+    aspectRatio,
+    buildAiOptimizePromptScript,
+    openInfo,
+    popupTitles.notice,
+    productCategory,
+    selectedQueueAssetId,
+    t.wb_ai_opt_need_image,
+    uploadedFile,
+  ]);
+  const resolveAiOptimizeReferencePath = useCallback(async (asset: QueuedAsset) => {
+    let referencePath = asset.uploadedPath || asset.assetUrl || null;
+    if (!referencePath && asset.fileObj) {
+      const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
+      referencePath =
+        (Array.isArray(uploadResp?.assets) && uploadResp.assets[0]
+          ? (uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path)
+          : null)
+        || uploadResp?.url
+        || uploadResp?.file_url
+        || uploadResp?.path
+        || uploadResp?.data?.url
+        || null;
+    }
+    if (!referencePath && asset.previewUrl) {
+      referencePath = asset.previewUrl;
+    }
+    return referencePath;
+  }, []);
+  const handleGenerateOptimizedImages = useCallback(async () => {
+    const selectedAsset = aiOptimizeImageCandidates.find((asset) => asset.id === aiOptimizeReferenceId);
+    if (!selectedAsset) {
+      openInfo(popupTitles.notice, t.wb_ai_opt_need_image || '请先上传至少 1 张图片素材。');
+      return;
+    }
+
+    const prompt = aiOptimizePrompt.trim();
+    if (!prompt) {
+      openInfo(popupTitles.notice, t.wb_ai_opt_need_prompt || '请先生成或填写提示词脚本。');
+      return;
+    }
+
+    setIsAiOptimizeGenerating(true);
+    try {
+      const referencePath = await resolveAiOptimizeReferencePath(selectedAsset);
+      const resp = await videoApi.generateOptimizedImage({
+        prompt,
+        aspect_ratio: aiOptimizeAspectRatio,
+        resolution: aiOptimizeResolution,
+        style_strength: Math.max(0, Math.min(100, Math.round(aiOptimizeStyleStrength))),
+        generate_count: Math.max(1, Math.min(4, Math.round(aiOptimizeCount))),
+        product_category: aiOptimizeCategory || undefined,
+        keyword_tags: aiOptimizeKeywords,
+        reference_image_url: referencePath || undefined,
+        reference_image_path: referencePath || undefined,
+        output_language: language,
+      });
+
+      const body = resp?.data || resp?.result || resp;
+      const rawImages = Array.isArray(body?.images)
+        ? body.images
+        : (Array.isArray(body?.results) ? body.results : []);
+      const nextImages = rawImages
+        .map((item: any, idx: number) => {
+          const raw = typeof item === 'string'
+            ? item
+            : (item?.url || item?.image_url || item?.file_url || item?.path || '');
+          const finalUrl = toDisplayUrl(raw);
+          if (!finalUrl) return null;
+          return {
+            id: String(item?.id || `ai-opt-${Date.now()}-${idx}`),
+            url: finalUrl,
+          };
+        })
+        .filter(Boolean) as Array<{ id: string; url: string }>;
+
+      if (nextImages.length === 0) {
+        openInfo(popupTitles.notice, t.wb_ai_opt_no_result || '后端未返回可用图片，请稍后重试。');
+        return;
+      }
+      setAiOptimizeResults(nextImages);
+    } catch (err: any) {
+      if (err instanceof VideoApiError && err.status === 404) {
+        openInfo(popupTitles.notice, t.wb_ai_opt_backend_not_ready || '后端暂未接入图生图接口。');
+      } else {
+        openInfo(popupTitles.error, err?.message || t.wb_ai_opt_generate_failed || '图片优化失败，请稍后重试。');
+      }
+    } finally {
+      setIsAiOptimizeGenerating(false);
+    }
+  }, [
+    aiOptimizeAspectRatio,
+    aiOptimizeCategory,
+    aiOptimizeCount,
+    aiOptimizeImageCandidates,
+    aiOptimizeKeywords,
+    aiOptimizePrompt,
+    aiOptimizeReferenceId,
+    aiOptimizeResolution,
+    aiOptimizeStyleStrength,
+    language,
+    openInfo,
+    popupTitles.error,
+    popupTitles.notice,
+    resolveAiOptimizeReferencePath,
+    t.wb_ai_opt_backend_not_ready,
+    t.wb_ai_opt_generate_failed,
+    t.wb_ai_opt_need_image,
+    t.wb_ai_opt_need_prompt,
+    t.wb_ai_opt_no_result,
+  ]);
+  const handleReplaceWithOptimizedImage = useCallback((imageUrl: string) => {
+    const finalUrl = toDisplayUrl(imageUrl);
+    if (!finalUrl) return;
+
+    const targetId = aiOptimizeReferenceId || selectedQueueAssetId;
+    if (targetId && assetQueue.length > 0) {
+      setAssetQueue((prev) => prev.map((item): QueuedAsset => (
+        item.id === targetId
+          ? {
+            ...item,
+            previewUrl: finalUrl,
+            assetUrl: finalUrl,
+            uploadedPath: finalUrl,
+            fileObj: null,
+            mediaKind: 'image',
+          }
+          : item
+      )));
+      setSelectedQueueAssetId(targetId);
+    }
+
+    setUploadedFile(finalUrl);
+    setSelectedFileObj(null);
+    setSelectedAssetUrl(finalUrl);
+    setLastUploadedUrl(finalUrl);
+    setSelectedAssetSource((prev) => prev || 'product');
+    setCurrentMaterialType((prev) => prev || 'product');
+    setGeneratedVideoUrl(null);
+    setIsAiOptimizeOpen(false);
+    openInfo(popupTitles.success, t.wb_ai_opt_replace_success || '已替换为优化结果。');
+  }, [
+    aiOptimizeReferenceId,
+    assetQueue.length,
+    openInfo,
+    popupTitles.success,
+    selectedQueueAssetId,
+    setGeneratedVideoUrl,
+    t.wb_ai_opt_replace_success,
   ]);
   const klingRoleLabel = (source: QueuedAsset['source']) => {
     if (source === 'subject') return t.wb_label_subject_reference || 'Subject Reference';
@@ -5157,6 +5386,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             >
               {t.wb_btn_choose_from_library || '从素材库选择素材'}
             </button>
+            <button
+                type="button"
+                onClick={openAiOptimizeDialog}
+                className="col-span-2 rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-[10px] font-bold text-orange-200 hover:bg-orange-500/20"
+            >
+              <span className="inline-flex items-center justify-center gap-1.5">
+                <ImagePlus className="w-3.5 h-3.5" />
+                {t.wb_ai_opt_open_btn || 'AI智能优化'}
+              </span>
+            </button>
           </div>
 
           {getDebugModeEnabled() && (
@@ -5863,6 +6102,210 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 {createProjectNameError && (
                     <div className="text-xs text-red-400">{createProjectNameError}</div>
                 )}
+              </div>
+            </AppDialog>
+        )}
+
+        {isAiOptimizeOpen && (
+            <AppDialog
+                isOpen={isAiOptimizeOpen}
+                title={t.wb_ai_opt_title || 'AI智能优化'}
+                onClose={() => setIsAiOptimizeOpen(false)}
+                widthClassName="max-w-[min(92vw,980px)]"
+                footer={
+                  <>
+                    <button
+                        className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                        onClick={() => setIsAiOptimizeOpen(false)}
+                    >
+                      {t.wb_confirm_cancel}
+                    </button>
+                    <button
+                        className={`px-4 py-2 rounded-lg text-sm font-bold text-white ${isAiOptimizeGenerating ? 'bg-orange-500/60 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600'}`}
+                        onClick={() => void handleGenerateOptimizedImages()}
+                        disabled={isAiOptimizeGenerating}
+                    >
+                      {isAiOptimizeGenerating
+                        ? (t.wb_ai_opt_generating || '生成中...')
+                        : (t.wb_ai_opt_generate_btn || '生成优化图')}
+                    </button>
+                  </>
+                }
+            >
+              <div className="w-full max-h-[72vh] overflow-y-auto custom-scroll pr-1 flex flex-col gap-4">
+                <div className="space-y-2">
+                  <div className="text-sm font-bold text-zinc-200">{t.wb_ai_opt_reference_title || '选择参考图'}</div>
+                  <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+                    {aiOptimizeImageCandidates.map((asset) => {
+                      const active = asset.id === aiOptimizeReferenceId;
+                      return (
+                          <button
+                              key={asset.id}
+                              type="button"
+                              onClick={() => setAiOptimizeReferenceId(asset.id)}
+                              className={`text-left rounded-lg border p-1 transition ${active ? 'border-orange-500/70 bg-orange-500/10' : 'border-white/10 bg-black/20 hover:border-orange-500/40'}`}
+                          >
+                            <div className="w-full aspect-[3/4] rounded-md overflow-hidden bg-zinc-900">
+                              <img src={asset.previewUrl || ''} alt={asset.name} className="w-full h-full object-cover" />
+                            </div>
+                            <div className="mt-1 text-[10px] text-zinc-200 truncate">{asset.name}</div>
+                          </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-400">{t.wb_field_product_category_label}</label>
+                    <input
+                        value={aiOptimizeCategory}
+                        onChange={(e) => setAiOptimizeCategory(e.target.value)}
+                        placeholder={t.wb_select_placeholder}
+                        className="w-full rounded-lg border border-white/10 bg-black/30 text-zinc-100 px-3 py-2 text-sm outline-none focus:border-orange-500"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_keywords_label || '关键词'}</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {aiOptimizeKeywordChoices.map((keyword) => {
+                        const active = aiOptimizeKeywords.includes(keyword);
+                        return (
+                            <button
+                                key={keyword}
+                                type="button"
+                                onClick={() => {
+                                  setAiOptimizeKeywords((prev) => (
+                                    prev.includes(keyword)
+                                      ? prev.filter((item) => item !== keyword)
+                                      : [...prev, keyword]
+                                  ));
+                                }}
+                                className={`text-[11px] px-2 py-1 rounded-full border transition ${active ? 'border-orange-500/70 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                            >
+                              {keyword}
+                            </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_prompt_label || '提示词脚本'}</label>
+                    <button
+                        type="button"
+                        onClick={() => {
+                          const selected = aiOptimizeImageCandidates.find((item) => item.id === aiOptimizeReferenceId) || null;
+                          setAiOptimizePrompt(buildAiOptimizePromptScript(selected));
+                        }}
+                        className="text-[11px] px-2 py-1 rounded border border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20"
+                    >
+                      {t.wb_ai_opt_build_prompt_btn || '生成提示词脚本'}
+                    </button>
+                  </div>
+                  <textarea
+                      value={aiOptimizePrompt}
+                      onChange={(e) => setAiOptimizePrompt(e.target.value)}
+                      rows={6}
+                      placeholder={t.wb_ai_opt_prompt_placeholder || '请生成或手动编辑提示词脚本'}
+                      className="w-full rounded-lg border border-white/10 bg-black/30 text-zinc-100 px-3 py-2 text-sm outline-none focus:border-orange-500 resize-y"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-400">{t.aspect_ratio || '视频比例'}</label>
+                    <DropdownSelect
+                        value={aiOptimizeAspectRatio}
+                        options={[
+                          { value: '9:16', label: '9:16' },
+                          { value: '16:9', label: '16:9' },
+                          { value: '1:1', label: '1:1' },
+                        ]}
+                        onChange={(v) => {
+                          if (v === '9:16' || v === '16:9' || v === '1:1') setAiOptimizeAspectRatio(v);
+                        }}
+                        buttonClassName="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300"
+                        iconClassName="w-3 h-3 text-zinc-500"
+                        optionClassName="text-xs"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_resolution_label || '分辨率'}</label>
+                    <DropdownSelect
+                        value={aiOptimizeResolution}
+                        options={[
+                          { value: 'sd', label: t.wb_ai_opt_resolution_sd || '标清' },
+                          { value: 'hd', label: t.wb_ai_opt_resolution_hd || '高清' },
+                          { value: 'uhd', label: t.wb_ai_opt_resolution_uhd || '超清' },
+                        ]}
+                        onChange={(v) => {
+                          if (v === 'sd' || v === 'hd' || v === 'uhd') setAiOptimizeResolution(v);
+                        }}
+                        buttonClassName="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300"
+                        iconClassName="w-3 h-3 text-zinc-500"
+                        optionClassName="text-xs"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_style_strength || '风格强度'}: {aiOptimizeStyleStrength}</label>
+                    <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={aiOptimizeStyleStrength}
+                        onChange={(e) => setAiOptimizeStyleStrength(Number(e.target.value))}
+                        className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_generate_count || '生成数量'}</label>
+                    <DropdownSelect
+                        value={String(aiOptimizeCount)}
+                        options={[
+                          { value: '1', label: '1' },
+                          { value: '2', label: '2' },
+                          { value: '3', label: '3' },
+                          { value: '4', label: '4' },
+                        ]}
+                        onChange={(v) => {
+                          const next = Number(v);
+                          if (Number.isFinite(next)) setAiOptimizeCount(Math.max(1, Math.min(4, next)));
+                        }}
+                        buttonClassName="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300"
+                        iconClassName="w-3 h-3 text-zinc-500"
+                        optionClassName="text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-sm font-bold text-zinc-200">{t.wb_ai_opt_result_title || '生成结果'}</div>
+                  {aiOptimizeResults.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-white/10 bg-black/20 px-3 py-6 text-center text-xs text-zinc-500">
+                        {t.wb_ai_opt_result_empty || '生成后会在这里展示可一键替换的图片结果'}
+                      </div>
+                  ) : (
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        {aiOptimizeResults.map((item) => (
+                            <div key={item.id} className="rounded-lg border border-white/10 bg-black/20 p-1.5">
+                              <div className="w-full aspect-[3/4] rounded-md overflow-hidden bg-zinc-900">
+                                <img src={item.url} alt={item.id} className="w-full h-full object-cover" />
+                              </div>
+                              <button
+                                  type="button"
+                                  onClick={() => handleReplaceWithOptimizedImage(item.url)}
+                                  className="mt-2 w-full rounded-md border border-orange-500/60 bg-orange-500/15 px-2 py-1.5 text-[11px] font-bold text-orange-200 hover:bg-orange-500/25"
+                              >
+                                {t.wb_ai_opt_replace_btn || '一键替换'}
+                              </button>
+                            </div>
+                        ))}
+                      </div>
+                  )}
+                </div>
               </div>
             </AppDialog>
         )}

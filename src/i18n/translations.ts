@@ -200,7 +200,7 @@ export const translations = {
 
     // --- WORKBENCH VIEW --- 
     wb_header_draft: "Draft", 
-    wb_header_save: "Last saved: Just now", 
+    wb_header_save: "Last saved", 
 
     wb_guide_button_title: "View getting started guide",
     wb_guide_button_label: "Guide",
@@ -1071,7 +1071,7 @@ export const translations = {
     agent_input_tip_attachment: "支持上传图片/视频/文档附件",
 
     wb_header_draft: "草稿",
-    wb_header_save: "上次保存: 刚刚",
+    wb_header_save: "上次保存",
 
     wb_guide_button_title: "查看新手引导",
     wb_guide_button_label: "新手引导",
@@ -1917,7 +1917,7 @@ export const translations = {
     agent_err_failed: "Obrolan gagal",
 
     wb_header_draft: "Draf",
-    wb_header_save: "Terakhir disimpan: Baru tadi",
+    wb_header_save: "Terakhir disimpan",
 
     wb_guide_button_title: "Lihat panduan permulaan",
     wb_guide_button_label: "Panduan",
@@ -2626,7 +2626,7 @@ export const translations = {
     agent_err_failed: "Trò chuyện thất bại",
 
     wb_header_draft: "Bản nháp",
-    wb_header_save: "Đã lưu: Vừa xong",
+    wb_header_save: "Đã lưu",
 
     wb_guide_button_title: "Xem hướng dẫn bắt đầu",
     wb_guide_button_label: "Hướng dẫn",
@@ -3345,7 +3345,7 @@ export const translations = {
     agent_err_failed: "채팅 실패",
 
     wb_header_draft: "초안",
-    wb_header_save: "마지막 저장: 방금 전",
+    wb_header_save: "마지막 저장",
 
     wb_guide_button_title: "시작 가이드 보기",
     wb_guide_button_label: "가이드",

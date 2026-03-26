@@ -5838,7 +5838,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             )}
           </div>
           <div className="flex items-center gap-4">
-            <div className="text-xs text-zinc-500">{t.wb_header_save}</div>
+            <div className="text-xs text-zinc-500">{`${t.wb_header_save}: ${currentProject ? formatProjectLastEdited(currentProject.updatedAt) : projectUiText.justNow}`}</div>
             <LanguageSwitcher />
           </div>
         </header>

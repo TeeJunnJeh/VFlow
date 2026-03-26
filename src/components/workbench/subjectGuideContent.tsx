@@ -37,6 +37,27 @@ const guideImagePresets = {
     step4: { width: 2346, height: 979 },
     step5: { width: 2352, height: 977 },
   },
+  ko: {
+    step1: { width: 2361, height: 1088 },
+    step2: { width: 2364, height: 1242 },
+    step3: { width: 1407, height: 1162 },
+    step4: { width: 2346, height: 979 },
+    step5: { width: 2352, height: 977 },
+  },
+  ms: {
+    step1: { width: 2361, height: 1088 },
+    step2: { width: 2364, height: 1242 },
+    step3: { width: 1407, height: 1162 },
+    step4: { width: 2346, height: 979 },
+    step5: { width: 2352, height: 977 },
+  },
+  vi: {
+    step1: { width: 2361, height: 1088 },
+    step2: { width: 2364, height: 1242 },
+    step3: { width: 1407, height: 1162 },
+    step4: { width: 2346, height: 979 },
+    step5: { width: 2352, height: 977 },
+  },
 } as const;
 
 const guideOverlayPresets = {
@@ -61,6 +82,39 @@ const guideOverlayPresets = {
     step3: { x: 1248, y: 742, width: 122, height: 74 },
     step4: { x: 1056, y: 439, width: 100, height: 100 },
     step5: { x: 2070, y: 350, width: 140, height: 100 },
+  },
+  ko: {
+    step1: [{ x: 1125, y: 840 }],
+    step2: [
+      { x: 1908, y: 404, label: '1' },
+      { x: 1908, y: 744, label: '2' },
+      { x: 1468, y: 1082, label: '3' },
+    ],
+    step3: { x: 1248, y: 742, width: 122, height: 74 },
+    step4: { x: 1056, y: 439, width: 100, height: 100 },
+    step5: { x: 2120, y: 320, width: 140, height: 100 },
+  },
+  ms: {
+    step1: [{ x: 1125, y: 840 }],
+    step2: [
+      { x: 1928, y: 394, label: '1' },
+      { x: 1928, y: 734, label: '2' },
+      { x: 1488, y: 1082, label: '3' },
+    ],
+    step3: { x: 1248, y: 742, width: 122, height: 74 },
+    step4: { x: 1056, y: 389, width: 100, height: 100 },
+    step5: { x: 2090, y: 320, width: 140, height: 100 },
+  },
+  vi: {
+    step1: [{ x: 1125, y: 840 }],
+    step2: [
+      { x: 1948, y: 384, label: '1' },
+      { x: 1948, y: 744, label: '2' },
+      { x: 1488, y: 1082, label: '3' },
+    ],
+    step3: { x: 1208, y: 719, width: 122, height: 74 },
+    step4: { x: 1056, y: 412, width: 100, height: 100 },
+    step5: { x: 2100, y: 320, width: 140, height: 100 },
   },
 } as const satisfies Record<string, {
   step1: MarkerConfig[];
@@ -125,7 +179,13 @@ const HighlightRect = ({ x, y, width, height }: RectConfig) => (
   />
 );
 
-const getGuideImageLanguage = (language: string) => (language === 'zh' ? 'zh' : 'en');
+const getGuideImageLanguage = (language: string) => {
+  if (language === 'zh') return 'zh';
+  if (language === 'ko') return 'ko';
+  if (language === 'ms') return 'ms';
+  if (language === 'vi') return 'vi';
+  return 'en';
+};
 
 const getGuideImage = (imageLanguage: string, index: 1 | 2 | 3 | 4 | 5) => (
   guideImages[`../../assets/guides/${imageLanguage}/${index}.png`]

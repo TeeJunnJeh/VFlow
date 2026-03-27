@@ -6,7 +6,7 @@ export type WorkbenchPreferences = {
   genDuration: number;
   soundSetting: 'on' | 'off';
   creationMode: 'fast' | 'replay';
-  selectedModelId: 'kling' | 'sora2' | 'sora2pro' | 'seedance2.0';
+  selectedModelId: 'kling' | /* 'sora2' | 'sora2pro' | */ 'seedance2.0';
   scriptVariantCount: number;
   theme: 'dark' | 'light' | 'dim';
 };
@@ -46,8 +46,8 @@ const parsePreferences = (raw: string | null): Partial<WorkbenchPreferences> => 
     if (parsed.creationMode === 'fast' || parsed.creationMode === 'replay') next.creationMode = parsed.creationMode;
     if (
       parsed.selectedModelId === 'kling' ||
-      parsed.selectedModelId === 'sora2' ||
-      parsed.selectedModelId === 'sora2pro' ||
+      // parsed.selectedModelId === 'sora2' ||
+      // parsed.selectedModelId === 'sora2pro' ||
       parsed.selectedModelId === 'seedance2.0'
     ) {
       next.selectedModelId = parsed.selectedModelId;

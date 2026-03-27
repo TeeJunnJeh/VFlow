@@ -57,7 +57,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
     const selectedModelId =
       creationMode === 'replay'
         ? 'seedance2.0'
-        : stored.selectedModelId === 'sora2' || stored.selectedModelId === 'sora2pro' || stored.selectedModelId === 'kling'
+        : // stored.selectedModelId === 'sora2' || stored.selectedModelId === 'sora2pro' ||
+          stored.selectedModelId === 'kling'
           ? stored.selectedModelId
           : 'kling';
 
@@ -719,8 +720,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                        ? [{ value: 'seedance2.0', label: t.wb_model_seedance_desc ? 'SeeDance 2.0' : 'SeeDance 2.0' }]
                        : [
                            { value: 'kling', label: 'Kling' },
-                           { value: 'sora2', label: 'Sora 2' },
-                           { value: 'sora2pro', label: 'Sora 2 Pro' },
+                           // { value: 'sora2', label: 'Sora 2' },
+                           // { value: 'sora2pro', label: 'Sora 2 Pro' },
                          ]
                    }
                    onChange={(v) => setPrefsDraft((prev) => ({ ...prev, selectedModelId: v as any }))}

@@ -88,6 +88,7 @@ type ScriptPage = {
   sceneSuggestions?: string[];
   styleTags?: string[];
   creativeCard?: ScriptCreativeCard;
+  creativeCardText?: string;
 };
 
 type QueuedAsset = {
@@ -112,6 +113,7 @@ type QueuedScript = {
   duration: number;
   fullScript?: string;
   creativeCard?: ScriptCreativeCard;
+  creativeCardText?: string;
 };
 
 type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion';
@@ -2772,6 +2774,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const activeReferenceSummary = activeScriptPlan?.referenceSummary || [];
   const activeFullScript = activeScriptPlan?.fullScript || '';
   const activeCreativeCard = activeScriptPlan?.creativeCard;
+  const activeCreativeCardText = activeScriptPlan?.creativeCardText || '';
   const activeGuideStep = isGuideOpen ? guideSteps[guideStepIndex] : null;
   const isGuideFocused = (key: GuideStepKey) => activeGuideStep?.key === key;
   const getGuideFocusClass = (key: GuideStepKey) => (
@@ -2881,6 +2884,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return sections.join('\n');
   };
 
+  const buildCreativeCardEditorText = (card?: ScriptCreativeCard) => {
+    const text = buildCreativeCardPrompt(card).trim();
+    return text;
+  };
+
   const hasCreativeCardContent = (card?: ScriptCreativeCard) => {
     if (!card) return false;
     if ((card.style || '').trim()) return true;
@@ -2895,10 +2903,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return false;
   };
 
-  const hasActiveScriptConcept = Boolean((activeFullScript || '').trim()) || hasCreativeCardContent(activeCreativeCard);
+  const hasActiveScriptConcept =
+      Boolean((activeFullScript || '').trim())
+      || Boolean((activeCreativeCardText || '').trim())
+      || hasCreativeCardContent(activeCreativeCard);
 
-  const buildCombinedScriptPrompt = (fullScript: string, card?: ScriptCreativeCard, inputScripts: ScriptItem[] = []) => {
-    const creativeCardPrompt = buildCreativeCardPrompt(card);
+  const buildCombinedScriptPrompt = (
+      fullScript: string,
+      card?: ScriptCreativeCard,
+      inputScripts: ScriptItem[] = [],
+      cardText?: string
+  ) => {
+    const creativeCardPrompt = (cardText || '').trim() || buildCreativeCardPrompt(card);
     const masterScriptPrompt = (fullScript || '').trim() ? `[完整脚本]: ${(fullScript || '').trim()}` : '';
     const shotPrompt = inputScripts.map((script) => {
       const audioMarker = (soundSetting === 'on' && script.audio) ? `【音频|【[旁白]】${script.audio}】` : '';
@@ -3239,7 +3255,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         throw new Error('参考图上传失败，请重试');
       }
 
-      const basePrompt = buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts).trim()
+      const basePrompt = buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts, activeCreativeCardText).trim()
         || coreSellingPoints.trim()
         || productName.trim()
         || '电商商品短视频';
@@ -3382,7 +3398,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       return {
         model: backendModel,
-        prompt: buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts),
+        prompt: buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts, activeCreativeCardText),
         product_name: productName,
         duration: genDuration,
         sound: 'off',
@@ -3403,7 +3419,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const apiPath = await resolveCurrentSingleAssetPath();
     const payload: GeneratePayload = {
       model: backendModel,
-      prompt: buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts),
+      prompt: buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts, activeCreativeCardText),
       product_name: productName,
       duration: genDuration,
       sound: soundSetting,
@@ -3942,23 +3958,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }));
   };
 
-  const updateActiveCreativeCardField = (field: keyof ScriptCreativeCard, value: string) => {
+  const updateActiveCreativeCardText = (value: string) => {
     updateActiveScriptPageMeta((page) => ({
       ...page,
-      creativeCard: {
-        ...(page.creativeCard || {}),
-        [field]: value,
-      },
-    }));
-  };
-
-  const updateActiveCreativeCardActionsText = (value: string) => {
-    updateActiveScriptPageMeta((page) => ({
-      ...page,
-      creativeCard: {
-        ...(page.creativeCard || {}),
-        actions: value.trim() ? [value] : [],
-      },
+      creativeCardText: value,
     }));
   };
 
@@ -4394,6 +4397,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         duration: genDuration,
         fullScript: activeFullScript,
         creativeCard: activeScriptPlan?.creativeCard,
+        creativeCardText: activeScriptPlan?.creativeCardText,
       }
     ]));
   };
@@ -4641,6 +4645,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         const continuityAnchor = scriptContent?.continuity_anchor || {};
         const scriptStructure = scriptContent?.script_structure || {};
         const creativeCard = scriptContent?.creative_card || {};
+        const normalizedCreativeCard: ScriptCreativeCard = {
+          style: normalizeText(creativeCard?.style),
+          environment: normalizeText(creativeCard?.environment),
+          tonePacing: normalizeText(creativeCard?.tone_pacing),
+          camera: normalizeText(creativeCard?.camera),
+          lighting: normalizeText(creativeCard?.lighting),
+          actions: parseStringList(creativeCard?.actions, 8),
+          backgroundSound: normalizeText(creativeCard?.background_sound),
+          transitionEditing: normalizeText(creativeCard?.transition_editing),
+          callToAction: normalizeText(creativeCard?.call_to_action),
+        };
         const fullScript = normalizeText(scriptContent?.video_master_script) || buildFullScriptFallback(shots);
         return {
           id: `page-${idx + 1}`,
@@ -4663,17 +4678,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           sellingPoints: parseStringList(scriptContent?.selling_points),
           sceneSuggestions: parseStringList(scriptContent?.scene_suggestions),
           styleTags: parseStringList(scriptContent?.style_tags),
-          creativeCard: {
-            style: normalizeText(creativeCard?.style),
-            environment: normalizeText(creativeCard?.environment),
-            tonePacing: normalizeText(creativeCard?.tone_pacing),
-            camera: normalizeText(creativeCard?.camera),
-            lighting: normalizeText(creativeCard?.lighting),
-            actions: parseStringList(creativeCard?.actions, 8),
-            backgroundSound: normalizeText(creativeCard?.background_sound),
-            transitionEditing: normalizeText(creativeCard?.transition_editing),
-            callToAction: normalizeText(creativeCard?.call_to_action),
-          },
+          creativeCard: normalizedCreativeCard,
+          creativeCardText: buildCreativeCardEditorText(normalizedCreativeCard),
         };
       };
       const parseReferenceSummary = (summary: any): ReferenceSummaryItem[] => {
@@ -4982,7 +4988,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             const combinedScriptPrompt = buildCombinedScriptPrompt(
                 scriptPack.fullScript || '',
                 scriptPack.creativeCard,
-                scriptPack.scripts
+                scriptPack.scripts,
+                scriptPack.creativeCardText || ''
             );
 
             let newProjectId: string | undefined;
@@ -7565,115 +7572,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     <div className="space-y-1.5 relative z-10">
                       <div className={cardThemeClass.shell}>
                         <div className={cardThemeClass.panel}>
-                          <div className={`space-y-1 ${isLightTheme ? 'text-slate-800' : 'text-zinc-100'}`}>
-                            <div className={cardThemeClass.row}>
-                              <span className={cardThemeClass.subLabel}>{cardLabels.style}</span>
-                              <textarea
-                                  rows={1}
-                                  data-card-autosize="true"
-                                  value={activeCreativeCard?.style || ''}
-                                  onChange={(e) => updateActiveCreativeCardField('style', e.target.value)}
-                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                  className={cardThemeClass.textarea}
-                              />
-                            </div>
-
-                            <div className={cardThemeClass.row}>
-                              <span className={cardThemeClass.subLabel}>{cardLabels.environment}</span>
-                              <textarea
-                                  rows={1}
-                                  data-card-autosize="true"
-                                  value={activeCreativeCard?.environment || ''}
-                                  onChange={(e) => updateActiveCreativeCardField('environment', e.target.value)}
-                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                  className={cardThemeClass.textarea}
-                              />
-                            </div>
-
-                            <div className={cardThemeClass.row}>
-                              <span className={cardThemeClass.subLabel}>{cardLabels.tonePacing}</span>
-                              <textarea
-                                  rows={1}
-                                  data-card-autosize="true"
-                                  value={activeCreativeCard?.tonePacing || ''}
-                                  onChange={(e) => updateActiveCreativeCardField('tonePacing', e.target.value)}
-                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                  className={cardThemeClass.textarea}
-                              />
-                            </div>
-
-                            <div className={cardThemeClass.row}>
-                              <span className={cardThemeClass.subLabel}>{cardLabels.camera}</span>
-                              <textarea
-                                  rows={1}
-                                  data-card-autosize="true"
-                                  value={activeCreativeCard?.camera || ''}
-                                  onChange={(e) => updateActiveCreativeCardField('camera', e.target.value)}
-                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                  className={cardThemeClass.textarea}
-                              />
-                            </div>
-
-                            <div className={cardThemeClass.row}>
-                              <span className={cardThemeClass.subLabel}>{cardLabels.lighting}</span>
-                              <textarea
-                                  rows={1}
-                                  data-card-autosize="true"
-                                  value={activeCreativeCard?.lighting || ''}
-                                  onChange={(e) => updateActiveCreativeCardField('lighting', e.target.value)}
-                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                  className={cardThemeClass.textarea}
-                              />
-                            </div>
-
-                            <div className={cardThemeClass.row}>
-                              <span className={cardThemeClass.subLabel}>{cardLabels.actions}</span>
-                              <textarea
-                                  rows={1}
-                                  data-card-autosize="true"
-                                  value={(activeCreativeCard?.actions || []).join('\n')}
-                                  onChange={(e) => updateActiveCreativeCardActionsText(e.target.value)}
-                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                  className={cardThemeClass.textarea}
-                              />
-                            </div>
-
-                            <div className={cardThemeClass.row}>
-                              <span className={cardThemeClass.subLabel}>{cardLabels.backgroundSound}</span>
-                              <textarea
-                                  rows={1}
-                                  data-card-autosize="true"
-                                  value={activeCreativeCard?.backgroundSound || ''}
-                                  onChange={(e) => updateActiveCreativeCardField('backgroundSound', e.target.value)}
-                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                  className={cardThemeClass.textarea}
-                              />
-                            </div>
-
-                            <div className={cardThemeClass.row}>
-                              <span className={cardThemeClass.subLabel}>{cardLabels.transitionEditing}</span>
-                              <textarea
-                                  rows={1}
-                                  data-card-autosize="true"
-                                  value={activeCreativeCard?.transitionEditing || ''}
-                                  onChange={(e) => updateActiveCreativeCardField('transitionEditing', e.target.value)}
-                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                  className={cardThemeClass.textarea}
-                              />
-                            </div>
-
-                            <div className={cardThemeClass.row}>
-                              <span className={cardThemeClass.subLabel}>{cardLabels.callToAction}</span>
-                              <textarea
-                                  rows={1}
-                                  data-card-autosize="true"
-                                  value={activeCreativeCard?.callToAction || ''}
-                                  onChange={(e) => updateActiveCreativeCardField('callToAction', e.target.value)}
-                                  onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                                  className={cardThemeClass.textarea}
-                              />
-                            </div>
-                          </div>
+                          <textarea
+                              rows={1}
+                              data-card-autosize="true"
+                              value={activeScriptPlan?.creativeCardText ?? buildCreativeCardEditorText(activeCreativeCard)}
+                              onChange={(e) => updateActiveCreativeCardText(e.target.value)}
+                              onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                              className={`${cardThemeClass.textarea} w-full min-h-[220px]`}
+                          />
                         </div>
                       </div>
                     </div>

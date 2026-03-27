@@ -18,7 +18,7 @@ export const BillingView: React.FC = () => {
   // Payment State
   const [showPayQR, setShowPayQR] = useState(false);
   const [payOrder, setPayOrder] = useState<any>(null);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   const openInfo = (title: string, message: string) => {
     setDialogTitle(title);

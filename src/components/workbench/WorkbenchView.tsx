@@ -256,8 +256,8 @@ const createWorkspaceState = (params?: {
     selectedTemplateId: null,
     selectedModelId:
       prefs.selectedModelId === 'kling' ||
-      // prefs.selectedModelId === 'sora2' ||
-      // prefs.selectedModelId === 'sora2pro' ||
+      prefs.selectedModelId === 'sora2' ||
+      prefs.selectedModelId === 'sora2pro' ||
       prefs.selectedModelId === 'seedance2.0'
         ? prefs.selectedModelId
         : null,
@@ -694,7 +694,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return 0.55;
     }
   });
-  const lastFastModelRef = useRef<'kling' | /* 'sora2' | 'sora2pro' | */ 'seedance2.0'>('kling');
+  const lastFastModelRef = useRef<'kling' | 'sora2' | 'sora2pro' | 'seedance2.0'>('kling');
   const currentAssetMediaKind = inferMediaKind({ name: fileName, url: selectedAssetUrl || uploadedFile, file: selectedFileObj });
 
   useEffect(() => {
@@ -945,17 +945,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
     const restoredModelId =
       workspace.selectedModelId === 'kling' ||
-      // workspace.selectedModelId === 'sora2' ||
-      // workspace.selectedModelId === 'sora2pro' ||
+      workspace.selectedModelId === 'sora2' ||
+      workspace.selectedModelId === 'sora2pro' ||
       workspace.selectedModelId === 'seedance2.0'
         ? workspace.selectedModelId
         : (
           initialPrefs.selectedModelId === 'kling' ||
-          // initialPrefs.selectedModelId === 'sora2' ||
-          // initialPrefs.selectedModelId === 'sora2pro' ||
+          initialPrefs.selectedModelId === 'sora2' ||
+          initialPrefs.selectedModelId === 'sora2pro' ||
           initialPrefs.selectedModelId === 'seedance2.0'
             ? initialPrefs.selectedModelId
-            : 'kling'
+            : 'sora2'
         );
 
     isApplyingProjectWorkspaceRef.current = true;
@@ -3180,9 +3180,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       else payload.image_path = apiPath;
     }
 
-    // if (selectedModel === 'sora2' || selectedModel === 'sora2pro') {
-    //   payload.size = aspectRatio === '9:16' ? '720x1280' : '1280x720';
-    // }
+    if (selectedModel === 'sora2' || selectedModel === 'sora2pro') {
+      payload.size = aspectRatio === '9:16' ? '720x1280' : '1280x720';
+    }
 
     return payload;
   };
@@ -4950,8 +4950,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (creationMode !== 'fast') return;
     if (
         selectedModel === 'kling' ||
-        // selectedModel === 'sora2' ||
-        // selectedModel === 'sora2pro' ||
+        selectedModel === 'sora2' ||
+        selectedModel === 'sora2pro' ||
         selectedModel === 'seedance2.0'
     ) {
       lastFastModelRef.current = selectedModel;
@@ -4967,10 +4967,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setGenDuration((prev) => normalizeDurationForModel(prev, selectedModel));
   }, [normalizeDurationForModel, selectedModel]);
 
-    const backendModel =
-      selectedModel === 'kling'
-        ? 'kling'
-        : 'seedance-2.0';
+  const backendModel =
+      selectedModel === 'sora2pro'
+          ? 'sora-2-pro'
+          : selectedModel === 'sora2'
+              ? 'sora-2'
+              : selectedModel === 'kling'
+                  ? 'kling'
+                  : 'seedance-2.0';
 
   const renderLeftColumn = () => {
     const segmentBase =
@@ -5010,7 +5014,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 {t.wb_model_kling_title || (language === 'zh' ? '可灵 o1' : 'Kling o1')}
                 {tooltip(t.wb_model_tip_sora_kling, 'left')}
               </button>
-              {/*
               <button
                   type="button"
                   aria-pressed={selectedModel === 'sora2'}
@@ -5029,7 +5032,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 Sora 2 Pro
                 {tooltip(t.wb_model_tip_sora_kling, 'center')}
               </button>
-              */}
               <button
                   type="button"
                   aria-pressed={selectedModel === 'seedance2.0'}
@@ -5049,8 +5051,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       if (next === 'replay') {
         if (
             selectedModel === 'kling' ||
-            // selectedModel === 'sora2' ||
-            // selectedModel === 'sora2pro' ||
+            selectedModel === 'sora2' ||
+            selectedModel === 'sora2pro' ||
             selectedModel === 'seedance2.0'
         ) {
           lastFastModelRef.current = selectedModel;
@@ -5064,7 +5066,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
 
     const modelOptions: Array<{
-      id: 'kling' | /* 'sora2' | 'sora2pro' | */ 'seedance2.0';
+      id: 'kling' | 'sora2' | 'sora2pro' | 'seedance2.0';
       title: string;
       desc: string;
       rate: number;
@@ -5077,20 +5079,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         rate: 20,
         Icon: Zap,
       },
-      // {
-      //   id: 'sora2',
-      //   title: 'Sora 2',
-      //   desc: t.wb_model_sora2_desc,
-      //   rate: 100,
-      //   Icon: SoraStarIcon,
-      // },
-      // {
-      //   id: 'sora2pro',
-      //   title: 'Sora 2 Pro',
-      //   desc: t.wb_model_sora2pro_desc,
-      //   rate: 300,
-      //   Icon: Sparkles,
-      // },
+      {
+        id: 'sora2',
+        title: 'Sora 2',
+        desc: t.wb_model_sora2_desc,
+        rate: 100,
+        Icon: SoraStarIcon,
+      },
+      {
+        id: 'sora2pro',
+        title: 'Sora 2 Pro',
+        desc: t.wb_model_sora2pro_desc,
+        rate: 300,
+        Icon: Sparkles,
+      },
       {
         id: 'seedance2.0',
         title: 'Seedance 2.0',
@@ -5907,17 +5909,29 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                           }
                                         }}
                                         className={`rounded border px-1.5 py-0.5 text-[9px] font-bold transition ${
-                                          ((
-                                            isKlingOmniMode
-                                              ? (
-                                                klingGenerateMode === 'subject'
-                                                  ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
-                                                  : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
-                                              )
-                                              : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
-                                          )
-                                            ? 'border-orange-500/70 bg-orange-500/20 text-orange-300'
-                                            : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65')
+                                            selectedModel === 'sora2' || selectedModel === 'sora2pro'
+                                                ? ((
+                                                    isKlingOmniMode
+                                                        ? (
+                                                            klingGenerateMode === 'subject'
+                                                                ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
+                                                                : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                                        )
+                                                        : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                                )
+                                                    ? 'border-orange-500 bg-orange-500 text-white'
+                                                    : 'border-slate-600 bg-slate-600 text-white hover:bg-slate-500 hover:border-slate-500')
+                                                : ((
+                                                    isKlingOmniMode
+                                                        ? (
+                                                            klingGenerateMode === 'subject'
+                                                                ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
+                                                                : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                                        )
+                                                        : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                                )
+                                                    ? 'border-orange-500/70 bg-orange-500/20 text-orange-300'
+                                                    : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65')
                                         }`}
                                     >
                                       {(

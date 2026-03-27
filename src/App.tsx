@@ -21,34 +21,32 @@ const MobileBlockedApp = () => {
 
     React.useEffect(() => {
         if (typeof window === 'undefined') return;
-        const media = window.matchMedia('(max-width: 768px)');
         const coarsePointerMedia = window.matchMedia('(pointer: coarse)');
         const sync = () => {
             const ua = navigator.userAgent || '';
-            const isMobileUa = /Android|iPhone|iPod|Windows Phone|webOS|BlackBerry|Opera Mini|IEMobile/i.test(ua);
+            const isPhoneUa =
+                /iPhone|iPod|Windows Phone|webOS|BlackBerry|Opera Mini|IEMobile/i.test(ua)
+                || (/Android/i.test(ua) && /Mobile/i.test(ua));
             const viewportWidth = window.visualViewport?.width || window.innerWidth || 0;
+            const screenShortSide = Math.min(window.screen.width || 0, window.screen.height || 0);
+            const isTouchDevice = coarsePointerMedia.matches || (navigator.maxTouchPoints || 0) > 0;
             setIsMobileBlocked(Boolean(
-                media.matches
-                || isMobileUa
-                || (coarsePointerMedia.matches && viewportWidth <= 1024)
+                isPhoneUa
+                || (isTouchDevice && viewportWidth <= 768 && screenShortSide <= 820)
             ));
         };
         sync();
-        if (typeof media.addEventListener === 'function') {
-            media.addEventListener('change', sync);
+        if (typeof coarsePointerMedia.addEventListener === 'function') {
             coarsePointerMedia.addEventListener('change', sync);
             window.addEventListener('resize', sync);
             return () => {
-                media.removeEventListener('change', sync);
                 coarsePointerMedia.removeEventListener('change', sync);
                 window.removeEventListener('resize', sync);
             };
         }
-        media.addListener(sync);
         coarsePointerMedia.addListener(sync);
         window.addEventListener('resize', sync);
         return () => {
-            media.removeListener(sync);
             coarsePointerMedia.removeListener(sync);
             window.removeEventListener('resize', sync);
         };

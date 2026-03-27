@@ -36,6 +36,7 @@ const WAIT_PROGRESS_SIM_DURATION_MS = 90_000;
 const WAIT_PROGRESS_MAX_BEFORE_HOLD = 90;
 const WAIT_PROGRESS_HOLD_MIN = 92;
 const WAIT_PROGRESS_HOLD_MAX = 98;
+const WAITING_PREVIEW_VIDEO_SRC = (import.meta.env.VITE_WAITING_PREVIEW_VIDEO_URL || 'https://vflow.genviewtech.com/media/vedio.mp4').toString();
 // Storyboard editor is now a user-toggleable runtime setting (no longer a compile-time constant).
 // The state `enableStoryboardEditor` replaces the old `enableStoryboardEditor` const.
 
@@ -749,6 +750,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [waitProgress, setWaitProgress] = useState(0);
   const [waitProgressPhase, setWaitProgressPhase] = useState<WaitProgressPhase>('idle');
+  const [waitingVideoFailed, setWaitingVideoFailed] = useState(false);
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isPreparingDebug, setIsPreparingDebug] = useState(false);
@@ -1005,6 +1007,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     waitProgressTrackedTaskIdRef.current = taskId;
     waitProgressStartedAtRef.current = Date.now();
     waitProgressHoldValueRef.current = null;
+    setWaitingVideoFailed(false);
     setWaitProgressWithRef(0);
     setWaitProgressPhaseWithRef('simulating');
     tickWaitSimulation();
@@ -7966,16 +7969,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     />
                 ) : (
                     isWaitingPreview ? (
-                      <div className="flex flex-col items-center justify-center gap-3 text-center px-4">
-                        <div className="relative h-20 w-20">
-                          <div className="absolute inset-0 rounded-full border border-orange-500/20" />
-                          <div className="absolute inset-1 rounded-full border-2 border-transparent border-t-orange-400 border-r-orange-300 animate-spin" />
-                          <div className="absolute inset-4 rounded-full bg-gradient-to-br from-orange-500/30 to-amber-300/20 animate-pulse" />
-                        </div>
-                        <p className="text-xs text-zinc-400 font-semibold">{waitingPhaseMessage}</p>
-                        <div className="flex flex-col items-center gap-1">
-                          <span className="text-[11px] text-zinc-500 uppercase tracking-widest">{t.wb_waiting_progress || 'Progress'}</span>
-                          <span className="text-2xl font-black text-orange-300 tabular-nums">{waitingProgressPercent}%</span>
+                      <div className="relative h-full w-full">
+                        {!waitingVideoFailed ? (
+                          <video
+                            className="h-full w-full object-cover"
+                            src={WAITING_PREVIEW_VIDEO_SRC}
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            preload="auto"
+                            onError={() => setWaitingVideoFailed(true)}
+                          />
+                        ) : (
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-center opacity-30">
+                            <Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" />
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none" />
+                        <div className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 px-4 pb-4 text-center">
+                          <p className="text-xs text-white/80 font-semibold drop-shadow">{waitingPhaseMessage}</p>
+                          <div className="text-2xl font-black text-orange-200 tabular-nums drop-shadow">{waitingProgressPercent}%</div>
                         </div>
                       </div>
                     ) : (

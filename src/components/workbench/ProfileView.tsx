@@ -8,6 +8,7 @@ import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { AppDialog } from '../common/AppDialog';
 import { getWorkbenchPreferences, setWorkbenchPreferences, type WorkbenchPreferences } from '../../utils/preferences';
+import { isStrongPassword } from '../../utils/passwordRules';
 
 interface ProfileViewProps {
   theme: 'dark' | 'light' | 'dim';
@@ -211,6 +212,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
     }
     if (nextPassword !== confirmNextPassword) {
       openInfo('Error', t.profile_err_password_mismatch || '两次输入的新密码不一致');
+      return;
+    }
+    if (!isStrongPassword(nextPassword)) {
+      openInfo('Error', t.password_rule_hint);
       return;
     }
 
@@ -781,8 +786,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
          >
            <div className="space-y-3">
              {!requiresCurrentPassword && (
-               <p className="text-xs text-zinc-500">{t.profile_password_first_time_hint || 'First time setting password, current password is not required.'}</p>
+             <p className="text-xs text-zinc-500">{t.profile_password_first_time_hint || 'First time setting password, current password is not required.'}</p>
              )}
+             <p className="text-xs text-zinc-500">{t.password_rule_hint}</p>
              {requiresCurrentPassword && (
                <input
                  type="password"

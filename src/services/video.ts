@@ -531,6 +531,33 @@ export const videoApi = {
     return await response.json();
   },
 
+  clearDraft: async (options?: { keepalive?: boolean }) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/draft/`, {
+      method: 'DELETE',
+      headers: {
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      keepalive: options?.keepalive === true,
+    });
+
+    if (!response.ok && response.status !== 401 && response.status !== 403) {
+      let errorMsg = 'Failed to clear draft';
+      try {
+        const errData = await response.json();
+        errorMsg = errData.message || errData.error || JSON.stringify(errData);
+      } catch {
+        errorMsg = `Server Error: ${response.status} ${response.statusText}`;
+      }
+      throw new Error(errorMsg);
+    }
+
+    if (!response.ok) return null;
+    return await response.json();
+  },
+
   // 4. History list
   getHistory: async (params?: HistoryQueryParams): Promise<HistoryProject[]> => {
     const query = new URLSearchParams();
@@ -713,4 +740,3 @@ export const videoApi = {
     return Array.isArray(data) ? data : [];
   },
 };
-

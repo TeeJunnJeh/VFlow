@@ -79,6 +79,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   // Data State
   const [assetList, setAssetList] = useState<Asset[]>([]);
   const [folderList, setFolderList] = useState<AssetFolder[]>([]);
+  const [allTypeAssets, setAllTypeAssets] = useState<Asset[]>([]);
+  const [allTypeFolders, setAllTypeFolders] = useState<AssetFolder[]>([]);
   const [folderBreadcrumb, setFolderBreadcrumb] = useState<AssetFolder[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeAssetTab, setActiveAssetTab] = useState<AssetType>('product');
@@ -198,6 +200,54 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     setIsSubjectGuideSpotlightOpen(false);
     onSubjectGuideCompleted?.();
   }, [onSubjectGuideCompleted]);
+
+  const folderSummaryById = useMemo(() => {
+    const childFoldersByParent = new Map<string | null, AssetFolder[]>();
+    allTypeFolders.forEach((folder) => {
+      const list = childFoldersByParent.get(folder.parent_id ?? null) || [];
+      list.push(folder);
+      childFoldersByParent.set(folder.parent_id ?? null, list);
+    });
+
+    const assetsByFolderId = new Map<string, Asset[]>();
+    allTypeAssets.forEach((asset) => {
+      if (!asset.folder_id) return;
+      const list = assetsByFolderId.get(asset.folder_id) || [];
+      list.push(asset);
+      assetsByFolderId.set(asset.folder_id, list);
+    });
+
+    const cache = new Map<string, { assetCount: number; subfolderCount: number; previewAssets: Asset[]; previewFolderNames: string[] }>();
+    const collect = (folderId: string): { assetCount: number; subfolderCount: number; previewAssets: Asset[]; previewFolderNames: string[] } => {
+      const cached = cache.get(folderId);
+      if (cached) return cached;
+
+      const directChildren = childFoldersByParent.get(folderId) || [];
+      const directAssets = assetsByFolderId.get(folderId) || [];
+      let assetCount = directAssets.length;
+      let subfolderCount = directChildren.length;
+      let previewAssets = directAssets.slice(0, 3);
+      let previewFolderNames = directChildren.slice(0, 3).map((item) => item.name);
+
+      directChildren.forEach((child) => {
+        const childSummary = collect(child.id);
+        assetCount += childSummary.assetCount;
+        subfolderCount += childSummary.subfolderCount;
+        if (previewAssets.length < 3) previewAssets = [...previewAssets, ...childSummary.previewAssets].slice(0, 3);
+        if (previewFolderNames.length < 3) previewFolderNames = [...previewFolderNames, ...childSummary.previewFolderNames].slice(0, 3);
+      });
+
+      const summary = { assetCount, subfolderCount, previewAssets, previewFolderNames };
+      cache.set(folderId, summary);
+      return summary;
+    };
+
+    const summaryMap = new Map<string, { assetCount: number; subfolderCount: number; previewAssets: Asset[]; previewFolderNames: string[] }>();
+    allTypeFolders.forEach((folder) => {
+      summaryMap.set(folder.id, collect(folder.id));
+    });
+    return summaryMap;
+  }, [allTypeAssets, allTypeFolders]);
 
   useEffect(() => {
     if (!isSubjectGuideSpotlightOpen) return;
@@ -373,13 +423,17 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     if (viewMode !== 'library') return;
     setIsLoading(true);
     try {
-      const [assets, folderData] = await Promise.all([
+      const [assets, folderData, allAssets, allFolders] = await Promise.all([
         assetsApi.getAssets({ type: activeAssetTab, folderId: currentFolderId }),
-        assetsApi.getFolders({ type: activeAssetTab, parentId: currentFolderId })
+        assetsApi.getFolders({ type: activeAssetTab, parentId: currentFolderId }),
+        assetsApi.getAssets({ type: activeAssetTab }),
+        assetsApi.getAllFolders(activeAssetTab),
       ]);
       setAssetList(Array.isArray(assets) ? assets : []);
       setFolderList(folderData.folders);
       setFolderBreadcrumb(folderData.breadcrumb);
+      setAllTypeAssets(Array.isArray(allAssets) ? allAssets : []);
+      setAllTypeFolders(Array.isArray(allFolders) ? allFolders : []);
     } catch (err) {
       console.error("Failed to load assets", err);
     } finally {
@@ -1656,7 +1710,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                         onDragEnter={(e) => dragOverFolder(folder.id, e)}
                         onDragLeave={() => { if (dragOverFolderId === folder.id) setDragOverFolderId(null); }}
                         onDrop={(e) => dropMoveTo(folder.id, e)}
-                        className={`glass-card rounded-2xl aspect-[3/4] border flex flex-col items-center justify-center gap-3 cursor-pointer transition group relative ${
+                        className={`glass-card rounded-2xl aspect-[3/4] border p-3 flex flex-col cursor-pointer transition group relative overflow-hidden ${
                           draggingAsset ? 'border-zinc-700/80' : 'border-zinc-800 hover:border-orange-500/50 hover:bg-zinc-900/50'
                         } ${
                           draggingAsset && dragOverFolderId === folder.id ? 'ring-2 ring-orange-500/70 scale-[1.02] bg-zinc-900/50' : ''
@@ -1670,8 +1724,60 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                                  <button className="w-full text-left px-3 py-2 hover:bg-white/5 text-red-300" onClick={() => { setOpenFolderMenuId(null); openConfirmModal({ title: t.assets_confirm_delete_folder, message: `${folder.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => handleDeleteFolder(folder) }); }}>{t.assets_folder_menu_delete}</button>
                              </div>
                          )}
-                         <div className="w-14 h-14 rounded-full bg-zinc-800 flex items-center justify-center group-hover:scale-110 transition"><Folder className="w-6 h-6 text-zinc-400 group-hover:text-orange-500" /></div>
-                         <span className="text-xs font-bold text-zinc-300 truncate max-w-[120px]">{folder.name}</span>
+                         {(() => {
+                           const summary = folderSummaryById.get(folder.id) || { assetCount: 0, subfolderCount: 0, previewAssets: [], previewFolderNames: [] };
+                           const visualPreviewAssets = summary.previewAssets
+                             .filter((asset) => asset.media_kind === 'image' || asset.media_kind === 'video')
+                             .slice(0, 3);
+                           return (
+                             <>
+                               <div className="flex-1 rounded-[18px] border border-white/5 bg-black/20 p-3 flex flex-col justify-between overflow-hidden">
+                               <div className="flex items-start justify-between gap-2">
+                                   <div className="w-11 h-11 rounded-2xl bg-zinc-800 flex items-center justify-center group-hover:scale-105 transition">
+                                     <Folder className="w-5 h-5 text-zinc-400 group-hover:text-orange-500" />
+                                   </div>
+                                 </div>
+                                 {visualPreviewAssets.length > 0 ? (
+                                   <div className="grid grid-cols-3 gap-2">
+                                     {visualPreviewAssets.map((asset) => (
+                                       <div key={asset.id} className="aspect-square rounded-xl overflow-hidden bg-zinc-900/80 border border-white/5">
+                                         {asset.media_kind === 'video' ? (
+                                           <video
+                                             src={asset.file_url}
+                                             className="w-full h-full object-cover"
+                                             muted
+                                             playsInline
+                                             preload="metadata"
+                                           />
+                                         ) : (
+                                           <img src={asset.thumbnail || asset.file_url} alt={asset.name} className="w-full h-full object-cover" />
+                                         )}
+                                       </div>
+                                     ))}
+                                   </div>
+                                 ) : summary.previewFolderNames.length > 0 ? (
+                                   <div className="flex flex-wrap gap-2">
+                                     {summary.previewFolderNames.slice(0, 3).map((name) => (
+                                       <span key={name} className="max-w-full truncate rounded-full bg-white/5 px-2.5 py-1 text-[11px] text-zinc-400 border border-white/5">
+                                         {name}
+                                       </span>
+                                     ))}
+                                   </div>
+                                 ) : (
+                                   <div className="flex items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.03] py-4 text-[11px] text-zinc-500">
+                                     {(t as any).assets_folder_summary_empty || '空文件夹'}
+                                   </div>
+                                 )}
+                               </div>
+                               <div className="pt-3">
+                                 <div className="text-base font-bold text-zinc-200 truncate">{folder.name}</div>
+                                 <div className="mt-1 text-[11px] text-zinc-500 truncate">
+                                   {summary.assetCount} {(t as any).assets_folder_summary_assets || '素材'} · {summary.subfolderCount} {(t as any).assets_folder_summary_subfolders || '子文件夹'}
+                                 </div>
+                               </div>
+                             </>
+                           );
+                         })()}
                       </div>
                     ))}
                     

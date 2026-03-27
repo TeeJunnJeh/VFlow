@@ -582,6 +582,9 @@ export const translations = {
     assets_deselect_all: "Deselect all",
     assets_done: "Done",
     assets_items: "items",
+    assets_folder_summary_empty: "Empty folder",
+    assets_folder_summary_assets: "assets",
+    assets_folder_summary_subfolders: "subfolders",
     assets_folder_not_empty_hint: "This folder is not empty. Move or delete its contents first.",
     assets_tab_models: "Models",
     assets_tab_products: "Products",
@@ -890,6 +893,9 @@ export const translations = {
   
   zh: {
     // ... (Keep your existing Chinese translations)
+    assets_folder_summary_empty: "空文件夹",
+    assets_folder_summary_assets: "素材",
+    assets_folder_summary_subfolders: "子文件夹",
     app_name: "Vflow AI",
     pro_version: "专业版",
     nav_generate: "视频生成",
@@ -2213,6 +2219,9 @@ export const translations = {
     assets_deselect_all: "Nyahpilih semua",
     assets_done: "Selesai",
     assets_items: "item",
+    assets_folder_summary_empty: "Folder kosong",
+    assets_folder_summary_assets: "aset",
+    assets_folder_summary_subfolders: "subfolder",
     assets_folder_not_empty_hint: "Folder ini tidak kosong. Alih atau padam kandungannya dahulu.",
     assets_tab_models: "Model",
     assets_tab_products: "Produk",
@@ -2467,6 +2476,9 @@ export const translations = {
 
   // --- NEW: Vietnamese (vi) ---
   vi: {
+    assets_folder_summary_empty: "Thư mục trống",
+    assets_folder_summary_assets: "tài nguyên",
+    assets_folder_summary_subfolders: "thư mục con",
     // Sidebar
     app_name: "Vflow AI",
     pro_version: "BẢN PRO",
@@ -3180,6 +3192,9 @@ export const translations = {
 
   // --- NEW: Korean (ko) ---
   ko: {
+    assets_folder_summary_empty: "빈 폴더",
+    assets_folder_summary_assets: "소재",
+    assets_folder_summary_subfolders: "하위 폴더",
     // Assets (Selection / Batch)
     assets_select: "선택",
     assets_selected: "개 선택됨",

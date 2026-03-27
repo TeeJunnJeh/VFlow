@@ -1144,6 +1144,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const currentProjectIndex = useMemo(() => (
     sortedProjects.findIndex((p) => p.id === projectStore.currentProjectId)
   ), [sortedProjects, projectStore.currentProjectId]);
+  const canGoToPrevProject = currentProjectIndex > 0;
+  const canGoToNextProject = currentProjectIndex >= 0 && currentProjectIndex < sortedProjects.length - 1;
   const [rowStyle, setRowStyle] = useState<React.CSSProperties>({ transition: 'transform 420ms cubic-bezier(.22,.61,.36,1)', transform: 'translate3d(0,0,0)', willChange: 'transform' });
   const filteredProjects = useMemo(() => {
     const keyword = projectSearch.trim().toLowerCase();
@@ -6658,8 +6660,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={goToPrevProject}
-                    className="p-1 rounded text-zinc-400 hover:text-white hover:bg-white/10"
+                    onClick={canGoToPrevProject ? goToPrevProject : undefined}
+                    aria-disabled={!canGoToPrevProject}
+                    className={`p-1 rounded transition ${canGoToPrevProject ? 'text-zinc-400 hover:text-white hover:bg-white/10' : 'text-zinc-400 opacity-35 cursor-not-allowed'}`}
                     title="上一项目"
                   >
                     <ChevronLeft className="w-4 h-4" />
@@ -6669,8 +6672,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </h1>
                   <button
                     type="button"
-                    onClick={goToNextProject}
-                    className="p-1 rounded text-zinc-400 hover:text-white hover:bg-white/10"
+                    onClick={canGoToNextProject ? goToNextProject : undefined}
+                    aria-disabled={!canGoToNextProject}
+                    className={`p-1 rounded transition ${canGoToNextProject ? 'text-zinc-400 hover:text-white hover:bg-white/10' : 'text-zinc-400 opacity-35 cursor-not-allowed'}`}
                     title="下一项目"
                   >
                     <ChevronRight className="w-4 h-4" />

@@ -32,6 +32,10 @@ import { type ReplayReusePayload } from './ReplayScriptView';
 
 const ENABLE_PROMPT_LAB = true;
 const ENABLE_STORYBOARD_PROMPT = false;
+const WAIT_PROGRESS_SIM_DURATION_MS = 90_000;
+const WAIT_PROGRESS_MAX_BEFORE_HOLD = 90;
+const WAIT_PROGRESS_HOLD_MIN = 92;
+const WAIT_PROGRESS_HOLD_MAX = 98;
 // Storyboard editor is now a user-toggleable runtime setting (no longer a compile-time constant).
 // The state `enableStoryboardEditor` replaces the old `enableStoryboardEditor` const.
 
@@ -111,6 +115,7 @@ type QueuedScript = {
 
 type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion';
 type AiOptimizeResolution = 'sd' | 'hd' | 'uhd';
+type WaitProgressPhase = 'idle' | 'simulating' | 'holding' | 'finishing' | 'done';
 
 type GeneratePayload = {
   model: string;
@@ -742,6 +747,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
+  const [waitProgress, setWaitProgress] = useState(0);
+  const [waitProgressPhase, setWaitProgressPhase] = useState<WaitProgressPhase>('idle');
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isPreparingDebug, setIsPreparingDebug] = useState(false);
@@ -831,6 +838,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [taskQueueNowTs, setTaskQueueNowTs] = useState<number>(Date.now());
   const taskQueueTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isCompletedCollapsed, setIsCompletedCollapsed] = useState(true);
+  const waitProgressValueRef = useRef(0);
+  const waitProgressPhaseRef = useRef<WaitProgressPhase>('idle');
+  const waitProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const waitProgressRafRef = useRef<number | null>(null);
+  const waitProgressStartedAtRef = useRef<number | null>(null);
+  const waitProgressHoldValueRef = useRef<number | null>(null);
+  const waitProgressTrackedTaskIdRef = useRef<string | null>(null);
   const [projectSearch, setProjectSearch] = useState('');
   const [projectActionMenuId, setProjectActionMenuId] = useState<string | null>(null);
   const [isProjectManageMode, setIsProjectManageMode] = useState(false);
@@ -872,6 +886,218 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     [tasks]
   );
   const completedVideoTaskCount = completedVideoTasks.length;
+  const previewTargetProjectId = lastGeneratedProjectId || projectStore.currentProjectId;
+  const previewActiveTask = useMemo(() => {
+    if (activeVideoTasks.length === 0) return null;
+
+    const scoped = previewTargetProjectId
+      ? activeVideoTasks.filter((task) => task.projectId === previewTargetProjectId)
+      : [];
+    const pool = scoped.length > 0 ? scoped : activeVideoTasks;
+
+    return [...pool].sort((a, b) => {
+      const at = a.updatedAt || a.createdAt || 0;
+      const bt = b.updatedAt || b.createdAt || 0;
+      return bt - at;
+    })[0] || null;
+  }, [activeVideoTasks, previewTargetProjectId]);
+
+  const clearWaitProgressTimers = useCallback(() => {
+    if (waitProgressTimerRef.current) {
+      window.clearTimeout(waitProgressTimerRef.current);
+      waitProgressTimerRef.current = null;
+    }
+    if (waitProgressRafRef.current) {
+      window.cancelAnimationFrame(waitProgressRafRef.current);
+      waitProgressRafRef.current = null;
+    }
+  }, []);
+
+  const setWaitProgressWithRef = useCallback((value: number) => {
+    const clamped = Math.max(0, Math.min(100, value));
+    waitProgressValueRef.current = clamped;
+    setWaitProgress(clamped);
+  }, []);
+
+  const setWaitProgressPhaseWithRef = useCallback((phase: WaitProgressPhase) => {
+    waitProgressPhaseRef.current = phase;
+    setWaitProgressPhase(phase);
+  }, []);
+
+  const tickWaitSimulation = useCallback(() => {
+    const phase = waitProgressPhaseRef.current;
+    if (phase === 'idle' || phase === 'finishing' || phase === 'done') return;
+
+    const startedAt = waitProgressStartedAtRef.current;
+    if (!startedAt) return;
+
+    const elapsedMs = Date.now() - startedAt;
+    const current = waitProgressValueRef.current;
+
+    if (elapsedMs >= WAIT_PROGRESS_SIM_DURATION_MS) {
+      if (waitProgressHoldValueRef.current === null) {
+        waitProgressHoldValueRef.current =
+          WAIT_PROGRESS_HOLD_MIN + Math.random() * (WAIT_PROGRESS_HOLD_MAX - WAIT_PROGRESS_HOLD_MIN);
+      }
+      setWaitProgressPhaseWithRef('holding');
+      setWaitProgressWithRef(waitProgressHoldValueRef.current);
+      return;
+    }
+
+    const elapsedRatio = elapsedMs / WAIT_PROGRESS_SIM_DURATION_MS;
+    const remainingMs = WAIT_PROGRESS_SIM_DURATION_MS - elapsedMs;
+    const remainingProgress = WAIT_PROGRESS_MAX_BEFORE_HOLD - current;
+
+    const expectedTickMs = 650;
+    const baselineDelta = remainingProgress / Math.max(1, remainingMs / expectedTickMs);
+
+    let rangeMin = 0.35;
+    let rangeMax = 1.2;
+    if (elapsedRatio < 0.2) {
+      rangeMin = 0.7;
+      rangeMax = 1.9;
+    } else if (elapsedRatio < 0.65) {
+      rangeMin = 0.35;
+      rangeMax = 1.35;
+    } else {
+      rangeMin = 0.08;
+      rangeMax = 0.95;
+    }
+
+    const shouldPause = Math.random() < (elapsedRatio > 0.6 ? 0.2 : 0.12);
+    let delta = shouldPause ? 0 : baselineDelta * (rangeMin + Math.random() * (rangeMax - rangeMin));
+
+    if (Math.random() < 0.08) {
+      delta += 0.4 + Math.random() * 0.8;
+    }
+
+    let next = Math.min(WAIT_PROGRESS_MAX_BEFORE_HOLD, current + delta);
+    const remainingSec = remainingMs / 1000;
+    const timelineFloor = Math.max(0, WAIT_PROGRESS_MAX_BEFORE_HOLD - remainingSec * 1.25);
+    if (next < timelineFloor) {
+      next = Math.min(WAIT_PROGRESS_MAX_BEFORE_HOLD, timelineFloor + Math.random() * 0.4);
+    }
+
+    setWaitProgressPhaseWithRef('simulating');
+    setWaitProgressWithRef(next);
+  }, [setWaitProgressPhaseWithRef, setWaitProgressWithRef]);
+
+  const scheduleWaitSimulationTick = useCallback(() => {
+    if (waitProgressTimerRef.current) {
+      window.clearTimeout(waitProgressTimerRef.current);
+      waitProgressTimerRef.current = null;
+    }
+
+    const delay = waitProgressPhaseRef.current === 'holding'
+      ? 1200 + Math.random() * 500
+      : 320 + Math.random() * 900;
+
+    waitProgressTimerRef.current = window.setTimeout(() => {
+      tickWaitSimulation();
+      if (waitProgressPhaseRef.current === 'simulating' || waitProgressPhaseRef.current === 'holding') {
+        scheduleWaitSimulationTick();
+      }
+    }, delay);
+  }, [tickWaitSimulation]);
+
+  const startWaitProgressSimulation = useCallback((taskId: string) => {
+    clearWaitProgressTimers();
+    waitProgressTrackedTaskIdRef.current = taskId;
+    waitProgressStartedAtRef.current = Date.now();
+    waitProgressHoldValueRef.current = null;
+    setWaitProgressWithRef(0);
+    setWaitProgressPhaseWithRef('simulating');
+    tickWaitSimulation();
+    scheduleWaitSimulationTick();
+  }, [clearWaitProgressTimers, scheduleWaitSimulationTick, setWaitProgressPhaseWithRef, setWaitProgressWithRef, tickWaitSimulation]);
+
+  const finishWaitProgressSimulation = useCallback(() => {
+    if (waitProgressPhaseRef.current === 'finishing' || waitProgressPhaseRef.current === 'done') return;
+
+    clearWaitProgressTimers();
+    const from = Math.max(0, Math.min(100, waitProgressValueRef.current));
+
+    if (from >= 100) {
+      setWaitProgressWithRef(100);
+      setWaitProgressPhaseWithRef('done');
+      return;
+    }
+
+    setWaitProgressPhaseWithRef('finishing');
+    const startedAt = performance.now();
+    const durationMs = 480;
+
+    const animate = (now: number) => {
+      const ratio = Math.min(1, (now - startedAt) / durationMs);
+      const eased = 1 - Math.pow(1 - ratio, 3);
+      setWaitProgressWithRef(from + (100 - from) * eased);
+
+      if (ratio < 1) {
+        waitProgressRafRef.current = window.requestAnimationFrame(animate);
+      } else {
+        setWaitProgressWithRef(100);
+        setWaitProgressPhaseWithRef('done');
+      }
+    };
+
+    waitProgressRafRef.current = window.requestAnimationFrame(animate);
+  }, [clearWaitProgressTimers, setWaitProgressPhaseWithRef, setWaitProgressWithRef]);
+
+  const resetWaitProgressSimulation = useCallback(() => {
+    clearWaitProgressTimers();
+    waitProgressTrackedTaskIdRef.current = null;
+    waitProgressStartedAtRef.current = null;
+    waitProgressHoldValueRef.current = null;
+    setWaitProgressWithRef(0);
+    setWaitProgressPhaseWithRef('idle');
+  }, [clearWaitProgressTimers, setWaitProgressPhaseWithRef, setWaitProgressWithRef]);
+
+  useEffect(() => {
+    const activeTaskId = previewActiveTask ? String(previewActiveTask.id) : null;
+    const trackedTaskId = waitProgressTrackedTaskIdRef.current;
+
+    if (activeTaskId) {
+      if (trackedTaskId !== activeTaskId || waitProgressPhaseRef.current === 'idle') {
+        startWaitProgressSimulation(activeTaskId);
+      }
+      return;
+    }
+
+    if (!trackedTaskId) return;
+
+    const trackedTask = tasks.find((task) => String(task.id) === trackedTaskId);
+    if (!trackedTask) {
+      resetWaitProgressSimulation();
+      return;
+    }
+
+    if (trackedTask.status === 'success') {
+      finishWaitProgressSimulation();
+      return;
+    }
+
+    if (trackedTask.status === 'failed') {
+      resetWaitProgressSimulation();
+    }
+  }, [finishWaitProgressSimulation, previewActiveTask, resetWaitProgressSimulation, startWaitProgressSimulation, tasks]);
+
+  useEffect(() => {
+    return () => {
+      clearWaitProgressTimers();
+    };
+  }, [clearWaitProgressTimers]);
+
+  const waitingProgressPercent = Math.max(0, Math.min(100, Math.round(waitProgress)));
+  const isWaitingPreview = !generatedVideoUrl && (
+    Boolean(previewActiveTask)
+    || waitProgressPhase === 'simulating'
+    || waitProgressPhase === 'holding'
+    || waitProgressPhase === 'finishing'
+    || waitProgressPhase === 'done'
+  );
+  const waitingPhaseMessage = waitProgressPhase === 'holding'
+    ? (t.wb_waiting_delayed || 'Taking longer than expected, waiting for final render...')
+    : (t.wb_waiting_generating || t.wb_waiting || 'Waiting for generation...');
 
   const projectUiText = useMemo(() => ({
     listTooltip: t.wb_project_list_tooltip,
@@ -7739,7 +7965,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         onPause={() => setIsPlaying(false)}
                     />
                 ) : (
-                    <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Submitting…' : t.wb_waiting}</p></div>
+                    isWaitingPreview ? (
+                      <div className="flex flex-col items-center justify-center gap-3 text-center px-4">
+                        <div className="relative h-20 w-20">
+                          <div className="absolute inset-0 rounded-full border border-orange-500/20" />
+                          <div className="absolute inset-1 rounded-full border-2 border-transparent border-t-orange-400 border-r-orange-300 animate-spin" />
+                          <div className="absolute inset-4 rounded-full bg-gradient-to-br from-orange-500/30 to-amber-300/20 animate-pulse" />
+                        </div>
+                        <p className="text-xs text-zinc-400 font-semibold">{waitingPhaseMessage}</p>
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="text-[11px] text-zinc-500 uppercase tracking-widest">{t.wb_waiting_progress || 'Progress'}</span>
+                          <span className="text-2xl font-black text-orange-300 tabular-nums">{waitingProgressPercent}%</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Submitting…' : t.wb_waiting}</p></div>
+                    )
                 )}
 
               </div>

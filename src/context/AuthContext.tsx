@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authApi } from '../services/auth';
+import { videoApi } from '../services/video';
 import { clearDebugModeEnabled } from '../services/debugMode';
 import { debugLog, debugWarn, debugError } from '../services/debugMode';
 
@@ -25,6 +26,12 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const WORKBENCH_PROJECT_STORE_KEY_PREFIX = 'vflow_workbench_projects_v1';
+
+const getWorkbenchProjectStoreKey = (userId?: string | number | null) => {
+  const normalized = userId === null || userId === undefined || userId === '' ? 'guest' : String(userId);
+  return `${WORKBENCH_PROJECT_STORE_KEY_PREFIX}_${normalized}`;
+};
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -170,9 +177,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const logout = () => {
+    const currentUserId = user?.id ?? null;
+
+    localStorage.removeItem(getWorkbenchProjectStoreKey(currentUserId));
+    localStorage.removeItem(getWorkbenchProjectStoreKey(null));
+
     // Call backend logout to destroy session on server
-    fetch('/api/auth/logout/', { method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'} })
-        .catch(console.error);
+    void videoApi.clearDraft({ keepalive: true }).catch((err) => {
+      debugWarn('Failed to clear workbench draft on logout:', err);
+    });
+    fetch('/api/auth/logout/', {
+      method: 'POST',
+      headers: {'X-Requested-With': 'XMLHttpRequest'},
+      credentials: 'include',
+      keepalive: true,
+    }).catch(console.error);
 
     setUser(null);
     localStorage.removeItem('vflow_ai_user');

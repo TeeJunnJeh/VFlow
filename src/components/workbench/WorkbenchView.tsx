@@ -279,6 +279,10 @@ const getLocalProjectStoreKey = (userId?: string | number | null): string => {
   return `${LOCAL_PROJECT_STORE_KEY_PREFIX}_${normalized}`;
 };
 
+const getLocalProjectStoreOwner = (userId?: string | number | null): string => (
+  userId === null || userId === undefined || userId === '' ? 'guest' : String(userId)
+);
+
 const loadLocalProjectStore = (userId?: string | number | null): LocalProjectStore => {
   try {
     const raw = localStorage.getItem(getLocalProjectStoreKey(userId));
@@ -818,6 +822,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isAiOptimizeGenerating, setIsAiOptimizeGenerating] = useState(false);
   const [aiOptimizeResults, setAiOptimizeResults] = useState<Array<{ id: string; url: string }>>([]);
   const [projectStore, setProjectStore] = useState<LocalProjectStore>(() => loadLocalProjectStore(user?.id ?? null));
+  const [projectStoreOwner, setProjectStoreOwner] = useState<string>(() => getLocalProjectStoreOwner(user?.id ?? null));
+  const [projectStoreLoadVersion, setProjectStoreLoadVersion] = useState(0);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [isTaskQueueOpen, setIsTaskQueueOpen] = useState(false);
   const taskQueueButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -1456,15 +1462,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       scriptPagePrefix: t.wb_script_page_prefix,
       userId: user?.id ?? null,
     }));
-  }, [projectStore.currentProjectId, applyWorkspaceState, buildDemoScripts, t.wb_script_page_prefix]);
+  }, [projectStore.currentProjectId, projectStoreLoadVersion, applyWorkspaceState, buildDemoScripts, t.wb_script_page_prefix, user?.id]);
 
   useEffect(() => {
+    if (projectStoreOwner !== getLocalProjectStoreOwner(user?.id ?? null)) return;
     localStorage.setItem(getLocalProjectStoreKey(user?.id ?? null), JSON.stringify(projectStore));
     window.dispatchEvent(new CustomEvent('vflow-workbench-projects-updated'));
-  }, [projectStore, user?.id]);
+  }, [projectStore, projectStoreOwner, user?.id]);
 
   useEffect(() => {
     setProjectStore(loadLocalProjectStore(user?.id ?? null));
+    setProjectStoreOwner(getLocalProjectStoreOwner(user?.id ?? null));
+    setProjectStoreLoadVersion((prev) => prev + 1);
   }, [user?.id]);
 
   useEffect(() => {

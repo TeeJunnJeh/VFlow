@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { authApi } from '../services/auth';
 import { useLanguage } from '../context/LanguageContext';
 import { LanguageSwitcher } from '../components/common/LanguageSwitcher';
+import { isStrongPassword } from '../utils/passwordRules';
 
 const LoginPage = () => {
   const navigate = useNavigate();
@@ -84,6 +85,7 @@ const LoginPage = () => {
         if (!identifier || !password) throw new Error(t.login_error_missing_account_password);
         if (isRegister) {
           if (password !== confirmPassword) throw new Error(t.login_error_password_mismatch);
+          if (!isStrongPassword(password)) throw new Error(t.password_rule_hint);
           data = await authApi.registerWithPassword({
             identifier,
             password,
@@ -302,6 +304,9 @@ const LoginPage = () => {
                   </div>
                   {isRegister && (
                     <>
+                      <p className="px-1 text-xs text-zinc-500">
+                        {t.password_rule_hint}
+                      </p>
                       <div className="bg-[#0a0a0a] rounded-xl border border-white/10 flex items-center p-1 focus-within:border-violet-500/60 transition-all duration-300">
                         <input
                             type="password"

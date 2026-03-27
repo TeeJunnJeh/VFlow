@@ -52,6 +52,7 @@ export const translations = {
     login_error_missing_fields: "Please enter phone and code",
     login_error_missing_account_password: "Please enter account and password",
     login_error_password_mismatch: "The two passwords do not match",
+    password_rule_hint: "Password must be at least 6 characters and include both uppercase and lowercase letters",
 
     // Shared dialog text
     ui_dialog_success: "Success",
@@ -931,6 +932,7 @@ export const translations = {
     login_error_missing_fields: "请输入手机号和验证码",
     login_error_missing_account_password: "请输入账号和密码",
     login_error_password_mismatch: "两次输入的密码不一致",
+    password_rule_hint: "密码至少需要 6 位，且需同时包含大写和小写字母",
 
     ui_dialog_success: "成功",
     ui_dialog_notice: "提示",
@@ -1009,7 +1011,7 @@ export const translations = {
     wb_nav_workbench: "工作台",
     wb_nav_assets: "素材库",
     wb_nav_agent: "助手",
-    wb_nav_templates: "模版配置",
+    wb_nav_templates: "模板配置",
     wb_nav_history: "历史记录",
     wb_nav_billing: "计费",
     wb_replay_dev_entry: "正在开发",
@@ -1299,7 +1301,7 @@ export const translations = {
     wb_generating: "生成中...",
 
     wb_config_title: "配置",
-    wb_config_template_label: "快速模版", 
+    wb_config_template_label: "快捷模板", 
     wb_config_manage: "管理",
     wb_config_custom: "自定义配置",
     wb_config_prompt_label: "创意描述 (选填)",
@@ -1525,9 +1527,9 @@ export const translations = {
     assets_upload_error_unsupported: "格式不支持",
     assets_upload_drop_here: "拖拽文件到此处上传",
 
-    tpl_title: "模版库",
+    tpl_title: "模板库",
     tpl_subtitle: "管理你的常用视频生成配置",
-    tpl_btn_new: "新建模版",
+    tpl_btn_new: "新建模板",
     tpl_card_tiktok: "抖音爆款",
     tpl_card_product: "高端产品展示",
     tpl_btn_edit: "编辑配置",
@@ -1536,16 +1538,16 @@ export const translations = {
     tpl_meta_ratio: "比例",
     tpl_meta_duration: "时长",
     tpl_meta_shots: "镜头数",
-    tpl_delete_confirm_title: "删除模版",
-    tpl_delete_confirm_message: "该模版会被永久删除。",
-    tpl_delete_failed: "删除模版失败",
+    tpl_delete_confirm_title: "删除模板",
+    tpl_delete_confirm_message: "删除后无法恢复，确认删除这个模板吗？",
+    tpl_delete_failed: "删除模板失败",
 
-    editor_title: "编辑模版配置",
+    editor_title: "编辑模板配置",
     editor_subtitle: "配置各项参数预设，保存后可在工作台直接调用",
-    editor_label_name: "模版名称",
+    editor_label_name: "模板名称",
     editor_label_icon: "预设图标",
     editor_btn_cancel: "取消",
-    editor_btn_save: "保存模版",
+    editor_btn_save: "保存模板",
 
     hist_title: "历史记录",
     hist_subtitle: "查看过往生成的视频项目",

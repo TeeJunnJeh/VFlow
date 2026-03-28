@@ -63,16 +63,10 @@ type ScriptCreativeCard = {
   callToAction?: string;
 };
 
-type ReferenceSummaryItem = {
-  type: 'model' | 'product' | 'scene';
-  keywords: string[];
-};
-
 type ScriptPage = {
   id: string;
   name: string;
   scripts: ScriptItem[];
-  referenceSummary?: ReferenceSummaryItem[];
   fullScript?: string;
   continuityAnchor?: {
     subject?: string;
@@ -2745,14 +2739,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return normalized;
     });
   }, [canBeKlingSubject, handleInvalidKlingSubjectTarget, klingGenerateMode, normalizeQueueSourcesForKlingMode]);
-  const referencePreviewAssetsByType = useMemo(() => {
-    const next: Partial<Record<'model' | 'product' | 'scene', QueuedAsset>> = {};
-    for (const asset of uploadDisplayAssets) {
-      if (asset.materialType !== 'model' && asset.materialType !== 'product' && asset.materialType !== 'scene') continue;
-      next[asset.materialType] = asset;
-    }
-    return next;
-  }, [uploadDisplayAssets]);
   useEffect(() => {
     if (!isKlingOmniMode) return;
     if (skipNextKlingNormalizeRef.current) {
@@ -2771,7 +2757,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     });
   }, [isKlingOmniMode, klingGenerateMode, normalizeQueueSourcesForKlingMode]);
   const activeScriptPlan = scriptPages[activeScriptPage];
-  const activeReferenceSummary = activeScriptPlan?.referenceSummary || [];
   const activeFullScript = activeScriptPlan?.fullScript || '';
   const activeCreativeCard = activeScriptPlan?.creativeCard;
   const activeCreativeCardText = activeScriptPlan?.creativeCardText || '';
@@ -4661,9 +4646,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           id: `page-${idx + 1}`,
           name: `${t.wb_script_page_prefix} ${idx + 1}`,
           scripts: shots,
-          referenceSummary: parseReferenceSummary(
-              scriptContent?.reference_assets_summary || raw?.reference_assets_summary
-          ),
           fullScript,
           continuityAnchor: {
             subject: normalizeText(continuityAnchor?.subject),
@@ -4681,24 +4663,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           creativeCard: normalizedCreativeCard,
           creativeCardText: buildCreativeCardEditorText(normalizedCreativeCard),
         };
-      };
-      const parseReferenceSummary = (summary: any): ReferenceSummaryItem[] => {
-        if (!Array.isArray(summary)) return [];
-        const allowedTypes = new Set(['model', 'product', 'scene']);
-        const next: ReferenceSummaryItem[] = [];
-        for (const item of summary) {
-          if (!item || typeof item !== 'object') continue;
-          const type = String(item.type || '').toLowerCase();
-          if (!allowedTypes.has(type)) continue;
-          if (!Array.isArray(item.keywords)) continue;
-          const keywords = item.keywords
-              .map((kw: any) => String(kw || '').trim())
-              .filter((kw: string, idx: number, arr: string[]) => kw.length > 0 && arr.indexOf(kw) === idx)
-              .slice(0, 3);
-          if (keywords.length === 0) continue;
-          next.push({ type: type as ReferenceSummaryItem['type'], keywords });
-        }
-        return next;
       };
 
       const unwrapScriptPayload = (data: any) => {
@@ -7582,40 +7546,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           />
                         </div>
                       </div>
-                    </div>
-                  </div>
-              )}
-              {activeReferenceSummary.length > 0 && (
-                  <div className="glass-panel rounded-xl p-3 border border-white/10">
-                    <div className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2">{t.wb_upload_title}</div>
-                    <div className="space-y-2">
-                      {activeReferenceSummary.map((item, idx) => {
-                        const previewAsset = referencePreviewAssetsByType[item.type];
-                        const previewSrc = previewAsset?.previewUrl || previewAsset?.assetUrl || null;
-                        return (
-                            <div key={`${item.type}-${idx}`} className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 p-2">
-                              <div className="w-10 h-10 rounded-md overflow-hidden border border-white/10 bg-zinc-900 shrink-0 flex items-center justify-center">
-                                {previewSrc ? (
-                                    <img src={previewSrc} alt={previewAsset?.name || item.type} className="w-full h-full object-cover" />
-                                ) : (
-                                    <Layers className="w-4 h-4 text-zinc-500" />
-                                )}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="text-[10px] text-zinc-300 font-semibold">
-                                  {materialTypeLabelMap[item.type]}
-                                </div>
-                                <div className="flex flex-wrap gap-1 mt-1">
-                                  {item.keywords.map((kw, kIdx) => (
-                                      <span key={`${item.type}-${kIdx}-${kw}`} className="text-[10px] px-1.5 py-0.5 rounded border border-white/15 bg-white/5 text-zinc-200">
-                                  {kw}
-                                </span>
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                        );
-                      })}
                     </div>
                   </div>
               )}

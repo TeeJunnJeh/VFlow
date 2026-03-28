@@ -6684,10 +6684,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 type="button"
                 onClick={() => setIsTaskQueueOpen((prev) => !prev)}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200 transition"
-                title="查看正在生成的视频队列"
+                title={t.wb_queue_tooltip || '查看正在生成的视频队列'}
               >
                 <List className="w-4 h-4" />
-                <span className="text-[11px] font-bold">生成队列</span>
+                <span className="text-[11px] font-bold">{t.wb_queue_label || '生成队列'}</span>
                 {activeVideoTaskCount > 0 ? (
                   <span className="ml-1 px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300 text-[10px] font-black border border-orange-500/30">
                     {activeVideoTaskCount}
@@ -6702,26 +6702,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 >
                   <div className="flex items-center justify-between">
                     <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                      正在生成 {activeVideoTaskCount > 0 ? `(${activeVideoTaskCount})` : ''}
+                      {t.wb_queue_processing || '正在生成'} {activeVideoTaskCount > 0 ? `(${activeVideoTaskCount})` : ''}
                     </div>
                     <button
                       type="button"
                       onClick={() => setIsTaskQueueOpen(false)}
                       className="text-zinc-400 hover:text-white"
-                      title="关闭"
+                      title={t.wb_queue_close || '关闭'}
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
 
                   {activeVideoTaskCount === 0 ? (
-                    <div className="mt-3 text-xs text-zinc-500">暂无正在生成的任务</div>
+                    <div className="mt-3 text-xs text-zinc-500">{t.wb_queue_empty_processing || '暂无正在生成的任务'}</div>
                   ) : (
                     <div className="mt-3 space-y-2 max-h-64 overflow-y-auto custom-scroll pr-1">
                       {activeVideoTasks.slice(0, 12).map((task) => {
                         const elapsed = Math.max(0, Math.floor((taskQueueNowTs - task.createdAt) / 1000));
                         const left = Math.max(0, 120 - elapsed);
-                        const countdownText = left > 0 ? `剩余 ${left}s` : '马上完成';
+                        const remainingTpl = t.wb_queue_remaining || '剩余 {s}s';
+                        const countdownText = left > 0 ? remainingTpl.replace('{s}', String(left)) : (t.wb_queue_soon_done || '马上完成');
                         const backendProjectId = String(task.projectId || '').trim();
                         const workbenchProjectId = String((task as any)?.workbenchProjectId || '').trim();
                         const displayProjectId = workbenchProjectId || backendProjectId;
@@ -6748,15 +6749,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <div className="mt-4">
                     <div className="flex items-center justify-between">
                       <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                        生成完成 {completedVideoTaskCount > 0 ? `(${completedVideoTaskCount})` : ''}
+                        {t.wb_queue_completed || '生成完成'} {completedVideoTaskCount > 0 ? `(${completedVideoTaskCount})` : ''}
                       </div>
                       {completedVideoTaskCount > 3 && (
                         <button
                           type="button"
                           onClick={() => setIsCompletedCollapsed(prev => !prev)}
                           className="text-zinc-400 hover:text-white"
-                          aria-label={isCompletedCollapsed ? '展开' : '折叠'}
-                          title={isCompletedCollapsed ? '展开' : '折叠'}
+                          aria-label={isCompletedCollapsed ? (t.wb_expand || '展开') : (t.wb_collapse || '折叠')}
+                          title={isCompletedCollapsed ? (t.wb_expand || '展开') : (t.wb_collapse || '折叠')}
                         >
                           {isCompletedCollapsed ? (
                             <ChevronDown className="w-4 h-4" />
@@ -6768,7 +6769,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </div>
 
                     {completedVideoTaskCount === 0 ? (
-                      <div className="mt-2 text-xs text-zinc-500">暂无生成完成的任务</div>
+                      <div className="mt-2 text-xs text-zinc-500">{t.wb_queue_empty_completed || '暂无生成完成的任务'}</div>
                     ) : (isCompletedCollapsed && completedVideoTaskCount > 3) ? null : (
                       <div className="mt-2 space-y-2 max-h-48 overflow-y-auto custom-scroll pr-1">
                         {completedVideoTasks.slice(0, 12).map((task) => {
@@ -6812,7 +6813,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 }
 
                                 console.warn('[TaskQueue] completed item has no mapped workbenchProjectId; skip creating placeholder project', debugPayload);
-                                setToastMessage('该任务未绑定到工作台项目（旧数据），无法跳转项目');
+                                setToastMessage(t.wb_queue_unbound_toast || '该任务未绑定到工作台项目（旧数据），无法跳转项目');
                               }}
                               className={`w-full flex items-center gap-2 rounded-lg border px-2.5 py-2 ${canPreview ? 'border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200' : 'border-white/5 bg-white/5 text-zinc-500 cursor-not-allowed'}`}
                               title={displayName}
@@ -6822,7 +6823,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 <div className="text-xs truncate">{displayName}</div>
                                 <div className="text-[10px] text-zinc-500 truncate">ID: {String(task.id)}</div>
                               </div>
-                              <div className="text-[11px] text-zinc-400 shrink-0">{canPreview ? '预览' : '暂无视频'}</div>
+                              <div className="text-[11px] text-zinc-400 shrink-0">{canPreview ? (t.wb_queue_preview || '预览') : (t.wb_queue_no_video || '暂无视频')}</div>
                             </button>
                           );
                         })}

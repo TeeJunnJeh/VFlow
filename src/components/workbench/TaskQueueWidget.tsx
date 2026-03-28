@@ -2,6 +2,7 @@ import React from 'react';
 import { Loader2, CheckCircle, X, Trash2 } from 'lucide-react';
 import { useTasks } from '../../context/TaskContext';
 import { useAuth } from '../../context/AuthContext';
+import { useLanguage } from '../../context/LanguageContext';
 
 interface TaskQueueWidgetProps {
   onPreview: (url: string) => void;
@@ -23,6 +24,7 @@ type LocalProjectStore = {
 const LOCAL_PROJECT_STORE_KEY_PREFIX = 'vflow_workbench_projects_v1';
 
 export const TaskQueueWidget: React.FC<TaskQueueWidgetProps> = ({ onPreview }) => {
+  const { t: i18n } = useLanguage();
   const { user } = useAuth();
   const { tasks, removeTask } = useTasks();
   const [isAutoHidden, setIsAutoHidden] = React.useState(false);
@@ -154,7 +156,10 @@ export const TaskQueueWidget: React.FC<TaskQueueWidgetProps> = ({ onPreview }) =
     <div className="absolute bottom-4 right-4 bg-zinc-900/90 border border-white/10 rounded-xl p-3 shadow-2xl w-72 z-50 backdrop-blur">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-          后台任务 {activeCount > 0 ? `(${activeCount} 进行中)` : ''}
+          {i18n.wb_bg_tasks_title || '后台任务'}
+          {activeCount > 0
+            ? `(${(i18n.wb_bg_tasks_running || '{n} 进行中').replace('{n}', String(activeCount))})`
+            : ''}
         </h3>
         <button
           type="button"
@@ -163,8 +168,8 @@ export const TaskQueueWidget: React.FC<TaskQueueWidgetProps> = ({ onPreview }) =
             setIsAutoHidden(true);
           }}
           className="text-zinc-500 hover:text-zinc-200 transition"
-          title="关闭"
-          aria-label="关闭"
+          title={i18n.wb_bg_tasks_close || '关闭'}
+          aria-label={i18n.wb_bg_tasks_close || '关闭'}
         >
           <X className="w-4 h-4" />
         </button>
@@ -175,21 +180,22 @@ export const TaskQueueWidget: React.FC<TaskQueueWidgetProps> = ({ onPreview }) =
         className={`space-y-2 max-h-52 ${hasOverflow ? 'overflow-y-auto' : 'overflow-y-hidden'} custom-scroll pr-1`}
         style={hasOverflow ? { scrollbarGutter: 'stable' } : undefined}
       >
-        {recentTasks.map(t => {
-          const url = t.result?.video_url || t.result?.url;
-          const isActive = t.status === 'pending' || t.status === 'processing';
-          const workbenchProjectId = String((t as any)?.workbenchProjectId || '').trim();
-          const backendProjectId = String((t as any)?.projectId || '').trim();
+        {recentTasks.map((task) => {
+          const url = task.result?.video_url || task.result?.url;
+          const isActive = task.status === 'pending' || task.status === 'processing';
+          const workbenchProjectId = String((task as any)?.workbenchProjectId || '').trim();
+          const backendProjectId = String((task as any)?.projectId || '').trim();
           const displayProjectId = workbenchProjectId || backendProjectId;
           const projectName = projectNameMap[displayProjectId] || (displayProjectId ? `Project ${displayProjectId.slice(0, 6)}` : 'Project');
-          const taskName = t.name || `Task ${t.id}`;
+          const rawName = task.name || `Task ${task.id}`;
+          const taskName = rawName.includes(' / ') ? rawName.split(' / ').slice(1).join(' / ').trim() : rawName;
           const displayName = `${projectName} / ${taskName}`;
 
           return (
-            <div key={t.id} className="flex items-center gap-2 text-[11px]">
+            <div key={task.id} className="flex items-center gap-2 text-[11px]">
               {isActive ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-500 shrink-0" />
-              ) : t.status === 'success' ? (
+              ) : task.status === 'success' ? (
                 <CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0" />
               ) : (
                 <X className="w-3.5 h-3.5 text-red-500 shrink-0" />
@@ -206,9 +212,11 @@ export const TaskQueueWidget: React.FC<TaskQueueWidgetProps> = ({ onPreview }) =
               </button>
 
               {(() => {
-                const elapsed = Math.max(0, Math.floor((nowTs - t.createdAt) / 1000));
+                const elapsed = Math.max(0, Math.floor((nowTs - task.createdAt) / 1000));
                 const left = Math.max(0, 120 - elapsed);
-                const text = isActive ? (left > 0 ? `剩余 ${left}s` : '马上完成') : '';
+                const remainingTpl = i18n.wb_queue_remaining || '剩余 {s}s';
+                const soonDoneText = i18n.wb_queue_soon_done || '马上完成';
+                const text = isActive ? (left > 0 ? remainingTpl.replace('{s}', String(left)) : soonDoneText) : '';
                 return (
                   <span className="text-[10px] text-zinc-500 shrink-0 min-w-[64px] text-right">
                     {text}
@@ -217,9 +225,9 @@ export const TaskQueueWidget: React.FC<TaskQueueWidgetProps> = ({ onPreview }) =
               })()}
 
               <button
-                onClick={() => removeTask(t.id)}
+                onClick={() => removeTask(task.id)}
                 className="text-zinc-500 hover:text-zinc-200 transition"
-                title="移除"
+                title={i18n.wb_bg_tasks_remove || '移除'}
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>

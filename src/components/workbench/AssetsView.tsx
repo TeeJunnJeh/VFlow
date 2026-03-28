@@ -282,6 +282,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [isAssetPreviewOpen, setIsAssetPreviewOpen] = useState(false);
   const [assetPreview, setAssetPreview] = useState<Asset | null>(null);
   const [assetDescriptionDraft, setAssetDescriptionDraft] = useState('');
+  const [isAssetDescriptionSaved, setIsAssetDescriptionSaved] = useState(true);
+  const [assetDescriptionSavedAt, setAssetDescriptionSavedAt] = useState('');
   const [isGeneratingAssetDescription, setIsGeneratingAssetDescription] = useState(false);
   const [isSavingAssetDescription, setIsSavingAssetDescription] = useState(false);
   const [subjectLibraryAssets, setSubjectLibraryAssets] = useState<Asset[]>([]);
@@ -910,6 +912,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
         }),
       }) as Record<string, unknown>;
       syncPreviewAssetMeta(assetPreview.id, nextMeta);
+      setIsAssetDescriptionSaved(true);
+      setAssetDescriptionSavedAt(new Date().toISOString().slice(0, 10));
       openInfo(t.assets_confirm_title || 'Notice', t.assets_save || 'Saved');
     } catch (err) {
       openInfo(t.assets_confirm_title || 'Notice', String(err instanceof Error ? err.message : err));
@@ -1058,6 +1062,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
         return;
       }
       setAssetDescriptionDraft(nextDescription);
+      setIsAssetDescriptionSaved(false);
     } catch (err) {
       openInfo(t.assets_confirm_title || 'Notice', String(err instanceof Error ? err.message : err));
     } finally {
@@ -1822,6 +1827,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                               }
                               setAssetPreview(asset);
                               setAssetDescriptionDraft(getAssetSubjectDescription(asset));
+                              setIsAssetDescriptionSaved(true);
+                              setAssetDescriptionSavedAt(String(asset.created_at || '').slice(0, 10));
                               setIsAssetPreviewOpen(true);
                             }}
                           >
@@ -2204,20 +2211,31 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                     </div>
                     <textarea
                       value={assetDescriptionDraft}
-                      onChange={(e) => setAssetDescriptionDraft(e.target.value)}
+                      onChange={(e) => {
+                        setAssetDescriptionDraft(e.target.value);
+                        setIsAssetDescriptionSaved(false);
+                      }}
                       rows={6}
                       className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-orange-500/50"
                       placeholder={t.assets_description_placeholder}
                     />
                     <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-zinc-500">
-                      <span>{assetPreview.created_at ? `${t.assets_updated_at} ${String(assetPreview.created_at).slice(0, 10)}` : ''}</span>
+                      <span>{assetDescriptionSavedAt ? `${t.assets_updated_at} ${assetDescriptionSavedAt}` : ''}</span>
                       <button
                         type="button"
                         disabled={isSavingAssetDescription}
                         onClick={() => void saveAssetDescription()}
-                        className="rounded-lg bg-white px-3 py-1.5 text-[11px] font-bold text-black disabled:opacity-60"
+                        className={`rounded-lg px-3 py-1.5 text-[11px] font-bold disabled:opacity-60 ${
+                          isAssetDescriptionSaved
+                            ? 'bg-zinc-200 text-zinc-600'
+                            : 'bg-white text-black'
+                        }`}
                       >
-                        {isSavingAssetDescription ? t.assets_saving_description : t.assets_save_description}
+                        {isSavingAssetDescription
+                          ? t.assets_saving_description
+                          : (isAssetDescriptionSaved
+                              ? (t.assets_saved_description || '已保存')
+                              : t.assets_save_description)}
                       </button>
                     </div>
                   </div>

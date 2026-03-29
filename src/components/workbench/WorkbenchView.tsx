@@ -3496,10 +3496,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const formatWorkbenchError = (err: unknown, fallback: string) => {
     if (err instanceof VideoApiError) {
       const base = String(err.message || fallback);
-      if (err.trackingId) {
-        return `${base}\nTracking ID: ${err.trackingId}`;
+      const parts: string[] = [base];
+      // 如果有 errorCode，附带展示，方便用户截图反馈
+      if (err.errorCode) {
+        parts.push(`[${err.errorCode}]`);
       }
-      return base;
+      if (err.trackingId) {
+        parts.push(`Tracking ID: ${err.trackingId}`);
+      }
+      return parts.join('\n');
     }
     const raw = (err as any)?.message;
     if (typeof raw === 'string' && raw.trim()) return raw.trim();
@@ -4705,13 +4710,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     } catch (err: any) {
       console.error("Script Gen Error:", err);
-      let msg = err.message;
-      try {
-        const jsonPart = err.message.substring(err.message.indexOf('{'));
-        const parsed = JSON.parse(jsonPart);
-        if (parsed.message) msg = parsed.message;
-      } catch (e) {}
-      openInfo(popupTitles.error, `${t.wb_popup_script_failed}：${msg}`);
+      openInfo(popupTitles.error, `${t.wb_popup_script_failed}：${formatWorkbenchError(err, t.wb_popup_script_failed)}`);
     } finally {
       setIsGeneratingScript(false);
     }

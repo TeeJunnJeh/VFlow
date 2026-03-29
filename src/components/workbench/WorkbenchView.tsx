@@ -27,6 +27,9 @@ import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { type Template } from '../../services/templates';
 import { AppDialog } from '../common/AppDialog';
+import { ErrorModal } from './workflow/ErrorModal';
+import type { ErrorModalProps } from './workflow/ErrorModal';
+import { buildErrorModalData, type ErrorCategory, type ErrorI18n } from '../../utils/errorModalHelper';
 import { getWorkbenchPreferences, setWorkbenchPreferences } from '../../utils/preferences';
 import { type ReplayReusePayload } from './ReplayScriptView';
 
@@ -776,6 +779,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setInfoMessage(message || null);
     setIsInfoOpen(true);
   };
+
+  // ─── ErrorModal 状态（结构化错误弹窗） ───
+  const [errorModalData, setErrorModalData] = useState<Omit<ErrorModalProps, 'isOpen' | 'onClose'> | null>(null);
+  const closeErrorModal = () => setErrorModalData(null);
+
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [confirmTitle, setConfirmTitle] = useState('');
   const [confirmMessage, setConfirmMessage] = useState('');
@@ -2501,7 +2509,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       if (err instanceof VideoApiError && err.status === 404) {
         openInfo(popupTitles.notice, t.wb_ai_opt_backend_not_ready || '后端暂未接入图生图接口。');
       } else {
-        openInfo(popupTitles.error, err?.message || t.wb_ai_opt_generate_failed || '图片优化失败，请稍后重试。');
+        openErrorModal(err, { category: 'generation_failed', onRetry: handleGenerateOptimizedImages });
       }
     } finally {
       setIsAiOptimizeGenerating(false);
@@ -3150,7 +3158,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           setHasAiRecognized(true);
           lastRecognizedSignatureRef.current = productImageSignature || signature;
         } catch (err: any) {
-          openInfo(popupTitles.error, t.wb_ai_recognize_failed);
+          openErrorModal(err, { category: 'recognize_failed' });
         } finally {
           setIsAiRecognizing(false);
         }
@@ -3318,7 +3326,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setLastUploadedUrl(firstPath);
       openInfo(popupTitles.success, '已生成并写入首尾帧，可直接用于可灵首尾帧模式');
     } catch (err) {
-      openInfo(popupTitles.error, formatWorkbenchError(err, '首尾帧生成失败'));
+      openErrorModal(err, { category: 'generation_failed', onRetry: handleGenerateKlingBoundaryFrames });
     } finally {
       setIsGeneratingKlingBoundaryFrames(false);
     }
@@ -3511,6 +3519,62 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return fallback;
   };
 
+  // ─── 结构化错误弹窗 ───
+  // 从 t 中提取 ErrorI18n 所需的国际化文本
+  const errorI18n: Partial<ErrorI18n> = {
+    err_title_generation: t.err_title_generation,
+    err_title_script: t.err_title_script,
+    err_title_parse: t.err_title_parse,
+    err_title_recognize: t.err_title_recognize,
+    err_title_upload: t.err_title_upload,
+    err_title_network: t.err_title_network,
+    err_title_auth: t.err_title_auth,
+    err_title_unknown: t.err_title_unknown,
+    err_msg_generation: t.err_msg_generation,
+    err_msg_script: t.err_msg_script,
+    err_msg_parse: t.err_msg_parse,
+    err_msg_recognize: t.err_msg_recognize,
+    err_msg_upload: t.err_msg_upload,
+    err_msg_network: t.err_msg_network,
+    err_msg_auth: t.err_msg_auth,
+    err_msg_unknown: t.err_msg_unknown,
+    err_sug_retry: t.err_sug_retry,
+    err_sug_check_network: t.err_sug_check_network,
+    err_sug_check_params: t.err_sug_check_params,
+    err_sug_relogin: t.err_sug_relogin,
+    err_sug_contact_support: t.err_sug_contact_support,
+    err_sug_try_later: t.err_sug_try_later,
+    err_sug_manual_fill: t.err_sug_manual_fill,
+    err_btn_retry: t.err_btn_retry,
+    err_btn_feedback: t.err_btn_feedback,
+  };
+
+  /**
+   * 打开结构化错误弹窗（替代 openInfo + formatWorkbenchError 的组合）
+   *
+   * @param error    错误对象
+   * @param category 错误类别（不传则自动推断）
+   * @param onRetry  重试回调（不传则不显示重试按钮）
+   * @param messageOverride 覆盖默认消息
+   */
+  const openErrorModal = (
+    error: unknown,
+    opts?: {
+      category?: ErrorCategory;
+      onRetry?: () => void;
+      messageOverride?: string;
+    },
+  ) => {
+    const data = buildErrorModalData({
+      error,
+      category: opts?.category,
+      onRetry: opts?.onRetry,
+      messageOverride: opts?.messageOverride,
+      i18n: errorI18n,
+    });
+    setErrorModalData(data);
+  };
+
   const generateWithAdaptiveImageConfirm = async (payload: GeneratePayload) => {
     try {
       return await videoApi.generate(payload);
@@ -3582,7 +3646,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const preview = await refreshDebugPreview(payload as Record<string, unknown>);
       setDebugPayloadText(JSON.stringify(preview.request_payload || payload, null, 2));
     } catch (err: any) {
-      openInfo(popupTitles.error, formatWorkbenchError(err, t.wb_popup_generation_failed));
+      openErrorModal(err, { category: 'generation_failed', onRetry: handlePrepareDebug });
     } finally {
       setIsPreparingDebug(false);
     }
@@ -3597,7 +3661,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       parsed = next as Record<string, unknown>;
     } catch {
-      openInfo(popupTitles.error, t.wb_debug_invalid_json);
+      openErrorModal(new Error(t.wb_debug_invalid_json), { category: 'parse_failed' });
       return;
     }
 
@@ -3606,7 +3670,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const preview = await refreshDebugPreview(parsed);
       setDebugPayloadText(JSON.stringify(preview.request_payload || parsed, null, 2));
     } catch (err: any) {
-      openInfo(popupTitles.error, formatWorkbenchError(err, t.wb_popup_generation_failed));
+      openErrorModal(err, { category: 'generation_failed', onRetry: handleRefreshDebugPreview });
     } finally {
       setIsPreparingDebug(false);
     }
@@ -3621,7 +3685,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       parsed = next as GeneratePayload;
     } catch {
-      openInfo(popupTitles.error, t.wb_debug_invalid_json);
+      openErrorModal(new Error(t.wb_debug_invalid_json), { category: 'parse_failed' });
       return;
     }
 
@@ -3630,7 +3694,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     try {
       await submitSingleGeneration(parsed);
     } catch (err: any) {
-      openInfo(popupTitles.error, formatWorkbenchError(err, t.wb_popup_generation_failed));
+      openErrorModal(err, { category: 'generation_failed', onRetry: handleSendDebugPayload });
     } finally {
       setIsSendingDebug(false);
     }
@@ -4710,7 +4774,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     } catch (err: any) {
       console.error("Script Gen Error:", err);
-      openInfo(popupTitles.error, `${t.wb_popup_script_failed}：${formatWorkbenchError(err, t.wb_popup_script_failed)}`);
+      openErrorModal(err, { category: 'script_failed', onRetry: handleGenerateScripts });
     } finally {
       setIsGeneratingScript(false);
     }
@@ -4780,7 +4844,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         }
       } catch (err) {
         console.error(err);
-        openInfo(popupTitles.error, t.wb_popup_parse_script_failed);
+        openErrorModal(err, { category: 'parse_failed' });
       }
     };
     reader.readAsText(file);
@@ -5030,7 +5094,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (err?.message === USER_CANCELLED_ADAPT) {
           openInfo(popupTitles.notice, t.wb_popup_batch_cancelled);
         } else {
-          openInfo(popupTitles.error, `${t.wb_popup_batch_failed}：${formatWorkbenchError(err, t.wb_popup_generation_failed)}`);
+          openErrorModal(err, { category: 'generation_failed', onRetry: handleGenerateVideo });
         }
       } finally {
         setIsGenerating(false);
@@ -5049,7 +5113,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       if (err?.message === USER_CANCELLED_ADAPT) {
         openInfo(popupTitles.notice, t.wb_popup_batch_cancelled);
       } else {
-        openInfo(popupTitles.error, formatWorkbenchError(err, t.wb_popup_generation_failed));
+        openErrorModal(err, { category: 'generation_failed', onRetry: handleGenerateVideo });
       }
     } finally {
       setIsGenerating(false);
@@ -5110,7 +5174,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             window.location.href = authUrl;
             return;
           } catch (err: any) {
-            openInfo(popupTitles.error, err?.message || t.wb_popup_tiktok_switch_failed);
+            openErrorModal(err, { category: 'upload_failed' });
           }
         }
         setIsPostingTikTok(false);
@@ -5126,7 +5190,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       openInfo(popupTitles.success, t.wb_popup_tiktok_upload_success);
     } catch (err: any) {
-      openInfo(popupTitles.error, err?.message || t.wb_popup_tiktok_upload_failed);
+      openErrorModal(err, { category: 'upload_failed', onRetry: handlePublishToTikTok });
     } finally {
       setIsPostingTikTok(false);
     }
@@ -6933,6 +6997,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             <div className="fixed left-6 bottom-6 z-[140] max-w-[360px] rounded-xl border border-white/10 bg-black/70 px-4 py-3 text-xs text-zinc-200 shadow-lg shadow-black/30">
               {toastMessage}
             </div>
+        )}
+
+        {/* 结构化错误弹窗 —— 替代原有的 openInfo(error) 纯文本展示 */}
+        {errorModalData && (
+          <ErrorModal
+            isOpen={true}
+            title={errorModalData.title}
+            code={errorModalData.code}
+            message={errorModalData.message}
+            details={errorModalData.details}
+            suggestions={errorModalData.suggestions}
+            actions={errorModalData.actions}
+            onClose={closeErrorModal}
+          />
         )}
 
         {isInfoOpen && (

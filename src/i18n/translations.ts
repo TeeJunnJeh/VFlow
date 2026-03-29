@@ -453,7 +453,7 @@ export const translations = {
     wb_script_gen_err_insufficient_credits: "Insufficient credits. Please recharge and try again.",
 
     wb_script_plan_card_title: "Script plan",
-    wb_script_plan_card_badge: "Kling 3.0 prompt",
+    wb_script_plan_card_badge: "Kling prompt",
     wb_script_plan_full_script_label: "Full script",
     wb_script_plan_full_script_placeholder: "Enter the full script plan...",
     wb_script_plan_field_style: "[Style]",
@@ -1334,7 +1334,7 @@ export const translations = {
     wb_script_gen_err_insufficient_credits: "V点不足，请充值后重试。",
 
     wb_script_plan_card_title: "脚本方案卡",
-    wb_script_plan_card_badge: "可灵3.0提示词",
+    wb_script_plan_card_badge: "可灵提示词",
     wb_script_plan_full_script_label: "完整脚本",
     wb_script_plan_full_script_placeholder: "输入完整脚本方案...",
     wb_script_plan_field_style: "[风格]",
@@ -2101,7 +2101,7 @@ export const translations = {
     wb_script_gen_err_insufficient_credits: "Kredit tidak mencukupi. Sila tambah nilai dan cuba lagi.",
 
     wb_script_plan_card_title: "Pelan skrip",
-    wb_script_plan_card_badge: "Prompt Kling 3.0",
+    wb_script_plan_card_badge: "Prompt Kling",
     wb_script_plan_full_script_label: "Skrip penuh",
     wb_script_plan_full_script_placeholder: "Masukkan pelan skrip penuh...",
     wb_script_plan_field_style: "[Gaya]",
@@ -2820,7 +2820,7 @@ export const translations = {
     wb_script_gen_err_insufficient_credits: "Không đủ credit. Vui lòng nạp thêm và thử lại.",
 
     wb_script_plan_card_title: "Kế hoạch kịch bản",
-    wb_script_plan_card_badge: "Prompt Kling 3.0",
+    wb_script_plan_card_badge: "Prompt Kling",
     wb_script_plan_full_script_label: "Kịch bản đầy đủ",
     wb_script_plan_full_script_placeholder: "Nhập kế hoạch kịch bản đầy đủ...",
     wb_script_plan_field_style: "[Phong cách]",
@@ -3546,7 +3546,7 @@ export const translations = {
     wb_script_gen_err_insufficient_credits: "크레딧이 부족합니다. 충전 후 다시 시도해 주세요.",
 
     wb_script_plan_card_title: "스크립트 플랜",
-    wb_script_plan_card_badge: "Kling 3.0 프롬프트",
+    wb_script_plan_card_badge: "Kling 프롬프트",
     wb_script_plan_full_script_label: "전체 스크립트",
     wb_script_plan_full_script_placeholder: "전체 스크립트 플랜을 입력하세요...",
     wb_script_plan_field_style: "[스타일]",

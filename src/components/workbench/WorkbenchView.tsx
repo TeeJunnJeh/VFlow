@@ -7525,7 +7525,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               ? 'border border-purple-300 bg-purple-100 text-purple-800'
                               : 'border border-purple-500/30 bg-purple-500/20 text-purple-200'
                             }`}>
-                              {String(language || '').toLowerCase().startsWith('zh') ? '可灵3.0提示词' : 'Kling 3.0 Prompt'}
+                              {String(language || '').toLowerCase().startsWith('zh') ? '可灵提示词' : 'Kling Prompt'}
                             </span>
                           </div>
                           <div className={`text-[10px] mt-0.5 font-medium ${isLightTheme ? 'text-slate-600' : 'text-zinc-500'}`}>{t.wb_script_page_prefix} {activeScriptPage + 1}</div>

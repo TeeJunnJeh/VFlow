@@ -66,6 +66,29 @@ export type GenerateFusionImagePayload = {
 };
 
 export const videoApi = {
+  estimateVideoTime: async (params: { model: string; duration: number; sound?: string }) => {
+    const query = new URLSearchParams();
+    query.set('model', String(params.model || ''));
+    query.set('duration', String(params.duration ?? ''));
+    if (params.sound) query.set('sound', String(params.sound));
+
+    const response = await fetch(`/api/tasks/estimate/?${query.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const msg = await readApiError(response);
+      throw new Error(msg);
+    }
+
+    return await response.json();
+  },
+
   // Debug: fetch backend prompt templates (for prompt tuning UI)
   getPromptTemplates: async () => {
     const response = await fetch(`${API_BASE_URL}/prompt-templates/`, {

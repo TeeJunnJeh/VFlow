@@ -608,7 +608,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const normalizeDurationForModel = useCallback((value: number | null | undefined, model: string) => {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return 10;
+
     if (model === 'kling') return Math.min(10, Math.max(3, Math.round(numeric)));
+
+    if (model === 'sora2' || model === 'sora2pro') {
+      const allowed = [4, 8, 12];
+      const rounded = Math.round(numeric);
+      if (allowed.includes(rounded)) return rounded;
+      return allowed.reduce((best, cur) => (
+        Math.abs(cur - rounded) < Math.abs(best - rounded) ? cur : best
+      ), allowed[1]);
+    }
+
     return numeric === 5 || numeric === 10 || numeric === 15 ? numeric : 10;
   }, []);
 
@@ -843,6 +854,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const waitProgressStartedAtRef = useRef<number | null>(null);
   const waitProgressHoldValueRef = useRef<number | null>(null);
   const waitProgressTrackedTaskIdRef = useRef<string | null>(null);
+  const waitProgressSimDurationMsRef = useRef<number>(WAIT_PROGRESS_SIM_DURATION_MS);
+  const waitProgressDebugPrintedRef = useRef<boolean>(false);
   const [projectSearch, setProjectSearch] = useState('');
   const [projectActionMenuId, setProjectActionMenuId] = useState<string | null>(null);
   const [isProjectManageMode, setIsProjectManageMode] = useState(false);
@@ -930,50 +943,41 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!startedAt) return;
 
     const elapsedMs = Date.now() - startedAt;
-    const current = waitProgressValueRef.current;
+    const simDurationMs = waitProgressSimDurationMsRef.current || WAIT_PROGRESS_SIM_DURATION_MS;
 
-    if (elapsedMs >= WAIT_PROGRESS_SIM_DURATION_MS) {
+    if (!waitProgressDebugPrintedRef.current) {
+      const estSec = Math.round(simDurationMs / 1000);
+      const ratioRaw = simDurationMs > 0 ? elapsedMs / simDurationMs : 0;
+      console.log('[WaitProgressDebug]', {
+        taskId: waitProgressTrackedTaskIdRef.current,
+        estimatedSeconds: estSec,
+        simDurationMs,
+        elapsedMs,
+        ratio: ratioRaw,
+        percentApprox: Math.round(ratioRaw * 100),
+      });
+      waitProgressDebugPrintedRef.current = true;
+    }
+
+    if (phase === 'holding') {
       if (waitProgressHoldValueRef.current === null) {
-        waitProgressHoldValueRef.current =
-          WAIT_PROGRESS_HOLD_MIN + Math.random() * (WAIT_PROGRESS_HOLD_MAX - WAIT_PROGRESS_HOLD_MIN);
+        waitProgressHoldValueRef.current = 96;
       }
-      setWaitProgressPhaseWithRef('holding');
       setWaitProgressWithRef(waitProgressHoldValueRef.current);
       return;
     }
 
-    const elapsedRatio = elapsedMs / WAIT_PROGRESS_SIM_DURATION_MS;
-    const remainingMs = WAIT_PROGRESS_SIM_DURATION_MS - elapsedMs;
-    const remainingProgress = WAIT_PROGRESS_MAX_BEFORE_HOLD - current;
+    const ratio = Math.max(0, Math.min(1, elapsedMs / simDurationMs));
+    const eased = 1 - Math.pow(1 - ratio, 3);
+    const next = eased * WAIT_PROGRESS_MAX_BEFORE_HOLD;
 
-    const expectedTickMs = 650;
-    const baselineDelta = remainingProgress / Math.max(1, remainingMs / expectedTickMs);
-
-    let rangeMin = 0.35;
-    let rangeMax = 1.2;
-    if (elapsedRatio < 0.2) {
-      rangeMin = 0.7;
-      rangeMax = 1.9;
-    } else if (elapsedRatio < 0.65) {
-      rangeMin = 0.35;
-      rangeMax = 1.35;
-    } else {
-      rangeMin = 0.08;
-      rangeMax = 0.95;
-    }
-
-    const shouldPause = Math.random() < (elapsedRatio > 0.6 ? 0.2 : 0.12);
-    let delta = shouldPause ? 0 : baselineDelta * (rangeMin + Math.random() * (rangeMax - rangeMin));
-
-    if (Math.random() < 0.08) {
-      delta += 0.4 + Math.random() * 0.8;
-    }
-
-    let next = Math.min(WAIT_PROGRESS_MAX_BEFORE_HOLD, current + delta);
-    const remainingSec = remainingMs / 1000;
-    const timelineFloor = Math.max(0, WAIT_PROGRESS_MAX_BEFORE_HOLD - remainingSec * 1.25);
-    if (next < timelineFloor) {
-      next = Math.min(WAIT_PROGRESS_MAX_BEFORE_HOLD, timelineFloor + Math.random() * 0.4);
+    if (ratio >= 1) {
+      if (waitProgressHoldValueRef.current === null) {
+        waitProgressHoldValueRef.current = 96;
+      }
+      setWaitProgressPhaseWithRef('holding');
+      setWaitProgressWithRef(waitProgressHoldValueRef.current);
+      return;
     }
 
     setWaitProgressPhaseWithRef('simulating');
@@ -998,11 +1002,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }, delay);
   }, [tickWaitSimulation]);
 
-  const startWaitProgressSimulation = useCallback((taskId: string) => {
+  const startWaitProgressSimulation = useCallback((taskId: string, estimatedSeconds?: number | null) => {
     clearWaitProgressTimers();
     waitProgressTrackedTaskIdRef.current = taskId;
     waitProgressStartedAtRef.current = Date.now();
     waitProgressHoldValueRef.current = null;
+    waitProgressDebugPrintedRef.current = false;
+
+    const est = Number(estimatedSeconds);
+    const durationMs = Number.isFinite(est) && est > 0 ? Math.round(est * 1000) : 120_000;
+    waitProgressSimDurationMsRef.current = Math.max(30_000, Math.min(900_000, durationMs));
+
     setWaitingVideoFailed(false);
     setWaitProgressWithRef(0);
     setWaitProgressPhaseWithRef('simulating');
@@ -1057,7 +1067,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     if (activeTaskId) {
       if (trackedTaskId !== activeTaskId || waitProgressPhaseRef.current === 'idle') {
-        startWaitProgressSimulation(activeTaskId);
+        startWaitProgressSimulation(activeTaskId, previewActiveTask?.estimatedSeconds);
       }
       return;
     }
@@ -3468,10 +3478,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const taskId = genResp?.data?.task_id || genResp?.task_id;
 
     if (genResp?.code === 0 && taskId) {
+      const estimatedSeconds = await fetchEstimatedSeconds({
+        model: backendModel,
+        duration: Number(requestPayload.duration ?? genDuration),
+        sound: String(requestPayload.sound || '') === 'off' ? 'off' : 'on',
+      });
+      console.log('[Estimate] submitSingleGeneration', { taskId, projectId, estimatedSeconds });
+
+      const estimatedHint = (t.wb_queue_estimated_complete_in || '预计 {s}s 生成完成').replace('{s}', String(estimatedSeconds));
+
       addTask({
         id: taskId,
         projectId,
         workbenchProjectId: projectStore.currentProjectId,
+        estimatedSeconds,
         type: 'video_generation',
         status: 'processing',
         name: `${(productName || '').trim() || fileName || scriptPages[activeScriptPage]?.name || selectedTemplate?.name || 'Video'}`,
@@ -3479,7 +3499,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         createdAt: Date.now(),
       });
       setLastGeneratedProjectId(projectId);
-      openInfo(popupTitles.success, t.wb_popup_submit_success);
+      openInfo(popupTitles.success, `${t.wb_popup_submit_success}\n${estimatedHint}`);
       return;
     }
 
@@ -4998,10 +5018,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             const projectId = genResp?.data?.project_id || newProjectId;
 
             if (genResp?.code === 0 && taskId) {
+              const estimatedSeconds = await fetchEstimatedSeconds({
+                model: backendModel,
+                duration: scriptPack.duration,
+                sound: soundSetting,
+              });
+              console.log('[Estimate] batchGeneration', { taskId, projectId: String(projectId), estimatedSeconds });
+
               addTask({
                 id: taskId,
                 projectId: String(projectId),
                 workbenchProjectId: projectStore.currentProjectId,
+                estimatedSeconds,
                 type: 'video_generation',
                 status: 'processing',
                 name: `${(productName || '').trim() || asset.name || `${asset.name} × ${scriptPack.name}`}`,
@@ -5186,6 +5214,34 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               : selectedModel === 'kling'
                   ? 'kling'
                   : 'seedance-2.0';
+
+  const fetchEstimatedSeconds = useCallback(async (params: { model: string; duration: number; sound: 'on' | 'off' }) => {
+    const model = String(params.model || '').trim();
+    const duration = Number(params.duration);
+    const sound = params.sound;
+
+    const timeoutMs = 1200;
+
+    try {
+      const resp: any = await Promise.race([
+        videoApi.estimateVideoTime({ model, duration, sound }),
+        new Promise((resolve) => window.setTimeout(() => resolve(null), timeoutMs)),
+      ]);
+
+      const estimated = Number(resp?.data?.estimated_seconds);
+      if (Number.isFinite(estimated) && estimated > 0) {
+        const val = Math.round(estimated);
+        console.log('[Estimate] from api', { model, duration, sound, estimated_seconds: val, sample_count: resp?.data?.sample_count });
+        return val;
+      }
+
+      console.log('[Estimate] fallback default (invalid response)', { model, duration, sound, resp });
+    } catch (err) {
+      console.log('[Estimate] fallback default (error)', { model, duration, sound, err });
+    }
+
+    return 120;
+  }, []);
 
   const renderLeftColumn = () => {
     const segmentBase =
@@ -5754,19 +5810,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
                     <DropdownSelect
                       value={String(genDuration)}
-                      options={[
-                        { value: '5', label: '5s' },
-                        { value: '10', label: '10s' },
-                        { value: '15', label: '15s' },
-                      ]}
-                      onChange={(v) => {
-                        const next = Number(v);
-                        if (next === 5 || next === 10 || next === 15) {
-                          setGenDuration(next);
-                          return;
-                        }
-                        setGenDuration(10);
-                      }}
+                      options={selectedModel === 'sora2' || selectedModel === 'sora2pro'
+                        ? [
+                          { value: '4', label: '4s' },
+                          { value: '8', label: '8s' },
+                          { value: '12', label: '12s' },
+                        ]
+                        : [
+                          { value: '5', label: '5s' },
+                          { value: '10', label: '10s' },
+                          { value: '15', label: '15s' },
+                        ]}
+                      onChange={(v) => setGenDuration(normalizeDurationForModel(Number(v), selectedModel))}
                       buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
                       labelClassName=""
                       iconClassName="w-3 h-3 text-zinc-500"
@@ -6720,8 +6775,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     <div className="mt-3 space-y-2 max-h-64 overflow-y-auto custom-scroll pr-1">
                       {activeVideoTasks.slice(0, 12).map((task) => {
                         const elapsed = Math.max(0, Math.floor((taskQueueNowTs - task.createdAt) / 1000));
-                        const left = Math.max(0, 120 - elapsed);
-                        const remainingTpl = t.wb_queue_remaining || '剩余 {s}s';
+                        const total = (() => {
+                          const raw = Number((task as any)?.estimatedSeconds);
+                          if (Number.isFinite(raw) && raw > 0) return Math.round(raw);
+                          return 120;
+                        })();
+                        const left = Math.max(0, total - elapsed);
+                        const remainingTpl = t.wb_queue_remaining || '预估剩余 {s}s';
                         const countdownText = left > 0 ? remainingTpl.replace('{s}', String(left)) : (t.wb_queue_soon_done || '马上完成');
                         const backendProjectId = String(task.projectId || '').trim();
                         const workbenchProjectId = String((task as any)?.workbenchProjectId || '').trim();

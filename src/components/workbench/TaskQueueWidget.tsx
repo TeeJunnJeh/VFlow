@@ -39,6 +39,7 @@ export const TaskQueueWidget: React.FC<TaskQueueWidgetProps> = ({ onPreview }) =
   const activeCount = tasks.filter(t => t.status === 'pending' || t.status === 'processing').length;
   const recentTasks = tasks.slice(0, 6);
 
+
   const lastTasksLenRef = React.useRef<number>(tasks.length);
 
   React.useEffect(() => {
@@ -154,7 +155,7 @@ export const TaskQueueWidget: React.FC<TaskQueueWidgetProps> = ({ onPreview }) =
 
   return (
     <div className="absolute bottom-4 right-4 bg-zinc-900/90 border border-white/10 rounded-xl p-3 shadow-2xl w-72 z-50 backdrop-blur">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-1">
         <h3 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
           {i18n.wb_bg_tasks_title || '后台任务'}
           {activeCount > 0
@@ -213,8 +214,13 @@ export const TaskQueueWidget: React.FC<TaskQueueWidgetProps> = ({ onPreview }) =
 
               {(() => {
                 const elapsed = Math.max(0, Math.floor((nowTs - task.createdAt) / 1000));
-                const left = Math.max(0, 120 - elapsed);
-                const remainingTpl = i18n.wb_queue_remaining || '剩余 {s}s';
+                const total = (() => {
+                  const raw = Number((task as any)?.estimatedSeconds);
+                  if (Number.isFinite(raw) && raw > 0) return Math.round(raw);
+                  return 120;
+                })();
+                const left = Math.max(0, total - elapsed);
+                const remainingTpl = i18n.wb_queue_remaining || '预估剩余 {s}s';
                 const soonDoneText = i18n.wb_queue_soon_done || '马上完成';
                 const text = isActive ? (left > 0 ? remainingTpl.replace('{s}', String(left)) : soonDoneText) : '';
                 return (

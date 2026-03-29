@@ -7,6 +7,7 @@ export interface Task {
   id: string | number;       // backend GenerationTask.id
   projectId: string;         // projects.Project UUID
   workbenchProjectId?: string; // Workbench local project id
+  estimatedSeconds?: number; // from /api/tasks/estimate/
   type: 'video_generation';
   status: TaskStatus;
   name?: string;

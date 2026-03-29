@@ -869,6 +869,12 @@ export const translations = {
     profile_preferences_cancel: "Cancel",
     profile_preferences_save: "Save",
 
+    profile_reset_video_estimate_btn: "Reset video time estimate",
+    profile_reset_video_estimate_submitting: "Resetting...",
+    profile_reset_video_estimate_confirm: "Reset video generation time estimate? This will clear your historical averages.",
+    profile_reset_video_estimate_success: "Video time estimate reset ({n} records removed)",
+    profile_reset_video_estimate_failed: "Failed to reset video time estimate",
+
     profile_pref_delivery_region: "Default region",
     profile_pref_video_language: "Default language",
     profile_pref_video_type: "Default video type",
@@ -1793,6 +1799,12 @@ export const translations = {
     profile_preferences_cancel: "取消",
     profile_preferences_save: "保存",
 
+    profile_reset_video_estimate_btn: "重置视频耗时预估",
+    profile_reset_video_estimate_submitting: "重置中...",
+    profile_reset_video_estimate_confirm: "确认要重置视频生成时间预估吗？这会清空你历史的平均耗时统计。",
+    profile_reset_video_estimate_success: "已重置视频生成时间预估（已清空 {n} 条统计）",
+    profile_reset_video_estimate_failed: "重置视频耗时预估失败",
+
     profile_pref_delivery_region: "默认投放地区",
     profile_pref_video_language: "默认视频语言",
     profile_pref_video_type: "默认视频类型",
@@ -2594,6 +2606,12 @@ export const translations = {
     profile_preferences_cancel: "Batal",
     profile_preferences_save: "Simpan",
 
+    profile_reset_video_estimate_btn: "Tetapkan semula anggaran masa video",
+    profile_reset_video_estimate_submitting: "Menetapkan semula...",
+    profile_reset_video_estimate_confirm: "Tetapkan semula anggaran masa penjanaan video? Ini akan mengosongkan purata sejarah anda.",
+    profile_reset_video_estimate_success: "Anggaran masa video telah ditetapkan semula ({n} rekod dipadam)",
+    profile_reset_video_estimate_failed: "Gagal menetapkan semula anggaran masa video",
+
     profile_pref_delivery_region: "Rantau lalai",
     profile_pref_video_language: "Bahasa lalai",
     profile_pref_video_type: "Jenis video lalai",
@@ -3364,6 +3382,12 @@ export const translations = {
     profile_preferences_title: "Tùy chọn",
     profile_preferences_cancel: "Hủy",
     profile_preferences_save: "Lưu",
+
+    profile_reset_video_estimate_btn: "Đặt lại ước tính thời gian video",
+    profile_reset_video_estimate_submitting: "Đang đặt lại...",
+    profile_reset_video_estimate_confirm: "Đặt lại ước tính thời gian tạo video? Thao tác này sẽ xóa các giá trị trung bình lịch sử.",
+    profile_reset_video_estimate_success: "Đã đặt lại ước tính thời gian video ({n} bản ghi đã xóa)",
+    profile_reset_video_estimate_failed: "Không thể đặt lại ước tính thời gian video",
 
     profile_pref_delivery_region: "Khu vực mặc định",
     profile_pref_video_language: "Ngôn ngữ mặc định",
@@ -4138,6 +4162,12 @@ export const translations = {
     profile_preferences_title: "환경설정",
     profile_preferences_cancel: "취소",
     profile_preferences_save: "저장",
+
+    profile_reset_video_estimate_btn: "비디오 시간 예측 초기화",
+    profile_reset_video_estimate_submitting: "초기화 중...",
+    profile_reset_video_estimate_confirm: "비디오 생성 시간 예측을 초기화할까요? 기존 평균값이 모두 삭제됩니다.",
+    profile_reset_video_estimate_success: "비디오 시간 예측이 초기화되었습니다 ({n}개 삭제)",
+    profile_reset_video_estimate_failed: "비디오 시간 예측 초기화 실패",
 
     profile_pref_delivery_region: "기본 지역",
     profile_pref_video_language: "기본 언어",

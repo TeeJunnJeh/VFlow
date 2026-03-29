@@ -4,6 +4,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { authApi } from '../../services/auth';
 import { billingApi } from '../../services/billing';
+import { videoApi } from '../../services/video';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { AppDialog } from '../common/AppDialog';
@@ -35,6 +36,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
   const [billingError, setBillingError] = useState<string | null>(null);
   const [billingItems, setBillingItems] = useState<any[]>([]);
   const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
+  const [isResettingVideoEstimate, setIsResettingVideoEstimate] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [nextPassword, setNextPassword] = useState('');
   const [confirmNextPassword, setConfirmNextPassword] = useState('');
@@ -86,6 +88,24 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
   const openPreferencesDialog = () => {
     setPrefsDraft(buildPrefsDraft());
     setIsPreferencesDialogOpen(true);
+  };
+
+  const handleResetVideoEstimate = async () => {
+    if (isResettingVideoEstimate) return;
+
+    const confirmText = t.profile_reset_video_estimate_confirm || '确认要重置视频生成时间预估吗？这会清空你历史的平均耗时统计。';
+    if (!window.confirm(confirmText)) return;
+
+    setIsResettingVideoEstimate(true);
+    try {
+      const resp: any = await videoApi.resetVideoTimeEstimates();
+      const deleted = Number(resp?.data?.deleted_count) || 0;
+      openInfo(t.profile_success || 'Success', (t.profile_reset_video_estimate_success || '已重置视频生成时间预估').replace('{n}', String(deleted)));
+    } catch (err: any) {
+      openInfo(t.profile_error || 'Error', err?.message || (t.profile_reset_video_estimate_failed || '重置失败'));
+    } finally {
+      setIsResettingVideoEstimate(false);
+    }
   };
 
   const handleSavePreferences = async () => {
@@ -571,6 +591,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                  onClick={() => setIsPreferencesDialogOpen(false)}
                >
                  {t.profile_preferences_cancel || 'Cancel'}
+               </button>
+               <button
+                 className="bg-red-500/10 text-red-300 px-4 py-2 rounded-lg text-sm font-bold border border-red-500/20 hover:bg-red-500/15 hover:border-red-500/30 disabled:opacity-60"
+                 onClick={handleResetVideoEstimate}
+                 disabled={isResettingVideoEstimate}
+                 title={t.profile_reset_video_estimate_btn || '重置视频耗时预估'}
+               >
+                 {isResettingVideoEstimate ? (t.profile_reset_video_estimate_submitting || '重置中...') : (t.profile_reset_video_estimate_btn || '重置视频耗时预估')}
                </button>
                <button
                  className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-bold border border-white/10 hover:bg-zinc-800 hover:border-white/20"

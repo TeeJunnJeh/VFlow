@@ -82,8 +82,7 @@ export const videoApi = {
     });
 
     if (!response.ok) {
-      const msg = await readApiError(response);
-      throw new Error(msg);
+      throw await parseApiError(response, 'Request failed');
     }
 
     return await response.json();

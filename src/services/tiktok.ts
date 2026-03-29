@@ -1,19 +1,7 @@
-const API_BASE_URL = '/api/auth/tiktok';
+import { apiRequest, getCookie } from './apiClient';
+import { ApiError, parseApiError } from './errors';
 
-function getCookie(name: string) {
-  let cookieValue = null;
-  if (document.cookie && document.cookie !== '') {
-    const cookies = document.cookie.split(';');
-    for (let i = 0; i < cookies.length; i++) {
-      const cookie = cookies[i].trim();
-      if (cookie.substring(0, name.length + 1) === (name + '=')) {
-        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-        break;
-      }
-    }
-  }
-  return cookieValue;
-}
+const API_BASE_URL = '/api/auth/tiktok';
 
 export const tiktokApi = {
   completeAuth: async (params: { code: string; state: string; error?: string; error_description?: string }) => {
@@ -38,67 +26,31 @@ export const tiktokApi = {
 
     console.log('[tiktokApi.completeAuth] Calling callback API...');
 
-    const response = await fetch(`${API_BASE_URL}/callback/?${queryString}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      credentials: 'include',
+    const result = await apiRequest(`${API_BASE_URL}/callback/?${queryString}`, {
+      fallbackMessage: 'TikTok 授权失败',
     });
-
-    console.log('[tiktokApi.completeAuth] Response status:', response.status);
-
-    if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        console.error('[tiktokApi.completeAuth] Error response:', err);
-        throw new Error(err.message || 'TikTok 授权失败');
-    }
-    const result = await response.json();
     console.log('[tiktokApi.completeAuth] Success:', result);
     return result;
   },
 
   getAuthUrl: async (projectId?: string) => {
     const url = projectId ? `${API_BASE_URL}/authorize/?project_id=${encodeURIComponent(projectId)}` : `${API_BASE_URL}/authorize/`;
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      credentials: 'include',
+    const json = await apiRequest(url, {
+      fallbackMessage: '获取 TikTok 授权链接失败',
     });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.message || '获取 TikTok 授权链接失败');
-    }
-
-    const json = await response.json();
     return json?.data?.auth_url as string;
   },
 
   getStatus: async () => {
-    const response = await fetch(`${API_BASE_URL}/status/`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      credentials: 'include',
+    return apiRequest(`${API_BASE_URL}/status/`, {
+      fallbackMessage: '获取授权状态失败',
     });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.message || '获取授权状态失败');
-    }
-
-    return await response.json();
   },
 
   publishDraft: async (projectId: string) => {
+    // publishDraft 需要特殊处理：code === 401 时不抛错而是返回 requiresAuth
     const csrftoken = getCookie('csrftoken');
+
     const response = await fetch(`${API_BASE_URL}/publish/`, {
       method: 'POST',
       headers: {
@@ -121,7 +73,16 @@ export const tiktokApi = {
     }
 
     if (!response.ok) {
-      throw new Error(json?.message || '上传 TikTok 草稿失败');
+      // response body 已被上方 json() 消费，直接用解析结果构造 ApiError
+      throw new ApiError(
+        json?.message || '上传 TikTok 草稿失败',
+        {
+          status: response.status,
+          errorCode: json?.error_code || json?.error_type,
+          trackingId: json?.tracking_id,
+          data: json?.data || null,
+        },
+      );
     }
 
     return {
@@ -132,22 +93,9 @@ export const tiktokApi = {
   },
 
   revokeAuth: async () => {
-    const csrftoken = getCookie('csrftoken');
-    const response = await fetch(`${API_BASE_URL}/revoke/`, {
+    return apiRequest(`${API_BASE_URL}/revoke/`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': csrftoken || '',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      credentials: 'include',
+      fallbackMessage: '取消授权失败',
     });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err?.message || '取消授权失败');
-    }
-
-    return await response.json();
   },
 };

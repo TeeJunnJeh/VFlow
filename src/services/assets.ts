@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { traceApiRequest } from './opsTrace';
+import { getCookie } from './apiClient';
+import { parseApiError } from './errors';
 
 // --- Supabase 配置 ---
 const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || 'your-local-supabase-url';
@@ -94,36 +96,6 @@ export interface PlazaCollectPolicy {
   used_today: number;
   free_remaining: number;
   paid_cost_vpoints: number;
-}
-
-// --- Helper: Read CSRF Token from Browser Cookies ---
-function getCookie(name: string) {
-  let cookieValue = null;
-  if (document.cookie && document.cookie !== '') {
-    const cookies = document.cookie.split(';');
-    for (let i = 0; i < cookies.length; i++) {
-      const cookie = cookies[i].trim();
-      if (cookie.substring(0, name.length + 1) === (name + '=')) {
-        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-        break;
-      }
-    }
-  }
-  return cookieValue;
-}
-
-async function readApiError(response: Response): Promise<string> {
-  try {
-    const json = await response.json();
-    const msg = (json?.error || json?.message || 'Request failed') as string;
-    const trackingId = json?.tracking_id;
-    if (trackingId) {
-      return `${msg} (Tracking ID: ${trackingId})`;
-    }
-    return msg;
-  } catch {
-    return response.statusText || 'Request failed';
-  }
 }
 
 export const assetsApi = {
@@ -222,7 +194,7 @@ export const assetsApi = {
 
     if (useSupabase) {
       try {
-        console.log('🚀 [Supabase] 开始上传到存储桶...');
+        console.log('🚀 [Supabase] 开始上传到存储桶..');
         const fileExt = file.name.split('.').pop();
         const fileName = `${type.toLowerCase()}/${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
 
@@ -234,7 +206,7 @@ export const assetsApi = {
           console.error('❌ [Supabase] 上传失败:', uploadError.message);
         } else {
           const { data: publicUrlData } = supabase.storage.from('vFlowuploads').getPublicUrl(fileName);
-          console.log('✅ [Supabase] 上传成功！公开链接是:', publicUrlData.publicUrl);
+          console.log('✅ [Supabase] 上传成功！公开链接是', publicUrlData.publicUrl);
           // 注意：因为后端不改，这里拿到的 publicUrl 只是在前端打印验证，不会存入数据库
         }
       } catch (err) {
@@ -295,7 +267,7 @@ export const assetsApi = {
       body: formData,
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -339,7 +311,7 @@ export const assetsApi = {
       }),
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -356,7 +328,7 @@ export const assetsApi = {
       body: JSON.stringify({ meta_data_patch: metaDataPatch }),
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -374,7 +346,7 @@ export const assetsApi = {
       credentials: 'include',
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     const json = await response.json();
     const data = (json.data || []) as Array<{ id: number; name: string; parent_id: number | null; asset_type: string; created_at?: string }>;
     const breadcrumb = (json.breadcrumb || []) as Array<{ id: number; name: string; parent_id: number | null; asset_type: string }>;
@@ -409,7 +381,7 @@ export const assetsApi = {
       credentials: 'include',
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     const json = await response.json();
     const data = (json.data || []) as Array<{ id: number; name: string; parent_id: number | null; asset_type: string; created_at?: string }>;
 
@@ -439,7 +411,7 @@ export const assetsApi = {
       })
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -456,7 +428,7 @@ export const assetsApi = {
       body: JSON.stringify({ name })
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -472,7 +444,7 @@ export const assetsApi = {
       credentials: 'include',
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return true;
   },
 
@@ -489,7 +461,7 @@ export const assetsApi = {
       body: JSON.stringify({ folder_id: folderId }),
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -506,7 +478,7 @@ export const assetsApi = {
       body: JSON.stringify({ parent_id: parentId }),
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -527,7 +499,7 @@ export const assetsApi = {
       credentials: 'include',
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     const json = await response.json();
     const data = json?.data || {};
     const items = (data.items || []) as Array<any>;
@@ -587,7 +559,7 @@ export const assetsApi = {
       body: formData,
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -601,7 +573,7 @@ export const assetsApi = {
       credentials: 'include',
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     const json = await response.json();
     const item = json?.data || {};
     return {
@@ -646,7 +618,7 @@ export const assetsApi = {
       body: JSON.stringify(payload),
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -662,7 +634,7 @@ export const assetsApi = {
       credentials: 'include',
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -679,7 +651,7 @@ export const assetsApi = {
       body: JSON.stringify({ action, value }),
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -698,7 +670,7 @@ export const assetsApi = {
       body: formData,
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 };

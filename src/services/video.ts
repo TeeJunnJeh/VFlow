@@ -1,24 +1,15 @@
-// src/services/video.ts
+﻿// src/services/video.ts
 
 import { traceApiRequest } from './opsTrace';
+import { apiRequest, getCookie } from './apiClient';
+import { ApiError, parseApiError, type ApiActionRequired } from './errors';
 
 const API_BASE_URL = '/api/projects';
 
-// Helper to get CSRF token
-function getCookie(name: string) {
-  let cookieValue = null;
-  if (document.cookie && document.cookie !== '') {
-    const cookies = document.cookie.split(';');
-    for (let i = 0; i < cookies.length; i++) {
-      const cookie = cookies[i].trim();
-      if (cookie.substring(0, name.length + 1) === (name + '=')) {
-        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-        break;
-      }
-    }
-  }
-  return cookieValue;
-}
+// ——— 向后兼容：VideoApiError 现在是 ApiError 的别名 ———
+// 外部代码如果 import 了 VideoApiError 或 instanceof 检查，都无缝过渡
+export { ApiError as VideoApiError };
+export type { ApiActionRequired };
 
 export type HistoryProjectStatus = 'DRAFT' | 'PENDING' | 'PROCESSING' | 'SUCCESS' | 'FAILED';
 
@@ -57,39 +48,6 @@ type ApiEnvelope<T> = {
   data?: T;
 } & Record<string, unknown>;
 
-type ApiActionRequired = {
-  type?: string;
-  prompt?: string;
-  request_flag?: string | null;
-} | null;
-
-export class VideoApiError extends Error {
-  status: number;
-  code?: number;
-  errorType?: string;
-  trackingId?: string;
-  data?: Record<string, unknown> | null;
-  actionRequired?: ApiActionRequired;
-
-  constructor(message: string, opts: {
-    status: number;
-    code?: number;
-    errorType?: string;
-    trackingId?: string;
-    data?: Record<string, unknown> | null;
-    actionRequired?: ApiActionRequired;
-  }) {
-    super(message);
-    this.name = 'VideoApiError';
-    this.status = opts.status;
-    this.code = opts.code;
-    this.errorType = opts.errorType;
-    this.trackingId = opts.trackingId;
-    this.data = opts.data;
-    this.actionRequired = opts.actionRequired;
-  }
-}
-
 export type GeneratePreviewData = {
   request_payload: Record<string, unknown>;
   model_request: Record<string, unknown>;
@@ -107,85 +65,6 @@ export type GenerateFusionImagePayload = {
   resolution?: '1K' | '2K' | '4K';
 };
 
-const asRecord = (value: unknown): Record<string, unknown> | null => {
-  if (!value || typeof value !== 'object') return null;
-  return value as Record<string, unknown>;
-};
-
-async function readApiErrorDetail(response: Response, fallbackMessage: string): Promise<VideoApiError> {
-  let message = fallbackMessage;
-  let code: number | undefined;
-  let errorType: string | undefined;
-  let trackingId: string | undefined;
-  let data: Record<string, unknown> | null = null;
-  let actionRequired: ApiActionRequired = null;
-
-  const contentType = response.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) {
-    try {
-      const json: unknown = await response.json();
-      const rec = asRecord(json);
-      if (rec) {
-        const msg = rec.message ?? rec.error;
-        if (typeof msg === 'string' && msg.trim()) message = msg.trim();
-        if (typeof rec.code === 'number') code = rec.code;
-        if (typeof rec.error_type === 'string' && rec.error_type.trim()) errorType = rec.error_type.trim();
-        if (typeof rec.tracking_id === 'string' && rec.tracking_id.trim()) trackingId = rec.tracking_id.trim();
-        data = asRecord(rec.data);
-        const action = data ? asRecord(data.action_required) : null;
-        actionRequired = action as ApiActionRequired;
-      }
-    } catch {
-      // fall back to plain text below
-    }
-  }
-
-  if (message === fallbackMessage) {
-    try {
-      const text = await response.text();
-      const compact = text.replace(/\s+/g, ' ').trim();
-      if (compact) message = compact.slice(0, 300);
-    } catch {
-      // ignore
-    }
-  }
-
-  return new VideoApiError(message, {
-    status: response.status,
-    code,
-    errorType,
-    trackingId,
-    data,
-    actionRequired,
-  });
-}
-
-async function readApiError(response: Response): Promise<string> {
-  const contentType = response.headers.get('content-type') || '';
-
-  if (contentType.includes('application/json')) {
-    try {
-      const json: unknown = await response.json();
-      const rec = asRecord(json);
-      const msg = rec ? (rec.message ?? rec.error) : null;
-      if (typeof msg === 'string' && msg.trim()) return msg;
-      return 'Request failed';
-    } catch (err) {
-      void err;
-    }
-  }
-
-  try {
-    const text = await response.text();
-    const compact = text.replace(/\s+/g, ' ').trim();
-    return compact ? compact.slice(0, 200) : 'Request failed';
-  } catch (err) {
-    void err;
-  }
-
-  return response.statusText || 'Request failed';
-}
-
 export const videoApi = {
   // Debug: fetch backend prompt templates (for prompt tuning UI)
   getPromptTemplates: async () => {
@@ -199,8 +78,7 @@ export const videoApi = {
     });
 
     if (!response.ok) {
-      const msg = await readApiError(response);
-      throw new Error(msg);
+      throw await parseApiError(response, 'Request failed');
     }
 
     return await response.json();
@@ -222,7 +100,7 @@ export const videoApi = {
 
     if (!response.ok) {
       const fallback = `生图失败: ${response.status} ${response.statusText || ''}`.trim();
-      throw await readApiErrorDetail(response, fallback);
+      throw await parseApiError(response, fallback);
     }
 
     return await response.json();
@@ -244,14 +122,7 @@ export const videoApi = {
     });
 
     if (!response.ok) {
-      let errorMsg = '创建项目失败';
-      try {
-        const errData = await response.json();
-        errorMsg = errData.message || JSON.stringify(errData);
-      } catch {
-        errorMsg = `Server Error: ${response.status} ${response.statusText}`;
-      }
-      throw new Error(errorMsg);
+      throw await parseApiError(response, '创建项目失败');
     }
 
     return await response.json();
@@ -272,14 +143,7 @@ export const videoApi = {
     });
 
     if (!response.ok) {
-      let errorMsg = '克隆项目失败';
-      try {
-        const errData = await response.json();
-        errorMsg = errData.message || JSON.stringify(errData);
-      } catch {
-        errorMsg = `Server Error: ${response.status} ${response.statusText}`;
-      }
-      throw new Error(errorMsg);
+      throw await parseApiError(response, '克隆项目失败');
     }
 
     return await response.json();
@@ -305,7 +169,7 @@ export const videoApi = {
 
     if (!response.ok) {
       const fallback = `Server Error: ${response.status} ${response.statusText || 'Video generation failed'}`;
-      throw await readApiErrorDetail(response, fallback);
+      throw await parseApiError(response, fallback);
     }
 
     return await response.json();
@@ -326,14 +190,7 @@ export const videoApi = {
     });
 
     if (!response.ok) {
-      let errorMsg = 'Preview generation request failed';
-      try {
-        const errData = await response.json();
-        errorMsg = errData.message || JSON.stringify(errData);
-      } catch {
-        errorMsg = `Server Error: ${response.status} ${response.statusText}`;
-      }
-      throw new Error(errorMsg);
+      throw await parseApiError(response, 'Preview generation request failed');
     }
 
     return await response.json();
@@ -361,14 +218,7 @@ export const videoApi = {
     });
 
     if (!response.ok) {
-      let errorMsg = 'Script generation failed';
-      try {
-        const errData = await response.json();
-        errorMsg = errData.message || JSON.stringify(errData);
-      } catch {
-        errorMsg = await response.text();
-      }
-      throw new Error(errorMsg);
+      throw await parseApiError(response, 'Script generation failed');
     }
 
     return await response.json();
@@ -398,14 +248,7 @@ export const videoApi = {
     });
 
     if (!response.ok) {
-      let errorMsg = '翻译请求失败';
-      try {
-        const errData = await response.json();
-        errorMsg = errData.message || JSON.stringify(errData);
-      } catch {
-        errorMsg = `服务器错误: ${response.status} ${response.statusText}`;
-      }
-      throw new Error(errorMsg);
+      throw await parseApiError(response, '翻译请求失败');
     }
 
     return await response.json();
@@ -427,7 +270,7 @@ export const videoApi = {
 
     if (!response.ok) {
       const fallback = `商品识别失败: ${response.status} ${response.statusText || ''}`.trim();
-      throw await readApiErrorDetail(response, fallback);
+      throw await parseApiError(response, fallback);
     }
 
     return await response.json();
@@ -449,7 +292,7 @@ export const videoApi = {
 
     if (!response.ok) {
       const fallback = `主体描述识别失败: ${response.status} ${response.statusText || ''}`.trim();
-      throw await readApiErrorDetail(response, fallback);
+      throw await parseApiError(response, fallback);
     }
 
     return await response.json();
@@ -482,7 +325,7 @@ export const videoApi = {
 
     if (!response.ok) {
       const fallback = `Image optimization failed: ${response.status} ${response.statusText || ''}`.trim();
-      throw await readApiErrorDetail(response, fallback);
+      throw await parseApiError(response, fallback);
     }
 
     return await response.json();
@@ -520,14 +363,7 @@ export const videoApi = {
     });
 
     if (!response.ok) {
-      let errorMsg = 'Failed to save draft';
-      try {
-        const errData = await response.json();
-        errorMsg = errData.message || JSON.stringify(errData);
-      } catch {
-        errorMsg = `Server Error: ${response.status} ${response.statusText}`;
-      }
-      throw new Error(errorMsg);
+      throw await parseApiError(response, 'Failed to save draft');
     }
 
     return await response.json();
@@ -546,14 +382,7 @@ export const videoApi = {
     });
 
     if (!response.ok && response.status !== 401 && response.status !== 403) {
-      let errorMsg = 'Failed to clear draft';
-      try {
-        const errData = await response.json();
-        errorMsg = errData.message || errData.error || JSON.stringify(errData);
-      } catch {
-        errorMsg = `Server Error: ${response.status} ${response.statusText}`;
-      }
-      throw new Error(errorMsg);
+      throw await parseApiError(response, 'Failed to clear draft');
     }
 
     if (!response.ok) return null;
@@ -591,7 +420,7 @@ export const videoApi = {
         });
 
         if (!response.ok) {
-          throw new Error(await readApiError(response));
+          throw await parseApiError(response, 'Request failed');
         }
 
         // If session is invalid, Django may redirect to /accounts/login (HTML).
@@ -624,7 +453,7 @@ export const videoApi = {
     });
 
     if (!response.ok) {
-      throw new Error(await readApiError(response));
+      throw await parseApiError(response, 'Request failed');
     }
 
     if (response.redirected) throw new Error('Unauthorized');
@@ -655,7 +484,7 @@ export const videoApi = {
     });
 
     if (!response.ok) {
-      throw new Error(await readApiError(response));
+      throw await parseApiError(response, 'Request failed');
     }
 
     if (response.redirected) throw new Error('Unauthorized');
@@ -691,7 +520,7 @@ export const videoApi = {
     });
 
     if (!response.ok) {
-      throw new Error(await readApiError(response));
+      throw await parseApiError(response, 'Request failed');
     }
 
     if (response.redirected) throw new Error('Unauthorized');
@@ -739,7 +568,7 @@ export const videoApi = {
         });
 
         if (!response.ok) {
-          throw new Error(await readApiError(response));
+          throw await parseApiError(response, 'Request failed');
         }
 
         if (response.redirected) throw new Error('Unauthorized');
@@ -756,3 +585,4 @@ export const videoApi = {
     });
   },
 };
+

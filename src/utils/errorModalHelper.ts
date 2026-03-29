@@ -22,10 +22,13 @@ export interface ErrorModalData {
   message: string;
   details?: string;
   suggestions: string[];
+  trackingId?: string;
   actions: Array<{
     label: string;
     onClick: () => void;
     variant?: 'primary' | 'secondary' | 'danger';
+    /** 内部标记：此按钮是"反馈问题"，ErrorModal 会拦截并展开反馈面板 */
+    _feedback?: boolean;
   }>;
 }
 
@@ -93,8 +96,6 @@ const DEFAULT_I18N: ErrorI18n = {
   err_btn_retry: '重试',
   err_btn_feedback: '反馈问题',
 };
-
-const FEEDBACK_EMAIL = 'support@vflow.com';
 
 /* ─── 自动推断错误类别 ─── */
 function inferCategory(err: unknown, category?: ErrorCategory): ErrorCategory {
@@ -227,6 +228,7 @@ export function buildErrorModalData(opts: BuildErrorModalOptions): ErrorModalDat
   const details = buildDetails(opts.error);
 
   const code = opts.error instanceof ApiError ? opts.error.errorCode : undefined;
+  const trackingId = opts.error instanceof ApiError ? opts.error.trackingId : undefined;
 
   const actions: ErrorModalData['actions'] = [];
 
@@ -240,21 +242,13 @@ export function buildErrorModalData(opts: BuildErrorModalOptions): ErrorModalDat
   }
 
   // 反馈问题按钮（始终提供）
+  // _feedback 标记让 ErrorModal 拦截 onClick，展开反馈引导面板而非跳转
   actions.push({
     label: i18n.err_btn_feedback,
-    onClick: () => {
-      const trackingId = opts.error instanceof ApiError ? opts.error.trackingId : undefined;
-      const subject = encodeURIComponent(`[VFlow] Error Report - ${cat}${trackingId ? ` (${trackingId})` : ''}`);
-      const body = encodeURIComponent(
-        `Error Category: ${cat}\n`
-        + (code ? `Error Code: ${code}\n` : '')
-        + (trackingId ? `Tracking ID: ${trackingId}\n` : '')
-        + `\n--- Please describe what you were doing ---\n`
-      );
-      window.open(`mailto:${FEEDBACK_EMAIL}?subject=${subject}&body=${body}`, '_blank');
-    },
+    onClick: () => { /* ErrorModal 会拦截此按钮，展开反馈面板 */ },
     variant: 'secondary',
+    _feedback: true,
   });
 
-  return { title, code, message, details, suggestions, actions };
+  return { title, code, message, details, suggestions, trackingId, actions };
 }

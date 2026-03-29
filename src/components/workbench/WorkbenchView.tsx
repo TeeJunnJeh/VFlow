@@ -7009,6 +7009,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             details={errorModalData.details}
             suggestions={errorModalData.suggestions}
             actions={errorModalData.actions}
+            trackingId={errorModalData.trackingId}
             onClose={closeErrorModal}
           />
         )}

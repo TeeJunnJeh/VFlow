@@ -1847,7 +1847,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                               />
                             ) : asset.file_url ? (
                               <img
-                                src={getDisplayUrl(asset.file_url) || ASSET_PLACEHOLDER_DATA_URL}
+                                src={getDisplayUrl(asset.thumbnail || asset.file_url) || ASSET_PLACEHOLDER_DATA_URL}
                                 className="absolute inset-0 w-full h-full object-cover"
                                 alt={asset.name}
                                 onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }}

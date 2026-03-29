@@ -1,5 +1,7 @@
 // src/services/video.ts
 
+import { traceApiRequest } from './opsTrace';
+
 const API_BASE_URL = '/api/projects';
 
 // Helper to get CSRF token
@@ -560,44 +562,51 @@ export const videoApi = {
 
   // 4. History list
   getHistory: async (params?: HistoryQueryParams): Promise<HistoryProject[]> => {
-    const query = new URLSearchParams();
-    if (params?.status && params.status !== 'ALL') {
-      query.set('status', params.status);
-    }
-    if (params?.keyword && params.keyword.trim()) {
-      query.set('keyword', params.keyword.trim());
-    }
-    if (params?.sort) {
-      query.set('sort', params.sort);
-    }
-
-    const queryString = query.toString();
-    const url = `${API_BASE_URL}/history/${queryString ? `?${queryString}` : ''}`;
-
-    const response = await fetch(url, {
+    return traceApiRequest({
+      metricName: 'history_list',
+      apiPath: '/api/projects/history/',
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      credentials: 'include',
+      fn: async () => {
+        const query = new URLSearchParams();
+        if (params?.status && params.status !== 'ALL') {
+          query.set('status', params.status);
+        }
+        if (params?.keyword && params.keyword.trim()) {
+          query.set('keyword', params.keyword.trim());
+        }
+        if (params?.sort) {
+          query.set('sort', params.sort);
+        }
+
+        const queryString = query.toString();
+        const url = `${API_BASE_URL}/history/${queryString ? `?${queryString}` : ''}`;
+
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          throw new Error(await readApiError(response));
+        }
+
+        // If session is invalid, Django may redirect to /accounts/login (HTML).
+        if (response.redirected) throw new Error('Unauthorized');
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) throw new Error('Unexpected response');
+
+        const json = (await response.json()) as ApiEnvelope<HistoryProject[]>;
+        if (json?.code !== undefined && json.code !== 0) {
+          throw new Error((json?.message || 'Failed to fetch history') as string);
+        }
+        const data = json?.data;
+        return Array.isArray(data) ? data : [];
+      }
     });
-
-    if (!response.ok) {
-      throw new Error(await readApiError(response));
-    }
-
-    // If session is invalid, Django may redirect to /accounts/login (HTML).
-    if (response.redirected) throw new Error('Unauthorized');
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) throw new Error('Unexpected response');
-
-    const json = (await response.json()) as ApiEnvelope<HistoryProject[]>;
-    if (json?.code !== undefined && json.code !== 0) {
-      throw new Error((json?.message || 'Failed to fetch history') as string);
-    }
-    const data = json?.data;
-    return Array.isArray(data) ? data : [];
   },
 
   // 5. Delete project (physical delete)
@@ -704,39 +713,46 @@ export const videoApi = {
 
   // 8. Get favorites list
   getFavorites: async (params?: HistoryQueryParams): Promise<HistoryProject[]> => {
-    const query = new URLSearchParams();
-    if (params?.keyword && params.keyword.trim()) {
-      query.set('keyword', params.keyword.trim());
-    }
-    if (params?.sort) {
-      query.set('sort', params.sort);
-    }
-
-    const queryString = query.toString();
-    const url = `${API_BASE_URL}/favorites/${queryString ? `?${queryString}` : ''}`;
-
-    const response = await fetch(url, {
+    return traceApiRequest({
+      metricName: 'favorite_list',
+      apiPath: '/api/projects/favorites/',
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      credentials: 'include',
+      fn: async () => {
+        const query = new URLSearchParams();
+        if (params?.keyword && params.keyword.trim()) {
+          query.set('keyword', params.keyword.trim());
+        }
+        if (params?.sort) {
+          query.set('sort', params.sort);
+        }
+
+        const queryString = query.toString();
+        const url = `${API_BASE_URL}/favorites/${queryString ? `?${queryString}` : ''}`;
+
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          throw new Error(await readApiError(response));
+        }
+
+        if (response.redirected) throw new Error('Unauthorized');
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) throw new Error('Unexpected response');
+
+        const json = (await response.json()) as ApiEnvelope<HistoryProject[]>;
+        if (json?.code !== undefined && json.code !== 0) {
+          throw new Error((json?.message || 'Failed to fetch favorites') as string);
+        }
+        const data = json?.data;
+        return Array.isArray(data) ? data : [];
+      }
     });
-
-    if (!response.ok) {
-      throw new Error(await readApiError(response));
-    }
-
-    if (response.redirected) throw new Error('Unauthorized');
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) throw new Error('Unexpected response');
-
-    const json = (await response.json()) as ApiEnvelope<HistoryProject[]>;
-    if (json?.code !== undefined && json.code !== 0) {
-      throw new Error((json?.message || 'Failed to fetch favorites') as string);
-    }
-    const data = json?.data;
-    return Array.isArray(data) ? data : [];
   },
 };

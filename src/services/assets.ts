@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { traceApiRequest } from './opsTrace';
 
 // --- Supabase 配置 ---
 const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || 'your-local-supabase-url';
@@ -129,68 +130,81 @@ export const assetsApi = {
   // 1. GET List
   getAssets: async (params?: { type?: 'model' | 'product' | 'scene' | 'motion'; folderId?: string | null }): Promise<Asset[]> => {
     try {
-      const search = new URLSearchParams();
-      if (params?.type) search.set('type', params.type.toUpperCase());
-      if (params && 'folderId' in params) {
-        search.set('folder_id', params.folderId ?? '');
-      }
-      const query = search.toString();
-      const response = await fetch(`${API_BASE_URL}/list/${query ? `?${query}` : ''}`, {
+      return traceApiRequest({
+        metricName: 'assets_list',
+        apiPath: '/api/assets/list/',
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
+        fn: async () => {
+          const search = new URLSearchParams();
+          if (params?.type) search.set('type', params.type.toUpperCase());
+          if (params && 'folderId' in params) {
+            search.set('folder_id', params.folderId ?? '');
+          }
+          const query = search.toString();
+          const response = await fetch(`${API_BASE_URL}/list/${query ? `?${query}` : ''}`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Requested-With': 'XMLHttpRequest',
+            },
+            credentials: 'include',
+          });
+
+          if (response.status === 401 || response.status === 403) {
+            console.error("Auth Failed: Cookies invalid or expired");
+            throw new Error('Unauthorized');
+          }
+
+          if (!response.ok) throw new Error('Failed to fetch assets');
+
+          const json = await response.json();
+          // Be robust across backend variants (some deployments wrap in `data`, some may return `assets`).
+          const backendData: BackendAsset[] = (json.data || json.assets || json.results || []) as BackendAsset[];
+
+          // Map Backend Data -> Frontend Data
+          return backendData.map(item => {
+            // Some backends may return `url`, `file_url`, or `path` for the file location.
+            // Prefer explicit `file_url` (backend-hosted path). Some backends may also
+            // expose `url` pointing to external storage (e.g. Supabase). Prefer the
+            // backend-served `file_url` when available to avoid using unreachable
+            // external hosts in development.
+            const rawUrl =
+              (item as any).file_url ||
+              (item as any).fileUrl ||
+              (item as any).url ||
+              (item as any).path ||
+              '';
+            const rawThumbnail =
+              (item as any).thumbnail_url ||
+              (item as any).thumbnail ||
+              '';
+
+            const fullUrl = toDisplayUrl(rawUrl);
+            const thumbnailUrl = rawThumbnail ? toDisplayUrl(rawThumbnail) : '';
+
+            // Determine media kind so UI chooses <video> vs <img>
+            const lowerType = String(item.type || '').toLowerCase();
+            const rawPathLower = String(rawUrl).split('?')[0].toLowerCase();
+            let mediaKind: Asset['media_kind'] = 'file';
+            if (lowerType === 'motion' || /\.(mp4|mov|mkv|webm|avi)$/.test(rawPathLower)) mediaKind = 'video';
+            else if (/\.(jpg|jpeg|png|webp|gif)$/.test(rawPathLower)) mediaKind = 'image';
+            else if (/\.(mp3|wav|flac)$/.test(rawPathLower)) mediaKind = 'audio';
+
+            return {
+              id: item.id.toString(),
+              name: item.display_name,
+              type: item.type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion',
+              file_url: fullUrl,
+              thumbnail: thumbnailUrl || undefined,
+              media_kind: mediaKind,
+              size: (((item.meta_data?.size_bytes || 0) as number) / 1024 / 1024).toFixed(2) + ' MB',
+              status: 'ready',
+              created_at: item.created_at,
+              folder_id: item.folder_id?.toString() ?? null,
+              meta_data: item.meta_data || {},
+            };
+          });
         },
-        credentials: 'include',
-      });
-
-      if (response.status === 401 || response.status === 403) {
-        console.error("Auth Failed: Cookies invalid or expired");
-        throw new Error('Unauthorized');
-      }
-
-      if (!response.ok) throw new Error('Failed to fetch assets');
-
-      const json = await response.json();
-      // Be robust across backend variants (some deployments wrap in `data`, some may return `assets`).
-      const backendData: BackendAsset[] = (json.data || json.assets || json.results || []) as BackendAsset[];
-
-      // Map Backend Data -> Frontend Data
-      return backendData.map(item => {
-        // Some backends may return `url`, `file_url`, or `path` for the file location.
-        // Prefer explicit `file_url` (backend-hosted path). Some backends may also
-        // expose `url` pointing to external storage (e.g. Supabase). Prefer the
-        // backend-served `file_url` when available to avoid using unreachable
-        // external hosts in development.
-        const rawUrl =
-          (item as any).file_url ||
-          (item as any).fileUrl ||
-          (item as any).url ||
-          (item as any).path ||
-          '';
-
-        const fullUrl = toDisplayUrl(rawUrl);
-
-        // Determine media kind so UI chooses <video> vs <img>
-        const lowerType = String(item.type || '').toLowerCase();
-        const rawPathLower = String(rawUrl).split('?')[0].toLowerCase();
-        let mediaKind: Asset['media_kind'] = 'file';
-        if (lowerType === 'motion' || /\.(mp4|mov|mkv|webm|avi)$/.test(rawPathLower)) mediaKind = 'video';
-        else if (/\.(jpg|jpeg|png|webp|gif)$/.test(rawPathLower)) mediaKind = 'image';
-        else if (/\.(mp3|wav|flac)$/.test(rawPathLower)) mediaKind = 'audio';
-
-        return {
-          id: item.id.toString(),
-          name: item.display_name,
-          type: item.type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion',
-          file_url: fullUrl,
-          media_kind: mediaKind,
-          size: (((item.meta_data?.size_bytes || 0) as number) / 1024 / 1024).toFixed(2) + ' MB',
-          status: 'ready',
-          created_at: item.created_at,
-          folder_id: item.folder_id?.toString() ?? null,
-          meta_data: item.meta_data || {},
-        };
       });
 
     } catch (error) {

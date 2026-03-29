@@ -73,7 +73,16 @@ export const tiktokApi = {
     }
 
     if (!response.ok) {
-      throw await parseApiError(response, '上传 TikTok 草稿失败');
+      // response body 已被上方 json() 消费，直接用解析结果构造 ApiError
+      throw new ApiError(
+        json?.message || '上传 TikTok 草稿失败',
+        {
+          status: response.status,
+          errorCode: json?.error_code || json?.error_type,
+          trackingId: json?.tracking_id,
+          data: json?.data || null,
+        },
+      );
     }
 
     return {

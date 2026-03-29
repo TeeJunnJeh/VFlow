@@ -6,8 +6,8 @@ import { ApiError, parseApiError, type ApiActionRequired } from './errors';
 
 const API_BASE_URL = '/api/projects';
 
-// 鈹€鈹€鈹€ 鍚戝悗鍏煎锛歏ideoApiError 鐜板湪鏄?ApiError 鐨勫埆鍚?鈹€鈹€鈹€
-// 澶栭儴浠ｇ爜濡傛灉 import 浜?VideoApiError 鎴?instanceof 妫€鏌ワ紝閮芥棤缂濊繃娓?
+// ——— 向后兼容：VideoApiError 现在是 ApiError 的别名 ———
+// 外部代码如果 import 了 VideoApiError 或 instanceof 检查，都无缝过渡
 export { ApiError as VideoApiError };
 export type { ApiActionRequired };
 
@@ -99,7 +99,7 @@ export const videoApi = {
     });
 
     if (!response.ok) {
-      const fallback = `鐢熷浘澶辫触: ${response.status} ${response.statusText || ''}`.trim();
+      const fallback = `生图失败: ${response.status} ${response.statusText || ''}`.trim();
       throw await parseApiError(response, fallback);
     }
 
@@ -224,7 +224,7 @@ export const videoApi = {
     return await response.json();
   },
 
-  // 鍙拌瘝缈昏瘧锛堢洿鎺ョ炕璇?/ 鍒涙剰缈昏瘧锛?
+  // 台词翻译（直接翻译 / 创意翻译）
   translateAudioText: async (userId: string | number, payload: {
     text: string;
     target_language: string;
@@ -269,7 +269,7 @@ export const videoApi = {
     });
 
     if (!response.ok) {
-      const fallback = `鍟嗗搧璇嗗埆澶辫触: ${response.status} ${response.statusText || ''}`.trim();
+      const fallback = `商品识别失败: ${response.status} ${response.statusText || ''}`.trim();
       throw await parseApiError(response, fallback);
     }
 
@@ -291,7 +291,7 @@ export const videoApi = {
     });
 
     if (!response.ok) {
-      const fallback = `涓讳綋鎻忚堪璇嗗埆澶辫触: ${response.status} ${response.statusText || ''}`.trim();
+      const fallback = `主体描述识别失败: ${response.status} ${response.statusText || ''}`.trim();
       throw await parseApiError(response, fallback);
     }
 

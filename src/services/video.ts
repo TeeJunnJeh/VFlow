@@ -88,6 +88,27 @@ export const videoApi = {
     return await response.json();
   },
 
+  resetVideoTimeEstimates: async () => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch('/api/tasks/estimate/reset/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ confirm: true }),
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Request failed');
+    }
+
+    return await response.json();
+  },
+
   // Debug: fetch backend prompt templates (for prompt tuning UI)
   getPromptTemplates: async () => {
     const response = await fetch(`${API_BASE_URL}/prompt-templates/`, {

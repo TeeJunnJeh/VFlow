@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { tiktokApi } from './services/tiktok';
+import { ApiError } from './services/errors';
 import { AnimatePresence } from 'framer-motion';
 import { AppDialog } from './components/common/AppDialog';
 import { LanguageSwitcher } from './components/common/LanguageSwitcher';
@@ -147,6 +148,12 @@ const AnimatedRoutes = () => {
 
     React.useEffect(() => {
         const parseErrorMessage = (value: unknown) => {
+            if (value instanceof ApiError) {
+                const parts: string[] = [value.message || '未知错误'];
+                if (value.errorCode) parts.push(`[${value.errorCode}]`);
+                if (value.trackingId) parts.push(`Tracking ID: ${value.trackingId}`);
+                return parts.join('\n');
+            }
             if (value instanceof Error) return value.message || '未知错误';
             if (typeof value === 'string') return value;
             if (value && typeof value === 'object' && 'message' in (value as any)) {

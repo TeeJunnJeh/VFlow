@@ -1,4 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
+import { traceApiRequest } from './opsTrace';
+import { getCookie } from './apiClient';
+import { parseApiError } from './errors';
 
 // --- Supabase 配置 ---
 const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || 'your-local-supabase-url';
@@ -95,102 +98,85 @@ export interface PlazaCollectPolicy {
   paid_cost_vpoints: number;
 }
 
-// --- Helper: Read CSRF Token from Browser Cookies ---
-function getCookie(name: string) {
-  let cookieValue = null;
-  if (document.cookie && document.cookie !== '') {
-    const cookies = document.cookie.split(';');
-    for (let i = 0; i < cookies.length; i++) {
-      const cookie = cookies[i].trim();
-      if (cookie.substring(0, name.length + 1) === (name + '=')) {
-        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-        break;
-      }
-    }
-  }
-  return cookieValue;
-}
-
-async function readApiError(response: Response): Promise<string> {
-  try {
-    const json = await response.json();
-    const msg = (json?.error || json?.message || 'Request failed') as string;
-    const trackingId = json?.tracking_id;
-    if (trackingId) {
-      return `${msg} (Tracking ID: ${trackingId})`;
-    }
-    return msg;
-  } catch {
-    return response.statusText || 'Request failed';
-  }
-}
-
 export const assetsApi = {
   // 1. GET List
   getAssets: async (params?: { type?: 'model' | 'product' | 'scene' | 'motion'; folderId?: string | null }): Promise<Asset[]> => {
     try {
-      const search = new URLSearchParams();
-      if (params?.type) search.set('type', params.type.toUpperCase());
-      if (params && 'folderId' in params) {
-        search.set('folder_id', params.folderId ?? '');
-      }
-      const query = search.toString();
-      const response = await fetch(`${API_BASE_URL}/list/${query ? `?${query}` : ''}`, {
+      return traceApiRequest({
+        metricName: 'assets_list',
+        apiPath: '/api/assets/list/',
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
+        fn: async () => {
+          const search = new URLSearchParams();
+          if (params?.type) search.set('type', params.type.toUpperCase());
+          if (params && 'folderId' in params) {
+            search.set('folder_id', params.folderId ?? '');
+          }
+          const query = search.toString();
+          const response = await fetch(`${API_BASE_URL}/list/${query ? `?${query}` : ''}`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Requested-With': 'XMLHttpRequest',
+            },
+            credentials: 'include',
+          });
+
+          if (response.status === 401 || response.status === 403) {
+            console.error("Auth Failed: Cookies invalid or expired");
+            throw new Error('Unauthorized');
+          }
+
+          if (!response.ok) throw new Error('Failed to fetch assets');
+
+          const json = await response.json();
+          // Be robust across backend variants (some deployments wrap in `data`, some may return `assets`).
+          const backendData: BackendAsset[] = (json.data || json.assets || json.results || []) as BackendAsset[];
+
+          // Map Backend Data -> Frontend Data
+          return backendData.map(item => {
+            // Some backends may return `url`, `file_url`, or `path` for the file location.
+            // Prefer explicit `file_url` (backend-hosted path). Some backends may also
+            // expose `url` pointing to external storage (e.g. Supabase). Prefer the
+            // backend-served `file_url` when available to avoid using unreachable
+            // external hosts in development.
+            const rawUrl =
+              (item as any).file_url ||
+              (item as any).fileUrl ||
+              (item as any).url ||
+              (item as any).path ||
+              '';
+            const rawThumbnail =
+              (item as any).thumbnail_url ||
+              (item as any).thumbnail ||
+              '';
+
+            const fullUrl = toDisplayUrl(rawUrl);
+            const thumbnailUrl = rawThumbnail ? toDisplayUrl(rawThumbnail) : '';
+
+            // Determine media kind so UI chooses <video> vs <img>
+            const lowerType = String(item.type || '').toLowerCase();
+            const rawPathLower = String(rawUrl).split('?')[0].toLowerCase();
+            let mediaKind: Asset['media_kind'] = 'file';
+            if (lowerType === 'motion' || /\.(mp4|mov|mkv|webm|avi)$/.test(rawPathLower)) mediaKind = 'video';
+            else if (/\.(jpg|jpeg|png|webp|gif)$/.test(rawPathLower)) mediaKind = 'image';
+            else if (/\.(mp3|wav|flac)$/.test(rawPathLower)) mediaKind = 'audio';
+
+            return {
+              id: item.id.toString(),
+              name: item.display_name,
+              type: item.type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion',
+              file_url: fullUrl,
+              thumbnail: thumbnailUrl || undefined,
+              media_kind: mediaKind,
+              size: (((item.meta_data?.size_bytes || 0) as number) / 1024 / 1024).toFixed(2) + ' MB',
+              status: 'ready',
+              created_at: item.created_at,
+              folder_id: item.folder_id?.toString() ?? null,
+              meta_data: item.meta_data || {},
+            };
+          });
         },
-        credentials: 'include',
-      });
-
-      if (response.status === 401 || response.status === 403) {
-        console.error("Auth Failed: Cookies invalid or expired");
-        throw new Error('Unauthorized');
-      }
-
-      if (!response.ok) throw new Error('Failed to fetch assets');
-
-      const json = await response.json();
-      // Be robust across backend variants (some deployments wrap in `data`, some may return `assets`).
-      const backendData: BackendAsset[] = (json.data || json.assets || json.results || []) as BackendAsset[];
-
-      // Map Backend Data -> Frontend Data
-      return backendData.map(item => {
-        // Some backends may return `url`, `file_url`, or `path` for the file location.
-        // Prefer explicit `file_url` (backend-hosted path). Some backends may also
-        // expose `url` pointing to external storage (e.g. Supabase). Prefer the
-        // backend-served `file_url` when available to avoid using unreachable
-        // external hosts in development.
-        const rawUrl =
-          (item as any).file_url ||
-          (item as any).fileUrl ||
-          (item as any).url ||
-          (item as any).path ||
-          '';
-
-        const fullUrl = toDisplayUrl(rawUrl);
-
-        // Determine media kind so UI chooses <video> vs <img>
-        const lowerType = String(item.type || '').toLowerCase();
-        const rawPathLower = String(rawUrl).split('?')[0].toLowerCase();
-        let mediaKind: Asset['media_kind'] = 'file';
-        if (lowerType === 'motion' || /\.(mp4|mov|mkv|webm|avi)$/.test(rawPathLower)) mediaKind = 'video';
-        else if (/\.(jpg|jpeg|png|webp|gif)$/.test(rawPathLower)) mediaKind = 'image';
-        else if (/\.(mp3|wav|flac)$/.test(rawPathLower)) mediaKind = 'audio';
-
-        return {
-          id: item.id.toString(),
-          name: item.display_name,
-          type: item.type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion',
-          file_url: fullUrl,
-          media_kind: mediaKind,
-          size: (((item.meta_data?.size_bytes || 0) as number) / 1024 / 1024).toFixed(2) + ' MB',
-          status: 'ready',
-          created_at: item.created_at,
-          folder_id: item.folder_id?.toString() ?? null,
-          meta_data: item.meta_data || {},
-        };
       });
 
     } catch (error) {
@@ -208,7 +194,7 @@ export const assetsApi = {
 
     if (useSupabase) {
       try {
-        console.log('🚀 [Supabase] 开始上传到存储桶...');
+        console.log('🚀 [Supabase] 开始上传到存储桶..');
         const fileExt = file.name.split('.').pop();
         const fileName = `${type.toLowerCase()}/${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
 
@@ -220,7 +206,7 @@ export const assetsApi = {
           console.error('❌ [Supabase] 上传失败:', uploadError.message);
         } else {
           const { data: publicUrlData } = supabase.storage.from('vFlowuploads').getPublicUrl(fileName);
-          console.log('✅ [Supabase] 上传成功！公开链接是:', publicUrlData.publicUrl);
+          console.log('✅ [Supabase] 上传成功！公开链接是', publicUrlData.publicUrl);
           // 注意：因为后端不改，这里拿到的 publicUrl 只是在前端打印验证，不会存入数据库
         }
       } catch (err) {
@@ -281,7 +267,7 @@ export const assetsApi = {
       body: formData,
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -325,7 +311,7 @@ export const assetsApi = {
       }),
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -342,7 +328,7 @@ export const assetsApi = {
       body: JSON.stringify({ meta_data_patch: metaDataPatch }),
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -360,7 +346,7 @@ export const assetsApi = {
       credentials: 'include',
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     const json = await response.json();
     const data = (json.data || []) as Array<{ id: number; name: string; parent_id: number | null; asset_type: string; created_at?: string }>;
     const breadcrumb = (json.breadcrumb || []) as Array<{ id: number; name: string; parent_id: number | null; asset_type: string }>;
@@ -395,7 +381,7 @@ export const assetsApi = {
       credentials: 'include',
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     const json = await response.json();
     const data = (json.data || []) as Array<{ id: number; name: string; parent_id: number | null; asset_type: string; created_at?: string }>;
 
@@ -425,7 +411,7 @@ export const assetsApi = {
       })
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -442,7 +428,7 @@ export const assetsApi = {
       body: JSON.stringify({ name })
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -458,7 +444,7 @@ export const assetsApi = {
       credentials: 'include',
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return true;
   },
 
@@ -475,7 +461,7 @@ export const assetsApi = {
       body: JSON.stringify({ folder_id: folderId }),
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -492,7 +478,7 @@ export const assetsApi = {
       body: JSON.stringify({ parent_id: parentId }),
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -513,7 +499,7 @@ export const assetsApi = {
       credentials: 'include',
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     const json = await response.json();
     const data = json?.data || {};
     const items = (data.items || []) as Array<any>;
@@ -573,7 +559,7 @@ export const assetsApi = {
       body: formData,
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -587,7 +573,7 @@ export const assetsApi = {
       credentials: 'include',
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     const json = await response.json();
     const item = json?.data || {};
     return {
@@ -632,7 +618,7 @@ export const assetsApi = {
       body: JSON.stringify(payload),
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -648,7 +634,7 @@ export const assetsApi = {
       credentials: 'include',
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -665,7 +651,7 @@ export const assetsApi = {
       body: JSON.stringify({ action, value }),
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 
@@ -684,7 +670,7 @@ export const assetsApi = {
       body: formData,
     });
 
-    if (!response.ok) throw new Error(await readApiError(response));
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
   },
 };

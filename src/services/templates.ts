@@ -1,5 +1,7 @@
 // src/services/templates.ts
 
+import { apiRequest } from './apiClient';
+
 const API_BASE_URL = '/api/projects/users';
 
 const toDisplayUrl = (pathOrUrl: string | null | undefined): string => {
@@ -115,91 +117,42 @@ const mapFrontendToApi = (tpl: Template) => ({
     : {}),
 });
 
-function getCookie(name: string) {
-  let cookieValue = null;
-  if (document.cookie && document.cookie !== '') {
-    const cookies = document.cookie.split(';');
-    for (let i = 0; i < cookies.length; i++) {
-      const cookie = cookies[i].trim();
-      if (cookie.substring(0, name.length + 1) === (name + '=')) {
-        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-        break;
-      }
-    }
-  }
-  return cookieValue;
-}
-
 export const templatesApi = {
   // 1. GET
   getTemplates: async (userId: string | number): Promise<Template[]> => {
-    const response = await fetch(`${API_BASE_URL}/${userId}/templates`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
+    const json = await apiRequest(`${API_BASE_URL}/${userId}/templates`, {
+      fallbackMessage: 'Failed to fetch templates',
     });
-    if (!response.ok) throw new Error('Failed to fetch templates');
-    const json = await response.json();
     const list = json.data || []; 
     return list.map(mapApiToFrontend);
   },
 
   // 2. ADD
   addTemplate: async (userId: string | number, data: Template) => {
-    const csrftoken = getCookie('csrftoken');
     const payload = mapFrontendToApi(data);
-    
-    const response = await fetch(`${API_BASE_URL}/${userId}/template`, {
+    return apiRequest(`${API_BASE_URL}/${userId}/template`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': csrftoken || '',
-      },
-      credentials: 'include',
-      body: JSON.stringify(payload),
+      body: payload,
+      fallbackMessage: 'Failed to create template',
     });
-    if (!response.ok) throw new Error('Failed to create template');
-    return await response.json();
   },
 
   // 3. UPDATE
   updateTemplate: async (userId: string | number, templateId: string, data: Template) => {
-    const csrftoken = getCookie('csrftoken');
     const payload = mapFrontendToApi(data);
-
-    const response = await fetch(`${API_BASE_URL}/${userId}/template/${templateId}/update`, {
-      method: 'POST', 
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': csrftoken || '',
-      },
-      credentials: 'include',
-      body: JSON.stringify(payload),
+    return apiRequest(`${API_BASE_URL}/${userId}/template/${templateId}/update`, {
+      method: 'POST',
+      body: payload,
+      fallbackMessage: 'Failed to update template',
     });
-    if (!response.ok) throw new Error('Failed to update template');
-    return await response.json();
   },
 
   // 4. DELETE (FIXED)
   deleteTemplate: async (userId: string | number, templateId: string) => {
-    const csrftoken = getCookie('csrftoken');
-    
-    // FIX: REMOVED trailing slash here
-    // WAS: `${API_BASE_URL}/${userId}/template/${templateId}/`
-    // NOW: `${API_BASE_URL}/${userId}/template/${templateId}`
-    const response = await fetch(`${API_BASE_URL}/${userId}/template/${templateId}`, {
+    await apiRequest(`${API_BASE_URL}/${userId}/template/${templateId}`, {
       method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': csrftoken || '',
-      },
-      credentials: 'include',
+      fallbackMessage: 'Failed to delete template',
     });
-
-    if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Delete failed: ${response.status} ${text}`);
-    }
     return true;
   }
 };

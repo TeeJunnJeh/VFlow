@@ -6284,6 +6284,45 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
           {getDebugModeEnabled() && (
           <div className="flex flex-col gap-3">
+            {/* ─── DEV: Error Modal 测试面板 ─── */}
+            <div className="rounded-xl border border-dashed border-red-500/30 bg-red-500/5 p-3">
+              <h2 className="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-2">🧪 Error Modal Test</h2>
+              <div className="flex flex-wrap gap-1.5">
+                {(
+                  [
+                    ['generation_failed', '生成失败', 500, 'VIDEO_GENERATION_FAILED', 'trk_test_001'],
+                    ['script_failed', '脚本生成失败', 500, 'SCRIPT_GENERATION_ERROR', 'trk_test_002'],
+                    ['parse_failed', '数据解析失败', 400, 'PARSE_ERROR', undefined],
+                    ['recognize_failed', '识别失败', 500, 'RECOGNIZE_FAILED', 'trk_test_003'],
+                    ['upload_failed', '上传失败', 502, 'UPLOAD_FAILED', 'trk_test_004'],
+                    ['network_error', '网络异常', 0, undefined, undefined],
+                    ['auth_error', '认证失败', 401, 'AUTH_TOKEN_EXPIRED', undefined],
+                    ['unknown_error', '未知错误', 503, 'UNKNOWN', 'trk_test_005'],
+                  ] as const
+                ).map(([cat, label, status, errCode, tid]) => (
+                  <button
+                    key={cat}
+                    className="px-2 py-1 rounded border border-red-500/30 text-[10px] text-red-300 hover:bg-red-500/20 transition"
+                    onClick={() => {
+                      const mockErr = new VideoApiError(`Mock: ${label}`, {
+                        status,
+                        errorCode: errCode,
+                        trackingId: tid,
+                      });
+                      openErrorModal(mockErr, {
+                        category: cat as ErrorCategory,
+                        onRetry: cat !== 'parse_failed' && cat !== 'auth_error'
+                          ? () => openInfo(popupTitles.notice, `[Test] 重试 "${label}" 被调用`)
+                          : undefined,
+                      });
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> {t.wb_reuse_queue}</h2>
               <button

@@ -2220,7 +2220,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           setAssetLibraryItems(
             assetLibraryPickMode === 'background_audio'
               ? normalizedItems.filter((item) => item.media_kind === 'audio')
-              : normalizedItems
+              : normalizedItems.filter((item) => item.media_kind !== 'audio')
           );
           setAssetLibraryFolders(Array.isArray(folderData.folders) ? folderData.folders : []);
           setAssetLibraryBreadcrumb(Array.isArray(folderData.breadcrumb) ? folderData.breadcrumb : []);
@@ -2394,11 +2394,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
   const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
   const VIDEO_EXTS = ['mp4', 'mov', 'mkv', 'webm', 'avi'];
-  const AUDIO_EXTS = ['mp3', 'wav', 'flac'];
   const imageFormats = IMAGE_EXTS.join('/');
   const videoFormats = VIDEO_EXTS.join('/');
-  const audioFormats = AUDIO_EXTS.join('/');
-  const formatHint = `图片(${imageFormats}) 视频(${videoFormats}) 音频(${audioFormats}) · ≤1GB`;
+  const formatHint = `图片(${imageFormats}) 视频(${videoFormats}) · ≤1GB`;
   const isBatchDebugMode = reuseQueueEnabled && hasAnyReuseQueue;
   const materialTypeLabelMap: Record<AssetLibraryTab, string> = {
     product: t.assets_tab_products || '商品',
@@ -3806,11 +3804,52 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
     const isImage = IMAGE_EXTS.includes(ext);
     const isVideo = VIDEO_EXTS.includes(ext);
-    const isAudio = AUDIO_EXTS.includes(ext);
 
-    if (!isImage && !isVideo && !isAudio) return `${t.assets_upload_error_unsupported || '格式不支持'}：${file.name}`;
+    if (!isImage && !isVideo) return `${t.assets_upload_error_unsupported || '格式不支持'}：${file.name}`;
     return null;
   };
+
+  const persistLocalQueuedAsset = useCallback(async (
+    queueId: string,
+    file: File,
+    localPreviewUrl: string,
+    updateSelected = false,
+  ) => {
+    try {
+      const uploadResp = await assetsApi.uploadTempAsset(file);
+      const rawPath = extractUploadedAssetPath(uploadResp);
+      if (!rawPath) return;
+
+      const displayUrl = toDisplayUrl(rawPath) || rawPath;
+      if (localPreviewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(localPreviewUrl);
+      }
+
+      setAssetQueue(prev => prev.map(item => (
+        item.id === queueId
+          ? {
+            ...item,
+            previewUrl: displayUrl,
+            assetUrl: rawPath,
+            uploadedPath: rawPath,
+            fileObj: null,
+          }
+          : item
+      )));
+
+      if (!updateSelected) return;
+
+      setUploadedFile((prev) => {
+        if (prev && prev !== displayUrl && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+        return displayUrl;
+      });
+      setSelectedFileObj(null);
+      setSelectedAssetUrl(rawPath);
+      setLastUploadedUrl(rawPath);
+    } catch (err) {
+      console.warn('Failed to persist local upload for preview:', err);
+    }
+  }, [extractUploadedAssetPath, toDisplayUrl]);
 
   const applySelectedUploadType = (files: File[], selectedType: AssetLibraryTab) => {
     if (files.length === 0) return;
@@ -3852,58 +3891,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return normalizeQueueSourcesForKlingMode(next, klingGenerateMode);
     });
 
-    void (async () => {
-      try {
-        const uploadResp = await assetsApi.uploadTempAsset(latestFile);
-        const rawPath = extractUploadedAssetPath(uploadResp);
-        if (!rawPath) return;
-
-        const displayUrl = toDisplayUrl(rawPath);
-
-        setAssetQueue((prev) => prev.map((item) => (
-            item.id === latestItem.id
-                ? { ...item, uploadedPath: rawPath, previewUrl: displayUrl || item.previewUrl, fileObj: null }
-                : item
-        )));
-
-        setLastUploadedUrl(rawPath);
-        setSelectedFileObj(null);
-        setUploadedFile((prev) => {
-          if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
-          return displayUrl || prev;
-        });
-      } catch {
-        void 0;
-      }
-    })();
-
-    void (async () => {
-      try {
-        const uploadResp = await assetsApi.uploadTempAsset(latestFile);
-        const persistedPath = extractUploadedAssetPath(uploadResp);
-        if (!persistedPath) return;
-
-        setAssetQueue(prev => prev.map(item => (
-            item.id === queueId
-                ? {
-                  ...item,
-                  previewUrl: persistedPath,
-                  assetUrl: persistedPath,
-                  uploadedPath: persistedPath,
-                }
-                : item
-        )));
-
-        setUploadedFile((prev) => {
-          if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
-          return persistedPath;
-        });
-        setSelectedAssetUrl(persistedPath);
-        setLastUploadedUrl(persistedPath);
-      } catch (err) {
-        console.warn('Failed to persist local upload for preview:', err);
-      }
-    })();
+    void persistLocalQueuedAsset(queueId, latestFile, latestItem.previewUrl || '', true);
   };
 
   const handleLocalFiles = async (files: File[]) => {
@@ -3931,9 +3919,116 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     if (validFiles.length === 0) return;
 
-    const firstMediaKind = inferMediaKind({ name: validFiles[0].name, file: validFiles[0] });
-    const defaultType = firstMediaKind === 'video' ? 'motion' : firstMediaKind === 'audio' ? 'audio' : 'product';
-    applySelectedUploadType(validFiles, defaultType);
+    const isKlingBatchUpload = selectedModel === 'kling' && validFiles.length > 1;
+    if (!isKlingBatchUpload) {
+      const firstMediaKind = inferMediaKind({ name: validFiles[0].name, file: validFiles[0] });
+      const defaultType = firstMediaKind === 'video' ? 'motion' : firstMediaKind === 'audio' ? 'audio' : 'product';
+      applySelectedUploadType(validFiles, defaultType);
+      return;
+    }
+
+    const imageFiles = validFiles.filter((file) => inferMediaKind({ name: file.name, file }) === 'image');
+    const ignoredNonImageCount = validFiles.length - imageFiles.length;
+    if (imageFiles.length === 0) {
+      openInfo(
+        popupTitles.notice,
+        `可灵批量本地上传仅支持图片，已忽略 ${ignoredNonImageCount} 个非图片文件。`
+      );
+      return;
+    }
+
+    const normalizedExistingImages = normalizeQueueSourcesForKlingMode(
+      assetQueue.filter((asset) => asset.mediaKind === 'image'),
+      klingGenerateMode
+    );
+    const firstFrameCount = normalizedExistingImages.filter((asset) => asset.source === 'product').length;
+    const tailFrameCount = normalizedExistingImages.filter((asset) => asset.source === 'tail').length;
+    const subjectCount = normalizedExistingImages.filter((asset) => asset.source === 'subject').length;
+    const referenceCount = normalizedExistingImages.filter((asset) => asset.source === 'preference').length;
+    const totalLimit = klingGenerateMode === 'subject' ? 4 : klingGenerateMode === 'first_last_frame' ? 8 : 7;
+    const remainingCapacity = Math.max(0, totalLimit - normalizedExistingImages.length);
+    const acceptedFiles = imageFiles.slice(0, remainingCapacity);
+    const overflowCount = Math.max(0, imageFiles.length - acceptedFiles.length);
+
+    if (acceptedFiles.length === 0) {
+      const details: string[] = ['当前可灵槽位已满，未导入新的图片。'];
+      if (ignoredNonImageCount > 0) details.push(`已忽略 ${ignoredNonImageCount} 个非图片文件。`);
+      openInfo(popupTitles.notice, details.join('\n'));
+      return;
+    }
+
+    let nextNeedsPrimary = klingGenerateMode !== 'subject' && firstFrameCount === 0;
+    let nextNeedsTail = klingGenerateMode === 'first_last_frame' && tailFrameCount === 0;
+    let nextNeedsSubject = klingGenerateMode === 'subject' && subjectCount === 0;
+    const nextItems: QueuedAsset[] = acceptedFiles.map((file, index) => {
+      let source: QueuedAsset['source'] = 'preference';
+      if (klingGenerateMode === 'subject') {
+        const draftAsset: QueuedAsset = {
+          id: `local-subject-draft-${Date.now()}-${index}`,
+          name: file.name,
+          previewUrl: '',
+          fileObj: file,
+          assetUrl: null,
+          source: 'subject',
+          materialType: 'product',
+          isPrimaryFrame: false,
+          mediaKind: 'image',
+          uploadedPath: null,
+        };
+        if (nextNeedsSubject && canBeKlingSubject(draftAsset)) {
+          source = 'subject';
+          nextNeedsSubject = false;
+        } else {
+          source = 'preference';
+        }
+      } else if (nextNeedsPrimary) {
+        source = 'product';
+        nextNeedsPrimary = false;
+      } else if (nextNeedsTail) {
+        source = 'tail';
+        nextNeedsTail = false;
+      }
+
+      const previewUrl = URL.createObjectURL(file);
+      return {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${index}`,
+        name: file.name,
+        previewUrl,
+        fileObj: file,
+        assetUrl: null,
+        source,
+        materialType: 'product',
+        isPrimaryFrame: source === 'product',
+        mediaKind: 'image',
+        uploadedPath: null,
+      };
+    });
+
+    const normalizedNextQueue = normalizeQueueSourcesForKlingMode([...assetQueue, ...nextItems], klingGenerateMode);
+    const selectedItem = nextItems[nextItems.length - 1];
+
+    setAssetQueue(normalizedNextQueue);
+    setSelectedQueueAssetId(selectedItem.id);
+    setUploadedFile(selectedItem.previewUrl);
+    setFileName(selectedItem.name);
+    setSelectedFileObj(selectedItem.fileObj || null);
+    setSelectedAssetSource(selectedItem.source);
+    setSelectedAssetUrl(null);
+    setCurrentMaterialType(selectedItem.materialType || null);
+    setGeneratedVideoUrl(null);
+    setLastUploadedUrl(null);
+
+    nextItems.forEach((item) => {
+      if (!item.fileObj) return;
+      void persistLocalQueuedAsset(item.id, item.fileObj, item.previewUrl || '', item.id === selectedItem.id);
+    });
+
+    const summaryLines = [`已导入 ${acceptedFiles.length} 张图片。`];
+    if (ignoredNonImageCount > 0) summaryLines.push(`已忽略 ${ignoredNonImageCount} 个非图片文件。`);
+    if (overflowCount > 0) summaryLines.push(`因当前模式槽位不足，已忽略 ${overflowCount} 张图片。`);
+    openInfo(popupTitles.notice, summaryLines.join('\n'));
+    return;
+
   };
 
   const markQueueAssetAsPrimaryFrame = (targetId: string) => {
@@ -6143,7 +6238,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               {!isKlingOmniMode && isDragUploadActive && (
                   <div className="absolute inset-1 rounded-lg border border-dashed border-orange-500/60 bg-orange-500/10 pointer-events-none" />
               )}
-              <input type="file" ref={fileInputRef} className="hidden" accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.mkv,.webm,.avi,.mp3,.wav,.flac" multiple onChange={handleWorkbenchUpload} />
+              <input type="file" ref={fileInputRef} className="hidden" accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.mkv,.webm,.avi" multiple onChange={handleWorkbenchUpload} />
               {!isKlingOmniMode && uploadDisplayAssets.length === 0 ? (
                   <div className="absolute inset-0 flex flex-col items-center justify-center z-10 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
                     <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition duration-300"><Plus className="w-4 h-4 text-zinc-500 group-hover:text-orange-500" /></div>
@@ -6160,12 +6255,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   {t.wb_upload_video}
                         <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
                     {videoFormats}
-                  </span>
-                </span>
-                      <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
-                  {t.wb_upload_audio}
-                        <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
-                    {audioFormats}
                   </span>
                 </span>
                       <span className="text-zinc-400">{t.wb_upload_max_size}</span>
@@ -7638,7 +7727,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       { value: 'model', label: t.assets_tab_models || '模特' },
                       { value: 'scene', label: t.assets_tab_scenes || '场景' },
                       { value: 'motion', label: t.assets_tab_motion || '动作' },
-                      { value: 'audio', label: t.assets_tab_audio || '音频' },
                     ] as Array<{ value: AssetLibraryTab; label: string }>).map((tab) => (
                         <button
                             key={tab.value}

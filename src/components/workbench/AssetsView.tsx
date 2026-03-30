@@ -26,6 +26,19 @@ interface AssetsViewProps {
 
 const ASSET_PLACEHOLDER_DATA_URL = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiB2aWV3Qm94PSIwIDAgMzAwIDQwMCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzFmMjkzNyIvPjx0ZXh0IHg9IjE1MCIgeT0iMjAwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiBmaWxsPSIjOWNhM2FmIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiPk5vIFByZXZpZXc8L3RleHQ+PC9zdmc+';
 
+const renderAudioArtwork = (name?: string, compact = false, isLightTheme = false) => (
+  <div className={`absolute inset-0 overflow-hidden ${compact ? '' : 'rounded-lg'}`}>
+    <div className={`absolute inset-0 ${isLightTheme ? 'bg-[radial-gradient(circle_at_top,_rgba(251,146,60,0.18),_transparent_46%),linear-gradient(180deg,_rgba(255,247,237,0.98),_rgba(255,255,255,1))]' : 'bg-[radial-gradient(circle_at_top,_rgba(251,146,60,0.30),_transparent_45%),linear-gradient(180deg,_rgba(39,39,42,0.95),_rgba(9,9,11,0.98))]'}`} />
+    <div className={`absolute inset-x-0 top-0 h-24 ${isLightTheme ? 'bg-gradient-to-b from-orange-300/15 to-transparent' : 'bg-gradient-to-b from-orange-400/10 to-transparent'}`} />
+    <div className="absolute inset-0 flex items-center justify-center">
+      <div className={`relative flex h-24 w-24 items-center justify-center rounded-full ${isLightTheme ? 'border border-orange-200/70 bg-white/95 shadow-[0_10px_30px_rgba(251,146,60,0.12)]' : 'border border-orange-300/25 bg-black/30 shadow-[0_0_30px_rgba(251,146,60,0.18)]'}`}>
+        <div className={`absolute h-28 w-28 rounded-full ${isLightTheme ? 'border border-slate-200/70' : 'border border-white/5'}`} />
+        <div className={`text-4xl font-semibold ${isLightTheme ? 'text-orange-300' : 'text-orange-200/95'}`}>{'\u266A'}</div>
+      </div>
+    </div>
+  </div>
+);
+
 export const AssetsView: React.FC<AssetsViewProps> = ({ 
   onSelectAsset, 
   currentFolderId, 
@@ -1838,7 +1851,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                                 <Layers3 className="w-3.5 h-3.5" />
                               </div>
                             )}
-                            {asset.file_url && asset.media_kind === 'video' ? (
+                            {asset.media_kind === 'audio' ? (
+                              renderAudioArtwork(asset.name, true, isLightTheme)
+                            ) : asset.file_url && asset.media_kind === 'video' ? (
                               <video
                                 src={getDisplayUrl(asset.file_url) || undefined}
                                 className="absolute inset-0 w-full h-full object-cover"
@@ -2159,11 +2174,24 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
        {isAssetPreviewOpen && assetPreview && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6" onClick={() => setIsAssetPreviewOpen(false)}>
             <div className="glass-panel rounded-2xl p-4 md:p-6 border border-white/10 w-full max-w-4xl max-h-[calc(100vh-3rem)] overflow-auto" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between gap-4 mb-4"><div className="min-w-0"><h3 className="text-sm font-bold text-zinc-200">{t.assets_preview_title}</h3><div className="text-xs text-zinc-500 truncate">{assetPreview.name}</div></div><button className="text-zinc-400 hover:text-white" onClick={() => setIsAssetPreviewOpen(false)}><X className="w-5 h-5"/></button></div>
+              <div className="flex items-center justify-between gap-4 mb-4"><div className="min-w-0"><div className="text-xs text-zinc-500 truncate">{assetPreview.name}</div></div><button className="text-zinc-400 hover:text-white" onClick={() => setIsAssetPreviewOpen(false)}><X className="w-5 h-5"/></button></div>
               {(assetPreview.type === 'product' || assetPreview.type === 'model') ? (
               <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)] gap-5">
                 <div className="flex items-center justify-center">
-                   {assetPreview.media_kind === 'video' ? (
+                   {assetPreview.media_kind === 'audio' ? (
+                     <div className="w-full max-w-xl space-y-4">
+                       <div className="relative mx-auto aspect-[4/3] w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-black/30">
+                         {renderAudioArtwork(assetPreview.name, false, isLightTheme)}
+                       </div>
+                       <audio
+                         src={getDisplayUrl(assetPreview.file_url) || undefined}
+                         className="w-full"
+                         controls
+                         autoPlay
+                         preload="metadata"
+                       />
+                     </div>
+                   ) : assetPreview.media_kind === 'video' ? (
                      <video
                        src={getDisplayUrl(assetPreview.file_url) || undefined}
                        className="block rounded-lg max-w-full max-h-[calc(100vh-10rem)] object-contain"
@@ -2337,7 +2365,20 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               </div>
               ) : (
                 <div className="flex items-center justify-center">
-                  {assetPreview.media_kind === 'video' ? (
+                  {assetPreview.media_kind === 'audio' ? (
+                    <div className="w-full max-w-xl space-y-4">
+                      <div className="relative mx-auto aspect-[4/3] w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-black/30">
+                        {renderAudioArtwork(assetPreview.name, false, isLightTheme)}
+                      </div>
+                      <audio
+                        src={getDisplayUrl(assetPreview.file_url) || undefined}
+                        className="w-full"
+                        controls
+                        autoPlay
+                        preload="metadata"
+                      />
+                    </div>
+                  ) : assetPreview.media_kind === 'video' ? (
                     <video
                       src={getDisplayUrl(assetPreview.file_url) || undefined}
                       className="block rounded-lg max-w-full max-h-[calc(100vh-10rem)] object-contain"

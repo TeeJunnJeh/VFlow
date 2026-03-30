@@ -473,6 +473,7 @@ interface WorkbenchViewProps {
   initialAssetSource?: 'product' | 'preference' | null;
   initialLibraryAsset?: LibraryAsset | null;
   initialLibraryAssetToken?: string | null;
+  initialLibraryAssetMode?: 'library_asset' | 'background_audio';
   onInitialLibraryAssetHandled?: () => void;
   templateList: Template[];
   onSelectTemplate: (t: Template | null) => void;
@@ -491,6 +492,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                                               initialAssetSource,
                                                               initialLibraryAsset,
                                                               initialLibraryAssetToken,
+                                                              initialLibraryAssetMode,
                                                               onInitialLibraryAssetHandled,
                                                               templateList,
                                                               onSelectTemplate,
@@ -512,6 +514,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const modeSectionRef = useRef<HTMLDivElement | null>(null);
   const uploadSectionRef = useRef<HTMLDivElement | null>(null);
   const configSectionRef = useRef<HTMLDivElement | null>(null);
+  const audioConfigSectionRef = useRef<HTMLDivElement | null>(null);
   const scriptsSectionRef = useRef<HTMLDivElement | null>(null);
   const previewSectionRef = useRef<HTMLDivElement | null>(null);
 
@@ -1629,11 +1632,30 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   useEffect(() => {
     if (!initialLibraryAsset || !initialLibraryAssetToken) return;
     if (isRestoring) return;
+    if (initialLibraryAssetMode !== 'background_audio') return;
+    if (injectedAssetSignaturesRef.current.has(initialLibraryAssetToken)) return;
+    injectedAssetSignaturesRef.current.add(initialLibraryAssetToken);
+    setSoundSetting('off');
+    setSelectedBackgroundAudio({
+      id: initialLibraryAsset.id,
+      name: initialLibraryAsset.name || 'audio',
+      file_url: initialLibraryAsset.file_url,
+    });
+    window.setTimeout(() => {
+      (audioConfigSectionRef.current || configSectionRef.current)?.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+    }, 120);
+    onInitialLibraryAssetHandled?.();
+  }, [initialLibraryAsset, initialLibraryAssetMode, initialLibraryAssetToken, isRestoring, onInitialLibraryAssetHandled]);
+
+  useEffect(() => {
+    if (!initialLibraryAsset || !initialLibraryAssetToken) return;
+    if (isRestoring) return;
+    if (initialLibraryAssetMode === 'background_audio') return;
     if (injectedAssetSignaturesRef.current.has(initialLibraryAssetToken)) return;
     injectedAssetSignaturesRef.current.add(initialLibraryAssetToken);
     queueLibraryAssetIntoWorkbench(initialLibraryAsset, { preferLastModeRouting: true });
     onInitialLibraryAssetHandled?.();
-  }, [initialLibraryAsset, initialLibraryAssetToken, isRestoring, onInitialLibraryAssetHandled, queueLibraryAssetIntoWorkbench]);
+  }, [initialLibraryAsset, initialLibraryAssetMode, initialLibraryAssetToken, isRestoring, onInitialLibraryAssetHandled, queueLibraryAssetIntoWorkbench]);
 
   useEffect(() => {
     if (initialLibraryAsset) return;
@@ -5963,7 +5985,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 )}
               </div>
 
-                <div>
+                <div ref={audioConfigSectionRef}>
                   <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_audio}</label>
                   <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
                     <button onClick={() => setSoundSetting('on')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'on' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_on}</button>

@@ -26,6 +26,8 @@ type AssetsNavigationIntent =
   | 'open_assets_for_subject_creation_first_time'
   | null;
 
+type WorkbenchAssetSelectionMode = 'library_asset' | 'background_audio';
+
 // Helper to get display URL for asset passing
 const getDisplayUrl = (path: string | null): string | null => {
   if (!path) return null;
@@ -47,6 +49,7 @@ const Workbench = () => {
   const [selectedAssetForWorkbench, setSelectedAssetForWorkbench] = useState<{
     asset: LibraryAsset;
     token: string;
+    mode: WorkbenchAssetSelectionMode;
   } | null>(null);
 
   // --- Template State ---
@@ -170,6 +173,7 @@ const Workbench = () => {
         file_url: getDisplayUrl(asset.file_url) || asset.file_url || '',
       },
       token: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      mode: asset.media_kind === 'audio' ? 'background_audio' : 'library_asset',
     });
     setGeneratedVideoUrl(null);
     setActiveView('workbench');
@@ -178,15 +182,21 @@ const Workbench = () => {
   const location = useLocation();
 
   useEffect(() => {
-    const state = location.state as { fromAssetLibrary?: boolean; selectedAsset?: LibraryAsset } | null;
+    const state = location.state as {
+      fromAssetLibrary?: boolean;
+      selectedAsset?: LibraryAsset;
+      mode?: WorkbenchAssetSelectionMode;
+    } | null;
     if (state?.fromAssetLibrary && state?.selectedAsset) {
       const asset = state.selectedAsset;
+      const mode = state.mode || (asset.media_kind === 'audio' ? 'background_audio' : 'library_asset');
       setSelectedAssetForWorkbench({
         asset: {
           ...asset,
           file_url: getDisplayUrl((asset as any).previewUrl || asset.file_url) || asset.file_url || '',
         },
         token: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        mode,
       });
       setGeneratedVideoUrl(null);
       setActiveView('workbench');
@@ -304,10 +314,11 @@ const Workbench = () => {
           {activeView === 'workbench' && (
             <div className="flex-1 h-full min-h-0">
               <WorkbenchView
-                initialFileUrl={selectedAssetForWorkbench?.asset?.file_url || null}
-                initialFileName={selectedAssetForWorkbench?.asset?.name}
+                initialFileUrl={selectedAssetForWorkbench?.mode === 'background_audio' ? null : (selectedAssetForWorkbench?.asset?.file_url || null)}
+                initialFileName={selectedAssetForWorkbench?.mode === 'background_audio' ? '' : selectedAssetForWorkbench?.asset?.name}
                 initialLibraryAsset={selectedAssetForWorkbench?.asset || null}
                 initialLibraryAssetToken={selectedAssetForWorkbench?.token || null}
+                initialLibraryAssetMode={selectedAssetForWorkbench?.mode || 'library_asset'}
                 onInitialLibraryAssetHandled={() => setSelectedAssetForWorkbench(null)}
                 templateList={templateList}
                 selectedTemplate={selectedTemplate}

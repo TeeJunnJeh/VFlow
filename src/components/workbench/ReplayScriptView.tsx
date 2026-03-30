@@ -14,6 +14,7 @@ export type ReplayReusePayload = {
 type ReplayParseResult = {
   summary: string;
   styleTags: string[];
+  styleReferenceText: string;
   suggestedPrompt: string;
   suggestedCategory: string;
   suggestedSellingPoints: string;
@@ -38,19 +39,28 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
 
   const canParse = useMemo(() => videoUrl.trim().length > 0 || Boolean(uploadedFile), [videoUrl, uploadedFile]);
 
+  const mimicPromptPrefix = t.replay_mimic_prompt_prefix || '模仿下面的语言风格，为xx产品生成相近风格的提示词：';
+
   const normalizeReplayResult = (data: ReplayReverseScriptData, source: string): ReplayParseResult => {
     const fallbackTags = [
       t.replay_tag_rhythm || 'Fast rhythm',
       t.replay_tag_contrast || 'High contrast',
       t.replay_tag_cta || 'Strong CTA',
     ];
+    const styleReferenceText = (data.styleReferenceText || '').trim();
+    const rawPrompt =
+      data.suggestedPrompt ||
+      t.replay_mock_prompt ||
+      'Follow a high-converting short-video structure: hook in the opening, strengthen trust in the middle, and end with a clear CTA.';
+    const normalizedPrompt = rawPrompt.startsWith(mimicPromptPrefix)
+      ? rawPrompt
+      : `${mimicPromptPrefix}\n${rawPrompt}`;
+
     return {
       summary: data.summary || `${t.replay_result_summary_prefix || 'Analysis source'}: ${source}`,
       styleTags: Array.isArray(data.styleTags) && data.styleTags.length > 0 ? data.styleTags : fallbackTags,
-      suggestedPrompt:
-        data.suggestedPrompt ||
-        t.replay_mock_prompt ||
-        'Follow a high-converting short-video structure: hook in the opening, strengthen trust in the middle, and end with a clear CTA.',
+      styleReferenceText,
+      suggestedPrompt: normalizedPrompt,
       suggestedCategory: data.suggestedCategory || t.replay_mock_category || 'Replay video',
       suggestedSellingPoints:
         data.suggestedSellingPoints ||
@@ -207,6 +217,13 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
                 </span>
               ))}
             </div>
+
+            {result.styleReferenceText && (
+              <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                <div className="text-xs text-zinc-500 mb-2">{t.replay_result_style_reference_label || '语言风格参考'}</div>
+                <div className="text-sm text-zinc-200 whitespace-pre-line">{result.styleReferenceText}</div>
+              </div>
+            )}
 
             <div className="rounded-xl border border-white/10 bg-black/30 p-3">
               <div className="text-xs text-zinc-500 mb-2">{t.replay_result_prompt_label || '建议提示词'}</div>

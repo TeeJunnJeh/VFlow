@@ -68,6 +68,7 @@ export type GenerateFusionImagePayload = {
 export type ReplayReverseScriptData = {
   summary: string;
   styleTags: string[];
+  styleReferenceText?: string;
   suggestedPrompt: string;
   suggestedCategory: string;
   suggestedSellingPoints: string;

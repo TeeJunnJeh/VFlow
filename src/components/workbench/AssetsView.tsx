@@ -9,7 +9,7 @@ import { videoApi } from '../../services/video';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { getSubjectGuideContent } from './subjectGuideContent';
 
-type AssetType = 'model' | 'product' | 'scene' | 'motion';
+type AssetType = 'model' | 'product' | 'scene' | 'motion' | 'audio';
 type AssetsNavigationIntent =
   | 'open_assets_for_subject_creation'
   | 'open_assets_for_subject_creation_first_time'
@@ -59,7 +59,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     model: t.assets_tab_models,
     product: t.assets_tab_products,
     scene: t.assets_tab_scenes,
-    motion: t.assets_tab_motion
+    motion: t.assets_tab_motion,
+    audio: t.assets_tab_audio || '音频'
   };
   const [themeClassSnapshot, setThemeClassSnapshot] = useState<string>('');
   useEffect(() => {
@@ -1565,7 +1566,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                      ref={plazaUploadInputRef}
                      className="hidden"
                      multiple
-                     accept={activeAssetTab === 'motion' ? 'video/*' : 'image/*'}
+                     accept={activeAssetTab === 'motion' ? 'video/*' : activeAssetTab === 'audio' ? 'audio/*' : 'image/*'}
                      onChange={(e) => void handleAdminUploadToPlaza(e.target.files)}
                    />
                  </>
@@ -1577,7 +1578,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
        <div className="flex-1 flex flex-col px-10 pt-4 pb-10 overflow-hidden">
          {/* Tabs */}
          <div className="flex gap-4 mb-8 border-b border-white/5 pb-2">
-             {(['model', 'product', 'scene', 'motion'] as AssetType[]).map(type => (
+             {(['model', 'product', 'scene', 'motion', 'audio'] as AssetType[]).map(type => (
                 <button
                   key={type}
                   onClick={() => {
@@ -2530,7 +2531,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                   onChange={(e) => setPlazaManageCategory(e.target.value as AssetType)}
                   className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-orange-500"
                 >
-                  {(['model', 'product', 'scene', 'motion'] as AssetType[]).map((cat) => (
+                  {(['model', 'product', 'scene', 'motion', 'audio'] as AssetType[]).map((cat) => (
                     <option key={cat} value={cat}>{assetTabLabel[cat] || cat}</option>
                   ))}
                 </select>

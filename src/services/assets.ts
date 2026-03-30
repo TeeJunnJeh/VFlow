@@ -35,7 +35,7 @@ function toDisplayUrl(pathOrUrl: string | null | undefined): string {
 export interface Asset {
   id: string;
   name: string;
-  type: 'model' | 'product' | 'scene' | 'motion';
+  type: 'model' | 'product' | 'scene' | 'motion' | 'audio';
   file_url: string;
   thumbnail?: string;
   media_kind?: 'image' | 'video' | 'audio' | 'file';
@@ -68,14 +68,14 @@ export interface AssetFolder {
   id: string;
   name: string;
   parent_id: string | null;
-  asset_type: 'model' | 'product' | 'scene' | 'motion';
+  asset_type: 'model' | 'product' | 'scene' | 'motion' | 'audio';
   created_at?: string;
 }
 
 export interface PlazaAssetItem {
   id: string;
   display_name: string;
-  category: 'model' | 'product' | 'scene' | 'motion';
+  category: 'model' | 'product' | 'scene' | 'motion' | 'audio';
   source_type: 'official' | 'user';
   keywords: string;
   description: string;
@@ -100,7 +100,7 @@ export interface PlazaCollectPolicy {
 
 export const assetsApi = {
   // 1. GET List
-  getAssets: async (params?: { type?: 'model' | 'product' | 'scene' | 'motion'; folderId?: string | null }): Promise<Asset[]> => {
+  getAssets: async (params?: { type?: 'model' | 'product' | 'scene' | 'motion' | 'audio'; folderId?: string | null }): Promise<Asset[]> => {
     try {
       return traceApiRequest({
         metricName: 'assets_list',
@@ -159,13 +159,13 @@ export const assetsApi = {
             const rawPathLower = String(rawUrl).split('?')[0].toLowerCase();
             let mediaKind: Asset['media_kind'] = 'file';
             if (lowerType === 'motion' || /\.(mp4|mov|mkv|webm|avi)$/.test(rawPathLower)) mediaKind = 'video';
+            else if (lowerType === 'audio' || /\.(mp3|wav|flac)$/.test(rawPathLower)) mediaKind = 'audio';
             else if (/\.(jpg|jpeg|png|webp|gif)$/.test(rawPathLower)) mediaKind = 'image';
-            else if (/\.(mp3|wav|flac)$/.test(rawPathLower)) mediaKind = 'audio';
 
             return {
               id: item.id.toString(),
               name: item.display_name,
-              type: item.type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion',
+              type: item.type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion' | 'audio',
               file_url: fullUrl,
               thumbnail: thumbnailUrl || undefined,
               media_kind: mediaKind,
@@ -333,7 +333,7 @@ export const assetsApi = {
   },
 
   // 5. FOLDERS
-  getFolders: async (params: { type: 'model' | 'product' | 'scene' | 'motion'; parentId: string | null }) => {
+  getFolders: async (params: { type: 'model' | 'product' | 'scene' | 'motion' | 'audio'; parentId: string | null }) => {
     const search = new URLSearchParams();
     search.set('type', params.type.toUpperCase());
     search.set('parent_id', params.parentId ?? '');
@@ -356,19 +356,19 @@ export const assetsApi = {
         id: item.id.toString(),
         name: item.name,
         parent_id: item.parent_id ? item.parent_id.toString() : null,
-        asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion',
+        asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion' | 'audio',
         created_at: item.created_at
       })),
       breadcrumb: breadcrumb.map(item => ({
         id: item.id.toString(),
         name: item.name,
         parent_id: item.parent_id ? item.parent_id.toString() : null,
-        asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion'
+        asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion' | 'audio'
       }))
     };
   },
 
-  getAllFolders: async (type: 'model' | 'product' | 'scene' | 'motion') => {
+  getAllFolders: async (type: 'model' | 'product' | 'scene' | 'motion' | 'audio') => {
     const search = new URLSearchParams();
     search.set('type', type.toUpperCase());
     search.set('all', '1');
@@ -389,12 +389,12 @@ export const assetsApi = {
       id: item.id.toString(),
       name: item.name,
       parent_id: item.parent_id ? item.parent_id.toString() : null,
-      asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion',
+      asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion' | 'audio',
       created_at: item.created_at
     })) as AssetFolder[];
   },
 
-  createFolder: async (name: string, type: 'model' | 'product' | 'scene' | 'motion', parentId: string | null) => {
+  createFolder: async (name: string, type: 'model' | 'product' | 'scene' | 'motion' | 'audio', parentId: string | null) => {
     const csrftoken = getCookie('csrftoken');
     const response = await fetch(`${API_BASE_URL}/folders/`, {
       method: 'POST',
@@ -482,7 +482,7 @@ export const assetsApi = {
     return await response.json();
   },
 
-  getPlazaAssets: async (params?: { category?: 'model' | 'product' | 'scene' | 'motion'; source?: 'all' | 'official' | 'user'; q?: string; limit?: number; offset?: number }) => {
+  getPlazaAssets: async (params?: { category?: 'model' | 'product' | 'scene' | 'motion' | 'audio'; source?: 'all' | 'official' | 'user'; q?: string; limit?: number; offset?: number }) => {
     const search = new URLSearchParams();
     if (params?.category) search.set('category', params.category);
     if (params?.source) search.set('source', params.source);
@@ -536,7 +536,7 @@ export const assetsApi = {
 
   uploadPlazaAsset: async (payload: {
     file: File;
-    category: 'model' | 'product' | 'scene' | 'motion';
+    category: 'model' | 'product' | 'scene' | 'motion' | 'audio';
     displayName?: string;
     keywords?: string;
     description?: string;
@@ -601,7 +601,7 @@ export const assetsApi = {
 
   updatePlazaAsset: async (itemId: string, payload: {
     display_name?: string;
-    category?: 'model' | 'product' | 'scene' | 'motion';
+    category?: 'model' | 'product' | 'scene' | 'motion' | 'audio';
     keywords?: string;
     description?: string;
     is_active?: boolean;

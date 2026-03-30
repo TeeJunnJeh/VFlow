@@ -113,7 +113,7 @@ type QueuedScript = {
   creativeCardText?: string;
 };
 
-type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion';
+type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion' | 'audio';
 type AssetLibraryPickMode = 'default' | 'background_audio';
 type AiOptimizeResolution = 'sd' | 'hd' | 'uhd';
 type WaitProgressPhase = 'idle' | 'simulating' | 'holding' | 'finishing' | 'done';
@@ -2224,14 +2224,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const openAssetLibraryPicker = () => {
     setAssetLibraryPickMode('default');
-    setAssetLibraryTab(currentAssetMediaKind === 'video' ? 'motion' : 'product');
+    setAssetLibraryTab(currentAssetMediaKind === 'video' ? 'motion' : currentAssetMediaKind === 'audio' ? 'audio' : 'product');
     setAssetLibraryCurrentFolderId(null);
     setIsAssetLibraryOpen(true);
   };
 
   const openBackgroundAudioPicker = () => {
     setAssetLibraryPickMode('background_audio');
-    setAssetLibraryTab('product');
+    setAssetLibraryTab('audio');
     setAssetLibraryCurrentFolderId(null);
     setIsAssetLibraryOpen(true);
   };
@@ -2267,7 +2267,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const materialType: AssetLibraryTab = asset.media_kind === 'video'
       ? 'motion'
-      : (asset.type === 'model' || asset.type === 'product' || asset.type === 'scene' || asset.type === 'motion'
+      : (asset.type === 'model' || asset.type === 'product' || asset.type === 'scene' || asset.type === 'motion' || asset.type === 'audio'
         ? asset.type
         : 'product');
     const mediaKind: QueuedAsset['mediaKind'] =
@@ -2383,6 +2383,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     model: t.assets_tab_models || '模特',
     scene: t.assets_tab_scenes || '场景',
     motion: t.assets_tab_motion || '动作',
+    audio: t.assets_tab_audio || '音频',
   };
   const uploadDisplayAssets: QueuedAsset[] = useMemo(() => {
     if (assetQueue.length > 0) return assetQueue;
@@ -2394,7 +2395,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       fileObj: selectedFileObj,
       assetUrl: selectedAssetUrl,
       source: selectedAssetSource || 'product',
-      materialType: currentMaterialType || (currentAssetMediaKind === 'video' ? 'motion' : 'product'),
+      materialType: currentMaterialType || (currentAssetMediaKind === 'video' ? 'motion' : currentAssetMediaKind === 'audio' ? 'audio' : 'product'),
       isPrimaryFrame: selectedAssetSource === 'product',
       hasSubjectOtherViews: false,
       mediaKind: currentAssetMediaKind,
@@ -3909,7 +3910,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (validFiles.length === 0) return;
 
     const firstMediaKind = inferMediaKind({ name: validFiles[0].name, file: validFiles[0] });
-    const defaultType = firstMediaKind === 'video' ? 'motion' : 'product';
+    const defaultType = firstMediaKind === 'video' ? 'motion' : firstMediaKind === 'audio' ? 'audio' : 'product';
     applySelectedUploadType(validFiles, defaultType);
   };
 
@@ -4262,7 +4263,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const mediaKind = inferMediaKind({ name, url: previewUrl, file: selectedFileObj });
 
     const nextMaterialType: AssetLibraryTab = currentAssetMediaKind === 'video'
-        ? 'motion'
+      ? 'motion'
+      : currentAssetMediaKind === 'audio'
+        ? 'audio'
         : (currentMaterialType || 'product');
     const nextItem: QueuedAsset = {
       id: newId,
@@ -4426,7 +4429,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             )}
             <select
                 className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
-                value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product')}
+                value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product')}
                 onChange={(e) => {
                   const newType = e.target.value as AssetLibraryTab;
                   setAssetQueue(prev => {
@@ -4443,6 +4446,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <option value="model">{materialTypeLabelMap['model']}</option>
               <option value="scene">{materialTypeLabelMap['scene']}</option>
               <option value="motion">{materialTypeLabelMap['motion']}</option>
+              <option value="audio">{materialTypeLabelMap['audio']}</option>
             </select>
           </div>
           <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
@@ -5977,7 +5981,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           : (t.wb_config_add_audio || '添加音频')}
                       </button>
                       {selectedBackgroundAudio ? (
-                        <div className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-black/20 px-2.5 py-2">
+                        <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-2">
                           <div className="min-w-0">
                             <div className="text-[10px] text-zinc-500 uppercase">{t.wb_config_selected_audio || '已选音频'}</div>
                             <div className="text-xs text-zinc-200 truncate">{selectedBackgroundAudio.name}</div>
@@ -5985,7 +5989,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           <button
                             type="button"
                             onClick={() => setSelectedBackgroundAudio(null)}
-                            className="text-[10px] text-zinc-400 hover:text-red-300 rounded px-2 py-1 border border-white/10 hover:border-red-500/40"
+                            className="mt-2 w-full text-[10px] text-zinc-400 hover:text-red-300 rounded px-2 py-1 border border-white/10 hover:border-red-500/40"
                           >
                             {t.editor_model_clear || '移除'}
                           </button>
@@ -6281,7 +6285,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               <div className="absolute top-1 left-1 z-10" onClick={(e) => e.stopPropagation()}>
                                 <select
                                     className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
-                                    value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : 'product')}
+                                    value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product')}
                                     onChange={(e) => {
                                       const newType = e.target.value as AssetLibraryTab;
                                       setAssetQueue(prev => {
@@ -6298,6 +6302,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                   <option value="model">{materialTypeLabelMap['model']}</option>
                                   <option value="scene">{materialTypeLabelMap['scene']}</option>
                                   <option value="motion">{materialTypeLabelMap['motion']}</option>
+                                  <option value="audio">{materialTypeLabelMap['audio']}</option>
                                 </select>
                               </div>
                               <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
@@ -7611,6 +7616,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       { value: 'model', label: t.assets_tab_models || '模特' },
                       { value: 'scene', label: t.assets_tab_scenes || '场景' },
                       { value: 'motion', label: t.assets_tab_motion || '动作' },
+                      { value: 'audio', label: t.assets_tab_audio || '音频' },
                     ] as Array<{ value: AssetLibraryTab; label: string }>).map((tab) => (
                         <button
                             key={tab.value}

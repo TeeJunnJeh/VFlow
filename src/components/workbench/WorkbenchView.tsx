@@ -114,6 +114,7 @@ type QueuedScript = {
 };
 
 type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion';
+type AssetLibraryPickMode = 'default' | 'background_audio';
 type AiOptimizeResolution = 'sd' | 'hd' | 'uhd';
 type WaitProgressPhase = 'idle' | 'simulating' | 'holding' | 'finishing' | 'done';
 
@@ -135,8 +136,17 @@ type GeneratePayload = {
   target_language: string;
   model_asset_id: string | number | null;
   motion_asset_id: string | number | null;
+  background_audio_asset_id?: string | number | null;
+  background_audio_url?: string | null;
+  background_audio_name?: string | null;
   negative_prompt?: string;
   [key: string]: unknown;
+};
+
+type SelectedBackgroundAudio = {
+  id: string;
+  name: string;
+  file_url: string;
 };
 
 type ActionRequired = {
@@ -170,6 +180,7 @@ type ProjectWorkspaceState = {
   genPrompt: string;
   genDuration: number;
   soundSetting: 'on' | 'off';
+  selectedBackgroundAudio: SelectedBackgroundAudio | null;
   scriptVariantCount: number;
   targetLanguage: string;
   creationMode: 'fast' | 'replay';
@@ -244,6 +255,7 @@ const createWorkspaceState = (params?: {
     genPrompt: '',
     genDuration: prefs.genDuration || 10,
     soundSetting: prefs.soundSetting === 'off' ? 'off' : 'on',
+    selectedBackgroundAudio: null,
     scriptVariantCount:
       typeof prefs.scriptVariantCount === 'number' && prefs.scriptVariantCount > 0 ? prefs.scriptVariantCount : 1,
     targetLanguage: prefs.targetLanguage || 'en',
@@ -585,6 +597,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [lastGeneratedProjectId, setLastGeneratedProjectId] = useState<string | null>(null);
   const [previewProjectId, setPreviewProjectId] = useState<string | null>(null);
   const [isAssetLibraryOpen, setIsAssetLibraryOpen] = useState(false);
+  const [assetLibraryPickMode, setAssetLibraryPickMode] = useState<AssetLibraryPickMode>('default');
   const [assetLibraryTab, setAssetLibraryTab] = useState<AssetLibraryTab>('product');
   const [assetLibraryItems, setAssetLibraryItems] = useState<LibraryAsset[]>([]);
   const [assetLibraryFolders, setAssetLibraryFolders] = useState<AssetFolder[]>([]);
@@ -672,6 +685,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [genPrompt, setGenPrompt] = useState('');
   const [genDuration, setGenDuration] = useState<number>(() => normalizeDurationForModel(initialPrefs.genDuration ?? selectedTemplate?.duration ?? 10, selectedModel));
   const [soundSetting, setSoundSetting] = useState<'on' | 'off'>(() => (initialPrefs.soundSetting === 'off' ? 'off' : 'on'));
+  const [selectedBackgroundAudio, setSelectedBackgroundAudio] = useState<SelectedBackgroundAudio | null>(null);
   const [scriptVariantCount, setScriptVariantCount] = useState<number>(() =>
     typeof initialPrefs.scriptVariantCount === 'number' && initialPrefs.scriptVariantCount > 0 ? initialPrefs.scriptVariantCount : 1
   );
@@ -1271,6 +1285,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       restoredModelId
     ));
     setSoundSetting(workspace.soundSetting || (initialPrefs.soundSetting === 'off' ? 'off' : 'on'));
+    setSelectedBackgroundAudio(workspace.selectedBackgroundAudio || null);
     setScriptVariantCount(
       typeof workspace.scriptVariantCount === 'number'
         ? workspace.scriptVariantCount
@@ -1767,6 +1782,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       genPrompt,
       genDuration,
       soundSetting,
+      selectedBackgroundAudio,
       scriptVariantCount,
       targetLanguage,
       creationMode,
@@ -1815,6 +1831,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     genPrompt,
     genDuration,
     soundSetting,
+    selectedBackgroundAudio,
     scriptVariantCount,
     targetLanguage,
     creationMode,
@@ -2177,7 +2194,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           assetsApi.getFolders({ type: assetLibraryTab, parentId: assetLibraryCurrentFolderId }),
         ]);
         if (!cancelled) {
-          setAssetLibraryItems(Array.isArray(items) ? items : []);
+          const normalizedItems = Array.isArray(items) ? items : [];
+          setAssetLibraryItems(
+            assetLibraryPickMode === 'background_audio'
+              ? normalizedItems.filter((item) => item.media_kind === 'audio')
+              : normalizedItems
+          );
           setAssetLibraryFolders(Array.isArray(folderData.folders) ? folderData.folders : []);
           setAssetLibraryBreadcrumb(Array.isArray(folderData.breadcrumb) ? folderData.breadcrumb : []);
         }
@@ -2198,10 +2220,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [assetLibraryCurrentFolderId, assetLibraryTab, isAssetLibraryOpen]);
+  }, [assetLibraryCurrentFolderId, assetLibraryPickMode, assetLibraryTab, isAssetLibraryOpen]);
 
   const openAssetLibraryPicker = () => {
+    setAssetLibraryPickMode('default');
     setAssetLibraryTab(currentAssetMediaKind === 'video' ? 'motion' : 'product');
+    setAssetLibraryCurrentFolderId(null);
+    setIsAssetLibraryOpen(true);
+  };
+
+  const openBackgroundAudioPicker = () => {
+    setAssetLibraryPickMode('background_audio');
+    setAssetLibraryTab('product');
     setAssetLibraryCurrentFolderId(null);
     setIsAssetLibraryOpen(true);
   };
@@ -2314,6 +2344,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }
 
   const selectAssetFromLibraryPopup = (asset: LibraryAsset) => {
+    if (assetLibraryPickMode === 'background_audio') {
+      if (asset.media_kind !== 'audio') {
+        openInfo(popupTitles.notice, t.wb_audio_picker_only_audio || '请选择音频素材');
+        return;
+      }
+      setSelectedBackgroundAudio({
+        id: asset.id,
+        name: asset.name || 'audio',
+        file_url: asset.file_url,
+      });
+      setIsAssetLibraryOpen(false);
+      setAssetLibraryPickMode('default');
+      return;
+    }
     queueLibraryAssetIntoWorkbench(asset);
   };
 
@@ -3405,6 +3449,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         product_name: productName,
         duration: genDuration,
         sound: 'off',
+        ...(selectedBackgroundAudio && soundSetting === 'off'
+          ? {
+            background_audio_asset_id: selectedBackgroundAudio.id,
+            background_audio_url: selectedBackgroundAudio.file_url,
+            background_audio_name: selectedBackgroundAudio.name,
+          }
+          : {}),
         kling_mode: klingGenerateMode,
         omni_assets: omniAssets,
         user_language: language,
@@ -3426,6 +3477,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       product_name: productName,
       duration: genDuration,
       sound: soundSetting,
+      ...(selectedBackgroundAudio && soundSetting === 'off'
+        ? {
+          background_audio_asset_id: selectedBackgroundAudio.id,
+          background_audio_url: selectedBackgroundAudio.file_url,
+          background_audio_name: selectedBackgroundAudio.name,
+        }
+        : {}),
       asset_source: selectedAssetSource,
       user_language: language,
       target_language: targetLanguage,
@@ -5068,6 +5126,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   ? { motion_video_path: (asset as any).apiPath }
                   : { image_path: (asset as any).apiPath }),
               sound: soundSetting,
+              ...(selectedBackgroundAudio && soundSetting === 'off'
+                ? {
+                  background_audio_asset_id: selectedBackgroundAudio.id,
+                  background_audio_url: selectedBackgroundAudio.file_url,
+                  background_audio_name: selectedBackgroundAudio.name,
+                }
+                : {}),
               asset_source: asset.source,
               user_language: language,
               target_language: targetLanguage,
@@ -5900,6 +5965,36 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     <button onClick={() => setSoundSetting('on')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'on' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_on}</button>
                     <button onClick={() => setSoundSetting('off')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'off' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_off}</button>
                   </div>
+                  {soundSetting === 'off' && (
+                    <div className="mt-2 space-y-2">
+                      <button
+                        type="button"
+                        onClick={openBackgroundAudioPicker}
+                        className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-zinc-200 hover:border-orange-500/50 hover:text-orange-300 hover:bg-orange-500/5 transition"
+                      >
+                        {selectedBackgroundAudio
+                          ? (t.wb_config_change_audio || '更换音频')
+                          : (t.wb_config_add_audio || '添加音频')}
+                      </button>
+                      {selectedBackgroundAudio ? (
+                        <div className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-black/20 px-2.5 py-2">
+                          <div className="min-w-0">
+                            <div className="text-[10px] text-zinc-500 uppercase">{t.wb_config_selected_audio || '已选音频'}</div>
+                            <div className="text-xs text-zinc-200 truncate">{selectedBackgroundAudio.name}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedBackgroundAudio(null)}
+                            className="text-[10px] text-zinc-400 hover:text-red-300 rounded px-2 py-1 border border-white/10 hover:border-red-500/40"
+                          >
+                            {t.editor_model_clear || '移除'}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="text-[10px] text-zinc-500">{t.wb_config_audio_add_hint || '生成后会自动裁剪并附加到视频'}</div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -7486,14 +7581,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             <AppDialog
                 isOpen={isAssetLibraryOpen}
                 titleClassName="text-lg"
-                title={t.wb_dialog_choose_from_library || '从素材库选择'}
-                onClose={() => setIsAssetLibraryOpen(false)}
+                title={assetLibraryPickMode === 'background_audio' ? (t.wb_audio_picker_title || '选择音频素材') : (t.wb_dialog_choose_from_library || '从素材库选择')}
+                onClose={() => {
+                  setIsAssetLibraryOpen(false);
+                  setAssetLibraryPickMode('default');
+                }}
                 widthClassName="max-w-[min(92vw,980px)]"
                 footer={
                   <>
                     <button
                         className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
-                        onClick={() => setIsAssetLibraryOpen(false)}
+                        onClick={() => {
+                          setIsAssetLibraryOpen(false);
+                          setAssetLibraryPickMode('default');
+                        }}
                     >
                       关闭
                     </button>
@@ -7501,26 +7602,30 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 }
             >
               <div className="w-full h-[62vh] max-h-[600px] min-h-[440px] flex flex-col gap-2.5">
-                <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                  {([
-                    { value: 'product', label: t.assets_tab_products || '商品' },
-                    { value: 'model', label: t.assets_tab_models || '模特' },
-                    { value: 'scene', label: t.assets_tab_scenes || '场景' },
-                    { value: 'motion', label: t.assets_tab_motion || '动作' },
-                  ] as Array<{ value: AssetLibraryTab; label: string }>).map((tab) => (
-                      <button
-                          key={tab.value}
-                          type="button"
-                          onClick={() => {
-                            setAssetLibraryTab(tab.value);
-                            setAssetLibraryCurrentFolderId(null);
-                          }}
-                          className={`shrink-0 rounded-full border px-5 py-2 text-[14px] font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
-                      >
-                        {tab.label}
-                      </button>
-                  ))}
-                </div>
+                {assetLibraryPickMode === 'background_audio' ? (
+                  <div className="text-xs text-zinc-400 px-1">{t.wb_audio_picker_hint || '仅显示音频素材'}</div>
+                ) : (
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                    {([
+                      { value: 'product', label: t.assets_tab_products || '商品' },
+                      { value: 'model', label: t.assets_tab_models || '模特' },
+                      { value: 'scene', label: t.assets_tab_scenes || '场景' },
+                      { value: 'motion', label: t.assets_tab_motion || '动作' },
+                    ] as Array<{ value: AssetLibraryTab; label: string }>).map((tab) => (
+                        <button
+                            key={tab.value}
+                            type="button"
+                            onClick={() => {
+                              setAssetLibraryTab(tab.value);
+                              setAssetLibraryCurrentFolderId(null);
+                            }}
+                            className={`shrink-0 rounded-full border px-5 py-2 text-[14px] font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
+                        >
+                          {tab.label}
+                        </button>
+                    ))}
+                  </div>
+                )}
                 <div className="flex items-center gap-2 text-xs text-zinc-500 min-w-0">
                   <button
                       type="button"
@@ -7554,7 +7659,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       </div>
                   ) : assetLibraryItems.length === 0 && assetLibraryFolders.length === 0 ? (
                       <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">
-                        暂无素材
+                        {assetLibraryPickMode === 'background_audio' ? (t.wb_audio_picker_empty || '暂无音频素材') : '暂无素材'}
                       </div>
                   ) : (
                       <div className="grid grid-cols-6 gap-2">
@@ -7588,6 +7693,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 )}
                                 {asset.media_kind === 'video' ? (
                                     <video src={asset.file_url} className="w-full h-full object-cover" muted playsInline />
+                                ) : asset.media_kind === 'audio' ? (
+                                  <div className="w-full h-full flex items-center justify-center bg-zinc-900 text-zinc-200">
+                                    <Music className="w-5 h-5" />
+                                  </div>
                                 ) : (
                                     <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} />
                                 )}

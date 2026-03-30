@@ -255,7 +255,11 @@ export const videoApi = {
   },
 
   // 2. Generate Script
-  generateScript: async (userId: string | number, payload: unknown) => {
+  generateScript: async (
+    userId: string | number,
+    payload: unknown,
+    options?: { signal?: AbortSignal }
+  ) => {
     const csrftoken = getCookie('csrftoken');
 
     const body = JSON.stringify(payload);
@@ -273,6 +277,7 @@ export const videoApi = {
       },
       credentials: 'include',
       body,
+      signal: options?.signal,
     });
 
     if (!response.ok) {
@@ -657,4 +662,3 @@ export const videoApi = {
     });
   },
 };
-

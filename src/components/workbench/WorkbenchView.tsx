@@ -212,6 +212,69 @@ const LOCAL_PROJECT_STORE_KEY_PREFIX = 'vflow_workbench_projects_v1';
 const DEFAULT_PROJECT_NAME = 'Project_Alpha_01';
 const MAX_PROJECT_NAME_LENGTH = 30;
 const PROJECT_ACTION_MENU_RESERVED_SPACE = 60;
+const SCRIPT_GENERATION_CANCEL_WINDOW_MS = 60_000;
+const SCRIPT_GENERATION_CANCEL_LIMIT = 3;
+const SCRIPT_GENERATION_CANCEL_STORAGE_KEY_PREFIX = 'vflow_script_generation_cancels_v1';
+
+const buildScriptGenerationCancelStorageKey = (userId?: string | number | null) => {
+  const normalized = userId === null || userId === undefined || userId === '' ? 'guest' : String(userId);
+  return `${SCRIPT_GENERATION_CANCEL_STORAGE_KEY_PREFIX}_${normalized}`;
+};
+
+const readRecentScriptGenerationCancelTimestamps = (userId?: string | number | null): number[] => {
+  if (typeof window === 'undefined') return [];
+
+  try {
+    const raw = window.localStorage.getItem(buildScriptGenerationCancelStorageKey(userId));
+    const parsed = raw ? JSON.parse(raw) : [];
+    const now = Date.now();
+    const next = Array.isArray(parsed)
+      ? parsed
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && now - value < SCRIPT_GENERATION_CANCEL_WINDOW_MS)
+      : [];
+
+    if (next.length !== (Array.isArray(parsed) ? parsed.length : 0)) {
+      window.localStorage.setItem(buildScriptGenerationCancelStorageKey(userId), JSON.stringify(next));
+    }
+
+    return next;
+  } catch {
+    return [];
+  }
+};
+
+const recordScriptGenerationCancelTimestamp = (userId?: string | number | null): number[] => {
+  if (typeof window === 'undefined') return [];
+
+  const next = [
+    ...readRecentScriptGenerationCancelTimestamps(userId),
+    Date.now(),
+  ];
+
+  try {
+    window.localStorage.setItem(buildScriptGenerationCancelStorageKey(userId), JSON.stringify(next));
+  } catch {
+    // Ignore localStorage failures and keep cancellation non-blocking.
+  }
+
+  return next;
+};
+
+const getScriptGenerationCooldownRemainingMs = (userId?: string | number | null): number => {
+  const timestamps = readRecentScriptGenerationCancelTimestamps(userId);
+  if (timestamps.length < SCRIPT_GENERATION_CANCEL_LIMIT) return 0;
+
+  const oldestRelevant = timestamps[timestamps.length - SCRIPT_GENERATION_CANCEL_LIMIT];
+  if (!Number.isFinite(oldestRelevant)) return 0;
+
+  return Math.max(0, oldestRelevant + SCRIPT_GENERATION_CANCEL_WINDOW_MS - Date.now());
+};
+
+const isAbortError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') return false;
+  return (error as { name?: string }).name === 'AbortError';
+};
 
 const estimateProjectNameWidthEm = (value: string): number => {
   const text = value || '';
@@ -664,6 +727,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     videoType?: string;
   }>({});
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [scriptGenerationNotice, setScriptGenerationNotice] = useState<string | null>(null);
+  const scriptGenerationAbortRef = useRef<AbortController | null>(null);
+  const activeScriptGenerationSeqRef = useRef(0);
 
   useEffect(() => {
     if (!replayReusePayload) return;
@@ -4665,9 +4731,40 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return () => window.clearTimeout(timer);
   }, [toastMessage]);
 
+  useEffect(() => {
+    if (!scriptGenerationNotice) return;
+    const timer = window.setTimeout(() => setScriptGenerationNotice(null), 2000);
+    return () => window.clearTimeout(timer);
+  }, [scriptGenerationNotice]);
+
+  const handleCancelGenerateScripts = useCallback(() => {
+    const controller = scriptGenerationAbortRef.current;
+    if (!controller) return;
+
+    activeScriptGenerationSeqRef.current += 1;
+    scriptGenerationAbortRef.current = null;
+    controller.abort();
+    setIsGeneratingScript(false);
+    recordScriptGenerationCancelTimestamp(user?.id ?? null);
+    setScriptGenerationNotice(t.wb_popup_script_generation_cancelled || '已成功取消脚本');
+  }, [t.wb_popup_script_generation_cancelled, user?.id]);
+
+  useEffect(() => {
+    return () => {
+      scriptGenerationAbortRef.current?.abort();
+      scriptGenerationAbortRef.current = null;
+    };
+  }, []);
+
   const handleGenerateScripts = async () => {
     if (!user?.id) {
       openInfo(popupTitles.notice, t.wb_popup_not_logged_in);
+      return;
+    }
+
+    const cooldownRemainingMs = getScriptGenerationCooldownRemainingMs(user.id);
+    if (cooldownRemainingMs > 0) {
+      openInfo(popupTitles.warning, t.wb_popup_script_generation_too_frequent || '操作过于频繁，请稍后再试。');
       return;
     }
 
@@ -4714,6 +4811,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (Object.keys(requiredErrors).length > 0) setRequiredErrors({});
 
     setIsGeneratingScript(true);
+    const generationSeq = activeScriptGenerationSeqRef.current + 1;
+    activeScriptGenerationSeqRef.current = generationSeq;
+    const abortController = new AbortController();
+    scriptGenerationAbortRef.current = abortController;
 
     try {
       type ScriptReferenceAsset = {
@@ -4861,7 +4962,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       console.log("📜 Generating Script with payload:", payload);
 
-      const response = await videoApi.generateScript(user.id, payload);
+      const response = await videoApi.generateScript(user.id, payload, { signal: abortController.signal });
+      if (generationSeq !== activeScriptGenerationSeqRef.current) return;
       console.log("✅ Script Generated:", response);
 
       const buildScriptsFromShots = (shots: any[]) => shots.map((shot: any) => ({
@@ -4959,6 +5061,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       if (response.code === 0) {
         const pages = extractScriptPages(response.data);
+        if (generationSeq !== activeScriptGenerationSeqRef.current) return;
         if (pages.length > 0) {
           setScriptPages(pages);
           setActiveScriptPage(0);
@@ -4972,10 +5075,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
 
     } catch (err: any) {
+      if (isAbortError(err)) {
+        return;
+      }
+      if (generationSeq !== activeScriptGenerationSeqRef.current) {
+        return;
+      }
       console.error("Script Gen Error:", err);
       openErrorModal(err, { category: 'script_failed', onRetry: handleGenerateScripts });
     } finally {
-      setIsGeneratingScript(false);
+      if (scriptGenerationAbortRef.current === abortController) {
+        scriptGenerationAbortRef.current = null;
+      }
+      if (generationSeq === activeScriptGenerationSeqRef.current) {
+        setIsGeneratingScript(false);
+      }
     }
   };
 
@@ -6717,24 +6831,47 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
           {renderLeftColumnSettings()}
 
-          <button
-              type="button"
-              onClick={() => {
-                if (isGeneratingScript) {
-                  openInfo(popupTitles.notice, t.wb_generate_in_progress);
-                  return;
-                }
-                if (!hasCurrentAsset) {
-                  openInfo(popupTitles.notice, t.wb_generate_need_asset);
-                  return;
-                }
-                void handleGenerateScripts();
-              }}
-              className={`w-full py-3 rounded-xl font-bold text-xs transition flex items-center justify-center gap-2 group border border-white/10 bg-black/30 text-zinc-200 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 ${isGeneratingScript || !hasCurrentAsset ? 'opacity-40 hover:bg-black/30' : ''}`}
-          >
-            {isGeneratingScript ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />}
-            {isGeneratingScript ? t.wb_generating : t.wb_btn_gen_scripts}
-          </button>
+          <div className="pt-1">
+            {scriptGenerationNotice && !isGeneratingScript && (
+              <div className="mb-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-medium text-emerald-200 shadow-[0_8px_24px_rgba(16,185,129,0.12)]">
+                {scriptGenerationNotice}
+              </div>
+            )}
+            {isGeneratingScript ? (
+              <div className="flex w-full gap-2">
+                <button
+                  type="button"
+                  onClick={handleCancelGenerateScripts}
+                  className="w-1/3 rounded-xl border border-orange-500/35 bg-orange-500/10 px-2 py-3 text-[10px] font-semibold text-orange-100 transition hover:bg-orange-500/18 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60"
+                >
+                  {t.wb_btn_cancel_script_generation || '取消生成'}
+                </button>
+                <div className="flex w-2/3 items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-3 text-xs font-bold text-zinc-200">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>{t.wb_generating}</span>
+                </div>
+              </div>
+            ) : (
+              <button
+                  type="button"
+                  onClick={() => {
+                    if (isGeneratingScript) {
+                      openInfo(popupTitles.notice, t.wb_generate_in_progress);
+                      return;
+                    }
+                    if (!hasCurrentAsset) {
+                      openInfo(popupTitles.notice, t.wb_generate_need_asset);
+                      return;
+                    }
+                    void handleGenerateScripts();
+                  }}
+                  className={`w-full py-3 rounded-xl font-bold text-xs transition flex items-center justify-center gap-2 group border border-white/10 bg-black/30 text-zinc-200 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 ${!hasCurrentAsset ? 'opacity-40 hover:bg-black/30' : ''}`}
+              >
+                <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />
+                {t.wb_btn_gen_scripts}
+              </button>
+            )}
+          </div>
         </div>
     );
   };

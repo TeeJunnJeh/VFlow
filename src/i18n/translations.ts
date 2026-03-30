@@ -410,6 +410,9 @@ export const translations = {
     wb_additional_requirements_need_asset: "Upload an asset first to edit this field.",
     wb_generate_need_asset: "Upload an asset first before generating scripts.",
     wb_generate_in_progress: "Script generation is running. Please wait.",
+    wb_btn_cancel_script_generation: "Cancel Generation",
+    wb_popup_script_generation_cancelled: "Script canceled successfully.",
+    wb_popup_script_generation_too_frequent: "Too many operations. Please try again later.",
 
     wb_product_category_apparel: "Apparel & Shoes",
     wb_product_category_beauty: "Beauty & Personal Care",
@@ -1373,6 +1376,9 @@ export const translations = {
     wb_additional_requirements_need_asset: "请先上传素材后再填写此项。",
     wb_generate_need_asset: "请先上传素材后再生成脚本。",
     wb_generate_in_progress: "正在生成脚本，请稍候。",
+    wb_btn_cancel_script_generation: "取消生成",
+    wb_popup_script_generation_cancelled: "已成功取消脚本",
+    wb_popup_script_generation_too_frequent: "操作过于频繁，请稍后再试。",
 
     wb_product_category_apparel: "服装鞋靴",
     wb_product_category_beauty: "美妆个护",
@@ -2313,6 +2319,9 @@ export const translations = {
     wb_gen_req_issue_video_type: "Jenis video: wajib.",
 
     wb_required_toast: "Sila lengkapkan maklumat wajib sebelum menjana skrip.",
+    wb_btn_cancel_script_generation: "Batalkan Penjanaan",
+    wb_popup_script_generation_cancelled: "Skrip berjaya dibatalkan.",
+    wb_popup_script_generation_too_frequent: "Operasi terlalu kerap. Sila cuba lagi nanti.",
     wb_required_product_name: "Sila masukkan nama produk.",
     wb_required_product_category: "Sila pilih kategori produk.",
     wb_required_core_selling_points: "Sila isi poin jualan utama.",
@@ -3109,6 +3118,9 @@ export const translations = {
     wb_gen_req_issue_video_type: "Loại video: bắt buộc.",
 
     wb_required_toast: "Vui lòng hoàn thiện thông tin bắt buộc trước khi tạo kịch bản.",
+    wb_btn_cancel_script_generation: "Hủy Tạo",
+    wb_popup_script_generation_cancelled: "Đã hủy kịch bản thành công.",
+    wb_popup_script_generation_too_frequent: "Thao tác quá thường xuyên, vui lòng thử lại sau.",
     wb_required_product_name: "Vui lòng nhập tên sản phẩm.",
     wb_required_product_category: "Vui lòng chọn danh mục sản phẩm.",
     wb_required_core_selling_points: "Vui lòng nhập điểm bán hàng.",
@@ -3912,6 +3924,9 @@ export const translations = {
     wb_gen_req_issue_video_type: "비디오 유형: 필수입니다.",
 
     wb_required_toast: "필수 정보를 입력한 뒤 스크립트를 생성하세요.",
+    wb_btn_cancel_script_generation: "생성 취소",
+    wb_popup_script_generation_cancelled: "스크립트를 성공적으로 취소했습니다.",
+    wb_popup_script_generation_too_frequent: "작업이 너무 잦습니다. 잠시 후 다시 시도해 주세요.",
     wb_required_product_name: "상품명을 입력해 주세요.",
     wb_required_product_category: "상품 카테고리를 선택해 주세요.",
     wb_required_core_selling_points: "핵심 판매 포인트를 입력해 주세요.",

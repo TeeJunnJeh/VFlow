@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { Clapperboard, Link2, UploadCloud, Wand2, Loader2, Sparkles } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
+import { videoApi, type ReplayReverseScriptData } from '../../services/video';
 
 export type ReplayReusePayload = {
   prompt: string;
@@ -17,44 +19,94 @@ type ReplayParseResult = {
   suggestedSellingPoints: string;
 };
 
+const MAX_UPLOAD_BYTES = 300 * 1024 * 1024;
+const ALLOWED_EXTENSIONS = new Set(['.mp4', '.mov', '.mkv', '.webm', '.avi', '.m4v']);
+
 interface ReplayScriptViewProps {
   onReuseToWorkbench: (payload: ReplayReusePayload) => void;
 }
 
 export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWorkbench }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const { user } = useAuth();
   const [videoUrl, setVideoUrl] = useState('');
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadedName, setUploadedName] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   const [isParsing, setIsParsing] = useState(false);
   const [result, setResult] = useState<ReplayParseResult | null>(null);
 
-  const canParse = useMemo(() => videoUrl.trim().length > 0 || uploadedName.trim().length > 0, [videoUrl, uploadedName]);
+  const canParse = useMemo(() => videoUrl.trim().length > 0 || Boolean(uploadedFile), [videoUrl, uploadedFile]);
 
-  const handleMockParse = async () => {
-    if (!canParse) return;
+  const normalizeReplayResult = (data: ReplayReverseScriptData, source: string): ReplayParseResult => {
+    const fallbackTags = [
+      t.replay_tag_rhythm || 'Fast rhythm',
+      t.replay_tag_contrast || 'High contrast',
+      t.replay_tag_cta || 'Strong CTA',
+    ];
+    return {
+      summary: data.summary || `${t.replay_result_summary_prefix || 'Analysis source'}: ${source}`,
+      styleTags: Array.isArray(data.styleTags) && data.styleTags.length > 0 ? data.styleTags : fallbackTags,
+      suggestedPrompt:
+        data.suggestedPrompt ||
+        t.replay_mock_prompt ||
+        'Follow a high-converting short-video structure: hook in the opening, strengthen trust in the middle, and end with a clear CTA.',
+      suggestedCategory: data.suggestedCategory || t.replay_mock_category || 'Replay video',
+      suggestedSellingPoints:
+        data.suggestedSellingPoints ||
+        t.replay_mock_selling_points ||
+        '1. Strong hook in the first 2 seconds\n2. Use close-ups for key selling points\n3. End with a clear CTA and offer',
+    };
+  };
+
+  const handleParse = async () => {
+    if (!canParse) {
+      setErrorMessage(t.replay_error_no_input || 'Please provide a video URL or upload a video file.');
+      return;
+    }
+    if (!user?.id) {
+      setErrorMessage(t.replay_error_not_logged_in || 'Please sign in first.');
+      return;
+    }
+
     setIsParsing(true);
     setResult(null);
-
-    // Mock first version: reserves UI flow while backend API is still pending.
-    await new Promise((resolve) => window.setTimeout(resolve, 950));
+    setErrorMessage('');
 
     const source = videoUrl.trim() || uploadedName;
-    setResult({
-      summary: `${t.replay_result_summary_prefix || '解析来源'}: ${source}`,
-      styleTags: [
-        t.replay_tag_rhythm || '快节奏切换',
-        t.replay_tag_contrast || '前后对比',
-        t.replay_tag_cta || '强引导 CTA',
-      ],
-      suggestedPrompt:
-        t.replay_mock_prompt ||
-        '参考爆款视频的快节奏结构，开场3秒直给痛点，中段用近景强化细节与质感，结尾给出明确优惠与行动号召。',
-      suggestedCategory: t.replay_mock_category || '电商带货',
-      suggestedSellingPoints:
-        t.replay_mock_selling_points ||
-        '1. 开场用高反差痛点吸引注意\n2. 中段高频特写强调核心卖点\n3. 收尾突出价格优势与限时感',
-    });
-    setIsParsing(false);
+    try {
+      let response;
+      if (videoUrl.trim()) {
+        response = await videoApi.reverseScriptFromVideo(user.id, {
+          video_url: videoUrl.trim(),
+          user_language: language,
+        });
+      } else {
+        const formData = new FormData();
+        formData.append('video_file', uploadedFile as File);
+        formData.append('user_language', language);
+        response = await videoApi.reverseScriptFromVideo(user.id, formData);
+      }
+
+      if (response?.code !== undefined && response.code !== 0) {
+        throw new Error(response?.message || (t.replay_error_failed || 'Replay analysis failed.'));
+      }
+
+      const payload = response?.data;
+      if (!payload) {
+        throw new Error(t.replay_error_failed || 'Replay analysis failed.');
+      }
+      setResult(normalizeReplayResult(payload, source));
+    } catch (error) {
+      const fallback = t.replay_error_failed || 'Replay analysis failed.';
+      if (error instanceof Error && error.message.trim()) {
+        setErrorMessage(error.message.trim());
+      } else {
+        setErrorMessage(fallback);
+      }
+    } finally {
+      setIsParsing(false);
+    }
   };
 
   return (
@@ -91,14 +143,36 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
               <UploadCloud className="w-4 h-4 text-zinc-500" />
               <input
                 type="file"
-                accept=".mp4,.mov,.mkv,.webm,.avi"
+                accept=".mp4,.mov,.mkv,.webm,.avi,.m4v"
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
-                  setUploadedName(file?.name || '');
+                  if (!file) {
+                    setUploadedFile(null);
+                    setUploadedName('');
+                    return;
+                  }
+
+                  const ext = `.${(file.name.split('.').pop() || '').toLowerCase()}`;
+                  if (!ALLOWED_EXTENSIONS.has(ext)) {
+                    setUploadedFile(null);
+                    setUploadedName('');
+                    setErrorMessage(t.replay_error_invalid_video_type || 'Unsupported video format.');
+                    return;
+                  }
+                  if (file.size > MAX_UPLOAD_BYTES) {
+                    setUploadedFile(null);
+                    setUploadedName('');
+                    setErrorMessage(t.replay_error_file_too_large || 'The uploaded video is too large.');
+                    return;
+                  }
+
+                  setUploadedFile(file);
+                  setUploadedName(file.name);
+                  setErrorMessage('');
                 }}
               />
-              <span className="text-sm text-zinc-300 truncate">{uploadedName || t.replay_video_upload_placeholder || '选择本地视频文件（Mock）'}</span>
+              <span className="text-sm text-zinc-300 truncate">{uploadedName || t.replay_video_upload_placeholder || 'Choose a local video file'}</span>
             </label>
           </div>
         </div>
@@ -106,7 +180,7 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
         <div className="flex items-center justify-end">
           <button
             type="button"
-            onClick={() => void handleMockParse()}
+            onClick={() => void handleParse()}
             disabled={!canParse || isParsing}
             className={`px-4 py-2 rounded-xl text-sm font-bold border transition flex items-center gap-2 ${!canParse || isParsing ? 'opacity-40 cursor-not-allowed border-white/10 text-zinc-500 bg-black/30' : 'border-orange-500/40 text-orange-300 bg-orange-500/10 hover:bg-orange-500/20'}`}
           >
@@ -114,6 +188,12 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
             {isParsing ? (t.replay_parse_running || '解析中...') : (t.replay_parse_btn || '解析并生成复刻提示')}
           </button>
         </div>
+
+        {errorMessage && (
+          <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+            {errorMessage}
+          </div>
+        )}
 
         {result && (
           <div className="rounded-2xl border border-white/10 bg-black/20 p-5 space-y-4">

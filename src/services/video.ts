@@ -65,6 +65,20 @@ export type GenerateFusionImagePayload = {
   resolution?: '1K' | '2K' | '4K';
 };
 
+export type ReplayReverseScriptData = {
+  summary: string;
+  styleTags: string[];
+  suggestedPrompt: string;
+  suggestedCategory: string;
+  suggestedSellingPoints: string;
+  sampled_keyframes?: Array<{
+    frame_index: number;
+    timestamp_sec: number;
+    timestamp: string;
+  }>;
+  metrics?: Record<string, unknown>;
+};
+
 export const videoApi = {
   estimateVideoTime: async (params: { model: string; duration: number; sound?: string }) => {
     const query = new URLSearchParams();
@@ -265,6 +279,20 @@ export const videoApi = {
     }
 
     return await response.json();
+  },
+
+  reverseScriptFromVideo: async (
+    userId: string | number,
+    payload: { video_url?: string; user_language?: string } | FormData,
+  ): Promise<ApiEnvelope<ReplayReverseScriptData>> => {
+    return apiRequest<ApiEnvelope<ReplayReverseScriptData>>(
+      `${API_BASE_URL}/users/${userId}/replay-reverse-script`,
+      {
+        method: 'POST',
+        body: payload,
+        fallbackMessage: 'Replay analysis failed',
+      }
+    );
   },
 
   // 台词翻译（直接翻译 / 创意翻译）

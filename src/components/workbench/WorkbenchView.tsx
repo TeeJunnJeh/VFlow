@@ -147,6 +147,7 @@ type SelectedBackgroundAudio = {
   id: string;
   name: string;
   file_url: string;
+  source?: 'library' | 'local';
 };
 
 type ActionRequired = {
@@ -572,6 +573,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const { tasks, addTask } = useTasks();
   const { model: selectedModel, setModel: setSelectedModel } = useWorkbenchModel();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const backgroundAudioInputRef = useRef<HTMLInputElement>(null);
   const scriptFileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const modeSectionRef = useRef<HTMLDivElement | null>(null);
@@ -755,6 +757,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [genDuration, setGenDuration] = useState<number>(() => normalizeDurationForModel(initialPrefs.genDuration ?? selectedTemplate?.duration ?? 10, selectedModel));
   const [soundSetting, setSoundSetting] = useState<'on' | 'off'>(() => (initialPrefs.soundSetting === 'off' ? 'off' : 'on'));
   const [selectedBackgroundAudio, setSelectedBackgroundAudio] = useState<SelectedBackgroundAudio | null>(null);
+  const [isBackgroundAudioSourceOpen, setIsBackgroundAudioSourceOpen] = useState(false);
   const [scriptVariantCount, setScriptVariantCount] = useState<number>(() =>
     typeof initialPrefs.scriptVariantCount === 'number' && initialPrefs.scriptVariantCount > 0 ? initialPrefs.scriptVariantCount : 1
   );
@@ -767,6 +770,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [hasAiRecognized, setHasAiRecognized] = useState(false);
   const lastRecognizedSignatureRef = useRef<string>('');
   const isAutoRecognizePromptingRef = useRef(false);
+
+  useEffect(() => {
+    if (soundSetting !== 'off') {
+      setIsBackgroundAudioSourceOpen(false);
+    }
+  }, [soundSetting]);
+
   const LEFT_COLUMN_MIN_WIDTH = 260;
   const SCRIPT_COLUMN_MIN_WIDTH = 320;
   const PREVIEW_COLUMN_MIN_WIDTH = 260;
@@ -2322,6 +2332,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setAssetLibraryTab('audio');
     setAssetLibraryCurrentFolderId(null);
     setIsAssetLibraryOpen(true);
+    setIsBackgroundAudioSourceOpen(false);
   };
   const openSubjectCreationLibrary = useCallback(() => {
     onNavigateToAssetsLibrary?.();
@@ -2441,9 +2452,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         id: asset.id,
         name: asset.name || 'audio',
         file_url: asset.file_url,
+        source: 'library',
       });
       setIsAssetLibraryOpen(false);
       setAssetLibraryPickMode('default');
+      setIsBackgroundAudioSourceOpen(false);
       return;
     }
     queueLibraryAssetIntoWorkbench(asset);
@@ -3874,6 +3887,58 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!isImage && !isVideo) return `${t.assets_upload_error_unsupported || '格式不支持'}：${file.name}`;
     return null;
   };
+
+  const validateBackgroundAudioFile = (file: File) => {
+    if (file.size > MAX_UPLOAD_BYTES) return `${t.assets_upload_error_too_large || '文件过大'}：${file.name}（>1GB）`;
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    if (!['mp3', 'wav', 'flac'].includes(ext)) {
+      return `${t.assets_upload_error_unsupported || '格式不支持'}：${file.name}`;
+    }
+    return null;
+  };
+
+  const handleBackgroundAudioUpload = useCallback(async (file: File) => {
+    const validationError = validateBackgroundAudioFile(file);
+    if (validationError) {
+      openInfo(
+        (t as any).assets_upload_formats_title || '提示',
+        `${validationError}\n\n${(t as any).wb_background_audio_formats || '支持格式'}：mp3 / wav / flac，≤ 1GB`
+      );
+      if (backgroundAudioInputRef.current) {
+        backgroundAudioInputRef.current.value = '';
+      }
+      return;
+    }
+
+    try {
+      const uploadResp = await assetsApi.uploadTempAsset(file);
+      const rawPath = extractUploadedAssetPath(uploadResp);
+      if (!rawPath) throw new Error('Could not retrieve audio path from upload response');
+
+      setSelectedBackgroundAudio({
+        id: `local-audio-${Date.now()}`,
+        name: file.name,
+        file_url: rawPath,
+        source: 'local',
+      });
+      setIsBackgroundAudioSourceOpen(false);
+    } catch (err: any) {
+      openInfo(
+        popupTitles.error,
+        formatWorkbenchError(err, t.err_msg_upload || '上传失败')
+      );
+    } finally {
+      if (backgroundAudioInputRef.current) {
+        backgroundAudioInputRef.current.value = '';
+      }
+    }
+  }, [extractUploadedAssetPath, formatWorkbenchError, openInfo, popupTitles.error, t]);
+
+  const handleBackgroundAudioFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await handleBackgroundAudioUpload(file);
+  }, [handleBackgroundAudioUpload]);
 
   const persistLocalQueuedAsset = useCallback(async (
     queueId: string,
@@ -6202,24 +6267,69 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
                   {soundSetting === 'off' && (
                     <div className="mt-2 space-y-2">
+                      <input
+                        type="file"
+                        ref={backgroundAudioInputRef}
+                        className="hidden"
+                        accept=".mp3,.wav,.flac,audio/mpeg,audio/wav,audio/x-wav,audio/flac"
+                        onChange={handleBackgroundAudioFileChange}
+                      />
                       <button
                         type="button"
-                        onClick={openBackgroundAudioPicker}
-                        className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-zinc-200 hover:border-orange-500/50 hover:text-orange-300 hover:bg-orange-500/5 transition"
+                        onClick={() => setIsBackgroundAudioSourceOpen((prev) => !prev)}
+                        className={`w-full rounded-lg border px-3 py-2 text-xs transition ${
+                          isBackgroundAudioSourceOpen
+                            ? 'border-orange-500/60 bg-orange-500/10 text-orange-200'
+                            : 'border-white/10 bg-black/30 text-zinc-200 hover:border-orange-500/50 hover:text-orange-300 hover:bg-orange-500/5'
+                        }`}
                       >
-                        {selectedBackgroundAudio
-                          ? (t.wb_config_change_audio || '更换音频')
-                          : (t.wb_config_add_audio || '添加音频')}
+                        <span className="flex items-center justify-center gap-2">
+                          <span>
+                            {selectedBackgroundAudio
+                              ? (t.wb_config_change_audio || '更换音频')
+                              : (t.wb_config_add_audio || '添加音频')}
+                          </span>
+                          {isBackgroundAudioSourceOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                        </span>
                       </button>
+                      {isBackgroundAudioSourceOpen && (
+                        <div className="rounded-lg border border-white/10 bg-black/25 p-1">
+                          <button
+                            type="button"
+                            onClick={openBackgroundAudioPicker}
+                            className="flex w-full items-center rounded-md px-3 py-2 text-left text-xs text-zinc-200 transition hover:bg-white/5 hover:text-orange-200"
+                          >
+                            <span>{t.wb_btn_choose_from_library || '从素材库选择'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => backgroundAudioInputRef.current?.click()}
+                            className="mt-1 flex w-full items-center rounded-md px-3 py-2 text-left text-xs text-zinc-200 transition hover:bg-white/5 hover:text-orange-200"
+                          >
+                            <span>{(t as any).wb_background_audio_upload || '上传本地音频'}</span>
+                          </button>
+                          <div className="px-3 pb-1 pt-2 text-[10px] text-zinc-500">
+                            {(t as any).wb_background_audio_hint || 'mp3 / wav / flac · ≤ 1GB'}
+                          </div>
+                        </div>
+                      )}
                       {selectedBackgroundAudio ? (
                         <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-2">
                           <div className="min-w-0">
                             <div className="text-[10px] text-zinc-500 uppercase">{t.wb_config_selected_audio || '已选音频'}</div>
                             <div className="text-xs text-zinc-200 truncate">{selectedBackgroundAudio.name}</div>
+                            <div className="mt-1 text-[10px] text-zinc-500">
+                              {selectedBackgroundAudio.source === 'local'
+                                ? ((t as any).wb_background_audio_source_local || '来源：本地上传')
+                                : ((t as any).wb_background_audio_source_library || '来源：素材库')}
+                            </div>
                           </div>
                           <button
                             type="button"
-                            onClick={() => setSelectedBackgroundAudio(null)}
+                            onClick={() => {
+                              setSelectedBackgroundAudio(null);
+                              setIsBackgroundAudioSourceOpen(false);
+                            }}
                             className="mt-2 w-full text-[10px] text-zinc-400 hover:text-red-300 rounded px-2 py-1 border border-white/10 hover:border-red-500/40"
                           >
                             {t.editor_model_clear || '移除'}

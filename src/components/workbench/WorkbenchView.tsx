@@ -667,6 +667,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [selectedAssetSource, setSelectedAssetSource] = useState<'product' | 'preference' | 'subject' | 'tail' | null>(initialAssetSource || null);
   const [klingGenerateMode, setKlingGenerateMode] = useState<'first_frame' | 'subject' | 'first_last_frame'>('first_frame');
   const [isGeneratingKlingBoundaryFrames, setIsGeneratingKlingBoundaryFrames] = useState(false);
+  const [imageGenModel, setImageGenModel] = useState<string>('flux-2-max');
   const [isDragUploadActive, setIsDragUploadActive] = useState(false);
   const [selectedAssetUrl, setSelectedAssetUrl] = useState<string | null>(initialFileUrl || null);
   const [lastUploadedUrl, setLastUploadedUrl] = useState<string | null>(initialFileUrl || null);
@@ -2783,12 +2784,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       if (mode === 'first_last_frame') {
         const wantsPrimary = item.source === 'product';
-        if ((wantsPrimary || !primaryAssigned) && !primaryAssigned) {
+        if (wantsPrimary && !primaryAssigned) {
           primaryAssigned = true;
           return { ...item, source: 'product', isPrimaryFrame: true };
         }
         const wantsTail = item.source === 'tail';
-        if ((wantsTail || !tailAssigned) && !tailAssigned) {
+        if (wantsTail && !tailAssigned) {
           tailAssigned = true;
           return { ...item, source: 'tail', isPrimaryFrame: false };
         }
@@ -2808,10 +2809,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const suggestKlingImageSourceForMode = useCallback((existing: QueuedAsset[]): QueuedAsset['source'] => {
     if (klingGenerateMode === 'subject') return 'subject';
     if (klingGenerateMode === 'first_last_frame') {
-      const hasPrimary = existing.some((item) => item.mediaKind === 'image' && item.source === 'product');
-      if (!hasPrimary) return 'product';
-      const hasTail = existing.some((item) => item.mediaKind === 'image' && item.source === 'tail');
-      if (!hasTail) return 'tail';
       return 'preference';
     }
     return 'product';
@@ -3405,60 +3402,40 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setIsGeneratingKlingBoundaryFrames(true);
     try {
       const projectId = await ensureSingleProjectId();
-      const resolvedImagePaths: string[] = [];
-      for (const asset of imageAssets) {
-        let path = asset.uploadedPath || asset.assetUrl || null;
-        if (!path && asset.fileObj) {
-          const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
-          path = extractUploadedAssetPath(uploadResp);
-        }
-        if (path) resolvedImagePaths.push(path);
+      const firstImage = imageAssets[0];
+      let referencePath = firstImage.uploadedPath || firstImage.assetUrl || null;
+      if (!referencePath && firstImage.fileObj) {
+        const uploadResp = await assetsApi.uploadTempAsset(firstImage.fileObj);
+        referencePath = extractUploadedAssetPath(uploadResp);
       }
 
-      if (resolvedImagePaths.length === 0) {
+      if (!referencePath) {
         throw new Error('参考图上传失败，请重试');
       }
 
-      const basePrompt = buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts, activeCreativeCardText).trim()
-        || coreSellingPoints.trim()
-        || productName.trim()
-        || '电商商品短视频';
+      const resp = await videoApi.generateFirstFrame({
+        project_id: projectId,
+        reference_image_path: referencePath,
+        aspect_ratio: aspectRatio,
+        frame_type: 'both',
+        model: imageGenModel,
+      });
 
-      const [firstResp, lastResp] = await Promise.all([
-        videoApi.generateFusionImage({
-          project_id: projectId,
-          image_paths: resolvedImagePaths,
-          prompt: `${basePrompt}，生成视频开场首帧，主体清晰，构图完整，画面稳定`,
-          aspect_ratio: aspectRatio,
-          resolution: '2K',
-        }),
-        videoApi.generateFusionImage({
-          project_id: projectId,
-          image_paths: resolvedImagePaths,
-          prompt: `${basePrompt}，生成视频结束尾帧，动作收束，主体清晰，构图完整`,
-          aspect_ratio: aspectRatio,
-          resolution: '2K',
-        }),
-      ]);
-
-      const firstPath = String(firstResp?.data?.image_url || firstResp?.image_url || '').trim();
-      const lastPath = String(lastResp?.data?.image_url || lastResp?.image_url || '').trim();
+      const firstPath = String(resp?.data?.first_frame_path || '').trim();
+      const lastPath = String(resp?.data?.last_frame_path || '').trim();
       if (!firstPath || !lastPath) {
-        throw new Error('生图成功但未返回首尾帧地址');
+        throw new Error('生成成功但未返回首尾帧地址');
       }
 
       const firstDisplay = toDisplayUrl(firstPath) || firstPath;
       const lastDisplay = toDisplayUrl(lastPath) || lastPath;
       const firstId = `kling-first-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      const lastId = `kling-tail-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const lastId = `kling-last-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
       setKlingGenerateMode('first_last_frame');
       setAssetQueue((prev) => {
-        const demoted = prev.map((item): QueuedAsset => (
-          item.mediaKind === 'image' ? { ...item, source: 'preference', isPrimaryFrame: false } : item
-        ));
+        const withoutOldFrames = prev.filter((item) => item.source !== 'product' && item.source !== 'tail');
         const next: QueuedAsset[] = [
-          ...demoted,
           {
             id: firstId,
             name: 'AI首帧图',
@@ -3483,6 +3460,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             mediaKind: 'image',
             uploadedPath: lastPath,
           },
+          ...withoutOldFrames,
         ];
         return normalizeQueueSourcesForKlingMode(next, 'first_last_frame');
       });
@@ -3495,7 +3473,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setSelectedAssetSource('product');
       setCurrentMaterialType('product');
       setLastUploadedUrl(firstPath);
-      openInfo(popupTitles.success, '已生成并写入首尾帧，可直接用于可灵首尾帧模式');
+      openInfo(popupTitles.success, '首尾帧已生成，可直接点击「生成视频」');
     } catch (err) {
       openErrorModal(err, { category: 'generation_failed', onRetry: handleGenerateKlingBoundaryFrames });
     } finally {
@@ -3519,10 +3497,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         throw new Error('可灵主体模式仅允许不多于 1 张主体图');
       }
       if (klingGenerateMode === 'first_last_frame' && firstFrameCount !== 1) {
-        throw new Error('可灵首尾帧模式需要且仅允许 1 张首帧图');
+        throw new Error('请先点击「参考图生首尾帧」按钮，等待首尾帧生成完成后再生成视频');
       }
       if (klingGenerateMode === 'first_last_frame' && tailFrameCount !== 1) {
-        throw new Error('可灵首尾帧模式需要且仅允许 1 张尾帧图');
+        throw new Error('请先点击「参考图生首尾帧」按钮，等待首尾帧生成完成后再生成视频');
       }
 
       if (klingGenerateMode === 'subject' && referenceCount < 1) {
@@ -4093,7 +4071,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const tailFrameCount = normalizedExistingImages.filter((asset) => asset.source === 'tail').length;
     const subjectCount = normalizedExistingImages.filter((asset) => asset.source === 'subject').length;
     const referenceCount = normalizedExistingImages.filter((asset) => asset.source === 'preference').length;
-    const totalLimit = klingGenerateMode === 'subject' ? 4 : klingGenerateMode === 'first_last_frame' ? 8 : 7;
+    const totalLimit = klingGenerateMode === 'subject' ? 4 : klingGenerateMode === 'first_last_frame' ? 3 : 7;
     const remainingCapacity = Math.max(0, totalLimit - normalizedExistingImages.length);
     const acceptedFiles = imageFiles.slice(0, remainingCapacity);
     const overflowCount = Math.max(0, imageFiles.length - acceptedFiles.length);
@@ -4105,8 +4083,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
-    let nextNeedsPrimary = klingGenerateMode !== 'subject' && firstFrameCount === 0;
-    let nextNeedsTail = klingGenerateMode === 'first_last_frame' && tailFrameCount === 0;
+    let nextNeedsPrimary = klingGenerateMode === 'first_frame' && firstFrameCount === 0;
+    let nextNeedsTail = klingGenerateMode === 'first_last_frame' && tailFrameCount === 0 && firstFrameCount > 0;
     let nextNeedsSubject = klingGenerateMode === 'subject' && subjectCount === 0;
     const nextItems: QueuedAsset[] = acceptedFiles.map((file, index) => {
       let source: QueuedAsset['source'] = 'preference';
@@ -5540,11 +5518,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       if (klingGenerateMode === 'subject' && subjectCount !== 1) {
         issues.push('Kling主体模式需要且仅允许1张主体图。');
       }
-      if (klingGenerateMode === 'first_last_frame' && firstFrameCount !== 1) {
-        issues.push('Kling首尾帧模式需要且仅允许1张首帧图。');
-      }
-      if (klingGenerateMode === 'first_last_frame' && tailFrameCount !== 1) {
-        issues.push('Kling首尾帧模式需要且仅允许1张尾帧图。');
+      if (klingGenerateMode === 'first_last_frame' && (firstFrameCount !== 1 || tailFrameCount !== 1)) {
+        issues.push('请先点击「参考图生首尾帧」按钮生成首尾帧。');
       }
       if (klingGenerateMode === 'subject' && referenceCount < 1) {
         issues.push('可灵主体模式需要再提供 1 到 3 张其他参考图。');
@@ -6719,6 +6694,58 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               ) : (
                   <div className="rounded-lg bg-zinc-900/80 p-2">
                     {isKlingOmniMode ? (
+                        klingGenerateMode === 'first_last_frame' ? (
+                          klingPrimarySlotAsset && klingTailSlotAsset ? (
+                            <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scroll pr-1">
+                              <div className="rounded-xl border border-white/10 bg-black/25 p-2">
+                                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">首帧</div>
+                                {renderUploadAssetCard(klingPrimarySlotAsset)}
+                              </div>
+                              <div className="rounded-xl border border-white/10 bg-black/25 p-2">
+                                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">尾帧</div>
+                                {renderUploadAssetCard(klingTailSlotAsset)}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-2">
+                              <div className="flex gap-1.5 flex-wrap">
+                                {([
+                                  { id: 'flux-2-max', label: 'Flux 2 Max' },
+                                  { id: 'flux-2-pro', label: 'Flux 2 Pro' },
+                                  { id: 'gpt-image-1.5', label: 'GPT Image 1.5' },
+                                ] as const).map((m) => (
+                                  <button
+                                    key={m.id}
+                                    type="button"
+                                    onClick={() => setImageGenModel(m.id)}
+                                    className={`rounded-md px-2 py-1 text-[10px] font-bold transition border ${imageGenModel === m.id ? 'border-orange-400/60 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10'}`}
+                                  >
+                                    {m.label}
+                                  </button>
+                                ))}
+                              </div>
+                              <div
+                                  className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
+                                  onClick={() => fileInputRef.current?.click()}
+                              >
+                                <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                                  <span>{t.wb_label_reference_image || '参考图'}</span>
+                                  <UploadCloud className="w-3.5 h-3.5 text-zinc-500" />
+                                </div>
+                                {klingReferenceSlotAssets.length > 0 ? (
+                                    <div className="flex flex-col gap-2 max-h-60 overflow-y-auto custom-scroll pr-1">
+                                      {klingReferenceSlotAssets.map((asset) => renderUploadAssetCard(asset))}
+                                    </div>
+                                ) : (
+                                    <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20 flex flex-col items-center justify-center gap-2">
+                                      <UploadCloud className="w-5 h-5 text-zinc-600" />
+                                      <span className="text-[10px] text-zinc-500">点击上传商品参考图</span>
+                                    </div>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        ) : (
                         <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scroll pr-1">
                           <div
                               className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
@@ -6744,17 +6771,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20" />
                             )}
                           </div>
-                          {klingGenerateMode === 'first_last_frame' && (
-                            <div className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-                              <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
-                                <span>尾帧图</span>
-                                <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">必传1张</span>
-                              </div>
-                              {klingTailSlotAsset ? renderUploadAssetCard(klingTailSlotAsset) : (
-                                  <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20" />
-                              )}
-                            </div>
-                          )}
                           <div
                               className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
                               onClick={() => fileInputRef.current?.click()}
@@ -6802,6 +6818,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             )}
                           </div>
                         </div>
+                        )
                     ) : (
                     <div className="flex flex-col gap-2 max-h-72 overflow-y-auto custom-scroll pr-1">
                       {uploadDisplayAssets.map((asset) => {
@@ -6989,7 +7006,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 {t.wb_ai_opt_open_btn || 'AI智能优化'}
               </span>
             </button>
-            {isKlingOmniMode && (
+            {isKlingOmniMode && klingGenerateMode === 'first_last_frame' && (
               <button
                   type="button"
                   onClick={(e) => {

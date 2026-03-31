@@ -265,6 +265,36 @@ export const videoApi = {
     return await response.json();
   },
 
+  generateFirstFrame: async (payload: {
+    project_id: string;
+    reference_image_path: string;
+    aspect_ratio?: string;
+    frame_type?: 'first' | 'last' | 'both';
+    model?: string;
+    prompt_override?: string;
+    product_description_override?: string;
+  }) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/generate_first_frame`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const fallback = `首帧生成失败: ${response.status} ${response.statusText || ''}`.trim();
+      throw await parseApiError(response, fallback);
+    }
+
+    return await response.json();
+  },
+
   // 0. Create Project (non-template)
   createProject: async (userId: string | number, payload: unknown) => {
     const csrftoken = getCookie('csrftoken');

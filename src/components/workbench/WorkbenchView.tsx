@@ -6297,14 +6297,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           <button
                             type="button"
                             onClick={openBackgroundAudioPicker}
-                            className="flex w-full items-center rounded-md px-3 py-2 text-left text-xs text-zinc-200 transition hover:bg-white/5 hover:text-orange-200"
+                            className="flex w-full items-center rounded-md border border-transparent px-3 py-2 text-left text-xs text-zinc-200 transition hover:border-zinc-400/30 hover:bg-zinc-500/10 hover:text-orange-200"
                           >
                             <span>{t.wb_btn_choose_from_library || '从素材库选择'}</span>
                           </button>
+                          <div className="mx-3 h-px scale-y-50 bg-zinc-500/18" />
                           <button
                             type="button"
                             onClick={() => backgroundAudioInputRef.current?.click()}
-                            className="mt-1 flex w-full items-center rounded-md px-3 py-2 text-left text-xs text-zinc-200 transition hover:bg-white/5 hover:text-orange-200"
+                            className="mt-1 flex w-full items-center rounded-md border border-transparent px-3 py-2 text-left text-xs text-zinc-200 transition hover:border-zinc-400/30 hover:bg-zinc-500/10 hover:text-orange-200"
                           >
                             <span>{(t as any).wb_background_audio_upload || '上传本地音频'}</span>
                           </button>

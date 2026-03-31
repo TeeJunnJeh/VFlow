@@ -17,6 +17,7 @@ import { ProfileView } from '../components/workbench/ProfileView';
 import { BillingView } from '../components/workbench/BillingView';
 import { ReplayScriptView, type ReplayReusePayload } from '../components/workbench/ReplayScriptView';
 import { Sidebar } from '../components/workbench/Sidebar';
+import ProductImagesView from '../components/workbench/ProductImagesView';
 import type { ViewType } from '../components/workbench/types';
 import { useLocation } from 'react-router-dom';
 import { WorkbenchModelProvider } from '../context/WorkbenchModelContext';
@@ -351,6 +352,10 @@ const Workbench = () => {
               onNavigationIntentHandled={() => setAssetsNavigationIntent(null)}
               onSubjectGuideCompleted={markSubjectGuideSeen}
             />
+          )}
+
+          {(activeView === 'product_images_clothing_swap' || activeView === 'product_images_first_frame' || activeView === 'product_images_gallery') && (
+            <ProductImagesView activeView={activeView} setActiveView={setActiveView} />
           )}
 
           {activeView === 'templates' && (

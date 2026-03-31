@@ -39,6 +39,9 @@ const WAIT_PROGRESS_SIM_DURATION_MS = 90_000;
 const WAIT_PROGRESS_MAX_BEFORE_HOLD = 90;
 const WAIT_PROGRESS_HOLD_MIN = 92;
 const WAIT_PROGRESS_HOLD_MAX = 98;
+const SCRIPT_PROGRESS_MAX_BEFORE_HOLD = 88;
+const SCRIPT_PROGRESS_HOLD_MAX = 96;
+const SCRIPT_ESTIMATE_STORAGE_KEY_PREFIX = 'vflow_script_eta_v1';
 const WAITING_PREVIEW_VIDEO_SRC = (import.meta.env.VITE_WAITING_PREVIEW_VIDEO_URL || 'https://vflow.genviewtech.com/media/vedio.mp4').toString();
 // Storyboard editor is now a user-toggleable runtime setting (no longer a compile-time constant).
 // The state `enableStoryboardEditor` replaces the old `enableStoryboardEditor` const.
@@ -117,6 +120,11 @@ type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion' | 'audio';
 type AssetLibraryPickMode = 'default' | 'background_audio';
 type AiOptimizeResolution = 'sd' | 'hd' | 'uhd';
 type WaitProgressPhase = 'idle' | 'simulating' | 'holding' | 'finishing' | 'done';
+
+type ScriptEstimateCacheEntry = {
+  avgSeconds: number;
+  sampleCount: number;
+};
 
 type GeneratePayload = {
   model: string;
@@ -728,6 +736,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }>({});
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [scriptGenerationNotice, setScriptGenerationNotice] = useState<string | null>(null);
+  const [scriptGenerationEstimatedSeconds, setScriptGenerationEstimatedSeconds] = useState(45);
+  const [scriptGenerationProgress, setScriptGenerationProgress] = useState(0);
+  const [isScriptGenerationProgressVisible, setIsScriptGenerationProgressVisible] = useState(false);
+  const scriptGenerationStartedAtRef = useRef<number | null>(null);
+  const scriptGenerationEstimateKeyRef = useRef<string | null>(null);
+  const scriptGenerationFinishingRef = useRef(false);
   const scriptGenerationAbortRef = useRef<AbortController | null>(null);
   const activeScriptGenerationSeqRef = useRef(0);
 
@@ -4737,14 +4751,119 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return () => window.clearTimeout(timer);
   }, [scriptGenerationNotice]);
 
+  const buildScriptEstimateStorageKey = useCallback((params: { script_count: number; duration: number; has_reference_assets: boolean }) => {
+    const userPart = user?.id ?? 'guest';
+    return [
+      SCRIPT_ESTIMATE_STORAGE_KEY_PREFIX,
+      userPart,
+      params.script_count,
+      params.duration,
+      params.has_reference_assets ? 1 : 0,
+    ].join('_');
+  }, [user?.id]);
+
+  const readLocalScriptEstimate = useCallback((storageKey: string): ScriptEstimateCacheEntry | null => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Partial<ScriptEstimateCacheEntry>;
+      const avgSeconds = Number(parsed.avgSeconds);
+      const sampleCount = Number(parsed.sampleCount);
+      if (!Number.isFinite(avgSeconds) || avgSeconds <= 0) return null;
+      if (!Number.isFinite(sampleCount) || sampleCount < 1) return null;
+      return {
+        avgSeconds,
+        sampleCount: Math.max(1, Math.round(sampleCount)),
+      };
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const writeLocalScriptEstimate = useCallback((storageKey: string, elapsedSeconds: number) => {
+    const seconds = Math.max(1, Math.round(elapsedSeconds));
+    const prev = readLocalScriptEstimate(storageKey);
+    const nextCount = (prev?.sampleCount || 0) + 1;
+    const nextAvg = prev
+      ? ((prev.avgSeconds * prev.sampleCount) + seconds) / nextCount
+      : seconds;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({
+        avgSeconds: nextAvg,
+        sampleCount: nextCount,
+      }));
+    } catch {
+      // ignore storage failures
+    }
+  }, [readLocalScriptEstimate]);
+
+  const finishScriptGenerationProgress = useCallback(async () => {
+    scriptGenerationFinishingRef.current = true;
+    const from = Math.max(0, Math.min(100, scriptGenerationProgress));
+    if (from < 100) {
+      await new Promise<void>((resolve) => {
+        const startedAt = performance.now();
+        const durationMs = 380;
+        const animate = (now: number) => {
+          const ratio = Math.min(1, (now - startedAt) / durationMs);
+          const eased = 1 - Math.pow(1 - ratio, 3);
+          setScriptGenerationProgress(from + (100 - from) * eased);
+          if (ratio < 1) {
+            window.requestAnimationFrame(animate);
+            return;
+          }
+          setScriptGenerationProgress(100);
+          resolve();
+        };
+        window.requestAnimationFrame(animate);
+      });
+    } else {
+      setScriptGenerationProgress(100);
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+  }, [scriptGenerationProgress]);
+
+  useEffect(() => {
+    if (!isGeneratingScript || !scriptGenerationStartedAtRef.current) return;
+
+    const tick = () => {
+      if (scriptGenerationFinishingRef.current) return;
+      const startedAt = scriptGenerationStartedAtRef.current;
+      if (!startedAt) return;
+      const elapsed = Math.max(0, (Date.now() - startedAt) / 1000);
+      const estimated = Math.max(1, scriptGenerationEstimatedSeconds || 45);
+      let nextProgress = 0;
+      if (elapsed <= estimated) {
+        const ratio = Math.min(1, elapsed / estimated);
+        nextProgress = Math.pow(ratio, 0.85) * SCRIPT_PROGRESS_MAX_BEFORE_HOLD;
+      } else {
+        const overflow = elapsed - estimated;
+        nextProgress = Math.min(
+          SCRIPT_PROGRESS_HOLD_MAX,
+          SCRIPT_PROGRESS_MAX_BEFORE_HOLD + Math.log1p(overflow) * 3
+        );
+      }
+      setScriptGenerationProgress(Math.max(0, Math.min(100, nextProgress)));
+    };
+
+    tick();
+    const timer = window.setInterval(tick, 250);
+    return () => window.clearInterval(timer);
+  }, [isGeneratingScript, scriptGenerationEstimatedSeconds]);
+
   const handleCancelGenerateScripts = useCallback(() => {
     const controller = scriptGenerationAbortRef.current;
     if (!controller) return;
 
     activeScriptGenerationSeqRef.current += 1;
     scriptGenerationAbortRef.current = null;
+    scriptGenerationStartedAtRef.current = null;
+    scriptGenerationEstimateKeyRef.current = null;
+    scriptGenerationFinishingRef.current = false;
     controller.abort();
     setIsGeneratingScript(false);
+    setIsScriptGenerationProgressVisible(false);
+    setScriptGenerationProgress(0);
     recordScriptGenerationCancelTimestamp(user?.id ?? null);
     setScriptGenerationNotice(t.wb_popup_script_generation_cancelled || '已成功取消脚本');
   }, [t.wb_popup_script_generation_cancelled, user?.id]);
@@ -4753,6 +4872,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return () => {
       scriptGenerationAbortRef.current?.abort();
       scriptGenerationAbortRef.current = null;
+      scriptGenerationStartedAtRef.current = null;
+      scriptGenerationEstimateKeyRef.current = null;
+      scriptGenerationFinishingRef.current = false;
     };
   }, []);
 
@@ -4810,11 +4932,44 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     if (Object.keys(requiredErrors).length > 0) setRequiredErrors({});
 
+    const estimateParams = {
+      script_count: Math.max(1, scriptVariantCount || 1),
+      duration: Math.max(1, genDuration || 10),
+      has_reference_assets: uploadDisplayAssets.some((asset) => asset.mediaKind === 'image'),
+    };
+    const estimateStorageKey = buildScriptEstimateStorageKey(estimateParams);
+    let estimatedSeconds = 45;
+    try {
+      const resp: any = await Promise.race([
+        videoApi.estimateScriptTime(estimateParams),
+        new Promise((resolve) => window.setTimeout(() => resolve(null), 1200)),
+      ]);
+      const raw = Number(resp?.data?.estimated_seconds);
+      if (Number.isFinite(raw) && raw > 0) {
+        estimatedSeconds = Math.round(raw);
+      }
+    } catch (err) {
+      console.log('[ScriptEstimate] fallback default', err);
+    }
+    if (estimatedSeconds <= 45) {
+      const localEstimate = readLocalScriptEstimate(estimateStorageKey);
+      if (localEstimate?.avgSeconds) {
+        estimatedSeconds = Math.max(1, Math.round(localEstimate.avgSeconds));
+      }
+    }
+
     setIsGeneratingScript(true);
+    setIsScriptGenerationProgressVisible(true);
+    setScriptGenerationEstimatedSeconds(estimatedSeconds);
+    setScriptGenerationProgress(0);
+    scriptGenerationStartedAtRef.current = Date.now();
+    scriptGenerationEstimateKeyRef.current = estimateStorageKey;
+    scriptGenerationFinishingRef.current = false;
     const generationSeq = activeScriptGenerationSeqRef.current + 1;
     activeScriptGenerationSeqRef.current = generationSeq;
     const abortController = new AbortController();
     scriptGenerationAbortRef.current = abortController;
+    let shouldHideProgressImmediately = true;
 
     try {
       type ScriptReferenceAsset = {
@@ -4959,6 +5114,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         ...(imagePath ? { product_image_path: imagePath } : {}),
         ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
       };
+      const reportPayload = {
+        script_count: estimateParams.script_count,
+        duration: estimateParams.duration,
+        has_reference_assets: estimateParams.has_reference_assets,
+      };
 
       console.log("📜 Generating Script with payload:", payload);
 
@@ -5063,10 +5223,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         const pages = extractScriptPages(response.data);
         if (generationSeq !== activeScriptGenerationSeqRef.current) return;
         if (pages.length > 0) {
+          const startedAt = scriptGenerationStartedAtRef.current;
+          const elapsedSeconds = startedAt ? Math.max(1, Math.round((Date.now() - startedAt) / 1000)) : null;
+          if (elapsedSeconds) {
+            const estimateKey = scriptGenerationEstimateKeyRef.current;
+            if (estimateKey) {
+              writeLocalScriptEstimate(estimateKey, elapsedSeconds);
+            }
+            void videoApi.reportScriptTime({
+              ...reportPayload,
+              elapsed_seconds: elapsedSeconds,
+            }).catch((error) => {
+              console.log('[ScriptEstimate] report failed', error);
+            });
+          }
+          shouldHideProgressImmediately = false;
+          await finishScriptGenerationProgress();
           setScriptPages(pages);
           setActiveScriptPage(0);
           setScripts(pages[0].scripts);
           setIsShotBreakdownOpen(false);
+          setIsScriptGenerationProgressVisible(false);
         } else {
           openInfo(popupTitles.notice, t.wb_popup_script_unexpected);
         }
@@ -5087,9 +5264,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       if (scriptGenerationAbortRef.current === abortController) {
         scriptGenerationAbortRef.current = null;
       }
+      scriptGenerationStartedAtRef.current = null;
+      scriptGenerationEstimateKeyRef.current = null;
       if (generationSeq === activeScriptGenerationSeqRef.current) {
         setIsGeneratingScript(false);
+        if (shouldHideProgressImmediately) {
+          setIsScriptGenerationProgressVisible(false);
+          setScriptGenerationProgress(0);
+        }
       }
+      scriptGenerationFinishingRef.current = false;
     }
   };
 
@@ -6835,6 +7019,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             {scriptGenerationNotice && !isGeneratingScript && (
               <div className="mb-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-medium text-emerald-200 shadow-[0_8px_24px_rgba(16,185,129,0.12)]">
                 {scriptGenerationNotice}
+              </div>
+            )}
+            {isScriptGenerationProgressVisible && (
+              <div className="mb-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                <div className="mb-1 flex items-center justify-between gap-3 text-[10px] text-zinc-400">
+                  <span>{t.wb_waiting_progress || '进度'}</span>
+                  <span>{`${Math.max(0, Math.min(100, Math.round(scriptGenerationProgress)))}%`}</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-orange-500 via-amber-400 to-orange-200 transition-[width] duration-200 ease-out"
+                    style={{ width: `${Math.max(3, Math.min(100, scriptGenerationProgress))}%` }}
+                  />
+                </div>
               </div>
             )}
             {isGeneratingScript ? (

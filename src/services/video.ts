@@ -80,6 +80,12 @@ export type ReplayReverseScriptData = {
   metrics?: Record<string, unknown>;
 };
 
+export type ScriptEstimateParams = {
+  script_count: number;
+  duration: number;
+  has_reference_assets: boolean;
+};
+
 export const videoApi = {
   estimateVideoTime: async (params: { model: string; duration: number; sound?: string }) => {
     const query = new URLSearchParams();
@@ -115,6 +121,49 @@ export const videoApi = {
       },
       credentials: 'include',
       body: JSON.stringify({ confirm: true }),
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Request failed');
+    }
+
+    return await response.json();
+  },
+
+  estimateScriptTime: async (params: ScriptEstimateParams) => {
+    const query = new URLSearchParams();
+    query.set('script_count', String(params.script_count ?? ''));
+    query.set('duration', String(params.duration ?? ''));
+    query.set('has_reference_assets', params.has_reference_assets ? 'true' : 'false');
+
+    const response = await fetch(`/api/tasks/script-estimate/?${query.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Request failed');
+    }
+
+    return await response.json();
+  },
+
+  reportScriptTime: async (payload: ScriptEstimateParams & { elapsed_seconds: number }) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch('/api/tasks/script-estimate/report/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {

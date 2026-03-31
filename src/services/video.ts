@@ -80,6 +80,64 @@ export type ReplayReverseScriptData = {
   metrics?: Record<string, unknown>;
 };
 
+export type ScriptEstimateParams = {
+  script_count: number;
+  duration: number;
+  has_reference_assets: boolean;
+};
+
+type ScriptStreamEnvelope = {
+  code?: number;
+  message?: string;
+  data?: Record<string, unknown>;
+} & Record<string, unknown>;
+
+type ScriptStreamHandlers = {
+  onStart?: (payload: ScriptStreamEnvelope) => void;
+  onVariant?: (payload: ScriptStreamEnvelope) => void;
+  onDone?: (payload: ScriptStreamEnvelope) => void;
+  onErrorEvent?: (payload: ScriptStreamEnvelope) => void;
+  onCancelled?: (payload: ScriptStreamEnvelope) => void;
+};
+
+const parseSseChunk = (chunk: string): { event: string; data: string } | null => {
+  const lines = chunk
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
+
+  if (lines.length === 0) return null;
+
+  let event = 'message';
+  const dataLines: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith('event:')) {
+      event = line.slice(6).trim() || 'message';
+      continue;
+    }
+    if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).trim());
+    }
+  }
+
+  return {
+    event,
+    data: dataLines.join('\n'),
+  };
+};
+
+const findSseBoundary = (buffer: string): { index: number; separatorLength: number } | null => {
+  const crlfIndex = buffer.indexOf('\r\n\r\n');
+  const lfIndex = buffer.indexOf('\n\n');
+  if (crlfIndex >= 0 && (lfIndex < 0 || crlfIndex < lfIndex)) {
+    return { index: crlfIndex, separatorLength: 4 };
+  }
+  if (lfIndex >= 0) {
+    return { index: lfIndex, separatorLength: 2 };
+  }
+  return null;
+};
+
 export const videoApi = {
   estimateVideoTime: async (params: { model: string; duration: number; sound?: string }) => {
     const query = new URLSearchParams();
@@ -115,6 +173,49 @@ export const videoApi = {
       },
       credentials: 'include',
       body: JSON.stringify({ confirm: true }),
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Request failed');
+    }
+
+    return await response.json();
+  },
+
+  estimateScriptTime: async (params: ScriptEstimateParams) => {
+    const query = new URLSearchParams();
+    query.set('script_count', String(params.script_count ?? ''));
+    query.set('duration', String(params.duration ?? ''));
+    query.set('has_reference_assets', params.has_reference_assets ? 'true' : 'false');
+
+    const response = await fetch(`/api/tasks/script-estimate/?${query.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Request failed');
+    }
+
+    return await response.json();
+  },
+
+  reportScriptTime: async (payload: ScriptEstimateParams & { elapsed_seconds: number }) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch('/api/tasks/script-estimate/report/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
@@ -285,6 +386,85 @@ export const videoApi = {
     }
 
     return await response.json();
+  },
+
+  generateScriptStream: async (
+    userId: string | number,
+    payload: unknown,
+    handlers?: ScriptStreamHandlers,
+    options?: { signal?: AbortSignal }
+  ) => {
+    const csrftoken = getCookie('csrftoken');
+    const body = JSON.stringify(payload);
+    if (!body) {
+      throw new Error('Script generation payload is empty');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/users/${userId}/generate-script-stream`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'text/event-stream',
+        'Content-Type': 'application/json; charset=utf-8',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body,
+      signal: options?.signal,
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Script generation failed');
+    }
+    if (!response.body) {
+      throw new Error('Script generation stream is unavailable');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    const dispatchPayload = async (eventName: string, payloadText: string) => {
+      if (!payloadText) return;
+      let parsed: ScriptStreamEnvelope;
+      try {
+        parsed = JSON.parse(payloadText) as ScriptStreamEnvelope;
+      } catch {
+        return;
+      }
+      if (eventName === 'start') await handlers?.onStart?.(parsed);
+      else if (eventName === 'variant') await handlers?.onVariant?.(parsed);
+      else if (eventName === 'done') await handlers?.onDone?.(parsed);
+      else if (eventName === 'cancelled') await handlers?.onCancelled?.(parsed);
+      else if (eventName === 'error') await handlers?.onErrorEvent?.(parsed);
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+
+      let boundary = findSseBoundary(buffer);
+      while (boundary) {
+        const rawEvent = buffer.slice(0, boundary.index);
+        buffer = buffer.slice(boundary.index + boundary.separatorLength);
+        const parsedChunk = parseSseChunk(rawEvent);
+        if (parsedChunk) {
+          await dispatchPayload(parsedChunk.event, parsedChunk.data);
+        }
+        boundary = findSseBoundary(buffer);
+      }
+
+      if (done) {
+        const trailing = buffer.trim();
+        if (trailing) {
+          const parsedChunk = parseSseChunk(trailing);
+          if (parsedChunk) {
+            await dispatchPayload(parsedChunk.event, parsedChunk.data);
+          }
+        }
+        break;
+      }
+    }
   },
 
   reverseScriptFromVideo: async (

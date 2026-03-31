@@ -39,6 +39,9 @@ const WAIT_PROGRESS_SIM_DURATION_MS = 90_000;
 const WAIT_PROGRESS_MAX_BEFORE_HOLD = 90;
 const WAIT_PROGRESS_HOLD_MIN = 92;
 const WAIT_PROGRESS_HOLD_MAX = 98;
+const SCRIPT_PROGRESS_MAX_BEFORE_HOLD = 88;
+const SCRIPT_PROGRESS_HOLD_MAX = 96;
+const SCRIPT_ESTIMATE_STORAGE_KEY_PREFIX = 'vflow_script_eta_v1';
 const WAITING_PREVIEW_VIDEO_SRC = (import.meta.env.VITE_WAITING_PREVIEW_VIDEO_URL || 'https://vflow.genviewtech.com/media/vedio.mp4').toString();
 // Storyboard editor is now a user-toggleable runtime setting (no longer a compile-time constant).
 // The state `enableStoryboardEditor` replaces the old `enableStoryboardEditor` const.
@@ -117,6 +120,11 @@ type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion' | 'audio';
 type AssetLibraryPickMode = 'default' | 'background_audio';
 type AiOptimizeResolution = 'sd' | 'hd' | 'uhd';
 type WaitProgressPhase = 'idle' | 'simulating' | 'holding' | 'finishing' | 'done';
+
+type ScriptEstimateCacheEntry = {
+  avgSeconds: number;
+  sampleCount: number;
+};
 
 type GeneratePayload = {
   model: string;
@@ -730,6 +738,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }>({});
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [scriptGenerationNotice, setScriptGenerationNotice] = useState<string | null>(null);
+  const [scriptGenerationEstimatedSeconds, setScriptGenerationEstimatedSeconds] = useState(45);
+  const [scriptGenerationProgress, setScriptGenerationProgress] = useState(0);
+  const [scriptGenerationCompletedCount, setScriptGenerationCompletedCount] = useState(0);
+  const [scriptGenerationTotalCount, setScriptGenerationTotalCount] = useState(0);
+  const [isScriptGenerationProgressVisible, setIsScriptGenerationProgressVisible] = useState(false);
+  const scriptGenerationStartedAtRef = useRef<number | null>(null);
+  const scriptGenerationEstimateKeyRef = useRef<string | null>(null);
+  const scriptGenerationFinishingRef = useRef(false);
   const scriptGenerationAbortRef = useRef<AbortController | null>(null);
   const activeScriptGenerationSeqRef = useRef(0);
 
@@ -919,6 +935,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [scripts, setScripts] = useState<ScriptItem[]>(buildDemoScripts);
   const [scriptPages, setScriptPages] = useState<ScriptPage[]>(() => ([{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: buildDemoScripts() }]));
   const [activeScriptPage, setActiveScriptPage] = useState(0);
+  const scriptPagesRef = useRef<ScriptPage[]>([]);
   const [isShotBreakdownOpen, setIsShotBreakdownOpen] = useState(false);
   const [enableStoryboardEditor, setEnableStoryboardEditor] = useState(false);
 
@@ -4791,6 +4808,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   useEffect(() => {
+    scriptPagesRef.current = scriptPages;
+  }, [scriptPages]);
+
+  useEffect(() => {
     if (!toastMessage) return;
     const timer = window.setTimeout(() => setToastMessage(null), 10000);
     return () => window.clearTimeout(timer);
@@ -4802,14 +4823,204 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return () => window.clearTimeout(timer);
   }, [scriptGenerationNotice]);
 
+  const buildScriptEstimateStorageKey = useCallback((params: { script_count: number; duration: number; has_reference_assets: boolean }) => {
+    const userPart = user?.id ?? 'guest';
+    return [
+      SCRIPT_ESTIMATE_STORAGE_KEY_PREFIX,
+      userPart,
+      params.script_count,
+      params.duration,
+      params.has_reference_assets ? 1 : 0,
+    ].join('_');
+  }, [user?.id]);
+
+  const readLocalScriptEstimate = useCallback((storageKey: string): ScriptEstimateCacheEntry | null => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Partial<ScriptEstimateCacheEntry>;
+      const avgSeconds = Number(parsed.avgSeconds);
+      const sampleCount = Number(parsed.sampleCount);
+      if (!Number.isFinite(avgSeconds) || avgSeconds <= 0) return null;
+      if (!Number.isFinite(sampleCount) || sampleCount < 1) return null;
+      return {
+        avgSeconds,
+        sampleCount: Math.max(1, Math.round(sampleCount)),
+      };
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const writeLocalScriptEstimate = useCallback((storageKey: string, elapsedSeconds: number) => {
+    const seconds = Math.max(1, Math.round(elapsedSeconds));
+    const prev = readLocalScriptEstimate(storageKey);
+    const nextCount = (prev?.sampleCount || 0) + 1;
+    const nextAvg = prev
+      ? ((prev.avgSeconds * prev.sampleCount) + seconds) / nextCount
+      : seconds;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({
+        avgSeconds: nextAvg,
+        sampleCount: nextCount,
+      }));
+    } catch {
+      // ignore storage failures
+    }
+  }, [readLocalScriptEstimate]);
+
+  const normalizeScriptText = useCallback((value: any) => String(value || '').replace(/\s+/g, ' ').trim(), []);
+
+  const parseScriptStringList = useCallback((value: any, maxLen = 5) => {
+    if (!Array.isArray(value)) return [];
+    const next: string[] = [];
+    for (const item of value) {
+      const text = normalizeScriptText(item);
+      if (!text) continue;
+      if (next.includes(text)) continue;
+      next.push(text);
+      if (next.length >= maxLen) break;
+    }
+    return next;
+  }, [normalizeScriptText]);
+
+  const buildScriptsFromShots = useCallback((shots: any[]) => shots.map((shot: any) => ({
+    id: shot.shot_index,
+    shot: String(shot.shot_index),
+    type: shot.type || 'Medium',
+    dur: `${shot.duration_sec}s`,
+    visual: shot.visual,
+    audio: shot.audio || shot.voiceover || '',
+    audioTranslation: shot.voiceover_translation || '',
+  })), []);
+
+  const buildFullScriptFallback = useCallback((scriptsList: ScriptItem[]) => (
+    scriptsList
+      .map((item) => normalizeScriptText(item.visual))
+      .filter((text) => !!text)
+      .join(' ')
+  ), [normalizeScriptText]);
+
+  const parseScriptPage = useCallback((raw: any, idx: number): ScriptPage => {
+    const shots = buildScriptsFromShots(raw?.shots || raw?.script_content?.shots || []);
+    const scriptContent = raw?.script_content || raw || {};
+    const continuityAnchor = scriptContent?.continuity_anchor || {};
+    const scriptStructure = scriptContent?.script_structure || {};
+    const creativeCard = scriptContent?.creative_card || {};
+    const normalizedCreativeCard: ScriptCreativeCard = {
+      style: normalizeScriptText(creativeCard?.style),
+      environment: normalizeScriptText(creativeCard?.environment),
+      tonePacing: normalizeScriptText(creativeCard?.tone_pacing),
+      camera: normalizeScriptText(creativeCard?.camera),
+      lighting: normalizeScriptText(creativeCard?.lighting),
+      actions: parseScriptStringList(creativeCard?.actions, 8),
+      backgroundSound: normalizeScriptText(creativeCard?.background_sound),
+      transitionEditing: normalizeScriptText(creativeCard?.transition_editing),
+      callToAction: normalizeScriptText(creativeCard?.call_to_action),
+    };
+    const fullScript = normalizeScriptText(scriptContent?.video_master_script) || buildFullScriptFallback(shots);
+    return {
+      id: `page-${idx + 1}`,
+      name: `${t.wb_script_page_prefix} ${idx + 1}`,
+      scripts: shots,
+      fullScript,
+      continuityAnchor: {
+        subject: normalizeScriptText(continuityAnchor?.subject),
+        scene: normalizeScriptText(continuityAnchor?.scene),
+        style: normalizeScriptText(continuityAnchor?.style),
+      },
+      scriptStructure: {
+        hook: normalizeScriptText(scriptStructure?.hook),
+        development: normalizeScriptText(scriptStructure?.development),
+        payoff: normalizeScriptText(scriptStructure?.payoff),
+      },
+      sellingPoints: parseScriptStringList(scriptContent?.selling_points),
+      sceneSuggestions: parseScriptStringList(scriptContent?.scene_suggestions),
+      styleTags: parseScriptStringList(scriptContent?.style_tags),
+      creativeCard: normalizedCreativeCard,
+      creativeCardText: buildCreativeCardEditorText(normalizedCreativeCard),
+    };
+  }, [buildCreativeCardEditorText, buildFullScriptFallback, buildScriptsFromShots, normalizeScriptText, parseScriptStringList, t.wb_script_page_prefix]);
+
+  const appendGeneratedScriptPage = useCallback((raw: any) => {
+    const appendedIndex = scriptPagesRef.current.length;
+    const appendedPage = parseScriptPage(raw, appendedIndex);
+    scriptPagesRef.current = [...scriptPagesRef.current, appendedPage];
+    setScriptPages((prev) => [...prev, appendedPage]);
+    setActiveScriptPage(appendedIndex);
+    setScripts(appendedPage.scripts);
+    setIsShotBreakdownOpen(false);
+  }, [parseScriptPage]);
+
+  const finishScriptGenerationProgress = useCallback(async () => {
+    scriptGenerationFinishingRef.current = true;
+    const from = Math.max(0, Math.min(100, scriptGenerationProgress));
+    if (from < 100) {
+      await new Promise<void>((resolve) => {
+        const startedAt = performance.now();
+        const durationMs = 380;
+        const animate = (now: number) => {
+          const ratio = Math.min(1, (now - startedAt) / durationMs);
+          const eased = 1 - Math.pow(1 - ratio, 3);
+          setScriptGenerationProgress(from + (100 - from) * eased);
+          if (ratio < 1) {
+            window.requestAnimationFrame(animate);
+            return;
+          }
+          setScriptGenerationProgress(100);
+          resolve();
+        };
+        window.requestAnimationFrame(animate);
+      });
+    } else {
+      setScriptGenerationProgress(100);
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+  }, [scriptGenerationProgress]);
+
+  useEffect(() => {
+    if (!isGeneratingScript || !scriptGenerationStartedAtRef.current) return;
+
+    const tick = () => {
+      if (scriptGenerationFinishingRef.current) return;
+      const startedAt = scriptGenerationStartedAtRef.current;
+      if (!startedAt) return;
+      const elapsed = Math.max(0, (Date.now() - startedAt) / 1000);
+      const estimated = Math.max(1, scriptGenerationEstimatedSeconds || 45);
+      let nextProgress = 0;
+      if (elapsed <= estimated) {
+        const ratio = Math.min(1, elapsed / estimated);
+        nextProgress = Math.pow(ratio, 0.85) * SCRIPT_PROGRESS_MAX_BEFORE_HOLD;
+      } else {
+        const overflow = elapsed - estimated;
+        nextProgress = Math.min(
+          SCRIPT_PROGRESS_HOLD_MAX,
+          SCRIPT_PROGRESS_MAX_BEFORE_HOLD + Math.log1p(overflow) * 3
+        );
+      }
+      setScriptGenerationProgress(Math.max(0, Math.min(100, nextProgress)));
+    };
+
+    tick();
+    const timer = window.setInterval(tick, 250);
+    return () => window.clearInterval(timer);
+  }, [isGeneratingScript, scriptGenerationEstimatedSeconds]);
+
   const handleCancelGenerateScripts = useCallback(() => {
     const controller = scriptGenerationAbortRef.current;
     if (!controller) return;
 
     activeScriptGenerationSeqRef.current += 1;
     scriptGenerationAbortRef.current = null;
+    scriptGenerationStartedAtRef.current = null;
+    scriptGenerationEstimateKeyRef.current = null;
+    scriptGenerationFinishingRef.current = false;
     controller.abort();
     setIsGeneratingScript(false);
+    setIsScriptGenerationProgressVisible(false);
+    setScriptGenerationProgress(0);
+    setScriptGenerationCompletedCount(0);
+    setScriptGenerationTotalCount(0);
     recordScriptGenerationCancelTimestamp(user?.id ?? null);
     setScriptGenerationNotice(t.wb_popup_script_generation_cancelled || '已成功取消脚本');
   }, [t.wb_popup_script_generation_cancelled, user?.id]);
@@ -4818,6 +5029,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return () => {
       scriptGenerationAbortRef.current?.abort();
       scriptGenerationAbortRef.current = null;
+      scriptGenerationStartedAtRef.current = null;
+      scriptGenerationEstimateKeyRef.current = null;
+      scriptGenerationFinishingRef.current = false;
     };
   }, []);
 
@@ -4875,11 +5089,47 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     if (Object.keys(requiredErrors).length > 0) setRequiredErrors({});
 
+    const totalScriptCount = Math.max(1, scriptVariantCount || 1);
+    const estimateParams = {
+      script_count: 1,
+      duration: Math.max(1, genDuration || 10),
+      has_reference_assets: uploadDisplayAssets.some((asset) => asset.mediaKind === 'image'),
+    };
+    const estimateStorageKey = buildScriptEstimateStorageKey(estimateParams);
+    let estimatedSeconds = 45;
+    try {
+      const resp: any = await Promise.race([
+        videoApi.estimateScriptTime(estimateParams),
+        new Promise((resolve) => window.setTimeout(() => resolve(null), 1200)),
+      ]);
+      const raw = Number(resp?.data?.estimated_seconds);
+      if (Number.isFinite(raw) && raw > 0) {
+        estimatedSeconds = Math.round(raw);
+      }
+    } catch (err) {
+      console.log('[ScriptEstimate] fallback default', err);
+    }
+    if (estimatedSeconds <= 45) {
+      const localEstimate = readLocalScriptEstimate(estimateStorageKey);
+      if (localEstimate?.avgSeconds) {
+        estimatedSeconds = Math.max(1, Math.round(localEstimate.avgSeconds));
+      }
+    }
+
     setIsGeneratingScript(true);
+    setIsScriptGenerationProgressVisible(true);
+    setScriptGenerationEstimatedSeconds(estimatedSeconds);
+    setScriptGenerationProgress(0);
+    setScriptGenerationCompletedCount(0);
+    setScriptGenerationTotalCount(totalScriptCount);
+    scriptGenerationStartedAtRef.current = Date.now();
+    scriptGenerationEstimateKeyRef.current = estimateStorageKey;
+    scriptGenerationFinishingRef.current = false;
     const generationSeq = activeScriptGenerationSeqRef.current + 1;
     activeScriptGenerationSeqRef.current = generationSeq;
     const abortController = new AbortController();
     scriptGenerationAbortRef.current = abortController;
+    let shouldHideProgressImmediately = true;
 
     try {
       type ScriptReferenceAsset = {
@@ -5024,118 +5274,90 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         ...(imagePath ? { product_image_path: imagePath } : {}),
         ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
       };
+      const reportPayload = {
+        script_count: 1,
+        duration: estimateParams.duration,
+        has_reference_assets: estimateParams.has_reference_assets,
+      };
 
       console.log("📜 Generating Script with payload:", payload);
+      let sawVariant = false;
+      let streamFailedMessage: string | null = null;
+      await videoApi.generateScriptStream(
+        user.id,
+        payload,
+        {
+          onStart: (event) => {
+            if (generationSeq !== activeScriptGenerationSeqRef.current) return;
+            const total = Number(event?.data?.total);
+            if (Number.isFinite(total) && total > 0) {
+              setScriptGenerationTotalCount(Math.max(1, Math.round(total)));
+            }
+          },
+          onVariant: async (event) => {
+            if (generationSeq !== activeScriptGenerationSeqRef.current) return;
+            const data = event?.data || {};
+            const scriptContent = data.script_content;
+            if (!scriptContent) return;
 
-      const response = await videoApi.generateScript(user.id, payload, { signal: abortController.signal });
-      if (generationSeq !== activeScriptGenerationSeqRef.current) return;
-      console.log("✅ Script Generated:", response);
+            sawVariant = true;
+            const startedAt = scriptGenerationStartedAtRef.current;
+            const elapsedSeconds = startedAt ? Math.max(1, Math.round((Date.now() - startedAt) / 1000)) : null;
+            shouldHideProgressImmediately = false;
+            await finishScriptGenerationProgress();
+            appendGeneratedScriptPage({ script_content: scriptContent });
 
-      const buildScriptsFromShots = (shots: any[]) => shots.map((shot: any) => ({
-        id: shot.shot_index,
-        shot: shot.shot_index.toString(),
-        type: shot.type || 'Medium',
-        dur: `${shot.duration_sec}s`,
-        visual: shot.visual,
-        audio: shot.audio || shot.voiceover || '',
-        audioTranslation: shot.voiceover_translation || '',
-      }));
-      const normalizeText = (value: any) => String(value || '').replace(/\s+/g, ' ').trim();
-      const parseStringList = (value: any, maxLen = 5) => {
-        if (!Array.isArray(value)) return [];
-        const next: string[] = [];
-        for (const item of value) {
-          const text = normalizeText(item);
-          if (!text) continue;
-          if (next.includes(text)) continue;
-          next.push(text);
-          if (next.length >= maxLen) break;
-        }
-        return next;
-      };
-      const buildFullScriptFallback = (scriptsList: ScriptItem[]) => (
-          scriptsList
-              .map((item) => normalizeText(item.visual))
-              .filter((text) => !!text)
-              .join(' ')
+            const completed = Number(data.completed);
+            const total = Number(data.total);
+            if (Number.isFinite(completed) && completed >= 0) {
+              setScriptGenerationCompletedCount(Math.max(0, Math.round(completed)));
+            }
+            if (Number.isFinite(total) && total > 0) {
+              setScriptGenerationTotalCount(Math.max(1, Math.round(total)));
+            }
+
+            if (elapsedSeconds) {
+              const estimateKey = scriptGenerationEstimateKeyRef.current;
+              if (estimateKey) {
+                writeLocalScriptEstimate(estimateKey, elapsedSeconds);
+              }
+              void videoApi.reportScriptTime({
+                ...reportPayload,
+                elapsed_seconds: elapsedSeconds,
+              }).catch((error) => {
+                console.log('[ScriptEstimate] report failed', error);
+              });
+            }
+
+            if ((Number.isFinite(total) ? Math.round(total) : totalScriptCount) > (Number.isFinite(completed) ? Math.round(completed) : 0)) {
+              scriptGenerationStartedAtRef.current = Date.now();
+              scriptGenerationFinishingRef.current = false;
+              setScriptGenerationProgress(0);
+            }
+          },
+          onDone: async (event) => {
+            if (generationSeq !== activeScriptGenerationSeqRef.current) return;
+            const completed = Number(event?.data?.completed);
+            const total = Number(event?.data?.total);
+            if (Number.isFinite(completed) && completed >= 0) {
+              setScriptGenerationCompletedCount(Math.max(0, Math.round(completed)));
+            }
+            if (Number.isFinite(total) && total > 0) {
+              setScriptGenerationTotalCount(Math.max(1, Math.round(total)));
+            }
+            setIsScriptGenerationProgressVisible(false);
+          },
+          onErrorEvent: (event) => {
+            streamFailedMessage = String(event?.message || t.wb_popup_script_unexpected || '生成失败');
+          },
+        },
+        { signal: abortController.signal }
       );
-      const parseScriptPage = (raw: any, idx: number): ScriptPage => {
-        const shots = buildScriptsFromShots(raw?.shots || raw?.script_content?.shots || []);
-        const scriptContent = raw?.script_content || raw || {};
-        const continuityAnchor = scriptContent?.continuity_anchor || {};
-        const scriptStructure = scriptContent?.script_structure || {};
-        const creativeCard = scriptContent?.creative_card || {};
-        const normalizedCreativeCard: ScriptCreativeCard = {
-          style: normalizeText(creativeCard?.style),
-          environment: normalizeText(creativeCard?.environment),
-          tonePacing: normalizeText(creativeCard?.tone_pacing),
-          camera: normalizeText(creativeCard?.camera),
-          lighting: normalizeText(creativeCard?.lighting),
-          actions: parseStringList(creativeCard?.actions, 8),
-          backgroundSound: normalizeText(creativeCard?.background_sound),
-          transitionEditing: normalizeText(creativeCard?.transition_editing),
-          callToAction: normalizeText(creativeCard?.call_to_action),
-        };
-        const fullScript = normalizeText(scriptContent?.video_master_script) || buildFullScriptFallback(shots);
-        return {
-          id: `page-${idx + 1}`,
-          name: `${t.wb_script_page_prefix} ${idx + 1}`,
-          scripts: shots,
-          fullScript,
-          continuityAnchor: {
-            subject: normalizeText(continuityAnchor?.subject),
-            scene: normalizeText(continuityAnchor?.scene),
-            style: normalizeText(continuityAnchor?.style),
-          },
-          scriptStructure: {
-            hook: normalizeText(scriptStructure?.hook),
-            development: normalizeText(scriptStructure?.development),
-            payoff: normalizeText(scriptStructure?.payoff),
-          },
-          sellingPoints: parseStringList(scriptContent?.selling_points),
-          sceneSuggestions: parseStringList(scriptContent?.scene_suggestions),
-          styleTags: parseStringList(scriptContent?.style_tags),
-          creativeCard: normalizedCreativeCard,
-          creativeCardText: buildCreativeCardEditorText(normalizedCreativeCard),
-        };
-      };
-
-      const unwrapScriptPayload = (data: any) => {
-        if (!data || typeof data !== 'object') return data;
-        if (data.data && typeof data.data === 'object') return data.data;
-        return data;
-      };
-
-      const extractScriptPages = (data: any): ScriptPage[] => {
-        const root = unwrapScriptPayload(data);
-        if (!root) return [];
-        if (Array.isArray(root.script_contents)) {
-          return root.script_contents.map((sc: any, idx: number) => parseScriptPage(sc, idx));
-        }
-        if (Array.isArray(root.script_variants)) {
-          return root.script_variants.map((variant: any, idx: number) => parseScriptPage(variant, idx));
-        }
-        if (Array.isArray(root.variants)) {
-          return root.variants.map((variant: any, idx: number) => parseScriptPage(variant, idx));
-        }
-        if (root.script_content?.shots || root.script_content?.video_master_script || root.script_content?.creative_card) {
-          return [parseScriptPage(root, 0)];
-        }
-        return [];
-      };
-
-      if (response.code === 0) {
-        const pages = extractScriptPages(response.data);
-        if (generationSeq !== activeScriptGenerationSeqRef.current) return;
-        if (pages.length > 0) {
-          setScriptPages(pages);
-          setActiveScriptPage(0);
-          setScripts(pages[0].scripts);
-          setIsShotBreakdownOpen(false);
-        } else {
-          openInfo(popupTitles.notice, t.wb_popup_script_unexpected);
-        }
-      } else {
+      if (generationSeq !== activeScriptGenerationSeqRef.current) return;
+      if (streamFailedMessage) {
+        throw new Error(streamFailedMessage);
+      }
+      if (!sawVariant) {
         openInfo(popupTitles.notice, t.wb_popup_script_unexpected);
       }
 
@@ -5152,9 +5374,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       if (scriptGenerationAbortRef.current === abortController) {
         scriptGenerationAbortRef.current = null;
       }
+      scriptGenerationStartedAtRef.current = null;
+      scriptGenerationEstimateKeyRef.current = null;
       if (generationSeq === activeScriptGenerationSeqRef.current) {
         setIsGeneratingScript(false);
+        if (shouldHideProgressImmediately) {
+          setIsScriptGenerationProgressVisible(false);
+          setScriptGenerationProgress(0);
+        }
+        setScriptGenerationCompletedCount(0);
+        setScriptGenerationTotalCount(0);
       }
+      scriptGenerationFinishingRef.current = false;
     }
   };
 
@@ -6946,6 +7177,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             {scriptGenerationNotice && !isGeneratingScript && (
               <div className="mb-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-medium text-emerald-200 shadow-[0_8px_24px_rgba(16,185,129,0.12)]">
                 {scriptGenerationNotice}
+              </div>
+            )}
+            {isScriptGenerationProgressVisible && (
+              <div className="mb-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                <div className="mb-1 flex items-center justify-between gap-3 text-[10px] text-zinc-400">
+                  <span>{t.wb_waiting_progress || '进度'}</span>
+                  <div className="flex items-center gap-3">
+                    <span>{formatMessage(t.wb_script_generation_count_status || '已生成 {current}/{total} 份', { current: scriptGenerationCompletedCount, total: Math.max(scriptGenerationTotalCount, scriptGenerationCompletedCount, 1) })}</span>
+                    <span>{`${Math.max(0, Math.min(100, Math.round(scriptGenerationProgress)))}%`}</span>
+                  </div>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-orange-500 via-amber-400 to-orange-200 transition-[width] duration-200 ease-out"
+                    style={{ width: `${Math.max(3, Math.min(100, scriptGenerationProgress))}%` }}
+                  />
+                </div>
               </div>
             )}
             {isGeneratingScript ? (

@@ -2,10 +2,7 @@ import React from 'react';
 import { Video, Image as ImageIcon, History, Sparkles, User as UserIcon, CreditCard, Flame, FolderOpen, LayoutGrid, Shirt, ImagePlus } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
-// 1. Import the type
 import type { ViewType } from './types'; 
-
-// 2. Remove the old "export type ViewType = ..." definition from here completely.
 
 interface SidebarProps {
   activeView: ViewType;
@@ -14,9 +11,11 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isDebugModeEnabled }) => {
-  // ... (keep the rest of the component code exactly the same)
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { user } = useAuth();
+  const isZh = language === 'zh';
+  const tx = (key: string, fallback: string) => ((t as any)[key] as string) || fallback;
+  const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
 
   const isProductImagesView =
     activeView === 'product_images_clothing_swap'
@@ -30,8 +29,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
   }, [isProductImagesView]);
 
   const InternalNav = ({ icon: Icon, view, label }: { icon: any, view: ViewType, label: string }) => (
-    <div 
-      onClick={() => setActiveView(view)}
+    <div
+      onClick={() => {
+        setActiveView(view);
+        setIsProductImagesMenuOpen(false);
+      }}
       className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${activeView === view ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300'}`} 
     >
       <Icon className={`w-5 h-5 transition-all ${activeView === view ? 'stroke-[2.5px]' : ''}`} />
@@ -46,17 +48,37 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
     const active = isProductImagesView;
     return (
       <div
-        onClick={() => setActiveView('product_images_first_frame')}
+        onClick={() => {
+          if (!isProductImagesMenuOpen) {
+            setIsProductImagesMenuOpen(true);
+          }
+          if (!isProductImagesView) {
+            setActiveView('product_images_first_frame');
+          }
+        }}
         className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${active ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300'}`}
       >
         <ImageIcon className={`w-5 h-5 transition-all ${active ? 'stroke-[2.5px]' : ''}`} />
         {active && (<div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />)}
         <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
-          商品图片生成
+          {tx('wb_nav_product_images', tr('商品图片生成', 'Product Images'))}
         </div>
       </div>
     );
   };
+
+  const ProductSubNav = ({ icon: Icon, view, label }: { icon: any; view: ViewType; label: string }) => (
+    <button
+      type="button"
+      onClick={() => setActiveView(view)}
+      className={`w-full rounded-xl border px-3 py-2 text-left text-xs transition ${activeView === view ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
+    >
+      <span className="flex items-center gap-2">
+        <Icon className="h-4 w-4" />
+        <span>{label}</span>
+      </span>
+    </button>
+  );
 
   return (
     <aside className="bg-zinc-950 border-r border-white/5 flex z-30 shrink-0">
@@ -113,6 +135,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
           </div>
         </div>
       </div>
+
+      {isProductImagesMenuOpen && (
+        <div className="w-52 border-l border-white/5 bg-zinc-950/95 backdrop-blur-sm px-3 py-6">
+          <div className="px-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            {tx('wb_nav_product_images', tr('商品图片生成', 'Product Images'))}
+          </div>
+          <div className="mt-3 flex flex-col gap-2">
+            <ProductSubNav
+              icon={Shirt}
+              view="product_images_clothing_swap"
+              label={tx('wb_nav_product_clothing_swap', tr('AI 换装', 'AI Clothing Swap'))}
+            />
+            <ProductSubNav
+              icon={ImagePlus}
+              view="product_images_first_frame"
+              label={tx('wb_nav_product_first_frame', tr('AI 首帧图', 'AI First Frame'))}
+            />
+            <ProductSubNav
+              icon={LayoutGrid}
+              view="product_images_gallery"
+              label={tx('wb_nav_product_gallery', tr('AI 商品套图', 'AI Product Gallery'))}
+            />
+          </div>
+        </div>
+      )}
 
 
     </aside>

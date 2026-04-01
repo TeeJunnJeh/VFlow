@@ -28,6 +28,7 @@ type AssetsNavigationIntent =
   | null;
 
 type WorkbenchAssetSelectionMode = 'library_asset' | 'background_audio';
+const FIRST_FRAME_TRANSFER_KEY = 'vflow_apply_first_frame';
 
 // Helper to get display URL for asset passing
 const getDisplayUrl = (path: string | null): string | null => {
@@ -223,6 +224,42 @@ const Workbench = () => {
       window.history.replaceState({}, document.title, location.pathname);
     }
   }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    if (activeView !== 'workbench') return;
+
+    try {
+      const raw = window.localStorage.getItem(FIRST_FRAME_TRANSFER_KEY);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw) as { imageUrl?: string; imageName?: string };
+      const imageUrl = String(parsed?.imageUrl || '').trim();
+      if (!imageUrl) {
+        window.localStorage.removeItem(FIRST_FRAME_TRANSFER_KEY);
+        return;
+      }
+
+      const displayUrl = getDisplayUrl(imageUrl) || imageUrl;
+      setSelectedAssetForWorkbench({
+        asset: {
+          id: `first-frame-${Date.now()}`,
+          name: parsed.imageName || 'AI首帧图',
+          type: 'product',
+          file_url: displayUrl,
+          media_kind: 'image',
+          size: '0.00 MB',
+          status: 'ready',
+          created_at: new Date().toISOString(),
+        },
+        token: `first-frame-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        mode: 'library_asset',
+      });
+      setGeneratedVideoUrl(null);
+      window.localStorage.removeItem(FIRST_FRAME_TRANSFER_KEY);
+    } catch {
+      window.localStorage.removeItem(FIRST_FRAME_TRANSFER_KEY);
+    }
+  }, [activeView]);
 
   // Info dialog for this page
   const [isInfoOpen, setIsInfoOpen] = useState(false);

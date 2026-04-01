@@ -4,6 +4,7 @@ import type { ViewType } from './types';
 import { useLanguage } from '../../context/LanguageContext';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
+import { FirstFrameView } from '../productImages';
 
 interface ProductImagesViewProps {
   activeView: ViewType;
@@ -11,15 +12,17 @@ interface ProductImagesViewProps {
 }
 
 const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setActiveView }) => {
-  const { t } = useLanguage();
+  const { language } = useLanguage();
+  const isZh = language === 'zh';
+  const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
 
   const productViews: { value: ViewType; label: string }[] = useMemo(
     () => [
-      { value: 'product_images_clothing_swap', label: 'AI 换装' },
-      { value: 'product_images_first_frame', label: 'AI 首帧图' },
-      { value: 'product_images_gallery', label: '商品套图' },
+      { value: 'product_images_clothing_swap', label: tr('AI 换装', 'AI Clothing Swap') },
+      { value: 'product_images_first_frame', label: tr('AI 首帧图', 'AI First Frame') },
+      { value: 'product_images_gallery', label: tr('商品套图', 'Product Gallery') },
     ],
-    []
+    [isZh]
   );
 
   const isProductView =
@@ -58,7 +61,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     <div className="flex flex-col h-full z-10">
       <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-100">商品图片生成</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
+            {tr('商品图片生成', 'Product Image Generation')}
+          </h1>
         </div>
         <div className="flex items-center gap-3">
           <LanguageSwitcher />
@@ -76,24 +81,32 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       </header>
 
       <main className="flex-1 overflow-y-auto px-10 py-6">
-        {currentValue !== 'product_images_gallery' ? (
+        {currentValue === 'product_images_clothing_swap' && (
           <div className="rounded-2xl border border-white/5 bg-white/2 h-full flex items-center justify-center text-zinc-500">
-            {currentValue === 'product_images_clothing_swap' && <div>AI 换装（开发中）</div>}
-            {currentValue === 'product_images_first_frame' && <div>AI 首帧图（开发中）</div>}
+            <div>{tr('AI 换装（开发中）', 'AI Clothing Swap (In Development)')}</div>
           </div>
-        ) : (
+        )}
+
+        {currentValue === 'product_images_first_frame' && (
+          <FirstFrameView
+            embedded
+            onApplyToWorkbench={() => setActiveView('workbench')}
+          />
+        )}
+
+        {currentValue === 'product_images_gallery' && (
           <div className="h-full flex gap-6">
             <div className="w-[46%] min-w-[420px] max-w-[640px] flex flex-col gap-4">
               <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
                 <div className="flex items-center justify-between">
-                  <div className="text-sm font-bold text-zinc-200">输入区</div>
+                  <div className="text-sm font-bold text-zinc-200">{tr('输入区', 'Input')}</div>
                   <button
                     type="button"
                     onClick={() => galleryFileInputRef.current?.click()}
                     className="px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition flex items-center gap-2"
                   >
                     <Upload className="w-4 h-4" />
-                    上传商品图
+                    {tr('上传商品图', 'Upload Product Images')}
                   </button>
                 </div>
 
@@ -297,9 +310,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             </div>
 
             <div className="flex-1 min-w-0 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col">
-              <div className="text-sm font-bold text-zinc-200">预览区</div>
+              <div className="text-sm font-bold text-zinc-200">{tr('预览区', 'Preview')}</div>
               <div className="flex-1 mt-4 rounded-2xl border border-dashed border-white/10 bg-black/20 flex items-center justify-center text-zinc-500">
-                输出预览（占位）
+                {tr('输出预览（占位）', 'Output Preview (Placeholder)')}
               </div>
             </div>
           </div>

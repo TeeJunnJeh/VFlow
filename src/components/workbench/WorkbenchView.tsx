@@ -2749,7 +2749,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const klingRoleLabel = (source: QueuedAsset['source']) => {
     if (source === 'subject') return t.wb_label_subject_reference || 'Subject Reference';
     if (source === 'product') return t.wb_label_first_frame || 'First Frame';
-    if (source === 'tail') return 'Tail Frame';
+    if (source === 'tail') return t.wb_label_tail_frame || 'Tail Frame';
     return t.wb_label_reference_image || 'Reference';
   };
   const canBeKlingSubject = useCallback((asset: QueuedAsset) => (
@@ -3082,11 +3082,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return `${script.visual || ''} ${audioMarker}`.trim();
     }).join(' ');
     const basePrompt = [masterScriptPrompt, creativeCardPrompt].filter(Boolean).join('\n\n');
+    const storyboardSupplement = '[分镜补充要求]: 仅采用站立口播式出镜，人物始终站立并面向镜头，用手持商品进行展示与讲解；不要出现脚部穿戴、脚部特写、脚接触商品，避免把手误生成成脚。';
+    const firstLastFrameAudioSupplement = selectedModel === 'kling' && klingGenerateMode === 'first_last_frame' && soundSetting === 'on'
+      ? '【音频|【[旁白]】全程保留清晰自然的人声口播讲解与轻微环境声，不要输出静音视频；口播需与站立手持展示动作一致，语气自然，避免无声片段。】'
+      : '';
     if (ENABLE_STORYBOARD_PROMPT && shotPrompt) {
-      if (basePrompt) return `${basePrompt}\n\n[分镜指引]: ${shotPrompt}`;
-      return `[分镜指引]: ${shotPrompt}`;
+      if (basePrompt) return `${basePrompt}\n\n[分镜指引]: ${shotPrompt}\n${storyboardSupplement}${firstLastFrameAudioSupplement ? `\n${firstLastFrameAudioSupplement}` : ''}`;
+      return `[分镜指引]: ${shotPrompt}\n${storyboardSupplement}${firstLastFrameAudioSupplement ? `\n${firstLastFrameAudioSupplement}` : ''}`;
     }
-    return basePrompt || shotPrompt;
+    return [basePrompt || shotPrompt, storyboardSupplement, firstLastFrameAudioSupplement].filter(Boolean).join('\n\n');
   };
 
   const resolveCurrentSingleAssetPath = async () => {
@@ -3395,7 +3399,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const imageAssets = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image');
     if (imageAssets.length === 0) {
-      openInfo(popupTitles.notice, '请先上传至少 1 张参考图，再生成首尾帧');
+      openInfo(popupTitles.notice, t.wb_kling_boundary_frames_need_reference || 'Please upload at least 1 reference image before generating first and last frames.');
       return;
     }
 
@@ -3410,7 +3414,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
 
       if (!referencePath) {
-        throw new Error('参考图上传失败，请重试');
+        throw new Error(t.wb_kling_boundary_frames_upload_failed || 'Reference image upload failed. Please try again.');
       }
 
       const resp = await videoApi.generateFirstFrame({
@@ -3424,7 +3428,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const firstPath = String(resp?.data?.first_frame_path || '').trim();
       const lastPath = String(resp?.data?.last_frame_path || '').trim();
       if (!firstPath || !lastPath) {
-        throw new Error('生成成功但未返回首尾帧地址');
+        throw new Error(t.wb_kling_boundary_frames_missing_result || 'Generation succeeded but first/last frame URLs were not returned.');
       }
 
       const firstDisplay = toDisplayUrl(firstPath) || firstPath;
@@ -3438,7 +3442,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         const next: QueuedAsset[] = [
           {
             id: firstId,
-            name: 'AI首帧图',
+            name: t.wb_kling_generated_first_frame_name || 'AI First Frame',
             previewUrl: firstDisplay,
             fileObj: null,
             assetUrl: firstPath,
@@ -3450,7 +3454,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           },
           {
             id: lastId,
-            name: 'AI尾帧图',
+            name: t.wb_kling_generated_last_frame_name || 'AI Last Frame',
             previewUrl: lastDisplay,
             fileObj: null,
             assetUrl: lastPath,
@@ -3467,13 +3471,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       setSelectedQueueAssetId(firstId);
       setUploadedFile(firstDisplay);
-      setFileName('AI首帧图');
+      setFileName(t.wb_kling_generated_first_frame_name || 'AI First Frame');
       setSelectedFileObj(null);
       setSelectedAssetUrl(firstPath);
       setSelectedAssetSource('product');
       setCurrentMaterialType('product');
       setLastUploadedUrl(firstPath);
-      openInfo(popupTitles.success, '首尾帧已生成，可直接点击「生成视频」');
+      openInfo(popupTitles.success, t.wb_kling_boundary_frames_generated || 'First and last frames have been generated. You can now click "Generate Video".');
     } catch (err) {
       openErrorModal(err, { category: 'generation_failed', onRetry: handleGenerateKlingBoundaryFrames });
     } finally {
@@ -3491,23 +3495,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const referenceCount = normalizedAssets.filter((asset) => asset.source === 'preference').length;
 
       if (klingGenerateMode === 'first_frame' && firstFrameCount !== 1) {
-        throw new Error('可灵首帧模式需要且仅允许 1 张首帧图');
+        throw new Error(t.wb_kling_validation_first_frame_exactly_one || 'Kling first-frame mode requires exactly 1 first-frame image.');
       }
       if (klingGenerateMode === 'subject' && subjectCount !== 1) {
-        throw new Error('可灵主体模式仅允许不多于 1 张主体图');
+        throw new Error(t.wb_kling_validation_subject_exactly_one || 'Kling subject mode requires exactly 1 subject image.');
       }
       if (klingGenerateMode === 'first_last_frame' && firstFrameCount !== 1) {
-        throw new Error('请先点击「参考图生首尾帧」按钮，等待首尾帧生成完成后再生成视频');
+        throw new Error(t.wb_kling_first_last_frame_need_generate || 'Please click "Generate First + Last Frames From Reference" and wait for both frames before generating the video.');
       }
       if (klingGenerateMode === 'first_last_frame' && tailFrameCount !== 1) {
-        throw new Error('请先点击「参考图生首尾帧」按钮，等待首尾帧生成完成后再生成视频');
+        throw new Error(t.wb_kling_first_last_frame_need_generate || 'Please click "Generate First + Last Frames From Reference" and wait for both frames before generating the video.');
       }
 
       if (klingGenerateMode === 'subject' && referenceCount < 1) {
-        throw new Error('可灵主体模式需要再提供 1 到 3 张其他参考图');
+        throw new Error(t.wb_kling_validation_subject_reference_range || 'Kling subject mode requires 1 to 3 additional reference images.');
       }
       if (klingGenerateMode === 'subject' && referenceCount > 3) {
-        throw new Error('可灵主体模式最多只允许 3 张其他参考图');
+        throw new Error(t.wb_kling_validation_subject_reference_max || 'Kling subject mode allows at most 3 additional reference images.');
       }
 
       const omniAssets: NonNullable<GeneratePayload['omni_assets']> = [];
@@ -3543,7 +3547,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         prompt: buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts, activeCreativeCardText),
         product_name: productName,
         duration: genDuration,
-        sound: 'off',
+        sound: soundSetting,
         ...(selectedBackgroundAudio && soundSetting === 'off'
           ? {
             background_audio_asset_id: selectedBackgroundAudio.id,
@@ -5513,22 +5517,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const referenceCount = imageAssets.filter((asset) => asset.source === 'preference').length;
 
       if (klingGenerateMode === 'first_frame' && firstFrameCount !== 1) {
-        issues.push('Kling首帧模式需要且仅允许1张首帧图。');
+        issues.push(t.wb_kling_validation_first_frame_exactly_one || 'Kling first-frame mode requires exactly 1 first-frame image.');
       }
       if (klingGenerateMode === 'subject' && subjectCount !== 1) {
-        issues.push('Kling主体模式需要且仅允许1张主体图。');
+        issues.push(t.wb_kling_validation_subject_exactly_one || 'Kling subject mode requires exactly 1 subject image.');
       }
       if (klingGenerateMode === 'first_last_frame' && (firstFrameCount !== 1 || tailFrameCount !== 1)) {
-        issues.push('请先点击「参考图生首尾帧」按钮生成首尾帧。');
+        issues.push(t.wb_kling_first_last_frame_need_generate || 'Please click "Generate First + Last Frames From Reference" and wait for both frames before generating the video.');
       }
       if (klingGenerateMode === 'subject' && referenceCount < 1) {
-        issues.push('可灵主体模式需要再提供 1 到 3 张其他参考图。');
+        issues.push(t.wb_kling_validation_subject_reference_range || 'Kling subject mode requires 1 to 3 additional reference images.');
       }
       if (klingGenerateMode === 'subject' && referenceCount > 3) {
-        issues.push('可灵主体模式最多只允许 3 张其他参考图。');
+        issues.push(t.wb_kling_validation_subject_reference_max || 'Kling subject mode allows at most 3 additional reference images.');
       }
       if (klingGenerateMode === 'first_frame' && firstFrameCount + referenceCount > 7) {
-        issues.push('Kling参考图片数量不能超过7张。');
+        issues.push(t.wb_kling_validation_reference_max || 'Kling allows at most 7 total reference images.');
       }
     }
     if (!hasActiveScriptConcept) {
@@ -6624,16 +6628,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       className={`relative overflow-visible rounded-xl border px-3 py-2 text-left transition hover:z-20 ${klingGenerateMode === 'first_last_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
                     <div className="flex items-center gap-1 text-[11px] font-bold">
-                      <span>首尾帧模式</span>
+                      <span>{t.wb_kling_mode_first_last_frame || 'First + Last Frame Mode'}</span>
                       <span className="relative z-10 inline-flex items-center group/info hover:z-20">
                         <Info className="h-3 w-3 text-zinc-400" />
                         <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 ml-6 w-44 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
-                          <span className="block">素材要求：</span>
-                          <span className="block">1张首帧图 + 1张尾帧图 + 0-6张参考图</span>
+                          <span className="block">{t.wb_material_requirement_title}</span>
+                          <span className="block">{t.wb_kling_first_last_frame_requirement || '1 first-frame image + 1 tail-frame image + 0-6 reference images'}</span>
                         </span>
                       </span>
                     </div>
-                    <div className="mt-1 text-[10px] text-zinc-400">通过首尾关键帧约束视频开头与结尾</div>
+                    <div className="mt-1 text-[10px] text-zinc-400">{t.wb_kling_first_last_frame_desc || 'Constrain the beginning and ending of the video with first and last keyframes'}</div>
                   </button>
                 </div>
             )}
@@ -6698,11 +6702,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           klingPrimarySlotAsset && klingTailSlotAsset ? (
                             <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scroll pr-1">
                               <div className="rounded-xl border border-white/10 bg-black/25 p-2">
-                                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">首帧</div>
+                                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">{t.wb_label_first_frame_short || t.wb_label_first_frame || 'First'}</div>
                                 {renderUploadAssetCard(klingPrimarySlotAsset)}
                               </div>
                               <div className="rounded-xl border border-white/10 bg-black/25 p-2">
-                                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">尾帧</div>
+                                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">{t.wb_label_tail_frame || 'Tail Frame'}</div>
                                 {renderUploadAssetCard(klingTailSlotAsset)}
                               </div>
                             </div>
@@ -6739,7 +6743,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 ) : (
                                     <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20 flex flex-col items-center justify-center gap-2">
                                       <UploadCloud className="w-5 h-5 text-zinc-600" />
-                                      <span className="text-[10px] text-zinc-500">点击上传商品参考图</span>
+                                      <span className="text-[10px] text-zinc-500">{t.wb_kling_reference_upload_hint || 'Click to upload a product reference image'}</span>
                                     </div>
                                 )}
                               </div>
@@ -7016,7 +7020,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   disabled={isGeneratingKlingBoundaryFrames}
                   className={`rounded-lg border px-3 py-2 text-[10px] font-bold transition ${isGeneratingKlingBoundaryFrames ? 'border-orange-500/30 bg-orange-500/10 text-orange-300/70' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
               >
-                {isGeneratingKlingBoundaryFrames ? '生成中...' : '参考图生首尾帧'}
+                {isGeneratingKlingBoundaryFrames
+                  ? (t.wb_kling_boundary_frames_generating || t.wb_generating || 'Generating...')
+                  : (t.wb_kling_generate_boundary_frames || 'Generate First + Last Frames From Reference')}
               </button>
             )}
           </div>

@@ -715,12 +715,12 @@ export const videoApi = {
         const contentType = response.headers.get('content-type') || '';
         if (!contentType.includes('application/json')) throw new Error('Unexpected response');
 
-        const json = (await response.json()) as ApiEnvelope<HistoryProject[]>;
+        const json = (await response.json()) as ApiEnvelope<{ items?: HistoryProject[] }>;
         if (json?.code !== undefined && json.code !== 0) {
           throw new Error((json?.message || 'Failed to fetch history') as string);
         }
-        const data = json?.data;
-        return Array.isArray(data) ? data : [];
+        const items = (json?.data as { items?: unknown } | undefined)?.items;
+        return Array.isArray(items) ? (items as HistoryProject[]) : [];
       }
     });
   },
@@ -862,12 +862,12 @@ export const videoApi = {
         const contentType = response.headers.get('content-type') || '';
         if (!contentType.includes('application/json')) throw new Error('Unexpected response');
 
-        const json = (await response.json()) as ApiEnvelope<HistoryProject[]>;
+        const json = (await response.json()) as ApiEnvelope<{ items?: HistoryProject[] }>;
         if (json?.code !== undefined && json.code !== 0) {
           throw new Error((json?.message || 'Failed to fetch favorites') as string);
         }
-        const data = json?.data;
-        return Array.isArray(data) ? data : [];
+        const items = (json?.data as { items?: unknown } | undefined)?.items;
+        return Array.isArray(items) ? (items as HistoryProject[]) : [];
       }
     });
   },

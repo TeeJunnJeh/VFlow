@@ -3,6 +3,7 @@ import type {
   FirstFrameParams,
   GenerationStatusResponse,
   ProductImageResult,
+  SmartRepairParams,
 } from '../types/productImages';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
@@ -39,6 +40,12 @@ function styleToModel(style?: FirstFrameParams['style']): string {
   if (style === 'studio') return 'gpt-image-1.5';
   if (style === 'clean') return 'flux-2-pro';
   return 'flux-2-max';
+}
+
+function smartRepairStrengthToHint(strength?: SmartRepairParams['strength']): string {
+  if (strength === 'light') return 'Preserve structure and details, only minimal local fixes.';
+  if (strength === 'strong') return 'Allow stronger correction while keeping product identity recognizable.';
+  return 'Balance repair quality and content consistency.';
 }
 
 async function uploadTempImage(file: File): Promise<string> {
@@ -155,6 +162,88 @@ export const productImagesApi = {
 
     return {
       id: `first-frame-task-${Date.now()}`,
+      status: 'completed',
+      progress: 100,
+      outputImages,
+      completedAt: new Date().toISOString(),
+    };
+  },
+
+  async generateSmartRepair(
+    sourceImage: File,
+    params: SmartRepairParams,
+    projectId?: string,
+    referenceImage?: File
+  ): Promise<GenerationStatusResponse> {
+    if (!sourceImage) {
+      throw new Error('Please upload a source image first');
+    }
+
+    const prompt = String(params.prompt || '').trim();
+    if (!prompt) {
+      throw new Error('Please provide repair instructions');
+    }
+
+    const sourceImagePath = await uploadTempImage(sourceImage);
+    const referenceImagePath = referenceImage ? await uploadTempImage(referenceImage) : undefined;
+
+    const payload: Record<string, unknown> = {
+      source_image_path: sourceImagePath,
+      repair_prompt: prompt,
+      strength: params.strength || 'medium',
+      strength_hint: smartRepairStrengthToHint(params.strength),
+      aspect_ratio: params.aspectRatio || '1:1',
+      output_count: params.outputCount || 1,
+      subpage: params.subpage || 'product_object',
+      tool_code: params.toolCode || 'custom_retouch',
+    };
+
+    if (projectId) {
+      payload.project_id = projectId;
+    }
+    if (referenceImagePath) {
+      payload.reference_image_path = referenceImagePath;
+    }
+
+    const response = await fetch(`${PROJECTS_API_BASE}/generate_smart_repair`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCookie('csrftoken') || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw await parseError(response, 'Failed to generate smart-repair image');
+    }
+
+    const data = await response.json();
+    const imageUrls = Array.isArray(data?.data?.image_urls)
+      ? data.data.image_urls.map((it: unknown) => String(it || '').trim()).filter(Boolean)
+      : [];
+
+    const fallbackSingle = String(data?.data?.image_url || '').trim();
+    const resolved = imageUrls.length > 0 ? imageUrls : (fallbackSingle ? [fallbackSingle] : []);
+
+    if (resolved.length === 0) {
+      throw new Error('Generation succeeded but image_url was missing');
+    }
+
+    const outputImages: ProductImageResult[] = resolved.map((url: string, index: number) => {
+      const displayUrl = toDisplayUrl(url);
+      return {
+        id: `smart-repair-${Date.now()}-${index}`,
+        imageUrl: displayUrl,
+        downloadUrl: displayUrl,
+        format: 'png',
+      };
+    });
+
+    return {
+      id: `smart-repair-task-${Date.now()}`,
       status: 'completed',
       progress: 100,
       outputImages,

@@ -7,6 +7,7 @@
 export type GenerationType = 
   | 'product_gallery'
   | 'first_frame_image'
+  | 'smart_repair'
   | 'clothing_swap';
 
 export type GenerationStatus = 
@@ -70,6 +71,43 @@ export interface FirstFrameParams {
   style?: FirstFrameStyle;
   textWhitespace?: FirstFrameWhitespace;
   outputCount?: 1 | 2 | 4;
+}
+
+// ==================== 智能修复相关类型 ====================
+
+export type SmartRepairAspectRatio =
+  | '1:1'
+  | '4:5'
+  | '9:16'
+  | '16:9';
+
+export type SmartRepairStrength = 'light' | 'medium' | 'strong';
+
+export type SmartRepairSubpage = 'fashion_model' | 'product_object' | 'other';
+
+export type SmartRepairToolCode =
+  | 'mannequin_to_model'
+  | 'anime_ip'
+  | 'fashion_3d_showcase'
+  | 'flat_lay_with_accessories'
+  | 'body_reshape'
+  | 'accessory_try_on'
+  | 'product_defect_fix'
+  | 'background_replace'
+  | 'stain_remove'
+  | 'detail_enhance'
+  | 'old_photo_restore'
+  | 'logo_cleanup'
+  | 'text_replace'
+  | 'custom_retouch';
+
+export interface SmartRepairParams {
+  prompt: string;
+  aspectRatio?: SmartRepairAspectRatio;
+  strength?: SmartRepairStrength;
+  outputCount?: 1 | 2 | 4;
+  subpage?: SmartRepairSubpage;
+  toolCode?: SmartRepairToolCode;
 }
 
 // ==================== 生成任务相关类型 ====================

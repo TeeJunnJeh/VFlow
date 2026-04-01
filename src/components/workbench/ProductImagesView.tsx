@@ -4,7 +4,7 @@ import type { ViewType } from './types';
 import { useLanguage } from '../../context/LanguageContext';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
-import { FirstFrameView } from '../productImages';
+import { FirstFrameView, SmartRepairView } from '../productImages';
 
 interface ProductImagesViewProps {
   activeView: ViewType;
@@ -20,6 +20,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     () => [
       { value: 'product_images_clothing_swap', label: tr('AI 换装', 'AI Clothing Swap') },
       { value: 'product_images_first_frame', label: tr('AI 首帧图', 'AI First Frame') },
+      { value: 'product_images_smart_repair', label: tr('智能修复', 'Smart Repair') },
       { value: 'product_images_gallery', label: tr('商品套图', 'Product Gallery') },
     ],
     [isZh]
@@ -28,6 +29,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const isProductView =
     activeView === 'product_images_clothing_swap' ||
     activeView === 'product_images_first_frame' ||
+    activeView === 'product_images_smart_repair' ||
     activeView === 'product_images_gallery';
 
   const currentValue: ViewType = isProductView ? activeView : 'product_images_first_frame';
@@ -92,6 +94,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             embedded
             onApplyToWorkbench={() => setActiveView('workbench')}
           />
+        )}
+
+        {currentValue === 'product_images_smart_repair' && (
+          <SmartRepairView embedded />
         )}
 
         {currentValue === 'product_images_gallery' && (

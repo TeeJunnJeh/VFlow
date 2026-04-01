@@ -1,5 +1,5 @@
 import React from 'react';
-import { Video, Image as ImageIcon, History, Sparkles, User as UserIcon, CreditCard, Flame, FolderOpen, LayoutGrid, Shirt, ImagePlus } from 'lucide-react';
+import { Video, Image as ImageIcon, History, Sparkles, User as UserIcon, CreditCard, Flame, FolderOpen, LayoutGrid, Shirt, ImagePlus, WandSparkles } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import type { ViewType } from './types'; 
@@ -20,6 +20,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
   const isProductImagesView =
     activeView === 'product_images_clothing_swap'
     || activeView === 'product_images_first_frame'
+    || activeView === 'product_images_smart_repair'
     || activeView === 'product_images_gallery';
 
   const [isProductImagesMenuOpen, setIsProductImagesMenuOpen] = React.useState(false);
@@ -151,6 +152,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
               icon={ImagePlus}
               view="product_images_first_frame"
               label={tx('wb_nav_product_first_frame', tr('AI 首帧图', 'AI First Frame'))}
+            />
+            <ProductSubNav
+              icon={WandSparkles}
+              view="product_images_smart_repair"
+              label={tx('wb_nav_product_smart_repair', tr('智能修复', 'Smart Repair'))}
             />
             <ProductSubNav
               icon={LayoutGrid}

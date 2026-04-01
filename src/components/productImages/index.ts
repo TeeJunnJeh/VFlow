@@ -3,6 +3,7 @@
  */
 
 export { FirstFrameView } from './Functions/FirstFrame';
+export { SmartRepairView } from './Functions/SmartRepair';
 export * from './Common';
 export type { 
   FirstFrameParams,
@@ -13,6 +14,7 @@ export type {
   FirstFrameStyle,
   FirstFrameWhitespace,
   ProductImageResult,
+  SmartRepairParams,
   GenerationStatus,
   GenerationType,
 } from '../../types/productImages';

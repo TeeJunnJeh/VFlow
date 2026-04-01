@@ -4,6 +4,7 @@ export type ViewType =
   | 'assets'
   | 'product_images_clothing_swap'
   | 'product_images_first_frame'
+  | 'product_images_smart_repair'
   | 'product_images_gallery'
   | 'replay_lab'
   | 'templates'

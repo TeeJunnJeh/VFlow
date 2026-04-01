@@ -35,15 +35,18 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
   const [results, setResults] = useState<ProductImageResult[]>([]);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<ErrorInfo | null>(null);
+  const [uploaderResetKey, setUploaderResetKey] = useState(0);
 
   const isGenerating = phase === 'generating';
+  const hasImages = images.length > 0;
+  const hasResults = results.length > 0;
 
   const handleImagesSelected = useCallback((files: File[]) => {
     setImages(files);
-    if (files.length > 0) {
-      setError(null);
-      setPhase('form');
-    }
+    setError(null);
+    setProgress(0);
+    setResults([]);
+    setPhase(files.length > 0 ? 'form' : 'upload');
   }, []);
 
   const handleGenerateFormSubmit = async (params: FirstFrameParams) => {
@@ -100,6 +103,15 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
     setProgress(0);
     setError(null);
   };
+
+  const handleResetLayout = useCallback(() => {
+    setImages([]);
+    setResults([]);
+    setProgress(0);
+    setError(null);
+    setPhase('upload');
+    setUploaderResetKey((prev) => prev + 1);
+  }, []);
 
   const buildFileName = useCallback((prefix: string, index: number, imageId: string) => {
     const safePrefix = prefix.trim() || 'ai_first_frame';
@@ -171,11 +183,11 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
     [embedded]
   );
 
-  const contentWrapClassName = embedded ? 'w-full' : 'max-w-5xl mx-auto';
+  const contentWrapClassName = embedded ? 'w-full' : 'max-w-[1600px] mx-auto';
 
   return (
     <div className={shellClassName}>
-      <div className={contentWrapClassName}>
+      <div className={`${contentWrapClassName} pb-10`}>
         <div className={`flex items-center gap-4 ${embedded ? 'mb-4' : 'mb-8'}`}>
           {!embedded && onBack && (
             <button
@@ -196,14 +208,19 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
           </div>
         </div>
 
-        <div className="bg-zinc-900 rounded-2xl border border-zinc-800 p-6 md:p-8 shadow-2xl">
-          {phase === 'upload' && (
-            <div>
-              <h2 className="text-lg font-semibold text-white mb-6">
-                {tr('步骤 1: 上传商品图', 'Step 1: Upload Product Image')}
-              </h2>
-              <div className="max-w-2xl mx-auto">
+        {phase !== 'error' && (
+          <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(280px,1fr)_minmax(380px,1.2fr)_minmax(320px,1fr)]">
+            <section className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+                <div className="mb-5">
+                  <h2 className="text-lg font-semibold text-white">
+                    {tr('素材上传', 'Upload Materials')}
+                  </h2>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {tr('上传 1 张商品图，用于首帧图生成', 'Upload one product image for first-frame generation')}
+                  </p>
+                </div>
                 <ImageUploader
+                  key={uploaderResetKey}
                   maxFiles={1}
                   onFilesSelected={handleImagesSelected}
                   onError={(err) =>
@@ -214,80 +231,100 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
                     })
                   }
                 />
-              </div>
-            </div>
-          )}
+            </section>
 
-          {phase === 'form' && images.length > 0 && (
-            <div>
-              <h2 className="text-lg font-semibold text-white mb-6">
-                {tr('步骤 2: 配置参数', 'Step 2: Configure Parameters')}
-              </h2>
-              <FirstFrameForm
-                images={images}
-                isSubmitting={isGenerating}
-                onSubmit={handleGenerateFormSubmit}
-                onReset={() => setPhase('upload')}
-              />
-            </div>
-          )}
+            <section className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+                <div className="mb-5">
+                  <h2 className="text-lg font-semibold text-white">
+                    {tr('生成配置', 'Generation Settings')}
+                  </h2>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {tr('保留原有功能选项，只调整为连续配置视图', 'Keep the existing options and configure them in a single view')}
+                  </p>
+                </div>
 
-          {phase === 'generating' && (
-            <div className="flex justify-center">
-              <LoadingProgress
-                progress={progress}
-                estimatedTime={45}
-                currentStep={tr('生成首帧图中', 'Generating first-frame images')}
-                totalSteps={3}
-                onCancel={handleCancelGeneration}
-              />
-            </div>
-          )}
+                <FirstFrameForm
+                  images={images}
+                  isSubmitting={isGenerating}
+                  onSubmit={handleGenerateFormSubmit}
+                  onReset={handleResetLayout}
+                />
+            </section>
 
-          {phase === 'result' && results.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-semibold text-white">
-                  {tr('步骤 3: 结果与后处理', 'Step 3: Results & Post-Processing')}
-                </h2>
-                <button
-                  onClick={() => setPhase('form')}
-                  className="px-4 py-2 text-sm bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition"
-                >
-                  {tr('编辑参数', 'Edit Parameters')}
-                </button>
-              </div>
-              <FirstFrameResult
-                results={results}
-                onRegenerate={handleRegenerate}
-                onDownload={handleDownload}
-                onDownloadAll={handleDownloadAll}
-                onSetAsFirstFrame={handleSetAsFirstFrame}
-                onNextStep={handleNextStep}
-              />
-            </div>
-          )}
+            <section className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+                <div className="mb-5 flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">
+                      {tr('结果预览', 'Result Preview')}
+                    </h2>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {tr('在这里查看生成结果并进行下载或应用', 'Preview results here and continue with download or apply')}
+                    </p>
+                  </div>
+                  {hasResults && !isGenerating && (
+                    <button
+                      onClick={() => setPhase('form')}
+                      className="px-3 py-2 text-xs bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition"
+                    >
+                      {tr('编辑参数', 'Edit Parameters')}
+                    </button>
+                  )}
+                </div>
 
-          {phase === 'error' && error && (
-            <ErrorDialog
-              isOpen={true}
-              error={error}
-              onClose={() => setPhase(images.length > 0 ? 'form' : 'upload')}
-              onRetry={handleErrorRetry}
-              showRetry={true}
-            />
-          )}
+                {isGenerating ? (
+                  <div className="flex min-h-[420px] items-center justify-center">
+                    <LoadingProgress
+                      progress={progress}
+                      estimatedTime={45}
+                      currentStep={tr('生成首帧图中', 'Generating first-frame images')}
+                      totalSteps={3}
+                      onCancel={handleCancelGeneration}
+                    />
+                  </div>
+                ) : hasResults ? (
+                  <FirstFrameResult
+                    results={results}
+                    onRegenerate={handleRegenerate}
+                    onDownload={handleDownload}
+                    onDownloadAll={handleDownloadAll}
+                    onSetAsFirstFrame={handleSetAsFirstFrame}
+                    onNextStep={handleNextStep}
+                  />
+                ) : (
+                  <div className="flex min-h-[420px] items-center justify-center rounded-2xl border border-dashed border-white/10 bg-black/20 p-6 text-center">
+                    <div>
+                      <p className="text-sm font-medium text-zinc-300">
+                        {tr('完成配置后点击生成', 'Generate after finishing the settings')}
+                      </p>
+                      <p className="mt-2 text-xs text-zinc-500">
+                        {tr('生成结果将在这里展示', 'Generated images will appear here')}
+                      </p>
+                    </div>
+                  </div>
+                )}
+            </section>
+          </div>
+        )}
 
-          {error && phase !== 'error' && (
-            <ErrorDialog
-              isOpen={!!error}
-              error={error}
-              onClose={() => setError(null)}
-              onRetry={handleErrorRetry}
-              showRetry={true}
-            />
-          )}
-        </div>
+        {phase === 'error' && error && (
+          <ErrorDialog
+            isOpen={true}
+            error={error}
+            onClose={() => setPhase(images.length > 0 ? 'form' : 'upload')}
+            onRetry={handleErrorRetry}
+            showRetry={true}
+          />
+        )}
+
+        {error && phase !== 'error' && (
+          <ErrorDialog
+            isOpen={!!error}
+            error={error}
+            onClose={() => setError(null)}
+            onRetry={handleErrorRetry}
+            showRetry={true}
+          />
+        )}
       </div>
     </div>
   );

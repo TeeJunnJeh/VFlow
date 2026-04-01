@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
+import { DropdownSelect } from '../../../common/DropdownSelect';
 import type { FirstFrameParams } from '../../../../types/productImages';
 
 interface FirstFrameFormProps {
@@ -152,18 +153,14 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
             <label className="block text-sm text-zinc-300 mb-2 font-medium">
               {tr('品类', 'Category')} <span className="text-orange-500">*</span>
             </label>
-            <select
+            <DropdownSelect
               value={formData.category || ''}
-              onChange={(e) => setFormData({ ...formData, category: e.target.value as any })}
-              className={`w-full px-3 py-2.5 bg-zinc-900 border rounded-lg text-white text-sm transition-all focus:outline-none focus:ring-2 focus:ring-orange-500 ${errors.category ? 'border-red-500' : 'border-zinc-700'}`}
-            >
-              <option value="">{tr('-- 请选择 --', '-- Select --')}</option>
-              {categories.map((cat) => (
-                <option key={cat.value} value={cat.value}>
-                  {cat.label}
-                </option>
-              ))}
-            </select>
+              options={categories}
+              onChange={(value) => setFormData({ ...formData, category: value as any })}
+              buttonClassName={`w-full bg-zinc-900/70 border rounded-xl px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 ${errors.category ? 'border-red-500' : 'border-white/10'}`}
+              iconClassName="w-4 h-4 text-zinc-500"
+              optionClassName="text-sm"
+            />
             {errors.category && <p className="text-red-400 text-xs mt-1">{errors.category}</p>}
           </div>
 
@@ -175,7 +172,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
                   key={item.value}
                   type="button"
                   onClick={() => setFormData({ ...formData, personType: item.value as any })}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition ${formData.personType === item.value ? 'bg-orange-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
+                  className={`px-3 py-2 rounded-xl text-sm font-medium border transition ${formData.personType === item.value ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
                 >
                   {item.label}
                 </button>
@@ -191,7 +188,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
                   key={item.value}
                   type="button"
                   onClick={() => setFormData({ ...formData, holdingStyle: item.value as any })}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition ${formData.holdingStyle === item.value ? 'bg-orange-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
+                  className={`px-3 py-2 rounded-xl text-sm font-medium border transition ${formData.holdingStyle === item.value ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
                 >
                   {item.label}
                 </button>
@@ -207,7 +204,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
                   key={item.value}
                   type="button"
                   onClick={() => setFormData({ ...formData, aspectRatio: item.value as any })}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition ${formData.aspectRatio === item.value ? 'bg-orange-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
+                  className={`px-3 py-2 rounded-xl text-sm font-medium border transition ${formData.aspectRatio === item.value ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
                 >
                   {item.label}
                 </button>
@@ -217,17 +214,14 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
 
           <div>
             <label className="block text-sm text-zinc-300 mb-2 font-medium">{tr('风格', 'Style')}</label>
-            <select
+            <DropdownSelect
               value={formData.style || ''}
-              onChange={(e) => setFormData({ ...formData, style: e.target.value as any })}
-              className="w-full px-3 py-2.5 bg-zinc-900 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all"
-            >
-              {styles.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
+              options={styles}
+              onChange={(value) => setFormData({ ...formData, style: value as any })}
+              buttonClassName="w-full bg-zinc-900/70 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800"
+              iconClassName="w-4 h-4 text-zinc-500"
+              optionClassName="text-sm"
+            />
           </div>
         </div>
 
@@ -235,14 +229,14 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
           <button
             type="button"
             onClick={() => setShowAdvanced(!showAdvanced)}
-            className="flex items-center gap-2 text-orange-500 hover:text-orange-400 text-sm font-medium transition"
+            className="ff-ghost-btn flex items-center gap-2 text-orange-400 hover:text-orange-300 text-sm font-medium transition"
           >
             <ChevronDown className={`w-4 h-4 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
             {tr('高级设置', 'Advanced Settings')}
           </button>
 
           {showAdvanced && (
-            <div className="mt-4 space-y-4 p-4 bg-zinc-800/30 rounded-lg border border-zinc-700">
+            <div className="mt-4 space-y-4 p-4 bg-zinc-900/40 rounded-lg border border-white/10">
               <div>
                 <label className="block text-sm text-zinc-300 mb-2 font-medium">{tr('文案留白', 'Text Whitespace')}</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -251,7 +245,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
                       key={item.value}
                       type="button"
                       onClick={() => setFormData({ ...formData, textWhitespace: item.value as any })}
-                      className={`px-3 py-2 rounded-lg text-xs font-medium transition ${formData.textWhitespace === item.value ? 'bg-orange-600 text-white' : 'bg-zinc-700 text-zinc-300 hover:bg-zinc-600'}`}
+                      className={`px-3 py-2 rounded-xl text-xs font-medium border transition ${formData.textWhitespace === item.value ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
                     >
                       {item.label}
                     </button>
@@ -267,7 +261,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
                       key={item.value}
                       type="button"
                       onClick={() => setFormData({ ...formData, outputCount: item.value as any })}
-                      className={`px-3 py-2 rounded-lg text-sm font-medium transition ${formData.outputCount === item.value ? 'bg-orange-600 text-white' : 'bg-zinc-700 text-zinc-300 hover:bg-zinc-600'}`}
+                      className={`px-3 py-2 rounded-xl text-sm font-medium border transition ${formData.outputCount === item.value ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
                     >
                       {item.label}
                     </button>
@@ -282,7 +276,9 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
           <button
             type="submit"
             disabled={isSubmitting || images.length === 0}
-            className={`flex-1 px-4 py-3 rounded-lg font-medium transition ${isSubmitting || images.length === 0 ? 'bg-orange-600/50 text-white cursor-not-allowed opacity-50' : 'bg-orange-600 text-white hover:bg-orange-700 active:scale-95'}`}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-3 rounded-lg text-sm font-bold border transition ${isSubmitting || images.length === 0
+              ? 'border-white/10 bg-black/20 text-zinc-500 cursor-not-allowed opacity-60'
+              : 'border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300'}`}
           >
             {isSubmitting ? tr('生成中...', 'Generating...') : tr('生成首帧图', 'Generate First Frame')}
           </button>
@@ -290,7 +286,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
             type="button"
             onClick={handleReset}
             disabled={isSubmitting}
-            className="px-4 py-3 bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition disabled:opacity-50 font-medium"
+            className="px-4 py-3 bg-white/5 border border-white/10 text-zinc-300 rounded-lg hover:bg-white/10 transition disabled:opacity-50 font-medium"
           >
             {tr('重置', 'Reset')}
           </button>

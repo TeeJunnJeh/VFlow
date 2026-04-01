@@ -297,6 +297,11 @@ body {
   background-color: #ea580c !important;
   color: #ffffff !important;
 }
+.theme-light .ff-ghost-btn,
+.theme-light .ff-ghost-btn:hover {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
 .theme-light .glass-card, .theme-light .glass-panel {
   background: rgba(255,255,255,0.85) !important;
   border-color: rgba(15,23,42,0.06) !important;
@@ -318,6 +323,33 @@ body {
 /* Buttons that used dark fills should be lighter in light-mode */
 .theme-light .bg-zinc-800, .theme-light .bg-zinc-700, .theme-light .bg-black { background-color: #ffffff !important; color: #0f172a !important; }
 .theme-light .hover\:bg-zinc-700:hover { background-color: #f1f5f9 !important; }
+
+.theme-light button[class*="border-orange-500/40"][class*="bg-orange-500/10"],
+.theme-light button[class*="border-orange-500/60"][class*="bg-orange-500/10"] {
+  background-color: rgba(249, 115, 22, 0.22) !important;
+  color: #9a3412 !important;
+  box-shadow: 0 8px 20px rgba(249, 115, 22, 0.18) !important;
+}
+
+.theme-light button[class*="border-orange-500/40"][class*="bg-orange-500/10"]:hover,
+.theme-light button[class*="border-orange-500/60"][class*="bg-orange-500/10"]:hover,
+.theme-light button[class*="border-orange-500/40"][class*="hover:bg-orange-500/20"]:hover,
+.theme-light button[class*="border-orange-500/60"][class*="hover:bg-orange-500/20"]:hover {
+  background-color: rgba(249, 115, 22, 0.28) !important;
+  color: #7c2d12 !important;
+}
+
+.theme-light button[class*="border-emerald-500/40"][class*="bg-emerald-500/10"] {
+  background-color: rgba(16, 185, 129, 0.16) !important;
+  color: #047857 !important;
+  box-shadow: 0 8px 20px rgba(16, 185, 129, 0.12) !important;
+}
+
+.theme-light button[class*="border-emerald-500/40"][class*="bg-emerald-500/10"]:hover,
+.theme-light button[class*="border-emerald-500/40"][class*="hover:bg-emerald-500/20"]:hover {
+  background-color: rgba(16, 185, 129, 0.22) !important;
+  color: #065f46 !important;
+}
 
 /* Workbench: creation mode toggle (swap hover/non-hover visuals in light mode) */
 .theme-light .creation-mode-toggle button {

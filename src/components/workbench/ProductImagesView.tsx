@@ -82,7 +82,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto px-10 py-6">
+      <main className="flex-1 overflow-y-auto custom-scroll px-10 py-6">
         {currentValue === 'product_images_clothing_swap' && (
           <div className="rounded-2xl border border-white/5 bg-white/2 h-full flex items-center justify-center text-zinc-500">
             <div>{tr('AI 换装（开发中）', 'AI Clothing Swap (In Development)')}</div>

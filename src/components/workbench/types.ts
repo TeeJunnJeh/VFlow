@@ -8,4 +8,5 @@ export type ViewType =
   | 'agent'
   | 'editor'
   | 'profile'
-  | 'billing';
+  | 'billing'
+  | 'first_frame_image';

@@ -18,6 +18,7 @@ import { BillingView } from '../components/workbench/BillingView';
 import { ReplayScriptView, type ReplayReusePayload } from '../components/workbench/ReplayScriptView';
 import { Sidebar } from '../components/workbench/Sidebar';
 import type { ViewType } from '../components/workbench/types';
+import { FirstFrameView } from '../components/productImages';
 import { useLocation } from 'react-router-dom';
 import { WorkbenchModelProvider } from '../context/WorkbenchModelContext';
 
@@ -351,6 +352,12 @@ const Workbench = () => {
               onNavigationIntentHandled={() => setAssetsNavigationIntent(null)}
               onSubjectGuideCompleted={markSubjectGuideSeen}
             />
+          )}
+
+          {activeView === 'first_frame_image' && (
+            <div className="flex-1 h-full min-h-0">
+              <FirstFrameView onBack={() => setActiveView('workbench')} projectId={null} />
+            </div>
           )}
 
           {activeView === 'templates' && (

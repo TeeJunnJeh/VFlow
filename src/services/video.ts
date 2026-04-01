@@ -295,6 +295,61 @@ export const videoApi = {
     return await response.json();
   },
 
+  generateProductGallery: async (payload: {
+    prompt?: string;
+    image_paths: string[];
+    aspect_ratio?: string;
+    count?: number;
+    resolution?: '1k' | '2k' | '4k';
+    product_name?: string;
+    product_category?: string;
+    core_selling_points?: string[];
+    target_scene?: string;
+    style?: string;
+    type_selections?: Record<string, { enabled?: boolean; count?: number }>;
+  }) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/generate_product_gallery`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const fallback = `商品套图生成失败: ${response.status} ${response.statusText || ''}`.trim();
+      throw await parseApiError(response, fallback);
+    }
+
+    return await response.json();
+  },
+
+  getProductGalleryResult: async (requestId: string) => {
+    const id = String(requestId || '').trim();
+    if (!id) throw new Error('requestId is required');
+
+    const response = await fetch(`${API_BASE_URL}/generate_product_gallery_result?request_id=${encodeURIComponent(id)}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const fallback = `查询商品套图状态失败: ${response.status} ${response.statusText || ''}`.trim();
+      throw await parseApiError(response, fallback);
+    }
+
+    return await response.json();
+  },
+
   // 0. Create Project (non-template)
   createProject: async (userId: string | number, payload: unknown) => {
     const csrftoken = getCookie('csrftoken');

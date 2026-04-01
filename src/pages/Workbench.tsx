@@ -17,8 +17,8 @@ import { ProfileView } from '../components/workbench/ProfileView';
 import { BillingView } from '../components/workbench/BillingView';
 import { ReplayScriptView, type ReplayReusePayload } from '../components/workbench/ReplayScriptView';
 import { Sidebar } from '../components/workbench/Sidebar';
+import ProductImagesView from '../components/workbench/ProductImagesView';
 import type { ViewType } from '../components/workbench/types';
-import { FirstFrameView } from '../components/productImages';
 import { useLocation } from 'react-router-dom';
 import { WorkbenchModelProvider } from '../context/WorkbenchModelContext';
 
@@ -28,6 +28,7 @@ type AssetsNavigationIntent =
   | null;
 
 type WorkbenchAssetSelectionMode = 'library_asset' | 'background_audio';
+const FIRST_FRAME_TRANSFER_KEY = 'vflow_apply_first_frame';
 
 // Helper to get display URL for asset passing
 const getDisplayUrl = (path: string | null): string | null => {
@@ -224,6 +225,42 @@ const Workbench = () => {
     }
   }, [location.pathname, location.search]);
 
+  useEffect(() => {
+    if (activeView !== 'workbench') return;
+
+    try {
+      const raw = window.localStorage.getItem(FIRST_FRAME_TRANSFER_KEY);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw) as { imageUrl?: string; imageName?: string };
+      const imageUrl = String(parsed?.imageUrl || '').trim();
+      if (!imageUrl) {
+        window.localStorage.removeItem(FIRST_FRAME_TRANSFER_KEY);
+        return;
+      }
+
+      const displayUrl = getDisplayUrl(imageUrl) || imageUrl;
+      setSelectedAssetForWorkbench({
+        asset: {
+          id: `first-frame-${Date.now()}`,
+          name: parsed.imageName || 'AI首帧图',
+          type: 'product',
+          file_url: displayUrl,
+          media_kind: 'image',
+          size: '0.00 MB',
+          status: 'ready',
+          created_at: new Date().toISOString(),
+        },
+        token: `first-frame-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        mode: 'library_asset',
+      });
+      setGeneratedVideoUrl(null);
+      window.localStorage.removeItem(FIRST_FRAME_TRANSFER_KEY);
+    } catch {
+      window.localStorage.removeItem(FIRST_FRAME_TRANSFER_KEY);
+    }
+  }, [activeView]);
+
   // Info dialog for this page
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [infoTitle, setInfoTitle] = useState('');
@@ -354,10 +391,8 @@ const Workbench = () => {
             />
           )}
 
-          {activeView === 'first_frame_image' && (
-            <div className="flex-1 h-full min-h-0">
-              <FirstFrameView onBack={() => setActiveView('workbench')} projectId={null} />
-            </div>
+          {(activeView === 'product_images_clothing_swap' || activeView === 'product_images_first_frame' || activeView === 'product_images_gallery') && (
+            <ProductImagesView activeView={activeView} setActiveView={setActiveView} />
           )}
 
           {activeView === 'templates' && (

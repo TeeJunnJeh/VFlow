@@ -39,6 +39,9 @@ const WAIT_PROGRESS_SIM_DURATION_MS = 90_000;
 const WAIT_PROGRESS_MAX_BEFORE_HOLD = 90;
 const WAIT_PROGRESS_HOLD_MIN = 92;
 const WAIT_PROGRESS_HOLD_MAX = 98;
+const SCRIPT_PROGRESS_MAX_BEFORE_HOLD = 88;
+const SCRIPT_PROGRESS_HOLD_MAX = 96;
+const SCRIPT_ESTIMATE_STORAGE_KEY_PREFIX = 'vflow_script_eta_v1';
 const WAITING_PREVIEW_VIDEO_SRC = (import.meta.env.VITE_WAITING_PREVIEW_VIDEO_URL || 'https://vflow.genviewtech.com/media/vedio.mp4').toString();
 // Storyboard editor is now a user-toggleable runtime setting (no longer a compile-time constant).
 // The state `enableStoryboardEditor` replaces the old `enableStoryboardEditor` const.
@@ -118,6 +121,11 @@ type AssetLibraryPickMode = 'default' | 'background_audio';
 type AiOptimizeResolution = 'sd' | 'hd' | 'uhd';
 type WaitProgressPhase = 'idle' | 'simulating' | 'holding' | 'finishing' | 'done';
 
+type ScriptEstimateCacheEntry = {
+  avgSeconds: number;
+  sampleCount: number;
+};
+
 type GeneratePayload = {
   model: string;
   prompt: string;
@@ -147,6 +155,7 @@ type SelectedBackgroundAudio = {
   id: string;
   name: string;
   file_url: string;
+  source?: 'library' | 'local';
 };
 
 type ActionRequired = {
@@ -212,6 +221,69 @@ const LOCAL_PROJECT_STORE_KEY_PREFIX = 'vflow_workbench_projects_v1';
 const DEFAULT_PROJECT_NAME = 'Project_Alpha_01';
 const MAX_PROJECT_NAME_LENGTH = 30;
 const PROJECT_ACTION_MENU_RESERVED_SPACE = 60;
+const SCRIPT_GENERATION_CANCEL_WINDOW_MS = 60_000;
+const SCRIPT_GENERATION_CANCEL_LIMIT = 3;
+const SCRIPT_GENERATION_CANCEL_STORAGE_KEY_PREFIX = 'vflow_script_generation_cancels_v1';
+
+const buildScriptGenerationCancelStorageKey = (userId?: string | number | null) => {
+  const normalized = userId === null || userId === undefined || userId === '' ? 'guest' : String(userId);
+  return `${SCRIPT_GENERATION_CANCEL_STORAGE_KEY_PREFIX}_${normalized}`;
+};
+
+const readRecentScriptGenerationCancelTimestamps = (userId?: string | number | null): number[] => {
+  if (typeof window === 'undefined') return [];
+
+  try {
+    const raw = window.localStorage.getItem(buildScriptGenerationCancelStorageKey(userId));
+    const parsed = raw ? JSON.parse(raw) : [];
+    const now = Date.now();
+    const next = Array.isArray(parsed)
+      ? parsed
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && now - value < SCRIPT_GENERATION_CANCEL_WINDOW_MS)
+      : [];
+
+    if (next.length !== (Array.isArray(parsed) ? parsed.length : 0)) {
+      window.localStorage.setItem(buildScriptGenerationCancelStorageKey(userId), JSON.stringify(next));
+    }
+
+    return next;
+  } catch {
+    return [];
+  }
+};
+
+const recordScriptGenerationCancelTimestamp = (userId?: string | number | null): number[] => {
+  if (typeof window === 'undefined') return [];
+
+  const next = [
+    ...readRecentScriptGenerationCancelTimestamps(userId),
+    Date.now(),
+  ];
+
+  try {
+    window.localStorage.setItem(buildScriptGenerationCancelStorageKey(userId), JSON.stringify(next));
+  } catch {
+    // Ignore localStorage failures and keep cancellation non-blocking.
+  }
+
+  return next;
+};
+
+const getScriptGenerationCooldownRemainingMs = (userId?: string | number | null): number => {
+  const timestamps = readRecentScriptGenerationCancelTimestamps(userId);
+  if (timestamps.length < SCRIPT_GENERATION_CANCEL_LIMIT) return 0;
+
+  const oldestRelevant = timestamps[timestamps.length - SCRIPT_GENERATION_CANCEL_LIMIT];
+  if (!Number.isFinite(oldestRelevant)) return 0;
+
+  return Math.max(0, oldestRelevant + SCRIPT_GENERATION_CANCEL_WINDOW_MS - Date.now());
+};
+
+const isAbortError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') return false;
+  return (error as { name?: string }).name === 'AbortError';
+};
 
 const estimateProjectNameWidthEm = (value: string): number => {
   const text = value || '';
@@ -509,6 +581,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const { tasks, addTask } = useTasks();
   const { model: selectedModel, setModel: setSelectedModel } = useWorkbenchModel();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const backgroundAudioInputRef = useRef<HTMLInputElement>(null);
   const scriptFileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const modeSectionRef = useRef<HTMLDivElement | null>(null);
@@ -594,6 +667,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [selectedAssetSource, setSelectedAssetSource] = useState<'product' | 'preference' | 'subject' | 'tail' | null>(initialAssetSource || null);
   const [klingGenerateMode, setKlingGenerateMode] = useState<'first_frame' | 'subject' | 'first_last_frame'>('first_frame');
   const [isGeneratingKlingBoundaryFrames, setIsGeneratingKlingBoundaryFrames] = useState(false);
+  const [imageGenModel, setImageGenModel] = useState<string>('flux-2-max');
   const [isDragUploadActive, setIsDragUploadActive] = useState(false);
   const [selectedAssetUrl, setSelectedAssetUrl] = useState<string | null>(initialFileUrl || null);
   const [lastUploadedUrl, setLastUploadedUrl] = useState<string | null>(initialFileUrl || null);
@@ -664,6 +738,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     videoType?: string;
   }>({});
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [scriptGenerationNotice, setScriptGenerationNotice] = useState<string | null>(null);
+  const [scriptGenerationEstimatedSeconds, setScriptGenerationEstimatedSeconds] = useState(45);
+  const [scriptGenerationProgress, setScriptGenerationProgress] = useState(0);
+  const [scriptGenerationCompletedCount, setScriptGenerationCompletedCount] = useState(0);
+  const [scriptGenerationTotalCount, setScriptGenerationTotalCount] = useState(0);
+  const [isScriptGenerationProgressVisible, setIsScriptGenerationProgressVisible] = useState(false);
+  const scriptGenerationStartedAtRef = useRef<number | null>(null);
+  const scriptGenerationEstimateKeyRef = useRef<string | null>(null);
+  const scriptGenerationFinishingRef = useRef(false);
+  const scriptGenerationAbortRef = useRef<AbortController | null>(null);
+  const activeScriptGenerationSeqRef = useRef(0);
 
   useEffect(() => {
     if (!replayReusePayload) return;
@@ -689,6 +774,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [genDuration, setGenDuration] = useState<number>(() => normalizeDurationForModel(initialPrefs.genDuration ?? selectedTemplate?.duration ?? 10, selectedModel));
   const [soundSetting, setSoundSetting] = useState<'on' | 'off'>(() => (initialPrefs.soundSetting === 'off' ? 'off' : 'on'));
   const [selectedBackgroundAudio, setSelectedBackgroundAudio] = useState<SelectedBackgroundAudio | null>(null);
+  const [isBackgroundAudioSourceOpen, setIsBackgroundAudioSourceOpen] = useState(false);
   const [scriptVariantCount, setScriptVariantCount] = useState<number>(() =>
     typeof initialPrefs.scriptVariantCount === 'number' && initialPrefs.scriptVariantCount > 0 ? initialPrefs.scriptVariantCount : 1
   );
@@ -701,6 +787,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [hasAiRecognized, setHasAiRecognized] = useState(false);
   const lastRecognizedSignatureRef = useRef<string>('');
   const isAutoRecognizePromptingRef = useRef(false);
+
+  useEffect(() => {
+    if (soundSetting !== 'off') {
+      setIsBackgroundAudioSourceOpen(false);
+    }
+  }, [soundSetting]);
+
   const LEFT_COLUMN_MIN_WIDTH = 260;
   const SCRIPT_COLUMN_MIN_WIDTH = 320;
   const PREVIEW_COLUMN_MIN_WIDTH = 260;
@@ -843,6 +936,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [scripts, setScripts] = useState<ScriptItem[]>(buildDemoScripts);
   const [scriptPages, setScriptPages] = useState<ScriptPage[]>(() => ([{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: buildDemoScripts() }]));
   const [activeScriptPage, setActiveScriptPage] = useState(0);
+  const scriptPagesRef = useRef<ScriptPage[]>([]);
   const [isShotBreakdownOpen, setIsShotBreakdownOpen] = useState(false);
   const [enableStoryboardEditor, setEnableStoryboardEditor] = useState(false);
 
@@ -2256,6 +2350,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setAssetLibraryTab('audio');
     setAssetLibraryCurrentFolderId(null);
     setIsAssetLibraryOpen(true);
+    setIsBackgroundAudioSourceOpen(false);
   };
   const openSubjectCreationLibrary = useCallback(() => {
     onNavigateToAssetsLibrary?.();
@@ -2375,9 +2470,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         id: asset.id,
         name: asset.name || 'audio',
         file_url: asset.file_url,
+        source: 'library',
       });
       setIsAssetLibraryOpen(false);
       setAssetLibraryPickMode('default');
+      setIsBackgroundAudioSourceOpen(false);
       return;
     }
     queueLibraryAssetIntoWorkbench(asset);
@@ -2687,12 +2784,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       if (mode === 'first_last_frame') {
         const wantsPrimary = item.source === 'product';
-        if ((wantsPrimary || !primaryAssigned) && !primaryAssigned) {
+        if (wantsPrimary && !primaryAssigned) {
           primaryAssigned = true;
           return { ...item, source: 'product', isPrimaryFrame: true };
         }
         const wantsTail = item.source === 'tail';
-        if ((wantsTail || !tailAssigned) && !tailAssigned) {
+        if (wantsTail && !tailAssigned) {
           tailAssigned = true;
           return { ...item, source: 'tail', isPrimaryFrame: false };
         }
@@ -2712,10 +2809,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const suggestKlingImageSourceForMode = useCallback((existing: QueuedAsset[]): QueuedAsset['source'] => {
     if (klingGenerateMode === 'subject') return 'subject';
     if (klingGenerateMode === 'first_last_frame') {
-      const hasPrimary = existing.some((item) => item.mediaKind === 'image' && item.source === 'product');
-      if (!hasPrimary) return 'product';
-      const hasTail = existing.some((item) => item.mediaKind === 'image' && item.source === 'tail');
-      if (!hasTail) return 'tail';
       return 'preference';
     }
     return 'product';
@@ -3309,60 +3402,40 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setIsGeneratingKlingBoundaryFrames(true);
     try {
       const projectId = await ensureSingleProjectId();
-      const resolvedImagePaths: string[] = [];
-      for (const asset of imageAssets) {
-        let path = asset.uploadedPath || asset.assetUrl || null;
-        if (!path && asset.fileObj) {
-          const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
-          path = extractUploadedAssetPath(uploadResp);
-        }
-        if (path) resolvedImagePaths.push(path);
+      const firstImage = imageAssets[0];
+      let referencePath = firstImage.uploadedPath || firstImage.assetUrl || null;
+      if (!referencePath && firstImage.fileObj) {
+        const uploadResp = await assetsApi.uploadTempAsset(firstImage.fileObj);
+        referencePath = extractUploadedAssetPath(uploadResp);
       }
 
-      if (resolvedImagePaths.length === 0) {
+      if (!referencePath) {
         throw new Error('参考图上传失败，请重试');
       }
 
-      const basePrompt = buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts, activeCreativeCardText).trim()
-        || coreSellingPoints.trim()
-        || productName.trim()
-        || '电商商品短视频';
+      const resp = await videoApi.generateFirstFrame({
+        project_id: projectId,
+        reference_image_path: referencePath,
+        aspect_ratio: aspectRatio,
+        frame_type: 'both',
+        model: imageGenModel,
+      });
 
-      const [firstResp, lastResp] = await Promise.all([
-        videoApi.generateFusionImage({
-          project_id: projectId,
-          image_paths: resolvedImagePaths,
-          prompt: `${basePrompt}，生成视频开场首帧，主体清晰，构图完整，画面稳定`,
-          aspect_ratio: aspectRatio,
-          resolution: '2K',
-        }),
-        videoApi.generateFusionImage({
-          project_id: projectId,
-          image_paths: resolvedImagePaths,
-          prompt: `${basePrompt}，生成视频结束尾帧，动作收束，主体清晰，构图完整`,
-          aspect_ratio: aspectRatio,
-          resolution: '2K',
-        }),
-      ]);
-
-      const firstPath = String(firstResp?.data?.image_url || firstResp?.image_url || '').trim();
-      const lastPath = String(lastResp?.data?.image_url || lastResp?.image_url || '').trim();
+      const firstPath = String(resp?.data?.first_frame_path || '').trim();
+      const lastPath = String(resp?.data?.last_frame_path || '').trim();
       if (!firstPath || !lastPath) {
-        throw new Error('生图成功但未返回首尾帧地址');
+        throw new Error('生成成功但未返回首尾帧地址');
       }
 
       const firstDisplay = toDisplayUrl(firstPath) || firstPath;
       const lastDisplay = toDisplayUrl(lastPath) || lastPath;
       const firstId = `kling-first-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      const lastId = `kling-tail-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const lastId = `kling-last-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
       setKlingGenerateMode('first_last_frame');
       setAssetQueue((prev) => {
-        const demoted = prev.map((item): QueuedAsset => (
-          item.mediaKind === 'image' ? { ...item, source: 'preference', isPrimaryFrame: false } : item
-        ));
+        const withoutOldFrames = prev.filter((item) => item.source !== 'product' && item.source !== 'tail');
         const next: QueuedAsset[] = [
-          ...demoted,
           {
             id: firstId,
             name: 'AI首帧图',
@@ -3387,6 +3460,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             mediaKind: 'image',
             uploadedPath: lastPath,
           },
+          ...withoutOldFrames,
         ];
         return normalizeQueueSourcesForKlingMode(next, 'first_last_frame');
       });
@@ -3399,7 +3473,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setSelectedAssetSource('product');
       setCurrentMaterialType('product');
       setLastUploadedUrl(firstPath);
-      openInfo(popupTitles.success, '已生成并写入首尾帧，可直接用于可灵首尾帧模式');
+      openInfo(popupTitles.success, '首尾帧已生成，可直接点击「生成视频」');
     } catch (err) {
       openErrorModal(err, { category: 'generation_failed', onRetry: handleGenerateKlingBoundaryFrames });
     } finally {
@@ -3423,10 +3497,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         throw new Error('可灵主体模式仅允许不多于 1 张主体图');
       }
       if (klingGenerateMode === 'first_last_frame' && firstFrameCount !== 1) {
-        throw new Error('可灵首尾帧模式需要且仅允许 1 张首帧图');
+        throw new Error('请先点击「参考图生首尾帧」按钮，等待首尾帧生成完成后再生成视频');
       }
       if (klingGenerateMode === 'first_last_frame' && tailFrameCount !== 1) {
-        throw new Error('可灵首尾帧模式需要且仅允许 1 张尾帧图');
+        throw new Error('请先点击「参考图生首尾帧」按钮，等待首尾帧生成完成后再生成视频');
       }
 
       if (klingGenerateMode === 'subject' && referenceCount < 1) {
@@ -3809,6 +3883,58 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return null;
   };
 
+  const validateBackgroundAudioFile = (file: File) => {
+    if (file.size > MAX_UPLOAD_BYTES) return `${t.assets_upload_error_too_large || '文件过大'}：${file.name}（>1GB）`;
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    if (!['mp3', 'wav', 'flac'].includes(ext)) {
+      return `${t.assets_upload_error_unsupported || '格式不支持'}：${file.name}`;
+    }
+    return null;
+  };
+
+  const handleBackgroundAudioUpload = useCallback(async (file: File) => {
+    const validationError = validateBackgroundAudioFile(file);
+    if (validationError) {
+      openInfo(
+        (t as any).assets_upload_formats_title || '提示',
+        `${validationError}\n\n${(t as any).wb_background_audio_formats || '支持格式'}：mp3 / wav / flac，≤ 1GB`
+      );
+      if (backgroundAudioInputRef.current) {
+        backgroundAudioInputRef.current.value = '';
+      }
+      return;
+    }
+
+    try {
+      const uploadResp = await assetsApi.uploadTempAsset(file);
+      const rawPath = extractUploadedAssetPath(uploadResp);
+      if (!rawPath) throw new Error('Could not retrieve audio path from upload response');
+
+      setSelectedBackgroundAudio({
+        id: `local-audio-${Date.now()}`,
+        name: file.name,
+        file_url: rawPath,
+        source: 'local',
+      });
+      setIsBackgroundAudioSourceOpen(false);
+    } catch (err: any) {
+      openInfo(
+        popupTitles.error,
+        formatWorkbenchError(err, t.err_msg_upload || '上传失败')
+      );
+    } finally {
+      if (backgroundAudioInputRef.current) {
+        backgroundAudioInputRef.current.value = '';
+      }
+    }
+  }, [extractUploadedAssetPath, formatWorkbenchError, openInfo, popupTitles.error, t]);
+
+  const handleBackgroundAudioFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await handleBackgroundAudioUpload(file);
+  }, [handleBackgroundAudioUpload]);
+
   const persistLocalQueuedAsset = useCallback(async (
     queueId: string,
     file: File,
@@ -3945,7 +4071,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const tailFrameCount = normalizedExistingImages.filter((asset) => asset.source === 'tail').length;
     const subjectCount = normalizedExistingImages.filter((asset) => asset.source === 'subject').length;
     const referenceCount = normalizedExistingImages.filter((asset) => asset.source === 'preference').length;
-    const totalLimit = klingGenerateMode === 'subject' ? 4 : klingGenerateMode === 'first_last_frame' ? 8 : 7;
+    const totalLimit = klingGenerateMode === 'subject' ? 4 : klingGenerateMode === 'first_last_frame' ? 3 : 7;
     const remainingCapacity = Math.max(0, totalLimit - normalizedExistingImages.length);
     const acceptedFiles = imageFiles.slice(0, remainingCapacity);
     const overflowCount = Math.max(0, imageFiles.length - acceptedFiles.length);
@@ -3957,8 +4083,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
-    let nextNeedsPrimary = klingGenerateMode !== 'subject' && firstFrameCount === 0;
-    let nextNeedsTail = klingGenerateMode === 'first_last_frame' && tailFrameCount === 0;
+    let nextNeedsPrimary = klingGenerateMode === 'first_frame' && firstFrameCount === 0;
+    let nextNeedsTail = klingGenerateMode === 'first_last_frame' && tailFrameCount === 0 && firstFrameCount > 0;
     let nextNeedsSubject = klingGenerateMode === 'subject' && subjectCount === 0;
     const nextItems: QueuedAsset[] = acceptedFiles.map((file, index) => {
       let source: QueuedAsset['source'] = 'preference';
@@ -4660,14 +4786,242 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   useEffect(() => {
+    scriptPagesRef.current = scriptPages;
+  }, [scriptPages]);
+
+  useEffect(() => {
     if (!toastMessage) return;
     const timer = window.setTimeout(() => setToastMessage(null), 10000);
     return () => window.clearTimeout(timer);
   }, [toastMessage]);
 
+  useEffect(() => {
+    if (!scriptGenerationNotice) return;
+    const timer = window.setTimeout(() => setScriptGenerationNotice(null), 2000);
+    return () => window.clearTimeout(timer);
+  }, [scriptGenerationNotice]);
+
+  const buildScriptEstimateStorageKey = useCallback((params: { script_count: number; duration: number; has_reference_assets: boolean }) => {
+    const userPart = user?.id ?? 'guest';
+    return [
+      SCRIPT_ESTIMATE_STORAGE_KEY_PREFIX,
+      userPart,
+      params.script_count,
+      params.duration,
+      params.has_reference_assets ? 1 : 0,
+    ].join('_');
+  }, [user?.id]);
+
+  const readLocalScriptEstimate = useCallback((storageKey: string): ScriptEstimateCacheEntry | null => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Partial<ScriptEstimateCacheEntry>;
+      const avgSeconds = Number(parsed.avgSeconds);
+      const sampleCount = Number(parsed.sampleCount);
+      if (!Number.isFinite(avgSeconds) || avgSeconds <= 0) return null;
+      if (!Number.isFinite(sampleCount) || sampleCount < 1) return null;
+      return {
+        avgSeconds,
+        sampleCount: Math.max(1, Math.round(sampleCount)),
+      };
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const writeLocalScriptEstimate = useCallback((storageKey: string, elapsedSeconds: number) => {
+    const seconds = Math.max(1, Math.round(elapsedSeconds));
+    const prev = readLocalScriptEstimate(storageKey);
+    const nextCount = (prev?.sampleCount || 0) + 1;
+    const nextAvg = prev
+      ? ((prev.avgSeconds * prev.sampleCount) + seconds) / nextCount
+      : seconds;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({
+        avgSeconds: nextAvg,
+        sampleCount: nextCount,
+      }));
+    } catch {
+      // ignore storage failures
+    }
+  }, [readLocalScriptEstimate]);
+
+  const normalizeScriptText = useCallback((value: any) => String(value || '').replace(/\s+/g, ' ').trim(), []);
+
+  const parseScriptStringList = useCallback((value: any, maxLen = 5) => {
+    if (!Array.isArray(value)) return [];
+    const next: string[] = [];
+    for (const item of value) {
+      const text = normalizeScriptText(item);
+      if (!text) continue;
+      if (next.includes(text)) continue;
+      next.push(text);
+      if (next.length >= maxLen) break;
+    }
+    return next;
+  }, [normalizeScriptText]);
+
+  const buildScriptsFromShots = useCallback((shots: any[]) => shots.map((shot: any) => ({
+    id: shot.shot_index,
+    shot: String(shot.shot_index),
+    type: shot.type || 'Medium',
+    dur: `${shot.duration_sec}s`,
+    visual: shot.visual,
+    audio: shot.audio || shot.voiceover || '',
+    audioTranslation: shot.voiceover_translation || '',
+  })), []);
+
+  const buildFullScriptFallback = useCallback((scriptsList: ScriptItem[]) => (
+    scriptsList
+      .map((item) => normalizeScriptText(item.visual))
+      .filter((text) => !!text)
+      .join(' ')
+  ), [normalizeScriptText]);
+
+  const parseScriptPage = useCallback((raw: any, idx: number): ScriptPage => {
+    const shots = buildScriptsFromShots(raw?.shots || raw?.script_content?.shots || []);
+    const scriptContent = raw?.script_content || raw || {};
+    const continuityAnchor = scriptContent?.continuity_anchor || {};
+    const scriptStructure = scriptContent?.script_structure || {};
+    const creativeCard = scriptContent?.creative_card || {};
+    const normalizedCreativeCard: ScriptCreativeCard = {
+      style: normalizeScriptText(creativeCard?.style),
+      environment: normalizeScriptText(creativeCard?.environment),
+      tonePacing: normalizeScriptText(creativeCard?.tone_pacing),
+      camera: normalizeScriptText(creativeCard?.camera),
+      lighting: normalizeScriptText(creativeCard?.lighting),
+      actions: parseScriptStringList(creativeCard?.actions, 8),
+      backgroundSound: normalizeScriptText(creativeCard?.background_sound),
+      transitionEditing: normalizeScriptText(creativeCard?.transition_editing),
+      callToAction: normalizeScriptText(creativeCard?.call_to_action),
+    };
+    const fullScript = normalizeScriptText(scriptContent?.video_master_script) || buildFullScriptFallback(shots);
+    return {
+      id: `page-${idx + 1}`,
+      name: `${t.wb_script_page_prefix} ${idx + 1}`,
+      scripts: shots,
+      fullScript,
+      continuityAnchor: {
+        subject: normalizeScriptText(continuityAnchor?.subject),
+        scene: normalizeScriptText(continuityAnchor?.scene),
+        style: normalizeScriptText(continuityAnchor?.style),
+      },
+      scriptStructure: {
+        hook: normalizeScriptText(scriptStructure?.hook),
+        development: normalizeScriptText(scriptStructure?.development),
+        payoff: normalizeScriptText(scriptStructure?.payoff),
+      },
+      sellingPoints: parseScriptStringList(scriptContent?.selling_points),
+      sceneSuggestions: parseScriptStringList(scriptContent?.scene_suggestions),
+      styleTags: parseScriptStringList(scriptContent?.style_tags),
+      creativeCard: normalizedCreativeCard,
+      creativeCardText: buildCreativeCardEditorText(normalizedCreativeCard),
+    };
+  }, [buildCreativeCardEditorText, buildFullScriptFallback, buildScriptsFromShots, normalizeScriptText, parseScriptStringList, t.wb_script_page_prefix]);
+
+  const appendGeneratedScriptPage = useCallback((raw: any) => {
+    const appendedIndex = scriptPagesRef.current.length;
+    const appendedPage = parseScriptPage(raw, appendedIndex);
+    scriptPagesRef.current = [...scriptPagesRef.current, appendedPage];
+    setScriptPages((prev) => [...prev, appendedPage]);
+    setActiveScriptPage(appendedIndex);
+    setScripts(appendedPage.scripts);
+    setIsShotBreakdownOpen(false);
+  }, [parseScriptPage]);
+
+  const finishScriptGenerationProgress = useCallback(async () => {
+    scriptGenerationFinishingRef.current = true;
+    const from = Math.max(0, Math.min(100, scriptGenerationProgress));
+    if (from < 100) {
+      await new Promise<void>((resolve) => {
+        const startedAt = performance.now();
+        const durationMs = 380;
+        const animate = (now: number) => {
+          const ratio = Math.min(1, (now - startedAt) / durationMs);
+          const eased = 1 - Math.pow(1 - ratio, 3);
+          setScriptGenerationProgress(from + (100 - from) * eased);
+          if (ratio < 1) {
+            window.requestAnimationFrame(animate);
+            return;
+          }
+          setScriptGenerationProgress(100);
+          resolve();
+        };
+        window.requestAnimationFrame(animate);
+      });
+    } else {
+      setScriptGenerationProgress(100);
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+  }, [scriptGenerationProgress]);
+
+  useEffect(() => {
+    if (!isGeneratingScript || !scriptGenerationStartedAtRef.current) return;
+
+    const tick = () => {
+      if (scriptGenerationFinishingRef.current) return;
+      const startedAt = scriptGenerationStartedAtRef.current;
+      if (!startedAt) return;
+      const elapsed = Math.max(0, (Date.now() - startedAt) / 1000);
+      const estimated = Math.max(1, scriptGenerationEstimatedSeconds || 45);
+      let nextProgress = 0;
+      if (elapsed <= estimated) {
+        const ratio = Math.min(1, elapsed / estimated);
+        nextProgress = Math.pow(ratio, 0.85) * SCRIPT_PROGRESS_MAX_BEFORE_HOLD;
+      } else {
+        const overflow = elapsed - estimated;
+        nextProgress = Math.min(
+          SCRIPT_PROGRESS_HOLD_MAX,
+          SCRIPT_PROGRESS_MAX_BEFORE_HOLD + Math.log1p(overflow) * 3
+        );
+      }
+      setScriptGenerationProgress(Math.max(0, Math.min(100, nextProgress)));
+    };
+
+    tick();
+    const timer = window.setInterval(tick, 250);
+    return () => window.clearInterval(timer);
+  }, [isGeneratingScript, scriptGenerationEstimatedSeconds]);
+
+  const handleCancelGenerateScripts = useCallback(() => {
+    const controller = scriptGenerationAbortRef.current;
+    if (!controller) return;
+
+    activeScriptGenerationSeqRef.current += 1;
+    scriptGenerationAbortRef.current = null;
+    scriptGenerationStartedAtRef.current = null;
+    scriptGenerationEstimateKeyRef.current = null;
+    scriptGenerationFinishingRef.current = false;
+    controller.abort();
+    setIsGeneratingScript(false);
+    setIsScriptGenerationProgressVisible(false);
+    setScriptGenerationProgress(0);
+    setScriptGenerationCompletedCount(0);
+    setScriptGenerationTotalCount(0);
+    recordScriptGenerationCancelTimestamp(user?.id ?? null);
+    setScriptGenerationNotice(t.wb_popup_script_generation_cancelled || '已成功取消脚本');
+  }, [t.wb_popup_script_generation_cancelled, user?.id]);
+
+  useEffect(() => {
+    return () => {
+      scriptGenerationAbortRef.current?.abort();
+      scriptGenerationAbortRef.current = null;
+      scriptGenerationStartedAtRef.current = null;
+      scriptGenerationEstimateKeyRef.current = null;
+      scriptGenerationFinishingRef.current = false;
+    };
+  }, []);
+
   const handleGenerateScripts = async () => {
     if (!user?.id) {
       openInfo(popupTitles.notice, t.wb_popup_not_logged_in);
+      return;
+    }
+
+    const cooldownRemainingMs = getScriptGenerationCooldownRemainingMs(user.id);
+    if (cooldownRemainingMs > 0) {
+      openInfo(popupTitles.warning, t.wb_popup_script_generation_too_frequent || '操作过于频繁，请稍后再试。');
       return;
     }
 
@@ -4713,7 +5067,47 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     if (Object.keys(requiredErrors).length > 0) setRequiredErrors({});
 
+    const totalScriptCount = Math.max(1, scriptVariantCount || 1);
+    const estimateParams = {
+      script_count: 1,
+      duration: Math.max(1, genDuration || 10),
+      has_reference_assets: uploadDisplayAssets.some((asset) => asset.mediaKind === 'image'),
+    };
+    const estimateStorageKey = buildScriptEstimateStorageKey(estimateParams);
+    let estimatedSeconds = 45;
+    try {
+      const resp: any = await Promise.race([
+        videoApi.estimateScriptTime(estimateParams),
+        new Promise((resolve) => window.setTimeout(() => resolve(null), 1200)),
+      ]);
+      const raw = Number(resp?.data?.estimated_seconds);
+      if (Number.isFinite(raw) && raw > 0) {
+        estimatedSeconds = Math.round(raw);
+      }
+    } catch (err) {
+      console.log('[ScriptEstimate] fallback default', err);
+    }
+    if (estimatedSeconds <= 45) {
+      const localEstimate = readLocalScriptEstimate(estimateStorageKey);
+      if (localEstimate?.avgSeconds) {
+        estimatedSeconds = Math.max(1, Math.round(localEstimate.avgSeconds));
+      }
+    }
+
     setIsGeneratingScript(true);
+    setIsScriptGenerationProgressVisible(true);
+    setScriptGenerationEstimatedSeconds(estimatedSeconds);
+    setScriptGenerationProgress(0);
+    setScriptGenerationCompletedCount(0);
+    setScriptGenerationTotalCount(totalScriptCount);
+    scriptGenerationStartedAtRef.current = Date.now();
+    scriptGenerationEstimateKeyRef.current = estimateStorageKey;
+    scriptGenerationFinishingRef.current = false;
+    const generationSeq = activeScriptGenerationSeqRef.current + 1;
+    activeScriptGenerationSeqRef.current = generationSeq;
+    const abortController = new AbortController();
+    scriptGenerationAbortRef.current = abortController;
+    let shouldHideProgressImmediately = true;
 
     try {
       type ScriptReferenceAsset = {
@@ -4858,124 +5252,118 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         ...(imagePath ? { product_image_path: imagePath } : {}),
         ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
       };
+      const reportPayload = {
+        script_count: 1,
+        duration: estimateParams.duration,
+        has_reference_assets: estimateParams.has_reference_assets,
+      };
 
       console.log("📜 Generating Script with payload:", payload);
+      let sawVariant = false;
+      let streamFailedMessage: string | null = null;
+      await videoApi.generateScriptStream(
+        user.id,
+        payload,
+        {
+          onStart: (event) => {
+            if (generationSeq !== activeScriptGenerationSeqRef.current) return;
+            const total = Number(event?.data?.total);
+            if (Number.isFinite(total) && total > 0) {
+              setScriptGenerationTotalCount(Math.max(1, Math.round(total)));
+            }
+          },
+          onVariant: async (event) => {
+            if (generationSeq !== activeScriptGenerationSeqRef.current) return;
+            const data = event?.data || {};
+            const scriptContent = data.script_content;
+            if (!scriptContent) return;
 
-      const response = await videoApi.generateScript(user.id, payload);
-      console.log("✅ Script Generated:", response);
+            sawVariant = true;
+            const startedAt = scriptGenerationStartedAtRef.current;
+            const elapsedSeconds = startedAt ? Math.max(1, Math.round((Date.now() - startedAt) / 1000)) : null;
+            shouldHideProgressImmediately = false;
+            await finishScriptGenerationProgress();
+            appendGeneratedScriptPage({ script_content: scriptContent });
 
-      const buildScriptsFromShots = (shots: any[]) => shots.map((shot: any) => ({
-        id: shot.shot_index,
-        shot: shot.shot_index.toString(),
-        type: shot.type || 'Medium',
-        dur: `${shot.duration_sec}s`,
-        visual: shot.visual,
-        audio: shot.audio || shot.voiceover || '',
-        audioTranslation: shot.voiceover_translation || '',
-      }));
-      const normalizeText = (value: any) => String(value || '').replace(/\s+/g, ' ').trim();
-      const parseStringList = (value: any, maxLen = 5) => {
-        if (!Array.isArray(value)) return [];
-        const next: string[] = [];
-        for (const item of value) {
-          const text = normalizeText(item);
-          if (!text) continue;
-          if (next.includes(text)) continue;
-          next.push(text);
-          if (next.length >= maxLen) break;
-        }
-        return next;
-      };
-      const buildFullScriptFallback = (scriptsList: ScriptItem[]) => (
-          scriptsList
-              .map((item) => normalizeText(item.visual))
-              .filter((text) => !!text)
-              .join(' ')
+            const completed = Number(data.completed);
+            const total = Number(data.total);
+            if (Number.isFinite(completed) && completed >= 0) {
+              setScriptGenerationCompletedCount(Math.max(0, Math.round(completed)));
+            }
+            if (Number.isFinite(total) && total > 0) {
+              setScriptGenerationTotalCount(Math.max(1, Math.round(total)));
+            }
+
+            if (elapsedSeconds) {
+              const estimateKey = scriptGenerationEstimateKeyRef.current;
+              if (estimateKey) {
+                writeLocalScriptEstimate(estimateKey, elapsedSeconds);
+              }
+              void videoApi.reportScriptTime({
+                ...reportPayload,
+                elapsed_seconds: elapsedSeconds,
+              }).catch((error) => {
+                console.log('[ScriptEstimate] report failed', error);
+              });
+            }
+
+            if ((Number.isFinite(total) ? Math.round(total) : totalScriptCount) > (Number.isFinite(completed) ? Math.round(completed) : 0)) {
+              scriptGenerationStartedAtRef.current = Date.now();
+              scriptGenerationFinishingRef.current = false;
+              setScriptGenerationProgress(0);
+            }
+          },
+          onDone: async (event) => {
+            if (generationSeq !== activeScriptGenerationSeqRef.current) return;
+            const completed = Number(event?.data?.completed);
+            const total = Number(event?.data?.total);
+            if (Number.isFinite(completed) && completed >= 0) {
+              setScriptGenerationCompletedCount(Math.max(0, Math.round(completed)));
+            }
+            if (Number.isFinite(total) && total > 0) {
+              setScriptGenerationTotalCount(Math.max(1, Math.round(total)));
+            }
+            setIsScriptGenerationProgressVisible(false);
+          },
+          onErrorEvent: (event) => {
+            streamFailedMessage = String(event?.message || t.wb_popup_script_unexpected || '生成失败');
+          },
+        },
+        { signal: abortController.signal }
       );
-      const parseScriptPage = (raw: any, idx: number): ScriptPage => {
-        const shots = buildScriptsFromShots(raw?.shots || raw?.script_content?.shots || []);
-        const scriptContent = raw?.script_content || raw || {};
-        const continuityAnchor = scriptContent?.continuity_anchor || {};
-        const scriptStructure = scriptContent?.script_structure || {};
-        const creativeCard = scriptContent?.creative_card || {};
-        const normalizedCreativeCard: ScriptCreativeCard = {
-          style: normalizeText(creativeCard?.style),
-          environment: normalizeText(creativeCard?.environment),
-          tonePacing: normalizeText(creativeCard?.tone_pacing),
-          camera: normalizeText(creativeCard?.camera),
-          lighting: normalizeText(creativeCard?.lighting),
-          actions: parseStringList(creativeCard?.actions, 8),
-          backgroundSound: normalizeText(creativeCard?.background_sound),
-          transitionEditing: normalizeText(creativeCard?.transition_editing),
-          callToAction: normalizeText(creativeCard?.call_to_action),
-        };
-        const fullScript = normalizeText(scriptContent?.video_master_script) || buildFullScriptFallback(shots);
-        return {
-          id: `page-${idx + 1}`,
-          name: `${t.wb_script_page_prefix} ${idx + 1}`,
-          scripts: shots,
-          fullScript,
-          continuityAnchor: {
-            subject: normalizeText(continuityAnchor?.subject),
-            scene: normalizeText(continuityAnchor?.scene),
-            style: normalizeText(continuityAnchor?.style),
-          },
-          scriptStructure: {
-            hook: normalizeText(scriptStructure?.hook),
-            development: normalizeText(scriptStructure?.development),
-            payoff: normalizeText(scriptStructure?.payoff),
-          },
-          sellingPoints: parseStringList(scriptContent?.selling_points),
-          sceneSuggestions: parseStringList(scriptContent?.scene_suggestions),
-          styleTags: parseStringList(scriptContent?.style_tags),
-          creativeCard: normalizedCreativeCard,
-          creativeCardText: buildCreativeCardEditorText(normalizedCreativeCard),
-        };
-      };
-
-      const unwrapScriptPayload = (data: any) => {
-        if (!data || typeof data !== 'object') return data;
-        if (data.data && typeof data.data === 'object') return data.data;
-        return data;
-      };
-
-      const extractScriptPages = (data: any): ScriptPage[] => {
-        const root = unwrapScriptPayload(data);
-        if (!root) return [];
-        if (Array.isArray(root.script_contents)) {
-          return root.script_contents.map((sc: any, idx: number) => parseScriptPage(sc, idx));
-        }
-        if (Array.isArray(root.script_variants)) {
-          return root.script_variants.map((variant: any, idx: number) => parseScriptPage(variant, idx));
-        }
-        if (Array.isArray(root.variants)) {
-          return root.variants.map((variant: any, idx: number) => parseScriptPage(variant, idx));
-        }
-        if (root.script_content?.shots || root.script_content?.video_master_script || root.script_content?.creative_card) {
-          return [parseScriptPage(root, 0)];
-        }
-        return [];
-      };
-
-      if (response.code === 0) {
-        const pages = extractScriptPages(response.data);
-        if (pages.length > 0) {
-          setScriptPages(pages);
-          setActiveScriptPage(0);
-          setScripts(pages[0].scripts);
-          setIsShotBreakdownOpen(false);
-        } else {
-          openInfo(popupTitles.notice, t.wb_popup_script_unexpected);
-        }
-      } else {
+      if (generationSeq !== activeScriptGenerationSeqRef.current) return;
+      if (streamFailedMessage) {
+        throw new Error(streamFailedMessage);
+      }
+      if (!sawVariant) {
         openInfo(popupTitles.notice, t.wb_popup_script_unexpected);
       }
 
     } catch (err: any) {
+      if (isAbortError(err)) {
+        return;
+      }
+      if (generationSeq !== activeScriptGenerationSeqRef.current) {
+        return;
+      }
       console.error("Script Gen Error:", err);
       openErrorModal(err, { category: 'script_failed', onRetry: handleGenerateScripts });
     } finally {
-      setIsGeneratingScript(false);
+      if (scriptGenerationAbortRef.current === abortController) {
+        scriptGenerationAbortRef.current = null;
+      }
+      scriptGenerationStartedAtRef.current = null;
+      scriptGenerationEstimateKeyRef.current = null;
+      if (generationSeq === activeScriptGenerationSeqRef.current) {
+        setIsGeneratingScript(false);
+        if (shouldHideProgressImmediately) {
+          setIsScriptGenerationProgressVisible(false);
+          setScriptGenerationProgress(0);
+        }
+        setScriptGenerationCompletedCount(0);
+        setScriptGenerationTotalCount(0);
+      }
+      scriptGenerationFinishingRef.current = false;
     }
   };
 
@@ -5130,11 +5518,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       if (klingGenerateMode === 'subject' && subjectCount !== 1) {
         issues.push('Kling主体模式需要且仅允许1张主体图。');
       }
-      if (klingGenerateMode === 'first_last_frame' && firstFrameCount !== 1) {
-        issues.push('Kling首尾帧模式需要且仅允许1张首帧图。');
-      }
-      if (klingGenerateMode === 'first_last_frame' && tailFrameCount !== 1) {
-        issues.push('Kling首尾帧模式需要且仅允许1张尾帧图。');
+      if (klingGenerateMode === 'first_last_frame' && (firstFrameCount !== 1 || tailFrameCount !== 1)) {
+        issues.push('请先点击「参考图生首尾帧」按钮生成首尾帧。');
       }
       if (klingGenerateMode === 'subject' && referenceCount < 1) {
         issues.push('可灵主体模式需要再提供 1 到 3 张其他参考图。');
@@ -6088,24 +6473,70 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
                   {soundSetting === 'off' && (
                     <div className="mt-2 space-y-2">
+                      <input
+                        type="file"
+                        ref={backgroundAudioInputRef}
+                        className="hidden"
+                        accept=".mp3,.wav,.flac,audio/mpeg,audio/wav,audio/x-wav,audio/flac"
+                        onChange={handleBackgroundAudioFileChange}
+                      />
                       <button
                         type="button"
-                        onClick={openBackgroundAudioPicker}
-                        className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-zinc-200 hover:border-orange-500/50 hover:text-orange-300 hover:bg-orange-500/5 transition"
+                        onClick={() => setIsBackgroundAudioSourceOpen((prev) => !prev)}
+                        className={`w-full rounded-lg border px-3 py-2 text-xs transition ${
+                          isBackgroundAudioSourceOpen
+                            ? 'border-orange-500/60 bg-orange-500/10 text-orange-200'
+                            : 'border-white/10 bg-black/30 text-zinc-200 hover:border-orange-500/50 hover:text-orange-300 hover:bg-orange-500/5'
+                        }`}
                       >
-                        {selectedBackgroundAudio
-                          ? (t.wb_config_change_audio || '更换音频')
-                          : (t.wb_config_add_audio || '添加音频')}
+                        <span className="flex items-center justify-center gap-2">
+                          <span>
+                            {selectedBackgroundAudio
+                              ? (t.wb_config_change_audio || '更换音频')
+                              : (t.wb_config_add_audio || '添加音频')}
+                          </span>
+                          {isBackgroundAudioSourceOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                        </span>
                       </button>
+                      {isBackgroundAudioSourceOpen && (
+                        <div className="rounded-lg border border-white/10 bg-black/25 p-1">
+                          <button
+                            type="button"
+                            onClick={openBackgroundAudioPicker}
+                            className="flex w-full items-center rounded-md border border-transparent px-3 py-2 text-left text-xs text-zinc-200 transition hover:border-zinc-400/30 hover:bg-zinc-500/10 hover:text-orange-200"
+                          >
+                            <span>{t.wb_btn_choose_from_library || '从素材库选择'}</span>
+                          </button>
+                          <div className="mx-3 h-px scale-y-50 bg-zinc-500/18" />
+                          <button
+                            type="button"
+                            onClick={() => backgroundAudioInputRef.current?.click()}
+                            className="mt-1 flex w-full items-center rounded-md border border-transparent px-3 py-2 text-left text-xs text-zinc-200 transition hover:border-zinc-400/30 hover:bg-zinc-500/10 hover:text-orange-200"
+                          >
+                            <span>{(t as any).wb_background_audio_upload || '上传本地音频'}</span>
+                          </button>
+                          <div className="px-3 pb-1 pt-2 text-[10px] text-zinc-500">
+                            {(t as any).wb_background_audio_hint || 'mp3 / wav / flac · ≤ 1GB'}
+                          </div>
+                        </div>
+                      )}
                       {selectedBackgroundAudio ? (
                         <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-2">
                           <div className="min-w-0">
                             <div className="text-[10px] text-zinc-500 uppercase">{t.wb_config_selected_audio || '已选音频'}</div>
                             <div className="text-xs text-zinc-200 truncate">{selectedBackgroundAudio.name}</div>
+                            <div className="mt-1 text-[10px] text-zinc-500">
+                              {selectedBackgroundAudio.source === 'local'
+                                ? ((t as any).wb_background_audio_source_local || '来源：本地上传')
+                                : ((t as any).wb_background_audio_source_library || '来源：素材库')}
+                            </div>
                           </div>
                           <button
                             type="button"
-                            onClick={() => setSelectedBackgroundAudio(null)}
+                            onClick={() => {
+                              setSelectedBackgroundAudio(null);
+                              setIsBackgroundAudioSourceOpen(false);
+                            }}
                             className="mt-2 w-full text-[10px] text-zinc-400 hover:text-red-300 rounded px-2 py-1 border border-white/10 hover:border-red-500/40"
                           >
                             {t.editor_model_clear || '移除'}
@@ -6263,6 +6694,58 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               ) : (
                   <div className="rounded-lg bg-zinc-900/80 p-2">
                     {isKlingOmniMode ? (
+                        klingGenerateMode === 'first_last_frame' ? (
+                          klingPrimarySlotAsset && klingTailSlotAsset ? (
+                            <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scroll pr-1">
+                              <div className="rounded-xl border border-white/10 bg-black/25 p-2">
+                                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">首帧</div>
+                                {renderUploadAssetCard(klingPrimarySlotAsset)}
+                              </div>
+                              <div className="rounded-xl border border-white/10 bg-black/25 p-2">
+                                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">尾帧</div>
+                                {renderUploadAssetCard(klingTailSlotAsset)}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-2">
+                              <div className="flex gap-1.5 flex-wrap">
+                                {([
+                                  { id: 'flux-2-max', label: 'Flux 2 Max' },
+                                  { id: 'flux-2-pro', label: 'Flux 2 Pro' },
+                                  { id: 'gpt-image-1.5', label: 'GPT Image 1.5' },
+                                ] as const).map((m) => (
+                                  <button
+                                    key={m.id}
+                                    type="button"
+                                    onClick={() => setImageGenModel(m.id)}
+                                    className={`rounded-md px-2 py-1 text-[10px] font-bold transition border ${imageGenModel === m.id ? 'border-orange-400/60 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10'}`}
+                                  >
+                                    {m.label}
+                                  </button>
+                                ))}
+                              </div>
+                              <div
+                                  className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
+                                  onClick={() => fileInputRef.current?.click()}
+                              >
+                                <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                                  <span>{t.wb_label_reference_image || '参考图'}</span>
+                                  <UploadCloud className="w-3.5 h-3.5 text-zinc-500" />
+                                </div>
+                                {klingReferenceSlotAssets.length > 0 ? (
+                                    <div className="flex flex-col gap-2 max-h-60 overflow-y-auto custom-scroll pr-1">
+                                      {klingReferenceSlotAssets.map((asset) => renderUploadAssetCard(asset))}
+                                    </div>
+                                ) : (
+                                    <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20 flex flex-col items-center justify-center gap-2">
+                                      <UploadCloud className="w-5 h-5 text-zinc-600" />
+                                      <span className="text-[10px] text-zinc-500">点击上传商品参考图</span>
+                                    </div>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        ) : (
                         <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scroll pr-1">
                           <div
                               className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
@@ -6288,17 +6771,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20" />
                             )}
                           </div>
-                          {klingGenerateMode === 'first_last_frame' && (
-                            <div className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-                              <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
-                                <span>尾帧图</span>
-                                <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">必传1张</span>
-                              </div>
-                              {klingTailSlotAsset ? renderUploadAssetCard(klingTailSlotAsset) : (
-                                  <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20" />
-                              )}
-                            </div>
-                          )}
                           <div
                               className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
                               onClick={() => fileInputRef.current?.click()}
@@ -6346,6 +6818,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             )}
                           </div>
                         </div>
+                        )
                     ) : (
                     <div className="flex flex-col gap-2 max-h-72 overflow-y-auto custom-scroll pr-1">
                       {uploadDisplayAssets.map((asset) => {
@@ -6533,7 +7006,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 {t.wb_ai_opt_open_btn || 'AI智能优化'}
               </span>
             </button>
-            {isKlingOmniMode && (
+            {isKlingOmniMode && klingGenerateMode === 'first_last_frame' && (
               <button
                   type="button"
                   onClick={(e) => {
@@ -6717,24 +7190,64 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
           {renderLeftColumnSettings()}
 
-          <button
-              type="button"
-              onClick={() => {
-                if (isGeneratingScript) {
-                  openInfo(popupTitles.notice, t.wb_generate_in_progress);
-                  return;
-                }
-                if (!hasCurrentAsset) {
-                  openInfo(popupTitles.notice, t.wb_generate_need_asset);
-                  return;
-                }
-                void handleGenerateScripts();
-              }}
-              className={`w-full py-3 rounded-xl font-bold text-xs transition flex items-center justify-center gap-2 group border border-white/10 bg-black/30 text-zinc-200 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 ${isGeneratingScript || !hasCurrentAsset ? 'opacity-40 hover:bg-black/30' : ''}`}
-          >
-            {isGeneratingScript ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />}
-            {isGeneratingScript ? t.wb_generating : t.wb_btn_gen_scripts}
-          </button>
+          <div className="pt-1">
+            {scriptGenerationNotice && !isGeneratingScript && (
+              <div className="mb-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-medium text-emerald-200 shadow-[0_8px_24px_rgba(16,185,129,0.12)]">
+                {scriptGenerationNotice}
+              </div>
+            )}
+            {isScriptGenerationProgressVisible && (
+              <div className="mb-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                <div className="mb-1 flex items-center justify-between gap-3 text-[10px] text-zinc-400">
+                  <span>{t.wb_waiting_progress || '进度'}</span>
+                  <div className="flex items-center gap-3">
+                    <span>{formatMessage(t.wb_script_generation_count_status || '已生成 {current}/{total} 份', { current: scriptGenerationCompletedCount, total: Math.max(scriptGenerationTotalCount, scriptGenerationCompletedCount, 1) })}</span>
+                    <span>{`${Math.max(0, Math.min(100, Math.round(scriptGenerationProgress)))}%`}</span>
+                  </div>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-orange-500 via-amber-400 to-orange-200 transition-[width] duration-200 ease-out"
+                    style={{ width: `${Math.max(3, Math.min(100, scriptGenerationProgress))}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            {isGeneratingScript ? (
+              <div className="flex w-full gap-2">
+                <button
+                  type="button"
+                  onClick={handleCancelGenerateScripts}
+                  className="w-1/3 rounded-xl border border-orange-500/35 bg-orange-500/10 px-2 py-3 text-[10px] font-semibold text-orange-100 transition hover:bg-orange-500/18 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60"
+                >
+                  {t.wb_btn_cancel_script_generation || '取消生成'}
+                </button>
+                <div className="flex w-2/3 items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-3 text-xs font-bold text-zinc-200">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>{t.wb_generating}</span>
+                </div>
+              </div>
+            ) : (
+              <button
+                  type="button"
+                  onClick={() => {
+                    if (isGeneratingScript) {
+                      openInfo(popupTitles.notice, t.wb_generate_in_progress);
+                      return;
+                    }
+                    if (!hasCurrentAsset) {
+                      openInfo(popupTitles.notice, t.wb_generate_need_asset);
+                      return;
+                    }
+                    void handleGenerateScripts();
+                  }}
+                  className={`w-full py-3 rounded-xl font-bold text-xs transition flex items-center justify-center gap-2 group border border-white/10 bg-black/30 text-zinc-200 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 ${!hasCurrentAsset ? 'opacity-40 hover:bg-black/30' : ''}`}
+              >
+                <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />
+                {t.wb_btn_gen_scripts}
+              </button>
+            )}
+          </div>
         </div>
     );
   };

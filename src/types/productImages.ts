@@ -114,7 +114,7 @@ export interface ImageUploadState {
   isUploading: boolean;
 }
 
-export interface GenerationPhase = 
+export type GenerationPhase = 
   | 'form'
   | 'generating'
   | 'result'

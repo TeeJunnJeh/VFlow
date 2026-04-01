@@ -1,243 +1,188 @@
-/**
- * 商品图片生成API服务
- */
-
+import { getCookie } from './apiClient';
 import type {
   FirstFrameParams,
-  ProductImageGenerationRequest,
-  GenerationCreateResponse,
   GenerationStatusResponse,
   ProductImageResult,
 } from '../types/productImages';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+const PROJECTS_API_BASE = `${API_BASE}/projects`;
+const ASSETS_API_BASE = '/api/assets';
 
-/**
- * 上传文件到FormData
- */
-function filesToFormData(
-  files: File[],
-  generationType: string,
-  parameters: Record<string, any>
-): FormData {
-  const formData = new FormData();
-  
-  files.forEach((file) => {
-    formData.append('images', file);
-  });
-  
-  formData.append('generation_type', generationType);
-  formData.append('parameters', JSON.stringify(parameters));
-  
-  return formData;
+function toDisplayUrl(pathOrUrl: string): string {
+  const raw = String(pathOrUrl || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+  const normalized = raw.startsWith('/') ? raw : `/${raw}`;
+  const mediaBaseUrl = import.meta.env.VITE_MEDIA_BASE_URL || '';
+  if (mediaBaseUrl && normalized.startsWith('/media/')) {
+    return `${mediaBaseUrl}${normalized}`;
+  }
+  return normalized;
 }
 
-/**
- * 错误转换
- */
-async function handleApiError(response: Response): Promise<Error> {
+async function parseError(response: Response, fallback: string): Promise<Error> {
   try {
     const data = await response.json();
-    return new Error(data.error?.message || `API Error: ${response.status}`);
+    const message =
+      String(data?.message || '').trim() ||
+      String(data?.error || '').trim() ||
+      String(data?.detail || '').trim() ||
+      fallback;
+    return new Error(message);
   } catch {
-    return new Error(`API Error: ${response.status}`);
+    return new Error(fallback);
   }
 }
 
-/**
- * 商品图片生成API
- */
+function styleToModel(style?: FirstFrameParams['style']): string {
+  if (style === 'studio') return 'gpt-image-1.5';
+  if (style === 'clean') return 'flux-2-pro';
+  return 'flux-2-max';
+}
+
+async function uploadTempImage(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${ASSETS_API_BASE}/temp-upload/`, {
+    method: 'POST',
+    headers: {
+      'X-CSRFToken': getCookie('csrftoken') || '',
+      'X-Requested-With': 'XMLHttpRequest',
+    },
+    credentials: 'include',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw await parseError(response, 'Failed to upload reference image');
+  }
+
+  const data = await response.json();
+  const path =
+    String(data?.data?.path || '').trim() ||
+    String(data?.data?.url || '').trim() ||
+    String(data?.url || '').trim();
+
+  if (!path) {
+    throw new Error('Temporary upload succeeded but no path was returned');
+  }
+
+  return path;
+}
+
+async function generateFirstFrameOnce(options: {
+  referenceImagePath: string;
+  aspectRatio?: string;
+  projectId?: string;
+  model: string;
+}): Promise<{ imagePath: string; projectId?: string }> {
+  const payload: Record<string, unknown> = {
+    reference_image_path: options.referenceImagePath,
+    aspect_ratio: options.aspectRatio || '9:16',
+    frame_type: 'first',
+    model: options.model,
+  };
+
+  if (options.projectId) {
+    payload.project_id = options.projectId;
+  }
+
+  const response = await fetch(`${PROJECTS_API_BASE}/generate_first_frame`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': getCookie('csrftoken') || '',
+      'X-Requested-With': 'XMLHttpRequest',
+    },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw await parseError(response, 'Failed to generate first-frame image');
+  }
+
+  const data = await response.json();
+  const imagePath = String(data?.data?.first_frame_path || '').trim();
+
+  if (!imagePath) {
+    throw new Error('Generation succeeded but first_frame_path was missing');
+  }
+
+  const projectId = String(data?.data?.project_id || '').trim() || undefined;
+  return { imagePath, projectId };
+}
+
 export const productImagesApi = {
-  /**
-   * 生成首帧图
-   */
   async generateFirstFrame(
     images: File[],
     params: FirstFrameParams,
     projectId?: string
-  ): Promise<GenerationCreateResponse> {
-    const formData = filesToFormData(
-      images,
-      'first_frame_image',
-      params
-    );
-
-    if (projectId) {
-      formData.append('project_id', projectId);
+  ): Promise<GenerationStatusResponse> {
+    if (!images || images.length === 0) {
+      throw new Error('Please upload at least one product image');
     }
 
-    const response = await fetch(`${API_BASE}/product-images/generate`, {
-      method: 'POST',
-      body: formData,
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`,
-      },
-    });
+    const outputCount = params.outputCount || 1;
+    const model = styleToModel(params.style);
+    const referenceImagePath = await uploadTempImage(images[0]);
 
-    if (!response.ok) {
-      throw await handleApiError(response);
-    }
+    let resolvedProjectId = projectId;
+    const outputImages: ProductImageResult[] = [];
 
-    return response.json();
-  },
+    for (let i = 0; i < outputCount; i += 1) {
+      const generated = await generateFirstFrameOnce({
+        referenceImagePath,
+        aspectRatio: params.aspectRatio,
+        projectId: resolvedProjectId,
+        model,
+      });
 
-  /**
-   * 查询生成状态
-   */
-  async getGenerationStatus(taskId: string): Promise<GenerationStatusResponse> {
-    const response = await fetch(`${API_BASE}/product-images/${taskId}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`,
-      },
-    });
-
-    if (!response.ok) {
-      throw await handleApiError(response);
-    }
-
-    return response.json();
-  },
-
-  /**
-   * 下载单张结果
-   */
-  async downloadImage(taskId: string, imageId: string): Promise<Blob> {
-    const response = await fetch(
-      `${API_BASE}/product-images/${taskId}/download/${imageId}`,
-      {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`,
-        },
+      if (!resolvedProjectId && generated.projectId) {
+        resolvedProjectId = generated.projectId;
       }
-    );
 
-    if (!response.ok) {
-      throw await handleApiError(response);
+      const displayUrl = toDisplayUrl(generated.imagePath);
+      outputImages.push({
+        id: `first-frame-${Date.now()}-${i}`,
+        imageUrl: displayUrl,
+        downloadUrl: displayUrl,
+        format: 'jpg',
+      });
     }
 
-    return response.blob();
+    return {
+      id: `first-frame-task-${Date.now()}`,
+      status: 'completed',
+      progress: 100,
+      outputImages,
+      completedAt: new Date().toISOString(),
+    };
   },
 
-  /**
-   * 下载所有结果（ZIP）
-   */
-  async downloadAllResults(taskId: string): Promise<Blob> {
-    const response = await fetch(`${API_BASE}/product-images/${taskId}/download`, {
+  async downloadImageByUrl(imageUrl: string): Promise<Blob> {
+    const response = await fetch(toDisplayUrl(imageUrl), {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`,
-      },
+      credentials: 'include',
     });
 
     if (!response.ok) {
-      throw await handleApiError(response);
+      throw await parseError(response, 'Failed to download image');
     }
 
     return response.blob();
-  },
-
-  /**
-   * 取消生成任务
-   */
-  async cancelGeneration(taskId: string): Promise<void> {
-    const response = await fetch(`${API_BASE}/product-images/${taskId}/cancel`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`,
-      },
-    });
-
-    if (!response.ok) {
-      throw await handleApiError(response);
-    }
-  },
-
-  /**
-   * 提交质量反馈
-   */
-  async submitFeedback(
-    taskId: string,
-    score: number,
-    notes?: string
-  ): Promise<void> {
-    const response = await fetch(`${API_BASE}/product-images/${taskId}/feedback`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        score,
-        notes,
-        timestamp: new Date().toISOString(),
-      }),
-    });
-
-    if (!response.ok) {
-      throw await handleApiError(response);
-    }
   },
 };
 
-/**
- * 工具函数：生成图片下载链接
- */
-export function getDownloadUrl(taskId: string, imageId?: string): string {
-  if (imageId) {
-    return `${API_BASE}/product-images/${taskId}/download/${imageId}`;
-  }
-  return `${API_BASE}/product-images/${taskId}/download`;
-}
-
-/**
- * 工具函数：轮询任务状态
- */
-export async function pollTaskStatus(
-  taskId: string,
-  maxAttempts: number = 120,
-  intervalMs: number = 1000,
-  onProgress?: (status: GenerationStatusResponse) => void
-): Promise<GenerationStatusResponse> {
-  let attempts = 0;
-
-  return new Promise((resolve, reject) => {
-    const interval = setInterval(async () => {
-      attempts++;
-
-      try {
-        const status = await productImagesApi.getGenerationStatus(taskId);
-
-        if (onProgress) {
-          onProgress(status);
-        }
-
-        if (status.status === 'completed' || status.status === 'failed') {
-          clearInterval(interval);
-          resolve(status);
-        }
-
-        if (attempts >= maxAttempts) {
-          clearInterval(interval);
-          reject(new Error('Task polling timeout'));
-        }
-      } catch (error) {
-        clearInterval(interval);
-        reject(error);
-      }
-    }, intervalMs);
-  });
-}
-
-/**
- * 工具函数：下载文件
- */
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
+  document.body.appendChild(link);
   link.click();
+  document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }

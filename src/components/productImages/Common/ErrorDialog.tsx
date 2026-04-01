@@ -4,6 +4,7 @@
 
 import React from 'react';
 import { AlertCircle, AlertTriangle, X } from 'lucide-react';
+import { useLanguage } from '../../../context/LanguageContext';
 
 export type ErrorSeverity = 'warning' | 'error';
 
@@ -30,6 +31,10 @@ export const ErrorDialog: React.FC<ErrorDialogProps> = ({
   onClose,
   showRetry = true,
 }) => {
+  const { language } = useLanguage();
+  const isZh = language === 'zh';
+  const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
+
   if (!isOpen || !error) return null;
 
   const severity = error.severity || 'error';
@@ -66,7 +71,7 @@ export const ErrorDialog: React.FC<ErrorDialogProps> = ({
             )}
             <div className="flex-1">
               <h3 className="font-semibold text-white">
-                {isWarning ? '⚠️ 警告' : '❌ 错误'}
+                {isWarning ? tr('警告', 'Warning') : tr('错误', 'Error')}
               </h3>
               <p className={`text-xs ${isWarning ? 'text-yellow-400' : 'text-red-400'}`}>
                 {error.code}
@@ -84,7 +89,7 @@ export const ErrorDialog: React.FC<ErrorDialogProps> = ({
           <div className="p-6 space-y-4">
             {/* 错误消息 */}
             <div>
-              <p className="text-white font-medium mb-1">错误信息</p>
+              <p className="text-white font-medium mb-1">{tr('错误信息', 'Error Message')}</p>
               <p className="text-zinc-300 text-sm leading-relaxed">
                 {error.message}
               </p>
@@ -94,7 +99,7 @@ export const ErrorDialog: React.FC<ErrorDialogProps> = ({
             {error.suggestion && (
               <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
                 <p className="text-blue-400 text-sm">
-                  <span className="font-medium">建议:</span> {error.suggestion}
+                  <span className="font-medium">{tr('建议', 'Suggestion')}:</span> {error.suggestion}
                 </p>
               </div>
             )}
@@ -102,7 +107,7 @@ export const ErrorDialog: React.FC<ErrorDialogProps> = ({
             {/* 详细信息 */}
             {error.details && error.details.length > 0 && (
               <div>
-                <p className="text-zinc-400 text-xs font-medium mb-2">更多信息</p>
+                <p className="text-zinc-400 text-xs font-medium mb-2">{tr('更多信息', 'More Details')}</p>
                 <ul className="space-y-1">
                   {error.details.map((detail, idx) => (
                     <li
@@ -119,11 +124,11 @@ export const ErrorDialog: React.FC<ErrorDialogProps> = ({
 
             {/* 通用建议 */}
             <div className="space-y-2">
-              <p className="text-zinc-400 text-xs font-medium">可尝试以下操作</p>
+              <p className="text-zinc-400 text-xs font-medium">{tr('可尝试以下操作', 'Try the following')}</p>
               <ul className="text-zinc-400 text-xs space-y-1">
-                <li>• 检查网络连接是否正常</li>
-                <li>• 确保上传的是有效的商品图片</li>
-                <li>• 稍后再试（服务器可能暂时繁忙）</li>
+                <li>{tr('• 检查网络连接是否正常', '- Check network connectivity')}</li>
+                <li>{tr('• 确保上传的是有效的商品图片', '- Ensure the uploaded file is a valid product image')}</li>
+                <li>{tr('• 稍后再试（服务器可能暂时繁忙）', '- Try again later (server may be busy)')}</li>
               </ul>
             </div>
           </div>
@@ -134,7 +139,7 @@ export const ErrorDialog: React.FC<ErrorDialogProps> = ({
               onClick={onClose}
               className="flex-1 px-4 py-2 bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition font-medium text-sm"
             >
-              关闭
+              {tr('关闭', 'Close')}
             </button>
             {showRetry && (
               <button
@@ -148,7 +153,7 @@ export const ErrorDialog: React.FC<ErrorDialogProps> = ({
                   }
                 `}
               >
-                重试
+                {tr('重试', 'Retry')}
               </button>
             )}
           </div>

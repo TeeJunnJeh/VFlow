@@ -15,4 +15,4 @@ export type {
   ProductImageResult,
   GenerationStatus,
   GenerationType,
-} from '../types/productImages';
+} from '../../types/productImages';

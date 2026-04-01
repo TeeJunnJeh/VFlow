@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image as ImageIcon, Plus, Upload, X } from 'lucide-react';
+import { Image as ImageIcon, Plus, Upload, X, Wand2, Minus } from 'lucide-react';
 import type { ViewType } from './types';
 import { useLanguage } from '../../context/LanguageContext';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { FirstFrameView } from '../productImages';
+import { AppDialog } from '../common/AppDialog';
+import { assetsApi } from '../../services/assets';
+import { videoApi } from '../../services/video';
 
 interface ProductImagesViewProps {
   activeView: ViewType;
@@ -38,16 +41,83 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [gallerySellingPoints, setGallerySellingPoints] = useState<string[]>([]);
   const [galleryTargetScene, setGalleryTargetScene] = useState<'detail' | 'xiaohongshu' | 'douyin' | 'poster' | 'ads'>('detail');
   const [galleryStyle, setGalleryStyle] = useState<'ecom_clean' | 'lifestyle' | 'premium' | 'festival'>('ecom_clean');
-  const [galleryOutputTypes, setGalleryOutputTypes] = useState<Record<'white_bg' | 'scene' | 'selling_point' | 'cover' | 'poster', boolean>>({
-    white_bg: true,
-    scene: false,
-    selling_point: false,
-    cover: false,
-    poster: false,
+  const [galleryTypeSelections, setGalleryTypeSelections] = useState<Record<'white_bg' | 'scene' | 'selling_point' | 'cover' | 'poster', { enabled: boolean; count: number }>>({
+    white_bg: { enabled: true, count: 4 },
+    scene: { enabled: false, count: 4 },
+    selling_point: { enabled: false, count: 4 },
+    cover: { enabled: false, count: 4 },
+    poster: { enabled: false, count: 4 },
   });
-  const [galleryOutputCount, setGalleryOutputCount] = useState<4 | 6 | 9>(4);
+  const [galleryAspectRatio, setGalleryAspectRatio] = useState<string>('1:1');
+  const [galleryResolution, setGalleryResolution] = useState<'1k' | '2k' | '4k'>('1k');
   const galleryFileInputRef = useRef<HTMLInputElement | null>(null);
   const [galleryPreviewUrls, setGalleryPreviewUrls] = useState<string[]>([]);
+  const [isGalleryAnalyzing, setIsGalleryAnalyzing] = useState(false);
+  const [galleryAlert, setGalleryAlert] = useState<{ open: boolean; title: string; message: string }>({
+    open: false,
+    title: '',
+    message: '',
+  });
+  const [galleryRightPanel, setGalleryRightPanel] = useState<'preview' | 'history'>('preview');
+  const [galleryHistoryItems, setGalleryHistoryItems] = useState<Array<{ id: string; createdAt: string; images: string[] }>>([]);
+  const [isGalleryGenerating, setIsGalleryGenerating] = useState(false);
+  const [galleryPreviewImageUrl, setGalleryPreviewImageUrl] = useState<string | null>(null);
+  const [galleryPreviewItems, setGalleryPreviewItems] = useState<
+    Array<{ localId: string; requestId: string; status: 'created' | 'processing' | 'succeeded' | 'failed'; imageUrl?: string; error?: string }>
+  >([]);
+
+  const GALLERY_HISTORY_KEY = 'vflow_product_gallery_history';
+  const galleryPollAbortRef = useRef(false);
+  const galleryPollRunIdRef = useRef<number>(0);
+
+  const closeGalleryAlert = () => setGalleryAlert((prev) => ({ ...prev, open: false }));
+  const openGalleryAlert = (message: string, title?: string) =>
+    setGalleryAlert({
+      open: true,
+      title: title || tr('提示', 'Notice'),
+      message,
+    });
+
+  const galleryConfirmResolverRef = useRef<((value: boolean) => void) | null>(null);
+  const [galleryConfirm, setGalleryConfirm] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    okLabel: string;
+    cancelLabel: string;
+  }>({
+    open: false,
+    title: '',
+    message: '',
+    okLabel: '',
+    cancelLabel: '',
+  });
+
+  const closeGalleryConfirm = (value: boolean) => {
+    setGalleryConfirm((prev) => ({ ...prev, open: false }));
+    const resolver = galleryConfirmResolverRef.current;
+    galleryConfirmResolverRef.current = null;
+    if (resolver) resolver(value);
+  };
+
+  const closeGalleryImagePreview = () => setGalleryPreviewImageUrl(null);
+  const openGalleryImagePreview = (url: string) => {
+    const cleaned = String(url || '').trim();
+    if (!cleaned) return;
+    setGalleryPreviewImageUrl(cleaned);
+  };
+
+  const openGalleryConfirm = (message: string, opts?: { title?: string; okLabel?: string; cancelLabel?: string }) =>
+    new Promise<boolean>((resolve) => {
+      galleryConfirmResolverRef.current = resolve;
+      setGalleryConfirm({
+        open: true,
+        title: opts?.title || tr('确认', 'Confirm'),
+        message,
+        okLabel: opts?.okLabel || tr('确定', 'OK'),
+        cancelLabel: opts?.cancelLabel || tr('取消', 'Cancel'),
+      });
+    });
 
   useEffect(() => {
     const urls = galleryImages.map((f) => URL.createObjectURL(f));
@@ -57,8 +127,362 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     };
   }, [galleryImages]);
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(GALLERY_HISTORY_KEY);
+      if (!raw) {
+        setGalleryHistoryItems([]);
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        setGalleryHistoryItems([]);
+        return;
+      }
+      const normalized = parsed
+        .map((item: any) => {
+          const id = String(item?.id || '').trim();
+          const createdAt = String(item?.createdAt || '').trim();
+          const images = Array.isArray(item?.images)
+            ? item.images.map((x: any) => String(x || '').trim()).filter(Boolean)
+            : [];
+          if (!id || !createdAt || images.length === 0) return null;
+          return { id, createdAt, images };
+        })
+        .filter(Boolean) as Array<{ id: string; createdAt: string; images: string[] }>;
+      setGalleryHistoryItems(normalized);
+    } catch {
+      setGalleryHistoryItems([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    galleryPollAbortRef.current = false;
+    return () => {
+      galleryPollAbortRef.current = true;
+    };
+  }, []);
+
+  const gallerySupportedFormatTip = tr(
+    '文件格式不支持，仅支持图片：.jpg .jpeg .png .webp',
+    'Unsupported file format. Only images are supported: .jpg .jpeg .png .webp'
+  );
+
+  const isSupportedGalleryImageFile = (file: File) => {
+    const name = String(file?.name || '').toLowerCase();
+    if (!name) return false;
+    if (!/\.(jpe?g|png|webp)$/i.test(name)) return false;
+    const type = String(file?.type || '');
+    if (type && !type.startsWith('image/')) return false;
+    return true;
+  };
+
+  const extractUploadedAssetPath = (uploadResp: any): string | null => {
+    if (uploadResp?.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
+      return uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path || null;
+    }
+    return uploadResp?.url || uploadResp?.file_url || uploadResp?.path || uploadResp?.data?.url || uploadResp?.data?.path || null;
+  };
+
+  const handleGalleryAiAnalyze = async () => {
+    if (isGalleryAnalyzing) return;
+
+    if (galleryImages.length === 0) {
+      openGalleryAlert(tr('请先上传至少 1 张商品图片。', 'Please upload at least 1 product image.'));
+      return;
+    }
+
+    const hasExisting = Boolean(
+      galleryProductName.trim() ||
+      galleryCategory.trim() ||
+      gallerySellingPoints.some((p) => String(p || '').trim())
+    );
+
+    if (hasExisting) {
+      const ok = await openGalleryConfirm(
+        tr('是否使用新的识别结果覆盖当前内容？', 'Overwrite current fields with new AI results?'),
+        {
+          title: tr('覆盖确认', 'Overwrite confirmation'),
+          okLabel: tr('覆盖', 'Overwrite'),
+          cancelLabel: tr('取消', 'Cancel'),
+        }
+      );
+      if (!ok) return;
+    }
+
+    const uploadTargets = galleryImages.slice(0, 4);
+    if (uploadTargets.some((f) => !isSupportedGalleryImageFile(f))) {
+      openGalleryAlert(gallerySupportedFormatTip);
+      return;
+    }
+
+    setIsGalleryAnalyzing(true);
+    try {
+      const imagePaths: string[] = [];
+
+      for (const file of uploadTargets) {
+        const uploadResp = await assetsApi.uploadTempAsset(file);
+        const path = extractUploadedAssetPath(uploadResp);
+        if (path) imagePaths.push(String(path));
+      }
+
+      if (imagePaths.length === 0) {
+        throw new Error(tr('图片上传失败，请重试。', 'Image upload failed. Please try again.'));
+      }
+
+      const resp = await videoApi.recognizeProductInfo({ image_paths: imagePaths, output_language: language });
+      const data = resp?.data || resp?.result || resp?.payload || resp;
+
+      const nextName = String(data?.product_name || '').trim();
+      const nextCategory = String(data?.product_category || '').trim();
+
+      const rawSelling = data?.core_selling_points;
+      const nextSellingPoints = Array.isArray(rawSelling)
+        ? rawSelling.map((item: any) => String(item || '').trim()).filter(Boolean)
+        : String(rawSelling || '')
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean);
+
+      setGalleryProductName(nextName);
+      setGalleryCategory(nextCategory);
+      setGallerySellingPoints(nextSellingPoints.slice(0, 5));
+    } catch (err: any) {
+      const rawMsg = String(err?.message || '').trim();
+      const isTypeInvalid = rawMsg.includes('文件格式不支持') || rawMsg.toLowerCase().includes('file_type_invalid');
+      const message = isTypeInvalid
+        ? gallerySupportedFormatTip
+        : String(rawMsg || tr('识别失败，请重试。', 'Recognition failed. Please try again.'));
+
+      openGalleryAlert(message, tr('识别失败', 'Recognition failed'));
+    } finally {
+      setIsGalleryAnalyzing(false);
+    }
+  };
+
+  const handleGalleryGenerate = async () => {
+    if (isGalleryGenerating) return;
+
+    if (galleryImages.length === 0) {
+      openGalleryAlert(tr('请先上传至少 1 张商品图片。', 'Please upload at least 1 product image.'));
+      return;
+    }
+
+    const uploadTargets = galleryImages.slice(0, 3);
+    if (uploadTargets.some((f) => !isSupportedGalleryImageFile(f))) {
+      openGalleryAlert(gallerySupportedFormatTip);
+      return;
+    }
+
+    const totalCount = Object.values(galleryTypeSelections)
+      .filter((item) => item.enabled)
+      .reduce((sum, item) => sum + (Number(item.count) || 0), 0);
+
+    if (totalCount <= 0) {
+      openGalleryAlert(tr('请至少选择一种生成类型。', 'Please select at least one generation type.'));
+      return;
+    }
+
+    const aspectRatio = galleryAspectRatio === 'default' ? '1:1' : galleryAspectRatio;
+
+    const sellingPoints = gallerySellingPoints
+      .map((s) => String(s || '').trim())
+      .filter(Boolean)
+      .slice(0, 5);
+
+    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+    const appendHistory = (urls: string[]) => {
+      const images = urls.map((u) => String(u || '').trim()).filter(Boolean);
+      if (images.length === 0) return;
+
+      const nextItem = {
+        id: `pg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        createdAt: new Date().toLocaleString(),
+        images,
+      };
+
+      setGalleryHistoryItems((prev) => {
+        const next = [nextItem, ...prev].slice(0, 50);
+        try {
+          localStorage.setItem(GALLERY_HISTORY_KEY, JSON.stringify(next));
+        } catch {
+          void 0;
+        }
+        return next;
+      });
+    };
+
+    const runId = Date.now();
+    galleryPollRunIdRef.current = runId;
+
+    setIsGalleryGenerating(true);
+    setGalleryRightPanel('preview');
+    setGalleryPreviewItems([]);
+
+    try {
+      const imagePaths: string[] = [];
+      for (const file of uploadTargets) {
+        const uploadResp = await assetsApi.uploadTempAsset(file);
+        const path = extractUploadedAssetPath(uploadResp);
+        if (path) imagePaths.push(String(path));
+      }
+
+      if (imagePaths.length === 0) {
+        throw new Error(tr('图片上传失败，请重试。', 'Image upload failed. Please try again.'));
+      }
+
+      const createResp = await videoApi.generateProductGallery({
+        image_paths: imagePaths,
+        aspect_ratio: aspectRatio,
+        resolution: galleryResolution,
+        count: totalCount,
+        product_name: galleryProductName.trim(),
+        product_category: galleryCategory.trim(),
+        core_selling_points: sellingPoints,
+        target_scene: galleryTargetScene,
+        style: galleryStyle,
+        type_selections: galleryTypeSelections as any,
+      });
+
+      const list = (createResp as any)?.data?.requests || (createResp as any)?.requests || [];
+      const requests = Array.isArray(list) ? list : [];
+
+      const initial = requests
+        .map((r: any, idx: number) => {
+          const requestId = String(r?.request_id || r?.id || '').trim();
+          if (!requestId) return null;
+          return {
+            localId: `pg-prev-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+            requestId,
+            status: 'created' as const,
+          };
+        })
+        .filter(Boolean) as Array<{ localId: string; requestId: string; status: 'created' | 'processing' | 'succeeded' | 'failed'; imageUrl?: string; error?: string }>;
+
+      if (initial.length === 0) {
+        throw new Error(tr('创建生成任务失败，请重试。', 'Failed to create generation tasks.'));
+      }
+
+      setGalleryPreviewItems(initial);
+
+      const pollOne = async (requestId: string) => {
+        setGalleryPreviewItems((prev) =>
+          prev.map((it) => (it.requestId === requestId ? { ...it, status: 'processing' as const } : it))
+        );
+
+        for (let i = 0; i < 120; i += 1) {
+          if (galleryPollAbortRef.current) return;
+          if (galleryPollRunIdRef.current !== runId) return;
+
+          const statusResp = await videoApi.getProductGalleryResult(requestId);
+          const data = (statusResp as any)?.data || statusResp;
+          const status = String(data?.status || '').trim().toLowerCase();
+          const outputs = Array.isArray(data?.outputs) ? data.outputs : [];
+
+          if (outputs.length > 0 && status !== 'failed' && status !== 'error') {
+            const url = String(outputs[0] || '').trim();
+            setGalleryPreviewItems((prev) =>
+              prev.map((it) => (it.requestId === requestId ? { ...it, status: 'succeeded' as const, imageUrl: url } : it))
+            );
+            appendHistory(outputs);
+            return;
+          }
+
+          if (['failed', 'error', 'canceled', 'cancelled'].includes(status)) {
+            setGalleryPreviewItems((prev) =>
+              prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: tr('生成失败', 'Failed') } : it))
+            );
+            return;
+          }
+
+          await sleep(1500);
+        }
+
+        setGalleryPreviewItems((prev) =>
+          prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: tr('生成超时', 'Timeout') } : it))
+        );
+      };
+
+      await Promise.all(initial.map((it) => pollOne(it.requestId)));
+    } catch (err: any) {
+      openGalleryAlert(String(err?.message || tr('生成失败，请重试。', 'Generation failed. Please try again.')));
+    } finally {
+      if (galleryPollRunIdRef.current === runId) {
+        setIsGalleryGenerating(false);
+      }
+    }
+  };
+
   return (
     <div className="flex flex-col h-full z-10">
+      <AppDialog
+        isOpen={galleryAlert.open}
+        title={galleryAlert.title}
+        onClose={closeGalleryAlert}
+        widthClassName="max-w-sm"
+        footer={
+          <button
+            type="button"
+            onClick={closeGalleryAlert}
+            className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 text-black hover:bg-orange-400 transition"
+          >
+            {tr('确定', 'OK')}
+          </button>
+        }
+      >
+        {galleryAlert.message}
+      </AppDialog>
+
+      <AppDialog
+        isOpen={galleryConfirm.open}
+        title={galleryConfirm.title}
+        onClose={() => closeGalleryConfirm(false)}
+        widthClassName="max-w-sm"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => closeGalleryConfirm(false)}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
+            >
+              {galleryConfirm.cancelLabel}
+            </button>
+            <button
+              type="button"
+              onClick={() => closeGalleryConfirm(true)}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 text-black hover:bg-orange-400 transition"
+            >
+              {galleryConfirm.okLabel}
+            </button>
+          </>
+        }
+      >
+        {galleryConfirm.message}
+      </AppDialog>
+
+      <AppDialog
+        isOpen={Boolean(galleryPreviewImageUrl)}
+        title={tr('图片预览', 'Image Preview')}
+        onClose={closeGalleryImagePreview}
+        widthClassName="max-w-5xl"
+        footer={
+          <button
+            type="button"
+            onClick={closeGalleryImagePreview}
+            className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
+          >
+            {tr('关闭', 'Close')}
+          </button>
+        }
+      >
+        {galleryPreviewImageUrl ? (
+          <div className="w-full flex items-center justify-center">
+            <img src={galleryPreviewImageUrl} alt={tr('预览图片', 'Preview image')} className="max-h-[70vh] w-auto object-contain rounded-xl border border-white/10" />
+          </div>
+        ) : null}
+      </AppDialog>
+
       <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
@@ -96,22 +520,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
         {currentValue === 'product_images_gallery' && (
           <div className="h-full flex gap-6">
-            <div className="w-[46%] min-w-[420px] max-w-[640px] flex flex-col gap-4">
+            <div className="w-[30%] min-w-[360px] max-w-[520px] flex flex-col gap-4">
               <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
                 <div className="flex items-center justify-between">
-                  <div className="text-sm font-bold text-zinc-200">{tr('输入区', 'Input')}</div>
-                  <button
-                    type="button"
-                    onClick={() => galleryFileInputRef.current?.click()}
-                    className="px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition flex items-center gap-2"
-                  >
-                    <Upload className="w-4 h-4" />
-                    {tr('上传商品图', 'Upload Product Images')}
-                  </button>
+                  <div className="text-sm font-bold text-zinc-200">{tr('上传商品图', 'Upload Product Images')}</div>
                 </div>
 
                 <div className="mt-4">
-                  <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">商品图（必填 1~3 张）</div>
                   <input
                     ref={galleryFileInputRef}
                     type="file"
@@ -119,9 +534,21 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                     multiple
                     className="hidden"
                     onChange={(e) => {
-                      const files = Array.from(e.target.files || []).filter((f) => f.type.startsWith('image/'));
-                      if (files.length === 0) return;
-                      setGalleryImages((prev) => [...prev, ...files].slice(0, 3));
+                      const picked = Array.from(e.target.files || []);
+                      if (picked.length === 0) return;
+
+                      const supported = picked.filter((f) => isSupportedGalleryImageFile(f));
+                      const hasUnsupported = supported.length !== picked.length;
+                      if (hasUnsupported) {
+                        openGalleryAlert(gallerySupportedFormatTip);
+                      }
+
+                      if (supported.length === 0) {
+                        e.target.value = '';
+                        return;
+                      }
+
+                      setGalleryImages((prev) => [...prev, ...supported].slice(0, 3));
                       e.target.value = '';
                     }}
                   />
@@ -130,9 +557,12 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                     <button
                       type="button"
                       onClick={() => galleryFileInputRef.current?.click()}
-                      className="mt-3 w-full rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-10 text-center text-zinc-500 hover:text-zinc-300 hover:border-white/20 transition"
+                      className="group mt-3 w-full rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-10 text-center text-zinc-500 hover:text-zinc-300 hover:border-white/20 transition"
                     >
-                      <ImageIcon className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                      <div className="relative w-10 h-10 mx-auto mb-2">
+                        <ImageIcon className="w-10 h-10 opacity-50 transition-opacity duration-150 group-hover:opacity-0" />
+                        <Upload className="absolute inset-0 w-10 h-10 opacity-0 transition-opacity duration-150 group-hover:opacity-60" />
+                      </div>
                       <div className="text-sm font-semibold">点击上传 1~3 张商品图</div>
                       <div className="text-[11px] mt-1">支持 JPG / PNG / WEBP</div>
                     </button>
@@ -155,10 +585,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                         <button
                           type="button"
                           onClick={() => galleryFileInputRef.current?.click()}
-                          className="rounded-xl border border-dashed border-white/10 bg-black/20 text-zinc-500 hover:text-zinc-300 hover:border-white/20 transition flex items-center justify-center aspect-square"
+                          className="group relative rounded-xl border border-dashed border-white/10 bg-black/20 text-zinc-500 hover:text-zinc-300 hover:border-white/20 transition flex items-center justify-center aspect-square"
                           title="添加图片"
                         >
-                          <Plus className="w-6 h-6" />
+                          <Plus className="w-6 h-6 transition-opacity duration-150 group-hover:opacity-0" />
+                          <Upload className="absolute w-6 h-6 opacity-0 transition-opacity duration-150 group-hover:opacity-80" />
                         </button>
                       )}
                     </div>
@@ -167,11 +598,21 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               </div>
 
               <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
-                <div className="text-sm font-bold text-zinc-200">可选信息</div>
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-bold text-zinc-200">{tr('商品信息', 'Product Info')}</div>
+                  <button
+                    type="button"
+                    onClick={handleGalleryAiAnalyze}
+                    disabled={isGalleryAnalyzing}
+                    className="px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 disabled:opacity-60 disabled:hover:bg-zinc-900/70 transition"
+                  >
+                    {isGalleryAnalyzing ? tr('分析中...', 'Analyzing...') : tr('AI分析', 'AI Analyze')}
+                  </button>
+                </div>
 
                 <div className="mt-4 grid grid-cols-1 gap-4">
                   <div className="space-y-2">
-                    <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">商品名称（选填）</div>
+                    <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">商品名称</div>
                     <input
                       value={galleryProductName}
                       onChange={(e) => setGalleryProductName(e.target.value)}
@@ -181,7 +622,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   </div>
 
                   <div className="space-y-2">
-                    <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">商品类目（选填）</div>
+                    <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">商品类目</div>
                     <input
                       value={galleryCategory}
                       onChange={(e) => setGalleryCategory(e.target.value)}
@@ -192,7 +633,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">核心卖点（选填 2~5 条）</div>
+                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">核心卖点（2~5 条）</div>
                       <button
                         type="button"
                         onClick={() => setGallerySellingPoints((prev) => (prev.length >= 5 ? prev : [...prev, '']))}
@@ -228,92 +669,345 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">目标场景</div>
-                      <DropdownSelect
-                        value={galleryTargetScene}
-                        options={[
-                          { value: 'detail', label: '详情页' },
-                          { value: 'xiaohongshu', label: '小红书' },
-                          { value: 'douyin', label: '抖音' },
-                          { value: 'poster', label: '海报' },
-                          { value: 'ads', label: '广告投流' },
-                        ]}
-                        onChange={(v) => setGalleryTargetScene(v as any)}
-                        buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                        iconClassName="w-4 h-4 text-zinc-500"
-                        optionClassName="text-xs"
-                      />
-                    </div>
+                </div>
+              </div>
+            </div>
 
-                    <div className="space-y-2">
-                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">风格</div>
-                      <DropdownSelect
-                        value={galleryStyle}
-                        options={[
-                          { value: 'ecom_clean', label: '简洁电商风' },
-                          { value: 'lifestyle', label: '生活方式风' },
-                          { value: 'premium', label: '高级质感风' },
-                          { value: 'festival', label: '节日营销风' },
-                        ]}
-                        onChange={(v) => setGalleryStyle(v as any)}
-                        buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                        iconClassName="w-4 h-4 text-zinc-500"
-                        optionClassName="text-xs"
-                      />
+            <div className="w-[32%] min-w-[420px] max-w-[640px] flex flex-col gap-4">
+              <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
+                <div className="text-sm font-bold text-zinc-200">{tr('生成设置', 'Generation Settings')}</div>
+
+                <div className="mt-4 space-y-6">
+                  <div>
+                    <div className="text-xs font-bold text-zinc-200">{tr('基础配置', 'Basics')}</div>
+                    <div className="mt-3 grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">目标场景</div>
+                        <DropdownSelect
+                          value={galleryTargetScene}
+                          options={[
+                            { value: 'detail', label: '详情页' },
+                            { value: 'xiaohongshu', label: '小红书' },
+                            { value: 'douyin', label: '抖音' },
+                            { value: 'poster', label: '海报' },
+                            { value: 'ads', label: '广告投流' },
+                          ]}
+                          onChange={(v) => setGalleryTargetScene(v as any)}
+                          buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                          iconClassName="w-4 h-4 text-zinc-500"
+                          optionClassName="text-xs"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">风格</div>
+                        <DropdownSelect
+                          value={galleryStyle}
+                          options={[
+                            { value: 'ecom_clean', label: '简洁电商风' },
+                            { value: 'lifestyle', label: '生活方式风' },
+                            { value: 'premium', label: '高级质感风' },
+                            { value: 'festival', label: '节日营销风' },
+                          ]}
+                          onChange={(v) => setGalleryStyle(v as any)}
+                          buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                          iconClassName="w-4 h-4 text-zinc-500"
+                          optionClassName="text-xs"
+                        />
+                      </div>
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">输出套图类型</div>
-                    <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <div className="text-xs font-bold text-zinc-200">{tr('输出类型', 'Outputs')}</div>
+                    <div className="mt-3 space-y-3">
                       {([
                         ['white_bg', '白底图'],
                         ['scene', '场景图'],
                         ['selling_point', '卖点图'],
                         ['cover', '封面图'],
                         ['poster', '海报图'],
-                      ] as Array<[keyof typeof galleryOutputTypes, string]>).map(([key, label]) => (
-                        <label key={key} className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-200 cursor-pointer hover:bg-white/5">
-                          <input
-                            type="checkbox"
-                            checked={galleryOutputTypes[key]}
-                            onChange={(e) => setGalleryOutputTypes((prev) => ({ ...prev, [key]: e.target.checked }))}
-                            className="accent-orange-500"
-                          />
-                          <span>{label}</span>
-                        </label>
+                      ] as Array<[keyof typeof galleryTypeSelections, string]>).map(([key, label]) => (
+                        <div key={key} className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                          <label className="flex items-center gap-2 text-xs text-zinc-200">
+                            <input
+                              type="checkbox"
+                              checked={galleryTypeSelections[key].enabled}
+                              onChange={(e) => setGalleryTypeSelections((prev) => ({ ...prev, [key]: { ...prev[key], enabled: e.target.checked } }))}
+                              className="accent-orange-500"
+                            />
+                            <span>{label}</span>
+                          </label>
+                          <div className="flex items-center">
+                            <button
+                              type="button"
+                              onClick={() => setGalleryTypeSelections((prev) => ({ ...prev, [key]: { ...prev[key], count: Math.max(1, prev[key].count - 1) } }))}
+                              disabled={!galleryTypeSelections[key].enabled || galleryTypeSelections[key].count <= 1}
+                              className="w-8 h-8 rounded-l-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-50 flex items-center justify-center"
+                            >
+                              <Minus className="w-4 h-4" />
+                            </button>
+                            <div className="w-10 h-8 flex items-center justify-center border-t border-b border-white/10 bg-black/30 text-xs text-zinc-200">
+                              {galleryTypeSelections[key].count}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setGalleryTypeSelections((prev) => ({ ...prev, [key]: { ...prev[key], count: Math.min(8, prev[key].count + 1) } }))}
+                              disabled={!galleryTypeSelections[key].enabled || galleryTypeSelections[key].count >= 8}
+                              className="w-8 h-8 rounded-r-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-50 flex items-center justify-center"
+                            >
+                              <Plus className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
                       ))}
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">输出数量</div>
-                      <DropdownSelect
-                        value={String(galleryOutputCount)}
-                        options={[
-                          { value: '4', label: '4 张' },
-                          { value: '6', label: '6 张' },
-                          { value: '9', label: '9 张' },
-                        ]}
-                        onChange={(v) => setGalleryOutputCount((Number(v) === 6 ? 6 : Number(v) === 9 ? 9 : 4) as any)}
-                        buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                        iconClassName="w-4 h-4 text-zinc-500"
-                        optionClassName="text-xs"
-                      />
+                  <div>
+                    <div className="text-xs font-bold text-zinc-200">{tr('规格', 'Specs')}</div>
+                    <div className="mt-3 space-y-4">
+                      <div className="space-y-2">
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">横版</div>
+                        <div className="flex flex-wrap gap-2">
+                          {([
+                            ['21:9', '21:9 超宽'],
+                            ['16:9', '16:9 宽屏'],
+                            ['4:3', '4:3 标准'],
+                            ['3:2', '3:2 经典'],
+                          ] as Array<[string, string]>).map(([value, label]) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => setGalleryAspectRatio(value)}
+                              className={`rounded-xl border px-4 py-2 text-xs font-bold transition ${
+                                galleryAspectRatio === value
+                                  ? 'border-orange-500 bg-orange-500/10 text-orange-300'
+                                  : 'border-white/10 bg-black/20 text-zinc-200 hover:bg-white/5'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">方形</div>
+                        <div className="flex flex-wrap gap-2">
+                          {([
+                            ['1:1', '1:1 方形'],
+                            ['default', '默认比例'],
+                          ] as Array<[string, string]>).map(([value, label]) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => setGalleryAspectRatio(value)}
+                              className={`rounded-xl border px-4 py-2 text-xs font-bold transition ${
+                                galleryAspectRatio === value
+                                  ? 'border-orange-500 bg-orange-500/10 text-orange-300'
+                                  : 'border-white/10 bg-black/20 text-zinc-200 hover:bg-white/5'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">竖版</div>
+                        <div className="flex flex-wrap gap-2">
+                          {([
+                            ['9:16', '9:16 竖屏'],
+                            ['3:4', '3:4 竖版'],
+                            ['2:3', '2:3 竖版经典'],
+                          ] as Array<[string, string]>).map(([value, label]) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => setGalleryAspectRatio(value)}
+                              className={`rounded-xl border px-4 py-2 text-xs font-bold transition ${
+                                galleryAspectRatio === value
+                                  ? 'border-orange-500 bg-orange-500/10 text-orange-300'
+                                  : 'border-white/10 bg-black/20 text-zinc-200 hover:bg-white/5'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">灵活</div>
+                        <div className="flex flex-wrap gap-2">
+                          {([
+                            ['5:4', '5:4 近方'],
+                            ['4:5', '4:5 近竖'],
+                          ] as Array<[string, string]>).map(([value, label]) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => setGalleryAspectRatio(value)}
+                              className={`rounded-xl border px-4 py-2 text-xs font-bold transition ${
+                                galleryAspectRatio === value
+                                  ? 'border-orange-500 bg-orange-500/10 text-orange-300'
+                                  : 'border-white/10 bg-black/20 text-zinc-200 hover:bg-white/5'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 pt-2">
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">图片分辨率</div>
+                        <div className="flex flex-wrap gap-2">
+                          {([
+                            ['1k', '1K'],
+                            ['2k', '2K'],
+                            ['4k', '4K'],
+                          ] as Array<['1k' | '2k' | '4k', string]>).map(([value, label]) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => setGalleryResolution(value)}
+                              className={`rounded-xl border px-4 py-2 text-xs font-bold transition ${
+                                galleryResolution === value
+                                  ? 'border-orange-500 bg-orange-500/10 text-orange-300'
+                                  : 'border-white/10 bg-black/20 text-zinc-200 hover:bg-white/5'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
+
+              <button
+                type="button"
+                onClick={handleGalleryGenerate}
+                disabled={isGalleryGenerating}
+                className="mt-3 w-full rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400 disabled:opacity-60 disabled:hover:bg-orange-500 transition flex items-center justify-center gap-2 mb-3"
+              >
+                <Wand2 className="w-4 h-4" />
+                {isGalleryGenerating ? tr('生成中...', 'Generating...') : tr('开始生成', 'Generate')}
+              </button>
             </div>
 
             <div className="flex-1 min-w-0 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col">
-              <div className="text-sm font-bold text-zinc-200">{tr('预览区', 'Preview')}</div>
-              <div className="flex-1 mt-4 rounded-2xl border border-dashed border-white/10 bg-black/20 flex items-center justify-center text-zinc-500">
-                {tr('输出预览（占位）', 'Output Preview (Placeholder)')}
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-bold text-zinc-200">
+                  {galleryRightPanel === 'preview' ? tr('预览区', 'Preview') : tr('历史记录', 'History')}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setGalleryRightPanel('preview')}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold transition border ${
+                      galleryRightPanel === 'preview'
+                        ? 'bg-orange-500/10 border-orange-500 text-orange-300'
+                        : 'bg-zinc-900/70 border-white/10 text-zinc-200 hover:bg-zinc-800'
+                    }`}
+                  >
+                    {tr('预览区', 'Preview')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGalleryRightPanel('history')}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold transition border ${
+                      galleryRightPanel === 'history'
+                        ? 'bg-orange-500/10 border-orange-500 text-orange-300'
+                        : 'bg-zinc-900/70 border-white/10 text-zinc-200 hover:bg-zinc-800'
+                    }`}
+                  >
+                    {tr('历史记录', 'History')}
+                  </button>
+                </div>
               </div>
+
+              {galleryRightPanel === 'preview' ? (
+                <div className="flex-1 mt-4 rounded-2xl border border-dashed border-white/10 bg-black/10 overflow-y-auto">
+                  {galleryPreviewItems.length === 0 ? (
+                    <div className="h-full flex items-center justify-center text-zinc-500">
+                      <div className="flex flex-col items-center justify-center gap-3">
+                        <ImageIcon className="w-10 h-10 opacity-60" />
+                        <div className="text-sm font-semibold text-zinc-400">
+                          {isGalleryGenerating ? tr('生成中...', 'Generating...') : tr('等待生成...', 'Waiting for generation...')}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 grid grid-cols-2 gap-3">
+                      {galleryPreviewItems.map((item) => (
+                        <div key={item.localId} className="rounded-xl border border-white/10 bg-black/20 overflow-hidden">
+                          <div className="px-3 py-2 text-[11px] text-zinc-400 border-b border-white/10 bg-black/30 flex items-center justify-between">
+                            <span>{item.status === 'succeeded' ? tr('已完成', 'Done') : item.status === 'failed' ? tr('失败', 'Failed') : tr('生成中', 'Generating')}</span>
+                            <span className="text-zinc-500">{item.requestId.slice(0, 8)}</span>
+                          </div>
+                          <div className="p-3">
+                            {item.imageUrl ? (
+                              <button
+                                type="button"
+                                onClick={() => openGalleryImagePreview(item.imageUrl as string)}
+                                className="rounded-lg overflow-hidden border border-white/10 bg-black/30 aspect-square cursor-pointer"
+                                title={tr('点击预览', 'Click to preview')}
+                              >
+                                <img src={item.imageUrl} className="w-full h-full object-cover" alt={item.requestId} />
+                              </button>
+                            ) : (
+                              <div className="rounded-lg border border-white/10 bg-black/30 aspect-square flex flex-col items-center justify-center text-zinc-500 gap-2">
+                                <ImageIcon className={`w-8 h-8 ${item.status === 'failed' ? 'opacity-50' : 'opacity-60 animate-pulse'}`} />
+                                <div className="text-xs text-zinc-500">{item.error || (item.status === 'failed' ? tr('生成失败', 'Failed') : tr('等待生成...', 'Waiting...'))}</div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex-1 mt-4 rounded-2xl border border-dashed border-white/10 bg-black/10 overflow-y-auto">
+                  {galleryHistoryItems.length === 0 ? (
+                    <div className="h-full flex items-center justify-center text-zinc-600 text-sm">
+                      {tr('暂无历史记录', 'No history yet')}
+                    </div>
+                  ) : (
+                    <div className="p-4 grid grid-cols-2 gap-3">
+                      {galleryHistoryItems
+                        .slice()
+                        .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+                        .map((item) => (
+                          <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 overflow-hidden">
+                            <div className="px-3 py-2 text-[11px] text-zinc-400 border-b border-white/10 bg-black/30">
+                              {item.createdAt}
+                            </div>
+                            <div className="p-3 grid grid-cols-2 gap-2">
+                              {item.images.slice(0, 4).map((url, idx) => (
+                                <button
+                                  type="button"
+                                  key={`${item.id}-${idx}`}
+                                  onClick={() => openGalleryImagePreview(url)}
+                                  className="rounded-lg overflow-hidden border border-white/10 bg-black/30 aspect-square cursor-pointer"
+                                  title={tr('点击预览', 'Click to preview')}
+                                >
+                                  <img src={url} className="w-full h-full object-cover" alt={`history-${item.id}-${idx}`} />
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

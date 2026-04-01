@@ -66,8 +66,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
         </div>
 
         <div className="flex flex-col gap-4 w-full px-2">
-          <InternalNav icon={Video} view="workbench" label={t.wb_nav_workbench} />
           <ProductImagesNav />
+          <InternalNav icon={Video} view="workbench" label={t.wb_nav_workbench} />
           <InternalNav icon={FolderOpen} view="assets" label={t.wb_nav_assets} />
           <InternalNav icon={History} view="history" label={t.wb_nav_history} />
           {isDebugModeEnabled && <InternalNav icon={Sparkles} view="agent" label={t.wb_nav_agent} />}

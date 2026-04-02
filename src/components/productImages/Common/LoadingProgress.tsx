@@ -14,6 +14,7 @@ interface LoadingProgressProps {
   currentStep?: string;
   totalSteps?: number;
   queuePosition?: number;
+  title?: string; // 自定义标题，默认为'正在生成首帧图...'
   onCancel: () => void;
 }
 
@@ -25,6 +26,7 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
   currentStep,
   totalSteps,
   queuePosition,
+  title,
   onCancel,
 }) => {
   const { language } = useLanguage();
@@ -73,7 +75,7 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
           <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
         </div>
         <h3 className="text-lg font-semibold text-white mb-2">
-          {tr('正在生成首帧图...', 'Generating first-frame image...')}
+          {title ? title : tr('正在生成首帧图...', 'Generating first-frame image...')}
         </h3>
         <p className="text-zinc-400 text-sm">
           {tr('请勿关闭页面，生成完成后会自动显示结果', 'Please keep this page open. Results will appear automatically.')}

@@ -326,17 +326,17 @@ body {
 
 .theme-light button[class*="border-orange-500/40"][class*="bg-orange-500/10"],
 .theme-light button[class*="border-orange-500/60"][class*="bg-orange-500/10"] {
-  background-color: rgba(249, 115, 22, 0.22) !important;
-  color: #9a3412 !important;
-  box-shadow: 0 8px 20px rgba(249, 115, 22, 0.18) !important;
+  background-color: rgba(251, 146, 60, 0.28) !important;
+  color: #d9480f !important;
+  box-shadow: 0 8px 20px rgba(251, 146, 60, 0.18) !important;
 }
 
 .theme-light button[class*="border-orange-500/40"][class*="bg-orange-500/10"]:hover,
 .theme-light button[class*="border-orange-500/60"][class*="bg-orange-500/10"]:hover,
 .theme-light button[class*="border-orange-500/40"][class*="hover:bg-orange-500/20"]:hover,
 .theme-light button[class*="border-orange-500/60"][class*="hover:bg-orange-500/20"]:hover {
-  background-color: rgba(249, 115, 22, 0.28) !important;
-  color: #7c2d12 !important;
+  background-color: rgba(251, 146, 60, 0.36) !important;
+  color: #c2410c !important;
 }
 
 .theme-light button[class*="border-emerald-500/40"][class*="bg-emerald-500/10"] {

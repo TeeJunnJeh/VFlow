@@ -165,9 +165,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   projectId,
   onApplyToWorkbench,
 }) => {
-  const { language } = useLanguage();
-  const isZh = language === 'zh';
-  const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
+  const { t } = useLanguage();
 
   const [phase, setPhase] = useState<Phase>('upload');
   const [images, setImages] = useState<File[]>([]);
@@ -262,7 +260,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     if (images.length === 0) {
       setError({
         code: 'NO_IMAGES',
-        message: tr('请先上传商品图片', 'Please upload a product image first'),
+        message: t.ff_error_upload_product_image_first,
         severity: 'warning',
       });
       return;
@@ -293,21 +291,21 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
       setError({
         code: 'GENERATION_FAILED',
-        message: tr('生成失败，请检查输入并重试', 'Generation failed. Please check your input and try again.'),
+        message: t.ff_error_generation_failed,
         severity: 'error',
-        suggestion: tr('确保上传的是清晰、正面展示的商品图片', 'Use a clear front-facing product image.'),
+        suggestion: t.ff_error_suggestion_clear_front_image,
       });
       setPhase('error');
     } catch (err) {
       if (generationSeqRef.current !== runSeq) return;
 
       clearProgressTimer();
-      const message = err instanceof Error ? err.message : tr('未知错误', 'Unknown error');
+      const message = err instanceof Error ? err.message : t.ff_unknown_error;
       setError({
         code: 'GENERATION_ERROR',
         message,
         severity: 'error',
-        suggestion: tr('请检查网络连接并稍后重试', 'Please check your network and try again later.'),
+        suggestion: t.ff_error_suggestion_check_network,
       });
       setPhase('error');
     }
@@ -360,7 +358,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     } catch {
       setError({
         code: 'DOWNLOAD_FAILED',
-        message: tr('下载失败，请重试', 'Download failed. Please retry.'),
+        message: t.ff_error_download_failed,
         severity: 'error',
       });
     }
@@ -378,7 +376,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const applyToWorkbench = (image: ProductImageResult) => {
     const payload = {
       imageUrl: image.imageUrl,
-      imageName: tr('AI首帧图', 'AI First Frame'),
+      imageName: t.ff_ai_first_frame_name,
       timestamp: new Date().toISOString(),
       firstFrameWorkspaceId: workspaceId,
       firstFrameWorkspaceOrder: workspaceOrder,
@@ -429,10 +427,10 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
           <section className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5">
             <div className="mb-5">
               <h2 className="text-lg font-semibold text-white">
-                {tr('素材上传', 'Upload Materials')}
+                {t.ff_upload_materials}
               </h2>
               <p className="mt-1 text-xs text-zinc-500">
-                {tr('上传 1 张商品图，用于首帧图生成', 'Upload one product image for first-frame generation')}
+                {t.ff_upload_one_product_image_for_first_frame}
               </p>
             </div>
             <ImageUploader
@@ -440,7 +438,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
               maxFiles={1}
               uploadedStatusText={
                 images.length > 0
-                  ? `${tr('已上传', 'Uploaded')} ${images.length} ${tr('张商品图', 'product image(s)')}`
+                  ? `${t.ff_uploaded_status_prefix} ${images.length} ${t.ff_uploaded_status_suffix}`
                   : undefined
               }
               onFilesSelected={handleImagesSelected}
@@ -457,10 +455,10 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
           <section className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5">
             <div className="mb-5">
               <h2 className="text-lg font-semibold text-white">
-                {tr('生成配置', 'Generation Settings')}
+                {t.ff_generation_settings}
               </h2>
               <p className="mt-1 text-xs text-zinc-500">
-                {tr('保留原有功能选项，只调整为连续配置视图', 'Keep the existing options and configure them in a single view')}
+                {t.ff_generation_settings_desc}
               </p>
             </div>
 
@@ -476,34 +474,34 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
             <div className="mb-5 flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-white">
-                  {tr('结果预览', 'Result Preview')}
+                  {t.ff_result_preview}
                 </h2>
                 <p className="mt-1 text-xs text-zinc-500">
-                  {tr('在这里查看生成结果并进行下载或应用', 'Preview results here and continue with download or apply')}
+                  {t.ff_result_preview_desc}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center rounded-xl border border-white/10 bg-black/20 p-1">
                 <button
                   type="button"
                   onClick={() => setRightPanel('preview')}
-                  className={`px-3 py-2 rounded-lg text-xs font-semibold transition border ${
+                  className={`px-4 py-2 rounded-lg text-xs font-semibold border transition ${
                     rightPanel === 'preview'
-                      ? 'bg-orange-500/10 border-orange-500 text-orange-300'
-                      : 'bg-zinc-900/70 border-white/10 text-zinc-300 hover:bg-zinc-800'
+                      ? 'border-orange-500/40 bg-orange-500/10 text-orange-300'
+                      : 'border-transparent bg-transparent text-zinc-300 hover:bg-zinc-800/70'
                   }`}
                 >
-                  {tr('预览区', 'Preview')}
+                  {t.ff_preview_tab}
                 </button>
                 <button
                   type="button"
                   onClick={() => setRightPanel('history')}
-                  className={`px-3 py-2 rounded-lg text-xs font-semibold transition border ${
+                  className={`px-4 py-2 rounded-lg text-xs font-semibold border transition ${
                     rightPanel === 'history'
-                      ? 'bg-orange-500/10 border-orange-500 text-orange-300'
-                      : 'bg-zinc-900/70 border-white/10 text-zinc-300 hover:bg-zinc-800'
+                      ? 'border-orange-500/40 bg-orange-500/10 text-orange-300'
+                      : 'border-transparent bg-transparent text-zinc-300 hover:bg-zinc-800/70'
                   }`}
                 >
-                  {tr('历史记录', 'History')}
+                  {t.ff_history_tab}
                 </button>
               </div>
             </div>
@@ -515,7 +513,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                     progress={progress}
                     countdownStartSeconds={FIRST_FRAME_COUNTDOWN_SECONDS}
                     startedAtMs={progressStartedAtRef.current || undefined}
-                    currentStep={tr('生成首帧图中', 'Generating first-frame images')}
+                    currentStep={t.ff_generating_first_frame_images}
                     totalSteps={3}
                     onCancel={handleCancelGeneration}
                   />
@@ -533,10 +531,10 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                 <div className="flex min-h-[420px] items-center justify-center rounded-2xl border border-dashed border-white/10 bg-black/20 p-6 text-center">
                   <div>
                     <p className="text-sm font-medium text-zinc-300">
-                      {tr('完成配置后点击生成', 'Generate after finishing the settings')}
+                      {t.ff_generate_after_finishing_settings}
                     </p>
                     <p className="mt-2 text-xs text-zinc-500">
-                      {tr('生成结果将在这里展示', 'Generated images will appear here')}
+                      {t.ff_generated_images_will_appear_here}
                     </p>
                   </div>
                 </div>
@@ -545,14 +543,14 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
               <div className="min-h-[420px] rounded-2xl border border-dashed border-white/10 bg-black/20 p-4">
                 {historyItems.length === 0 ? (
                   <div className="h-full min-h-[380px] flex items-center justify-center text-zinc-500 text-sm">
-                    {tr('暂无历史记录', 'No history yet')}
+                    {t.ff_no_history_yet}
                   </div>
                 ) : (
                   <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
                     {historyItems.map((item) => (
                       <div key={item.id} className="rounded-xl border border-white/10 bg-black/30 overflow-hidden">
                         <div className="px-3 py-2 border-b border-white/10 bg-black/40 flex items-center justify-between text-xs text-zinc-400">
-                          <span>{tr('工作区', 'Workspace')} {item.workspaceOrder}</span>
+                          <span>{t.ff_workspace} {item.workspaceOrder}</span>
                           <span>{formatHistoryTime(item.createdAt)}</span>
                         </div>
                         <div className="p-3 grid grid-cols-4 gap-2">
@@ -571,7 +569,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                             onClick={() => activateHistoryItem(item)}
                             className="w-full px-3 py-2 rounded-lg text-xs font-semibold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
                           >
-                            {tr('恢复此记录', 'Restore This Record')}
+                            {t.ff_restore_this_record}
                           </button>
                         </div>
                       </div>
@@ -613,9 +611,7 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
   embedded = false,
   onApplyToWorkbench,
 }) => {
-  const { language } = useLanguage();
-  const isZh = language === 'zh';
-  const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
+  const { t } = useLanguage();
 
   const initialWorkspaceMetas = useMemo(() => readWorkspaceMetas(), []);
   const [workspaceMetas, setWorkspaceMetas] = useState<FirstFrameWorkspaceMeta[]>(initialWorkspaceMetas);
@@ -666,8 +662,8 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
   }, [activeWorkspaceId, workspaceMetas]);
 
   const workspaceLabel = useCallback((workspace: FirstFrameWorkspaceMeta) => (
-    tr(`工作区 ${workspace.order}`, `Workspace ${workspace.order}`)
-  ), [isZh]);
+    `${t.ff_workspace} ${workspace.order}`
+  ), [t]);
 
   const workspaceOptions = useMemo(
     () => workspaceMetas.map((workspace) => ({
@@ -722,17 +718,17 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
             <button
               onClick={onBack}
               className="p-2 hover:bg-zinc-800 rounded-lg transition"
-              title={tr('返回', 'Back')}
+              title={t.ff_back}
             >
               <ChevronLeft className="w-6 h-6 text-zinc-400" />
             </button>
           )}
           <div>
             <h1 className="text-2xl font-bold text-white mb-1">
-              {tr('AI首帧图生成', 'AI First-Frame Generator')}
+              {t.ff_page_title}
             </h1>
             <p className="text-zinc-400 text-sm">
-              {tr('为视频生成提供起始视觉素材', 'Generate hand-held product key frames for video workflow')}
+              {t.ff_page_subtitle}
             </p>
           </div>
 
@@ -753,14 +749,14 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
               className="px-3 py-2 rounded-xl text-xs font-semibold bg-orange-500/10 border border-orange-500/40 text-orange-300 hover:bg-orange-500/20 transition inline-flex items-center gap-1.5"
             >
               <Plus className="w-3.5 h-3.5" />
-              {tr('新建工作区', 'New Workspace')}
+              {t.ff_new_workspace}
             </button>
           </div>
         </div>
 
         <div className="mb-4 rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3">
           <p className="text-xs text-blue-300">
-            {tr('提示：可创建多个首帧图工作区并行生成，切换后会保留各自记录。', 'Tip: You can create multiple first-frame workspaces and run generation in parallel. Switching keeps each workspace record.')}
+            {t.ff_workspace_tip}
           </p>
         </div>
 

@@ -22,9 +22,7 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
   onSetAsFirstFrame,
   onNextStep,
 }) => {
-  const { language } = useLanguage();
-  const isZh = language === 'zh';
-  const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
+  const { t } = useLanguage();
 
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
   const [selectedImageId, setSelectedImageId] = useState<string | null>(results[0]?.id || null);
@@ -67,7 +65,7 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
     <div className="w-full space-y-6">
       <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
         <p className="text-green-400 text-sm font-medium">
-          {tr('生成完成，共', 'Generation completed,')} {results.length} {tr('张首帧图', 'image(s) generated')}
+          {t.ff_result_generated_prefix} {results.length} {t.ff_result_generated_suffix}
         </p>
       </div>
 
@@ -78,17 +76,17 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
               <div className="relative">
                 <img
                   src={selectedImage.imageUrl}
-                  alt={tr('首帧图', 'First Frame')}
+                  alt={t.ff_first_frame_alt}
                   className="max-h-96 max-w-sm object-contain rounded-lg border-2 border-orange-500/30 cursor-pointer hover:border-orange-500 transition"
                   onClick={() => setShowFullImage(true)}
                 />
                 <div className="absolute top-4 right-4 px-2 py-1 bg-blue-600/80 text-white text-xs rounded font-medium">
-                  {tr('竖屏', 'Vertical')}
+                  {t.ff_vertical_badge}
                 </div>
               </div>
             ) : (
               <div className="w-sm h-96 bg-zinc-800 rounded-lg border border-zinc-700 flex items-center justify-center">
-                <p className="text-zinc-500">{tr('无结果', 'No result')}</p>
+                <p className="text-zinc-500">{t.ff_no_result}</p>
               </div>
             )}
           </div>
@@ -96,7 +94,7 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
 
         {results.length > 1 && (
           <div className="px-8 py-6 border-t border-zinc-700 bg-zinc-800/30">
-            <p className="text-zinc-300 text-sm font-medium mb-4">{tr('预览其他变体', 'Preview variants')}</p>
+            <p className="text-zinc-300 text-sm font-medium mb-4">{t.ff_preview_variants}</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {results.map((result) => (
                 <button
@@ -117,16 +115,16 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
-              <p className="text-zinc-400 text-xs mb-1">{tr('文件大小', 'File Size')}</p>
+              <p className="text-zinc-400 text-xs mb-1">{t.ff_file_size}</p>
               <p className="text-white font-semibold">{selectedImage.size ? (selectedImage.size / 1024).toFixed(1) : '-'} KB</p>
             </div>
             <div className="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
-              <p className="text-zinc-400 text-xs mb-1">{tr('图片格式', 'Format')}</p>
+              <p className="text-zinc-400 text-xs mb-1">{t.ff_image_format}</p>
               <p className="text-white font-semibold">JPG</p>
             </div>
             <div className="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
-              <p className="text-zinc-400 text-xs mb-1">{tr('构图适配', 'Framing')}</p>
-              <p className="text-green-400 font-semibold">{tr('已优化', 'Optimized')}</p>
+              <p className="text-zinc-400 text-xs mb-1">{t.ff_framing}</p>
+              <p className="text-green-400 font-semibold">{t.ff_optimized}</p>
             </div>
           </div>
 
@@ -137,18 +135,18 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
               className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition flex items-center justify-center gap-2 font-medium"
             >
               <Download className="w-4 h-4" />
-              {downloadingIds.has(selectedImage.id) ? tr('下载中...', 'Downloading...') : tr('下载此图', 'Download Image')}
+              {downloadingIds.has(selectedImage.id) ? t.ff_downloading : t.ff_download_image}
             </button>
             <button
               onClick={() => onSetAsFirstFrame(selectedImage.id)}
               className="px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition flex items-center justify-center gap-2 font-medium"
             >
-              {tr('设为工作台首帧', 'Set as Workbench First Frame')}
+              {t.ff_set_as_workbench_first_frame}
             </button>
           </div>
 
           <div className="rounded-lg border border-zinc-700 bg-zinc-800/40 p-4 space-y-3">
-            <label className="block text-xs text-zinc-400 font-medium">{tr('后处理: 下载命名前缀', 'Post-process: Download filename prefix')}</label>
+            <label className="block text-xs text-zinc-400 font-medium">{t.ff_post_process_download_prefix}</label>
             <input
               value={filenamePrefix}
               onChange={(e) => setFilenamePrefix(e.target.value.replace(/\s+/g, '_'))}
@@ -160,7 +158,7 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
               disabled={isDownloadingAll}
               className="w-full px-4 py-2.5 bg-green-600/20 text-green-400 border border-green-600/30 rounded-lg hover:bg-green-600/30 disabled:opacity-60 transition font-medium text-sm"
             >
-              {isDownloadingAll ? tr('打包下载中...', 'Downloading all...') : `${tr('下载全部', 'Download All')} (${results.length})`}
+              {isDownloadingAll ? t.ff_downloading_all : `${t.ff_download_all} (${results.length})`}
             </button>
           </div>
 
@@ -170,14 +168,14 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
               className="px-4 py-3 bg-zinc-800 text-zinc-300 border border-zinc-700 rounded-lg hover:bg-zinc-700 transition flex items-center justify-center gap-2 font-medium"
             >
               <RotateCcw className="w-4 h-4" />
-              {tr('重新生成', 'Regenerate')}
+              {t.ff_regenerate}
             </button>
             <button
               onClick={() => onNextStep(selectedImage.id)}
               className="px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition flex items-center justify-center gap-2 font-medium"
             >
               <ArrowRight className="w-4 h-4" />
-              {tr('一键进入工作台生成视频', 'Use in Workbench and Generate Video')}
+              {t.ff_use_in_workbench_and_generate_video}
             </button>
           </div>
         </div>

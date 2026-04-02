@@ -3,7 +3,7 @@
  */
 
 import React, { useCallback, useState, useRef } from 'react';
-import { Upload, X, Check } from 'lucide-react';
+import { Upload, X } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
 
 interface ImageUploaderProps {
@@ -14,6 +14,7 @@ interface ImageUploaderProps {
   onError: (error: string) => void;
   disabled?: boolean;
   multiple?: boolean;
+  uploadedStatusText?: string;
 }
 
 const DEFAULT_ACCEPTED_FORMATS = ['image/jpeg', 'image/png', 'image/webp'];
@@ -27,6 +28,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   onError,
   disabled = false,
   multiple = true,
+  uploadedStatusText,
 }) => {
   const { language } = useLanguage();
   const isZh = language === 'zh';
@@ -223,13 +225,13 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       {selectedFiles.length > 0 && (
         <div className="mt-6">
           <p className="text-zinc-300 text-sm font-medium mb-3">{tr('已上传图片', 'Uploaded Images')}</p>
-          <div className="grid grid-cols-3 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className={maxFiles === 1 ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"}>
             {previews.map((preview, index) => (
               <div
                 key={index}
                 className="relative group"
               >
-                <div className="relative w-full aspect-square rounded-lg overflow-hidden bg-zinc-900 border border-zinc-700">
+                <div className="relative w-full max-w-[200px] aspect-square rounded-lg overflow-hidden bg-zinc-900 border border-zinc-700">
                   <img
                     src={preview}
                     alt={`Preview ${index + 1}`}
@@ -259,27 +261,9 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
             ))}
           </div>
 
-          {/* 确认/继续按钮 */}
-          {selectedFiles.length > 0 && (
-            <div className="mt-4 flex gap-3">
-              <button
-                onClick={() => {
-                  if (inputRef.current) {
-                    inputRef.current.click();
-                  }
-                }}
-                disabled={disabled || selectedFiles.length >= maxFiles}
-                className="px-4 py-2 rounded-lg border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed transition"
-              >
-                {selectedFiles.length < maxFiles ? tr('+ 添加更多', '+ Add more') : tr('已达到上限', 'Max reached')}
-              </button>
-              <button
-                disabled={disabled || selectedFiles.length === 0}
-                className="px-4 py-2 rounded-lg text-sm font-bold border border-emerald-500/40 text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-2 shadow-[0_8px_24px_rgba(16,185,129,0.12)]"
-              >
-                <Check className="w-4 h-4" />
-                {tr('确认上传', 'Confirm Upload')}
-              </button>
+          {uploadedStatusText && (
+            <div className="mt-4 rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-2">
+              <p className="text-sm text-green-400">{uploadedStatusText}</p>
             </div>
           )}
         </div>

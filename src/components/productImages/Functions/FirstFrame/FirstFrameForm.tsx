@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Wand2 } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import type { FirstFrameParams } from '../../../../types/productImages';
@@ -137,21 +137,13 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
 
   return (
     <form onSubmit={handleSubmit} className="w-full">
-      <div className="space-y-6">
-        {images.length > 0 && (
-          <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
-            <p className="text-green-400 text-sm">
-              {tr('已上传', 'Uploaded')} {images.length} {tr('张商品图', 'product image(s)')}
-            </p>
-          </div>
-        )}
-
+      <div className="space-y-6">
         <div className="space-y-4">
           <h3 className="text-white font-medium">{tr('基础设置', 'Basic Settings')}</h3>
 
           <div>
             <label className="block text-sm text-zinc-300 mb-2 font-medium">
-              {tr('品类', 'Category')} <span className="text-orange-500">*</span>
+              {tr('品类', 'Category')}
             </label>
             <DropdownSelect
               value={formData.category || ''}
@@ -280,6 +272,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
               ? 'border-white/10 bg-black/20 text-zinc-500 cursor-not-allowed opacity-60'
               : 'border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300'}`}
           >
+            <Wand2 className="w-4 h-4" />
             {isSubmitting ? tr('生成中...', 'Generating...') : tr('生成首帧图', 'Generate First Frame')}
           </button>
           <button

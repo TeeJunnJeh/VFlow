@@ -438,6 +438,11 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
             <ImageUploader
               key={`${workspaceId}-${uploaderResetKey}`}
               maxFiles={1}
+              uploadedStatusText={
+                images.length > 0
+                  ? `${tr('已上传', 'Uploaded')} ${images.length} ${tr('张商品图', 'product image(s)')}`
+                  : undefined
+              }
               onFilesSelected={handleImagesSelected}
               onError={(err) =>
                 setError({

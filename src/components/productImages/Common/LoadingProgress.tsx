@@ -68,7 +68,7 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto p-8 bg-gradient-to-br from-zinc-900 to-zinc-800 rounded-xl border border-zinc-700 shadow-2xl">
+    <div className="glass-panel w-full max-w-2xl mx-auto p-8 rounded-xl border border-white/10 shadow-2xl">
       {/* 标题 */}
       <div className="text-center mb-8">
         <div className="flex items-center justify-center mb-4">
@@ -104,7 +104,7 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
           </div>
           
           {/* 步骤进度条 */}
-          <div className="w-full h-2 bg-zinc-700 rounded-full overflow-hidden">
+          <div className="w-full h-2 bg-black/20 rounded-full overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-orange-500 to-orange-400 rounded-full transition-all duration-500"
               style={{ width: `${progress}%` }}
@@ -121,7 +121,7 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
             {progress}%
           </p>
         </div>
-        <div className="w-full h-3 bg-zinc-700 rounded-full overflow-hidden">
+        <div className="w-full h-3 bg-black/20 rounded-full overflow-hidden">
           <div
             className="h-full bg-gradient-to-r from-orange-500 to-orange-400 rounded-full transition-all duration-500 shadow-lg shadow-orange-500/30"
             style={{ width: `${progress}%` }}
@@ -131,13 +131,13 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
 
       {/* 时间信息 */}
       <div className="grid grid-cols-2 gap-4 mb-8">
-        <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-600">
+        <div className="bg-zinc-800/50 rounded-lg p-3 border border-white/10">
           <p className="text-zinc-400 text-xs mb-1">{tr('已用时间', 'Elapsed')}</p>
           <p className="text-white font-semibold">
             {formatTime(elapsedTime)}
           </p>
         </div>
-        <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-600">
+        <div className="bg-zinc-800/50 rounded-lg p-3 border border-white/10">
           <p className="text-zinc-400 text-xs mb-1">
             {countdownBase > 0 ? tr('预计剩余', 'Estimated Remaining') : tr('无时间估算', 'No Estimate')}
           </p>

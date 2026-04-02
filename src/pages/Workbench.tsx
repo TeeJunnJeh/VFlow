@@ -319,6 +319,11 @@ const Workbench = () => {
   }, [activeView, isDebugModeEnabled]);
 
   const shouldShowSidebar = activeView !== 'templates' && activeView !== 'editor';
+  const isProductImagesActive =
+    activeView === 'product_images_clothing_swap'
+    || activeView === 'product_images_first_frame'
+    || activeView === 'product_images_smart_repair'
+    || activeView === 'product_images_gallery';
 
   return (
     <WorkbenchModelProvider>
@@ -391,9 +396,9 @@ const Workbench = () => {
             />
           )}
 
-          {(activeView === 'product_images_clothing_swap' || activeView === 'product_images_first_frame' || activeView === 'product_images_smart_repair' || activeView === 'product_images_gallery') && (
+          <div className={isProductImagesActive ? 'flex-1 min-h-0' : 'hidden'}>
             <ProductImagesView activeView={activeView} setActiveView={setActiveView} />
-          )}
+          </div>
 
           {activeView === 'templates' && (
             <TemplatesView

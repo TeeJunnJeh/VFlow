@@ -36,6 +36,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     activeView === 'product_images_gallery';
 
   const currentValue: ViewType = isProductView ? activeView : 'product_images_first_frame';
+  const panelClassName = (view: ViewType) => (currentValue === view ? 'block' : 'hidden');
 
   const [galleryImages, setGalleryImages] = useState<File[]>([]);
   const [galleryProductName, setGalleryProductName] = useState('');
@@ -507,24 +508,24 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       </header>
 
       <main className="flex-1 overflow-y-auto custom-scroll px-10 py-6">
-        {currentValue === 'product_images_clothing_swap' && (
+        <div className={panelClassName('product_images_clothing_swap')}>
           <div className="rounded-2xl border border-white/5 bg-white/2 h-full flex items-center justify-center text-zinc-500">
             <div>{tr('AI 换装（开发中）', 'AI Clothing Swap (In Development)')}</div>
           </div>
-        )}
+        </div>
 
-        {currentValue === 'product_images_first_frame' && (
+        <div className={panelClassName('product_images_first_frame')}>
           <FirstFrameView
             embedded
             onApplyToWorkbench={() => setActiveView('workbench')}
           />
-        )}
+        </div>
 
-        {currentValue === 'product_images_smart_repair' && (
+        <div className={panelClassName('product_images_smart_repair')}>
           <SmartRepairView embedded />
-        )}
+        </div>
 
-        {currentValue === 'product_images_gallery' && (
+        <div className={panelClassName('product_images_gallery')}>
           <div className="h-full flex gap-6">
             <div className="w-[30%] min-w-[360px] max-w-[520px] flex flex-col gap-4">
               <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
@@ -678,7 +679,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                 </div>
               </div>
             </div>
-
             <div className="w-[32%] min-w-[420px] max-w-[640px] flex flex-col gap-4">
               <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
                 <div className="text-sm font-bold text-zinc-200">{tr('生成设置', 'Generation Settings')}</div>
@@ -1016,7 +1016,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               )}
             </div>
           </div>
-        )}
+        </div>
       </main>
     </div>
   );

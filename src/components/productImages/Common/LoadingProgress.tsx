@@ -9,6 +9,8 @@ import { useLanguage } from '../../../context/LanguageContext';
 interface LoadingProgressProps {
   progress: number; // 0-100
   estimatedTime?: number; // 秒
+  countdownStartSeconds?: number;
+  startedAtMs?: number;
   currentStep?: string;
   totalSteps?: number;
   queuePosition?: number;
@@ -18,6 +20,8 @@ interface LoadingProgressProps {
 export const LoadingProgress: React.FC<LoadingProgressProps> = ({
   progress,
   estimatedTime,
+  countdownStartSeconds,
+  startedAtMs,
   currentStep,
   totalSteps,
   queuePosition,
@@ -26,17 +30,33 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
   const { language } = useLanguage();
   const isZh = language === 'zh';
   const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
+  const countdownBase = (() => {
+    const direct = Number(countdownStartSeconds);
+    if (Number.isFinite(direct) && direct > 0) return Math.floor(direct);
+
+    const fallback = Number(estimatedTime);
+    if (Number.isFinite(fallback) && fallback > 0) return Math.floor(fallback);
+
+    return 0;
+  })();
+
   const [elapsedTime, setElapsedTime] = useState(0);
-  const [remainingTime, setRemainingTime] = useState(estimatedTime || 0);
+  const [remainingTime, setRemainingTime] = useState(countdownBase);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setElapsedTime((prev) => prev + 1);
-      setRemainingTime((prev) => Math.max(0, prev - 1));
-    }, 1000);
+    const originMs = Number.isFinite(startedAtMs) ? Number(startedAtMs) : Date.now();
 
-    return () => clearInterval(timer);
-  }, []);
+    const tick = () => {
+      const elapsed = Math.max(0, Math.floor((Date.now() - originMs) / 1000));
+      setElapsedTime(elapsed);
+      setRemainingTime(countdownBase > 0 ? Math.max(0, countdownBase - elapsed) : 0);
+    };
+
+    tick();
+    const timer = window.setInterval(tick, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [countdownBase, startedAtMs]);
 
   const formatTime = (seconds: number): string => {
     if (seconds < 60) return `${seconds}s`;
@@ -117,10 +137,10 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
         </div>
         <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-600">
           <p className="text-zinc-400 text-xs mb-1">
-            {estimatedTime ? tr('预计剩余', 'Estimated Remaining') : tr('无时间估算', 'No Estimate')}
+            {countdownBase > 0 ? tr('预计剩余', 'Estimated Remaining') : tr('无时间估算', 'No Estimate')}
           </p>
           <p className="text-white font-semibold">
-            {estimatedTime ? formatTime(remainingTime) : '-'}
+            {countdownBase > 0 ? formatTime(remainingTime) : '-'}
           </p>
         </div>
       </div>

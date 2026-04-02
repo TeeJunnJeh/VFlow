@@ -1,4 +1,5 @@
 import { getCookie } from './apiClient';
+import { parseApiError } from './errors';
 import type {
   FirstFrameParams,
   GenerationStatusResponse,
@@ -20,20 +21,6 @@ function toDisplayUrl(pathOrUrl: string): string {
     return `${mediaBaseUrl}${normalized}`;
   }
   return normalized;
-}
-
-async function parseError(response: Response, fallback: string): Promise<Error> {
-  try {
-    const data = await response.json();
-    const message =
-      String(data?.message || '').trim() ||
-      String(data?.error || '').trim() ||
-      String(data?.detail || '').trim() ||
-      fallback;
-    return new Error(message);
-  } catch {
-    return new Error(fallback);
-  }
 }
 
 function styleToModel(style?: FirstFrameParams['style']): string {
@@ -63,7 +50,7 @@ async function uploadTempImage(file: File): Promise<string> {
   });
 
   if (!response.ok) {
-    throw await parseError(response, 'Failed to upload reference image');
+    throw await parseApiError(response, 'Failed to upload reference image');
   }
 
   const data = await response.json();
@@ -108,7 +95,7 @@ async function generateFirstFrameOnce(options: {
   });
 
   if (!response.ok) {
-    throw await parseError(response, 'Failed to generate first-frame image');
+    throw await parseApiError(response, 'Failed to generate first-frame image');
   }
 
   const data = await response.json();
@@ -217,7 +204,7 @@ export const productImagesApi = {
     });
 
     if (!response.ok) {
-      throw await parseError(response, 'Failed to generate smart-repair image');
+      throw await parseApiError(response, 'Failed to generate smart-repair image');
     }
 
     const data = await response.json();
@@ -258,7 +245,7 @@ export const productImagesApi = {
     });
 
     if (!response.ok) {
-      throw await parseError(response, 'Failed to download image');
+      throw await parseApiError(response, 'Failed to download image');
     }
 
     return response.blob();

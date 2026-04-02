@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
+import { ApiError } from '../services/errors';
 
 export type TaskStatus = 'pending' | 'processing' | 'success' | 'failed';
 
@@ -114,7 +115,22 @@ export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
         if (!response.ok) return null;
         const json = await response.json();
 
-        if (json?.code !== 0 || !json?.data) return null;
+        // ── 后端返回 build_simple_error 格式（code !== 0）──
+        // 这不是 "轮询无更新"，而是真正的错误，需要通知用户
+        if (json?.code !== 0) {
+          const apiErr = new ApiError(
+            json?.message || '任务状态查询失败',
+            {
+              status: response.status,
+              errorCode: json?.error_code,
+              trackingId: json?.tracking_id,
+              data: json?.data || null,
+            },
+          );
+          return { id: task.id, status: 'failed' as TaskStatus, result: null, apiError: apiErr };
+        }
+
+        if (!json?.data) return null;
 
         const remoteStatusRaw = (json.data.status ?? '').toString().toLowerCase() as TaskStatus;
         if (!remoteStatusRaw) return null;
@@ -130,20 +146,36 @@ export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
       return null;
     }));
 
-    const validUpdates = updates.filter(Boolean) as Array<{ id: Task['id']; status: TaskStatus; result?: any }>;
+    const validUpdates = updates.filter(Boolean) as Array<{ id: Task['id']; status: TaskStatus; result?: any; apiError?: ApiError }>;
     if (validUpdates.length === 0) return;
 
     validUpdates.forEach((update) => {
       if (update.status !== 'failed') return;
+
+      // 优先使用已解析的 ApiError（来自 code !== 0 的响应）
+      if (update.apiError) {
+        window.dispatchEvent(new CustomEvent('vflow-app-error', {
+          detail: { apiError: update.apiError },
+        }));
+        return;
+      }
+
+      // 兜底：任务本身 status === failed（来自 data.result 里的信息）
       const result = update.result || {};
       const baseError = result?.error || '后台任务执行失败';
       const trackingId = result?.tracking_id;
-      const message = trackingId ? `${baseError}\nTracking ID: ${trackingId}` : String(baseError);
-      window.dispatchEvent(new CustomEvent('vflow-app-error', {
-        detail: {
-          title: '任务失败',
-          message,
+      const errorCode = result?.error_code;
+      const apiErr = new ApiError(
+        baseError,
+        {
+          status: 500,
+          errorCode: errorCode || 'VIDEO_GENERATION_FAILED',
+          trackingId: trackingId || undefined,
+          data: result,
         },
+      );
+      window.dispatchEvent(new CustomEvent('vflow-app-error', {
+        detail: { apiError: apiErr },
       }));
     });
 

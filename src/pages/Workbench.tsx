@@ -225,6 +225,16 @@ const Workbench = () => {
     }
   }, [location.pathname, location.search]);
 
+  // Listen for custom navigation events from child components (e.g. ImageHistoryPanel)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ view: ViewType }>).detail;
+      if (detail?.view) setActiveView(detail.view);
+    };
+    window.addEventListener('vflow:navigate', handler);
+    return () => window.removeEventListener('vflow:navigate', handler);
+  }, []);
+
   useEffect(() => {
     if (activeView !== 'workbench') return;
 
@@ -232,18 +242,33 @@ const Workbench = () => {
       const raw = window.localStorage.getItem(FIRST_FRAME_TRANSFER_KEY);
       if (!raw) return;
 
-      const parsed = JSON.parse(raw) as { imageUrl?: string; imageName?: string };
-      const imageUrl = String(parsed?.imageUrl || '').trim();
-      if (!imageUrl) {
+      const parsed = JSON.parse(raw) as {
+        // New format (multi-image + model selection)
+        imageUrls?: string[];
+        model?: string;
+        newProjectName?: string;
+        // Legacy format (single image)
+        imageUrl?: string;
+        imageName?: string;
+      };
+
+      // Support both new array format and legacy single-url format
+      const urls = Array.isArray(parsed.imageUrls) && parsed.imageUrls.length > 0
+        ? parsed.imageUrls.map((u) => String(u || '').trim()).filter(Boolean)
+        : [String(parsed?.imageUrl || '').trim()].filter(Boolean);
+
+      if (urls.length === 0) {
         window.localStorage.removeItem(FIRST_FRAME_TRANSFER_KEY);
         return;
       }
 
-      const displayUrl = getDisplayUrl(imageUrl) || imageUrl;
+      // Use the first image as the workbench asset
+      const primaryUrl = urls[0];
+      const displayUrl = getDisplayUrl(primaryUrl) || primaryUrl;
       setSelectedAssetForWorkbench({
         asset: {
           id: `first-frame-${Date.now()}`,
-          name: parsed.imageName || 'AI首帧图',
+          name: parsed.newProjectName || parsed.imageName || 'AI首帧图',
           type: 'product',
           file_url: displayUrl,
           media_kind: 'image',
@@ -254,6 +279,16 @@ const Workbench = () => {
         token: `first-frame-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         mode: 'library_asset',
       });
+
+      // Set a transfer signal so WorkbenchView knows to create new project + inject asset
+      setTransferRole('first_frame');
+      if (parsed.newProjectName) setTransferProjectName(parsed.newProjectName);
+
+      // Transfer model selection (Sora-family only)
+      if (parsed.model && ['sora2', 'sora2pro', 'seedance2.0'].includes(parsed.model)) {
+        setTransferModel(parsed.model as 'sora2' | 'sora2pro' | 'seedance2.0');
+      }
+
       setGeneratedVideoUrl(null);
       window.localStorage.removeItem(FIRST_FRAME_TRANSFER_KEY);
     } catch {
@@ -265,6 +300,9 @@ const Workbench = () => {
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [infoTitle, setInfoTitle] = useState('');
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [transferRole, setTransferRole] = useState<'first_frame' | null>(null);
+  const [transferProjectName, setTransferProjectName] = useState<string | null>(null);
+  const [transferModel, setTransferModel] = useState<'sora2' | 'sora2pro' | 'seedance2.0' | null>(null);
 
   const handleTaskPreview = (url: string) => {
     setGeneratedVideoUrl(url);
@@ -363,6 +401,10 @@ const Workbench = () => {
                 initialLibraryAssetToken={selectedAssetForWorkbench?.token || null}
                 initialLibraryAssetMode={selectedAssetForWorkbench?.mode || 'library_asset'}
                 onInitialLibraryAssetHandled={() => setSelectedAssetForWorkbench(null)}
+                initialTransferRole={transferRole}
+                initialTransferProjectName={transferProjectName}
+                initialTransferModel={transferModel}
+                onTransferRoleHandled={() => { setTransferRole(null); setTransferProjectName(null); setTransferModel(null); }}
                 templateList={templateList}
                 selectedTemplate={selectedTemplate}
                 onSelectTemplate={setSelectedTemplate}

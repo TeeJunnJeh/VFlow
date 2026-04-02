@@ -124,10 +124,10 @@ export const assetsApi = {
 
           if (response.status === 401 || response.status === 403) {
             console.error("Auth Failed: Cookies invalid or expired");
-            throw new Error('Unauthorized');
+            throw await parseApiError(response, 'Unauthorized');
           }
 
-          if (!response.ok) throw new Error('Failed to fetch assets');
+          if (!response.ok) throw await parseApiError(response, 'Failed to fetch assets');
 
           const json = await response.json();
           // Be robust across backend variants (some deployments wrap in `data`, some may return `assets`).
@@ -237,7 +237,7 @@ export const assetsApi = {
         body: formData,
       });
 
-      if (!response.ok) throw new Error('Upload failed');
+      if (!response.ok) throw await parseApiError(response, 'Upload failed');
       const json = await response.json();
 
       // Normalize common backend shapes so callers can reliably use `resp.data`.
@@ -286,7 +286,7 @@ export const assetsApi = {
         credentials: 'include',
       });
 
-      if (!response.ok) throw new Error('Delete failed');
+      if (!response.ok) throw await parseApiError(response, 'Delete failed');
       return true;
     } catch (error) {
       console.error("Delete Error:", error);

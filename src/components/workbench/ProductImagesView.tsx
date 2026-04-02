@@ -62,9 +62,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     message: '',
   });
   const [galleryRightPanel, setGalleryRightPanel] = useState<'preview' | 'history'>('preview');
-  const [galleryHistoryItems, setGalleryHistoryItems] = useState<Array<{ id: string; createdAt: string; images: string[] }>>([]);
+  const [galleryHistoryItems, setGalleryHistoryItems] = useState<Array<{ id: string; createdAt: string; images: string[]; settings?: { targetScene: string; style: string; aspectRatio: string; resolution: string; productName: string; productCategory: string; sellingPoints: string[]; typeSelections: Record<string, { enabled: boolean; count: number }>; uploadedImagePaths?: string[] } }>>([]);
   const [isGalleryGenerating, setIsGalleryGenerating] = useState(false);
   const [galleryPreviewImageUrl, setGalleryPreviewImageUrl] = useState<string | null>(null);
+  // Backend image paths restored from history "re-generate" — allows skipping upload
+  const [galleryRestoredImagePaths, setGalleryRestoredImagePaths] = useState<string[]>([]);
   const [galleryPreviewItems, setGalleryPreviewItems] = useState<
     Array<{ localId: string; requestId: string; status: 'created' | 'processing' | 'succeeded' | 'failed'; imageUrl?: string; error?: string }>
   >([]);
@@ -150,9 +152,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             ? item.images.map((x: any) => String(x || '').trim()).filter(Boolean)
             : [];
           if (!id || !createdAt || images.length === 0) return null;
-          return { id, createdAt, images };
+          const settings = item?.settings && typeof item.settings === 'object' ? item.settings : undefined;
+          return { id, createdAt, images, settings };
         })
-        .filter(Boolean) as Array<{ id: string; createdAt: string; images: string[] }>;
+        .filter(Boolean) as Array<{ id: string; createdAt: string; images: string[]; settings?: { targetScene: string; style: string; aspectRatio: string; resolution: string; productName: string; productCategory: string; sellingPoints: string[]; typeSelections: Record<string, { enabled: boolean; count: number }> } }>;
       setGalleryHistoryItems(normalized);
     } catch {
       setGalleryHistoryItems([]);
@@ -165,6 +168,33 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       galleryPollAbortRef.current = true;
     };
   }, []);
+
+  // Restore settings from history "re-generate" flow
+  const GALLERY_RESTORE_KEY = 'vflow_gallery_restore_settings';
+  useEffect(() => {
+    if (activeView !== 'product_images_gallery') return;
+    try {
+      const raw = localStorage.getItem(GALLERY_RESTORE_KEY);
+      if (!raw) return;
+      localStorage.removeItem(GALLERY_RESTORE_KEY);
+      const s = JSON.parse(raw) as Record<string, any>;
+      if (s.targetScene) setGalleryTargetScene(s.targetScene);
+      if (s.style) setGalleryStyle(s.style);
+      if (s.aspectRatio) setGalleryAspectRatio(s.aspectRatio);
+      if (s.resolution) setGalleryResolution(s.resolution);
+      if (s.productName) setGalleryProductName(s.productName);
+      if (s.productCategory) setGalleryCategory(s.productCategory);
+      if (Array.isArray(s.sellingPoints) && s.sellingPoints.length > 0) setGallerySellingPoints(s.sellingPoints);
+      if (s.typeSelections && typeof s.typeSelections === 'object') setGalleryTypeSelections(s.typeSelections);
+      // Restore backend image paths so generation can skip the upload step
+      if (Array.isArray(s.uploadedImagePaths) && s.uploadedImagePaths.length > 0) {
+        const paths = s.uploadedImagePaths.map((p: any) => String(p || '').trim()).filter(Boolean);
+        setGalleryRestoredImagePaths(paths);
+      }
+      // Switch right-panel to preview so user sees the form ready to generate
+      setGalleryRightPanel('preview');
+    } catch { /* ignore */ }
+  }, [activeView]);
 
   const gallerySupportedFormatTip = tr(
     '文件格式不支持，仅支持图片：.jpg .jpeg .png .webp',
@@ -190,7 +220,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const handleGalleryAiAnalyze = async () => {
     if (isGalleryAnalyzing) return;
 
-    if (galleryImages.length === 0) {
+    const hasNewImages = galleryImages.length > 0;
+    const hasRestoredPaths = galleryRestoredImagePaths.length > 0;
+
+    if (!hasNewImages && !hasRestoredPaths) {
       openGalleryAlert(tr('请先上传至少 1 张商品图片。', 'Please upload at least 1 product image.'));
       return;
     }
@@ -213,20 +246,25 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       if (!ok) return;
     }
 
-    const uploadTargets = galleryImages.slice(0, 4);
-    if (uploadTargets.some((f) => !isSupportedGalleryImageFile(f))) {
-      openGalleryAlert(gallerySupportedFormatTip);
-      return;
-    }
-
     setIsGalleryAnalyzing(true);
     try {
-      const imagePaths: string[] = [];
+      let imagePaths: string[] = [];
 
-      for (const file of uploadTargets) {
-        const uploadResp = await assetsApi.uploadTempAsset(file);
-        const path = extractUploadedAssetPath(uploadResp);
-        if (path) imagePaths.push(String(path));
+      if (hasNewImages) {
+        const uploadTargets = galleryImages.slice(0, 4);
+        if (uploadTargets.some((f) => !isSupportedGalleryImageFile(f))) {
+          openGalleryAlert(gallerySupportedFormatTip);
+          setIsGalleryAnalyzing(false);
+          return;
+        }
+        for (const file of uploadTargets) {
+          const uploadResp = await assetsApi.uploadTempAsset(file);
+          const path = extractUploadedAssetPath(uploadResp);
+          if (path) imagePaths.push(String(path));
+        }
+      } else {
+        // Use restored backend paths directly
+        imagePaths = [...galleryRestoredImagePaths];
       }
 
       if (imagePaths.length === 0) {
@@ -266,13 +304,17 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const handleGalleryGenerate = async () => {
     if (isGalleryGenerating) return;
 
-    if (galleryImages.length === 0) {
+    // Determine whether we have new uploaded images or restored backend paths
+    const hasNewImages = galleryImages.length > 0;
+    const hasRestoredPaths = galleryRestoredImagePaths.length > 0;
+
+    if (!hasNewImages && !hasRestoredPaths) {
       openGalleryAlert(tr('请先上传至少 1 张商品图片。', 'Please upload at least 1 product image.'));
       return;
     }
 
     const uploadTargets = galleryImages.slice(0, 3);
-    if (uploadTargets.some((f) => !isSupportedGalleryImageFile(f))) {
+    if (hasNewImages && uploadTargets.some((f) => !isSupportedGalleryImageFile(f))) {
       openGalleryAlert(gallerySupportedFormatTip);
       return;
     }
@@ -295,6 +337,18 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
     const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+    const settingsSnapshot = {
+      targetScene: galleryTargetScene,
+      style: galleryStyle,
+      aspectRatio: aspectRatio,
+      resolution: galleryResolution,
+      productName: galleryProductName.trim(),
+      productCategory: galleryCategory.trim(),
+      sellingPoints,
+      typeSelections: { ...galleryTypeSelections },
+      uploadedImagePaths: [] as string[],
+    };
+
     const appendHistory = (urls: string[]) => {
       const images = urls.map((u) => String(u || '').trim()).filter(Boolean);
       if (images.length === 0) return;
@@ -303,6 +357,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         id: `pg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         createdAt: new Date().toLocaleString(),
         images,
+        settings: settingsSnapshot,
       };
 
       setGalleryHistoryItems((prev) => {
@@ -316,6 +371,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       });
     };
 
+    // Collect all successful image URLs across all poll tasks
+    const collectedImageUrls: string[] = [];
+
     const runId = Date.now();
     galleryPollRunIdRef.current = runId;
 
@@ -324,16 +382,28 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     setGalleryPreviewItems([]);
 
     try {
-      const imagePaths: string[] = [];
-      for (const file of uploadTargets) {
-        const uploadResp = await assetsApi.uploadTempAsset(file);
-        const path = extractUploadedAssetPath(uploadResp);
-        if (path) imagePaths.push(String(path));
+      let imagePaths: string[] = [];
+
+      if (hasNewImages) {
+        // User uploaded new images → upload them to get backend paths
+        for (const file of uploadTargets) {
+          const uploadResp = await assetsApi.uploadTempAsset(file);
+          const path = extractUploadedAssetPath(uploadResp);
+          if (path) imagePaths.push(String(path));
+        }
+      } else {
+        // No new images but we have restored paths from history → reuse them
+        imagePaths = [...galleryRestoredImagePaths];
       }
 
       if (imagePaths.length === 0) {
         throw new Error(tr('图片上传失败，请重试。', 'Image upload failed. Please try again.'));
       }
+
+      // Save uploaded paths into the snapshot so history re-generate can reference them
+      settingsSnapshot.uploadedImagePaths = [...imagePaths];
+      // Clear restored paths once consumed
+      setGalleryRestoredImagePaths([]);
 
       const createResp = await videoApi.generateProductGallery({
         image_paths: imagePaths,
@@ -388,7 +458,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             setGalleryPreviewItems((prev) =>
               prev.map((it) => (it.requestId === requestId ? { ...it, status: 'succeeded' as const, imageUrl: url } : it))
             );
-            appendHistory(outputs);
+            // Collect URL for batch history write
+            outputs.forEach((o: any) => {
+              const u = String(o || '').trim();
+              if (u) collectedImageUrls.push(u);
+            });
             return;
           }
 
@@ -408,6 +482,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       };
 
       await Promise.all(initial.map((it) => pollOne(it.requestId)));
+
+      // Write one history entry for the entire generation task
+      if (collectedImageUrls.length > 0) {
+        appendHistory(collectedImageUrls);
+      }
     } catch (err: any) {
       openGalleryAlert(String(err?.message || tr('生成失败，请重试。', 'Generation failed. Please try again.')));
     } finally {
@@ -556,11 +635,57 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                       }
 
                       setGalleryImages((prev) => [...prev, ...supported].slice(0, 3));
+                      // Clear restored paths since user is uploading new images
+                      setGalleryRestoredImagePaths([]);
                       e.target.value = '';
                     }}
                   />
 
-                  {galleryImages.length === 0 ? (
+                  {galleryImages.length === 0 && galleryRestoredImagePaths.length > 0 ? (
+                    <>
+                      <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-[11px] text-emerald-300 flex items-center justify-between gap-2">
+                        <span>{tr(
+                          `已从历史记录恢复 ${galleryRestoredImagePaths.length} 张原始商品图`,
+                          `${galleryRestoredImagePaths.length} image(s) restored from history`
+                        )}</span>
+                        <button
+                          type="button"
+                          onClick={() => setGalleryRestoredImagePaths([])}
+                          className="text-emerald-400 hover:text-emerald-200 shrink-0"
+                          title={tr('清除', 'Clear')}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <div className="mt-3 grid grid-cols-3 gap-3">
+                        {galleryRestoredImagePaths.map((p, idx) => (
+                          <div key={p} className="relative rounded-xl overflow-hidden border border-emerald-500/20 bg-black/30 aspect-square">
+                            <img src={p} className="w-full h-full object-cover" alt={`restored-${idx}`} />
+                            <button
+                              type="button"
+                              onClick={() => setGalleryRestoredImagePaths((prev) => prev.filter((_, i) => i !== idx))}
+                              className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 border border-white/10 text-zinc-200 hover:text-white hover:bg-black/80 transition flex items-center justify-center"
+                              title={tr('移除', 'Remove')}
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                        {galleryRestoredImagePaths.length < 3 && (
+                          <button
+                            type="button"
+                            onClick={() => galleryFileInputRef.current?.click()}
+                            className="group relative rounded-xl border border-dashed border-white/10 bg-black/20 text-zinc-500 hover:text-zinc-300 hover:border-white/20 transition flex items-center justify-center aspect-square"
+                            title={tr('上传新图片替换', 'Upload new images to replace')}
+                          >
+                            <Plus className="w-6 h-6 transition-opacity duration-150 group-hover:opacity-0" />
+                            <Upload className="absolute w-6 h-6 opacity-0 transition-opacity duration-150 group-hover:opacity-80" />
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  ) : galleryImages.length === 0 ? (
+                    <>
                     <button
                       type="button"
                       onClick={() => galleryFileInputRef.current?.click()}
@@ -573,6 +698,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                       <div className="text-sm font-semibold">点击上传 1~3 张商品图</div>
                       <div className="text-[11px] mt-1">支持 JPG / PNG / WEBP</div>
                     </button>
+                    </>
                   ) : (
                     <div className="mt-3 grid grid-cols-3 gap-3">
                       {galleryPreviewUrls.map((url, idx) => (
@@ -986,16 +1112,17 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                       {tr('暂无历史记录', 'No history yet')}
                     </div>
                   ) : (
-                    <div className="p-4 grid grid-cols-2 gap-3">
+                    <div className="p-4 space-y-3">
                       {galleryHistoryItems
                         .slice()
                         .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
                         .map((item) => (
                           <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 overflow-hidden">
-                            <div className="px-3 py-2 text-[11px] text-zinc-400 border-b border-white/10 bg-black/30">
-                              {item.createdAt}
+                            <div className="px-3 py-2 text-[11px] text-zinc-400 border-b border-white/10 bg-black/30 flex items-center justify-between">
+                              <span>{item.createdAt}</span>
+                              <span className="text-zinc-500">{item.images.length} {tr('张', 'imgs')}</span>
                             </div>
-                            <div className="p-3 grid grid-cols-2 gap-2">
+                            <div className="p-3 grid grid-cols-4 gap-2">
                               {item.images.slice(0, 4).map((url, idx) => (
                                 <button
                                   type="button"
@@ -1007,7 +1134,20 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                                   <img src={url} className="w-full h-full object-cover" alt={`history-${item.id}-${idx}`} />
                                 </button>
                               ))}
+                              {item.images.length > 4 && (
+                                <div className="rounded-lg border border-white/10 bg-black/30 aspect-square flex items-center justify-center text-zinc-500 text-xs font-bold">
+                                  +{item.images.length - 4}
+                                </div>
+                              )}
                             </div>
+                            {item.settings && (
+                              <div className="px-3 pb-2 flex flex-wrap gap-1.5">
+                                <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">{item.settings.targetScene}</span>
+                                <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">{item.settings.style}</span>
+                                <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">{item.settings.aspectRatio}</span>
+                                <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">{item.settings.resolution}</span>
+                              </div>
+                            )}
                           </div>
                         ))}
                     </div>

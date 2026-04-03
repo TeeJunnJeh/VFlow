@@ -12,6 +12,14 @@ import {
   Video,
   X,
 } from 'lucide-react';
+import {
+  SEEDANCE_REPLAY_AUDIO_LIMIT,
+  SEEDANCE_REPLAY_DURATION_MAX,
+  SEEDANCE_REPLAY_IMAGE_LIMIT,
+  SEEDANCE_REPLAY_VIDEO_LIMIT,
+  type SeedanceReplayMediaKind,
+  type SeedanceReplayValidationSummary,
+} from './seedanceReplayUploadRules';
 
 type SourceType = 'library' | 'local';
 type MediaKind = 'image' | 'video' | 'audio';
@@ -28,18 +36,16 @@ export type SeedanceReplayUploadAsset = {
 type SeedanceReplayUploadPanelProps = {
   assets: SeedanceReplayUploadAsset[];
   defaultSource?: SourceType;
+  validationSummary?: SeedanceReplayValidationSummary;
+  showDefaultSourceSwitch?: boolean;
   onDefaultSourceChange?: (source: SourceType) => void;
   onAddFromLibrary?: () => void;
-  onAddFromLocal?: () => void;
+  onAddFromLocal?: (targetMediaKind?: SeedanceReplayMediaKind) => void;
   onPreview?: (assetId: string) => void;
   onReplace?: (assetId: string) => void;
   onRemove?: (assetId: string) => void;
 };
 
-const IMAGE_LIMIT = 9;
-const VIDEO_LIMIT = 3;
-const AUDIO_LIMIT = 3;
-const DURATION_LIMIT = 15;
 const noop = () => {};
 
 const sourceLabelMap: Record<SourceType, string> = {
@@ -54,6 +60,8 @@ function formatSeconds(value: number) {
 export function SeedanceReplayUploadPanel({
   assets,
   defaultSource,
+  validationSummary,
+  showDefaultSourceSwitch = true,
   onDefaultSourceChange,
   onAddFromLibrary = noop,
   onAddFromLocal = noop,
@@ -75,42 +83,36 @@ export function SeedanceReplayUploadPanel({
   const audioTotalDuration = audioAssets.reduce((sum, asset) => sum + (asset.durationSeconds || 0), 0);
 
   const hasContent = assets.length > 0;
-  const hasMinimumAssets = imageCount > 0 || videoCount > 0;
-  const videoOverLimit = videoCount > VIDEO_LIMIT || videoTotalDuration > DURATION_LIMIT;
-  const audioOverLimit = audioCount > AUDIO_LIMIT || audioTotalDuration > DURATION_LIMIT;
+  const imageErrors = validationSummary?.imageErrors || [];
+  const videoErrors = validationSummary?.videoErrors || [];
+  const audioErrors = validationSummary?.audioErrors || [];
+  const globalErrors = validationSummary?.globalErrors || [];
+  const hasMinimumAssets = validationSummary?.hasMinimumAssets ?? (imageCount > 0 || videoCount > 0);
+  const imageOverLimit = imageErrors.length > 0;
+  const videoOverLimit = videoErrors.length > 0;
+  const audioOverLimit = audioErrors.length > 0;
 
   const handleDefaultSourceChange = (next: SourceType) => {
     setInternalDefaultSource(next);
     onDefaultSourceChange?.(next);
   };
 
-  const handleAddByDefaultSource = () => {
+  const handleAddByDefaultSource = (targetMediaKind?: MediaKind) => {
     if (effectiveDefaultSource === 'library') {
       onAddFromLibrary();
       return;
     }
-    onAddFromLocal();
+    onAddFromLocal(targetMediaKind);
   };
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-bold text-zinc-500">默认添加来源</span>
-        <div className="flex items-center rounded-xl border border-white/10 bg-white/5 p-1">
-          <SourceTab
-            active={effectiveDefaultSource === 'library'}
-            icon={<FolderOpen className="h-3.5 w-3.5" />}
-            label="素材库"
-            onClick={() => handleDefaultSourceChange('library')}
-          />
-          <SourceTab
-            active={effectiveDefaultSource === 'local'}
-            icon={<Upload className="h-3.5 w-3.5" />}
-            label="本地上传"
-            onClick={() => handleDefaultSourceChange('local')}
-          />
-        </div>
-      </div>
+      {showDefaultSourceSwitch && (
+        <SeedanceReplayDefaultSourceSwitch
+          value={effectiveDefaultSource}
+          onChange={handleDefaultSourceChange}
+        />
+      )}
 
       {!hasContent ? (
         <div className="glass-panel rounded-xl border border-dashed border-white/10 p-5 sm:p-6">
@@ -123,7 +125,7 @@ export function SeedanceReplayUploadPanel({
 
             <h3 className="text-base font-bold text-zinc-100">添加参考素材</h3>
             <p className="mt-1 text-xs leading-5 text-zinc-400">
-              支持图片、视频、音频混合添加，系统会自动分类整理
+              支持图片、视频、音频混合添加，系统自动分类整理
             </p>
 
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
@@ -137,12 +139,6 @@ export function SeedanceReplayUploadPanel({
               </SecondaryButton>
             </div>
 
-            <div className="mt-4 w-full max-w-sm border-t border-white/10 pt-3">
-              <p className="flex items-center justify-center gap-2 text-xs text-orange-300">
-                <span className="h-1.5 w-1.5 rounded-full bg-orange-400" />
-                请至少上传 1 张图片或 1 个视频
-              </p>
-            </div>
           </div>
         </div>
       ) : (
@@ -164,15 +160,15 @@ export function SeedanceReplayUploadPanel({
       <div className="glass-panel rounded-xl border border-white/10 px-3 py-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-300 lg:gap-5">
-            <StatusMetric icon={<ImageIcon className="h-3.5 w-3.5 text-zinc-500" />} label="图片" value={imageCount} limit={IMAGE_LIMIT} />
+            <StatusMetric icon={<ImageIcon className="h-3.5 w-3.5 text-zinc-500" />} label="图片" value={imageCount} limit={SEEDANCE_REPLAY_IMAGE_LIMIT} error={imageOverLimit} />
             <MetricDivider />
             <StatusMetric
               icon={<Video className="h-3.5 w-3.5 text-zinc-500" />}
               label="视频"
               value={videoCount}
-              limit={VIDEO_LIMIT}
+              limit={SEEDANCE_REPLAY_VIDEO_LIMIT}
               duration={formatSeconds(videoTotalDuration)}
-              durationLimit={`${DURATION_LIMIT}s`}
+              durationLimit={`${SEEDANCE_REPLAY_DURATION_MAX}s`}
               error={videoOverLimit}
             />
             <MetricDivider />
@@ -180,9 +176,9 @@ export function SeedanceReplayUploadPanel({
               icon={<Music className="h-3.5 w-3.5 text-zinc-500" />}
               label="音频"
               value={audioCount}
-              limit={AUDIO_LIMIT}
+              limit={SEEDANCE_REPLAY_AUDIO_LIMIT}
               duration={formatSeconds(audioTotalDuration)}
-              durationLimit={`${DURATION_LIMIT}s`}
+              durationLimit={`${SEEDANCE_REPLAY_DURATION_MAX}s`}
               error={audioOverLimit}
             />
           </div>
@@ -193,72 +189,119 @@ export function SeedanceReplayUploadPanel({
           </div>
         </div>
 
-        {(videoOverLimit || audioOverLimit) && (
+        {(globalErrors.length > 0 || imageErrors.length > 0 || videoErrors.length > 0 || audioErrors.length > 0) && (
           <div className="mt-3 space-y-1.5 border-t border-white/10 pt-3">
-            {videoOverLimit && (
-              <p className="flex items-center gap-2 text-xs text-red-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
-                视频数量或总时长超过限制（{videoCount}/{VIDEO_LIMIT}，{formatSeconds(videoTotalDuration)}/{DURATION_LIMIT}s）
+            {globalErrors.map((message) => (
+              <p key={message} className="flex items-center gap-2 text-xs text-orange-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-orange-400" />
+                {message}
               </p>
-            )}
-            {audioOverLimit && (
-              <p className="flex items-center gap-2 text-xs text-red-400">
+            ))}
+            {imageErrors.map((message) => (
+              <p key={message} className="flex items-center gap-2 text-xs text-red-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
-                音频数量或总时长超过限制（{audioCount}/{AUDIO_LIMIT}，{formatSeconds(audioTotalDuration)}/{DURATION_LIMIT}s）
+                {message}
               </p>
-            )}
+            ))}
+            {videoErrors.map((message) => (
+              <p key={message} className="flex items-center gap-2 text-xs text-red-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                {message}
+              </p>
+            ))}
+            {audioErrors.map((message) => (
+              <p key={message} className="flex items-center gap-2 text-xs text-red-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                {message}
+              </p>
+            ))}
           </div>
         )}
       </div>
 
       <div className="grid grid-cols-1 gap-3">
         <CategoryCard
+          mediaKind="image"
           title="参考图片"
           icon={<ImageIcon className="h-4 w-4" />}
           items={imageAssets}
           count={imageCount}
-          limit={IMAGE_LIMIT}
+          limit={SEEDANCE_REPLAY_IMAGE_LIMIT}
+          exceedsLimit={imageOverLimit}
+          errorMessages={imageErrors}
           defaultSource={effectiveDefaultSource}
-          onAddFromDefault={handleAddByDefaultSource}
+          onAddFromDefault={() => handleAddByDefaultSource('image')}
           onAddFromLibrary={onAddFromLibrary}
-          onAddFromLocal={onAddFromLocal}
+          onAddFromLocal={() => onAddFromLocal('image')}
           onPreview={onPreview}
           onReplace={onReplace}
           onRemove={onRemove}
         />
         <CategoryCard
+          mediaKind="video"
           title="参考视频"
           icon={<Video className="h-4 w-4" />}
           items={videoAssets}
           count={videoCount}
-          limit={VIDEO_LIMIT}
+          limit={SEEDANCE_REPLAY_VIDEO_LIMIT}
           totalDuration={videoTotalDuration}
-          durationLimit={DURATION_LIMIT}
+          durationLimit={SEEDANCE_REPLAY_DURATION_MAX}
           exceedsLimit={videoOverLimit}
+          errorMessages={videoErrors}
           defaultSource={effectiveDefaultSource}
-          onAddFromDefault={handleAddByDefaultSource}
+          onAddFromDefault={() => handleAddByDefaultSource('video')}
           onAddFromLibrary={onAddFromLibrary}
-          onAddFromLocal={onAddFromLocal}
+          onAddFromLocal={() => onAddFromLocal('video')}
           onPreview={onPreview}
           onReplace={onReplace}
           onRemove={onRemove}
         />
         <CategoryCard
+          mediaKind="audio"
           title="参考音频"
           icon={<Music className="h-4 w-4" />}
           items={audioAssets}
           count={audioCount}
-          limit={AUDIO_LIMIT}
+          limit={SEEDANCE_REPLAY_AUDIO_LIMIT}
           totalDuration={audioTotalDuration}
-          durationLimit={DURATION_LIMIT}
+          durationLimit={SEEDANCE_REPLAY_DURATION_MAX}
           exceedsLimit={audioOverLimit}
+          errorMessages={audioErrors}
           defaultSource={effectiveDefaultSource}
-          onAddFromDefault={handleAddByDefaultSource}
+          onAddFromDefault={() => handleAddByDefaultSource('audio')}
           onAddFromLibrary={onAddFromLibrary}
-          onAddFromLocal={onAddFromLocal}
+          onAddFromLocal={() => onAddFromLocal('audio')}
           onPreview={onPreview}
           onReplace={onReplace}
           onRemove={onRemove}
+        />
+      </div>
+    </div>
+  );
+}
+
+export function SeedanceReplayDefaultSourceSwitch({
+  value,
+  onChange,
+}: {
+  value: SourceType;
+  onChange: (source: SourceType) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-[12px] font-bold text-zinc-500">默认添加来源</span>
+      <div className="flex items-center rounded-xl border border-white/10 bg-white/5 p-1">
+        <SourceTab
+          active={value === 'library'}
+          icon={<FolderOpen className="h-3.5 w-3.5" />}
+          label="素材库"
+          onClick={() => onChange('library')}
+        />
+        <SourceTab
+          active={value === 'local'}
+          icon={<Upload className="h-3.5 w-3.5" />}
+          label="本地上传"
+          onClick={() => onChange('local')}
         />
       </div>
     </div>
@@ -312,7 +355,7 @@ function PrimaryButton({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/50 bg-orange-500/15 px-3 py-2 text-xs font-bold text-orange-200 transition hover:bg-orange-500/20"
+      className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs font-bold text-zinc-200 transition hover:bg-white/5"
     >
       {children}
     </button>
@@ -374,6 +417,7 @@ function MetricDivider() {
 }
 
 type CategoryCardProps = {
+  mediaKind: MediaKind;
   title: string;
   icon: React.ReactNode;
   items: SeedanceReplayUploadAsset[];
@@ -382,6 +426,7 @@ type CategoryCardProps = {
   totalDuration?: number;
   durationLimit?: number;
   exceedsLimit?: boolean;
+  errorMessages?: string[];
   defaultSource: SourceType;
   onAddFromDefault: () => void;
   onAddFromLibrary: () => void;
@@ -392,6 +437,7 @@ type CategoryCardProps = {
 };
 
 function CategoryCard({
+  mediaKind: _mediaKind,
   title,
   icon,
   items,
@@ -400,6 +446,7 @@ function CategoryCard({
   totalDuration,
   durationLimit,
   exceedsLimit,
+  errorMessages = [],
   defaultSource,
   onAddFromDefault,
   onAddFromLibrary,
@@ -470,7 +517,7 @@ function CategoryCard({
 
       {isEmpty ? (
         <div className="rounded-xl border border-dashed border-white/10 bg-black/10 px-4 py-8 text-center text-xs leading-5 text-zinc-500">
-          点击 "+" 按默认来源添加
+          点击 "+" 按当前默认来源添加
           <br />
           当前默认来源：{sourceLabelMap[defaultSource]}
         </div>
@@ -490,6 +537,17 @@ function CategoryCard({
         <div className="space-y-2">
           {items.map((item) => (
             <AudioCard key={item.id} item={item} onPreview={onPreview} onReplace={onReplace} onRemove={onRemove} />
+          ))}
+        </div>
+      )}
+
+      {errorMessages.length > 0 && (
+        <div className="mt-3 space-y-1.5 border-t border-white/10 pt-3">
+          {errorMessages.map((message) => (
+            <p key={message} className="flex items-center gap-2 text-xs text-red-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+              {message}
+            </p>
           ))}
         </div>
       )}

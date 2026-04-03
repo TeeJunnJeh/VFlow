@@ -32,7 +32,25 @@ import type { ErrorModalProps } from './workflow/ErrorModal';
 import { buildErrorModalData, type ErrorCategory, type ErrorI18n } from '../../utils/errorModalHelper';
 import { getWorkbenchPreferences, setWorkbenchPreferences } from '../../utils/preferences';
 import { type ReplayReusePayload } from './ReplayScriptView';
-import { SeedanceReplayUploadPanel, type SeedanceReplayUploadAsset } from './SeedanceReplayUploadPanel';
+import {
+  SeedanceReplayDefaultSourceSwitch,
+  SeedanceReplayUploadPanel,
+  type SeedanceReplayUploadAsset,
+} from './Seedance/SeedanceReplayUploadPanel';
+import {
+  SEEDANCE_REPLAY_AUDIO_EXTS,
+  buildSeedanceReplayValidationSummary,
+  parseSeedanceReplayLocalFile,
+  SEEDANCE_REPLAY_IMAGE_EXTS,
+  SEEDANCE_REPLAY_AUDIO_LIMIT,
+  SEEDANCE_REPLAY_IMAGE_LIMIT,
+  SEEDANCE_REPLAY_UPLOAD_ACCEPT,
+  SEEDANCE_REPLAY_VIDEO_EXTS,
+  SEEDANCE_REPLAY_VIDEO_LIMIT,
+  type SeedanceReplayMediaKind,
+  type SeedanceReplayParsedAsset,
+  validateSeedanceReplayParsedAsset,
+} from './Seedance/seedanceReplayUploadRules';
 
 const ENABLE_PROMPT_LAB = true;
 const ENABLE_STORYBOARD_PROMPT = false;
@@ -44,6 +62,18 @@ const SCRIPT_PROGRESS_MAX_BEFORE_HOLD = 88;
 const SCRIPT_PROGRESS_HOLD_MAX = 96;
 const SCRIPT_ESTIMATE_STORAGE_KEY_PREFIX = 'vflow_script_eta_v1';
 const WAITING_PREVIEW_VIDEO_SRC = (import.meta.env.VITE_WAITING_PREVIEW_VIDEO_URL || 'https://vflow.genviewtech.com/media/vedio.mp4').toString();
+const revokeBlobUrl = (url: string | null | undefined) => {
+  if (url && url.startsWith('blob:')) {
+    URL.revokeObjectURL(url);
+  }
+};
+
+const getSeedanceReplayLocalAccept = (mediaKind?: SeedanceReplayMediaKind | null) => {
+  if (mediaKind === 'image') return SEEDANCE_REPLAY_IMAGE_EXTS.map((ext) => `.${ext}`).join(',');
+  if (mediaKind === 'video') return SEEDANCE_REPLAY_VIDEO_EXTS.map((ext) => `.${ext}`).join(',');
+  if (mediaKind === 'audio') return SEEDANCE_REPLAY_AUDIO_EXTS.map((ext) => `.${ext}`).join(',');
+  return SEEDANCE_REPLAY_UPLOAD_ACCEPT;
+};
 // Storyboard editor is now a user-toggleable runtime setting (no longer a compile-time constant).
 // The state `enableStoryboardEditor` replaces the old `enableStoryboardEditor` const.
 
@@ -104,6 +134,12 @@ type QueuedAsset = {
   isPrimaryFrame?: boolean;
   mediaKind?: 'image' | 'video' | 'audio' | 'file';
   durationSeconds?: number | null;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  width?: number | null;
+  height?: number | null;
+  fps?: number | null;
+  validationMessages?: string[];
   uploadedPath?: string | null;
   hasSubjectOtherViews?: boolean;
 };
@@ -116,6 +152,12 @@ type QueuedScript = {
   fullScript?: string;
   creativeCard?: ScriptCreativeCard;
   creativeCardText?: string;
+};
+
+type SeedanceReplayUploadIntent = {
+  mode: 'add' | 'replace';
+  assetId: string | null;
+  targetMediaKind: SeedanceReplayMediaKind | null;
 };
 
 type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion' | 'audio';
@@ -591,6 +633,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const { tasks, addTask } = useTasks();
   const { model: selectedModel, setModel: setSelectedModel } = useWorkbenchModel();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const seedanceReplayFileInputRef = useRef<HTMLInputElement>(null);
   const backgroundAudioInputRef = useRef<HTMLInputElement>(null);
   const scriptFileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -793,6 +836,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [translatingShots, setTranslatingShots] = useState<Record<number, boolean>>({});
   const [creationMode, setCreationMode] = useState<'fast' | 'replay'>(() => (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
   const [seedanceReplayDefaultSource, setSeedanceReplayDefaultSource] = useState<'library' | 'local'>('library');
+  const [seedanceReplayUploadIntent, setSeedanceReplayUploadIntent] = useState<SeedanceReplayUploadIntent>({ mode: 'add', assetId: null, targetMediaKind: null });
   const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
   const [isModelSectionCollapsed, setIsModelSectionCollapsed] = useState(false);
   const [isAiRecognizing, setIsAiRecognizing] = useState(false);
@@ -2608,6 +2652,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }];
     })
   ), [uploadDisplayAssets]);
+  const seedanceReplayValidation = useMemo(
+    () => buildSeedanceReplayValidationSummary(uploadDisplayAssets),
+    [uploadDisplayAssets]
+  );
   const aiOptimizeImageCandidates = useMemo(
     () => uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image'),
     [uploadDisplayAssets]
@@ -2687,18 +2735,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   ]);
   const handleSeedanceReplayAddFromLibrary = useCallback(() => {
     // Placeholder for future Seedance replay asset-library integration.
-  }, []);
-  const handleSeedanceReplayAddFromLocal = useCallback(() => {
-    // Placeholder for future Seedance replay local-upload integration.
-  }, []);
-  const handleSeedanceReplayPreview = useCallback((_assetId: string) => {
-    // Placeholder for future Seedance replay preview interaction.
-  }, []);
-  const handleSeedanceReplayReplace = useCallback((_assetId: string) => {
-    // Placeholder for future Seedance replay replace interaction.
-  }, []);
-  const handleSeedanceReplayRemove = useCallback((_assetId: string) => {
-    // Placeholder for future Seedance replay remove interaction.
   }, []);
   const resolveAiOptimizeReferencePath = useCallback(async (asset: QueuedAsset) => {
     let referencePath = asset.uploadedPath || asset.assetUrl || null;
@@ -4015,6 +4051,30 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
   }, [extractUploadedAssetPath, toDisplayUrl]);
 
+  const buildSeedanceReplayQueuedAsset = useCallback((asset: SeedanceReplayParsedAsset, index: number): QueuedAsset => {
+    const mediaKind = asset.mediaKind;
+    return {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${index}`,
+      name: asset.name,
+      previewUrl: URL.createObjectURL(asset.file),
+      fileObj: asset.file,
+      assetUrl: null,
+      assetId: null,
+      source: mediaKind === 'image' ? 'product' : 'preference',
+      materialType: mediaKind === 'video' ? 'motion' : mediaKind === 'audio' ? 'audio' : 'product',
+      isPrimaryFrame: mediaKind === 'image',
+      mediaKind,
+      durationSeconds: asset.durationSeconds,
+      mimeType: asset.mimeType,
+      sizeBytes: asset.sizeBytes,
+      width: asset.width,
+      height: asset.height,
+      fps: asset.fps,
+      validationMessages: [],
+      uploadedPath: null,
+    };
+  }, []);
+
   const applySelectedUploadType = (files: File[], selectedType: AssetLibraryTab) => {
     if (files.length === 0) return;
 
@@ -4255,45 +4315,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const removeTargetId = assetId || selectedQueueAssetId;
     if (removeTargetId) {
-      const nextQueue = assetQueue.filter((item) => item.id !== removeTargetId);
-      setAssetQueue(nextQueue);
-
-      const fallback = nextQueue[0] || null;
-      if (fallback) {
-        setSelectedQueueAssetId(fallback.id);
-        setUploadedFile(fallback.previewUrl || null);
-        setSelectedFileObj(fallback.fileObj || null);
-        setFileName(fallback.name || '');
-        setSelectedAssetUrl(fallback.assetUrl || null);
-        setSelectedAssetSource(fallback.source || null);
-        setCurrentMaterialType(fallback.materialType || null);
-      } else {
-        setSelectedQueueAssetId(null);
-        setUploadedFile(null);
-        setSelectedFileObj(null);
-        setFileName('');
-        setSelectedAssetUrl(null);
-        setLastUploadedUrl(null);
-        setSelectedAssetSource(null);
-        setCurrentMaterialType(null);
-      }
-
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      removeQueuedAssetById(removeTargetId);
       return;
     }
 
-    if (uploadedFile) {
-      URL.revokeObjectURL(uploadedFile);
-    }
-    setUploadedFile(null);
-    setSelectedFileObj(null);
-    setFileName('');
-    setSelectedAssetUrl(null);
-    setLastUploadedUrl(null);
-    setSelectedAssetSource(null);
-    setCurrentMaterialType(null);
+    revokeBlobUrl(uploadedFile);
+    clearWorkbenchAssetSelection();
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -4579,12 +4606,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
   };
 
-  const removeAssetFromQueue = (id: string) => {
-    setAssetQueue(prev => prev.filter(a => a.id !== id));
-    setSelectedQueueAssetId(prev => (prev === id ? null : prev));
-  };
+  const clearWorkbenchAssetSelection = useCallback(() => {
+    setSelectedQueueAssetId(null);
+    setUploadedFile(null);
+    setSelectedFileObj(null);
+    setFileName('');
+    setSelectedAssetUrl(null);
+    setLastUploadedUrl(null);
+    setSelectedAssetSource(null);
+    setCurrentMaterialType(null);
+    setGeneratedVideoUrl(null);
+  }, []);
 
-  const selectAssetFromQueue = (asset: QueuedAsset) => {
+  const applyWorkbenchAssetSelection = useCallback((asset: QueuedAsset | null) => {
+    if (!asset) {
+      clearWorkbenchAssetSelection();
+      return;
+    }
+
     setSelectedQueueAssetId(asset.id);
     setUploadedFile(asset.previewUrl || null);
     setFileName(asset.name || '');
@@ -4593,7 +4632,228 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setSelectedAssetSource(asset.source || null);
     setCurrentMaterialType(asset.materialType || null);
     setGeneratedVideoUrl(null);
+  }, [clearWorkbenchAssetSelection]);
+
+  const removeQueuedAssetById = useCallback((id: string) => {
+    const removedAsset = assetQueue.find((asset) => asset.id === id) || null;
+    const nextQueue = assetQueue.filter((asset) => asset.id !== id);
+    setAssetQueue(nextQueue);
+
+    const preservedSelection = selectedQueueAssetId && selectedQueueAssetId !== id
+      ? nextQueue.find((asset) => asset.id === selectedQueueAssetId) || null
+      : null;
+    applyWorkbenchAssetSelection(preservedSelection || nextQueue[0] || null);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    if (seedanceReplayFileInputRef.current) {
+      seedanceReplayFileInputRef.current.value = '';
+    }
+    revokeBlobUrl(removedAsset?.previewUrl);
+  }, [applyWorkbenchAssetSelection, assetQueue, selectedQueueAssetId]);
+
+  const removeAssetFromQueue = (id: string) => {
+    removeQueuedAssetById(id);
   };
+
+  const selectAssetFromQueue = (asset: QueuedAsset) => {
+    applyWorkbenchAssetSelection(asset);
+  };
+
+  const openSeedanceReplayLocalPicker = useCallback((intent: SeedanceReplayUploadIntent) => {
+    setSeedanceReplayUploadIntent(intent);
+    if (!seedanceReplayFileInputRef.current) return;
+    seedanceReplayFileInputRef.current.value = '';
+    seedanceReplayFileInputRef.current.multiple = intent.mode !== 'replace';
+    seedanceReplayFileInputRef.current.accept = getSeedanceReplayLocalAccept(intent.targetMediaKind);
+    seedanceReplayFileInputRef.current.click();
+  }, []);
+
+  const handleSeedanceReplayAddFromLocal = useCallback((targetMediaKind?: SeedanceReplayMediaKind) => {
+    openSeedanceReplayLocalPicker({ mode: 'add', assetId: null, targetMediaKind: targetMediaKind || null });
+  }, [openSeedanceReplayLocalPicker]);
+
+  const handleSeedanceReplayPreview = useCallback((assetId: string) => {
+    const target = uploadDisplayAssets.find((asset) => asset.id === assetId);
+    if (!target) return;
+    selectAssetFromQueue(target);
+  }, [uploadDisplayAssets]);
+
+  const handleSeedanceReplayReplace = useCallback((assetId: string) => {
+    const targetAsset = assetQueue.find((asset) => asset.id === assetId) || null;
+    openSeedanceReplayLocalPicker({
+      mode: 'replace',
+      assetId,
+      targetMediaKind: targetAsset?.mediaKind === 'image' || targetAsset?.mediaKind === 'video' || targetAsset?.mediaKind === 'audio'
+        ? targetAsset.mediaKind
+        : null,
+    });
+  }, [assetQueue, openSeedanceReplayLocalPicker]);
+
+  const handleSeedanceReplayRemove = useCallback((assetId: string) => {
+    removeQueuedAssetById(assetId);
+  }, [removeQueuedAssetById]);
+
+  const handleSeedanceReplayLocalFiles = useCallback(async (files: File[], intent: SeedanceReplayUploadIntent) => {
+    if (files.length === 0) return;
+
+    const errors: string[] = [];
+    const parsedAssets: SeedanceReplayParsedAsset[] = [];
+    const targetAsset = intent.mode === 'replace' && intent.assetId
+      ? assetQueue.find((asset) => asset.id === intent.assetId) || null
+      : null;
+
+    if (intent.mode === 'replace' && !targetAsset) {
+      openInfo(popupTitles.notice, '未找到要替换的素材，请重试。');
+      return;
+    }
+
+    const filesToProcess = intent.mode === 'replace' ? files.slice(0, 1) : files;
+    for (const file of filesToProcess) {
+      try {
+        const parsedAsset = await parseSeedanceReplayLocalFile(file, {
+          inferMediaKind,
+          compressImage,
+        });
+        if (intent.targetMediaKind && parsedAsset.mediaKind !== intent.targetMediaKind) {
+          const kindLabel = intent.targetMediaKind === 'image' ? '图片' : intent.targetMediaKind === 'video' ? '视频' : '音频';
+          errors.push(`当前入口仅支持上传${kindLabel}：${file.name}`);
+          continue;
+        }
+        if (targetAsset?.mediaKind && parsedAsset.mediaKind !== targetAsset.mediaKind) {
+          const kindLabel = targetAsset.mediaKind === 'image' ? '图片' : targetAsset.mediaKind === 'video' ? '视频' : '音频';
+          errors.push(`替换素材类型不匹配：${file.name}。请上传${kindLabel}文件。`);
+          continue;
+        }
+        const validationMessage = validateSeedanceReplayParsedAsset(parsedAsset);
+        if (validationMessage) {
+          errors.push(validationMessage);
+          continue;
+        }
+        parsedAssets.push(parsedAsset);
+      } catch (error: any) {
+        errors.push(error?.message || `无法处理文件：${file.name}`);
+      }
+    }
+
+    if (intent.mode === 'replace') {
+      const replacement = parsedAssets[0] || null;
+      if (!replacement || !targetAsset) {
+        if (errors.length > 0) {
+          openInfo(popupTitles.notice, errors.join('\n'));
+        }
+        return;
+      }
+
+      const previewUrl = URL.createObjectURL(replacement.file);
+      const nextAsset: QueuedAsset = {
+        ...targetAsset,
+        name: replacement.name,
+        previewUrl,
+        fileObj: replacement.file,
+        assetUrl: null,
+        assetId: null,
+        mediaKind: replacement.mediaKind,
+        durationSeconds: replacement.durationSeconds,
+        mimeType: replacement.mimeType,
+        sizeBytes: replacement.sizeBytes,
+        width: replacement.width,
+        height: replacement.height,
+        fps: replacement.fps,
+        validationMessages: [],
+        uploadedPath: null,
+      };
+
+      setAssetQueue((prev) => prev.map((asset) => (asset.id === targetAsset.id ? nextAsset : asset)));
+      applyWorkbenchAssetSelection(nextAsset);
+      revokeBlobUrl(targetAsset.previewUrl);
+      void persistLocalQueuedAsset(targetAsset.id, replacement.file, previewUrl, true);
+
+      if (errors.length > 0) {
+        openInfo(popupTitles.notice, errors.join('\n'));
+      }
+      return;
+    }
+
+    const existingCounts = assetQueue.reduce(
+      (acc, asset) => {
+        if (asset.mediaKind === 'image') acc.image += 1;
+        if (asset.mediaKind === 'video') acc.video += 1;
+        if (asset.mediaKind === 'audio') acc.audio += 1;
+        return acc;
+      },
+      { image: 0, video: 0, audio: 0 }
+    );
+    const acceptedAssets: SeedanceReplayParsedAsset[] = [];
+    const overflow = { image: 0, video: 0, audio: 0 };
+
+    parsedAssets.forEach((asset) => {
+      const limit = asset.mediaKind === 'image'
+        ? SEEDANCE_REPLAY_IMAGE_LIMIT
+        : asset.mediaKind === 'video'
+          ? SEEDANCE_REPLAY_VIDEO_LIMIT
+          : SEEDANCE_REPLAY_AUDIO_LIMIT;
+
+      if (existingCounts[asset.mediaKind] + acceptedAssets.filter((item) => item.mediaKind === asset.mediaKind).length >= limit) {
+        overflow[asset.mediaKind] += 1;
+        return;
+      }
+      acceptedAssets.push(asset);
+    });
+
+    if (acceptedAssets.length === 0) {
+      const summaryLines = [...errors];
+      if (overflow.image > 0) summaryLines.push(`图片最多添加 ${SEEDANCE_REPLAY_IMAGE_LIMIT} 张，已忽略 ${overflow.image} 张。`);
+      if (overflow.video > 0) summaryLines.push(`视频最多添加 ${SEEDANCE_REPLAY_VIDEO_LIMIT} 个，已忽略 ${overflow.video} 个。`);
+      if (overflow.audio > 0) summaryLines.push(`音频最多添加 ${SEEDANCE_REPLAY_AUDIO_LIMIT} 个，已忽略 ${overflow.audio} 个。`);
+      if (summaryLines.length > 0) {
+        openInfo(popupTitles.notice, summaryLines.join('\n'));
+      }
+      return;
+    }
+
+    const nextItems = acceptedAssets.map((asset, index) => buildSeedanceReplayQueuedAsset(asset, index));
+    const selectedItem = nextItems[nextItems.length - 1];
+    setAssetQueue((prev) => [...prev, ...nextItems]);
+    applyWorkbenchAssetSelection(selectedItem);
+    setLastUploadedUrl(null);
+
+    nextItems.forEach((item) => {
+      if (!item.fileObj) return;
+      void persistLocalQueuedAsset(item.id, item.fileObj, item.previewUrl || '', item.id === selectedItem.id);
+    });
+
+    const summaryLines = [
+      ...errors,
+      ...(overflow.image > 0 ? [`图片最多添加 ${SEEDANCE_REPLAY_IMAGE_LIMIT} 张，已忽略 ${overflow.image} 张。`] : []),
+      ...(overflow.video > 0 ? [`视频最多添加 ${SEEDANCE_REPLAY_VIDEO_LIMIT} 个，已忽略 ${overflow.video} 个。`] : []),
+      ...(overflow.audio > 0 ? [`音频最多添加 ${SEEDANCE_REPLAY_AUDIO_LIMIT} 个，已忽略 ${overflow.audio} 个。`] : []),
+    ];
+    if (summaryLines.length > 0) {
+      openInfo(popupTitles.notice, summaryLines.join('\n'));
+    }
+  }, [
+    applyWorkbenchAssetSelection,
+    assetQueue,
+    buildSeedanceReplayQueuedAsset,
+    compressImage,
+    inferMediaKind,
+    openInfo,
+    persistLocalQueuedAsset,
+    popupTitles.notice,
+  ]);
+
+  const handleSeedanceReplayFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const intent = seedanceReplayUploadIntent;
+    await handleSeedanceReplayLocalFiles(files, intent);
+    setSeedanceReplayUploadIntent({ mode: 'add', assetId: null, targetMediaKind: null });
+    if (seedanceReplayFileInputRef.current) {
+      seedanceReplayFileInputRef.current.value = '';
+      seedanceReplayFileInputRef.current.accept = SEEDANCE_REPLAY_UPLOAD_ACCEPT;
+    }
+  }, [handleSeedanceReplayLocalFiles, seedanceReplayUploadIntent]);
 
   const klingPrimarySlotAsset = useMemo(
       () => uploadDisplayAssets.find((asset) => klingGenerateMode === 'subject' ? asset.source === 'subject' : asset.source === 'product') || null,
@@ -6631,18 +6891,38 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           {false && legacyModelSelector}
           {/* Upload Section */}
           <div ref={uploadSectionRef} className={`flex flex-col gap-3 ${getGuideFocusClass('upload')}`}>
-            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
+              {isSeedanceReplayMode ? (
+                <SeedanceReplayDefaultSourceSwitch
+                  value={seedanceReplayDefaultSource}
+                  onChange={setSeedanceReplayDefaultSource}
+                />
+              ) : null}
+            </div>
             {isSeedanceReplayMode ? (
-              <SeedanceReplayUploadPanel
-                assets={seedanceReplayUploadAssets}
-                defaultSource={seedanceReplayDefaultSource}
-                onDefaultSourceChange={setSeedanceReplayDefaultSource}
-                onAddFromLibrary={handleSeedanceReplayAddFromLibrary}
-                onAddFromLocal={handleSeedanceReplayAddFromLocal}
-                onPreview={handleSeedanceReplayPreview}
-                onReplace={handleSeedanceReplayReplace}
-                onRemove={handleSeedanceReplayRemove}
-              />
+              <>
+                <SeedanceReplayUploadPanel
+                  assets={seedanceReplayUploadAssets}
+                  defaultSource={seedanceReplayDefaultSource}
+                  validationSummary={seedanceReplayValidation}
+                  showDefaultSourceSwitch={false}
+                  onDefaultSourceChange={setSeedanceReplayDefaultSource}
+                  onAddFromLibrary={handleSeedanceReplayAddFromLibrary}
+                  onAddFromLocal={handleSeedanceReplayAddFromLocal}
+                  onPreview={handleSeedanceReplayPreview}
+                  onReplace={handleSeedanceReplayReplace}
+                  onRemove={handleSeedanceReplayRemove}
+                />
+                <input
+                  type="file"
+                  ref={seedanceReplayFileInputRef}
+                  className="hidden"
+                  accept={SEEDANCE_REPLAY_UPLOAD_ACCEPT}
+                  multiple
+                  onChange={handleSeedanceReplayFileChange}
+                />
+              </>
             ) : (
             <div className="flex flex-col gap-3">
             {isKlingOmniMode && (

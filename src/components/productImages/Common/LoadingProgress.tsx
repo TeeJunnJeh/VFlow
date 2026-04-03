@@ -29,9 +29,7 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
   title,
   onCancel,
 }) => {
-  const { language } = useLanguage();
-  const isZh = language === 'zh';
-  const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
+  const { t } = useLanguage();
   const countdownBase = (() => {
     const direct = Number(countdownStartSeconds);
     if (Number.isFinite(direct) && direct > 0) return Math.floor(direct);
@@ -68,17 +66,17 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto p-8 bg-gradient-to-br from-zinc-900 to-zinc-800 rounded-xl border border-zinc-700 shadow-2xl">
+    <div className="glass-panel w-full max-w-2xl mx-auto p-8 rounded-xl border border-white/10 shadow-2xl">
       {/* 标题 */}
       <div className="text-center mb-8">
         <div className="flex items-center justify-center mb-4">
           <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
         </div>
         <h3 className="text-lg font-semibold text-white mb-2">
-          {title ? title : tr('正在生成首帧图...', 'Generating first-frame image...')}
+          {title ? title : t.ff_loading_title}
         </h3>
         <p className="text-zinc-400 text-sm">
-          {tr('请勿关闭页面，生成完成后会自动显示结果', 'Please keep this page open. Results will appear automatically.')}
+          {t.ff_loading_keep_page_open}
         </p>
       </div>
 
@@ -86,7 +84,7 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
       {queuePosition !== undefined && (
         <div className="mb-6 p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg">
           <p className="text-orange-400 text-sm">
-            {tr('队列位置', 'Queue position')}: <span className="font-semibold">{queuePosition}</span>
+            {t.ff_loading_queue_position}: <span className="font-semibold">{queuePosition}</span>
           </p>
         </div>
       )}
@@ -96,7 +94,7 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
         <div className="mb-6">
           <div className="flex items-center justify-between mb-2">
             <p className="text-zinc-300 text-sm font-medium">
-              {tr('步骤', 'Step')}: {currentStep}
+              {t.ff_loading_step}: {currentStep}
             </p>
             <p className="text-zinc-400 text-xs">
               {Math.ceil((progress / 100) * (totalSteps || 1))} / {totalSteps}
@@ -104,7 +102,7 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
           </div>
           
           {/* 步骤进度条 */}
-          <div className="w-full h-2 bg-zinc-700 rounded-full overflow-hidden">
+          <div className="w-full h-2 bg-black/20 rounded-full overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-orange-500 to-orange-400 rounded-full transition-all duration-500"
               style={{ width: `${progress}%` }}
@@ -116,12 +114,12 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
       {/* 主进度条 */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-zinc-300 text-sm font-medium">{tr('生成进度', 'Generation Progress')}</p>
+          <p className="text-zinc-300 text-sm font-medium">{t.ff_loading_generation_progress}</p>
           <p className="text-orange-400 font-semibold text-sm">
             {progress}%
           </p>
         </div>
-        <div className="w-full h-3 bg-zinc-700 rounded-full overflow-hidden">
+        <div className="w-full h-3 bg-black/20 rounded-full overflow-hidden">
           <div
             className="h-full bg-gradient-to-r from-orange-500 to-orange-400 rounded-full transition-all duration-500 shadow-lg shadow-orange-500/30"
             style={{ width: `${progress}%` }}
@@ -131,15 +129,15 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
 
       {/* 时间信息 */}
       <div className="grid grid-cols-2 gap-4 mb-8">
-        <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-600">
-          <p className="text-zinc-400 text-xs mb-1">{tr('已用时间', 'Elapsed')}</p>
+        <div className="bg-zinc-800/50 rounded-lg p-3 border border-white/10">
+          <p className="text-zinc-400 text-xs mb-1">{t.ff_loading_elapsed}</p>
           <p className="text-white font-semibold">
             {formatTime(elapsedTime)}
           </p>
         </div>
-        <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-600">
+        <div className="bg-zinc-800/50 rounded-lg p-3 border border-white/10">
           <p className="text-zinc-400 text-xs mb-1">
-            {countdownBase > 0 ? tr('预计剩余', 'Estimated Remaining') : tr('无时间估算', 'No Estimate')}
+            {countdownBase > 0 ? t.ff_loading_estimated_remaining : t.ff_loading_no_estimate}
           </p>
           <p className="text-white font-semibold">
             {countdownBase > 0 ? formatTime(remainingTime) : '-'}
@@ -150,8 +148,8 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
       {/* 提示信息 */}
       <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
         <p className="text-blue-400 text-sm">
-          <span className="font-medium">{tr('提示', 'Tip')}:</span>{' '}
-          {tr('生成时间取决于图片复杂度和服务器负载，通常需要 30-60 秒。', 'Generation time depends on image complexity and server load. It usually takes 30-60 seconds.')}
+          <span className="font-medium">{t.ff_tip_label}:</span>{' '}
+          {t.ff_generation_tip}
         </p>
       </div>
 
@@ -161,7 +159,7 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
         className="w-full py-3 px-4 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/30 transition-all flex items-center justify-center gap-2 font-medium"
       >
         <X className="w-4 h-4" />
-        {tr('取消生成', 'Cancel Generation')}
+        {t.ff_cancel_generation}
       </button>
     </div>
   );

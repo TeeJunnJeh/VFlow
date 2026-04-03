@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Wand2 } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import type { FirstFrameParams } from '../../../../types/productImages';
@@ -17,77 +17,75 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   isSubmitting = false,
   onReset,
 }) => {
-  const { language } = useLanguage();
-  const isZh = language === 'zh';
-  const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
+  const { t } = useLanguage();
 
   const categories = useMemo(
     () => [
-      { label: tr('美妆', 'Beauty'), value: 'beauty' },
-      { label: tr('个护', 'Personal Care'), value: 'skincare' },
-      { label: tr('食品', 'Food'), value: 'food' },
-      { label: tr('小家电', 'Small Appliance'), value: 'appliance' },
-      { label: tr('其他', 'Other'), value: 'other' },
+      { label: t.ff_category_beauty, value: 'beauty' },
+      { label: t.ff_category_personal_care, value: 'skincare' },
+      { label: t.ff_category_food, value: 'food' },
+      { label: t.ff_category_appliance, value: 'appliance' },
+      { label: t.ff_category_other, value: 'other' },
     ],
-    [isZh]
+    [t]
   );
 
   const personTypes = useMemo(
     () => [
-      { label: tr('女性', 'Female'), value: 'female' },
-      { label: tr('男性', 'Male'), value: 'male' },
-      { label: tr('中性', 'Neutral'), value: 'neutral' },
-      { label: tr('不限', 'No Preference'), value: 'no_limit' },
+      { label: t.ff_person_type_female, value: 'female' },
+      { label: t.ff_person_type_male, value: 'male' },
+      { label: t.ff_person_type_neutral, value: 'neutral' },
+      { label: t.ff_person_type_no_preference, value: 'no_limit' },
     ],
-    [isZh]
+    [t]
   );
 
   const holdingStyles = useMemo(
     () => [
-      { label: tr('单手持握', 'Single Hand'), value: 'single_hand' },
-      { label: tr('双手展示', 'Both Hands'), value: 'both_hands' },
-      { label: tr('胸前展示', 'Front Chest'), value: 'chest' },
-      { label: tr('侧拿展示', 'Side Hold'), value: 'side' },
+      { label: t.ff_holding_style_single_hand, value: 'single_hand' },
+      { label: t.ff_holding_style_both_hands, value: 'both_hands' },
+      { label: t.ff_holding_style_front_chest, value: 'chest' },
+      { label: t.ff_holding_style_side_hold, value: 'side' },
     ],
-    [isZh]
+    [t]
   );
 
   const aspectRatios = useMemo(
     () => [
-      { label: tr('9:16 (竖屏)', '9:16 (Vertical)'), value: '9:16' },
+      { label: t.ff_aspect_ratio_vertical, value: '9:16' },
       { label: '4:5', value: '4:5' },
-      { label: tr('1:1 (方形)', '1:1 (Square)'), value: '1:1' },
+      { label: t.ff_aspect_ratio_square, value: '1:1' },
     ],
-    [isZh]
+    [t]
   );
 
   const styles = useMemo(
     () => [
-      { label: tr('真实种草', 'Authentic UGC'), value: 'authentic' },
-      { label: tr('直播感', 'Live Stream'), value: 'live' },
-      { label: tr('棚拍感', 'Studio'), value: 'studio' },
-      { label: tr('清爽电商风', 'Clean E-commerce'), value: 'clean' },
+      { label: t.ff_style_authentic_ugc, value: 'authentic' },
+      { label: t.ff_style_live_stream, value: 'live' },
+      { label: t.ff_style_studio, value: 'studio' },
+      { label: t.ff_style_clean_ecommerce, value: 'clean' },
     ],
-    [isZh]
+    [t]
   );
 
   const whitespaceOptions = useMemo(
     () => [
-      { label: tr('上方留白', 'Top Space'), value: 'top' },
-      { label: tr('下方留白', 'Bottom Space'), value: 'bottom' },
-      { label: tr('右侧留白', 'Right Space'), value: 'right' },
-      { label: tr('无要求', 'No Preference'), value: 'none' },
+      { label: t.ff_text_whitespace_top, value: 'top' },
+      { label: t.ff_text_whitespace_bottom, value: 'bottom' },
+      { label: t.ff_text_whitespace_right, value: 'right' },
+      { label: t.ff_text_whitespace_none, value: 'none' },
     ],
-    [isZh]
+    [t]
   );
 
   const outputCounts = useMemo(
     () => [
-      { label: tr('1 张', '1 image'), value: 1 as const },
-      { label: tr('2 张', '2 images'), value: 2 as const },
-      { label: tr('4 张 (推荐)', '4 images (recommended)'), value: 4 as const },
+      { label: t.ff_output_count_1, value: 1 as const },
+      { label: t.ff_output_count_2, value: 2 as const },
+      { label: t.ff_output_count_4_recommended, value: 4 as const },
     ],
-    [isZh]
+    [t]
   );
 
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -105,11 +103,11 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   const validateForm = (): boolean => {
     const nextErrors: Record<string, string> = {};
 
-    if (!formData.category) nextErrors.category = tr('请选择品类', 'Please choose a category');
-    if (!formData.personType) nextErrors.personType = tr('请选择人物类型', 'Please choose a person type');
-    if (!formData.holdingStyle) nextErrors.holdingStyle = tr('请选择出镜方式', 'Please choose a holding style');
-    if (!formData.aspectRatio) nextErrors.aspectRatio = tr('请选择画幅比例', 'Please choose an aspect ratio');
-    if (!formData.style) nextErrors.style = tr('请选择风格', 'Please choose a style');
+    if (!formData.category) nextErrors.category = t.ff_validation_choose_category;
+    if (!formData.personType) nextErrors.personType = t.ff_validation_choose_person_type;
+    if (!formData.holdingStyle) nextErrors.holdingStyle = t.ff_validation_choose_holding_style;
+    if (!formData.aspectRatio) nextErrors.aspectRatio = t.ff_validation_choose_aspect_ratio;
+    if (!formData.style) nextErrors.style = t.ff_validation_choose_style;
 
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -137,21 +135,13 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
 
   return (
     <form onSubmit={handleSubmit} className="w-full">
-      <div className="space-y-6">
-        {images.length > 0 && (
-          <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
-            <p className="text-green-400 text-sm">
-              {tr('已上传', 'Uploaded')} {images.length} {tr('张商品图', 'product image(s)')}
-            </p>
-          </div>
-        )}
-
+      <div className="space-y-6">
         <div className="space-y-4">
-          <h3 className="text-white font-medium">{tr('基础设置', 'Basic Settings')}</h3>
+          <h3 className="text-white font-medium">{t.ff_basic_settings}</h3>
 
           <div>
             <label className="block text-sm text-zinc-300 mb-2 font-medium">
-              {tr('品类', 'Category')} <span className="text-orange-500">*</span>
+              {t.ff_category_label}
             </label>
             <DropdownSelect
               value={formData.category || ''}
@@ -165,7 +155,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
           </div>
 
           <div>
-            <label className="block text-sm text-zinc-300 mb-2 font-medium">{tr('人物类型', 'Person Type')}</label>
+            <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_person_type_label}</label>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               {personTypes.map((item) => (
                 <button
@@ -181,7 +171,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
           </div>
 
           <div>
-            <label className="block text-sm text-zinc-300 mb-2 font-medium">{tr('出镜方式', 'Holding Style')}</label>
+            <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_holding_style_label}</label>
             <div className="grid grid-cols-2 gap-2">
               {holdingStyles.map((item) => (
                 <button
@@ -197,7 +187,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
           </div>
 
           <div>
-            <label className="block text-sm text-zinc-300 mb-2 font-medium">{tr('画幅比例', 'Aspect Ratio')}</label>
+            <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_aspect_ratio_label}</label>
             <div className="grid grid-cols-3 gap-2">
               {aspectRatios.map((item) => (
                 <button
@@ -213,7 +203,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
           </div>
 
           <div>
-            <label className="block text-sm text-zinc-300 mb-2 font-medium">{tr('风格', 'Style')}</label>
+            <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_style_label}</label>
             <DropdownSelect
               value={formData.style || ''}
               options={styles}
@@ -232,13 +222,13 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
             className="ff-ghost-btn flex items-center gap-2 text-orange-400 hover:text-orange-300 text-sm font-medium transition"
           >
             <ChevronDown className={`w-4 h-4 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
-            {tr('高级设置', 'Advanced Settings')}
+            {t.ff_advanced_settings}
           </button>
 
           {showAdvanced && (
             <div className="mt-4 space-y-4 p-4 bg-zinc-900/40 rounded-lg border border-white/10">
               <div>
-                <label className="block text-sm text-zinc-300 mb-2 font-medium">{tr('文案留白', 'Text Whitespace')}</label>
+                <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_text_whitespace_label}</label>
                 <div className="grid grid-cols-2 gap-2">
                   {whitespaceOptions.map((item) => (
                     <button
@@ -254,7 +244,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
               </div>
 
               <div>
-                <label className="block text-sm text-zinc-300 mb-2 font-medium">{tr('输出数量', 'Output Count')}</label>
+                <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_output_count_label}</label>
                 <div className="grid grid-cols-3 gap-2">
                   {outputCounts.map((item) => (
                     <button
@@ -280,7 +270,8 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
               ? 'border-white/10 bg-black/20 text-zinc-500 cursor-not-allowed opacity-60'
               : 'border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300'}`}
           >
-            {isSubmitting ? tr('生成中...', 'Generating...') : tr('生成首帧图', 'Generate First Frame')}
+            <Wand2 className="w-4 h-4" />
+            {isSubmitting ? t.ff_generating : t.ff_generate_first_frame}
           </button>
           <button
             type="button"
@@ -288,16 +279,13 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
             disabled={isSubmitting}
             className="px-4 py-3 bg-white/5 border border-white/10 text-zinc-300 rounded-lg hover:bg-white/10 transition disabled:opacity-50 font-medium"
           >
-            {tr('重置', 'Reset')}
+            {t.ff_reset}
           </button>
         </div>
 
         <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
           <p className="text-blue-400 text-xs leading-relaxed">
-            {tr(
-              '提示: 生成通常需要 30-60 秒，建议选择清晰、无遮挡的商品图。',
-              'Tip: Generation usually takes 30-60 seconds. Use a clear product image for best results.'
-            )}
+            {t.ff_generation_tip_with_prefix}
           </p>
         </div>
       </div>

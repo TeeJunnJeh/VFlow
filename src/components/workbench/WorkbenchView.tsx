@@ -547,6 +547,10 @@ interface WorkbenchViewProps {
   initialLibraryAssetToken?: string | null;
   initialLibraryAssetMode?: 'library_asset' | 'background_audio';
   onInitialLibraryAssetHandled?: () => void;
+  initialTransferRole?: 'first_frame' | null;
+  initialTransferProjectName?: string | null;
+  initialTransferModel?: 'sora2' | 'sora2pro' | 'seedance2.0' | null;
+  onTransferRoleHandled?: () => void;
   templateList: Template[];
   onSelectTemplate: (t: Template | null) => void;
   selectedTemplate: Template | null;
@@ -566,6 +570,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                                               initialLibraryAssetToken,
                                                               initialLibraryAssetMode,
                                                               onInitialLibraryAssetHandled,
+                                                              initialTransferRole,
+                                                              initialTransferProjectName,
+                                                              initialTransferModel,
+                                                              onTransferRoleHandled,
                                                               templateList,
                                                               onSelectTemplate,
                                                               selectedTemplate,
@@ -666,6 +674,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null);
   const [selectedAssetSource, setSelectedAssetSource] = useState<'product' | 'preference' | 'subject' | 'tail' | null>(initialAssetSource || null);
   const [klingGenerateMode, setKlingGenerateMode] = useState<'first_frame' | 'subject' | 'first_last_frame'>('first_frame');
+
   const [isGeneratingKlingBoundaryFrames, setIsGeneratingKlingBoundaryFrames] = useState(false);
   const [imageGenModel, setImageGenModel] = useState<string>('flux-2-max');
   const [isDragUploadActive, setIsDragUploadActive] = useState(false);
@@ -1745,11 +1754,64 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!initialLibraryAsset || !initialLibraryAssetToken) return;
     if (isRestoring) return;
     if (initialLibraryAssetMode === 'background_audio') return;
+    // Skip if a transfer operation is in progress — the transfer effect handles injection after workspace reset
+    if (initialTransferRole || initialTransferModel) return;
     if (injectedAssetSignaturesRef.current.has(initialLibraryAssetToken)) return;
     injectedAssetSignaturesRef.current.add(initialLibraryAssetToken);
     queueLibraryAssetIntoWorkbench(initialLibraryAsset, { preferLastModeRouting: true });
     onInitialLibraryAssetHandled?.();
-  }, [initialLibraryAsset, initialLibraryAssetMode, initialLibraryAssetToken, isRestoring, onInitialLibraryAssetHandled, queueLibraryAssetIntoWorkbench]);
+  }, [initialLibraryAsset, initialLibraryAssetMode, initialLibraryAssetToken, isRestoring, onInitialLibraryAssetHandled, queueLibraryAssetIntoWorkbench, initialTransferRole, initialTransferModel]);
+
+  // Switch model and create a new project when a transfer comes from ImageHistoryPanel "apply to workbench"
+  //
+  // IMPORTANT timing note:
+  //   createNewProject() changes projectStore.currentProjectId, which triggers the
+  //   workspace-restore effect (applyWorkspaceState).  That effect resets ALL state
+  //   — including asset/upload state — to a blank workspace.  It sets
+  //   `isApplyingProjectWorkspaceRef = true` and resets it when done.
+  //
+  //   Instead of a fragile fixed-delay setTimeout, we poll the ref at 50ms intervals
+  //   and inject the transferred asset as soon as the restore completes.  A 5-second
+  //   safety cap prevents infinite polling.
+  useEffect(() => {
+    if (!initialTransferRole && !initialTransferModel) return;
+
+    // 1. Create a new project first (this triggers applyWorkspaceState which blanks everything)
+    if (initialTransferProjectName) {
+      createNewProject(initialTransferProjectName);
+    }
+
+    // 2. Poll until applyWorkspaceState finishes (isApplyingProjectWorkspaceRef becomes false)
+    let elapsed = 0;
+    const POLL_INTERVAL = 50;
+    const MAX_WAIT = 5000;
+    const poller = window.setInterval(() => {
+      elapsed += POLL_INTERVAL;
+      // Still applying — keep waiting (unless we've exceeded the safety cap)
+      if (isApplyingProjectWorkspaceRef.current && elapsed < MAX_WAIT) return;
+      window.clearInterval(poller);
+
+      // 2a. Switch model (only Sora-family models are supported for transfer)
+      if (initialTransferModel) {
+        setSelectedModel(initialTransferModel);
+      }
+
+      // 2b. Inject the asset that was set in selectedAssetForWorkbench by Workbench.tsx
+      if (initialLibraryAsset && initialLibraryAssetToken) {
+        // Reset the dedup set so this token can be consumed after the workspace reset
+        injectedAssetSignaturesRef.current.delete(initialLibraryAssetToken);
+        queueLibraryAssetIntoWorkbench(initialLibraryAsset, { preferLastModeRouting: true });
+        // Also mark the asset as handled so the normal injection effect doesn't fire again
+        onInitialLibraryAssetHandled?.();
+      }
+
+      // 2c. Clear the transfer signals
+      onTransferRoleHandled?.();
+    }, POLL_INTERVAL);
+
+    return () => window.clearInterval(poller);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTransferRole, initialTransferModel]);
 
   useEffect(() => {
     if (initialLibraryAsset) return;

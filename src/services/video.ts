@@ -306,6 +306,7 @@ export const videoApi = {
     core_selling_points?: string[];
     target_scene?: string;
     style?: string;
+    hot_style?: { name: string; tones: string[]; description: string };
     type_selections?: Record<string, { enabled?: boolean; count?: number }>;
   }) => {
     const csrftoken = getCookie('csrftoken');
@@ -344,6 +345,34 @@ export const videoApi = {
 
     if (!response.ok) {
       const fallback = `查询商品套图状态失败: ${response.status} ${response.statusText || ''}`.trim();
+      throw await parseApiError(response, fallback);
+    }
+
+    return await response.json();
+  },
+
+  hotStyleAnalysis: async (payload: {
+    image_paths: string[];
+    product_name?: string;
+    product_category?: string;
+    selling_points: string[];
+    output_language?: 'zh' | 'en';
+  }) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/hot_style_analysis`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const fallback = `Hot style analysis failed: ${response.status} ${response.statusText || ''}`.trim();
       throw await parseApiError(response, fallback);
     }
 

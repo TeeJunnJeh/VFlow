@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image as ImageIcon, Plus, Upload, X, Wand2, Minus } from 'lucide-react';
+import { Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download } from 'lucide-react';
 import type { ViewType } from './types';
 import { useLanguage } from '../../context/LanguageContext';
 import { DropdownSelect } from '../common/DropdownSelect';
@@ -63,11 +63,43 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   });
   const [galleryRightPanel, setGalleryRightPanel] = useState<'preview' | 'history'>('preview');
   const [galleryHistoryItems, setGalleryHistoryItems] = useState<Array<{ id: string; createdAt: string; images: string[] }>>([]);
+  const [isGalleryHistoryManaging, setIsGalleryHistoryManaging] = useState(false);
+  const [galleryHistorySelectedKeys, setGalleryHistorySelectedKeys] = useState<string[]>([]);
   const [isGalleryGenerating, setIsGalleryGenerating] = useState(false);
   const [galleryPreviewImageUrl, setGalleryPreviewImageUrl] = useState<string | null>(null);
   const [galleryPreviewItems, setGalleryPreviewItems] = useState<
-    Array<{ localId: string; requestId: string; status: 'created' | 'processing' | 'succeeded' | 'failed'; imageUrl?: string; error?: string }>
+    Array<{
+      localId: string;
+      requestId: string;
+      status: 'created' | 'processing' | 'succeeded' | 'failed';
+      imageUrl?: string;
+      error?: string;
+      layout?: any;
+    }>
   >([]);
+  const [galleryTextEditor, setGalleryTextEditor] = useState<{ open: boolean; localId: string; imageUrl: string; layout: any } | null>(null);
+  const [galleryTextDraftLayout, setGalleryTextDraftLayout] = useState<any | null>(null);
+  const [isGalleryTextExporting, setIsGalleryTextExporting] = useState(false);
+  const dragTextRef = useRef<{
+    index: number;
+    startClientX: number;
+    startClientY: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
+
+  const [hotStyleLoading, setHotStyleLoading] = useState(false);
+  const [hotStyleItems, setHotStyleItems] = useState<Array<{ name: string; tones: string[]; description: string }>>([]);
+  const [hotStyleSelectedIndex, setHotStyleSelectedIndex] = useState<number | null>(null);
+  const [hotStyleError, setHotStyleError] = useState<string | null>(null);
+
+  const galleryHistoryAllKeys = useMemo(
+    () => galleryHistoryItems.flatMap((item) => item.images.map((_, idx) => `${item.id}:${idx}`)),
+    [galleryHistoryItems]
+  );
+  const galleryHistorySelectedSet = useMemo(() => new Set(galleryHistorySelectedKeys), [galleryHistorySelectedKeys]);
+  const isGalleryHistoryAllSelected =
+    galleryHistoryAllKeys.length > 0 && galleryHistoryAllKeys.every((key) => galleryHistorySelectedSet.has(key));
 
   const GALLERY_HISTORY_KEY = 'vflow_product_gallery_history';
   const galleryPollAbortRef = useRef(false);
@@ -108,6 +140,53 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     const cleaned = String(url || '').trim();
     if (!cleaned) return;
     setGalleryPreviewImageUrl(cleaned);
+  };
+
+  const toggleGalleryHistoryKey = (key: string) => {
+    setGalleryHistorySelectedKeys((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  };
+
+  const handleGalleryHistorySelectAll = () => {
+    if (galleryHistoryAllKeys.length === 0) return;
+    setGalleryHistorySelectedKeys(isGalleryHistoryAllSelected ? [] : galleryHistoryAllKeys);
+  };
+
+  const handleGalleryHistoryDeleteSelected = async () => {
+    if (galleryHistorySelectedKeys.length === 0) return;
+
+    const ok = await openGalleryConfirm(
+      tr('确定删除选中的图片吗？', 'Delete selected images?'),
+      {
+        title: tr('删除确认', 'Delete confirmation'),
+        okLabel: tr('删除', 'Delete'),
+        cancelLabel: tr('取消', 'Cancel'),
+      }
+    );
+
+    if (!ok) return;
+
+    const selected = new Set(galleryHistorySelectedKeys);
+
+    setGalleryHistoryItems((prev) => {
+      const next = prev
+        .map((item) => {
+          const images = item.images.filter((_, idx) => !selected.has(`${item.id}:${idx}`));
+          if (images.length === 0) return null;
+          if (images.length === item.images.length) return item;
+          return { ...item, images };
+        })
+        .filter(Boolean) as Array<{ id: string; createdAt: string; images: string[] }>;
+
+      try {
+        localStorage.setItem(GALLERY_HISTORY_KEY, JSON.stringify(next));
+      } catch {
+        void 0;
+      }
+
+      return next;
+    });
+
+    setGalleryHistorySelectedKeys([]);
   };
 
   const openGalleryConfirm = (message: string, opts?: { title?: string; okLabel?: string; cancelLabel?: string }) =>
@@ -186,6 +265,224 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     }
     return uploadResp?.url || uploadResp?.file_url || uploadResp?.path || uploadResp?.data?.url || uploadResp?.data?.path || null;
   };
+
+  const openGalleryTextEditor = (item: { localId: string; imageUrl?: string; layout?: any }) => {
+    const url = String(item.imageUrl || '').trim();
+    if (!url) return;
+    if (!item.layout || !item.layout.elements) {
+      openGalleryAlert(tr('没有可编辑版式，请先生成爆款风格并填写卖点后再生成套图。', 'No editable layout. Fill selling points and generate styles, then generate gallery again.'));
+      return;
+    }
+    const draft = JSON.parse(JSON.stringify(item.layout));
+    setGalleryTextDraftLayout(draft);
+    setGalleryTextEditor({ open: true, localId: item.localId, imageUrl: url, layout: item.layout });
+  };
+
+  const closeGalleryTextEditor = () => {
+    setGalleryTextEditor(null);
+    setGalleryTextDraftLayout(null);
+    dragTextRef.current = null;
+  };
+
+  const parseAspectRatioCss = (value: string | undefined) => {
+    const raw = String(value || '').trim();
+    const m = raw.match(/^(\d+)\s*:\s*(\d+)$/);
+    if (!m) return '1 / 1';
+    const w = Number(m[1]) || 1;
+    const h = Number(m[2]) || 1;
+    return `${w} / ${h}`;
+  };
+
+  const startDragText = (index: number, e: React.PointerEvent) => {
+    if (!galleryTextDraftLayout?.elements || !Array.isArray(galleryTextDraftLayout.elements)) return;
+    const el = galleryTextDraftLayout.elements[index];
+    if (!el) return;
+
+    dragTextRef.current = {
+      index,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startX: Number(el.x) || 0,
+      startY: Number(el.y) || 0,
+    };
+
+    const onMove = (ev: PointerEvent) => {
+      const state = dragTextRef.current;
+      if (!state) return;
+      setGalleryTextDraftLayout((prev: any) => {
+        if (!prev?.elements || !Array.isArray(prev.elements)) return prev;
+        const next = { ...prev, elements: prev.elements.map((x: any) => ({ ...x })) };
+        const current = next.elements[state.index];
+        if (!current) return prev;
+
+        const dx = (ev.clientX - state.startClientX) / 560;
+        const dy = (ev.clientY - state.startClientY) / 560;
+        current.x = Math.max(0, Math.min(1, state.startX + dx));
+        current.y = Math.max(0, Math.min(1, state.startY + dy));
+        return next;
+      });
+    };
+
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      dragTextRef.current = null;
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  const saveGalleryTextLayout = () => {
+    if (!galleryTextEditor || !galleryTextDraftLayout) return;
+    setGalleryPreviewItems((prev) => prev.map((it) => (it.localId === galleryTextEditor.localId ? { ...it, layout: galleryTextDraftLayout } : it)));
+    closeGalleryTextEditor();
+  };
+
+  const exportGalleryTextPng = async () => {
+    if (!galleryTextEditor || !galleryTextDraftLayout) return;
+    const url = galleryTextEditor.imageUrl;
+
+    setIsGalleryTextExporting(true);
+    try {
+      const resp = await fetch(url, { method: 'GET', credentials: 'include' });
+      if (!resp.ok) throw new Error(tr('下载背景图失败', 'Failed to download background'));
+      const blob = await resp.blob();
+      const objUrl = URL.createObjectURL(blob);
+
+      const img = new Image();
+      const imgLoaded = new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error(tr('加载背景图失败', 'Failed to load background')));
+      });
+      img.src = objUrl;
+      await imgLoaded;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || img.width;
+      canvas.height = img.naturalHeight || img.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error(tr('导出失败', 'Export failed'));
+
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      const elements = Array.isArray(galleryTextDraftLayout.elements) ? galleryTextDraftLayout.elements : [];
+      const base = Math.min(canvas.width, canvas.height);
+
+      for (const el of elements) {
+        if (!el || el.type !== 'text') continue;
+        const x = Number(el.x) || 0;
+        const y = Number(el.y) || 0;
+        const w = Number(el.w) || 0.5;
+        const h = Number(el.h) || 0.2;
+        const fontSize = (Number(el.font_size) || 0.03) * base;
+        const fontWeight = Number(el.font_weight) || 600;
+        const color = String(el.color || '#111111');
+        const align = String(el.align || 'left');
+        const bg = String(el.background || '').trim();
+
+        const px = x * canvas.width;
+        const py = y * canvas.height;
+        const pw = w * canvas.width;
+        const ph = h * canvas.height;
+
+        if (bg) {
+          ctx.fillStyle = bg;
+          ctx.globalAlpha = 0.95;
+          ctx.fillRect(px, py, pw, ph);
+          ctx.globalAlpha = 1;
+        }
+
+        ctx.fillStyle = color;
+        ctx.font = `${fontWeight} ${Math.max(10, Math.round(fontSize))}px system-ui`;
+        ctx.textBaseline = 'top';
+        ctx.textAlign = align === 'center' ? 'center' : align === 'right' ? 'right' : 'left';
+
+        const text = String(el.text || '');
+        const lines = text.split(/\r?\n/);
+        const lineHeight = Math.round(fontSize * 1.25);
+        let ty = py + 8;
+        const tx = align === 'center' ? px + pw / 2 : align === 'right' ? px + pw - 8 : px + 8;
+        for (const line of lines) {
+          ctx.fillText(line, tx, ty);
+          ty += lineHeight;
+          if (ty > py + ph - lineHeight) break;
+        }
+      }
+
+      const outBlob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!outBlob) throw new Error(tr('导出失败', 'Export failed'));
+      const outUrl = URL.createObjectURL(outBlob);
+      const a = document.createElement('a');
+      a.href = outUrl;
+      a.download = `product_gallery_edit_${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(outUrl);
+      URL.revokeObjectURL(objUrl);
+    } catch (err: any) {
+      openGalleryAlert(String(err?.message || err || tr('导出失败', 'Export failed')));
+    } finally {
+      setIsGalleryTextExporting(false);
+    }
+  };
+
+  const handleHotStyleAnalyze = async () => {
+    if (!gallerySellingPoints.some((p) => String(p || '').trim())) {
+      openGalleryAlert(tr('请先填写核心卖点', 'Please fill selling points first'));
+      return;
+    }
+    if (galleryImages.length === 0) {
+      openGalleryAlert(tr('请先上传至少 1 张商品图片。', 'Please upload at least 1 product image.'));
+      return;
+    }
+
+    setHotStyleLoading(true);
+    setHotStyleError(null);
+    setHotStyleSelectedIndex(null);
+
+    try {
+      const uploadTargets = galleryImages.slice(0, 3);
+      const imagePaths: string[] = [];
+      for (const f of uploadTargets) {
+        const resp = await assetsApi.uploadTempAsset(f);
+        const p = extractUploadedAssetPath(resp);
+        if (p) imagePaths.push(p);
+      }
+      if (imagePaths.length === 0) throw new Error(tr('图片上传失败', 'Image upload failed'));
+
+      const selling = gallerySellingPoints.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 5);
+      const apiResp = await videoApi.hotStyleAnalysis({
+        image_paths: imagePaths,
+        product_name: galleryProductName.trim(),
+        product_category: galleryCategory.trim(),
+        selling_points: selling,
+        output_language: isZh ? 'zh' : 'en',
+      });
+
+      const raw = (apiResp as any)?.data?.styles || (apiResp as any)?.styles || [];
+      const styles = Array.isArray(raw)
+        ? raw.map((it: any) => ({
+            name: String(it?.name || '').slice(0, 20),
+            tones: Array.isArray(it?.tones) ? it.tones.map((c: any) => String(c || '').trim()).filter(Boolean).slice(0, 5) : [],
+            description: String(it?.description || '').slice(0, 60),
+          })).filter((x: any) => x.name && x.description).slice(0, 4)
+        : [];
+
+      if (styles.length === 0) throw new Error(tr('AI 返回格式不正确', 'AI response invalid'));
+      setHotStyleItems(styles);
+      setHotStyleSelectedIndex(null);
+    } catch (err: any) {
+      const msg = String(err?.message || err || tr('分析失败，请重试。', 'Analysis failed')).trim();
+      setHotStyleError(msg);
+      openGalleryAlert(msg, tr('分析失败', 'Analysis Failed'));
+    } finally {
+      setHotStyleLoading(false);
+    }
+  };
+
+
 
   const handleGalleryAiAnalyze = async () => {
     if (isGalleryAnalyzing) return;
@@ -345,6 +642,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         core_selling_points: sellingPoints,
         target_scene: galleryTargetScene,
         style: galleryStyle,
+        hot_style: hotStyleSelectedIndex !== null ? hotStyleItems[hotStyleSelectedIndex] : undefined,
         type_selections: galleryTypeSelections as any,
       });
 
@@ -361,7 +659,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             status: 'created' as const,
           };
         })
-        .filter(Boolean) as Array<{ localId: string; requestId: string; status: 'created' | 'processing' | 'succeeded' | 'failed'; imageUrl?: string; error?: string }>;
+        .filter(Boolean) as Array<{ localId: string; requestId: string; status: 'created' | 'processing' | 'succeeded' | 'failed'; imageUrl?: string; error?: string; layout?: any }>;
 
       if (initial.length === 0) {
         throw new Error(tr('创建生成任务失败，请重试。', 'Failed to create generation tasks.'));
@@ -385,6 +683,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
           if (outputs.length > 0 && status !== 'failed' && status !== 'error') {
             const url = String(outputs[0] || '').trim();
+            if (!url) {
+              throw new Error(tr('生成结果为空', 'Output is empty'));
+            }
+
             setGalleryPreviewItems((prev) =>
               prev.map((it) => (it.requestId === requestId ? { ...it, status: 'succeeded' as const, imageUrl: url } : it))
             );
@@ -482,6 +784,101 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         {galleryPreviewImageUrl ? (
           <div className="w-full flex items-center justify-center">
             <img src={galleryPreviewImageUrl} alt={tr('预览图片', 'Preview image')} className="max-h-[70vh] w-auto object-contain rounded-xl border border-white/10" />
+          </div>
+        ) : null}
+      </AppDialog>
+
+      <AppDialog
+        isOpen={Boolean(galleryTextEditor?.open)}
+        title={tr('编辑文字', 'Edit Text')}
+        onClose={closeGalleryTextEditor}
+        widthClassName="max-w-5xl"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={closeGalleryTextEditor}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
+            >
+              {tr('取消', 'Cancel')}
+            </button>
+            <button
+              type="button"
+              onClick={exportGalleryTextPng}
+              disabled={isGalleryTextExporting}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 disabled:opacity-60 disabled:hover:bg-zinc-900/70 transition flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              {isGalleryTextExporting ? tr('导出中...', 'Exporting...') : tr('导出 PNG', 'Export PNG')}
+            </button>
+            <button
+              type="button"
+              onClick={saveGalleryTextLayout}
+              disabled={!galleryTextDraftLayout}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 text-black hover:bg-orange-400 disabled:opacity-60 disabled:hover:bg-orange-500 transition"
+            >
+              {tr('保存', 'Save')}
+            </button>
+          </>
+        }
+      >
+        {galleryTextEditor && galleryTextDraftLayout ? (
+          <div className="w-full">
+            <div
+              className="mx-auto w-full max-w-[560px] rounded-xl overflow-hidden border border-white/10 bg-black/30 relative"
+              style={{ aspectRatio: parseAspectRatioCss(String(galleryTextDraftLayout?.aspect_ratio || galleryAspectRatio)) }}
+            >
+              <img
+                src={galleryTextEditor.imageUrl}
+                alt={tr('背景图', 'Background')}
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+
+              {Array.isArray(galleryTextDraftLayout.elements)
+                ? galleryTextDraftLayout.elements.map((el: any, idx: number) => (
+                    <div
+                      key={String(el?.id || idx)}
+                      className="absolute"
+                      style={{
+                        left: `${(Number(el?.x) || 0) * 100}%`,
+                        top: `${(Number(el?.y) || 0) * 100}%`,
+                        width: `${(Number(el?.w) || 0.5) * 100}%`,
+                        height: `${(Number(el?.h) || 0.15) * 100}%`,
+                      }}
+                    >
+                      <div
+                        onPointerDown={(e) => startDragText(idx, e)}
+                        className="h-5 w-full bg-black/40 border border-white/10 rounded-t-md cursor-move"
+                        title={tr('拖拽移动', 'Drag to move')}
+                      />
+                      <textarea
+                        value={String(el?.text || '')}
+                        onChange={(e) =>
+                          setGalleryTextDraftLayout((prev: any) => {
+                            if (!prev?.elements || !Array.isArray(prev.elements)) return prev;
+                            const next = { ...prev, elements: prev.elements.map((x: any) => ({ ...x })) };
+                            if (!next.elements[idx]) return prev;
+                            next.elements[idx].text = e.target.value;
+                            return next;
+                          })
+                        }
+                        className="w-full h-[calc(100%-1.25rem)] resize-none outline-none rounded-b-md border-x border-b border-white/10 bg-white/80 text-black px-2 py-2"
+                        style={{
+                          fontSize: `${Math.max(10, Math.round((Number(el?.font_size) || 0.03) * 560))}px`,
+                          fontWeight: Number(el?.font_weight) || 600,
+                          color: String(el?.color || '#111111'),
+                          textAlign: String(el?.align || 'left') as any,
+                          backgroundColor: String(el?.background || '').trim() ? String(el.background).trim() : undefined,
+                        }}
+                      />
+                    </div>
+                  ))
+                : null}
+            </div>
+
+            <div className="mt-3 text-[11px] text-zinc-400 text-center">
+              {tr('拖拽顶部把手移动；编辑文本后可导出 PNG', 'Drag the handle to move; edit text and export PNG')}
+            </div>
           </div>
         ) : null}
       </AppDialog>
@@ -678,12 +1075,90 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
                 </div>
               </div>
-            </div>
-            <div className="w-[32%] min-w-[420px] max-w-[640px] flex flex-col gap-4">
-              <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
-                <div className="text-sm font-bold text-zinc-200">{tr('生成设置', 'Generation Settings')}</div>
 
-                <div className="mt-4 space-y-6">
+              <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
+                <div className="text-sm font-bold text-zinc-200">{tr('爆款风格分析', 'Hot Style Analysis')}</div>
+
+                {hotStyleLoading ? (
+                  <div className="mt-4 h-28 rounded-xl border border-white/10 bg-white/5 flex flex-col items-center justify-center gap-3 text-zinc-400">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-zinc-400/70 animate-pulse" />
+                      <span className="w-2 h-2 rounded-full bg-zinc-400/70 animate-pulse [animation-delay:150ms]" />
+                      <span className="w-2 h-2 rounded-full bg-zinc-400/70 animate-pulse [animation-delay:300ms]" />
+                    </div>
+                    <div className="text-xs">{tr('爆款风格生成中...', 'Analyzing styles...')}</div>
+                  </div>
+                ) : hotStyleItems.length === 0 ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleHotStyleAnalyze}
+                      disabled={!(galleryImages.length > 0 && gallerySellingPoints.some((p) => String(p || '').trim()))}
+                      className="mt-3 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-zinc-300 hover:bg-white/10 disabled:opacity-60 flex items-center justify-center gap-2"
+                    >
+                      <Sparkles className="w-4 h-4" />{tr('爆款风格分析', 'Analyze Hot Styles')}
+                    </button>
+                    {!(galleryImages.length > 0 && gallerySellingPoints.some((p) => String(p || '').trim())) && (
+                      <div className="mt-2 text-[11px] text-zinc-500">{tr('需上传图片并填写核心卖点', 'Upload images and fill selling points first')}</div>
+                    )}
+                    {hotStyleError ? <div className="mt-2 text-[11px] text-red-400">{hotStyleError}</div> : null}
+                  </>
+                ) : (
+                  <>
+                    <div className="mt-3 flex items-center justify-between">
+                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('风格建议', 'Style Ideas')}</div>
+                      <button
+                        type="button"
+                        onClick={handleHotStyleAnalyze}
+                        className="px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 flex items-center gap-2"
+                      >
+                        <RotateCw className="w-4 h-4" />{tr('换一批风格', 'Regenerate')}
+                      </button>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                      {hotStyleItems.map((s, idx) => {
+                        const isSelected = hotStyleSelectedIndex === idx;
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => setHotStyleSelectedIndex((prev) => (prev === idx ? null : idx))}
+                            className={`relative text-left rounded-xl border bg-black/20 p-3 transition ${
+                              isSelected
+                                ? 'border-orange-500'
+                                : 'border-white/10 hover:border-white/20'
+                            }`}
+                            title={isSelected ? tr('已选择，再次点击取消', 'Selected. Click again to unselect') : tr('点击选择', 'Click to select')}
+                          >
+                            <div className="flex items-center gap-1 mb-2">
+                              {s.tones.slice(0, 4).map((c, i) => (
+                                <span key={i} className="w-4 h-4 rounded-full border border-white/10" style={{ backgroundColor: c }} />
+                              ))}
+                            </div>
+                            <div className="text-sm font-bold text-zinc-200">{s.name}</div>
+                            <div className="mt-1 text-xs text-zinc-400">{s.description}</div>
+                            <div
+                              className={`absolute top-2 right-2 w-5 h-5 rounded-md border flex items-center justify-center text-[11px] font-bold ${
+                                isSelected
+                                  ? 'bg-orange-500 border-orange-500 text-black'
+                                  : 'bg-black/40 border-white/20 text-transparent'
+                              }`}
+                            >
+                              ✓
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="w-[32%] min-w-[420px] max-w-[640px] flex flex-col gap-4 min-h-0">
+              <div className="rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col flex-1 min-h-0">
+                <div className="text-sm font-bold text-zinc-200 shrink-0">{tr('生成设置', 'Generation Settings')}</div>
+
+                <div className="mt-4 space-y-6 flex-1 min-h-0 overflow-y-auto custom-scroll pr-1">
                   <div>
                     <div className="text-xs font-bold text-zinc-200">{tr('基础配置', 'Basics')}</div>
                     <div className="mt-3 grid grid-cols-2 gap-4">
@@ -894,20 +1369,20 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                     </div>
                   </div>
                 </div>
-              </div>
 
-              <button
-                type="button"
-                onClick={handleGalleryGenerate}
-                disabled={isGalleryGenerating}
-                className="mt-3 w-full rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400 disabled:opacity-60 disabled:hover:bg-orange-500 transition flex items-center justify-center gap-2 mb-3"
-              >
-                <Wand2 className="w-4 h-4" />
-                {isGalleryGenerating ? tr('生成中...', 'Generating...') : tr('开始生成', 'Generate')}
-              </button>
+                <button
+                  type="button"
+                  onClick={handleGalleryGenerate}
+                  disabled={isGalleryGenerating}
+                  className="mt-4 w-full rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400 disabled:opacity-60 disabled:hover:bg-orange-500 transition flex items-center justify-center gap-2 shrink-0"
+                >
+                  <Wand2 className="w-4 h-4" />
+                  {isGalleryGenerating ? tr('生成中...', 'Generating...') : tr('开始生成', 'Generate')}
+                </button>
+              </div>
             </div>
 
-            <div className="flex-1 min-w-0 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col">
+            <div className="flex-1 min-w-0 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0 max-h-[calc(100vh-220px)]">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-bold text-zinc-200">
                   {galleryRightPanel === 'preview' ? tr('预览区', 'Preview') : tr('历史记录', 'History')}
@@ -915,7 +1390,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setGalleryRightPanel('preview')}
+                    onClick={() => {
+                      setGalleryRightPanel('preview');
+                      setIsGalleryHistoryManaging(false);
+                      setGalleryHistorySelectedKeys([]);
+                    }}
                     className={`px-3 py-2 rounded-xl text-xs font-bold transition border ${
                       galleryRightPanel === 'preview'
                         ? 'bg-orange-500/10 border-orange-500 text-orange-300'
@@ -926,7 +1405,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   </button>
                   <button
                     type="button"
-                    onClick={() => setGalleryRightPanel('history')}
+                    onClick={() => {
+                      setGalleryRightPanel('history');
+                      setIsGalleryHistoryManaging(false);
+                      setGalleryHistorySelectedKeys([]);
+                    }}
                     className={`px-3 py-2 rounded-xl text-xs font-bold transition border ${
                       galleryRightPanel === 'history'
                         ? 'bg-orange-500/10 border-orange-500 text-orange-300'
@@ -935,11 +1418,12 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   >
                     {tr('历史记录', 'History')}
                   </button>
+
                 </div>
               </div>
 
               {galleryRightPanel === 'preview' ? (
-                <div className="flex-1 mt-4 rounded-2xl border border-dashed border-white/10 bg-black/10 overflow-y-auto">
+                <div className="flex-1 min-h-0 mt-4 rounded-2xl border border-dashed border-white/10 bg-black/10 overflow-y-auto custom-scroll">
                   {galleryPreviewItems.length === 0 ? (
                     <div className="h-full flex items-center justify-center text-zinc-500">
                       <div className="flex flex-col items-center justify-center gap-3">
@@ -980,38 +1464,102 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   )}
                 </div>
               ) : (
-                <div className="flex-1 mt-4 rounded-2xl border border-dashed border-white/10 bg-black/10 overflow-y-auto">
-                  {galleryHistoryItems.length === 0 ? (
-                    <div className="h-full flex items-center justify-center text-zinc-600 text-sm">
-                      {tr('暂无历史记录', 'No history yet')}
-                    </div>
-                  ) : (
-                    <div className="p-4 grid grid-cols-2 gap-3">
-                      {galleryHistoryItems
-                        .slice()
-                        .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
-                        .map((item) => (
-                          <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 overflow-hidden">
-                            <div className="px-3 py-2 text-[11px] text-zinc-400 border-b border-white/10 bg-black/30">
-                              {item.createdAt}
+                <div className="flex-1 min-h-0 mt-4 rounded-2xl border border-dashed border-white/10 bg-black/10 flex flex-col">
+                  <div className="flex-1 min-h-0 overflow-y-auto custom-scroll">
+                    {galleryHistoryItems.length === 0 ? (
+                      <div className="h-full flex items-center justify-center text-zinc-600 text-sm">
+                        {tr('暂无历史记录', 'No history yet')}
+                      </div>
+                    ) : (
+                      <div className="p-4 grid grid-cols-2 gap-3">
+                        {galleryHistoryItems
+                          .slice()
+                          .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+                          .map((item) => (
+                            <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 overflow-hidden">
+                              <div className="px-3 py-2 text-[11px] text-zinc-400 border-b border-white/10 bg-black/30">
+                                {item.createdAt}
+                              </div>
+                              <div className="p-3 grid grid-cols-2 gap-2">
+                                {(isGalleryHistoryManaging ? item.images : item.images.slice(0, 4)).map((url, idx) => {
+                                  const key = `${item.id}:${idx}`;
+                                  const isSelected = galleryHistorySelectedSet.has(key);
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={`${item.id}-${idx}`}
+                                      onClick={() =>
+                                        isGalleryHistoryManaging ? toggleGalleryHistoryKey(key) : openGalleryImagePreview(url)
+                                      }
+                                      className={`relative rounded-lg overflow-hidden border bg-black/30 aspect-square cursor-pointer transition ${
+                                        isGalleryHistoryManaging
+                                          ? isSelected
+                                            ? 'border-orange-500'
+                                            : 'border-white/10 hover:border-white/20'
+                                          : 'border-white/10'
+                                      }`}
+                                      title={
+                                        isGalleryHistoryManaging ? tr('点击选择', 'Click to select') : tr('点击预览', 'Click to preview')
+                                      }
+                                    >
+                                      <img src={url} className="w-full h-full object-cover" alt={`history-${item.id}-${idx}`} />
+                                      {isGalleryHistoryManaging ? (
+                                        <div
+                                          className={`absolute top-2 right-2 w-5 h-5 rounded-md border flex items-center justify-center text-[11px] font-bold ${
+                                            isSelected
+                                              ? 'bg-orange-500 border-orange-500 text-black'
+                                              : 'bg-black/60 border-white/20 text-transparent'
+                                          }`}
+                                        >
+                                          ✓
+                                        </div>
+                                      ) : null}
+                                    </button>
+                                  );
+                                })}
+                              </div>
                             </div>
-                            <div className="p-3 grid grid-cols-2 gap-2">
-                              {item.images.slice(0, 4).map((url, idx) => (
-                                <button
-                                  type="button"
-                                  key={`${item.id}-${idx}`}
-                                  onClick={() => openGalleryImagePreview(url)}
-                                  className="rounded-lg overflow-hidden border border-white/10 bg-black/30 aspect-square cursor-pointer"
-                                  title={tr('点击预览', 'Click to preview')}
-                                >
-                                  <img src={url} className="w-full h-full object-cover" alt={`history-${item.id}-${idx}`} />
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  )}
+                          ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="shrink-0 border-t border-white/10 p-3 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsGalleryHistoryManaging((prev) => !prev);
+                        setGalleryHistorySelectedKeys([]);
+                      }}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold transition border ${
+                        isGalleryHistoryManaging
+                          ? 'bg-orange-500/10 border-orange-500 text-orange-300'
+                          : 'bg-zinc-900/70 border-white/10 text-zinc-200 hover:bg-zinc-800'
+                      }`}
+                    >
+                      {isGalleryHistoryManaging ? tr('完成', 'Done') : tr('设置', 'Manage')}
+                    </button>
+
+                    {isGalleryHistoryManaging ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleGalleryHistorySelectAll}
+                          className="px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
+                        >
+                          {isGalleryHistoryAllSelected ? tr('取消全选', 'Clear') : tr('全选', 'Select all')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleGalleryHistoryDeleteSelected}
+                          disabled={galleryHistorySelectedKeys.length === 0}
+                          className="px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 disabled:opacity-60 disabled:hover:bg-zinc-900/70 transition"
+                        >
+                          {tr('删除', 'Delete')}
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
                 </div>
               )}
             </div>

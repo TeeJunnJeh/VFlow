@@ -32,6 +32,7 @@ import type { ErrorModalProps } from './workflow/ErrorModal';
 import { buildErrorModalData, type ErrorCategory, type ErrorI18n } from '../../utils/errorModalHelper';
 import { getWorkbenchPreferences, setWorkbenchPreferences } from '../../utils/preferences';
 import { type ReplayReusePayload } from './ReplayScriptView';
+import { SeedanceReplayUploadPanel, type SeedanceReplayUploadAsset } from './SeedanceReplayUploadPanel';
 
 const ENABLE_PROMPT_LAB = true;
 const ENABLE_STORYBOARD_PROMPT = false;
@@ -102,6 +103,7 @@ type QueuedAsset = {
   materialType?: AssetLibraryTab;
   isPrimaryFrame?: boolean;
   mediaKind?: 'image' | 'video' | 'audio' | 'file';
+  durationSeconds?: number | null;
   uploadedPath?: string | null;
   hasSubjectOtherViews?: boolean;
 };
@@ -790,6 +792,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [targetLanguage, setTargetLanguage] = useState<string>(() => initialPrefs.targetLanguage || 'en');
   const [translatingShots, setTranslatingShots] = useState<Record<number, boolean>>({});
   const [creationMode, setCreationMode] = useState<'fast' | 'replay'>(() => (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
+  const [seedanceReplayDefaultSource, setSeedanceReplayDefaultSource] = useState<'library' | 'local'>('library');
   const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
   const [isModelSectionCollapsed, setIsModelSectionCollapsed] = useState(false);
   const [isAiRecognizing, setIsAiRecognizing] = useState(false);
@@ -2562,6 +2565,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     motion: t.assets_tab_motion || '动作',
     audio: t.assets_tab_audio || '音频',
   };
+  const isSeedanceReplayMode = creationMode === 'replay' && selectedModel === 'seedance2.0';
   const uploadDisplayAssets: QueuedAsset[] = useMemo(() => {
     if (assetQueue.length > 0) return assetQueue;
     if (!uploadedFile) return [];
@@ -2589,6 +2593,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     selectedFileObj,
     uploadedFile,
   ]);
+  const seedanceReplayUploadAssets = useMemo<SeedanceReplayUploadAsset[]>(() => (
+    uploadDisplayAssets.flatMap((asset) => {
+      if (asset.mediaKind !== 'image' && asset.mediaKind !== 'video' && asset.mediaKind !== 'audio') {
+        return [];
+      }
+      return [{
+        id: asset.id,
+        name: asset.name || '未命名素材',
+        mediaKind: asset.mediaKind,
+        source: asset.assetId && !asset.fileObj ? 'library' : 'local',
+        previewUrl: asset.previewUrl || null,
+        durationSeconds: asset.durationSeconds ?? null,
+      }];
+    })
+  ), [uploadDisplayAssets]);
   const aiOptimizeImageCandidates = useMemo(
     () => uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image'),
     [uploadDisplayAssets]
@@ -2666,6 +2685,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     t.wb_ai_opt_need_image,
     uploadedFile,
   ]);
+  const handleSeedanceReplayAddFromLibrary = useCallback(() => {
+    // Placeholder for future Seedance replay asset-library integration.
+  }, []);
+  const handleSeedanceReplayAddFromLocal = useCallback(() => {
+    // Placeholder for future Seedance replay local-upload integration.
+  }, []);
+  const handleSeedanceReplayPreview = useCallback((_assetId: string) => {
+    // Placeholder for future Seedance replay preview interaction.
+  }, []);
+  const handleSeedanceReplayReplace = useCallback((_assetId: string) => {
+    // Placeholder for future Seedance replay replace interaction.
+  }, []);
+  const handleSeedanceReplayRemove = useCallback((_assetId: string) => {
+    // Placeholder for future Seedance replay remove interaction.
+  }, []);
   const resolveAiOptimizeReferencePath = useCallback(async (asset: QueuedAsset) => {
     let referencePath = asset.uploadedPath || asset.assetUrl || null;
     if (!referencePath && asset.fileObj) {
@@ -6598,6 +6632,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           {/* Upload Section */}
           <div ref={uploadSectionRef} className={`flex flex-col gap-3 ${getGuideFocusClass('upload')}`}>
             <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
+            {isSeedanceReplayMode ? (
+              <SeedanceReplayUploadPanel
+                assets={seedanceReplayUploadAssets}
+                defaultSource={seedanceReplayDefaultSource}
+                onDefaultSourceChange={setSeedanceReplayDefaultSource}
+                onAddFromLibrary={handleSeedanceReplayAddFromLibrary}
+                onAddFromLocal={handleSeedanceReplayAddFromLocal}
+                onPreview={handleSeedanceReplayPreview}
+                onReplace={handleSeedanceReplayReplace}
+                onRemove={handleSeedanceReplayRemove}
+              />
+            ) : (
+            <div className="flex flex-col gap-3">
             {isKlingOmniMode && (
                 <div className="grid grid-cols-3 gap-2">
                   <button
@@ -6991,7 +7038,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
               )}
             </div>
-          </div>
           <div className={`grid gap-2 ${isKlingOmniMode ? 'grid-cols-3' : 'grid-cols-2'}`}>
             <button
                 type="button"
@@ -7204,8 +7250,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </>
               )}
             </div>
-          </div>
+            </div>
           )}
+            </div>
+          )}
+          </div>
 
           {renderLeftColumnSettings()}
 

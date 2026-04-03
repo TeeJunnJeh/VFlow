@@ -1,0 +1,673 @@
+import React, { useState } from 'react';
+import {
+  ChevronDown,
+  Eye,
+  FolderOpen,
+  Image as ImageIcon,
+  Music,
+  Play,
+  Plus,
+  RefreshCw,
+  Upload,
+  Video,
+  X,
+} from 'lucide-react';
+
+type SourceType = 'library' | 'local';
+type MediaKind = 'image' | 'video' | 'audio';
+
+export type SeedanceReplayUploadAsset = {
+  id: string;
+  name: string;
+  mediaKind: MediaKind;
+  source: SourceType;
+  previewUrl?: string | null;
+  durationSeconds?: number | null;
+};
+
+type SeedanceReplayUploadPanelProps = {
+  assets: SeedanceReplayUploadAsset[];
+  defaultSource?: SourceType;
+  onDefaultSourceChange?: (source: SourceType) => void;
+  onAddFromLibrary?: () => void;
+  onAddFromLocal?: () => void;
+  onPreview?: (assetId: string) => void;
+  onReplace?: (assetId: string) => void;
+  onRemove?: (assetId: string) => void;
+};
+
+const IMAGE_LIMIT = 9;
+const VIDEO_LIMIT = 3;
+const AUDIO_LIMIT = 3;
+const DURATION_LIMIT = 15;
+const noop = () => {};
+
+const sourceLabelMap: Record<SourceType, string> = {
+  library: '素材库',
+  local: '本地',
+};
+
+function formatSeconds(value: number) {
+  return `${value.toFixed(1)}s`;
+}
+
+export function SeedanceReplayUploadPanel({
+  assets,
+  defaultSource,
+  onDefaultSourceChange,
+  onAddFromLibrary = noop,
+  onAddFromLocal = noop,
+  onPreview = noop,
+  onReplace = noop,
+  onRemove = noop,
+}: SeedanceReplayUploadPanelProps) {
+  const [internalDefaultSource, setInternalDefaultSource] = useState<SourceType>(defaultSource || 'library');
+  const effectiveDefaultSource = defaultSource || internalDefaultSource;
+
+  const imageAssets = assets.filter((asset) => asset.mediaKind === 'image');
+  const videoAssets = assets.filter((asset) => asset.mediaKind === 'video');
+  const audioAssets = assets.filter((asset) => asset.mediaKind === 'audio');
+
+  const imageCount = imageAssets.length;
+  const videoCount = videoAssets.length;
+  const audioCount = audioAssets.length;
+  const videoTotalDuration = videoAssets.reduce((sum, asset) => sum + (asset.durationSeconds || 0), 0);
+  const audioTotalDuration = audioAssets.reduce((sum, asset) => sum + (asset.durationSeconds || 0), 0);
+
+  const hasContent = assets.length > 0;
+  const hasMinimumAssets = imageCount > 0 || videoCount > 0;
+  const videoOverLimit = videoCount > VIDEO_LIMIT || videoTotalDuration > DURATION_LIMIT;
+  const audioOverLimit = audioCount > AUDIO_LIMIT || audioTotalDuration > DURATION_LIMIT;
+
+  const handleDefaultSourceChange = (next: SourceType) => {
+    setInternalDefaultSource(next);
+    onDefaultSourceChange?.(next);
+  };
+
+  const handleAddByDefaultSource = () => {
+    if (effectiveDefaultSource === 'library') {
+      onAddFromLibrary();
+      return;
+    }
+    onAddFromLocal();
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] font-bold text-zinc-500">默认添加来源</span>
+        <div className="flex items-center rounded-xl border border-white/10 bg-white/5 p-1">
+          <SourceTab
+            active={effectiveDefaultSource === 'library'}
+            icon={<FolderOpen className="h-3.5 w-3.5" />}
+            label="素材库"
+            onClick={() => handleDefaultSourceChange('library')}
+          />
+          <SourceTab
+            active={effectiveDefaultSource === 'local'}
+            icon={<Upload className="h-3.5 w-3.5" />}
+            label="本地上传"
+            onClick={() => handleDefaultSourceChange('local')}
+          />
+        </div>
+      </div>
+
+      {!hasContent ? (
+        <div className="glass-panel rounded-xl border border-dashed border-white/10 p-5 sm:p-6">
+          <div className="mx-auto flex max-w-lg flex-col items-center text-center">
+            <div className="mb-4 flex items-center gap-2">
+              <RoundIcon icon={<ImageIcon className="h-4 w-4" />} />
+              <RoundIcon icon={<Video className="h-4 w-4" />} />
+              <RoundIcon icon={<Music className="h-4 w-4" />} />
+            </div>
+
+            <h3 className="text-base font-bold text-zinc-100">添加参考素材</h3>
+            <p className="mt-1 text-xs leading-5 text-zinc-400">
+              支持图片、视频、音频混合添加，系统会自动分类整理
+            </p>
+
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <PrimaryButton onClick={onAddFromLibrary}>
+                <FolderOpen className="h-3.5 w-3.5" />
+                从素材库选择
+              </PrimaryButton>
+              <SecondaryButton onClick={onAddFromLocal}>
+                <Upload className="h-3.5 w-3.5" />
+                从本地上传
+              </SecondaryButton>
+            </div>
+
+            <div className="mt-4 w-full max-w-sm border-t border-white/10 pt-3">
+              <p className="flex items-center justify-center gap-2 text-xs text-orange-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-orange-400" />
+                请至少上传 1 张图片或 1 个视频
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="glass-panel rounded-xl border border-white/10 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-bold text-zinc-500">快速添加</span>
+            <PrimaryButton onClick={onAddFromLibrary}>
+              <FolderOpen className="h-3.5 w-3.5" />
+              从素材库选择
+            </PrimaryButton>
+            <SecondaryButton onClick={onAddFromLocal}>
+              <Upload className="h-3.5 w-3.5" />
+              从本地上传
+            </SecondaryButton>
+          </div>
+        </div>
+      )}
+
+      <div className="glass-panel rounded-xl border border-white/10 px-3 py-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-300 lg:gap-5">
+            <StatusMetric icon={<ImageIcon className="h-3.5 w-3.5 text-zinc-500" />} label="图片" value={imageCount} limit={IMAGE_LIMIT} />
+            <MetricDivider />
+            <StatusMetric
+              icon={<Video className="h-3.5 w-3.5 text-zinc-500" />}
+              label="视频"
+              value={videoCount}
+              limit={VIDEO_LIMIT}
+              duration={formatSeconds(videoTotalDuration)}
+              durationLimit={`${DURATION_LIMIT}s`}
+              error={videoOverLimit}
+            />
+            <MetricDivider />
+            <StatusMetric
+              icon={<Music className="h-3.5 w-3.5 text-zinc-500" />}
+              label="音频"
+              value={audioCount}
+              limit={AUDIO_LIMIT}
+              duration={formatSeconds(audioTotalDuration)}
+              durationLimit={`${DURATION_LIMIT}s`}
+              error={audioOverLimit}
+            />
+          </div>
+
+          <div className={`flex items-center gap-2 text-xs font-medium ${hasMinimumAssets ? 'text-emerald-400' : 'text-zinc-500'}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${hasMinimumAssets ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
+            {hasMinimumAssets ? '条件满足' : '待满足条件'}
+          </div>
+        </div>
+
+        {(videoOverLimit || audioOverLimit) && (
+          <div className="mt-3 space-y-1.5 border-t border-white/10 pt-3">
+            {videoOverLimit && (
+              <p className="flex items-center gap-2 text-xs text-red-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                视频数量或总时长超过限制（{videoCount}/{VIDEO_LIMIT}，{formatSeconds(videoTotalDuration)}/{DURATION_LIMIT}s）
+              </p>
+            )}
+            {audioOverLimit && (
+              <p className="flex items-center gap-2 text-xs text-red-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                音频数量或总时长超过限制（{audioCount}/{AUDIO_LIMIT}，{formatSeconds(audioTotalDuration)}/{DURATION_LIMIT}s）
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-3">
+        <CategoryCard
+          title="参考图片"
+          icon={<ImageIcon className="h-4 w-4" />}
+          items={imageAssets}
+          count={imageCount}
+          limit={IMAGE_LIMIT}
+          defaultSource={effectiveDefaultSource}
+          onAddFromDefault={handleAddByDefaultSource}
+          onAddFromLibrary={onAddFromLibrary}
+          onAddFromLocal={onAddFromLocal}
+          onPreview={onPreview}
+          onReplace={onReplace}
+          onRemove={onRemove}
+        />
+        <CategoryCard
+          title="参考视频"
+          icon={<Video className="h-4 w-4" />}
+          items={videoAssets}
+          count={videoCount}
+          limit={VIDEO_LIMIT}
+          totalDuration={videoTotalDuration}
+          durationLimit={DURATION_LIMIT}
+          exceedsLimit={videoOverLimit}
+          defaultSource={effectiveDefaultSource}
+          onAddFromDefault={handleAddByDefaultSource}
+          onAddFromLibrary={onAddFromLibrary}
+          onAddFromLocal={onAddFromLocal}
+          onPreview={onPreview}
+          onReplace={onReplace}
+          onRemove={onRemove}
+        />
+        <CategoryCard
+          title="参考音频"
+          icon={<Music className="h-4 w-4" />}
+          items={audioAssets}
+          count={audioCount}
+          limit={AUDIO_LIMIT}
+          totalDuration={audioTotalDuration}
+          durationLimit={DURATION_LIMIT}
+          exceedsLimit={audioOverLimit}
+          defaultSource={effectiveDefaultSource}
+          onAddFromDefault={handleAddByDefaultSource}
+          onAddFromLibrary={onAddFromLibrary}
+          onAddFromLocal={onAddFromLocal}
+          onPreview={onPreview}
+          onReplace={onReplace}
+          onRemove={onRemove}
+        />
+      </div>
+    </div>
+  );
+}
+
+function SourceTab({
+  active,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition',
+        active
+          ? 'border border-orange-500/50 bg-orange-500/15 text-orange-200'
+          : 'border border-transparent text-zinc-400 hover:bg-white/5 hover:text-zinc-200',
+      ].join(' ')}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function RoundIcon({ icon }: { icon: React.ReactNode }) {
+  return (
+    <div className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
+      {icon}
+    </div>
+  );
+}
+
+function PrimaryButton({
+  children,
+  onClick,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/50 bg-orange-500/15 px-3 py-2 text-xs font-bold text-orange-200 transition hover:bg-orange-500/20"
+    >
+      {children}
+    </button>
+  );
+}
+
+function SecondaryButton({
+  children,
+  onClick,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs font-bold text-zinc-200 transition hover:bg-white/5"
+    >
+      {children}
+    </button>
+  );
+}
+
+function StatusMetric({
+  icon,
+  label,
+  value,
+  limit,
+  duration,
+  durationLimit,
+  error,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  limit: number;
+  duration?: string;
+  durationLimit?: string;
+  error?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      {icon}
+      <span className="text-xs text-zinc-300">
+        {label} <span className={value > limit || error ? 'text-orange-300' : 'text-zinc-100'}>{value}</span>/{limit}
+      </span>
+      {duration && durationLimit && (
+        <span className="text-[11px] text-zinc-500">
+          <span className={error ? 'text-red-400' : 'text-zinc-400'}>{duration}</span>/{durationLimit}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function MetricDivider() {
+  return <div className="hidden h-3.5 w-px bg-white/10 sm:block" />;
+}
+
+type CategoryCardProps = {
+  title: string;
+  icon: React.ReactNode;
+  items: SeedanceReplayUploadAsset[];
+  count: number;
+  limit: number;
+  totalDuration?: number;
+  durationLimit?: number;
+  exceedsLimit?: boolean;
+  defaultSource: SourceType;
+  onAddFromDefault: () => void;
+  onAddFromLibrary: () => void;
+  onAddFromLocal: () => void;
+  onPreview: (assetId: string) => void;
+  onReplace: (assetId: string) => void;
+  onRemove: (assetId: string) => void;
+};
+
+function CategoryCard({
+  title,
+  icon,
+  items,
+  count,
+  limit,
+  totalDuration,
+  durationLimit,
+  exceedsLimit,
+  defaultSource,
+  onAddFromDefault,
+  onAddFromLibrary,
+  onAddFromLocal,
+  onPreview,
+  onReplace,
+  onRemove,
+}: CategoryCardProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const isEmpty = items.length === 0;
+
+  return (
+    <div className={`glass-panel rounded-xl border p-3.5 ${exceedsLimit ? 'border-red-500/40' : 'border-white/10'}`}>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="text-zinc-400">{icon}</div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-bold text-zinc-100">{title}</h3>
+              <span className="text-xs text-zinc-500">
+                {count}/{limit}
+                {typeof totalDuration === 'number' && typeof durationLimit === 'number' ? (
+                  <span className="ml-2">
+                    <span className={exceedsLimit ? 'text-red-400' : 'text-zinc-400'}>{formatSeconds(totalDuration)}</span>/{durationLimit}s
+                  </span>
+                ) : null}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative flex items-center gap-1.5">
+          <MiniIconButton onClick={onAddFromDefault}>
+            <Plus className="h-3.5 w-3.5" />
+          </MiniIconButton>
+          <MiniIconButton onClick={() => setMenuOpen((prev) => !prev)}>
+            <ChevronDown className={`h-3.5 w-3.5 transition ${menuOpen ? 'rotate-180' : ''}`} />
+          </MiniIconButton>
+
+          {menuOpen && (
+            <div className="absolute right-0 top-9 z-20 w-36 overflow-hidden rounded-lg border border-white/10 bg-zinc-900/95 shadow-2xl backdrop-blur">
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onAddFromLibrary();
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-200 transition hover:bg-white/5"
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                从素材库添加
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onAddFromLocal();
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-200 transition hover:bg-white/5"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                从本地添加
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {isEmpty ? (
+        <div className="rounded-xl border border-dashed border-white/10 bg-black/10 px-4 py-8 text-center text-xs leading-5 text-zinc-500">
+          点击 "+" 按默认来源添加
+          <br />
+          当前默认来源：{sourceLabelMap[defaultSource]}
+        </div>
+      ) : items[0].mediaKind === 'image' ? (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+          {items.map((item) => (
+            <ImageCard key={item.id} item={item} onPreview={onPreview} onReplace={onReplace} onRemove={onRemove} />
+          ))}
+        </div>
+      ) : items[0].mediaKind === 'video' ? (
+        <div className="space-y-2">
+          {items.map((item) => (
+            <VideoCard key={item.id} item={item} onPreview={onPreview} onReplace={onReplace} onRemove={onRemove} />
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {items.map((item) => (
+            <AudioCard key={item.id} item={item} onPreview={onPreview} onReplace={onReplace} onRemove={onRemove} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MiniIconButton({
+  children,
+  onClick,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-zinc-100"
+    >
+      {children}
+    </button>
+  );
+}
+
+function ImageCard({
+  item,
+  onPreview,
+  onReplace,
+  onRemove,
+}: {
+  item: SeedanceReplayUploadAsset;
+  onPreview: (assetId: string) => void;
+  onReplace: (assetId: string) => void;
+  onRemove: (assetId: string) => void;
+}) {
+  return (
+    <div className="group relative aspect-[4/5] overflow-hidden rounded-xl border border-white/10 bg-black/20">
+      {item.previewUrl ? (
+        <img src={item.previewUrl} alt={item.name} className="h-full w-full object-cover" />
+      ) : (
+        <div className="h-full w-full bg-white/5" />
+      )}
+
+      <div className="absolute left-2 top-2 rounded-md border border-white/10 bg-black/40 px-1.5 py-0.5 text-[10px] font-bold text-zinc-100 backdrop-blur">
+        {sourceLabelMap[item.source]}
+      </div>
+
+      <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-black/40 opacity-0 transition group-hover:opacity-100">
+        <OverlayActionButton tone="neutral" onClick={() => onPreview(item.id)}>
+          <Eye className="h-3.5 w-3.5" />
+        </OverlayActionButton>
+        <OverlayActionButton tone="neutral" onClick={() => onReplace(item.id)}>
+          <RefreshCw className="h-3.5 w-3.5" />
+        </OverlayActionButton>
+        <OverlayActionButton tone="danger" onClick={() => onRemove(item.id)}>
+          <X className="h-3.5 w-3.5" />
+        </OverlayActionButton>
+      </div>
+    </div>
+  );
+}
+
+function VideoCard({
+  item,
+  onPreview,
+  onReplace,
+  onRemove,
+}: {
+  item: SeedanceReplayUploadAsset;
+  onPreview: (assetId: string) => void;
+  onReplace: (assetId: string) => void;
+  onRemove: (assetId: string) => void;
+}) {
+  return (
+    <div className="group rounded-xl border border-white/10 bg-black/20 p-3 transition hover:bg-white/5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex h-20 w-full shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-white/5 sm:w-32">
+          {item.previewUrl ? (
+            <video src={item.previewUrl} className="h-full w-full object-cover opacity-80" muted playsInline />
+          ) : null}
+          <Play className="absolute h-6 w-6 text-zinc-300" />
+          <div className="absolute bottom-1.5 right-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-bold text-white">
+            {formatSeconds(item.durationSeconds || 0)}
+          </div>
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-bold text-zinc-100">{item.name}</p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
+            <span className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-bold text-zinc-300">
+              {sourceLabelMap[item.source]}
+            </span>
+            <span>{formatSeconds(item.durationSeconds || 0)}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 opacity-0 transition group-hover:opacity-100">
+          <OverlayActionButton tone="neutral" onClick={() => onPreview(item.id)}>
+            <Eye className="h-3.5 w-3.5" />
+          </OverlayActionButton>
+          <OverlayActionButton tone="neutral" onClick={() => onReplace(item.id)}>
+            <RefreshCw className="h-3.5 w-3.5" />
+          </OverlayActionButton>
+          <OverlayActionButton tone="danger" onClick={() => onRemove(item.id)}>
+            <X className="h-3.5 w-3.5" />
+          </OverlayActionButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AudioCard({
+  item,
+  onPreview,
+  onReplace,
+  onRemove,
+}: {
+  item: SeedanceReplayUploadAsset;
+  onPreview: (assetId: string) => void;
+  onReplace: (assetId: string) => void;
+  onRemove: (assetId: string) => void;
+}) {
+  return (
+    <div className="group rounded-xl border border-white/10 bg-black/20 p-3 transition hover:bg-white/5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5">
+          <Music className="h-5 w-5 text-zinc-300" />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-bold text-zinc-100">{item.name}</p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
+            <span className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-bold text-zinc-300">
+              {sourceLabelMap[item.source]}
+            </span>
+            <span>{formatSeconds(item.durationSeconds || 0)}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 opacity-0 transition group-hover:opacity-100">
+          <OverlayActionButton tone="neutral" onClick={() => onPreview(item.id)}>
+            <Play className="h-3.5 w-3.5" />
+          </OverlayActionButton>
+          <OverlayActionButton tone="neutral" onClick={() => onReplace(item.id)}>
+            <RefreshCw className="h-3.5 w-3.5" />
+          </OverlayActionButton>
+          <OverlayActionButton tone="danger" onClick={() => onRemove(item.id)}>
+            <X className="h-3.5 w-3.5" />
+          </OverlayActionButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OverlayActionButton({
+  children,
+  tone,
+  onClick,
+}: {
+  children: React.ReactNode;
+  tone: 'neutral' | 'danger';
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        'flex h-8 w-8 items-center justify-center rounded-lg border transition',
+        tone === 'danger'
+          ? 'border-red-500/30 bg-red-500/20 text-red-200 hover:bg-red-500 hover:text-white'
+          : 'border-white/10 bg-black/40 text-white hover:bg-white/20',
+      ].join(' ')}
+    >
+      {children}
+    </button>
+  );
+}

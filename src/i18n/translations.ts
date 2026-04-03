@@ -369,10 +369,6 @@ export const translations = {
     wb_ai_overwrite_confirm_ok: "Overwrite",
     wb_ai_overwrite_confirm_cancel: "Cancel",
 
-    wb_ai_reprompt_title: "AI Recognize",
-    wb_ai_reprompt_message: "Product images updated. Re-run AI recognition for product info?",
-    wb_ai_reprompt_confirm_ok: "Re-run",
-    wb_ai_reprompt_confirm_cancel: "Not now",
 
     wb_ai_opt_open_btn: "AI Smart Optimize",
     wb_ai_opt_title: "AI Smart Optimize",
@@ -1508,10 +1504,6 @@ export const translations = {
     wb_ai_overwrite_confirm_ok: "覆盖当前内容",
     wb_ai_overwrite_confirm_cancel: "取消",
 
-    wb_ai_reprompt_title: "AI识别",
-    wb_ai_reprompt_message: "商品图片已更新，是否重新识别商品信息？",
-    wb_ai_reprompt_confirm_ok: "重新识别",
-    wb_ai_reprompt_confirm_cancel: "暂不识别",
 
     wb_ai_opt_open_btn: "AI智能优化",
     wb_ai_opt_title: "AI智能优化",
@@ -2481,10 +2473,6 @@ export const translations = {
     wb_ai_overwrite_confirm_ok: "Ganti",
     wb_ai_overwrite_confirm_cancel: "Batal",
 
-    wb_ai_reprompt_title: "AI Recognize",
-    wb_ai_reprompt_message: "Gambar produk telah dikemas kini. Jalankan semula pengecaman AI untuk maklumat produk?",
-    wb_ai_reprompt_confirm_ok: "Jalankan semula",
-    wb_ai_reprompt_confirm_cancel: "Bukan sekarang",
     wb_ai_recognize_failed: "Pengecaman gagal. Sila cuba lagi atau isi maklumat produk secara manual.",
 
     wb_project_list_tooltip: "Senarai Projek",
@@ -3440,10 +3428,6 @@ export const translations = {
     wb_ai_overwrite_confirm_ok: "Ghi đè",
     wb_ai_overwrite_confirm_cancel: "Hủy",
 
-    wb_ai_reprompt_title: "AI Nhận diện",
-    wb_ai_reprompt_message: "Ảnh sản phẩm đã được cập nhật. Nhận diện lại thông tin sản phẩm?",
-    wb_ai_reprompt_confirm_ok: "Nhận diện lại",
-    wb_ai_reprompt_confirm_cancel: "Chưa",
     wb_ai_recognize_failed: "Nhận diện thất bại. Vui lòng thử lại hoặc điền thông tin sản phẩm thủ công.",
 
     wb_project_list_tooltip: "Danh sach du an",
@@ -4362,10 +4346,6 @@ export const translations = {
     wb_ai_overwrite_confirm_ok: "덮어쓰기",
     wb_ai_overwrite_confirm_cancel: "취소",
 
-    wb_ai_reprompt_title: "AI 인식",
-    wb_ai_reprompt_message: "상품 이미지가 업데이트되었습니다. 상품 정보를 다시 인식할까요?",
-    wb_ai_reprompt_confirm_ok: "다시 인식",
-    wb_ai_reprompt_confirm_cancel: "나중에",
     wb_ai_recognize_failed: "인식에 실패했습니다. 다시 시도하거나 상품 정보를 수동으로 입력해 주세요.",
 
     wb_project_list_tooltip: "프로젝트 목록",

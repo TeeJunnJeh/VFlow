@@ -794,8 +794,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isModelSectionCollapsed, setIsModelSectionCollapsed] = useState(false);
   const [isAiRecognizing, setIsAiRecognizing] = useState(false);
   const [hasAiRecognized, setHasAiRecognized] = useState(false);
-  const lastRecognizedSignatureRef = useRef<string>('');
-  const isAutoRecognizePromptingRef = useRef(false);
 
   useEffect(() => {
     if (soundSetting !== 'off') {
@@ -3328,22 +3326,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     window.addEventListener('mouseup', onUp);
   }, [scriptPreviewRatio, SCRIPT_COLUMN_MIN_WIDTH, PREVIEW_COLUMN_MIN_WIDTH, SCRIPT_PREVIEW_RATIO_KEY]);
 
-  const productImageSignature = useMemo(() => {
-    const sources = getProductRecognitionSources();
-    return sources
-        .map((asset) => {
-          if (asset.id) return String(asset.id);
-          if (asset.fileObj) {
-            return `${asset.fileObj.name}:${asset.fileObj.size}:${asset.fileObj.lastModified}`;
-          }
-          return String(asset.assetUrl || asset.previewUrl || '');
-        })
-        .filter(Boolean)
-        .join('|');
-  }, [getProductRecognitionSources]);
-
   const handleAiRecognize = useCallback(
-      async (opts?: { skipOverwriteConfirm?: boolean }) => {
+      async () => {
         if (!user?.id) {
           openInfo(popupTitles.notice, t.wb_popup_not_logged_in);
           return;
@@ -3355,15 +3339,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           return;
         }
 
-        const signature = imagePaths.join('|');
-
         const hasManualInput =
             (productInfoTouched.name && productName.trim()) ||
             (productInfoTouched.category && productCategory.trim()) ||
             (productInfoTouched.sellingPoints && coreSellingPoints.trim()) ||
             (productInfoTouched.audience && targetAudience.trim());
 
-        if (!opts?.skipOverwriteConfirm && hasManualInput) {
+        if (hasManualInput) {
           const ok = await openConfirm(t.wb_ai_overwrite_title, t.wb_ai_overwrite_message, {
             okLabel: t.wb_ai_overwrite_confirm_ok,
             cancelLabel: t.wb_ai_overwrite_confirm_cancel,
@@ -3390,7 +3372,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           setProductInfoTouched({ name: false, category: false, sellingPoints: false, audience: false });
 
           setHasAiRecognized(true);
-          lastRecognizedSignatureRef.current = productImageSignature || signature;
         } catch (err: any) {
           openErrorModal(err, { category: 'recognize_failed' });
         } finally {
@@ -3402,7 +3383,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         openConfirm,
         openInfo,
         productCategory,
-        productImageSignature,
         productInfoTouched,
         productName,
         resolveProductRecognitionImagePaths,
@@ -3412,48 +3392,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         language
       ]
   );
-
-  useEffect(() => {
-    if (isAiRecognizing) return;
-
-    if (!productImageSignature) {
-      lastRecognizedSignatureRef.current = '';
-      return;
-    }
-
-    // Skip auto re-prompt during project workspace application or explicit project switching
-    if (isApplyingProjectWorkspaceRef.current || isSwitchingProjectRef.current) {
-      lastRecognizedSignatureRef.current = productImageSignature;
-      return;
-    }
-
-    const prevSignature = lastRecognizedSignatureRef.current;
-
-    if (!prevSignature) {
-      lastRecognizedSignatureRef.current = productImageSignature;
-      return;
-    }
-
-    if (prevSignature === productImageSignature) return;
-    if (isAutoRecognizePromptingRef.current) return;
-
-    isAutoRecognizePromptingRef.current = true;
-    void (async () => {
-      const ok = await openConfirm(t.wb_ai_reprompt_title, t.wb_ai_reprompt_message, {
-        okLabel: t.wb_ai_reprompt_confirm_ok,
-        cancelLabel: t.wb_ai_reprompt_confirm_cancel,
-      });
-      isAutoRecognizePromptingRef.current = false;
-
-      if (!ok) {
-        lastRecognizedSignatureRef.current = productImageSignature;
-        return;
-      }
-
-      await handleAiRecognize({ skipOverwriteConfirm: true });
-      lastRecognizedSignatureRef.current = productImageSignature;
-    })();
-  }, [handleAiRecognize, isAiRecognizing, openConfirm, productImageSignature, t]);
 
   const handleGenerateKlingBoundaryFrames = async () => {
     if (selectedModel !== 'kling') return;

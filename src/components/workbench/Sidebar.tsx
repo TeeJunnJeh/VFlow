@@ -72,10 +72,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
     <button
       type="button"
       onClick={() => setActiveView(view)}
-      className={`w-full rounded-xl border px-3 py-2 text-left text-xs transition ${activeView === view ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
+      className={`w-full rounded-xl border px-3 py-2.5 text-left text-sm transition ${activeView === view ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
     >
-      <span className="flex items-center gap-2">
-        <Icon className="h-4 w-4" />
+      <span className="flex items-center gap-2.5">
+        <Icon className="h-5 w-5 shrink-0" />
         <span>{label}</span>
       </span>
     </button>
@@ -139,7 +139,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
 
       {isProductImagesMenuOpen && (
         <div className="w-52 border-l border-white/5 bg-zinc-950/95 backdrop-blur-sm px-3 py-6">
-          <div className="px-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+          <div className="px-1 text-sm font-semibold tracking-wide text-zinc-500">
             {tx('wb_nav_product_images', tr('商品图片生成', 'Product Images'))}
           </div>
           <div className="mt-3 flex flex-col gap-2">

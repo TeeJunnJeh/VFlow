@@ -26,6 +26,12 @@ const formatDuration = (seconds: number) => {
   return `${m}:${String(rem).padStart(2, '0')}`;
 };
 
+const formatModelLabel = (model: string | null | undefined) => {
+  const text = String(model || '').trim();
+  if (!text) return null;
+  return text;
+};
+
 const formatDateTimeToMinute = (value: string) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
@@ -83,6 +89,8 @@ const formatI18n = (template: string | undefined, vars: Record<string, string | 
   }, template);
 };
 
+const HISTORY_PAGE_SIZE = 16;
+
 export const HistoryView = () => {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -94,6 +102,7 @@ export const HistoryView = () => {
   const [deleteTarget, setDeleteTarget] = useState<HistoryProject | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [promptProject, setPromptProject] = useState<HistoryProject | null>(null);
+  const [loadingPromptProjectId, setLoadingPromptProjectId] = useState<string | null>(null);
   const [selectedProjects, setSelectedProjects] = useState<Record<string, { id: string; title: string; video_url: string | null }>>({});
   const [isBatchDownloading, setIsBatchDownloading] = useState(false);
   const [isBatchFavoriting, setIsBatchFavoriting] = useState(false);
@@ -108,6 +117,9 @@ export const HistoryView = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [postingTikTokProjectId, setPostingTikTokProjectId] = useState<string | null>(null);
   const [retryingProjectId, setRetryingProjectId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalResults, setTotalResults] = useState(0);
 
   const statusLabels: Record<string, string> = useMemo(() => ({
     SUCCESS: t.hist_status_success,
@@ -121,7 +133,9 @@ export const HistoryView = () => {
     status: statusFilter,
     keyword: searchKeyword,
     sort: sortBy,
-  }), [statusFilter, searchKeyword, sortBy]);
+    page: currentPage,
+    page_size: HISTORY_PAGE_SIZE,
+  }), [statusFilter, searchKeyword, sortBy, currentPage]);
 
   const selectedIds = useMemo(() => Object.keys(selectedProjects), [selectedProjects]);
   const selectedCount = selectedIds.length;
@@ -140,6 +154,8 @@ export const HistoryView = () => {
       setProjects([]);
       setError(null);
       setIsLoading(false);
+      setTotalPages(1);
+      setTotalResults(0);
       return;
     }
 
@@ -149,10 +165,19 @@ export const HistoryView = () => {
       const data = showOnlyFavorites 
         ? await videoApi.getFavorites(historyQuery)
         : await videoApi.getHistory(historyQuery);
-      setProjects(Array.isArray(data) ? data : []);
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const pagination = data?.pagination;
+      setProjects(items);
+      setTotalResults(Number(pagination?.total || 0));
+      setTotalPages(Math.max(1, Number(pagination?.total_pages || 1)));
+      if (pagination?.page && pagination.page !== currentPage) {
+        setCurrentPage(pagination.page);
+      }
     } catch (e: unknown) {
       setError(getErrorMessage(e, 'Failed to load history'));
       setProjects([]);
+      setTotalPages(1);
+      setTotalResults(0);
     } finally {
       setIsLoading(false);
     }
@@ -165,6 +190,10 @@ export const HistoryView = () => {
 
     return () => window.clearTimeout(timer);
   }, [searchInput]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, searchKeyword, sortBy, showOnlyFavorites]);
 
   useEffect(() => {
     let cancelled = false;
@@ -185,11 +214,20 @@ export const HistoryView = () => {
           ? await videoApi.getFavorites(historyQuery)
           : await videoApi.getHistory(historyQuery);
         if (cancelled) return;
-        setProjects(Array.isArray(data) ? data : []);
+        const items = Array.isArray(data?.items) ? data.items : [];
+        const pagination = data?.pagination;
+        setProjects(items);
+        setTotalResults(Number(pagination?.total || 0));
+        setTotalPages(Math.max(1, Number(pagination?.total_pages || 1)));
+        if (pagination?.page && pagination.page !== currentPage) {
+          setCurrentPage(pagination.page);
+        }
       } catch (e: unknown) {
         if (cancelled) return;
         setError(getErrorMessage(e, 'Failed to load history'));
         setProjects([]);
+        setTotalPages(1);
+        setTotalResults(0);
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -199,7 +237,7 @@ export const HistoryView = () => {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, historyQuery, showOnlyFavorites]);
+  }, [user?.id, historyQuery, showOnlyFavorites, currentPage]);
 
   useEffect(() => {
     if (!playingVideo) return;
@@ -508,12 +546,32 @@ export const HistoryView = () => {
     setPlayingVideo(url);
   };
 
-  const handleOpenPrompt = (proj: HistoryProject) => {
-    if (!proj.model_request && !proj.request_payload) {
-      setFeedbackMessage(t.hist_prompt_empty);
+  const handleOpenPrompt = async (proj: HistoryProject) => {
+    if (loadingPromptProjectId === proj.id) return;
+
+    if (proj.model_request || proj.request_payload) {
+      setPromptProject(proj);
       return;
     }
-    setPromptProject(proj);
+
+    setLoadingPromptProjectId(proj.id);
+    try {
+      const detail = await videoApi.getHistoryDetail(proj.id);
+      if (!detail.model_request && !detail.request_payload) {
+        setFeedbackMessage(t.hist_prompt_empty);
+        return;
+      }
+
+      setPromptProject({
+        ...proj,
+        model_request: detail.model_request,
+        request_payload: detail.request_payload,
+      });
+    } catch (err: unknown) {
+      setFeedbackMessage(getErrorMessage(err, t.hist_prompt_empty));
+    } finally {
+      setLoadingPromptProjectId((prev) => (prev === proj.id ? null : prev));
+    }
   };
 
   const handleToggleFavorite = async (proj: HistoryProject, e: React.MouseEvent) => {
@@ -608,6 +666,15 @@ export const HistoryView = () => {
     } finally {
       setRetryingProjectId((prev) => (prev === proj.id ? null : prev));
     }
+  };
+
+  const canGoPrevPage = currentPage > 1;
+  const canGoNextPage = currentPage < totalPages;
+
+  const changePage = (nextPage: number) => {
+    if (nextPage < 1 || nextPage > totalPages || nextPage === currentPage) return;
+    setCurrentPage(nextPage);
+    setSelectedProjects({});
   };
 
   return (
@@ -884,11 +951,11 @@ export const HistoryView = () => {
                       </button>
                    </div>
                 </div>
-                <div className="mt-2 text-xs text-zinc-500 mb-2">{projects.length} {t.hist_results_label}</div>
+                <div className="mt-2 text-xs text-zinc-500 mb-2">{totalResults} {t.hist_results_label}</div>
               </div>
 
               <div className={viewMode === 'list' ? "flex flex-col gap-3" : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"}>
-                {projects.map(proj => {
+                  {projects.map((proj) => {
                 const coverUrl = toDisplayUrl(proj.cover_url);
                 const videoUrl = toDisplayUrl(proj.video_url);
                 const canPlay = proj.status === 'SUCCESS' && !!videoUrl;
@@ -897,6 +964,7 @@ export const HistoryView = () => {
                 const showPublishTikTok = !isTikTokPublished;
 
                 const durationText = formatDuration(proj.duration);
+                const modelLabel = formatModelLabel(proj.generation_model);
 
                 if (viewMode === 'list') {
                   return (
@@ -927,6 +995,8 @@ export const HistoryView = () => {
                               <img
                                 src={coverUrl}
                                 alt={proj.title}
+                                loading="eager"
+                                decoding="async"
                                 className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition duration-500"
                               />
                             ) : (
@@ -934,6 +1004,12 @@ export const HistoryView = () => {
                                 <Video className="w-6 h-6 text-zinc-600" />
                               </div>
                             )}
+
+                            {modelLabel ? (
+                              <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/60 rounded text-[9px] text-zinc-100 backdrop-blur-sm border border-white/10 max-w-[70%] truncate">
+                                {modelLabel}
+                              </div>
+                            ) : null}
 
                             {durationText ? (
                               <div className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/60 rounded text-[9px] text-zinc-200 font-mono backdrop-blur-sm">
@@ -1025,11 +1101,16 @@ export const HistoryView = () => {
                             </button>
 
                             <button
-                              onClick={() => handleOpenPrompt(proj)}
+                              onClick={() => void handleOpenPrompt(proj)}
+                              disabled={loadingPromptProjectId === proj.id}
                               className="h-7 px-2 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-white/5 rounded transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 text-[11px]"
                               title={t.hist_action_view_prompt}
                             >
-                              <FileJson className="w-3.5 h-3.5" />
+                              {loadingPromptProjectId === proj.id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <FileJson className="w-3.5 h-3.5" />
+                              )}
                               <span className="hidden sm:inline">{t.hist_action_view_prompt}</span>
                             </button>
                           </div>
@@ -1101,6 +1182,8 @@ export const HistoryView = () => {
                             <img
                               src={coverUrl}
                               alt={proj.title}
+                              loading="eager"
+                              decoding="async"
                               className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition duration-500 scale-100 group-hover:scale-105"
                             />
                           ) : (
@@ -1108,6 +1191,12 @@ export const HistoryView = () => {
                               <Video className="w-8 h-8 text-zinc-600" />
                             </div>
                           )}
+
+                          {modelLabel ? (
+                            <div className="absolute bottom-2 left-2 px-1.5 py-0.5 bg-black/60 rounded text-[10px] text-zinc-100 backdrop-blur-sm border border-white/10 max-w-[70%] truncate">
+                              {modelLabel}
+                            </div>
+                          ) : null}
 
                           {durationText ? (
                             <div className="absolute bottom-2 right-2 px-1.5 py-0.5 bg-black/60 rounded text-[10px] text-zinc-200 font-mono backdrop-blur-sm">
@@ -1173,11 +1262,16 @@ export const HistoryView = () => {
                         <div className="w-full max-w-[180px] h-px bg-white/25" />
 
                         <button
-                          onClick={() => handleOpenPrompt(proj)}
+                          onClick={() => void handleOpenPrompt(proj)}
+                          disabled={loadingPromptProjectId === proj.id}
                           className="w-full max-w-[180px] h-8 text-zinc-100 hover:text-orange-400 transition-all duration-200 hover:translate-y-0.5 hover:scale-[1.02] flex items-center justify-center gap-1.5"
                           title={t.hist_action_view_prompt}
                         >
-                          <FileJson className="w-3.5 h-3.5" />
+                          {loadingPromptProjectId === proj.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <FileJson className="w-3.5 h-3.5" />
+                          )}
                           <span className="text-xs font-medium">{t.hist_action_view_prompt}</span>
                         </button>
                       </div>
@@ -1236,6 +1330,30 @@ export const HistoryView = () => {
                   </div>
                 );
                 })}
+              </div>
+
+              <div className="mt-6 flex items-center justify-between gap-3 border-t border-zinc-200/60 dark:border-white/10 pt-4">
+                <div className="text-xs text-zinc-500">
+                  第 {currentPage} / {totalPages} 页
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => changePage(currentPage - 1)}
+                    disabled={!canGoPrevPage || isLoading}
+                    className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-white/10 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    上一页
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => changePage(currentPage + 1)}
+                    disabled={!canGoNextPage || isLoading}
+                    className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-white/10 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    下一页
+                  </button>
+                </div>
               </div>
             </>
           )}

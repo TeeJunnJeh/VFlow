@@ -5,7 +5,7 @@ import {
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift, ImagePlus,
   SlidersHorizontal,Palette, MapPin, Activity, Camera, Lightbulb, Music, Scissors, Megaphone, AlignLeft,
-  Languages, HelpCircle, AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight
+  Languages, HelpCircle, AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ChevronsDown
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -6091,14 +6091,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               className="p-1.5 text-zinc-600 hover:text-zinc-300 transition rounded"
               title={isModelSectionCollapsed ? t.wb_expand : t.wb_collapse}
             >
-              <svg className={`w-4 h-4 transition-transform duration-200 ${isModelSectionCollapsed ? 'rotate-0' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-              </svg>
+              <ChevronsDown className={`w-4 h-4 transition-transform duration-200 ${isModelSectionCollapsed ? 'rotate-0' : 'rotate-180'}`} />
             </button>
           </div>
 
-          {!isModelSectionCollapsed && (
-            <div className="flex flex-col gap-6">
+          <div
+            className={[
+              'grid overflow-hidden transition-[grid-template-rows,opacity] duration-300',
+              'ease-[cubic-bezier(0.22,1,0.36,1)]',
+              isModelSectionCollapsed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
+            ].join(' ')}
+            aria-hidden={isModelSectionCollapsed}
+          >
+            <div className="min-h-0 overflow-hidden">
+              <div
+                className={[
+                  'flex flex-col gap-6 transition-[transform,opacity] duration-300',
+                  'ease-[cubic-bezier(0.22,1,0.36,1)]',
+                  isModelSectionCollapsed ? '-translate-y-3 opacity-0' : 'translate-y-0 opacity-100',
+                ].join(' ')}
+              >
               <div>
                 <div className="creation-mode-toggle mx-3 rounded-2xl bg-white/5 border border-white/10 p-1 flex items-center gap-1">
                   <button
@@ -6148,7 +6160,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
                 <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-2">
                   <ArrowRight className="w-3 h-3 text-zinc-500" />
-                  {t.wb_recommend_engine_title}
+                  {t.wb_render_power_title}
                 </h2>
                 <div className="w-full text-left rounded-2xl border border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10 p-4 flex items-center gap-4">
                   <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-orange-500/20 border border-orange-500/30">
@@ -6186,9 +6198,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
                 </div>
               </div>
-            )}
+              )}
+              </div>
             </div>
-          )}
+          </div>
         </div>
     );
 

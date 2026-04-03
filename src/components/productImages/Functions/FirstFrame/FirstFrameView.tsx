@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronLeft, Plus } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
@@ -32,6 +33,7 @@ interface FirstFrameViewProps {
   projectId?: string;
   embedded?: boolean;
   onApplyToWorkbench?: () => void;
+  headerActionsContainer?: HTMLElement | null;
 }
 
 const FIRST_FRAME_TRANSFER_KEY = 'vflow_apply_first_frame';
@@ -610,6 +612,7 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
   projectId,
   embedded = false,
   onApplyToWorkbench,
+  headerActionsContainer,
 }) => {
   const { t } = useLanguage();
 
@@ -709,50 +712,59 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
   );
 
   const contentWrapClassName = embedded ? 'w-full' : 'max-w-[1600px] mx-auto';
+  const workspaceActions = (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="w-48">
+        <DropdownSelect
+          value={activeWorkspaceId}
+          options={workspaceOptions}
+          onChange={(value) => switchWorkspace(String(value || ''))}
+          buttonClassName="w-full bg-zinc-900/70 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800"
+          iconClassName="w-4 h-4 text-zinc-500"
+          optionClassName="text-xs"
+        />
+      </div>
+      <button
+        type="button"
+        onClick={createWorkspace}
+        className="px-3 py-2 rounded-xl text-xs font-semibold bg-orange-500/10 border border-orange-500/40 text-orange-300 hover:bg-orange-500/20 transition inline-flex items-center gap-1.5"
+      >
+        <Plus className="w-3.5 h-3.5" />
+        {t.ff_new_workspace}
+      </button>
+    </div>
+  );
 
   return (
     <div className={shellClassName}>
       <div className={`${contentWrapClassName} pb-10`}>
-        <div className={`flex items-center gap-4 ${embedded ? 'mb-4' : 'mb-8'}`}>
-          {!embedded && onBack && (
-            <button
-              onClick={onBack}
-              className="p-2 hover:bg-zinc-800 rounded-lg transition"
-              title={t.ff_back}
-            >
-              <ChevronLeft className="w-6 h-6 text-zinc-400" />
-            </button>
-          )}
-          <div>
-            <h1 className="text-2xl font-bold text-white mb-1">
-              {t.ff_page_title}
-            </h1>
-            <p className="text-zinc-400 text-sm">
-              {t.ff_page_subtitle}
-            </p>
-          </div>
-
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <div className="w-48">
-              <DropdownSelect
-                value={activeWorkspaceId}
-                options={workspaceOptions}
-                onChange={(value) => switchWorkspace(String(value || ''))}
-                buttonClassName="w-full bg-zinc-900/70 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800"
-                iconClassName="w-4 h-4 text-zinc-500"
-                optionClassName="text-xs"
-              />
+        {!embedded && (
+          <div className="flex items-center gap-4 mb-8">
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="p-2 hover:bg-zinc-800 rounded-lg transition"
+                title={t.ff_back}
+              >
+                <ChevronLeft className="w-6 h-6 text-zinc-400" />
+              </button>
+            )}
+            <div>
+              <h1 className="text-2xl font-bold text-white mb-1">
+                {t.ff_page_title}
+              </h1>
+              <p className="text-zinc-400 text-sm">
+                {t.ff_page_subtitle}
+              </p>
             </div>
-            <button
-              type="button"
-              onClick={createWorkspace}
-              className="px-3 py-2 rounded-xl text-xs font-semibold bg-orange-500/10 border border-orange-500/40 text-orange-300 hover:bg-orange-500/20 transition inline-flex items-center gap-1.5"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              {t.ff_new_workspace}
-            </button>
+
+            <div className="ml-auto">
+              {workspaceActions}
+            </div>
           </div>
-        </div>
+        )}
+
+        {embedded && headerActionsContainer ? createPortal(workspaceActions, headerActionsContainer) : null}
 
         <div className="mb-4 rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3">
           <p className="text-xs text-blue-300">

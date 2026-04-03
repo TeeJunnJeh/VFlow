@@ -15,19 +15,9 @@ interface ProductImagesViewProps {
 }
 
 const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setActiveView }) => {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const isZh = language === 'zh';
   const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
-
-  const productViews: { value: ViewType; label: string }[] = useMemo(
-    () => [
-      { value: 'product_images_clothing_swap', label: tr('AI 换装', 'AI Clothing Swap') },
-      { value: 'product_images_first_frame', label: tr('AI 首帧图', 'AI First Frame') },
-      { value: 'product_images_smart_repair', label: tr('智能修复', 'Smart Repair') },
-      { value: 'product_images_gallery', label: tr('商品套图', 'Product Gallery') },
-    ],
-    [isZh]
-  );
 
   const isProductView =
     activeView === 'product_images_clothing_swap' ||
@@ -37,6 +27,33 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
   const currentValue: ViewType = isProductView ? activeView : 'product_images_first_frame';
   const panelClassName = (view: ViewType) => (currentValue === view ? 'block' : 'hidden');
+  const [firstFrameHeaderActionsContainer, setFirstFrameHeaderActionsContainer] = useState<HTMLDivElement | null>(null);
+
+  const currentHeader = useMemo(() => {
+    switch (currentValue) {
+      case 'product_images_clothing_swap':
+        return {
+          title: tr('AI 换装', 'AI Clothing Swap'),
+          subtitle: tr('商品服饰智能换装功能开发中', 'AI clothing swap is currently in development.'),
+        };
+      case 'product_images_smart_repair':
+        return {
+          title: tr('智能修复', 'Smart Repair'),
+          subtitle: tr('基于三类能力中心进行可扩展的智能修图', 'Extensible smart-retouch workspace with three capability groups'),
+        };
+      case 'product_images_gallery':
+        return {
+          title: tr('商品套图', 'Product Gallery'),
+          subtitle: tr('围绕商品信息与场景配置批量生成电商图', 'Generate e-commerce image sets from product info and scene settings'),
+        };
+      case 'product_images_first_frame':
+      default:
+        return {
+          title: t.ff_page_title || tr('AI 首帧图生成', 'AI First Frame Generation'),
+          subtitle: t.ff_page_subtitle || tr('为视频生成提供起始视觉素材', 'Create starting visuals for video generation'),
+        };
+    }
+  }, [currentValue, t, isZh]);
 
   const [galleryImages, setGalleryImages] = useState<File[]>([]);
   const [galleryProductName, setGalleryProductName] = useState('');
@@ -565,24 +582,18 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         ) : null}
       </AppDialog>
 
-      <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
-        <div className="flex items-center gap-3">
+      <header className="flex justify-between gap-6 px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
-            {tr('商品图片生成', 'Product Image Generation')}
+            {currentHeader.title}
           </h1>
+          <p className="mt-1 text-sm text-zinc-400">
+            {currentHeader.subtitle}
+          </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           <LanguageSwitcher />
-          <div className="w-56">
-            <DropdownSelect
-              value={currentValue}
-              options={productViews}
-              onChange={(v) => setActiveView(v as ViewType)}
-              buttonClassName="w-full bg-zinc-900/70 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800"
-              iconClassName="w-4 h-4 text-zinc-500"
-              optionClassName="text-xs"
-            />
-          </div>
+          {currentValue === 'product_images_first_frame' && <div ref={setFirstFrameHeaderActionsContainer} className="flex items-center gap-3" />}
         </div>
       </header>
 
@@ -596,6 +607,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         <div className={panelClassName('product_images_first_frame')}>
           <FirstFrameView
             embedded
+            headerActionsContainer={firstFrameHeaderActionsContainer}
             onApplyToWorkbench={() => setActiveView('workbench')}
           />
         </div>

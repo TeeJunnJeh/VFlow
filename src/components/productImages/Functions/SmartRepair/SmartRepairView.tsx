@@ -311,25 +311,27 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   return (
     <div className={shellClassName}>
       <div className={contentWrapClassName}>
-        <div className={`flex items-center gap-4 ${embedded ? 'mb-4' : 'mb-8'}`}>
-          {!embedded && onBack && (
-            <button
-              onClick={onBack}
-              className="p-2 hover:bg-zinc-800 rounded-lg transition"
-              title={tr('返回', 'Back')}
-            >
-              <ChevronLeft className="w-6 h-6 text-zinc-400" />
-            </button>
-          )}
-          <div>
-            <h1 className="text-2xl font-bold text-white mb-1">
-              {tr('智能修复', 'Smart Repair')}
-            </h1>
-            <p className="text-zinc-400 text-sm">
-              {tr('基于三类能力中心进行可扩展的智能修图', 'Extensible smart-retouch workspace with three capability groups')}
-            </p>
+        {!embedded && (
+          <div className="flex items-center gap-4 mb-8">
+            {!embedded && onBack && (
+              <button
+                onClick={onBack}
+                className="p-2 hover:bg-zinc-800 rounded-lg transition"
+                title={tr('返回', 'Back')}
+              >
+                <ChevronLeft className="w-6 h-6 text-zinc-400" />
+              </button>
+            )}
+            <div>
+              <h1 className="text-2xl font-bold text-white mb-1">
+                {tr('智能修复', 'Smart Repair')}
+              </h1>
+              <p className="text-zinc-400 text-sm">
+                {tr('基于三类能力中心进行可扩展的智能修图', 'Extensible smart-retouch workspace with three capability groups')}
+              </p>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="bg-zinc-900 rounded-2xl border border-zinc-800 p-6 md:p-8 shadow-2xl">
           {phase === 'setup' && !activeSubpage && (

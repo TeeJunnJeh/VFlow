@@ -67,6 +67,85 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     if (!isImage && !isVideo && !isAudio) return `${t.assets_upload_error_unsupported}: ${file.name}`;
     return null;
   };
+  const getFileExtension = (name: string) => name.split('.').pop()?.toLowerCase() || '';
+  const loadAudioDurationSeconds = (file: File): Promise<number | null> => new Promise((resolve) => {
+    const objectUrl = URL.createObjectURL(file);
+    const audio = document.createElement('audio');
+    const cleanup = () => {
+      audio.onloadedmetadata = null;
+      audio.onerror = null;
+      audio.removeAttribute('src');
+      audio.load();
+      URL.revokeObjectURL(objectUrl);
+    };
+    audio.preload = 'metadata';
+    audio.onloadedmetadata = () => {
+      const durationSeconds = Number.isFinite(audio.duration) ? audio.duration : NaN;
+      cleanup();
+      resolve(Number.isFinite(durationSeconds) ? durationSeconds : null);
+    };
+    audio.onerror = () => {
+      cleanup();
+      resolve(null);
+    };
+    audio.src = objectUrl;
+  });
+  const loadVideoMetadata = (file: File): Promise<{ durationSeconds: number | null; width: number | null; height: number | null }> => new Promise((resolve) => {
+    const objectUrl = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    const cleanup = () => {
+      video.onloadedmetadata = null;
+      video.onerror = null;
+      video.removeAttribute('src');
+      video.load();
+      URL.revokeObjectURL(objectUrl);
+    };
+    video.preload = 'metadata';
+    video.muted = true;
+    video.onloadedmetadata = () => {
+      const durationSeconds = Number.isFinite(video.duration) ? video.duration : NaN;
+      const width = Number.isFinite(video.videoWidth) && video.videoWidth > 0 ? video.videoWidth : NaN;
+      const height = Number.isFinite(video.videoHeight) && video.videoHeight > 0 ? video.videoHeight : NaN;
+      cleanup();
+      resolve({
+        durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : null,
+        width: Number.isFinite(width) ? width : null,
+        height: Number.isFinite(height) ? height : null,
+      });
+    };
+    video.onerror = () => {
+      cleanup();
+      resolve({ durationSeconds: null, width: null, height: null });
+    };
+    video.src = objectUrl;
+  });
+  const patchUploadedMediaMetadata = useCallback(async (uploadResp: any, file: File, assetType: AssetType) => {
+    if (assetType !== 'audio' && assetType !== 'motion') return;
+    const assetId = String(uploadResp?.data?.id || uploadResp?.id || '').trim();
+    if (!assetId) return;
+    const format = getFileExtension(file.name);
+    try {
+      if (assetType === 'audio') {
+        const durationSeconds = await loadAudioDurationSeconds(file);
+        if (!durationSeconds || durationSeconds <= 0) return;
+        await assetsApi.patchAssetMeta(assetId, {
+          duration_seconds: durationSeconds,
+          ...(format ? { format } : {}),
+        });
+        return;
+      }
+      const metadata = await loadVideoMetadata(file);
+      if (!metadata.durationSeconds || metadata.durationSeconds <= 0) return;
+      await assetsApi.patchAssetMeta(assetId, {
+        duration_seconds: metadata.durationSeconds,
+        ...(metadata.width ? { width: metadata.width } : {}),
+        ...(metadata.height ? { height: metadata.height } : {}),
+        ...(format ? { format } : {}),
+      });
+    } catch (err) {
+      console.warn('Failed to patch uploaded asset metadata', err);
+    }
+  }, []);
 
   const assetTabLabel: Record<AssetType, string> = {
     model: t.assets_tab_models,
@@ -611,7 +690,11 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     if (validFiles.length === 0) return;
     setIsUploading(true);
     try {
-      const uploadTasks = validFiles.map(file => assetsApi.uploadAsset(file, activeAssetTab, currentFolderId));
+      const uploadTasks = validFiles.map(async (file) => {
+        const uploadResp = await assetsApi.uploadAsset(file, activeAssetTab, currentFolderId);
+        await patchUploadedMediaMetadata(uploadResp, file, activeAssetTab);
+        return uploadResp;
+      });
       await Promise.all(uploadTasks);
       await loadData();
       openInfo((t as any).assets_upload_success_title || 'Upload complete', `Successfully uploaded ${validFiles.length} files!`);

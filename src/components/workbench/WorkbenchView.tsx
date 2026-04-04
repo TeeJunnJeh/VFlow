@@ -2635,11 +2635,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return {
       name: asset.name || '未命名素材',
       mediaKind,
+      format: typeof meta?.format === 'string' ? String(meta.format) : null,
       mimeType: typeof meta?.format === 'string' ? String(meta.format) : null,
       sourceUrl: assetUrl,
-      sizeBytes: extractSeedanceReplayLibraryNumber(meta, ['size_bytes', 'sizeBytes', 'filesize']) ?? parseSeedanceReplayLibrarySizeLabel(asset.size) ?? 0,
-      width: extractSeedanceReplayLibraryNumber(meta, ['width', 'video_width', 'image_width']),
-      height: extractSeedanceReplayLibraryNumber(meta, ['height', 'video_height', 'image_height']),
+      sizeBytes: extractSeedanceReplayLibraryNumber(meta, ['size_bytes']) ?? parseSeedanceReplayLibrarySizeLabel(asset.size) ?? 0,
+      width: extractSeedanceReplayLibraryNumber(meta, ['width', 'video_width']),
+      height: extractSeedanceReplayLibraryNumber(meta, ['height', 'video_height']),
       durationSeconds: extractSeedanceReplayLibraryNumber(meta, ['duration_seconds', 'duration', 'durationSeconds', 'length_seconds']),
       fps: extractSeedanceReplayLibraryNumber(meta, ['fps', 'frame_rate', 'frameRate']),
     };

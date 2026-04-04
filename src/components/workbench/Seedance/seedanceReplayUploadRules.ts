@@ -4,6 +4,7 @@ export type SeedanceReplayParsedAsset = {
   file: File;
   name: string;
   mediaKind: SeedanceReplayMediaKind;
+  format?: string | null;
   mimeType: string | null;
   sourceUrl?: string | null;
   sizeBytes: number;
@@ -86,10 +87,13 @@ const normalizeFormat = (value: string | null | undefined) => {
   return normalized.replace(/^\./, '');
 };
 const resolveSeedanceReplayFormat = (asset: {
+  format?: string | null;
   mimeType?: string | null;
   sourceUrl?: string | null;
   name: string;
 }) => {
+  const formatFromField = normalizeFormat(asset.format);
+  if (formatFromField) return formatFromField;
   const formatFromMime = normalizeFormat(asset.mimeType);
   if (formatFromMime) return formatFromMime;
   const formatFromUrl = getFileExtension((asset.sourceUrl || '').split('?')[0]);
@@ -208,6 +212,7 @@ export const parseSeedanceReplayLocalFile = async (
       file,
       name: file.name,
       mediaKind: 'image',
+      format: extension || null,
       mimeType: file.type || null,
       sizeBytes: file.size,
       width,
@@ -223,6 +228,7 @@ export const parseSeedanceReplayLocalFile = async (
       file,
       name: file.name,
       mediaKind: 'video',
+      format: extension || null,
       mimeType: file.type || null,
       sizeBytes: file.size,
       width,
@@ -237,6 +243,7 @@ export const parseSeedanceReplayLocalFile = async (
     file,
     name: file.name,
     mediaKind: 'audio',
+    format: extension || null,
     mimeType: file.type || null,
     sizeBytes: file.size,
     width: null,

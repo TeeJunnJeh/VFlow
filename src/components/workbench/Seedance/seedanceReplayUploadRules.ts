@@ -5,12 +5,15 @@ export type SeedanceReplayParsedAsset = {
   name: string;
   mediaKind: SeedanceReplayMediaKind;
   mimeType: string | null;
+  sourceUrl?: string | null;
   sizeBytes: number;
   width: number | null;
   height: number | null;
   durationSeconds: number | null;
   fps: number | null;
 };
+
+export type SeedanceReplayValidationCandidate = Omit<SeedanceReplayParsedAsset, 'file'>;
 
 export type SeedanceReplayValidationAsset = {
   mediaKind?: SeedanceReplayMediaKind | 'file' | null;
@@ -59,6 +62,40 @@ export const SEEDANCE_REPLAY_VIDEO_FPS_MAX = 60;
 
 const getFileExtension = (name: string) => name.split('.').pop()?.toLowerCase() || '';
 const formatMegabytes = (bytes: number) => `${(bytes / FILE_SIZE_MB).toFixed(bytes >= 10 * FILE_SIZE_MB ? 1 : 2)}MB`;
+const normalizeFormat = (value: string | null | undefined) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return '';
+  if (normalized.includes('/')) {
+    const mimeMap: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'image/bmp': 'bmp',
+      'image/tiff': 'tiff',
+      'image/gif': 'gif',
+      'video/mp4': 'mp4',
+      'video/quicktime': 'mov',
+      'audio/mpeg': 'mp3',
+      'audio/mp3': 'mp3',
+      'audio/wav': 'wav',
+      'audio/x-wav': 'wav',
+    };
+    return mimeMap[normalized] || normalized.split('/').pop()?.split(';')[0]?.trim() || '';
+  }
+  return normalized.replace(/^\./, '');
+};
+const resolveSeedanceReplayFormat = (asset: {
+  mimeType?: string | null;
+  sourceUrl?: string | null;
+  name: string;
+}) => {
+  const formatFromMime = normalizeFormat(asset.mimeType);
+  if (formatFromMime) return formatFromMime;
+  const formatFromUrl = getFileExtension((asset.sourceUrl || '').split('?')[0]);
+  if (formatFromUrl) return formatFromUrl;
+  return getFileExtension(asset.name);
+};
 
 const loadImageFileMetadata = (file: File): Promise<{ width: number; height: number }> => new Promise((resolve, reject) => {
   const objectUrl = URL.createObjectURL(file);
@@ -209,8 +246,8 @@ export const parseSeedanceReplayLocalFile = async (
   };
 };
 
-export const validateSeedanceReplayParsedAsset = (asset: SeedanceReplayParsedAsset) => {
-  const extension = getFileExtension(asset.name);
+export const validateSeedanceReplayParsedAsset = (asset: SeedanceReplayValidationCandidate | SeedanceReplayParsedAsset) => {
+  const extension = resolveSeedanceReplayFormat(asset);
   const ratio = asset.width && asset.height ? asset.width / asset.height : null;
   const duration = asset.durationSeconds ?? 0;
 

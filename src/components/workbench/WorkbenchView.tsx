@@ -157,6 +157,12 @@ type SeedanceReplayUploadIntent = {
   targetMediaKind: SeedanceReplayMediaKind | null;
 };
 
+type SeedanceReplayLibraryIntent = {
+  targetMediaKind: SeedanceReplayMediaKind | null;
+  allowedTabs: AssetLibraryTab[];
+  preferredTab: AssetLibraryTab;
+};
+
 type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion' | 'audio';
 type AssetLibraryPickMode = 'default' | 'background_audio';
 type AiOptimizeResolution = 'sd' | 'hd' | 'uhd';
@@ -733,6 +739,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [assetLibraryCurrentFolderId, setAssetLibraryCurrentFolderId] = useState<string | null>(null);
   const [assetLibraryLoading, setAssetLibraryLoading] = useState(false);
   const [assetLibraryError, setAssetLibraryError] = useState<string | null>(null);
+  const [seedanceReplayLibraryIntent, setSeedanceReplayLibraryIntent] = useState<SeedanceReplayLibraryIntent | null>(null);
   const [draggingWorkbenchAssetId, setDraggingWorkbenchAssetId] = useState<string | null>(null);
   const [isKlingSubjectGuideOpen, setIsKlingSubjectGuideOpen] = useState(false);
   const [isKlingSubjectModeHintDismissed, setIsKlingSubjectModeHintDismissed] = useState(false);
@@ -2414,10 +2421,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         ]);
         if (!cancelled) {
           const normalizedItems = Array.isArray(items) ? items : [];
-          setAssetLibraryItems(
-            assetLibraryPickMode === 'background_audio'
+          const filteredItems = seedanceReplayLibraryIntent
+            ? normalizedItems.filter((item) => {
+                const itemTab: AssetLibraryTab = item.media_kind === 'video'
+                  ? 'motion'
+                  : item.media_kind === 'audio'
+                    ? 'audio'
+                    : 'product';
+                return seedanceReplayLibraryIntent.allowedTabs.includes(itemTab);
+              })
+            : assetLibraryPickMode === 'background_audio'
               ? normalizedItems.filter((item) => item.media_kind === 'audio')
-              : normalizedItems.filter((item) => item.media_kind !== 'audio')
+              : normalizedItems.filter((item) => item.media_kind !== 'audio');
+          setAssetLibraryItems(
+            filteredItems
           );
           setAssetLibraryFolders(Array.isArray(folderData.folders) ? folderData.folders : []);
           setAssetLibraryBreadcrumb(Array.isArray(folderData.breadcrumb) ? folderData.breadcrumb : []);
@@ -2439,9 +2456,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [assetLibraryCurrentFolderId, assetLibraryPickMode, assetLibraryTab, isAssetLibraryOpen]);
+  }, [assetLibraryCurrentFolderId, assetLibraryPickMode, assetLibraryTab, isAssetLibraryOpen, seedanceReplayLibraryIntent]);
 
   const openAssetLibraryPicker = () => {
+    setSeedanceReplayLibraryIntent(null);
     setAssetLibraryPickMode('default');
     setAssetLibraryTab(currentAssetMediaKind === 'video' ? 'motion' : currentAssetMediaKind === 'audio' ? 'audio' : 'product');
     setAssetLibraryCurrentFolderId(null);
@@ -2449,12 +2467,41 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const openBackgroundAudioPicker = () => {
+    setSeedanceReplayLibraryIntent(null);
     setAssetLibraryPickMode('background_audio');
     setAssetLibraryTab('audio');
     setAssetLibraryCurrentFolderId(null);
     setIsAssetLibraryOpen(true);
     setIsBackgroundAudioSourceOpen(false);
   };
+  const getSeedanceReplayLibraryIntent = useCallback((targetMediaKind?: SeedanceReplayMediaKind | null): SeedanceReplayLibraryIntent => {
+    if (targetMediaKind === 'image') {
+      return {
+        targetMediaKind: 'image',
+        allowedTabs: ['model', 'product', 'scene'],
+        preferredTab: 'product',
+      };
+    }
+    if (targetMediaKind === 'video') {
+      return {
+        targetMediaKind: 'video',
+        allowedTabs: ['motion'],
+        preferredTab: 'motion',
+      };
+    }
+    if (targetMediaKind === 'audio') {
+      return {
+        targetMediaKind: 'audio',
+        allowedTabs: ['audio'],
+        preferredTab: 'audio',
+      };
+    }
+    return {
+      targetMediaKind: null,
+      allowedTabs: ['product', 'model', 'scene', 'motion', 'audio'],
+      preferredTab: 'product',
+    };
+  }, []);
   const openSubjectCreationLibrary = useCallback(() => {
     onNavigateToAssetsLibrary?.();
   }, [onNavigateToAssetsLibrary]);
@@ -2532,6 +2579,86 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
   }, [hasSubjectOtherViews, isKlingOmniMode, klingGenerateMode, selectedModel]);
 
+  const extractSeedanceReplayLibraryNumber = useCallback((meta: Record<string, unknown> | null | undefined, keys: string[]) => {
+    if (!meta) return null;
+    for (const key of keys) {
+      const raw = meta[key];
+      if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+      if (typeof raw === 'string') {
+        const parsed = Number(raw);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+    }
+    return null;
+  }, []);
+
+  const parseSeedanceReplayLibrarySizeLabel = useCallback((value: string | null | undefined) => {
+    const raw = String(value || '').trim();
+    const match = raw.match(/^([0-9]+(?:\.[0-9]+)?)\s*(B|KB|MB|GB)$/i);
+    if (!match) return null;
+    const amount = Number(match[1]);
+    if (!Number.isFinite(amount)) return null;
+    const unit = match[2].toUpperCase();
+    if (unit === 'GB') return amount * 1024 * 1024 * 1024;
+    if (unit === 'MB') return amount * 1024 * 1024;
+    if (unit === 'KB') return amount * 1024;
+    return amount;
+  }, []);
+
+  const buildSeedanceReplayLibraryCandidate = useCallback((asset: LibraryAsset) => {
+    const assetUrl = asset.file_url || null;
+    if (!assetUrl) return null;
+    const mediaKind = asset.media_kind === 'video'
+      ? 'video'
+      : asset.media_kind === 'audio'
+        ? 'audio'
+        : asset.media_kind === 'image'
+          ? 'image'
+          : inferMediaKind({ name: asset.name || '', url: assetUrl });
+
+    if (mediaKind !== 'image' && mediaKind !== 'video' && mediaKind !== 'audio') {
+      return null;
+    }
+
+    const meta = asset.meta_data && typeof asset.meta_data === 'object'
+      ? asset.meta_data as Record<string, unknown>
+      : null;
+
+    return {
+      name: asset.name || '未命名素材',
+      mediaKind,
+      mimeType: typeof meta?.format === 'string' ? String(meta.format) : null,
+      sourceUrl: assetUrl,
+      sizeBytes: extractSeedanceReplayLibraryNumber(meta, ['size_bytes', 'sizeBytes', 'filesize']) ?? parseSeedanceReplayLibrarySizeLabel(asset.size) ?? 0,
+      width: extractSeedanceReplayLibraryNumber(meta, ['width', 'video_width', 'image_width']),
+      height: extractSeedanceReplayLibraryNumber(meta, ['height', 'video_height', 'image_height']),
+      durationSeconds: extractSeedanceReplayLibraryNumber(meta, ['duration_seconds', 'duration', 'durationSeconds', 'length_seconds']),
+      fps: extractSeedanceReplayLibraryNumber(meta, ['fps', 'frame_rate', 'frameRate']),
+    };
+  }, [extractSeedanceReplayLibraryNumber, parseSeedanceReplayLibrarySizeLabel]);
+
+  const buildSeedanceReplayQueuedAssetFromLibrary = useCallback((asset: LibraryAsset): QueuedAsset | null => {
+    const baseAsset = buildQueuedAssetFromLibrary(asset);
+    const candidate = buildSeedanceReplayLibraryCandidate(asset);
+    if (!baseAsset || !candidate) return null;
+
+    return {
+      ...baseAsset,
+      source: candidate.mediaKind === 'image' ? 'product' : 'preference',
+      materialType: candidate.mediaKind === 'video' ? 'motion' : candidate.mediaKind === 'audio' ? 'audio' : 'product',
+      isPrimaryFrame: candidate.mediaKind === 'image',
+      mediaKind: candidate.mediaKind,
+      durationSeconds: candidate.durationSeconds ?? null,
+      mimeType: candidate.mimeType,
+      sizeBytes: candidate.sizeBytes,
+      width: candidate.width,
+      height: candidate.height,
+      fps: candidate.fps,
+      validationMessages: [],
+      uploadedPath: baseAsset.assetUrl,
+    };
+  }, [buildQueuedAssetFromLibrary, buildSeedanceReplayLibraryCandidate]);
+
   function queueLibraryAssetIntoWorkbench(asset: LibraryAsset, options?: { preferLastModeRouting?: boolean }) {
     const queuedAsset = buildQueuedAssetFromLibrary(asset, options);
     const assetUrl = queuedAsset?.assetUrl || null;
@@ -2580,6 +2707,45 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setIsBackgroundAudioSourceOpen(false);
       return;
     }
+    if (isSeedanceReplayMode && seedanceReplayLibraryIntent) {
+      const queuedAsset = buildSeedanceReplayQueuedAssetFromLibrary(asset);
+      const candidate = buildSeedanceReplayLibraryCandidate(asset);
+      if (!queuedAsset || !candidate) {
+        openInfo(popupTitles.notice, '所选素材暂不支持用于 Seedance 参考素材。');
+        return;
+      }
+      if (!seedanceReplayLibraryIntent.allowedTabs.includes(queuedAsset.materialType || 'product')) {
+        openInfo(popupTitles.notice, '当前入口不支持该素材分类。');
+        return;
+      }
+      if (seedanceReplayLibraryIntent.targetMediaKind && queuedAsset.mediaKind !== seedanceReplayLibraryIntent.targetMediaKind) {
+        const kindLabel = seedanceReplayLibraryIntent.targetMediaKind === 'image' ? '图片' : seedanceReplayLibraryIntent.targetMediaKind === 'video' ? '视频' : '音频';
+        openInfo(popupTitles.notice, `当前入口仅支持选择${kindLabel}素材。`);
+        return;
+      }
+      const validationMessage = validateSeedanceReplayParsedAsset(candidate);
+      if (validationMessage) {
+        openInfo(popupTitles.notice, validationMessage);
+        return;
+      }
+
+      const currentCount = uploadDisplayAssets.filter((item) => item.mediaKind === queuedAsset.mediaKind).length;
+      const limit = queuedAsset.mediaKind === 'image'
+        ? SEEDANCE_REPLAY_IMAGE_LIMIT
+        : queuedAsset.mediaKind === 'video'
+          ? SEEDANCE_REPLAY_VIDEO_LIMIT
+          : SEEDANCE_REPLAY_AUDIO_LIMIT;
+      if (currentCount >= limit) {
+        const kindLabel = queuedAsset.mediaKind === 'image' ? '图片' : queuedAsset.mediaKind === 'video' ? '视频' : '音频';
+        openInfo(popupTitles.notice, `${kindLabel}最多添加 ${limit} 个。`);
+        return;
+      }
+
+      setAssetQueue((prev) => [...prev, queuedAsset]);
+      applyWorkbenchAssetSelection(queuedAsset);
+      setLastUploadedUrl(queuedAsset.assetUrl || null);
+      return;
+    }
     queueLibraryAssetIntoWorkbench(asset);
   };
 
@@ -2605,6 +2771,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     motion: t.assets_tab_motion || '动作',
     audio: t.assets_tab_audio || '音频',
   };
+  const defaultAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => ([
+    { value: 'product', label: materialTypeLabelMap.product },
+    { value: 'model', label: materialTypeLabelMap.model },
+    { value: 'scene', label: materialTypeLabelMap.scene },
+    { value: 'motion', label: materialTypeLabelMap.motion },
+  ]), [materialTypeLabelMap]);
+  const seedanceReplayAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => (
+    seedanceReplayLibraryIntent
+      ? seedanceReplayLibraryIntent.allowedTabs.map((tab) => ({ value: tab, label: materialTypeLabelMap[tab] }))
+      : []
+  ), [materialTypeLabelMap, seedanceReplayLibraryIntent]);
+  const assetLibraryVisibleTabs = seedanceReplayLibraryIntent ? seedanceReplayAssetLibraryTabs : defaultAssetLibraryTabs;
   const isSeedanceReplayMode = creationMode === 'replay' && selectedModel === 'seedance2.0';
   const uploadDisplayAssets: QueuedAsset[] = useMemo(() => {
     if (assetQueue.length > 0) return assetQueue;
@@ -2729,9 +2907,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     t.wb_ai_opt_need_image,
     uploadedFile,
   ]);
-  const handleSeedanceReplayAddFromLibrary = useCallback(() => {
-    // Placeholder for future Seedance replay asset-library integration.
-  }, []);
+  const openSeedanceReplayLibraryPicker = useCallback((targetMediaKind?: SeedanceReplayMediaKind | null) => {
+    const nextIntent = getSeedanceReplayLibraryIntent(targetMediaKind);
+    setSeedanceReplayLibraryIntent(nextIntent);
+    setAssetLibraryPickMode('default');
+    setAssetLibraryTab(nextIntent.preferredTab);
+    setAssetLibraryCurrentFolderId(null);
+    setIsAssetLibraryOpen(true);
+  }, [getSeedanceReplayLibraryIntent]);
+
+  const handleSeedanceReplayAddFromLibrary = useCallback((targetMediaKind?: SeedanceReplayMediaKind) => {
+    openSeedanceReplayLibraryPicker(targetMediaKind || null);
+  }, [openSeedanceReplayLibraryPicker]);
   const resolveAiOptimizeReferencePath = useCallback(async (asset: QueuedAsset) => {
     let referencePath = asset.uploadedPath || asset.assetUrl || null;
     if (!referencePath && asset.fileObj) {
@@ -8493,6 +8680,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 onClose={() => {
                   setIsAssetLibraryOpen(false);
                   setAssetLibraryPickMode('default');
+                  setSeedanceReplayLibraryIntent(null);
                 }}
                 widthClassName="max-w-[min(92vw,980px)]"
                 footer={
@@ -8502,6 +8690,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         onClick={() => {
                           setIsAssetLibraryOpen(false);
                           setAssetLibraryPickMode('default');
+                          setSeedanceReplayLibraryIntent(null);
                         }}
                     >
                       关闭
@@ -8514,12 +8703,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <div className="text-xs text-zinc-400 px-1">{t.wb_audio_picker_hint || '仅显示音频素材'}</div>
                 ) : (
                   <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                    {([
-                      { value: 'product', label: t.assets_tab_products || '商品' },
-                      { value: 'model', label: t.assets_tab_models || '模特' },
-                      { value: 'scene', label: t.assets_tab_scenes || '场景' },
-                      { value: 'motion', label: t.assets_tab_motion || '动作' },
-                    ] as Array<{ value: AssetLibraryTab; label: string }>).map((tab) => (
+                    {assetLibraryVisibleTabs.map((tab) => (
                         <button
                             key={tab.value}
                             type="button"

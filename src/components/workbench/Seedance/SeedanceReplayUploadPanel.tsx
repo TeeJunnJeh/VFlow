@@ -34,7 +34,7 @@ export type SeedanceReplayUploadAsset = {
 type SeedanceReplayUploadPanelProps = {
   assets: SeedanceReplayUploadAsset[];
   validationSummary?: SeedanceReplayValidationSummary;
-  onAddFromLibrary?: () => void;
+  onAddFromLibrary?: (targetMediaKind?: SeedanceReplayMediaKind) => void;
   onAddFromLocal?: (targetMediaKind?: SeedanceReplayMediaKind) => void;
   onPreview?: (assetId: string) => void;
   onRemove?: (assetId: string) => void;
@@ -81,6 +81,10 @@ export function SeedanceReplayUploadPanel({
   const videoOverLimit = videoErrors.length > 0;
   const audioOverLimit = audioErrors.length > 0;
 
+  const handleAddFromLibrary = (targetMediaKind?: MediaKind) => {
+    onAddFromLibrary(targetMediaKind);
+  };
+
   return (
     <div className="flex flex-col gap-3">
       {!hasContent ? (
@@ -98,7 +102,7 @@ export function SeedanceReplayUploadPanel({
             </p>
 
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-              <PrimaryButton onClick={onAddFromLibrary}>
+              <PrimaryButton onClick={() => handleAddFromLibrary()}>
                 <FolderOpen className="h-3.5 w-3.5" />
                 从素材库选择
               </PrimaryButton>
@@ -114,7 +118,7 @@ export function SeedanceReplayUploadPanel({
         <div className="glass-panel rounded-xl border border-white/10 p-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[11px] font-bold text-zinc-500">快速添加</span>
-            <PrimaryButton onClick={onAddFromLibrary}>
+            <PrimaryButton onClick={() => handleAddFromLibrary()}>
               <FolderOpen className="h-3.5 w-3.5" />
               从素材库选择
             </PrimaryButton>
@@ -198,7 +202,7 @@ export function SeedanceReplayUploadPanel({
           limit={SEEDANCE_REPLAY_IMAGE_LIMIT}
           exceedsLimit={imageOverLimit}
           errorMessages={imageErrors}
-          onAddFromLibrary={onAddFromLibrary}
+          onAddFromLibrary={() => handleAddFromLibrary('image')}
           onAddFromLocal={() => onAddFromLocal('image')}
           onPreview={onPreview}
           onRemove={onRemove}
@@ -214,7 +218,7 @@ export function SeedanceReplayUploadPanel({
           durationLimit={SEEDANCE_REPLAY_DURATION_MAX}
           exceedsLimit={videoOverLimit}
           errorMessages={videoErrors}
-          onAddFromLibrary={onAddFromLibrary}
+          onAddFromLibrary={() => handleAddFromLibrary('video')}
           onAddFromLocal={() => onAddFromLocal('video')}
           onPreview={onPreview}
           onRemove={onRemove}
@@ -230,7 +234,7 @@ export function SeedanceReplayUploadPanel({
           durationLimit={SEEDANCE_REPLAY_DURATION_MAX}
           exceedsLimit={audioOverLimit}
           errorMessages={audioErrors}
-          onAddFromLibrary={onAddFromLibrary}
+          onAddFromLibrary={() => handleAddFromLibrary('audio')}
           onAddFromLocal={() => onAddFromLocal('audio')}
           onPreview={onPreview}
           onRemove={onRemove}

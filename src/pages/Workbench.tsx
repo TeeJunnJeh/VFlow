@@ -418,14 +418,14 @@ const Workbench = () => {
             </div>
           )}
 
-          {activeView === 'replay_lab' && (
+          <div className={activeView === 'replay_lab' ? 'flex-1 h-full min-h-0' : 'hidden'}>
             <ReplayScriptView
               onReuseToWorkbench={(payload) => {
                 setReplayReusePayload(payload);
                 setActiveView('workbench');
               }}
             />
-          )}
+          </div>
 
           {activeView === 'assets' && (
             <AssetsView

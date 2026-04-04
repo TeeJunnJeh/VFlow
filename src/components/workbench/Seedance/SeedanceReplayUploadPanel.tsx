@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
 import {
-  ChevronDown,
   Eye,
   FolderOpen,
   Image as ImageIcon,
   Music,
   Play,
   Plus,
-  RefreshCw,
   Upload,
   Video,
   X,
@@ -35,14 +33,10 @@ export type SeedanceReplayUploadAsset = {
 
 type SeedanceReplayUploadPanelProps = {
   assets: SeedanceReplayUploadAsset[];
-  defaultSource?: SourceType;
   validationSummary?: SeedanceReplayValidationSummary;
-  showDefaultSourceSwitch?: boolean;
-  onDefaultSourceChange?: (source: SourceType) => void;
   onAddFromLibrary?: () => void;
   onAddFromLocal?: (targetMediaKind?: SeedanceReplayMediaKind) => void;
   onPreview?: (assetId: string) => void;
-  onReplace?: (assetId: string) => void;
   onRemove?: (assetId: string) => void;
 };
 
@@ -59,19 +53,12 @@ function formatSeconds(value: number) {
 
 export function SeedanceReplayUploadPanel({
   assets,
-  defaultSource,
   validationSummary,
-  showDefaultSourceSwitch = true,
-  onDefaultSourceChange,
   onAddFromLibrary = noop,
   onAddFromLocal = noop,
   onPreview = noop,
-  onReplace = noop,
   onRemove = noop,
 }: SeedanceReplayUploadPanelProps) {
-  const [internalDefaultSource, setInternalDefaultSource] = useState<SourceType>(defaultSource || 'library');
-  const effectiveDefaultSource = defaultSource || internalDefaultSource;
-
   const imageAssets = assets.filter((asset) => asset.mediaKind === 'image');
   const videoAssets = assets.filter((asset) => asset.mediaKind === 'video');
   const audioAssets = assets.filter((asset) => asset.mediaKind === 'audio');
@@ -88,32 +75,14 @@ export function SeedanceReplayUploadPanel({
   const audioErrors = validationSummary?.audioErrors || [];
   const globalErrors = validationSummary?.globalErrors || [];
   const hasMinimumAssets = validationSummary?.hasMinimumAssets ?? (imageCount > 0 || videoCount > 0);
+  const hasBlockingIssues = validationSummary?.hasBlockingIssues ?? (globalErrors.length > 0 || imageErrors.length > 0 || videoErrors.length > 0 || audioErrors.length > 0);
+  const hasSatisfiedConditions = hasMinimumAssets && !hasBlockingIssues;
   const imageOverLimit = imageErrors.length > 0;
   const videoOverLimit = videoErrors.length > 0;
   const audioOverLimit = audioErrors.length > 0;
 
-  const handleDefaultSourceChange = (next: SourceType) => {
-    setInternalDefaultSource(next);
-    onDefaultSourceChange?.(next);
-  };
-
-  const handleAddByDefaultSource = (targetMediaKind?: MediaKind) => {
-    if (effectiveDefaultSource === 'library') {
-      onAddFromLibrary();
-      return;
-    }
-    onAddFromLocal(targetMediaKind);
-  };
-
   return (
     <div className="flex flex-col gap-3">
-      {showDefaultSourceSwitch && (
-        <SeedanceReplayDefaultSourceSwitch
-          value={effectiveDefaultSource}
-          onChange={handleDefaultSourceChange}
-        />
-      )}
-
       {!hasContent ? (
         <div className="glass-panel rounded-xl border border-dashed border-white/10 p-5 sm:p-6">
           <div className="mx-auto flex max-w-lg flex-col items-center text-center">
@@ -133,7 +102,7 @@ export function SeedanceReplayUploadPanel({
                 <FolderOpen className="h-3.5 w-3.5" />
                 从素材库选择
               </PrimaryButton>
-              <SecondaryButton onClick={onAddFromLocal}>
+              <SecondaryButton onClick={() => onAddFromLocal()}>
                 <Upload className="h-3.5 w-3.5" />
                 从本地上传
               </SecondaryButton>
@@ -149,7 +118,7 @@ export function SeedanceReplayUploadPanel({
               <FolderOpen className="h-3.5 w-3.5" />
               从素材库选择
             </PrimaryButton>
-            <SecondaryButton onClick={onAddFromLocal}>
+            <SecondaryButton onClick={() => onAddFromLocal()}>
               <Upload className="h-3.5 w-3.5" />
               从本地上传
             </SecondaryButton>
@@ -183,9 +152,9 @@ export function SeedanceReplayUploadPanel({
             />
           </div>
 
-          <div className={`flex items-center gap-2 text-xs font-medium ${hasMinimumAssets ? 'text-emerald-400' : 'text-zinc-500'}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${hasMinimumAssets ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
-            {hasMinimumAssets ? '条件满足' : '待满足条件'}
+          <div className={`flex items-center gap-2 text-xs font-medium ${hasSatisfiedConditions ? 'text-emerald-400' : 'text-zinc-500'}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${hasSatisfiedConditions ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
+            {hasSatisfiedConditions ? '条件满足' : '待满足条件'}
           </div>
         </div>
 
@@ -229,12 +198,9 @@ export function SeedanceReplayUploadPanel({
           limit={SEEDANCE_REPLAY_IMAGE_LIMIT}
           exceedsLimit={imageOverLimit}
           errorMessages={imageErrors}
-          defaultSource={effectiveDefaultSource}
-          onAddFromDefault={() => handleAddByDefaultSource('image')}
           onAddFromLibrary={onAddFromLibrary}
           onAddFromLocal={() => onAddFromLocal('image')}
           onPreview={onPreview}
-          onReplace={onReplace}
           onRemove={onRemove}
         />
         <CategoryCard
@@ -248,12 +214,9 @@ export function SeedanceReplayUploadPanel({
           durationLimit={SEEDANCE_REPLAY_DURATION_MAX}
           exceedsLimit={videoOverLimit}
           errorMessages={videoErrors}
-          defaultSource={effectiveDefaultSource}
-          onAddFromDefault={() => handleAddByDefaultSource('video')}
           onAddFromLibrary={onAddFromLibrary}
           onAddFromLocal={() => onAddFromLocal('video')}
           onPreview={onPreview}
-          onReplace={onReplace}
           onRemove={onRemove}
         />
         <CategoryCard
@@ -267,72 +230,13 @@ export function SeedanceReplayUploadPanel({
           durationLimit={SEEDANCE_REPLAY_DURATION_MAX}
           exceedsLimit={audioOverLimit}
           errorMessages={audioErrors}
-          defaultSource={effectiveDefaultSource}
-          onAddFromDefault={() => handleAddByDefaultSource('audio')}
           onAddFromLibrary={onAddFromLibrary}
           onAddFromLocal={() => onAddFromLocal('audio')}
           onPreview={onPreview}
-          onReplace={onReplace}
           onRemove={onRemove}
         />
       </div>
     </div>
-  );
-}
-
-export function SeedanceReplayDefaultSourceSwitch({
-  value,
-  onChange,
-}: {
-  value: SourceType;
-  onChange: (source: SourceType) => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="text-[12px] font-bold text-zinc-500">默认添加来源</span>
-      <div className="flex items-center rounded-xl border border-white/10 bg-white/5 p-1">
-        <SourceTab
-          active={value === 'library'}
-          icon={<FolderOpen className="h-3.5 w-3.5" />}
-          label="素材库"
-          onClick={() => onChange('library')}
-        />
-        <SourceTab
-          active={value === 'local'}
-          icon={<Upload className="h-3.5 w-3.5" />}
-          label="本地上传"
-          onClick={() => onChange('local')}
-        />
-      </div>
-    </div>
-  );
-}
-
-function SourceTab({
-  active,
-  icon,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={[
-        'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition',
-        active
-          ? 'border border-orange-500/50 bg-orange-500/15 text-orange-200'
-          : 'border border-transparent text-zinc-400 hover:bg-white/5 hover:text-zinc-200',
-      ].join(' ')}
-    >
-      {icon}
-      {label}
-    </button>
   );
 }
 
@@ -427,12 +331,9 @@ type CategoryCardProps = {
   durationLimit?: number;
   exceedsLimit?: boolean;
   errorMessages?: string[];
-  defaultSource: SourceType;
-  onAddFromDefault: () => void;
   onAddFromLibrary: () => void;
   onAddFromLocal: () => void;
   onPreview: (assetId: string) => void;
-  onReplace: (assetId: string) => void;
   onRemove: (assetId: string) => void;
 };
 
@@ -447,12 +348,9 @@ function CategoryCard({
   durationLimit,
   exceedsLimit,
   errorMessages = [],
-  defaultSource,
-  onAddFromDefault,
   onAddFromLibrary,
   onAddFromLocal,
   onPreview,
-  onReplace,
   onRemove,
 }: CategoryCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -479,11 +377,8 @@ function CategoryCard({
         </div>
 
         <div className="relative flex items-center gap-1.5">
-          <MiniIconButton onClick={onAddFromDefault}>
-            <Plus className="h-3.5 w-3.5" />
-          </MiniIconButton>
           <MiniIconButton onClick={() => setMenuOpen((prev) => !prev)}>
-            <ChevronDown className={`h-3.5 w-3.5 transition ${menuOpen ? 'rotate-180' : ''}`} />
+            <Plus className="h-3.5 w-3.5" />
           </MiniIconButton>
 
           {menuOpen && (
@@ -517,26 +412,24 @@ function CategoryCard({
 
       {isEmpty ? (
         <div className="rounded-xl border border-dashed border-white/10 bg-black/10 px-4 py-8 text-center text-xs leading-5 text-zinc-500">
-          点击 "+" 按当前默认来源添加
-          <br />
-          当前默认来源：{sourceLabelMap[defaultSource]}
+          点击 "+" 选择素材库或本地上传
         </div>
       ) : items[0].mediaKind === 'image' ? (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
           {items.map((item) => (
-            <ImageCard key={item.id} item={item} onPreview={onPreview} onReplace={onReplace} onRemove={onRemove} />
+            <ImageCard key={item.id} item={item} onPreview={onPreview} onRemove={onRemove} />
           ))}
         </div>
       ) : items[0].mediaKind === 'video' ? (
         <div className="space-y-2">
           {items.map((item) => (
-            <VideoCard key={item.id} item={item} onPreview={onPreview} onReplace={onReplace} onRemove={onRemove} />
+            <VideoCard key={item.id} item={item} onPreview={onPreview} onRemove={onRemove} />
           ))}
         </div>
       ) : (
         <div className="space-y-2">
           {items.map((item) => (
-            <AudioCard key={item.id} item={item} onPreview={onPreview} onReplace={onReplace} onRemove={onRemove} />
+            <AudioCard key={item.id} item={item} onPreview={onPreview} onRemove={onRemove} />
           ))}
         </div>
       )}
@@ -576,12 +469,10 @@ function MiniIconButton({
 function ImageCard({
   item,
   onPreview,
-  onReplace,
   onRemove,
 }: {
   item: SeedanceReplayUploadAsset;
   onPreview: (assetId: string) => void;
-  onReplace: (assetId: string) => void;
   onRemove: (assetId: string) => void;
 }) {
   return (
@@ -600,9 +491,6 @@ function ImageCard({
         <OverlayActionButton tone="neutral" onClick={() => onPreview(item.id)}>
           <Eye className="h-3.5 w-3.5" />
         </OverlayActionButton>
-        <OverlayActionButton tone="neutral" onClick={() => onReplace(item.id)}>
-          <RefreshCw className="h-3.5 w-3.5" />
-        </OverlayActionButton>
         <OverlayActionButton tone="danger" onClick={() => onRemove(item.id)}>
           <X className="h-3.5 w-3.5" />
         </OverlayActionButton>
@@ -614,12 +502,10 @@ function ImageCard({
 function VideoCard({
   item,
   onPreview,
-  onReplace,
   onRemove,
 }: {
   item: SeedanceReplayUploadAsset;
   onPreview: (assetId: string) => void;
-  onReplace: (assetId: string) => void;
   onRemove: (assetId: string) => void;
 }) {
   return (
@@ -649,9 +535,6 @@ function VideoCard({
           <OverlayActionButton tone="neutral" onClick={() => onPreview(item.id)}>
             <Eye className="h-3.5 w-3.5" />
           </OverlayActionButton>
-          <OverlayActionButton tone="neutral" onClick={() => onReplace(item.id)}>
-            <RefreshCw className="h-3.5 w-3.5" />
-          </OverlayActionButton>
           <OverlayActionButton tone="danger" onClick={() => onRemove(item.id)}>
             <X className="h-3.5 w-3.5" />
           </OverlayActionButton>
@@ -664,12 +547,10 @@ function VideoCard({
 function AudioCard({
   item,
   onPreview,
-  onReplace,
   onRemove,
 }: {
   item: SeedanceReplayUploadAsset;
   onPreview: (assetId: string) => void;
-  onReplace: (assetId: string) => void;
   onRemove: (assetId: string) => void;
 }) {
   return (
@@ -692,9 +573,6 @@ function AudioCard({
         <div className="flex items-center gap-1.5 opacity-0 transition group-hover:opacity-100">
           <OverlayActionButton tone="neutral" onClick={() => onPreview(item.id)}>
             <Play className="h-3.5 w-3.5" />
-          </OverlayActionButton>
-          <OverlayActionButton tone="neutral" onClick={() => onReplace(item.id)}>
-            <RefreshCw className="h-3.5 w-3.5" />
           </OverlayActionButton>
           <OverlayActionButton tone="danger" onClick={() => onRemove(item.id)}>
             <X className="h-3.5 w-3.5" />

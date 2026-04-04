@@ -7,6 +7,7 @@ import { videoApi, type ReplayReverseScriptData } from '../../services/video';
 
 export type ReplayReusePayload = {
   prompt: string;
+  referenceScript: string;
   productCategory: string;
   coreSellingPoints: string;
 };
@@ -38,6 +39,15 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
   const [result, setResult] = useState<ReplayParseResult | null>(null);
 
   const canParse = useMemo(() => videoUrl.trim().length > 0 || Boolean(uploadedFile), [videoUrl, uploadedFile]);
+
+  const buildReuseReferenceScript = (parseResult: ReplayParseResult) => {
+    const suggestedPrompt = String(parseResult.suggestedPrompt || '').trim();
+    const styleReference = String(parseResult.styleReferenceText || '').trim();
+    if (suggestedPrompt && styleReference) {
+      return `${suggestedPrompt}\n\n${t.replay_result_style_reference_label || '语言风格参考'}:\n${styleReference}`;
+    }
+    return suggestedPrompt || styleReference;
+  };
 
   const mimicPromptPrefix = t.replay_mimic_prompt_prefix || '模仿下面的语言风格，为xx产品生成相近风格的提示词：';
 
@@ -237,6 +247,7 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
                 onClick={() =>
                   onReuseToWorkbench({
                     prompt: result.suggestedPrompt,
+                    referenceScript: buildReuseReferenceScript(result),
                     productCategory: result.suggestedCategory,
                     coreSellingPoints: result.suggestedSellingPoints,
                   })

@@ -231,6 +231,7 @@ type ProjectWorkspaceState = {
   aspectRatio: '9:16' | '16:9' | '1:1';
   hasAiRecognized: boolean;
   genPrompt: string;
+  referenceScript: string;
   genDuration: number;
   soundSetting: 'on' | 'off';
   selectedBackgroundAudio: SelectedBackgroundAudio | null;
@@ -369,6 +370,7 @@ const createWorkspaceState = (params?: {
   aspectRatio: prefs.aspectRatio === '16:9' ? '16:9' : (prefs.aspectRatio === '1:1' ? '1:1' : '9:16'),
     hasAiRecognized: false,
     genPrompt: '',
+    referenceScript: '',
     genDuration: prefs.genDuration || 10,
     soundSetting: prefs.soundSetting === 'off' ? 'off' : 'on',
     selectedBackgroundAudio: null,
@@ -809,10 +811,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const nextCategory = String(replayReusePayload.productCategory || '').trim();
     const nextSellingPoints = String(replayReusePayload.coreSellingPoints || '').trim();
     const nextPrompt = String(replayReusePayload.prompt || '').trim();
+    const nextReferenceScript = String(replayReusePayload.referenceScript || replayReusePayload.prompt || '').trim();
 
     if (nextCategory) setProductCategory(nextCategory);
     if (nextSellingPoints) setCoreSellingPoints(nextSellingPoints);
     if (nextPrompt) setGenPrompt(nextPrompt);
+    if (nextReferenceScript) setReferenceScript(nextReferenceScript);
     setCreationMode('replay');
     setSelectedModel('seedance2.0');
 
@@ -825,6 +829,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const coreSellingPointsFieldRef = useRef<HTMLTextAreaElement | null>(null);
   const videoTypeFieldRef = useRef<HTMLDivElement | null>(null);
   const [genPrompt, setGenPrompt] = useState('');
+  const [referenceScript, setReferenceScript] = useState('');
   const [genDuration, setGenDuration] = useState<number>(() => normalizeDurationForModel(initialPrefs.genDuration ?? selectedTemplate?.duration ?? 10, selectedModel));
   const [soundSetting, setSoundSetting] = useState<'on' | 'off'>(() => (initialPrefs.soundSetting === 'off' ? 'off' : 'on'));
   const [selectedBackgroundAudio, setSelectedBackgroundAudio] = useState<SelectedBackgroundAudio | null>(null);
@@ -1431,6 +1436,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     );
     setHasAiRecognized(!!workspace.hasAiRecognized);
     setGenPrompt(workspace.genPrompt || '');
+    setReferenceScript(workspace.referenceScript || '');
     setGenDuration(normalizeDurationForModel(
       workspace.genDuration ?? initialPrefs.genDuration ?? 10,
       restoredModelId
@@ -2003,6 +2009,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       aspectRatio,
       hasAiRecognized,
       genPrompt,
+      referenceScript,
       genDuration,
       soundSetting,
       selectedBackgroundAudio,
@@ -2052,6 +2059,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     aspectRatio,
     hasAiRecognized,
     genPrompt,
+    referenceScript,
     genDuration,
     soundSetting,
     selectedBackgroundAudio,
@@ -3241,6 +3249,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const buildScriptInputText = () => {
     const parts: string[] = [];
+    const normalizedAdditionalRequirements = (genPrompt || '').trim();
+    const normalizedReferenceScript = (referenceScript || '').trim();
 
     const pushLine = (label: string, value: string) => {
       const trimmed = (value || '').trim();
@@ -3255,7 +3265,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     pushLine(t.wb_field_delivery_region_label, deliveryRegion);
     pushLine(t.wb_field_video_language_label, targetLanguage);
     pushLine(t.wb_field_video_type_label, videoType);
-    pushLine(t.wb_field_additional_requirements_label, genPrompt);
+    if (normalizedAdditionalRequirements && normalizedAdditionalRequirements !== normalizedReferenceScript) {
+      pushLine(t.wb_field_additional_requirements_label, normalizedAdditionalRequirements);
+    }
+    if (normalizedReferenceScript) {
+      parts.push(`${t.wb_reference_script_label || 'Reference Script'}:\n${normalizedReferenceScript}`);
+    }
 
     return parts.length > 0 ? parts.join('\n') : t.wb_script_prompt_fallback;
   };
@@ -5523,6 +5538,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const rawRatio = aspectRatio || selectedTemplate?.aspect_ratio || "16:9";
       const duration = genDuration || selectedTemplate?.duration || 10;
       const shots = selectedTemplate?.shot_number || 5;
+      const normalizedReferenceScript = referenceScript.trim();
 
       const payload = {
         product_category: category,
@@ -5538,7 +5554,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           custom: selectedTemplate?.custom_config || "",
           input: promptText,
           shots: [],
+          ...(normalizedReferenceScript ? { reference_script: normalizedReferenceScript } : {}),
         },
+        ...(normalizedReferenceScript ? { reference_script: normalizedReferenceScript } : {}),
         ...(klingContext ? { generation_context: klingContext } : {}),
         ...(selectedModel === 'kling' && klingGenerateMode === 'first_frame' && klingPrimaryImage
           ? { first_frame_image_path: klingPrimaryImage.path, first_frame_image_type: klingPrimaryImage.type }
@@ -6656,7 +6674,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </div>
               </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-4">
               <div>
                 <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
                   {t.wb_field_video_type_label}
@@ -6732,7 +6750,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-4">
               <div>
                 {selectedModel === 'kling' ? (
                   <div className="flex flex-col gap-3">
@@ -6859,6 +6877,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </div>
                   )}
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_reference_script_label || '参考脚本（来自视频解析）'}</label>
+                <textarea
+                  value={referenceScript}
+                  onChange={(e) => setReferenceScript(e.target.value)}
+                  rows={4}
+                  placeholder={t.wb_reference_script_placeholder || '粘贴或使用“视频解析反向生成脚本”应用到工作台后的参考脚本'}
+                  className="w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-y min-h-[86px] text-zinc-300 focus:border-orange-500 focus:outline-none"
+                />
+                <div className="text-[10px] text-zinc-500">{t.wb_reference_script_hint || '该内容将作为风格参考一并输入脚本模型，帮助生成更接近参考风格的新脚本。'}</div>
               </div>
 
               <div className="border-t border-white/5 my-1" />
@@ -7318,7 +7348,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
               )}
             </div>
-          <div className={`grid gap-2 ${isKlingOmniMode ? 'grid-cols-3' : 'grid-cols-2'}`}>
+          <div className={`grid gap-2  'grid-cols-2'`}>
             <button
                 type="button"
                 onClick={(e) => {
@@ -7342,7 +7372,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             <button
                 type="button"
                 onClick={openAiOptimizeDialog}
-                className="col-span-2 rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-[10px] font-bold text-orange-200 hover:bg-orange-500/20"
+                className={`${isKlingOmniMode ? 'col-span-2' : 'col-span-2'} w-full rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-[10px] font-bold text-orange-200 hover:bg-orange-500/20`}
             >
               <span className="inline-flex items-center justify-center gap-1.5">
                 <ImagePlus className="w-3.5 h-3.5" />
@@ -8365,9 +8395,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       {t.wb_confirm_cancel}
                     </button>
                     <button
-                        title={t.wb_ai_opt_coming_soon || '敬请期待。'}
-                        className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-orange-500 hover:bg-orange-600 cursor-help"
-                        // onClick={() => void handleGenerateOptimizedImages()}
+                        type="button"
+                        onClick={() => void handleGenerateOptimizedImages()}
+                        disabled={isAiOptimizeGenerating}
+                        className={`px-4 py-2 rounded-lg text-sm font-bold text-white transition ${isAiOptimizeGenerating ? 'bg-orange-500/70 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600'}`}
                     >
                       {isAiOptimizeGenerating
                         ? (t.wb_ai_opt_generating || '生成中...')

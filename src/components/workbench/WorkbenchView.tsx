@@ -4848,6 +4848,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setFileName(asset.name || '');
     setSelectedFileObj(asset.fileObj || null);
     setSelectedAssetUrl(asset.assetUrl || null);
+    setLastUploadedUrl(asset.uploadedPath || asset.assetUrl || null);
     setSelectedAssetSource(asset.source || null);
     setCurrentMaterialType(asset.materialType || null);
     setGeneratedVideoUrl(null);
@@ -6460,7 +6461,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const renderModelCard = (opt: typeof modelOptions[number]) => {
       const active = selectedModel === opt.id;
-      const locked = creationMode === 'fast' && opt.id === 'seedance2.0';
+      const locked = false;  // Seedance 2.0 backend ready — unlock fast mode
       return (
           <button
               key={opt.id}

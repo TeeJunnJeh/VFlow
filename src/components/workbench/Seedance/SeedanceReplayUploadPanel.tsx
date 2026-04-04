@@ -263,7 +263,7 @@ function PrimaryButton({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs font-bold text-zinc-200 transition hover:bg-white/5"
+      className="inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/[0.04] px-3 py-2 text-xs font-bold text-white shadow-[0_2px_8px_rgba(0,0,0,0.18)] transition hover:border-white/30 hover:bg-white/[0.08]"
     >
       {children}
     </button>
@@ -281,7 +281,7 @@ function SecondaryButton({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs font-bold text-zinc-200 transition hover:bg-white/5"
+      className="inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/[0.04] px-3 py-2 text-xs font-bold text-white shadow-[0_2px_8px_rgba(0,0,0,0.18)] transition hover:border-white/30 hover:bg-white/[0.08]"
     >
       {children}
     </button>

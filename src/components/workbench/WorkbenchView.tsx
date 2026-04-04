@@ -33,7 +33,6 @@ import { buildErrorModalData, type ErrorCategory, type ErrorI18n } from '../../u
 import { getWorkbenchPreferences, setWorkbenchPreferences } from '../../utils/preferences';
 import { type ReplayReusePayload } from './ReplayScriptView';
 import {
-  SeedanceReplayDefaultSourceSwitch,
   SeedanceReplayUploadPanel,
   type SeedanceReplayUploadAsset,
 } from './Seedance/SeedanceReplayUploadPanel';
@@ -155,8 +154,6 @@ type QueuedScript = {
 };
 
 type SeedanceReplayUploadIntent = {
-  mode: 'add' | 'replace';
-  assetId: string | null;
   targetMediaKind: SeedanceReplayMediaKind | null;
 };
 
@@ -840,8 +837,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [targetLanguage, setTargetLanguage] = useState<string>(() => initialPrefs.targetLanguage || 'en');
   const [translatingShots, setTranslatingShots] = useState<Record<number, boolean>>({});
   const [creationMode, setCreationMode] = useState<'fast' | 'replay'>(() => (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
-  const [seedanceReplayDefaultSource, setSeedanceReplayDefaultSource] = useState<'library' | 'local'>('library');
-  const [seedanceReplayUploadIntent, setSeedanceReplayUploadIntent] = useState<SeedanceReplayUploadIntent>({ mode: 'add', assetId: null, targetMediaKind: null });
+  const [seedanceReplayUploadIntent, setSeedanceReplayUploadIntent] = useState<SeedanceReplayUploadIntent>({ targetMediaKind: null });
   const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
   const [isModelSectionCollapsed, setIsModelSectionCollapsed] = useState(false);
   const [isAiRecognizing, setIsAiRecognizing] = useState(false);
@@ -4680,13 +4676,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setSeedanceReplayUploadIntent(intent);
     if (!seedanceReplayFileInputRef.current) return;
     seedanceReplayFileInputRef.current.value = '';
-    seedanceReplayFileInputRef.current.multiple = intent.mode !== 'replace';
+    seedanceReplayFileInputRef.current.multiple = true;
     seedanceReplayFileInputRef.current.accept = getSeedanceReplayLocalAccept(intent.targetMediaKind);
     seedanceReplayFileInputRef.current.click();
   }, []);
 
   const handleSeedanceReplayAddFromLocal = useCallback((targetMediaKind?: SeedanceReplayMediaKind) => {
-    openSeedanceReplayLocalPicker({ mode: 'add', assetId: null, targetMediaKind: targetMediaKind || null });
+    openSeedanceReplayLocalPicker({ targetMediaKind: targetMediaKind || null });
   }, [openSeedanceReplayLocalPicker]);
 
   const handleSeedanceReplayPreview = useCallback((assetId: string) => {
@@ -4694,17 +4690,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!target) return;
     selectAssetFromQueue(target);
   }, [uploadDisplayAssets]);
-
-  const handleSeedanceReplayReplace = useCallback((assetId: string) => {
-    const targetAsset = assetQueue.find((asset) => asset.id === assetId) || null;
-    openSeedanceReplayLocalPicker({
-      mode: 'replace',
-      assetId,
-      targetMediaKind: targetAsset?.mediaKind === 'image' || targetAsset?.mediaKind === 'video' || targetAsset?.mediaKind === 'audio'
-        ? targetAsset.mediaKind
-        : null,
-    });
-  }, [assetQueue, openSeedanceReplayLocalPicker]);
 
   const handleSeedanceReplayRemove = useCallback((assetId: string) => {
     removeQueuedAssetById(assetId);
@@ -4715,17 +4700,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const errors: string[] = [];
     const parsedAssets: SeedanceReplayParsedAsset[] = [];
-    const targetAsset = intent.mode === 'replace' && intent.assetId
-      ? assetQueue.find((asset) => asset.id === intent.assetId) || null
-      : null;
-
-    if (intent.mode === 'replace' && !targetAsset) {
-      openInfo(popupTitles.notice, '未找到要替换的素材，请重试。');
-      return;
-    }
-
-    const filesToProcess = intent.mode === 'replace' ? files.slice(0, 1) : files;
-    for (const file of filesToProcess) {
+    for (const file of files) {
       try {
         const parsedAsset = await parseSeedanceReplayLocalFile(file, {
           inferMediaKind,
@@ -4734,11 +4709,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (intent.targetMediaKind && parsedAsset.mediaKind !== intent.targetMediaKind) {
           const kindLabel = intent.targetMediaKind === 'image' ? '图片' : intent.targetMediaKind === 'video' ? '视频' : '音频';
           errors.push(`当前入口仅支持上传${kindLabel}：${file.name}`);
-          continue;
-        }
-        if (targetAsset?.mediaKind && parsedAsset.mediaKind !== targetAsset.mediaKind) {
-          const kindLabel = targetAsset.mediaKind === 'image' ? '图片' : targetAsset.mediaKind === 'video' ? '视频' : '音频';
-          errors.push(`替换素材类型不匹配：${file.name}。请上传${kindLabel}文件。`);
           continue;
         }
         const validationMessage = validateSeedanceReplayParsedAsset(parsedAsset);
@@ -4750,45 +4720,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       } catch (error: any) {
         errors.push(error?.message || `无法处理文件：${file.name}`);
       }
-    }
-
-    if (intent.mode === 'replace') {
-      const replacement = parsedAssets[0] || null;
-      if (!replacement || !targetAsset) {
-        if (errors.length > 0) {
-          openInfo(popupTitles.notice, errors.join('\n'));
-        }
-        return;
-      }
-
-      const previewUrl = URL.createObjectURL(replacement.file);
-      const nextAsset: QueuedAsset = {
-        ...targetAsset,
-        name: replacement.name,
-        previewUrl,
-        fileObj: replacement.file,
-        assetUrl: null,
-        assetId: null,
-        mediaKind: replacement.mediaKind,
-        durationSeconds: replacement.durationSeconds,
-        mimeType: replacement.mimeType,
-        sizeBytes: replacement.sizeBytes,
-        width: replacement.width,
-        height: replacement.height,
-        fps: replacement.fps,
-        validationMessages: [],
-        uploadedPath: null,
-      };
-
-      setAssetQueue((prev) => prev.map((asset) => (asset.id === targetAsset.id ? nextAsset : asset)));
-      applyWorkbenchAssetSelection(nextAsset);
-      revokeBlobUrl(targetAsset.previewUrl);
-      void persistLocalQueuedAsset(targetAsset.id, replacement.file, previewUrl, true);
-
-      if (errors.length > 0) {
-        openInfo(popupTitles.notice, errors.join('\n'));
-      }
-      return;
     }
 
     const existingCounts = assetQueue.reduce(
@@ -4863,7 +4794,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const files = Array.from(e.target.files || []);
     const intent = seedanceReplayUploadIntent;
     await handleSeedanceReplayLocalFiles(files, intent);
-    setSeedanceReplayUploadIntent({ mode: 'add', assetId: null, targetMediaKind: null });
+    setSeedanceReplayUploadIntent({ targetMediaKind: null });
     if (seedanceReplayFileInputRef.current) {
       seedanceReplayFileInputRef.current.value = '';
       seedanceReplayFileInputRef.current.accept = SEEDANCE_REPLAY_UPLOAD_ACCEPT;
@@ -6500,7 +6431,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       {t.wb_recommend_engine_desc}
                     </div>
                   </div>
-                  <Lock className="w-4 h-4 text-zinc-500 shrink-0" aria-hidden="true" />
+                  <div className="flex flex-col items-center gap-2 shrink-0">
+                    <div
+                        className="model-check w-4 h-4 rounded-full border border-orange-500 bg-orange-500 flex items-center justify-center"
+                        aria-hidden="true"
+                    >
+                      <Check className="w-2.5 h-2.5 text-white" />
+                    </div>
+                    <div className="text-[8px] whitespace-nowrap font-bold text-orange-500">
+                      300v点
+                    </div>
+                  </div>
                 </div>
 
                 <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 flex items-start gap-2">
@@ -6923,25 +6864,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           <div ref={uploadSectionRef} className={`flex flex-col gap-3 ${getGuideFocusClass('upload')}`}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
-              {isSeedanceReplayMode ? (
-                <SeedanceReplayDefaultSourceSwitch
-                  value={seedanceReplayDefaultSource}
-                  onChange={setSeedanceReplayDefaultSource}
-                />
-              ) : null}
             </div>
             {isSeedanceReplayMode ? (
               <>
                 <SeedanceReplayUploadPanel
                   assets={seedanceReplayUploadAssets}
-                  defaultSource={seedanceReplayDefaultSource}
                   validationSummary={seedanceReplayValidation}
-                  showDefaultSourceSwitch={false}
-                  onDefaultSourceChange={setSeedanceReplayDefaultSource}
                   onAddFromLibrary={handleSeedanceReplayAddFromLibrary}
                   onAddFromLocal={handleSeedanceReplayAddFromLocal}
                   onPreview={handleSeedanceReplayPreview}
-                  onReplace={handleSeedanceReplayReplace}
                   onRemove={handleSeedanceReplayRemove}
                 />
                 <input

@@ -726,7 +726,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [klingGenerateMode, setKlingGenerateMode] = useState<'first_frame' | 'subject' | 'first_last_frame'>('first_frame');
 
   const [isGeneratingKlingBoundaryFrames, setIsGeneratingKlingBoundaryFrames] = useState(false);
-  const [imageGenModel, setImageGenModel] = useState<string>('flux-2-max');
+  const [imageGenModel, setImageGenModel] = useState<'flux-2-pro' | 'flux-2-flex' | 'gpt-image-1.5'>('flux-2-pro');
   const [isDragUploadActive, setIsDragUploadActive] = useState(false);
   const [selectedAssetUrl, setSelectedAssetUrl] = useState<string | null>(initialFileUrl || null);
   const [lastUploadedUrl, setLastUploadedUrl] = useState<string | null>(initialFileUrl || null);
@@ -3675,10 +3675,30 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setIsGeneratingKlingBoundaryFrames(true);
     try {
       const projectId = await ensureSingleProjectId();
-      const firstImage = imageAssets[0];
-      let referencePath = firstImage.uploadedPath || firstImage.assetUrl || null;
-      if (!referencePath && firstImage.fileObj) {
-        const uploadResp = await assetsApi.uploadTempAsset(firstImage.fileObj);
+      const selectedImageAsset = selectedQueueAssetId
+        ? imageAssets.find((asset) => asset.id === selectedQueueAssetId) || null
+        : null;
+      const selectedImagePath = String(selectedImageAsset?.uploadedPath || selectedImageAsset?.assetUrl || '').trim();
+      const selectedIsUsable = !!selectedImageAsset && (
+        !!selectedImageAsset.fileObj ||
+        (!!selectedImagePath && !selectedImagePath.includes('/media/generated/'))
+      );
+      const uploadableImageAsset = imageAssets.find((asset) => !!asset.fileObj) || null;
+      const nonGeneratedImageAsset = imageAssets.find((asset) => {
+        const path = String(asset.uploadedPath || asset.assetUrl || '').trim();
+        return !!path && !path.includes('/media/generated/');
+      }) || null;
+
+      const referenceAsset =
+        (selectedIsUsable ? selectedImageAsset : null)
+        || uploadableImageAsset
+        || nonGeneratedImageAsset
+        || imageAssets[0];
+
+      let referencePath = referenceAsset.uploadedPath || referenceAsset.assetUrl || null;
+      const needUpload = !referencePath || String(referencePath).includes('/media/generated/');
+      if (needUpload && referenceAsset.fileObj) {
+        const uploadResp = await assetsApi.uploadTempAsset(referenceAsset.fileObj);
         referencePath = extractUploadedAssetPath(uploadResp);
       }
 
@@ -7203,8 +7223,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             <div className="flex flex-col gap-2">
                               <div className="flex gap-1.5 flex-wrap">
                                 {([
-                                  { id: 'flux-2-max', label: 'Flux 2 Max' },
                                   { id: 'flux-2-pro', label: 'Flux 2 Pro' },
+                                  { id: 'flux-2-flex', label: 'Flux 2 Flex' },
                                   { id: 'gpt-image-1.5', label: 'GPT Image 1.5' },
                                 ] as const).map((m) => (
                                   <button

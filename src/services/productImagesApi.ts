@@ -25,8 +25,8 @@ function toDisplayUrl(pathOrUrl: string): string {
 
 function styleToModel(style?: FirstFrameParams['style']): string {
   if (style === 'studio') return 'gpt-image-1.5';
-  if (style === 'clean') return 'flux-2-pro';
-  return 'flux-2-max';
+  if (style === 'clean') return 'flux-2-flex';
+  return 'flux-2-pro';
 }
 
 function smartRepairStrengthToHint(strength?: SmartRepairParams['strength']): string {

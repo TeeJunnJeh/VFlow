@@ -80,6 +80,24 @@ export type ReplayReverseScriptData = {
   metrics?: Record<string, unknown>;
 };
 
+export type TextSeparationBlockPayload = {
+  id: string;
+  text: string;
+  bbox: [number, number, number, number];
+  font_size?: number;
+  color?: [number, number, number];
+  bold?: boolean;
+  outline?: boolean | { color?: [number, number, number]; width?: number };
+  shadow?: boolean | { color?: [number, number, number]; blur?: number; offsetX?: number; offsetY?: number };
+};
+
+export type TextSeparationResponse = {
+  sample_id?: string;
+  original_image_url: string;
+  clean_image_url: string;
+  text_blocks: TextSeparationBlockPayload[];
+};
+
 export type ScriptEstimateParams = {
   script_count: number;
   duration: number;
@@ -377,6 +395,37 @@ export const videoApi = {
     }
 
     return await response.json();
+  },
+
+  textSeparation: async (payload?: { sample_id?: string; image_path?: string }): Promise<TextSeparationResponse> => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/text-separation`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload || {}),
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Text separation request failed');
+    }
+
+    const json = (await response.json()) as ApiEnvelope<TextSeparationResponse>;
+    if (json?.code !== undefined && json.code !== 0) {
+      throw new Error((json?.message || 'Text separation request failed') as string);
+    }
+
+    const data = json?.data;
+    if (!data?.clean_image_url || !data?.original_image_url || !Array.isArray(data?.text_blocks)) {
+      throw new Error('Invalid text separation response');
+    }
+
+    return data;
   },
 
   // 0. Create Project (non-template)

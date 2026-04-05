@@ -1,8 +1,22 @@
 import React from 'react';
-import { Video, Image as ImageIcon, History, Sparkles, User as UserIcon, CreditCard, Flame, FolderOpen, LayoutGrid, Shirt, ImagePlus, WandSparkles } from 'lucide-react';
+import {
+  CreditCard,
+  Flame,
+  FolderOpen,
+  History,
+  Image as ImageIcon,
+  ImagePlus,
+  LayoutGrid,
+  ScanText,
+  Shirt,
+  Sparkles,
+  User as UserIcon,
+  Video,
+  WandSparkles,
+} from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
-import type { ViewType } from './types'; 
+import type { ViewType } from './types';
 
 interface SidebarProps {
   activeView: ViewType;
@@ -18,10 +32,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
   const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
 
   const isProductImagesView =
-    activeView === 'product_images_clothing_swap'
-    || activeView === 'product_images_first_frame'
-    || activeView === 'product_images_smart_repair'
-    || activeView === 'product_images_gallery';
+    activeView === 'product_images_clothing_swap' ||
+    activeView === 'product_images_first_frame' ||
+    activeView === 'product_images_smart_repair' ||
+    activeView === 'product_images_gallery' ||
+    activeView === 'product_images_text_separation';
 
   const [isProductImagesMenuOpen, setIsProductImagesMenuOpen] = React.useState(false);
 
@@ -29,16 +44,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
     if (isProductImagesView) setIsProductImagesMenuOpen(true);
   }, [isProductImagesView]);
 
-  const InternalNav = ({ icon: Icon, view, label }: { icon: any, view: ViewType, label: string }) => (
+  const InternalNav = ({ icon: Icon, view, label }: { icon: any; view: ViewType; label: string }) => (
     <div
       onClick={() => {
         setActiveView(view);
         setIsProductImagesMenuOpen(false);
       }}
-      className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${activeView === view ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300'}`} 
+      className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${
+        activeView === view ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300'
+      }`}
     >
       <Icon className={`w-5 h-5 transition-all ${activeView === view ? 'stroke-[2.5px]' : ''}`} />
-      {activeView === view && (<div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />)}
+      {activeView === view && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />}
       <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
         {label}
       </div>
@@ -57,10 +74,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
             setActiveView('product_images_first_frame');
           }
         }}
-        className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${active ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300'}`}
+        className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${
+          active ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300'
+        }`}
       >
         <ImageIcon className={`w-5 h-5 transition-all ${active ? 'stroke-[2.5px]' : ''}`} />
-        {active && (<div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />)}
+        {active && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />}
         <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
           {tx('wb_nav_product_images', tr('商品图片生成', 'Product Images'))}
         </div>
@@ -72,7 +91,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
     <button
       type="button"
       onClick={() => setActiveView(view)}
-      className={`w-full rounded-xl border px-3 py-2.5 text-left text-sm transition ${activeView === view ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
+      className={`w-full rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+        activeView === view
+          ? 'border-orange-500/60 bg-orange-500/10 text-orange-200'
+          : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'
+      }`}
     >
       <span className="flex items-center gap-2.5">
         <Icon className="h-5 w-5 shrink-0" />
@@ -104,14 +127,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
               setActiveView('replay_lab');
               setIsProductImagesMenuOpen(false);
             }}
-            className={`w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative ${activeView === 'replay_lab' ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_15px_rgba(249,115,22,0.2)]' : 'border-white/5 bg-zinc-900/50 hover:border-white/20'}`}
-            title={t.wb_replay_dev_entry || '正在开发'}
+            className={`w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative ${
+              activeView === 'replay_lab'
+                ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_15px_rgba(249,115,22,0.2)]'
+                : 'border-white/5 bg-zinc-900/50 hover:border-white/20'
+            }`}
+            title={t.wb_replay_dev_entry || 'Replay Lab'}
           >
             <div className={`transition-colors ${activeView === 'replay_lab' ? 'text-orange-500' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
               <Flame className="w-5 h-5" />
             </div>
             <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
-              {t.wb_replay_dev_entry || '正在开发'}
+              {t.wb_replay_dev_entry || 'Replay Lab'}
             </div>
           </button>
 
@@ -120,7 +147,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
               setActiveView('profile');
               setIsProductImagesMenuOpen(false);
             }}
-            className={`w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative ${activeView === 'profile' ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_15px_rgba(249,115,22,0.2)]' : 'border-white/5 bg-zinc-900/50 hover:border-white/20'}`}
+            className={`w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative ${
+              activeView === 'profile'
+                ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_15px_rgba(249,115,22,0.2)]'
+                : 'border-white/5 bg-zinc-900/50 hover:border-white/20'
+            }`}
           >
             {user?.avatar ? (
               <img src={user.avatar} className="w-full h-full object-cover" alt="Profile" />
@@ -143,31 +174,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
             {tx('wb_nav_product_images', tr('商品图片生成', 'Product Images'))}
           </div>
           <div className="mt-3 flex flex-col gap-2">
-            <ProductSubNav
-              icon={Shirt}
-              view="product_images_clothing_swap"
-              label={tx('wb_nav_product_clothing_swap', tr('AI 换装', 'AI Clothing Swap'))}
-            />
-            <ProductSubNav
-              icon={ImagePlus}
-              view="product_images_first_frame"
-              label={tx('wb_nav_product_first_frame', tr('AI 首帧图', 'AI First Frame'))}
-            />
-            <ProductSubNav
-              icon={WandSparkles}
-              view="product_images_smart_repair"
-              label={tx('wb_nav_product_smart_repair', tr('智能修复', 'Smart Repair'))}
-            />
-            <ProductSubNav
-              icon={LayoutGrid}
-              view="product_images_gallery"
-              label={tx('wb_nav_product_gallery', tr('AI 商品套图', 'AI Product Gallery'))}
-            />
+            <ProductSubNav icon={Shirt} view="product_images_clothing_swap" label={tx('wb_nav_product_clothing_swap', tr('AI 换装', 'AI Clothing Swap'))} />
+            <ProductSubNav icon={ImagePlus} view="product_images_first_frame" label={tx('wb_nav_product_first_frame', tr('AI 首帧图', 'AI First Frame'))} />
+            <ProductSubNav icon={WandSparkles} view="product_images_smart_repair" label={tx('wb_nav_product_smart_repair', tr('智能修复', 'Smart Repair'))} />
+            <ProductSubNav icon={LayoutGrid} view="product_images_gallery" label={tx('wb_nav_product_gallery', tr('AI 商品套图', 'AI Product Gallery'))} />
+            <ProductSubNav icon={ScanText} view="product_images_text_separation" label={tr('文本分离', 'Text Separation')} />
           </div>
         </div>
       )}
-
-
     </aside>
   );
 };

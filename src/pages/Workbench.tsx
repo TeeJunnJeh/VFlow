@@ -361,7 +361,8 @@ const Workbench = () => {
     activeView === 'product_images_clothing_swap'
     || activeView === 'product_images_first_frame'
     || activeView === 'product_images_smart_repair'
-    || activeView === 'product_images_gallery';
+    || activeView === 'product_images_gallery'
+    || activeView === 'product_images_text_separation';
 
   return (
     <WorkbenchModelProvider>

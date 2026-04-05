@@ -6,6 +6,7 @@ import { DropdownSelect } from '../common/DropdownSelect';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { FirstFrameView, SmartRepairView } from '../productImages';
 import { AppDialog } from '../common/AppDialog';
+import TextSeparationDemoView, { type TextSeparationBlock } from './TextSeparationDemoView';
 import { assetsApi } from '../../services/assets';
 import { videoApi } from '../../services/video';
 
@@ -14,16 +15,58 @@ interface ProductImagesViewProps {
   setActiveView: (view: ViewType) => void;
 }
 
+interface TextSeparationSession {
+  sampleTitle: string;
+  originalImageUrl: string;
+  backgroundImageUrl: string;
+  textBlocks: TextSeparationBlock[];
+}
+
+interface TextSeparationRecordItem {
+  id: string;
+  createdAt: string;
+  sampleTitle: string;
+  originalImageUrl: string;
+  backgroundImageUrl?: string;
+  textBlocks?: TextSeparationBlock[];
+  status: 'processing' | 'succeeded';
+  progress: number;
+  startedAtMs?: number;
+}
+
+interface DemoLibraryItem {
+  id: string;
+  title: string;
+  subtitle: string;
+  previewUrl: string;
+}
+
+interface GalleryHistoryItem {
+  id: string;
+  createdAt: string;
+  images: string[];
+  settings?: {
+    targetScene: string;
+    style: string;
+    aspectRatio: string;
+    resolution: string;
+    productName: string;
+    productCategory: string;
+    sellingPoints: string[];
+    typeSelections: Record<string, { enabled: boolean; count: number }>;
+  };
+}
+
 const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setActiveView }) => {
   const { language, t } = useLanguage();
   const isZh = language === 'zh';
   const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
-
   const isProductView =
     activeView === 'product_images_clothing_swap' ||
     activeView === 'product_images_first_frame' ||
     activeView === 'product_images_smart_repair' ||
-    activeView === 'product_images_gallery';
+    activeView === 'product_images_gallery' ||
+    activeView === 'product_images_text_separation';
 
   const currentValue: ViewType = isProductView ? activeView : 'product_images_first_frame';
   const panelClassName = (view: ViewType) => (currentValue === view ? 'block' : 'hidden');
@@ -45,6 +88,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         return {
           title: tr('商品套图', 'Product Gallery'),
           subtitle: tr('围绕商品信息与场景配置批量生成电商图', 'Generate e-commerce image sets from product info and scene settings'),
+        };
+      case 'product_images_text_separation':
+        return {
+          title: tr('文本分离', 'Text Separation'),
+          subtitle: tr('上传海报，或复用商品套图历史图片，提取文本并生成去字底图', 'Upload a poster or reuse Product Gallery history to extract text and generate a clean background'),
         };
       case 'product_images_first_frame':
       default:
@@ -79,11 +127,20 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     message: '',
   });
   const [galleryRightPanel, setGalleryRightPanel] = useState<'preview' | 'history'>('preview');
-  const [galleryHistoryItems, setGalleryHistoryItems] = useState<Array<{ id: string; createdAt: string; images: string[] }>>([]);
+  const [galleryHistoryItems, setGalleryHistoryItems] = useState<GalleryHistoryItem[]>([]);
   const [isGalleryHistoryManaging, setIsGalleryHistoryManaging] = useState(false);
   const [galleryHistorySelectedKeys, setGalleryHistorySelectedKeys] = useState<string[]>([]);
   const [isGalleryGenerating, setIsGalleryGenerating] = useState(false);
   const [galleryPreviewImageUrl, setGalleryPreviewImageUrl] = useState<string | null>(null);
+  const [isTextSeparationLoading, setIsTextSeparationLoading] = useState(false);
+  const [textSeparationSession, setTextSeparationSession] = useState<TextSeparationSession | null>(null);
+  const textSeparationFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [textSeparationUploadPreviewUrl, setTextSeparationUploadPreviewUrl] = useState<string | null>(null);
+  const [textSeparationUploadName, setTextSeparationUploadName] = useState<string>('');
+  const [isTextSeparationHistoryPickerOpen, setIsTextSeparationHistoryPickerOpen] = useState(false);
+  const [textSeparationSelectedImagePath, setTextSeparationSelectedImagePath] = useState<string | null>(null);
+  const [textSeparationSelectedOriginalUrl, setTextSeparationSelectedOriginalUrl] = useState<string | null>(null);
+  const [textSeparationRecords, setTextSeparationRecords] = useState<TextSeparationRecordItem[]>([]);
   // Backend image paths restored from history "re-generate" — allows skipping upload
   const [galleryRestoredImagePaths, setGalleryRestoredImagePaths] = useState<string[]>([]);
   const [galleryPreviewItems, setGalleryPreviewItems] = useState<
@@ -121,6 +178,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     galleryHistoryAllKeys.length > 0 && galleryHistoryAllKeys.every((key) => galleryHistorySelectedSet.has(key));
 
   const GALLERY_HISTORY_KEY = 'vflow_product_gallery_history';
+  const TEXT_SEPARATION_HISTORY_KEY = 'vflow_text_separation_history_v1';
   const galleryPollAbortRef = useRef(false);
   const galleryPollRunIdRef = useRef<number>(0);
 
@@ -161,6 +219,268 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     setGalleryPreviewImageUrl(cleaned);
   };
 
+  const persistTextSeparationRecords = (records: TextSeparationRecordItem[]) => {
+    try {
+      const persisted = records
+        .filter((item) => item.status === 'succeeded' && item.backgroundImageUrl && Array.isArray(item.textBlocks))
+        .map(({ id, createdAt, sampleTitle, originalImageUrl, backgroundImageUrl, textBlocks, status, progress }) => ({
+          id,
+          createdAt,
+          sampleTitle,
+          originalImageUrl,
+          backgroundImageUrl,
+          textBlocks,
+          status,
+          progress,
+        }));
+      localStorage.setItem(TEXT_SEPARATION_HISTORY_KEY, JSON.stringify(persisted.slice(0, 30)));
+    } catch {
+      void 0;
+    }
+  };
+
+  const openTextSeparationHistoryItem = (item: TextSeparationRecordItem) => {
+    if (item.status !== 'succeeded' || !item.backgroundImageUrl || !item.textBlocks) return;
+    setTextSeparationSession({
+      sampleTitle: item.sampleTitle,
+      originalImageUrl: item.originalImageUrl,
+      backgroundImageUrl: item.backgroundImageUrl,
+      textBlocks: item.textBlocks,
+    });
+  };
+
+  const clearSelectedTextSeparationSource = (revokePreview = true) => {
+    if (revokePreview && textSeparationUploadPreviewUrl && textSeparationUploadPreviewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(textSeparationUploadPreviewUrl);
+    }
+    setTextSeparationUploadPreviewUrl(null);
+    setTextSeparationUploadName('');
+    setTextSeparationSelectedImagePath(null);
+    setTextSeparationSelectedOriginalUrl(null);
+  };
+
+  const selectTextSeparationSource = (imagePath: string, sampleTitle: string, originalImageUrl?: string) => {
+    const cleaned = String(imagePath || '').trim();
+    if (!cleaned) return;
+    if (originalImageUrl) {
+      if (textSeparationUploadPreviewUrl && textSeparationUploadPreviewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(textSeparationUploadPreviewUrl);
+      }
+      setTextSeparationUploadPreviewUrl(originalImageUrl);
+    }
+    setTextSeparationUploadName(sampleTitle);
+    setTextSeparationSelectedImagePath(cleaned);
+    setTextSeparationSelectedOriginalUrl(originalImageUrl || cleaned);
+  };
+
+  const openTextSeparationDemo = async (item: DemoLibraryItem | null) => {
+    if (!item || isTextSeparationLoading) return;
+
+    setIsTextSeparationLoading(true);
+    try {
+      const parsed = await videoApi.textSeparation({ sample_id: item.id });
+      const rawBlocks = Array.isArray(parsed?.text_blocks) ? parsed.text_blocks : [];
+      const textBlocks = rawBlocks
+        .map((block: any) => {
+          const bbox = Array.isArray(block?.bbox) ? block.bbox.map((n: any) => Number(n)) : [];
+          if (bbox.length !== 4 || bbox.some((n: number) => !Number.isFinite(n))) return null;
+          const color = Array.isArray(block?.color) ? block.color.map((n: any) => Number(n)) : null;
+          const outlineColor = Array.isArray(block?.outline?.color) ? block.outline.color.map((n: any) => Number(n)) : null;
+          const shadowColor = Array.isArray(block?.shadow?.color) ? block.shadow.color.map((n: any) => Number(n)) : null;
+          return {
+            id: String(block?.id || '').trim() || `txt_${Math.random().toString(36).slice(2, 8)}`,
+            text: String(block?.text || '').trim(),
+            bbox: [bbox[0], bbox[1], bbox[2], bbox[3]] as [number, number, number, number],
+            font_size: Number.isFinite(Number(block?.font_size)) ? Number(block.font_size) : undefined,
+            color:
+              color && color.length === 3 && color.every((n: number) => Number.isFinite(n))
+                ? ([color[0], color[1], color[2]] as [number, number, number])
+                : undefined,
+            bold: typeof block?.bold === 'boolean' ? block.bold : undefined,
+            outline:
+              typeof block?.outline === 'boolean'
+                ? block.outline
+                : block?.outline && typeof block.outline === 'object'
+                  ? {
+                      color:
+                        outlineColor && outlineColor.length === 3 && outlineColor.every((n: number) => Number.isFinite(n))
+                          ? ([outlineColor[0], outlineColor[1], outlineColor[2]] as [number, number, number])
+                          : undefined,
+                      width: Number.isFinite(Number(block.outline.width)) ? Number(block.outline.width) : undefined,
+                    }
+                  : undefined,
+            shadow:
+              typeof block?.shadow === 'boolean'
+                ? block.shadow
+                : block?.shadow && typeof block.shadow === 'object'
+                  ? {
+                      color:
+                        shadowColor && shadowColor.length === 3 && shadowColor.every((n: number) => Number.isFinite(n))
+                          ? ([shadowColor[0], shadowColor[1], shadowColor[2]] as [number, number, number])
+                          : undefined,
+                      blur: Number.isFinite(Number(block.shadow.blur)) ? Number(block.shadow.blur) : undefined,
+                      offsetX: Number.isFinite(Number(block.shadow.offsetX)) ? Number(block.shadow.offsetX) : undefined,
+                      offsetY: Number.isFinite(Number(block.shadow.offsetY)) ? Number(block.shadow.offsetY) : undefined,
+                    }
+                  : undefined,
+          };
+        })
+        .filter(Boolean) as TextSeparationBlock[];
+
+
+      setTextSeparationSession({
+        sampleTitle: item.title,
+        originalImageUrl: String(parsed.original_image_url || item.previewUrl),
+        backgroundImageUrl: String(parsed.clean_image_url || ''),
+        textBlocks,
+      });
+    } catch (err: any) {
+      openGalleryAlert(String(err?.message || tr('打开文本分离失败', 'Failed to open text separation')));
+    } finally {
+      setIsTextSeparationLoading(false);
+    }
+  };
+
+  const normalizeTextSeparationBlocks = (rawBlocks: any[]): TextSeparationBlock[] =>
+    rawBlocks
+      .map((block: any) => {
+        const bbox = Array.isArray(block?.bbox) ? block.bbox.map((n: any) => Number(n)) : [];
+        if (bbox.length !== 4 || bbox.some((n: number) => !Number.isFinite(n))) return null;
+        const color = Array.isArray(block?.color) ? block.color.map((n: any) => Number(n)) : null;
+        const outlineColor = Array.isArray(block?.outline?.color) ? block.outline.color.map((n: any) => Number(n)) : null;
+        const shadowColor = Array.isArray(block?.shadow?.color) ? block.shadow.color.map((n: any) => Number(n)) : null;
+        return {
+          id: String(block?.id || '').trim() || `txt_${Math.random().toString(36).slice(2, 8)}`,
+          text: String(block?.text || '').trim(),
+          bbox: [bbox[0], bbox[1], bbox[2], bbox[3]] as [number, number, number, number],
+          font_size: Number.isFinite(Number(block?.font_size)) ? Number(block.font_size) : undefined,
+          color:
+            color && color.length === 3 && color.every((n: number) => Number.isFinite(n))
+              ? ([color[0], color[1], color[2]] as [number, number, number])
+              : undefined,
+          bold: typeof block?.bold === 'boolean' ? block.bold : undefined,
+          outline:
+            typeof block?.outline === 'boolean'
+              ? block.outline
+              : block?.outline && typeof block.outline === 'object'
+                ? {
+                    color:
+                      outlineColor && outlineColor.length === 3 && outlineColor.every((n: number) => Number.isFinite(n))
+                        ? ([outlineColor[0], outlineColor[1], outlineColor[2]] as [number, number, number])
+                        : undefined,
+                    width: Number.isFinite(Number(block.outline.width)) ? Number(block.outline.width) : undefined,
+                  }
+                : undefined,
+          shadow:
+            typeof block?.shadow === 'boolean'
+              ? block.shadow
+              : block?.shadow && typeof block.shadow === 'object'
+                ? {
+                    color:
+                      shadowColor && shadowColor.length === 3 && shadowColor.every((n: number) => Number.isFinite(n))
+                        ? ([shadowColor[0], shadowColor[1], shadowColor[2]] as [number, number, number])
+                        : undefined,
+                    blur: Number.isFinite(Number(block.shadow.blur)) ? Number(block.shadow.blur) : undefined,
+                    offsetX: Number.isFinite(Number(block.shadow.offsetX)) ? Number(block.shadow.offsetX) : undefined,
+                    offsetY: Number.isFinite(Number(block.shadow.offsetY)) ? Number(block.shadow.offsetY) : undefined,
+                  }
+                : undefined,
+        };
+      })
+      .filter(Boolean) as TextSeparationBlock[];
+
+  const openTextSeparationByImagePath = async (imagePath: string, sampleTitle: string, originalImageUrl?: string) => {
+    const cleaned = String(imagePath || '').trim();
+    if (!cleaned || isTextSeparationLoading) return;
+
+    setIsTextSeparationLoading(true);
+    try {
+      const parsed = await videoApi.textSeparation({ image_path: cleaned });
+      const textBlocks = normalizeTextSeparationBlocks(Array.isArray(parsed?.text_blocks) ? parsed.text_blocks : []);
+      return {
+        sampleTitle,
+        originalImageUrl: String(originalImageUrl || parsed.original_image_url || cleaned),
+        backgroundImageUrl: String(parsed.clean_image_url || ''),
+        textBlocks,
+      };
+    } catch (err: any) {
+      openGalleryAlert(String(err?.message || tr('打开文本分离失败', 'Failed to open text separation')));
+      return null;
+    } finally {
+      setIsTextSeparationLoading(false);
+    }
+  };
+
+  const handleStartTextSeparation = async () => {
+    if (!textSeparationSelectedImagePath || isTextSeparationLoading || !textSeparationUploadPreviewUrl) return;
+    const recordId = `ts_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const sampleTitle = textSeparationUploadName || tr('未命名图片', 'Untitled image');
+    const originalImageUrl = textSeparationSelectedOriginalUrl || textSeparationUploadPreviewUrl;
+    const imagePath = textSeparationSelectedImagePath;
+    const createdAt = new Date().toISOString();
+
+    setTextSeparationRecords((prev) => [
+      {
+        id: recordId,
+        createdAt,
+        sampleTitle,
+        originalImageUrl,
+        status: 'processing',
+        progress: 0,
+        startedAtMs: Date.now(),
+      },
+      ...prev,
+    ]);
+
+    clearSelectedTextSeparationSource(false);
+
+    const result = await openTextSeparationByImagePath(imagePath, sampleTitle, originalImageUrl);
+    if (!result) {
+      setTextSeparationRecords((prev) => prev.filter((item) => item.id !== recordId));
+      return;
+    }
+
+    setTextSeparationRecords((prev) => {
+      const next = prev.map((item) =>
+        item.id === recordId
+          ? {
+              ...item,
+              status: 'succeeded' as const,
+              progress: 100,
+              backgroundImageUrl: result.backgroundImageUrl,
+              textBlocks: result.textBlocks,
+              startedAtMs: undefined,
+            }
+          : item
+      );
+      persistTextSeparationRecords(next);
+      return next;
+    });
+  };
+
+  const handleTextSeparationUpload = async (file: File) => {
+    if (isTextSeparationLoading) return;
+    const objectUrl = URL.createObjectURL(file);
+    if (textSeparationUploadPreviewUrl && textSeparationUploadPreviewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(textSeparationUploadPreviewUrl);
+    }
+    setTextSeparationUploadPreviewUrl(objectUrl);
+    setTextSeparationUploadName(file.name);
+
+    try {
+      const uploadResp = await assetsApi.uploadTempAsset(file);
+      const imagePath = String(uploadResp?.data?.path || uploadResp?.data?.url || uploadResp?.path || uploadResp?.url || '').trim();
+      const originalUrl = String(uploadResp?.data?.url || uploadResp?.url || imagePath || '').trim();
+      if (!imagePath) {
+        throw new Error(tr('上传成功但未返回图片路径', 'Upload succeeded but no image path was returned'));
+      }
+      setTextSeparationSelectedImagePath(imagePath);
+      setTextSeparationSelectedOriginalUrl(originalUrl || objectUrl);
+    } catch (err: any) {
+      openGalleryAlert(String(err?.message || tr('上传图片失败', 'Failed to upload image')));
+    }
+  };
+
   const toggleGalleryHistoryKey = (key: string) => {
     setGalleryHistorySelectedKeys((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
   };
@@ -194,7 +514,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           if (images.length === item.images.length) return item;
           return { ...item, images };
         })
-        .filter(Boolean) as Array<{ id: string; createdAt: string; images: string[] }>;
+        .filter(Boolean) as GalleryHistoryItem[];
 
       try {
         localStorage.setItem(GALLERY_HISTORY_KEY, JSON.stringify(next));
@@ -251,7 +571,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           const settings = item?.settings && typeof item.settings === 'object' ? item.settings : undefined;
           return { id, createdAt, images, settings };
         })
-        .filter(Boolean) as Array<{ id: string; createdAt: string; images: string[]; settings?: { targetScene: string; style: string; aspectRatio: string; resolution: string; productName: string; productCategory: string; sellingPoints: string[]; typeSelections: Record<string, { enabled: boolean; count: number }> } }>;
+        .filter(Boolean) as GalleryHistoryItem[];
       setGalleryHistoryItems(normalized);
     } catch {
       setGalleryHistoryItems([]);
@@ -264,6 +584,70 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       galleryPollAbortRef.current = true;
     };
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (textSeparationUploadPreviewUrl && textSeparationUploadPreviewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(textSeparationUploadPreviewUrl);
+      }
+    };
+  }, [textSeparationUploadPreviewUrl]);
+
+  useEffect(() => {
+    const hasProcessing = textSeparationRecords.some((item) => item.status === 'processing' && item.startedAtMs);
+    if (!hasProcessing) return;
+
+    const timer = window.setInterval(() => {
+      setTextSeparationRecords((prev) =>
+        prev.map((item) => {
+          if (item.status !== 'processing' || !item.startedAtMs) return item;
+          const elapsed = Date.now() - item.startedAtMs;
+          const progress = Math.min(90, (elapsed / 15000) * 90);
+          return progress > item.progress ? { ...item, progress } : item;
+        })
+      );
+    }, 200);
+
+    return () => window.clearInterval(timer);
+  }, [textSeparationRecords]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(TEXT_SEPARATION_HISTORY_KEY);
+      if (!raw) {
+        setTextSeparationRecords([]);
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      const normalized = Array.isArray(parsed)
+        ? parsed
+            .map((item: any) => {
+              const id = String(item?.id || '').trim();
+              const createdAt = String(item?.createdAt || '').trim();
+              const sampleTitle = String(item?.sampleTitle || '').trim();
+              const originalImageUrl = String(item?.originalImageUrl || '').trim();
+              const backgroundImageUrl = String(item?.backgroundImageUrl || '').trim();
+              const rawBlocks = Array.isArray(item?.textBlocks) ? item.textBlocks : [];
+              const textBlocks = normalizeTextSeparationBlocks(rawBlocks);
+              if (!id || !createdAt || !originalImageUrl || !backgroundImageUrl || !Array.isArray(rawBlocks)) return null;
+              return {
+                id,
+                createdAt,
+                sampleTitle: sampleTitle || tr('未命名图片', 'Untitled image'),
+                originalImageUrl,
+                backgroundImageUrl,
+                textBlocks,
+                status: 'succeeded',
+                progress: 100,
+              } as TextSeparationRecordItem;
+            })
+            .filter(Boolean)
+        : [];
+      setTextSeparationRecords(normalized as TextSeparationRecordItem[]);
+    } catch {
+      setTextSeparationRecords([]);
+    }
+  }, [language]);
 
   // Restore settings from history "re-generate" flow
   const GALLERY_RESTORE_KEY = 'vflow_gallery_restore_settings';
@@ -884,6 +1268,74 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         ) : null}
       </AppDialog>
 
+      <AppDialog
+        isOpen={isTextSeparationHistoryPickerOpen}
+        title={tr('选择商品套图历史图片', 'Choose Product Gallery History')}
+        onClose={() => setIsTextSeparationHistoryPickerOpen(false)}
+        widthClassName="max-w-6xl"
+        footer={
+          <button
+            type="button"
+            onClick={() => setIsTextSeparationHistoryPickerOpen(false)}
+            className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
+          >
+            {tr('关闭', 'Close')}
+          </button>
+        }
+      >
+        {galleryHistoryItems.length === 0 ? (
+          <div className="flex h-72 items-center justify-center text-sm text-zinc-500">
+            {tr('暂无可用的商品套图历史图片', 'No Product Gallery history available')}
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-4 max-h-[70vh] overflow-y-auto pr-1">
+            {galleryHistoryItems
+              .slice()
+              .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+              .flatMap((item) =>
+                item.images.map((url, idx) => (
+                  <div key={`${item.id}-${idx}`} className="overflow-hidden rounded-xl border border-white/10 bg-black/20">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsTextSeparationHistoryPickerOpen(false);
+                        selectTextSeparationSource(url, `${tr('历史图片', 'History Image')} ${item.createdAt}`, url);
+                      }}
+                      disabled={isTextSeparationLoading}
+                      className="block w-full disabled:opacity-70"
+                    >
+                      <img src={url} alt={`${item.id}-${idx}`} className="aspect-square w-full object-cover" />
+                    </button>
+                    <div className="border-t border-white/10 px-3 py-3">
+                      <div className="text-[11px] text-zinc-500">{item.createdAt}</div>
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openGalleryImagePreview(url)}
+                          className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-bold text-zinc-200 transition hover:bg-zinc-800"
+                        >
+                          {tr('预览', 'Preview')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsTextSeparationHistoryPickerOpen(false);
+                            selectTextSeparationSource(url, `${tr('历史图片', 'History Image')} ${item.createdAt}`, url);
+                          }}
+                          disabled={isTextSeparationLoading}
+                          className="rounded-xl bg-orange-500 px-3 py-2 text-xs font-bold text-black transition hover:bg-orange-400 disabled:opacity-60"
+                        >
+                          {isTextSeparationLoading ? tr('处理中...', 'Processing...') : tr('文本分离', 'Text Separation')}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+          </div>
+        )}
+      </AppDialog>
+
       <header className="flex justify-between gap-6 px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
@@ -918,7 +1370,173 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           <SmartRepairView embedded />
         </div>
 
+        <div className={panelClassName('product_images_text_separation')}>
+          {textSeparationSession ? (
+            <TextSeparationDemoView
+              backgroundImageUrl={textSeparationSession.backgroundImageUrl}
+              originalImageUrl={textSeparationSession.originalImageUrl}
+              sampleTitle={textSeparationSession.sampleTitle}
+              textBlocks={textSeparationSession.textBlocks}
+              isZh={isZh}
+              onBack={() => setTextSeparationSession(null)}
+            />
+          ) : (
+            <div className="h-full flex gap-6">
+              <div className="w-[30%] min-w-[360px] max-w-[420px]">
+                <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
+                  <input
+                    ref={textSeparationFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = Array.from(e.target.files || [])[0];
+                      if (!file) return;
+                      if (!isSupportedGalleryImageFile(file)) {
+                        openGalleryAlert(gallerySupportedFormatTip);
+                        e.target.value = '';
+                        return;
+                      }
+                      void handleTextSeparationUpload(file);
+                      e.target.value = '';
+                    }}
+                  />
+                  {textSeparationUploadPreviewUrl ? (
+                    <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold text-zinc-200">{tr('当前处理图片', 'Current Image')}</div>
+                          <div className="mt-2 truncate text-sm font-bold text-zinc-200">
+                            {textSeparationUploadName || tr('最近上传', 'Latest upload')}
+                          </div>
+                          <div className="text-[11px] text-zinc-500">
+                            {isTextSeparationLoading
+                              ? tr('正在处理文本分离...', 'Text separation in progress...')
+                              : tr('点击“开始文本分离”后再发起处理', 'Start processing after you click "Start Text Separation"')}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => clearSelectedTextSeparationSource()}
+                          disabled={isTextSeparationLoading}
+                          className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/50 text-zinc-300 transition hover:bg-black/80 hover:text-white disabled:opacity-60"
+                          title={tr('删除并重新选择', 'Remove and choose again')}
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <img
+                        src={textSeparationUploadPreviewUrl}
+                        alt={textSeparationUploadName || 'upload'}
+                        className="mt-3 w-full rounded-xl border border-white/10 object-cover"
+                      />
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleStartTextSeparation}
+                          disabled={isTextSeparationLoading || !textSeparationSelectedImagePath}
+                          className="flex-1 rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black transition hover:bg-orange-400 disabled:opacity-60"
+                        >
+                          {isTextSeparationLoading ? tr('处理中...', 'Processing...') : tr('开始文本分离', 'Start Text Separation')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openGalleryImagePreview(textSeparationUploadPreviewUrl)}
+                          className="rounded-xl border border-white/10 bg-zinc-900/70 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:bg-zinc-800"
+                        >
+                          {tr('查看', 'View')}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="text-sm font-bold text-zinc-200">{tr('上传图片', 'Upload Image')}</div>
+                      <div className="mt-2 text-xs text-zinc-500">
+                        {tr('上传文件后会先转换成真实 image_path，确认预览后再开始文本分离', 'Uploaded files are converted to a real image_path before processing')}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => textSeparationFileInputRef.current?.click()}
+                        disabled={isTextSeparationLoading}
+                        className="mt-4 w-full rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-10 text-center text-zinc-500 transition hover:border-white/20 hover:text-zinc-300 disabled:opacity-60"
+                      >
+                        <Upload className="mx-auto mb-3 h-10 w-10 opacity-70" />
+                        <div className="text-sm font-semibold">{tr('选择一张海报图片', 'Choose one poster image')}</div>
+                        <div className="mt-1 text-[11px]">JPG / PNG / WEBP</div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsTextSeparationHistoryPickerOpen(true)}
+                        disabled={isTextSeparationLoading}
+                        className="mt-3 w-full rounded-xl border border-white/10 bg-zinc-900/70 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-60"
+                      >
+                        {tr('从商品套图历史记录选择', 'Choose from Product Gallery History')}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex-1 min-w-0 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0 max-h-[calc(100vh-220px)]">
+                <div className="text-sm font-bold text-zinc-200">{tr('生成记录', 'Generation Records')}</div>
+                <div className="flex-1 mt-4 rounded-2xl border border-dashed border-white/10 bg-black/10 overflow-y-auto">
+                  {textSeparationRecords.length === 0 ? (
+                    <div className="h-full flex items-center justify-center text-zinc-600 text-sm">
+                      {tr('暂无生成记录', 'No generation records yet')}
+                    </div>
+                  ) : (
+                    <div className="p-4 grid grid-cols-2 gap-3">
+                      {textSeparationRecords.map((item) => (
+                        <button
+                          type="button"
+                          key={item.id}
+                          onClick={() => openTextSeparationHistoryItem(item)}
+                          disabled={item.status !== 'succeeded'}
+                          className="overflow-hidden rounded-xl border border-white/10 bg-black/20 text-left transition hover:border-orange-500/40 disabled:hover:border-white/10 disabled:cursor-default"
+                        >
+                          <div className="aspect-video overflow-hidden border-b border-white/10 bg-black/30 relative">
+                            <img
+                              src={(item.status === 'succeeded' && item.backgroundImageUrl) ? item.backgroundImageUrl : item.originalImageUrl}
+                              alt={item.sampleTitle}
+                              className={`h-full w-full object-cover ${item.status === 'processing' ? 'opacity-70' : ''}`}
+                            />
+                            {item.status === 'processing' ? (
+                              <div className="absolute inset-x-3 bottom-3">
+                                <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full bg-orange-500 transition-[width] duration-200"
+                                    style={{ width: `${Math.max(6, item.progress)}%` }}
+                                  />
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="truncate text-sm font-bold text-zinc-200">{item.sampleTitle}</div>
+                              <div className={`text-[11px] font-bold ${item.status === 'processing' ? 'text-orange-300' : 'text-emerald-300'}`}>
+                                {item.status === 'processing' ? tr('生成中', 'Processing') : tr('已完成', 'Done')}
+                              </div>
+                            </div>
+                            <div className="mt-1 text-[11px] text-zinc-500">{item.createdAt}</div>
+                            <div className="mt-2 text-xs text-zinc-400">
+                              {item.status === 'processing'
+                                ? tr(`进度 ${Math.round(item.progress)}%`, `${Math.round(item.progress)}% complete`)
+                                : tr(`文本框 ${item.textBlocks?.length || 0} 个`, `${item.textBlocks?.length || 0} text blocks`)}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className={panelClassName('product_images_gallery')}>
+
           <div className="h-full flex gap-6">
             <div className="w-[30%] min-w-[360px] max-w-[520px] flex flex-col gap-4">
               <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
@@ -1461,11 +2079,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   >
                     {tr('历史记录', 'History')}
                   </button>
-
                 </div>
               </div>
 
               {galleryRightPanel === 'preview' ? (
+
                 <div className="flex-1 min-h-0 mt-4 rounded-2xl border border-dashed border-white/10 bg-black/10 overflow-y-auto custom-scroll">
                   {galleryPreviewItems.length === 0 ? (
                     <div className="h-full flex items-center justify-center text-zinc-500">
@@ -1550,7 +2168,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                               </div>
                             )}
                           </div>
-                        ))}
+                      ))}
                     </div>
                   )}
                 </div>

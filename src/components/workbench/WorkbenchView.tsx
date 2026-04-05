@@ -4536,6 +4536,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const uploadResp = await assetsApi.uploadTempAsset(file);
       const rawPath = extractUploadedAssetPath(uploadResp);
       if (!rawPath) return;
+      const uploadedFps = typeof uploadResp?.data?.fps === 'number' ? uploadResp.data.fps : null;
 
       const displayUrl = toDisplayUrl(rawPath) || rawPath;
       if (localPreviewUrl.startsWith('blob:')) {
@@ -4550,6 +4551,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             assetUrl: rawPath,
             uploadedPath: rawPath,
             fileObj: null,
+            fps: uploadedFps ?? item.fps ?? null,
           }
           : item
       )));

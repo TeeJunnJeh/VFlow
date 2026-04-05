@@ -772,6 +772,56 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
       setGalleryPreviewItems(initial);
 
+      const collectOutputUrls = (payload: any): string[] => {
+        const urls: string[] = [];
+        const queue: any[] = [payload];
+        let visited = 0;
+
+        const pushUrl = (value: any) => {
+          if (typeof value !== 'string') return;
+          const cleaned = value.trim();
+          if (!cleaned) return;
+          if (cleaned.startsWith('http://') || cleaned.startsWith('https://') || cleaned.startsWith('/media/')) {
+            if (!urls.includes(cleaned)) urls.push(cleaned);
+          }
+        };
+
+        while (queue.length > 0 && visited < 80 && urls.length < 8) {
+          const current = queue.shift();
+          visited += 1;
+          if (current == null) continue;
+
+          if (typeof current === 'string') {
+            pushUrl(current);
+            continue;
+          }
+
+          if (Array.isArray(current)) {
+            queue.push(...current.slice(0, 12));
+            continue;
+          }
+
+          if (typeof current === 'object') {
+            pushUrl((current as any).url);
+            pushUrl((current as any).image_url);
+            pushUrl((current as any).file_url);
+            pushUrl((current as any).src);
+            pushUrl((current as any).path);
+
+            queue.push((current as any).outputs);
+            queue.push((current as any).output);
+            queue.push((current as any).images);
+            queue.push((current as any).result);
+            queue.push((current as any).data);
+          }
+        }
+
+        return urls;
+      };
+
+      const successStatuses = new Set(['ready', 'success', 'succeeded', 'completed', 'done']);
+      const failureStatuses = new Set(['failed', 'error', 'canceled', 'cancelled', 'rejected']);
+
       const pollOne = async (requestId: string) => {
         setGalleryPreviewItems((prev) =>
           prev.map((it) => (it.requestId === requestId ? { ...it, status: 'processing' as const } : it))
@@ -784,9 +834,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           const statusResp = await videoApi.getProductGalleryResult(requestId);
           const data = (statusResp as any)?.data || statusResp;
           const status = String(data?.status || '').trim().toLowerCase();
-          const outputs = Array.isArray(data?.outputs) ? data.outputs : [];
+          const outputs = collectOutputUrls(data);
 
-          if (outputs.length > 0 && status !== 'failed' && status !== 'error') {
+          if (outputs.length > 0) {
             const url = String(outputs[0] || '').trim();
             if (!url) {
               throw new Error(tr('生成结果为空', 'Output is empty'));
@@ -803,9 +853,16 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             return;
           }
 
-          if (['failed', 'error', 'canceled', 'cancelled'].includes(status)) {
+          if (failureStatuses.has(status)) {
             setGalleryPreviewItems((prev) =>
               prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: tr('生成失败', 'Failed') } : it))
+            );
+            return;
+          }
+
+          if (successStatuses.has(status)) {
+            setGalleryPreviewItems((prev) =>
+              prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: tr('生成成功但无结果', 'Succeeded but no output') } : it))
             );
             return;
           }

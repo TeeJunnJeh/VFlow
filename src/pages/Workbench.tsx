@@ -58,6 +58,7 @@ const Workbench = () => {
     token: string;
     mode: WorkbenchAssetSelectionMode;
     targetProjectId?: string | null;
+    forceFirstFrame?: boolean;
   } | null>(null);
 
   // --- Template State ---
@@ -178,6 +179,7 @@ const Workbench = () => {
     const createNewProject = options?.createNewProject === true;
     const normalizedTargetProjectId = String(options?.targetProjectId || '').trim() || null;
     const normalizedNewProjectName = String(options?.newProjectName || '').trim();
+    const forceFirstFrame = !createNewProject && asset.media_kind !== 'audio';
 
     if (createNewProject) {
       setTransferRole('asset_apply');
@@ -197,6 +199,7 @@ const Workbench = () => {
       token: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       mode: asset.media_kind === 'audio' ? 'background_audio' : 'library_asset',
       targetProjectId: createNewProject ? null : normalizedTargetProjectId,
+      forceFirstFrame,
     });
     setGeneratedVideoUrl(null);
     setActiveView('workbench');
@@ -307,6 +310,7 @@ const Workbench = () => {
         token: `first-frame-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         mode: 'library_asset',
         targetProjectId: shouldCreateProject ? null : requestedTargetProjectId,
+        forceFirstFrame: !shouldCreateProject,
       });
 
       // Transfer signal: create new project only when explicitly requested (or legacy payload with newProjectName only).
@@ -437,6 +441,7 @@ const Workbench = () => {
                 initialLibraryAssetToken={selectedAssetForWorkbench?.token || null}
                 initialLibraryAssetMode={selectedAssetForWorkbench?.mode || 'library_asset'}
                 initialLibraryAssetTargetProjectId={selectedAssetForWorkbench?.targetProjectId || null}
+                initialLibraryAssetForceFirstFrame={selectedAssetForWorkbench?.forceFirstFrame === true}
                 onInitialLibraryAssetHandled={() => setSelectedAssetForWorkbench(null)}
                 initialTransferRole={transferRole}
                 initialTransferProjectName={transferProjectName}

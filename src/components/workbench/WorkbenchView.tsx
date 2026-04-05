@@ -498,17 +498,34 @@ const inferMediaKind = (value: { name?: string | null; url?: string | null; type
   if (/\.(mp3|wav|flac)$/.test(raw)) return 'audio';
   return 'file';
 };
+const normalizeUiLanguageCode = (value: string | null | undefined): string => {
+  const normalized = String(value || '').trim().toLowerCase().replace('_', '-');
+  if (!normalized) return 'en';
+  if (normalized.startsWith('zh')) return 'zh';
+  if (normalized.startsWith('en')) return 'en';
+  if (normalized.startsWith('ms')) return 'ms';
+  if (normalized.startsWith('vi')) return 'vi';
+  if (normalized.startsWith('ko')) return 'ko';
+  if (normalized.startsWith('ja')) return 'ja';
+  if (normalized.startsWith('es')) return 'es';
+  return normalized.split('-', 1)[0] || 'en';
+};
 
 const buildProductRecognitionSourceSignature = (assets: QueuedAsset[]): string => {
   const entries = assets
     .filter((asset) => asset.materialType === 'product' && asset.mediaKind === 'image')
+    .slice(0, 4)
     .map((asset) => {
-      const path = String(asset.uploadedPath || asset.assetUrl || asset.previewUrl || '').trim();
       const fileName = String(asset.fileObj?.name || '').trim();
       const fileSize = Number(asset.fileObj?.size || 0);
       const fileLastModified = Number(asset.fileObj?.lastModified || 0);
-      return `${asset.id}::${path}::${fileName}::${fileSize}::${fileLastModified}`;
+      if (fileName && fileSize > 0) return `local::${fileName}::${fileSize}::${fileLastModified}`;
+
+      const path = String(asset.uploadedPath || asset.assetUrl || '').trim();
+      if (path) return path;
+      return '';
     })
+    .filter(Boolean)
     .sort();
 
   return entries.join('|');
@@ -615,6 +632,7 @@ interface WorkbenchViewProps {
   initialLibraryAssetToken?: string | null;
   initialLibraryAssetMode?: 'library_asset' | 'background_audio';
   initialLibraryAssetTargetProjectId?: string | null;
+  initialLibraryAssetForceFirstFrame?: boolean;
   onInitialLibraryAssetHandled?: () => void;
   initialTransferRole?: 'first_frame' | 'asset_apply' | 'replay_apply' | null;
   initialTransferProjectName?: string | null;
@@ -639,6 +657,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                                               initialLibraryAssetToken,
                                                               initialLibraryAssetMode,
                                                               initialLibraryAssetTargetProjectId,
+                                                              initialLibraryAssetForceFirstFrame,
                                                               onInitialLibraryAssetHandled,
                                                               initialTransferRole,
                                                               initialTransferProjectName,
@@ -655,6 +674,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                                               onReplayReusePayloadHandled
                                                             }) => {
   const { t, language } = useLanguage();
+    const uiLanguageCode = useMemo(() => normalizeUiLanguageCode(language), [language]);
   const { user } = useAuth();
   const { tasks, addTask } = useTasks();
   const { model: selectedModel, setModel: setSelectedModel } = useWorkbenchModel();
@@ -1863,6 +1883,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     });
   };
   const injectedAssetSignaturesRef = useRef<Set<string>>(new Set());
+  const transferExecutionKeyRef = useRef<string>('');
+
+  useEffect(() => {
+    if (!initialTransferRole && !initialTransferModel) {
+      transferExecutionKeyRef.current = '';
+    }
+  }, [initialTransferModel, initialTransferRole]);
 
   useEffect(() => {
     if (!initialLibraryAsset || !initialLibraryAssetToken) return;
@@ -1892,7 +1919,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     injectedAssetSignaturesRef.current.add(initialLibraryAssetToken);
 
     const injectAssetIntoCurrentProject = () => {
-      queueLibraryAssetIntoWorkbench(initialLibraryAsset, { preferLastModeRouting: true });
+      queueLibraryAssetIntoWorkbench(initialLibraryAsset, {
+        preferLastModeRouting: true,
+        forceFirstFrame: initialLibraryAssetForceFirstFrame === true,
+      });
       onInitialLibraryAssetHandled?.();
     };
 
@@ -1908,6 +1938,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     ensureProjectInStore,
     goToProject,
     initialLibraryAsset,
+    initialLibraryAssetForceFirstFrame,
     initialLibraryAssetMode,
     initialLibraryAssetTargetProjectId,
     initialLibraryAssetToken,
@@ -1932,6 +1963,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   //   safety cap prevents infinite polling.
   useEffect(() => {
     if (!initialTransferRole && !initialTransferModel) return;
+
+    const transferKey = [
+      String(initialTransferRole || ''),
+      String(initialTransferModel || ''),
+      String(initialLibraryAssetToken || ''),
+      String(initialLibraryAssetTargetProjectId || ''),
+      String(initialTransferProjectName || ''),
+    ].join('::');
+
+    if (transferExecutionKeyRef.current === transferKey) return;
+    transferExecutionKeyRef.current = transferKey;
 
     // 1. Create a new project first (this triggers applyWorkspaceState which blanks everything)
     if (initialTransferRole) {
@@ -1962,7 +2004,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (initialLibraryAsset && initialLibraryAssetToken) {
           // Reset the dedup set so this token can be consumed after the workspace reset
           injectedAssetSignaturesRef.current.delete(initialLibraryAssetToken);
-          queueLibraryAssetIntoWorkbench(initialLibraryAsset, { preferLastModeRouting: true });
+          queueLibraryAssetIntoWorkbench(initialLibraryAsset, {
+            preferLastModeRouting: true,
+            forceFirstFrame: initialLibraryAssetForceFirstFrame === true,
+          });
           // Also mark the asset as handled so the normal injection effect doesn't fire again
           onInitialLibraryAssetHandled?.();
         }
@@ -1986,6 +2031,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     ensureProjectInStore,
     goToProject,
     initialLibraryAsset,
+    initialLibraryAssetForceFirstFrame,
     initialLibraryAssetTargetProjectId,
     initialLibraryAssetToken,
     initialTransferModel,
@@ -2672,11 +2718,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return Array.isArray(otherViews) && otherViews.some((item) => String(item || '').trim());
   }, []);
 
-  const buildQueuedAssetFromLibrary = useCallback((asset: LibraryAsset, options?: { preferLastModeRouting?: boolean }): QueuedAsset | null => {
+  const buildQueuedAssetFromLibrary = useCallback((asset: LibraryAsset, options?: { preferLastModeRouting?: boolean; forceFirstFrame?: boolean }): QueuedAsset | null => {
     const assetUrl = asset.file_url || null;
     if (!assetUrl) return null;
 
-    const materialType: AssetLibraryTab = asset.media_kind === 'video'
+    const rawMaterialType: AssetLibraryTab = asset.media_kind === 'video'
       ? 'motion'
       : (asset.type === 'model' || asset.type === 'product' || asset.type === 'scene' || asset.type === 'motion' || asset.type === 'audio'
         ? asset.type
@@ -2688,8 +2734,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           ? 'audio'
           : (asset.media_kind === 'image' ? 'image' : inferMediaKind({ name: asset.name || '', url: assetUrl }));
 
+    const forceFirstFrame = options?.forceFirstFrame === true && mediaKind === 'image';
+    const materialType: AssetLibraryTab = forceFirstFrame ? 'product' : rawMaterialType;
+
     let source: QueuedAsset['source'] = mediaKind === 'video' ? 'preference' : 'product';
-    if (options?.preferLastModeRouting) {
+    if (forceFirstFrame) {
+      source = 'product';
+    } else if (options?.preferLastModeRouting) {
       if (selectedModel === 'kling') {
         if (klingGenerateMode === 'subject') {
           source = mediaKind === 'image' && (materialType === 'product' || materialType === 'model') && hasSubjectOtherViews(asset)
@@ -2804,10 +2855,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
   }, [buildQueuedAssetFromLibrary, buildSeedanceReplayLibraryCandidate]);
 
-  function queueLibraryAssetIntoWorkbench(asset: LibraryAsset, options?: { preferLastModeRouting?: boolean }) {
+  function queueLibraryAssetIntoWorkbench(asset: LibraryAsset, options?: { preferLastModeRouting?: boolean; forceFirstFrame?: boolean }) {
     const queuedAsset = buildQueuedAssetFromLibrary(asset, options);
     const assetUrl = queuedAsset?.assetUrl || null;
     if (!queuedAsset || !assetUrl) return null;
+
+    if (options?.forceFirstFrame && selectedModel === 'kling' && klingGenerateMode !== 'first_frame') {
+      setKlingGenerateMode('first_frame');
+    }
 
     setAssetQueue(prev => {
       const adjustedQueuedAsset: QueuedAsset = (
@@ -3069,7 +3124,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         product_category: String(aiOptimizeCategory || productCategory || '').trim() || undefined,
         core_selling_points: String(coreSellingPoints || '').trim() || undefined,
         keyword_tags: aiOptimizeKeywords,
-        output_language: language,
+        output_language: uiLanguageCode,
         sound: soundSetting,
       });
 
@@ -3097,13 +3152,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     aiOptimizeReferenceId,
     buildAiOptimizePromptScript,
     coreSellingPoints,
-    language,
     openInfo,
     popupTitles.notice,
     productCategory,
     productName,
     soundSetting,
     t.wb_ai_opt_prompt_empty,
+    uiLanguageCode,
   ]);
   const openSeedanceReplayLibraryPicker = useCallback((targetMediaKind?: SeedanceReplayMediaKind | null) => {
     const nextIntent = getSeedanceReplayLibraryIntent(targetMediaKind);
@@ -3162,7 +3217,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         keyword_tags: aiOptimizeKeywords,
         reference_image_url: referencePath || undefined,
         reference_image_path: referencePath || undefined,
-        output_language: language,
+        output_language: uiLanguageCode,
       });
 
       const body = resp?.data || resp?.result || resp;
@@ -3207,7 +3262,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     aiOptimizeReferenceId,
     aiOptimizeResolution,
     aiOptimizeStyleStrength,
-    language,
     openInfo,
     popupTitles.error,
     popupTitles.notice,
@@ -3217,6 +3271,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     t.wb_ai_opt_need_image,
     t.wb_ai_opt_need_prompt,
     t.wb_ai_opt_no_result,
+    uiLanguageCode,
   ]);
   const handleReplaceWithOptimizedImage = useCallback((imageUrl: string) => {
     const finalUrl = toDisplayUrl(imageUrl);
@@ -3697,6 +3752,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
+    if (!currentProductRecognitionSourceSignature) {
+      if (needsAiReRecognize) setNeedsAiReRecognize(false);
+      return;
+    }
+
     const nextDirty = currentProductRecognitionSourceSignature !== recognizedProductSourceSignature;
     if (nextDirty !== needsAiReRecognize) {
       setNeedsAiReRecognize(nextDirty);
@@ -3851,11 +3911,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           setTargetAudience(nextAudience);
           setProductInfoTouched({ name: false, category: false, sellingPoints: false, audience: false });
 
-          const recognizedSignature = imagePaths
-            .map((item) => String(item || '').trim())
-            .filter(Boolean)
-            .sort()
-            .join('|');
+          const recognizedSignature = buildProductRecognitionSourceSignature(getProductRecognitionSources());
 
           setHasAiRecognized(true);
           setRecognizedProductSourceSignature(recognizedSignature);
@@ -3873,6 +3929,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         productCategory,
         productInfoTouched,
         productName,
+        getProductRecognitionSources,
         resolveProductRecognitionImagePaths,
         targetAudience,
         user?.id,

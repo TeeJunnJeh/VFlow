@@ -4156,7 +4156,60 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       };
     }
 
-    const apiPath = await resolveCurrentSingleAssetPath();
+    // ── Seedance Replay 多素材：从队列中按类型收集所有素材 ──
+    const resolveQueueAssetPath = async (asset: QueuedAsset): Promise<string | null> => {
+      let p = asset.uploadedPath || asset.assetUrl || null;
+      if (!p && asset.fileObj) {
+        const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
+        p = extractUploadedAssetPath(uploadResp);
+      }
+      return p;
+    };
+
+    const imageAssetsInQueue = uploadDisplayAssets.filter((a) => a.mediaKind === 'image');
+    const videoAssetsInQueue = uploadDisplayAssets.filter((a) => a.mediaKind === 'video');
+    const audioAssetsInQueue = uploadDisplayAssets.filter((a) => a.mediaKind === 'audio');
+
+    // 首帧图片：取队列中第一张图片（Kling 兼容）+ 收集所有图片路径（Seedance 多图参考）
+    let resolvedImagePath: string | null = null;
+    const allImagePaths: string[] = [];
+    for (const imgAsset of imageAssetsInQueue) {
+      const p = await resolveQueueAssetPath(imgAsset);
+      if (p) {
+        allImagePaths.push(p);
+        if (!resolvedImagePath) resolvedImagePath = p;
+      }
+    }
+
+    // 参考视频：取第一个（Kling/Sora 兼容）+ 收集所有视频路径（Seedance 多视频参考）
+    let resolvedVideoPath: string | null = null;
+    const allVideoPaths: string[] = [];
+    for (const vidAsset of videoAssetsInQueue) {
+      const p = await resolveQueueAssetPath(vidAsset);
+      if (p) {
+        allVideoPaths.push(p);
+        if (!resolvedVideoPath) resolvedVideoPath = p;
+      }
+    }
+
+    // 参考音频：收集所有音频路径
+    const singleAudioPaths: string[] = [];
+    for (const audioAsset of audioAssetsInQueue) {
+      const aPath = await resolveQueueAssetPath(audioAsset);
+      if (aPath) singleAudioPaths.push(aPath);
+    }
+
+    // 如果队列为空，回退到当前选中素材（兼容非 Replay 模式）
+    if (!resolvedImagePath && !resolvedVideoPath && imageAssetsInQueue.length === 0 && videoAssetsInQueue.length === 0) {
+      const fallbackPath = currentAssetMediaKind !== 'audio' ? await resolveCurrentSingleAssetPath() : null;
+      if (fallbackPath) {
+        if (currentAssetMediaKind === 'video') resolvedVideoPath = fallbackPath;
+        else resolvedImagePath = fallbackPath;
+      }
+    }
+
+    const hasVisualAsset = !!resolvedImagePath || !!resolvedVideoPath;
+
     const payload: GeneratePayload = {
       model: backendModel,
       prompt: buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts, activeCreativeCardText),
@@ -4174,14 +4227,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       user_language: language,
       target_language: targetLanguage,
       model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
-      motion_asset_id: currentAssetMediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
+      motion_asset_id: hasVisualAsset ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
+      ...(resolvedImagePath ? { image_path: resolvedImagePath } : {}),
+      ...(allImagePaths.length > 1 ? { image_paths: allImagePaths } : {}),
+      ...(resolvedVideoPath ? { motion_video_path: resolvedVideoPath } : {}),
+      ...(allVideoPaths.length > 1 ? { video_paths: allVideoPaths } : {}),
+      ...(singleAudioPaths.length > 0 ? { audio_paths: singleAudioPaths } : {}),
       ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
     };
-
-    if (apiPath) {
-      if (currentAssetMediaKind === 'video') payload.motion_video_path = apiPath;
-      else payload.image_path = apiPath;
-    }
 
     if (selectedModel === 'sora2' || selectedModel === 'sora2pro') {
       payload.size = aspectRatio === '9:16' ? '720x1280' : '1280x720';
@@ -6360,7 +6413,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           return { ...asset, apiPath };
         }));
 
-        for (const asset of preparedAssets) {
+        // 收集所有音频素材的路径，用于 Seedance reference_audio
+        const audioPaths = preparedAssets
+            .filter((a) => a.mediaKind === 'audio')
+            .map((a) => (a as any).apiPath as string);
+
+        // 非音频素材才参与 asset × script 矩阵生成
+        const nonAudioAssets = preparedAssets.filter((a) => a.mediaKind !== 'audio');
+
+        // 如果全部是音频（无图片/视频），仍走 text-to-video，用空数组兜底
+        const effectiveAssets = nonAudioAssets.length > 0 ? nonAudioAssets : [null];
+
+        for (const asset of effectiveAssets) {
           for (const scriptPack of scriptQueue) {
             const combinedScriptPrompt = buildCombinedScriptPrompt(
                 scriptPack.fullScript || '',
@@ -6377,7 +6441,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             } else {
               if (!user?.id) throw new Error('请先登录');
               const createResp = await videoApi.createProject(user.id, {
-                title: (productName || '').trim() || `${asset.name} × ${scriptPack.name}`,
+                title: (productName || '').trim() || `${asset?.name || 'Text'} × ${scriptPack.name}`,
                 aspect_ratio: '9:16',
                 script_content: {
                   duration: scriptPack.duration,
@@ -6394,10 +6458,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               product_name: productName,
               project_id: newProjectId,
               duration: scriptPack.duration,
-              ...(asset.mediaKind === 'video'
-                  ? { motion_video_path: (asset as any).apiPath }
-                  : { image_path: (asset as any).apiPath }),
+              ...(asset
+                  ? (asset.mediaKind === 'video'
+                      ? { motion_video_path: (asset as any).apiPath }
+                      : { image_path: (asset as any).apiPath })
+                  : {}),
               sound: soundSetting,
+              ...(audioPaths.length > 0 ? { audio_paths: audioPaths } : {}),
               ...(selectedBackgroundAudio && soundSetting === 'off'
                 ? {
                   background_audio_asset_id: selectedBackgroundAudio.id,
@@ -6405,11 +6472,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   background_audio_name: selectedBackgroundAudio.name,
                 }
                 : {}),
-              asset_source: asset.source,
+              asset_source: asset?.source ?? null,
               user_language: language,
               target_language: targetLanguage,
               model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
-              motion_asset_id: asset.mediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
+              motion_asset_id: asset?.mediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
               ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
             };
 
@@ -6432,14 +6499,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 estimatedSeconds,
                 type: 'video_generation',
                 status: 'processing',
-                name: `${(productName || '').trim() || asset.name || `${asset.name} × ${scriptPack.name}`}`,
-                thumbnail: asset.previewUrl || undefined,
+                name: `${(productName || '').trim() || asset?.name || 'Text-to-Video'}`,
+                thumbnail: asset?.previewUrl || undefined,
                 createdAt: Date.now(),
               });
 
               batchItems.push({
-                id: `${asset.id}-${scriptPack.id}-${taskId}`,
-                assetName: asset.name,
+                id: `${asset?.id || 'text'}-${scriptPack.id}-${taskId}`,
+                assetName: asset?.name || 'Text',
                 scriptName: scriptPack.name,
                 taskId,
               });

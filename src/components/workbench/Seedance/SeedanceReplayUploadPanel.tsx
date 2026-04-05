@@ -567,7 +567,7 @@ function ImageCard({
   onRemove: (assetId: string) => void;
 }) {
   return (
-    <div className="group relative aspect-[4/5] overflow-hidden rounded-xl border border-white/10 bg-black/20">
+    <div className="group relative aspect-square overflow-hidden rounded-xl border border-white/10 bg-black/20">
       {item.previewUrl ? (
         <img src={item.previewUrl} alt={item.name} className="h-full w-full object-cover" />
       ) : (

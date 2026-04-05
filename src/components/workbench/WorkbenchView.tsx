@@ -61,10 +61,31 @@ const SCRIPT_PROGRESS_MAX_BEFORE_HOLD = 88;
 const SCRIPT_PROGRESS_HOLD_MAX = 96;
 const SCRIPT_ESTIMATE_STORAGE_KEY_PREFIX = 'vflow_script_eta_v1';
 const WAITING_PREVIEW_VIDEO_SRC = (import.meta.env.VITE_WAITING_PREVIEW_VIDEO_URL || 'https://vflow.genviewtech.com/media/vedio.mp4').toString();
+const ASSET_PLACEHOLDER_DATA_URL = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiB2aWV3Qm94PSIwIDAgMzAwIDQwMCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzFmMjkzNyIvPjx0ZXh0IHg9IjE1MCIgeT0iMjAwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiBmaWxsPSIjOWNhM2FmIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiPk5vIFByZXZpZXc8L3RleHQ+PC9zdmc+';
 const revokeBlobUrl = (url: string | null | undefined) => {
   if (url && url.startsWith('blob:')) {
     URL.revokeObjectURL(url);
   }
+};
+
+const renderAudioArtwork = (isLightTheme = false) => (
+  <div className="absolute inset-0 overflow-hidden rounded-lg">
+    <div className={`absolute inset-0 ${isLightTheme ? 'bg-[radial-gradient(circle_at_top,_rgba(251,146,60,0.18),_transparent_46%),linear-gradient(180deg,_rgba(255,247,237,0.98),_rgba(255,255,255,1))]' : 'bg-[radial-gradient(circle_at_top,_rgba(251,146,60,0.30),_transparent_45%),linear-gradient(180deg,_rgba(39,39,42,0.95),_rgba(9,9,11,0.98))]'}`} />
+    <div className={`absolute inset-x-0 top-0 h-24 ${isLightTheme ? 'bg-gradient-to-b from-orange-300/15 to-transparent' : 'bg-gradient-to-b from-orange-400/10 to-transparent'}`} />
+    <div className="absolute inset-0 flex items-center justify-center">
+      <div className={`relative flex h-24 w-24 items-center justify-center rounded-full ${isLightTheme ? 'border border-orange-200/70 bg-white/95 shadow-[0_10px_30px_rgba(251,146,60,0.12)]' : 'border border-orange-300/25 bg-black/30 shadow-[0_0_30px_rgba(251,146,60,0.18)]'}`}>
+        <div className={`absolute h-28 w-28 rounded-full ${isLightTheme ? 'border border-slate-200/70' : 'border border-white/5'}`} />
+        <div className={`text-4xl font-semibold ${isLightTheme ? 'text-orange-300' : 'text-orange-200/95'}`}>{'\u266A'}</div>
+      </div>
+    </div>
+  </div>
+);
+
+const formatAssetSize = (sizeBytes?: number | null) => {
+  if (typeof sizeBytes !== 'number' || !Number.isFinite(sizeBytes) || sizeBytes < 0) return '';
+  if (sizeBytes >= 1024 * 1024) return `${(sizeBytes / (1024 * 1024)).toFixed(sizeBytes >= 10 * 1024 * 1024 ? 1 : 2)}MB`;
+  if (sizeBytes >= 1024) return `${Math.round(sizeBytes / 1024)}KB`;
+  return `${sizeBytes}B`;
 };
 
 const getSeedanceReplayLocalAccept = (mediaKind?: SeedanceReplayMediaKind | null) => {
@@ -1102,6 +1123,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [currentMaterialType, setCurrentMaterialType] = useState<AssetLibraryTab | null>(null);
   const [generatedBatch, setGeneratedBatch] = useState<Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }>>([]);
   const [selectedQueueAssetId, setSelectedQueueAssetId] = useState<string | null>(null);
+  const [seedanceReplayPreviewAsset, setSeedanceReplayPreviewAsset] = useState<QueuedAsset | null>(null);
   const [isAiOptimizeOpen, setIsAiOptimizeOpen] = useState(false);
   const [aiOptimizeReferenceId, setAiOptimizeReferenceId] = useState<string | null>(null);
   const [aiOptimizeCategory, setAiOptimizeCategory] = useState('');
@@ -5173,12 +5195,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const handleSeedanceReplayPreview = useCallback((assetId: string) => {
     const target = uploadDisplayAssets.find((asset) => asset.id === assetId);
     if (!target) return;
-    selectAssetFromQueue(target);
+    setSeedanceReplayPreviewAsset(target);
   }, [uploadDisplayAssets]);
 
   const handleSeedanceReplayRemove = useCallback((assetId: string) => {
     removeQueuedAssetById(assetId);
   }, [removeQueuedAssetById]);
+
+  const seedanceReplayPreviewSrc = seedanceReplayPreviewAsset
+    ? (
+      seedanceReplayPreviewAsset.previewUrl
+      || toDisplayUrl(seedanceReplayPreviewAsset.assetUrl || seedanceReplayPreviewAsset.uploadedPath)
+      || seedanceReplayPreviewAsset.assetUrl
+      || seedanceReplayPreviewAsset.uploadedPath
+      || null
+    )
+    : null;
 
   const handleSeedanceReplayLocalFiles = useCallback(async (files: File[], intent: SeedanceReplayUploadIntent) => {
     if (files.length === 0) return;
@@ -9138,6 +9170,58 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
             </AppDialog>
         )}
+
+        <AppDialog
+          isOpen={!!seedanceReplayPreviewAsset}
+          title={(
+            <span className="inline-flex max-w-full items-center gap-3">
+              <span className="truncate">{seedanceReplayPreviewAsset?.name || '预览素材'}</span>
+              {seedanceReplayPreviewAsset?.sizeBytes ? (
+                <span className="shrink-0 text-xs font-normal text-zinc-500">
+                  {formatAssetSize(seedanceReplayPreviewAsset.sizeBytes)}
+                </span>
+              ) : null}
+            </span>
+          )}
+          onClose={() => setSeedanceReplayPreviewAsset(null)}
+          widthClassName="max-w-[min(92vw,980px)]"
+          titleClassName="text-base"
+        >
+          <div className="flex min-h-[320px] items-center justify-center">
+            {seedanceReplayPreviewAsset?.mediaKind === 'audio' ? (
+              <div className="w-full max-w-xl space-y-4">
+                <div className="relative mx-auto aspect-[4/3] w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-black/30">
+                  {renderAudioArtwork(isLightTheme)}
+                </div>
+                <audio
+                  src={seedanceReplayPreviewSrc || undefined}
+                  className="w-full"
+                  controls
+                  autoPlay
+                  preload="metadata"
+                />
+              </div>
+            ) : seedanceReplayPreviewAsset?.mediaKind === 'video' ? (
+              <video
+                src={seedanceReplayPreviewSrc || undefined}
+                className="block max-h-[calc(100vh-12rem)] max-w-full rounded-lg object-contain"
+                controls
+                autoPlay
+                loop
+                playsInline
+              />
+            ) : (
+              <img
+                src={seedanceReplayPreviewSrc || ASSET_PLACEHOLDER_DATA_URL}
+                alt={seedanceReplayPreviewAsset?.name || 'preview asset'}
+                className="block max-h-[calc(100vh-12rem)] max-w-full rounded-lg object-contain"
+                onError={(event) => {
+                  (event.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL;
+                }}
+              />
+            )}
+          </div>
+        </AppDialog>
 
         <div ref={workspaceRowRef} className="flex-1 flex overflow-hidden p-6 gap-6" style={rowStyle}>
           <div style={{ width: leftColumnWidth }} className="shrink-0 h-full min-w-[260px] max-w-[640px]">

@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 
 interface AppDialogProps {
   isOpen: boolean;
-  title: string;
+  title: React.ReactNode;
   onClose: () => void;
   children?: React.ReactNode;
   footer?: React.ReactNode;

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download } from 'lucide-react';
+import { Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { ViewType } from './types';
 import { useLanguage } from '../../context/LanguageContext';
 import { DropdownSelect } from '../common/DropdownSelect';
@@ -9,6 +9,7 @@ import { AppDialog } from '../common/AppDialog';
 import TextSeparationDemoView, { type TextSeparationBlock } from './TextSeparationDemoView';
 import { assetsApi } from '../../services/assets';
 import { videoApi } from '../../services/video';
+import { downloadBlob, productImagesApi } from '../../services/productImagesApi';
 
 interface ProductImagesViewProps {
   activeView: ViewType;
@@ -46,6 +47,7 @@ type GalleryHistorySettings = {
   style: string;
   aspectRatio: string;
   resolution: string;
+  copyLanguage?: string;
   productName: string;
   productCategory: string;
   sellingPoints: string[];
@@ -58,6 +60,19 @@ type GalleryHistoryItem = {
   images: string[];
   settings?: GalleryHistorySettings;
 };
+
+type GalleryCopyLanguageLabelKey = 'lang_en' | 'lang_zh' | 'lang_es' | 'lang_ja' | 'lang_ko' | 'lang_ms' | 'lang_vi' | 'lang_id';
+
+const GALLERY_COPY_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: GalleryCopyLanguageLabelKey }> = [
+  { value: 'en', labelKey: 'lang_en' },
+  { value: 'zh', labelKey: 'lang_zh' },
+  { value: 'es', labelKey: 'lang_es' },
+  { value: 'ja', labelKey: 'lang_ja' },
+  { value: 'ko', labelKey: 'lang_ko' },
+  { value: 'ms', labelKey: 'lang_ms' },
+  { value: 'vi', labelKey: 'lang_vi' },
+  { value: 'id', labelKey: 'lang_id' },
+];
 
 const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setActiveView }) => {
   const { language, t } = useLanguage();
@@ -120,6 +135,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   });
   const [galleryAspectRatio, setGalleryAspectRatio] = useState<string>('1:1');
   const [galleryResolution, setGalleryResolution] = useState<'1k' | '2k' | '4k'>('1k');
+  const [galleryCopyLanguage, setGalleryCopyLanguage] = useState<string>(() => {
+    const defaultLang = language === 'zh' || language === 'ms' || language === 'vi' || language === 'ko' ? language : 'en';
+    return GALLERY_COPY_LANGUAGE_OPTIONS.some((opt) => opt.value === defaultLang) ? defaultLang : 'en';
+  });
   const galleryFileInputRef = useRef<HTMLInputElement | null>(null);
   const [galleryPreviewUrls, setGalleryPreviewUrls] = useState<string[]>([]);
   const [isGalleryAnalyzing, setIsGalleryAnalyzing] = useState(false);
@@ -214,11 +233,439 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     if (resolver) resolver(value);
   };
 
-  const closeGalleryImagePreview = () => setGalleryPreviewImageUrl(null);
-  const openGalleryImagePreview = (url: string) => {
+  type GalleryPreviewSource =
+    | { kind: 'preview_item'; localId: string }
+    | { kind: 'history_item'; itemId: string; index: number }
+    | null;
+
+  const [isGalleryPreviewDownloading, setIsGalleryPreviewDownloading] = useState(false);
+  const [isGalleryPreviewExportingPdf, setIsGalleryPreviewExportingPdf] = useState(false);
+  const [galleryPreviewSource, setGalleryPreviewSource] = useState<GalleryPreviewSource>(null);
+
+  const [galleryInpaint, setGalleryInpaint] = useState<{
+    open: boolean;
+    prompt: string;
+    rect: { x: number; y: number; w: number; h: number } | null;
+    isDragging: boolean;
+    dragStart: { x: number; y: number } | null;
+    isGenerating: boolean;
+    resultUrl: string | null;
+    error: string | null;
+  }>({
+    open: false,
+    prompt: '',
+    rect: null,
+    isDragging: false,
+    dragStart: null,
+    isGenerating: false,
+    resultUrl: null,
+    error: null,
+  });
+
+  const galleryInpaintBoxRef = useRef<HTMLDivElement | null>(null);
+  const galleryInpaintImgRef = useRef<HTMLImageElement | null>(null);
+
+  const closeGalleryImagePreview = () => {
+    setGalleryPreviewImageUrl(null);
+    setGalleryPreviewSource(null);
+  };
+
+  const openGalleryImagePreview = (url: string, source: GalleryPreviewSource = null) => {
     const cleaned = String(url || '').trim();
     if (!cleaned) return;
     setGalleryPreviewImageUrl(cleaned);
+    setGalleryPreviewSource(source);
+  };
+
+  const galleryPreviewNav = useMemo<
+    | null
+    | { kind: 'preview'; index: number; total: number; items: Array<{ localId: string; imageUrl: string }> }
+    | { kind: 'history'; index: number; total: number; itemId: string; urls: string[] }
+  >(() => {
+    if (!galleryPreviewImageUrl || !galleryPreviewSource) return null;
+
+    if (galleryPreviewSource.kind === 'preview_item') {
+      const items = galleryPreviewItems
+        .filter((it) => typeof it.imageUrl === 'string' && String(it.imageUrl).trim())
+        .map((it) => ({ localId: it.localId, imageUrl: String(it.imageUrl) }));
+      const index = items.findIndex((it) => it.localId === galleryPreviewSource.localId);
+      if (index < 0) return null;
+      return { kind: 'preview', index, total: items.length, items };
+    }
+
+    if (galleryPreviewSource.kind === 'history_item') {
+      const item = galleryHistoryItems.find((it) => it.id === galleryPreviewSource.itemId);
+      const urls = (item?.images || []).map((u) => String(u || '').trim()).filter(Boolean);
+      if (urls.length === 0) return null;
+      const index = Math.max(0, Math.min(galleryPreviewSource.index, urls.length - 1));
+      return { kind: 'history', index, total: urls.length, itemId: galleryPreviewSource.itemId, urls };
+    }
+
+    return null;
+  }, [galleryHistoryItems, galleryPreviewImageUrl, galleryPreviewItems, galleryPreviewSource]);
+
+  const handleGalleryPreviewPrev = () => {
+    if (!galleryPreviewNav || galleryPreviewNav.total <= 1 || galleryPreviewNav.index <= 0) return;
+    const nextIndex = galleryPreviewNav.index - 1;
+
+    if (galleryPreviewNav.kind === 'preview') {
+      const next = galleryPreviewNav.items[nextIndex];
+      setGalleryPreviewImageUrl(next.imageUrl);
+      setGalleryPreviewSource({ kind: 'preview_item', localId: next.localId });
+      return;
+    }
+
+    const nextUrl = galleryPreviewNav.urls[nextIndex];
+    setGalleryPreviewImageUrl(nextUrl);
+    setGalleryPreviewSource({ kind: 'history_item', itemId: galleryPreviewNav.itemId, index: nextIndex });
+  };
+
+  const handleGalleryPreviewNext = () => {
+    if (!galleryPreviewNav || galleryPreviewNav.total <= 1 || galleryPreviewNav.index >= galleryPreviewNav.total - 1) return;
+    const nextIndex = galleryPreviewNav.index + 1;
+
+    if (galleryPreviewNav.kind === 'preview') {
+      const next = galleryPreviewNav.items[nextIndex];
+      setGalleryPreviewImageUrl(next.imageUrl);
+      setGalleryPreviewSource({ kind: 'preview_item', localId: next.localId });
+      return;
+    }
+
+    const nextUrl = galleryPreviewNav.urls[nextIndex];
+    setGalleryPreviewImageUrl(nextUrl);
+    setGalleryPreviewSource({ kind: 'history_item', itemId: galleryPreviewNav.itemId, index: nextIndex });
+  };
+
+  const buildGalleryPreviewFilename = (url: string, extFallback = 'png') => {
+    const cleaned = String(url || '').trim();
+    const safeExt = /^[a-z0-9]+$/i.test(extFallback) ? extFallback : 'png';
+    const match = cleaned.match(/\.(png|jpe?g|webp)(?:\?|#|$)/i);
+    const ext = (match?.[1] || safeExt).toLowerCase();
+    return `product_gallery_${Date.now()}.${ext}`;
+  };
+
+  const handleDownloadGalleryPreviewImage = async () => {
+    if (!galleryPreviewImageUrl || isGalleryPreviewDownloading) return;
+
+    setIsGalleryPreviewDownloading(true);
+    try {
+      const blob = await productImagesApi.downloadImageByUrl(galleryPreviewImageUrl);
+      downloadBlob(blob, buildGalleryPreviewFilename(galleryPreviewImageUrl));
+    } catch (err: any) {
+      openGalleryAlert(String(err?.message || tr('下载失败，请重试。', 'Download failed. Please try again.')));
+    } finally {
+      setIsGalleryPreviewDownloading(false);
+    }
+  };
+
+  const handleExportGalleryPreviewAsPdf = async () => {
+    if (!galleryPreviewImageUrl || isGalleryPreviewExportingPdf) return;
+
+    setIsGalleryPreviewExportingPdf(true);
+    try {
+      const blob = await productImagesApi.downloadImageByUrl(galleryPreviewImageUrl);
+      const objectUrl = URL.createObjectURL(blob);
+
+      const win = window.open('', '_blank');
+      if (!win) {
+        URL.revokeObjectURL(objectUrl);
+        openGalleryAlert(tr('浏览器阻止了弹窗，请允许弹窗后重试。', 'Popup blocked by browser. Please allow popups and try again.'));
+        return;
+      }
+
+      const title = tr('导出为PDF', 'Export as PDF');
+      win.document.open();
+      win.document.write(`<!doctype html><html><head><meta charset="utf-8" /><title>${title}</title><style>@page{size:A4;margin:12mm;}html,body{height:100%;}body{margin:0;display:flex;align-items:center;justify-content:center;}img{max-width:100%;max-height:100%;object-fit:contain;}</style></head><body><img id="img" src="${objectUrl}" /><script>const img=document.getElementById('img');img.onload=()=>{setTimeout(()=>{window.focus();window.print();},50)};window.onafterprint=()=>{window.close();};</script></body></html>`);
+      win.document.close();
+
+      const cleanup = () => URL.revokeObjectURL(objectUrl);
+      try {
+        win.addEventListener('beforeunload', cleanup);
+      } catch {
+        const timer = window.setInterval(() => {
+          if (win.closed) {
+            window.clearInterval(timer);
+            cleanup();
+          }
+        }, 400);
+      }
+    } catch (err: any) {
+      openGalleryAlert(String(err?.message || tr('导出失败，请重试。', 'Export failed. Please try again.')));
+    } finally {
+      setIsGalleryPreviewExportingPdf(false);
+    }
+  };
+
+  const closeGalleryInpaint = () =>
+    setGalleryInpaint({
+      open: false,
+      prompt: '',
+      rect: null,
+      isDragging: false,
+      dragStart: null,
+      isGenerating: false,
+      resultUrl: null,
+      error: null,
+    });
+
+  const openGalleryInpaint = () => {
+    if (!galleryPreviewImageUrl) return;
+    setGalleryInpaint((prev) => ({
+      ...prev,
+      open: true,
+      prompt: prev.prompt || '',
+      rect: null,
+      isDragging: false,
+      dragStart: null,
+      isGenerating: false,
+      resultUrl: null,
+      error: null,
+    }));
+  };
+
+  const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+
+  const updateInpaintRectFromPoints = (start: { x: number; y: number }, end: { x: number; y: number }) => {
+    const left = Math.min(start.x, end.x);
+    const top = Math.min(start.y, end.y);
+    const right = Math.max(start.x, end.x);
+    const bottom = Math.max(start.y, end.y);
+
+    const w = Math.max(0.001, right - left);
+    const h = Math.max(0.001, bottom - top);
+
+    setGalleryInpaint((prev) => ({
+      ...prev,
+      rect: {
+        x: clamp01(left),
+        y: clamp01(top),
+        w: clamp01(w),
+        h: clamp01(h),
+      },
+    }));
+  };
+
+  const handleInpaintPointerDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!galleryInpaint.open || galleryInpaint.isGenerating) return;
+    const box = galleryInpaintBoxRef.current;
+    const img = galleryInpaintImgRef.current;
+    if (!box) return;
+
+    const rect = box.getBoundingClientRect();
+    const localX = event.clientX - rect.left;
+    const localY = event.clientY - rect.top;
+
+    let x = clamp01(localX / rect.width);
+    let y = clamp01(localY / rect.height);
+
+    if (img && img.naturalWidth > 0 && img.naturalHeight > 0 && rect.width > 0 && rect.height > 0) {
+      const scale = Math.min(rect.width / img.naturalWidth, rect.height / img.naturalHeight);
+      const drawW = img.naturalWidth * scale;
+      const drawH = img.naturalHeight * scale;
+      const offsetX = (rect.width - drawW) / 2;
+      const offsetY = (rect.height - drawH) / 2;
+
+      const clampedX = Math.min(offsetX + drawW, Math.max(offsetX, localX));
+      const clampedY = Math.min(offsetY + drawH, Math.max(offsetY, localY));
+
+      x = clamp01(clampedX / rect.width);
+      y = clamp01(clampedY / rect.height);
+    }
+
+    setGalleryInpaint((prev) => ({ ...prev, isDragging: true, dragStart: { x, y }, rect: { x, y, w: 0.001, h: 0.001 } }));
+  };
+
+  const handleInpaintPointerMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!galleryInpaint.isDragging || !galleryInpaint.dragStart) return;
+    const box = galleryInpaintBoxRef.current;
+    const img = galleryInpaintImgRef.current;
+    if (!box) return;
+
+    const rect = box.getBoundingClientRect();
+    const localX = event.clientX - rect.left;
+    const localY = event.clientY - rect.top;
+
+    let x = clamp01(localX / rect.width);
+    let y = clamp01(localY / rect.height);
+
+    if (img && img.naturalWidth > 0 && img.naturalHeight > 0 && rect.width > 0 && rect.height > 0) {
+      const scale = Math.min(rect.width / img.naturalWidth, rect.height / img.naturalHeight);
+      const drawW = img.naturalWidth * scale;
+      const drawH = img.naturalHeight * scale;
+      const offsetX = (rect.width - drawW) / 2;
+      const offsetY = (rect.height - drawH) / 2;
+
+      const clampedX = Math.min(offsetX + drawW, Math.max(offsetX, localX));
+      const clampedY = Math.min(offsetY + drawH, Math.max(offsetY, localY));
+
+      x = clamp01(clampedX / rect.width);
+      y = clamp01(clampedY / rect.height);
+    }
+
+    updateInpaintRectFromPoints(galleryInpaint.dragStart, { x, y });
+  };
+
+  const handleInpaintPointerUp = () => {
+    if (!galleryInpaint.isDragging) return;
+    setGalleryInpaint((prev) => ({ ...prev, isDragging: false, dragStart: null }));
+  };
+
+  const buildMaskDataUrl = (width: number, height: number, rectPx: { x: number; y: number; w: number; h: number }) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.floor(width));
+    canvas.height = Math.max(1, Math.floor(height));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas context unavailable');
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(
+      Math.max(0, Math.floor(rectPx.x)),
+      Math.max(0, Math.floor(rectPx.y)),
+      Math.max(1, Math.floor(rectPx.w)),
+      Math.max(1, Math.floor(rectPx.h))
+    );
+
+    return canvas.toDataURL('image/png');
+  };
+
+  const applyGalleryPreviewOverwrite = (nextUrl: string) => {
+    setGalleryPreviewImageUrl(nextUrl);
+
+    if (!galleryPreviewSource) return;
+
+    if (galleryPreviewSource.kind === 'preview_item') {
+      const localId = galleryPreviewSource.localId;
+      setGalleryPreviewItems((prev) => prev.map((it) => (it.localId === localId ? { ...it, imageUrl: nextUrl } : it)));
+      return;
+    }
+
+    if (galleryPreviewSource.kind === 'history_item') {
+      const { itemId, index } = galleryPreviewSource;
+      setGalleryHistoryItems((prev) => {
+        const next = prev.map((it) => {
+          if (it.id !== itemId) return it;
+          const images = it.images.slice();
+          if (index >= 0 && index < images.length) images[index] = nextUrl;
+          return { ...it, images };
+        });
+        try {
+          localStorage.setItem(GALLERY_HISTORY_KEY, JSON.stringify(next));
+        } catch {
+          void 0;
+        }
+        return next;
+      });
+    }
+  };
+
+  const handleRunInpaint = async () => {
+    if (!galleryPreviewImageUrl) return;
+    if (galleryInpaint.isGenerating) return;
+    if (!galleryInpaint.rect) {
+      setGalleryInpaint((prev) => ({ ...prev, error: tr('请先框选要修改的区域', 'Please select an area to edit') }));
+      return;
+    }
+
+    const img = galleryInpaintImgRef.current;
+    const box = galleryInpaintBoxRef.current;
+    if (!img || !box || !img.naturalWidth || !img.naturalHeight) {
+      setGalleryInpaint((prev) => ({ ...prev, error: tr('图片未加载完成', 'Image not ready') }));
+      return;
+    }
+
+    const boxRect = box.getBoundingClientRect();
+    const containerW = boxRect.width;
+    const containerH = boxRect.height;
+
+    const scale = Math.min(containerW / img.naturalWidth, containerH / img.naturalHeight);
+    const drawW = img.naturalWidth * scale;
+    const drawH = img.naturalHeight * scale;
+    const offsetX = (containerW - drawW) / 2;
+    const offsetY = (containerH - drawH) / 2;
+
+    const rect = galleryInpaint.rect;
+
+    const imgX = clamp01((rect.x * containerW - offsetX) / drawW);
+    const imgY = clamp01((rect.y * containerH - offsetY) / drawH);
+    const imgW = clamp01((rect.w * containerW) / drawW);
+    const imgH = clamp01((rect.h * containerH) / drawH);
+
+    const rectPx = {
+      x: imgX * img.naturalWidth,
+      y: imgY * img.naturalHeight,
+      w: Math.max(1, imgW * img.naturalWidth),
+      h: Math.max(1, imgH * img.naturalHeight),
+    };
+
+    const prompt = String(galleryInpaint.prompt || '').trim();
+    if (!prompt) {
+      setGalleryInpaint((prev) => ({ ...prev, error: tr('请填写修改指令', 'Please enter an edit instruction') }));
+      return;
+    }
+
+    setGalleryInpaint((prev) => ({ ...prev, isGenerating: true, error: null, resultUrl: null }));
+
+    try {
+      const maskDataUrl = buildMaskDataUrl(img.naturalWidth, img.naturalHeight, rectPx);
+
+      const apiBase = (import.meta as any).env?.VITE_API_BASE || '/api';
+      const resp = await fetch(`${apiBase}/projects/inpaint_image`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          image_url: galleryPreviewImageUrl,
+          mask_data_url: maskDataUrl,
+          prompt,
+        }),
+      });
+
+      const data = await resp.json();
+      if (!resp.ok || (data && data.code && data.code !== 0)) {
+        throw new Error(String(data?.message || data?.error?.message || 'request failed'));
+      }
+
+      const requestId = String(data?.data?.request_id || '').trim();
+      if (!requestId) throw new Error(tr('创建任务失败', 'Failed to create task'));
+
+      let outputUrl: string | null = null;
+      for (let i = 0; i < 40; i += 1) {
+        const res = await videoApi.getProductGalleryResult(requestId);
+        const status = String((res as any)?.data?.status || (res as any)?.status || '').toLowerCase();
+        const outputs = (res as any)?.data?.outputs || (res as any)?.outputs || [];
+        const list = Array.isArray(outputs) ? outputs : [];
+        if (list.length > 0) {
+          outputUrl = String(list[0] || '').trim() || null;
+        }
+        if (outputUrl) break;
+        if (status && ['failed', 'canceled', 'cancelled', 'error'].includes(status)) break;
+        await new Promise<void>((r) => setTimeout(r, 1500));
+      }
+
+      if (!outputUrl) {
+        throw new Error(tr('生成失败，请重试。', 'Generation failed. Please try again.'));
+      }
+
+      setGalleryInpaint((prev) => ({ ...prev, isGenerating: false, resultUrl: outputUrl, error: null }));
+
+      const ok = await openGalleryConfirm(t.pi_gallery_inpaint_overwrite_confirm || tr('是否用修改后的图片覆盖原图？', 'Replace the original image with the edited one?'), {
+        title: t.pi_gallery_inpaint_title || tr('局部修改', 'Local Edit'),
+        okLabel: tr('覆盖原图', 'Replace'),
+        cancelLabel: tr('取消', 'Cancel'),
+      });
+
+      if (ok) {
+        applyGalleryPreviewOverwrite(outputUrl);
+        closeGalleryInpaint();
+      }
+    } catch (err: any) {
+      setGalleryInpaint((prev) => ({ ...prev, isGenerating: false, error: String(err?.message || err), resultUrl: null }));
+    }
   };
 
   const persistTextSeparationRecords = (records: TextSeparationRecordItem[]) => {
@@ -664,6 +1111,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       if (s.style) setGalleryStyle(s.style);
       if (s.aspectRatio) setGalleryAspectRatio(s.aspectRatio);
       if (s.resolution) setGalleryResolution(s.resolution);
+      if (s.copyLanguage) setGalleryCopyLanguage(String(s.copyLanguage));
       if (s.productName) setGalleryProductName(s.productName);
       if (s.productCategory) setGalleryCategory(s.productCategory);
       if (Array.isArray(s.sellingPoints) && s.sellingPoints.length > 0) setGallerySellingPoints(s.sellingPoints);
@@ -1042,6 +1490,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       style: galleryStyle,
       aspectRatio: aspectRatio,
       resolution: galleryResolution,
+      copyLanguage: galleryCopyLanguage,
       productName: galleryProductName.trim(),
       productCategory: galleryCategory.trim(),
       sellingPoints,
@@ -1115,6 +1564,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         core_selling_points: sellingPoints,
         target_scene: galleryTargetScene,
         style: galleryStyle,
+        target_language: galleryCopyLanguage,
         hot_style: hotStyleSelectedIndex !== null ? hotStyleItems[hotStyleSelectedIndex] : undefined,
         type_selections: galleryTypeSelections as any,
       });
@@ -1283,6 +1733,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         title={galleryConfirm.title}
         onClose={() => closeGalleryConfirm(false)}
         widthClassName="max-w-sm"
+        overlayClassName="z-[160]"
         footer={
           <>
             <button
@@ -1321,8 +1772,158 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         }
       >
         {galleryPreviewImageUrl ? (
-          <div className="w-full flex items-center justify-center">
-            <img src={galleryPreviewImageUrl} alt={tr('预览图片', 'Preview image')} className="max-h-[70vh] w-auto object-contain rounded-xl border border-white/10" />
+          <div className="w-full flex flex-col items-center justify-center">
+            <div className="relative w-full flex items-center justify-center">
+              {galleryPreviewNav && galleryPreviewNav.total > 1 ? (
+                <button
+                  type="button"
+                  onClick={handleGalleryPreviewPrev}
+                  disabled={galleryPreviewNav.index <= 0}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 border border-white/10 text-zinc-200 hover:bg-black/75 disabled:opacity-40 disabled:hover:bg-black/60 transition flex items-center justify-center"
+                  aria-label={tr('上一张', 'Previous')}
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+              ) : null}
+
+              <img src={galleryPreviewImageUrl} alt={tr('预览图片', 'Preview image')} className="max-h-[70vh] w-auto object-contain rounded-xl border border-white/10" />
+
+              {galleryPreviewNav && galleryPreviewNav.total > 1 ? (
+                <button
+                  type="button"
+                  onClick={handleGalleryPreviewNext}
+                  disabled={galleryPreviewNav.index >= galleryPreviewNav.total - 1}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 border border-white/10 text-zinc-200 hover:bg-black/75 disabled:opacity-40 disabled:hover:bg-black/60 transition flex items-center justify-center"
+                  aria-label={tr('下一张', 'Next')}
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              ) : null}
+            </div>
+            <div className="mt-4 flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={handleDownloadGalleryPreviewImage}
+                disabled={isGalleryPreviewDownloading}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 disabled:opacity-60 transition flex items-center gap-2"
+              >
+                <Download className="w-4 h-4" />
+                {isGalleryPreviewDownloading ? tr('下载中...', 'Downloading...') : (t.pi_gallery_preview_download_image || tr('下载图片', 'Download Image'))}
+              </button>
+              <button
+                type="button"
+                onClick={handleExportGalleryPreviewAsPdf}
+                disabled={isGalleryPreviewExportingPdf}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 text-black hover:bg-orange-400 disabled:opacity-60 transition"
+              >
+                {isGalleryPreviewExportingPdf ? tr('导出中...', 'Exporting...') : (t.pi_gallery_preview_export_pdf || tr('导出为PDF', 'Export as PDF'))}
+              </button>
+              <button
+                type="button"
+                onClick={openGalleryInpaint}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 text-zinc-200 hover:bg-white/10 transition"
+              >
+                {t.pi_gallery_inpaint_title || tr('局部修改', 'Local Edit')}
+              </button>
+            </div>
+            <div className="mt-2 text-[11px] text-zinc-500 text-center">
+              {t.pi_gallery_preview_export_pdf_hint || tr('将打开浏览器打印窗口，可选择“保存为 PDF”。', 'A browser print dialog will open — choose “Save as PDF”.')}
+            </div>
+          </div>
+        ) : null}
+      </AppDialog>
+
+      <AppDialog
+        isOpen={galleryInpaint.open}
+        title={t.pi_gallery_inpaint_title || tr('局部修改', 'Local Edit')}
+        onClose={closeGalleryInpaint}
+        widthClassName="max-w-none w-[980px]"
+        footer={
+          <button
+            type="button"
+            onClick={closeGalleryInpaint}
+            className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
+          >
+            {tr('关闭', 'Close')}
+          </button>
+        }
+      >
+        {galleryPreviewImageUrl ? (
+          <div className="w-full h-[680px] flex flex-col">
+            <div className="text-xs text-zinc-500">
+              {t.pi_gallery_inpaint_hint || tr('拖拽框选需要修改的区域（矩形）。', 'Drag to select an area to edit (rectangle).')}
+            </div>
+
+            <div
+              ref={galleryInpaintBoxRef}
+              className="mt-3 relative w-full flex-1 min-h-0 rounded-xl border border-white/10 bg-black/30 overflow-hidden select-none"
+              onMouseDown={handleInpaintPointerDown}
+              onMouseMove={handleInpaintPointerMove}
+              onMouseUp={handleInpaintPointerUp}
+              onMouseLeave={handleInpaintPointerUp}
+            >
+              <img
+                ref={galleryInpaintImgRef}
+                src={galleryInpaint.resultUrl || galleryPreviewImageUrl}
+                alt={tr('预览图片', 'Preview image')}
+                className="w-full h-full object-contain"
+                draggable={false}
+              />
+
+              {galleryInpaint.rect ? (
+                <>
+                  <div
+                    className="absolute inset-0 pointer-events-none"
+                    style={{
+                      background: 'rgba(0,0,0,0.55)',
+                      clipPath: `polygon(0 0, 0 100%, ${galleryInpaint.rect.x * 100}% 100%, ${galleryInpaint.rect.x * 100}% ${galleryInpaint.rect.y * 100}%, ${(galleryInpaint.rect.x + galleryInpaint.rect.w) * 100}% ${galleryInpaint.rect.y * 100}%, ${(galleryInpaint.rect.x + galleryInpaint.rect.w) * 100}% ${(galleryInpaint.rect.y + galleryInpaint.rect.h) * 100}%, ${galleryInpaint.rect.x * 100}% ${(galleryInpaint.rect.y + galleryInpaint.rect.h) * 100}%, ${galleryInpaint.rect.x * 100}% 100%, 100% 100%, 100% 0)`
+                    }}
+                  />
+                  <div
+                    className="absolute border-2 border-orange-500 pointer-events-none"
+                    style={{
+                      left: `${galleryInpaint.rect.x * 100}%`,
+                      top: `${galleryInpaint.rect.y * 100}%`,
+                      width: `${galleryInpaint.rect.w * 100}%`,
+                      height: `${galleryInpaint.rect.h * 100}%`,
+                    }}
+                  />
+                </>
+              ) : (
+                <div className="absolute inset-0 pointer-events-none bg-black/35" />
+              )}
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-2">
+              <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pi_gallery_inpaint_prompt_label || tr('修改指令', 'Edit instruction')}</div>
+              <textarea
+                value={galleryInpaint.prompt}
+                onChange={(e) => setGalleryInpaint((prev) => ({ ...prev, prompt: e.target.value }))}
+                placeholder={t.pi_gallery_inpaint_prompt_placeholder || tr('例如：把选中区域替换成一束橙色花朵，风格与原图一致。', 'E.g. Replace the selected area with a bouquet of orange flowers, keep style consistent.')}
+                className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20 min-h-[88px]"
+              />
+            </div>
+
+            {galleryInpaint.error ? <div className="mt-2 text-[11px] text-red-400">{galleryInpaint.error}</div> : null}
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setGalleryInpaint((prev) => ({ ...prev, rect: null, resultUrl: null, error: null }))}
+                disabled={galleryInpaint.isGenerating}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 disabled:opacity-60 transition"
+              >
+                {t.pi_gallery_inpaint_clear || tr('清除框选', 'Clear')}
+              </button>
+              <button
+                type="button"
+                onClick={handleRunInpaint}
+                disabled={galleryInpaint.isGenerating}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 text-black hover:bg-orange-400 disabled:opacity-60 transition"
+              >
+                {galleryInpaint.isGenerating ? (t.pi_gallery_inpaint_generating || tr('生成中...', 'Generating...')) : (t.pi_gallery_inpaint_generate || tr('开始生成', 'Generate'))}
+              </button>
+            </div>
           </div>
         ) : null}
       </AppDialog>
@@ -1686,8 +2287,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                         <ImageIcon className="w-10 h-10 opacity-50 transition-opacity duration-150 group-hover:opacity-0" />
                         <Upload className="absolute inset-0 w-10 h-10 opacity-0 transition-opacity duration-150 group-hover:opacity-60" />
                       </div>
-                      <div className="text-sm font-semibold">点击上传 1~3 张商品图</div>
-                      <div className="text-[11px] mt-1">支持 JPG / PNG / WEBP</div>
+                      <div className="text-sm font-semibold">{t.pi_gallery_upload_title}</div>
+                      <div className="text-[11px] mt-1">{t.pi_gallery_upload_support}</div>
                     </button>
                     </>
                   ) : (
@@ -1736,39 +2337,39 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
                 <div className="mt-4 grid grid-cols-1 gap-4">
                   <div className="space-y-2">
-                    <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">商品名称</div>
+                    <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.hist_img_setting_product}</div>
                     <input
                       value={galleryProductName}
                       onChange={(e) => setGalleryProductName(e.target.value)}
                       className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
-                      placeholder="例如：便携榨汁杯"
+                      placeholder={t.pi_gallery_placeholder_product_name}
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">商品类目</div>
+                    <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.hist_img_setting_category}</div>
                     <input
                       value={galleryCategory}
                       onChange={(e) => setGalleryCategory(e.target.value)}
                       className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
-                      placeholder="例如：小家电 / 美妆 / 食品"
+                      placeholder={t.pi_gallery_placeholder_category}
                     />
                   </div>
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">核心卖点（2~5 条）</div>
+                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pi_gallery_selling_points_label}</div>
                       <button
                         type="button"
                         onClick={() => setGallerySellingPoints((prev) => (prev.length >= 5 ? prev : [...prev, '']))}
                         className="px-2 py-1 rounded-lg text-[11px] font-bold border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 disabled:opacity-60"
                         disabled={gallerySellingPoints.length >= 5}
                       >
-                        + 添加
+                        {t.ui_add}
                       </button>
                     </div>
                     {gallerySellingPoints.length === 0 ? (
-                      <div className="text-xs text-zinc-600">未填写</div>
+                      <div className="text-xs text-zinc-600">{t.ui_not_filled}</div>
                     ) : (
                       <div className="space-y-2">
                         {gallerySellingPoints.map((val, idx) => (
@@ -1875,23 +2476,23 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               </div>
             </div>
             <div className="w-[32%] min-w-[420px] max-w-[640px] flex flex-col gap-4 min-h-0">
-              <div className="rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col flex-1 min-h-0">
-                <div className="text-sm font-bold text-zinc-200 shrink-0">{tr('生成设置', 'Generation Settings')}</div>
+              <div className="rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0">
+                <div className="text-sm font-bold text-zinc-200 shrink-0">{t.hist_img_settings_title}</div>
 
-                <div className="mt-4 space-y-6 flex-1 min-h-0 overflow-y-auto custom-scroll pr-1">
+                <div className="mt-4 space-y-6">
                   <div>
-                    <div className="text-xs font-bold text-zinc-200">{tr('基础配置', 'Basics')}</div>
+                    <div className="text-xs font-bold text-zinc-200">{t.pi_gallery_settings_section_basics}</div>
                     <div className="mt-3 grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">目标场景</div>
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.hist_img_setting_scene}</div>
                         <DropdownSelect
                           value={galleryTargetScene}
                           options={[
-                            { value: 'detail', label: '详情页' },
-                            { value: 'xiaohongshu', label: '小红书' },
-                            { value: 'douyin', label: '抖音' },
-                            { value: 'poster', label: '海报' },
-                            { value: 'ads', label: '广告投流' },
+                            { value: 'detail', label: t.pi_gallery_target_scene_detail },
+                            { value: 'xiaohongshu', label: t.pi_gallery_target_scene_xiaohongshu },
+                            { value: 'douyin', label: t.pi_gallery_target_scene_douyin },
+                            { value: 'poster', label: t.pi_gallery_target_scene_poster },
+                            { value: 'ads', label: t.pi_gallery_target_scene_ads },
                           ]}
                           onChange={(v) => setGalleryTargetScene(v as any)}
                           buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
@@ -1901,16 +2502,28 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                       </div>
 
                       <div className="space-y-2">
-                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">风格</div>
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.hist_img_setting_style}</div>
                         <DropdownSelect
                           value={galleryStyle}
                           options={[
-                            { value: 'ecom_clean', label: '简洁电商风' },
-                            { value: 'lifestyle', label: '生活方式风' },
-                            { value: 'premium', label: '高级质感风' },
-                            { value: 'festival', label: '节日营销风' },
+                            { value: 'ecom_clean', label: t.pi_gallery_style_ecom_clean },
+                            { value: 'lifestyle', label: t.pi_gallery_style_lifestyle },
+                            { value: 'premium', label: t.pi_gallery_style_premium },
+                            { value: 'festival', label: t.pi_gallery_style_festival },
                           ]}
                           onChange={(v) => setGalleryStyle(v as any)}
+                          buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                          iconClassName="w-4 h-4 text-zinc-500"
+                          optionClassName="text-xs"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pi_gallery_copy_language_label}</div>
+                        <DropdownSelect
+                          value={galleryCopyLanguage}
+                          options={GALLERY_COPY_LANGUAGE_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
+                          onChange={(v) => setGalleryCopyLanguage(String(v || 'en'))}
                           buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
                           iconClassName="w-4 h-4 text-zinc-500"
                           optionClassName="text-xs"
@@ -1920,14 +2533,14 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   </div>
 
                   <div>
-                    <div className="text-xs font-bold text-zinc-200">{tr('输出类型', 'Outputs')}</div>
+                    <div className="text-xs font-bold text-zinc-200">{t.hist_img_setting_types}</div>
                     <div className="mt-3 space-y-3">
                       {([
-                        ['white_bg', '白底图'],
-                        ['scene', '场景图'],
-                        ['selling_point', '卖点图'],
-                        ['cover', '封面图'],
-                        ['poster', '海报图'],
+                        ['white_bg', t.pi_gallery_output_white_bg],
+                        ['scene', t.pi_gallery_output_scene],
+                        ['selling_point', t.pi_gallery_output_selling_point],
+                        ['cover', t.pi_gallery_output_cover],
+                        ['poster', t.pi_gallery_output_poster],
                       ] as Array<[keyof typeof galleryTypeSelections, string]>).map(([key, label]) => (
                         <div key={key} className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                           <label className="flex items-center gap-2 text-xs text-zinc-200">
@@ -1966,125 +2579,46 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   </div>
 
                   <div>
-                    <div className="text-xs font-bold text-zinc-200">{tr('规格', 'Specs')}</div>
-                    <div className="mt-3 space-y-4">
+                    <div className="text-xs font-bold text-zinc-200">{t.pi_gallery_settings_section_specs}</div>
+                    <div className="mt-3 grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">横版</div>
-                        <div className="flex flex-wrap gap-2">
-                          {([
-                            ['21:9', '21:9 超宽'],
-                            ['16:9', '16:9 宽屏'],
-                            ['4:3', '4:3 标准'],
-                            ['3:2', '3:2 经典'],
-                          ] as Array<[string, string]>).map(([value, label]) => (
-                            <button
-                              key={value}
-                              type="button"
-                              onClick={() => setGalleryAspectRatio(value)}
-                              className={`rounded-xl border px-4 py-2 text-xs font-bold transition ${
-                                galleryAspectRatio === value
-                                  ? 'border-orange-500 bg-orange-500/10 text-orange-300'
-                                  : 'border-white/10 bg-black/20 text-zinc-200 hover:bg-white/5'
-                              }`}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.hist_img_setting_ratio}</div>
+                        <DropdownSelect
+                          value={galleryAspectRatio}
+                          options={[
+                            { value: '21:9', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_21_9}` },
+                            { value: '16:9', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_16_9}` },
+                            { value: '4:3', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_4_3}` },
+                            { value: '3:2', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_3_2}` },
+                            { value: '1:1', label: `${t.pi_gallery_ratio_group_square} · ${t.pi_gallery_ratio_1_1}` },
+                            { value: 'default', label: `${t.pi_gallery_ratio_group_square} · ${t.pi_gallery_ratio_default}` },
+                            { value: '9:16', label: `${t.pi_gallery_ratio_group_vertical} · ${t.pi_gallery_ratio_9_16}` },
+                            { value: '3:4', label: `${t.pi_gallery_ratio_group_vertical} · ${t.pi_gallery_ratio_3_4}` },
+                            { value: '2:3', label: `${t.pi_gallery_ratio_group_vertical} · ${t.pi_gallery_ratio_2_3}` },
+                            { value: '5:4', label: `${t.pi_gallery_ratio_group_flexible} · ${t.pi_gallery_ratio_5_4}` },
+                            { value: '4:5', label: `${t.pi_gallery_ratio_group_flexible} · ${t.pi_gallery_ratio_4_5}` },
+                          ]}
+                          onChange={(v) => setGalleryAspectRatio(String(v))}
+                          buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                          iconClassName="w-4 h-4 text-zinc-500"
+                          optionClassName="text-xs"
+                        />
                       </div>
 
                       <div className="space-y-2">
-                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">方形</div>
-                        <div className="flex flex-wrap gap-2">
-                          {([
-                            ['1:1', '1:1 方形'],
-                            ['default', '默认比例'],
-                          ] as Array<[string, string]>).map(([value, label]) => (
-                            <button
-                              key={value}
-                              type="button"
-                              onClick={() => setGalleryAspectRatio(value)}
-                              className={`rounded-xl border px-4 py-2 text-xs font-bold transition ${
-                                galleryAspectRatio === value
-                                  ? 'border-orange-500 bg-orange-500/10 text-orange-300'
-                                  : 'border-white/10 bg-black/20 text-zinc-200 hover:bg-white/5'
-                              }`}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">竖版</div>
-                        <div className="flex flex-wrap gap-2">
-                          {([
-                            ['9:16', '9:16 竖屏'],
-                            ['3:4', '3:4 竖版'],
-                            ['2:3', '2:3 竖版经典'],
-                          ] as Array<[string, string]>).map(([value, label]) => (
-                            <button
-                              key={value}
-                              type="button"
-                              onClick={() => setGalleryAspectRatio(value)}
-                              className={`rounded-xl border px-4 py-2 text-xs font-bold transition ${
-                                galleryAspectRatio === value
-                                  ? 'border-orange-500 bg-orange-500/10 text-orange-300'
-                                  : 'border-white/10 bg-black/20 text-zinc-200 hover:bg-white/5'
-                              }`}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">灵活</div>
-                        <div className="flex flex-wrap gap-2">
-                          {([
-                            ['5:4', '5:4 近方'],
-                            ['4:5', '4:5 近竖'],
-                          ] as Array<[string, string]>).map(([value, label]) => (
-                            <button
-                              key={value}
-                              type="button"
-                              onClick={() => setGalleryAspectRatio(value)}
-                              className={`rounded-xl border px-4 py-2 text-xs font-bold transition ${
-                                galleryAspectRatio === value
-                                  ? 'border-orange-500 bg-orange-500/10 text-orange-300'
-                                  : 'border-white/10 bg-black/20 text-zinc-200 hover:bg-white/5'
-                              }`}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="space-y-2 pt-2">
-                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">图片分辨率</div>
-                        <div className="flex flex-wrap gap-2">
-                          {([
-                            ['1k', '1K'],
-                            ['2k', '2K'],
-                            ['4k', '4K'],
-                          ] as Array<['1k' | '2k' | '4k', string]>).map(([value, label]) => (
-                            <button
-                              key={value}
-                              type="button"
-                              onClick={() => setGalleryResolution(value)}
-                              className={`rounded-xl border px-4 py-2 text-xs font-bold transition ${
-                                galleryResolution === value
-                                  ? 'border-orange-500 bg-orange-500/10 text-orange-300'
-                                  : 'border-white/10 bg-black/20 text-zinc-200 hover:bg-white/5'
-                              }`}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pi_gallery_resolution_label}</div>
+                        <DropdownSelect
+                          value={galleryResolution}
+                          options={[
+                            { value: '1k', label: '1K' },
+                            { value: '2k', label: '2K' },
+                            { value: '4k', label: '4K' },
+                          ]}
+                          onChange={(v) => setGalleryResolution(v as any)}
+                          buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                          iconClassName="w-4 h-4 text-zinc-500"
+                          optionClassName="text-xs"
+                        />
                       </div>
                     </div>
                   </div>
@@ -2165,7 +2699,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                             {item.imageUrl ? (
                               <button
                                 type="button"
-                                onClick={() => openGalleryImagePreview(item.imageUrl as string)}
+                                onClick={() => openGalleryImagePreview(item.imageUrl as string, { kind: 'preview_item', localId: item.localId })}
                                 className="rounded-lg overflow-hidden border border-white/10 bg-black/30 aspect-square cursor-pointer"
                                 title={tr('点击预览', 'Click to preview')}
                               >
@@ -2205,7 +2739,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                                 <button
                                   type="button"
                                   key={`${item.id}-${idx}`}
-                                  onClick={() => openGalleryImagePreview(url)}
+                                  onClick={() => openGalleryImagePreview(url, { kind: 'history_item', itemId: item.id, index: idx })}
                                   className="rounded-lg overflow-hidden border border-white/10 bg-black/30 aspect-square cursor-pointer"
                                   title={tr('点击预览', 'Click to preview')}
                                 >

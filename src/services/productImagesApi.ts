@@ -239,7 +239,21 @@ export const productImagesApi = {
   },
 
   async downloadImageByUrl(imageUrl: string): Promise<Blob> {
-    const response = await fetch(toDisplayUrl(imageUrl), {
+    const displayUrl = toDisplayUrl(imageUrl);
+
+    let shouldProxy = false;
+    try {
+      const resolved = new URL(displayUrl, window.location.href);
+      shouldProxy = resolved.origin !== window.location.origin;
+    } catch {
+      shouldProxy = false;
+    }
+
+    const fetchUrl = shouldProxy
+      ? `${PROJECTS_API_BASE}/proxy_download?url=${encodeURIComponent(displayUrl)}`
+      : displayUrl;
+
+    const response = await fetch(fetchUrl, {
       method: 'GET',
       credentials: 'include',
     });

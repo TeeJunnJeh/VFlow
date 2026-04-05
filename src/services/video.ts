@@ -324,6 +324,7 @@ export const videoApi = {
     core_selling_points?: string[];
     target_scene?: string;
     style?: string;
+    target_language?: string;
     hot_style?: { name: string; tones: string[]; description: string };
     type_selections?: Record<string, { enabled?: boolean; count?: number }>;
   }) => {

@@ -13,14 +13,24 @@ interface LanguageContextType {
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export const LanguageProvider = ({ children }: { children: React.ReactNode }) => {
-  // 2. Load from LocalStorage or default to 'en'
+  const detectSystemLanguage = (): Language => {
+    if (typeof navigator === 'undefined') return 'en';
+    const raw = (navigator.languages?.[0] || navigator.language || '').toLowerCase();
+
+    if (raw.startsWith('zh')) return 'zh';
+    if (raw.startsWith('ms') || raw.startsWith('id')) return 'ms';
+    if (raw.startsWith('vi')) return 'vi';
+    if (raw.startsWith('ko')) return 'ko';
+
+    return 'en';
+  };
+
   const [language, setLanguage] = useState<Language>(() => {
     const saved = localStorage.getItem('app_language');
-    // Simple validation to ensure saved lang is valid
     if (saved && ['en', 'zh', 'ms', 'vi', 'ko'].includes(saved)) {
       return saved as Language;
     }
-    return 'en';
+    return detectSystemLanguage();
   });
 
   // 3. Save change to LocalStorage

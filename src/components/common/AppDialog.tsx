@@ -9,6 +9,7 @@ interface AppDialogProps {
   footer?: React.ReactNode;
   widthClassName?: string;
   titleClassName?: string;
+  overlayClassName?: string;
 }
 
 export const AppDialog: React.FC<AppDialogProps> = ({
@@ -19,6 +20,7 @@ export const AppDialog: React.FC<AppDialogProps> = ({
   footer,
   widthClassName = 'max-w-md',
   titleClassName = 'text-sm',
+  overlayClassName = 'z-[120]',
 }) => {
   useEffect(() => {
     if (!isOpen) return;
@@ -34,7 +36,7 @@ export const AppDialog: React.FC<AppDialogProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6" onClick={onClose}>
+    <div className={`fixed inset-0 ${overlayClassName} flex items-center justify-center bg-black/70 backdrop-blur-sm p-6`} onClick={onClose}>
       <div
         className={`w-full ${widthClassName} glass-panel rounded-2xl border border-white/10 p-6 shadow-2xl`}
         onClick={(event) => event.stopPropagation()}

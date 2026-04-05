@@ -2,6 +2,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Image as ImageIcon, Star, Trash2, Settings2, Wand2, RefreshCw, X, Download, Check, Sparkles, Video } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { AppDialog } from '../common/AppDialog';
+import {
+  loadWorkbenchProjectStore,
+  WORKBENCH_NEW_PROJECT_TARGET,
+  type WorkbenchProjectMeta,
+} from '../../utils/workbenchProjectStore';
 
 // ————— Types —————
 
@@ -247,6 +252,9 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
   const [applyTarget, setApplyTarget] = useState<UnifiedImageHistoryItem | null>(null);
   const [applySelectedImages, setApplySelectedImages] = useState<Set<string>>(new Set());
   const [applyModel, setApplyModel] = useState<ApplyModel>('sora2');
+  const [applyProjectOptions, setApplyProjectOptions] = useState<WorkbenchProjectMeta[]>([]);
+  const [applyCurrentProjectId, setApplyCurrentProjectId] = useState('');
+  const [applyTargetProjectId, setApplyTargetProjectId] = useState('');
   const [applyProjectName, setApplyProjectName] = useState('');
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
@@ -283,8 +291,14 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
   };
 
   const openApplyDialog = (item: UnifiedImageHistoryItem) => {
+    const store = loadWorkbenchProjectStore();
+    const sortedProjects = [...store.projects].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+
     setApplyTarget(item);
     setApplySelectedImages(new Set(item.images.slice(0, 1))); // default select first
+    setApplyProjectOptions(sortedProjects);
+    setApplyCurrentProjectId(store.currentProjectId || sortedProjects[0]?.id || '');
+    setApplyTargetProjectId(store.currentProjectId || sortedProjects[0]?.id || '');
     // Read current model from localStorage context
     try {
       const storedModel = localStorage.getItem('vflow_workbench_model');
@@ -313,10 +327,15 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
   const confirmApply = () => {
     if (!applyTarget || applySelectedImages.size === 0) return;
 
+    const createNewProject = applyTargetProjectId === WORKBENCH_NEW_PROJECT_TARGET;
+    const targetProjectId = createNewProject ? '' : String(applyTargetProjectId || '').trim();
+
     const transferPayload = {
       imageUrls: [...applySelectedImages],
       model: applyModel,
-      newProjectName: applyProjectName || undefined,
+      targetProjectId: targetProjectId || undefined,
+      createNewProject,
+      newProjectName: createNewProject ? (applyProjectName || undefined) : undefined,
       timestamp: new Date().toISOString(),
     };
 
@@ -724,18 +743,38 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
 
             {/* 4. Project Name */}
             <div>
-              <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_img_apply_project_name}</div>
-              <input
-                value={applyProjectName}
-                onChange={(e) => setApplyProjectName(e.target.value)}
+              <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_img_apply_select_workspace || '选择工作台'}</div>
+              <select
+                value={applyTargetProjectId}
+                onChange={(e) => setApplyTargetProjectId(e.target.value)}
                 className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
-                maxLength={30}
-              />
+              >
+                {applyProjectOptions.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}{project.id === applyCurrentProjectId ? ` (${t.hist_img_apply_current_workspace || '当前'})` : ''}
+                  </option>
+                ))}
+                <option value={WORKBENCH_NEW_PROJECT_TARGET}>{t.hist_img_apply_create_new_workspace || '新建工作台'}</option>
+              </select>
             </div>
+
+            {applyTargetProjectId === WORKBENCH_NEW_PROJECT_TARGET && (
+              <div>
+                <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_img_apply_project_name}</div>
+                <input
+                  value={applyProjectName}
+                  onChange={(e) => setApplyProjectName(e.target.value)}
+                  className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
+                  maxLength={30}
+                />
+              </div>
+            )}
 
             {/* Hint */}
             <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-300">
-              {t.hist_img_apply_new_project_hint}
+              {applyTargetProjectId === WORKBENCH_NEW_PROJECT_TARGET
+                ? (t.hist_img_apply_new_project_hint || '将在工作台中创建新工程。')
+                : (t.hist_img_apply_existing_project_hint || '将素材应用到选中的工作台工程。')}
             </div>
           </div>
         )}

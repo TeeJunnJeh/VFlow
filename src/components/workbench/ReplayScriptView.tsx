@@ -3,13 +3,22 @@ import { Clapperboard, Link2, UploadCloud, Wand2, Loader2, Sparkles } from 'luci
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
+import { AppDialog } from '../common/AppDialog';
 import { videoApi, type ReplayReverseScriptData } from '../../services/video';
+import {
+  loadWorkbenchProjectStore,
+  WORKBENCH_NEW_PROJECT_TARGET,
+  type WorkbenchProjectMeta,
+} from '../../utils/workbenchProjectStore';
 
 export type ReplayReusePayload = {
   prompt: string;
   referenceScript: string;
   productCategory: string;
   coreSellingPoints: string;
+  targetProjectId?: string | null;
+  createNewProject?: boolean;
+  newProjectName?: string;
 };
 
 type ReplayParseResult = {
@@ -37,6 +46,11 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
   const [errorMessage, setErrorMessage] = useState('');
   const [isParsing, setIsParsing] = useState(false);
   const [result, setResult] = useState<ReplayParseResult | null>(null);
+  const [isApplyDialogOpen, setIsApplyDialogOpen] = useState(false);
+  const [applyProjectOptions, setApplyProjectOptions] = useState<WorkbenchProjectMeta[]>([]);
+  const [applyCurrentProjectId, setApplyCurrentProjectId] = useState('');
+  const [applyTargetProjectId, setApplyTargetProjectId] = useState('');
+  const [applyProjectName, setApplyProjectName] = useState('');
 
   const canParse = useMemo(() => videoUrl.trim().length > 0 || Boolean(uploadedFile), [videoUrl, uploadedFile]);
 
@@ -50,6 +64,40 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
   };
 
   const mimicPromptPrefix = t.replay_mimic_prompt_prefix || '模仿下面的语言风格，为xx产品生成相近风格的提示词：';
+
+  const buildReusePayload = (parseResult: ReplayParseResult): ReplayReusePayload => ({
+    prompt: parseResult.suggestedPrompt,
+    referenceScript: buildReuseReferenceScript(parseResult),
+    productCategory: parseResult.suggestedCategory,
+    coreSellingPoints: parseResult.suggestedSellingPoints,
+  });
+
+  const openReuseToWorkbenchDialog = () => {
+    if (!result) return;
+    const store = loadWorkbenchProjectStore(user?.id ?? null);
+    const sortedProjects = [...store.projects].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+
+    setApplyProjectOptions(sortedProjects);
+    setApplyCurrentProjectId(store.currentProjectId || sortedProjects[0]?.id || '');
+    setApplyTargetProjectId(store.currentProjectId || sortedProjects[0]?.id || '');
+    setApplyProjectName('');
+    setIsApplyDialogOpen(true);
+  };
+
+  const confirmReuseToWorkbench = () => {
+    if (!result) return;
+
+    const createNewProject = applyTargetProjectId === WORKBENCH_NEW_PROJECT_TARGET;
+    const targetProjectId = createNewProject ? null : (String(applyTargetProjectId || '').trim() || null);
+
+    onReuseToWorkbench({
+      ...buildReusePayload(result),
+      targetProjectId,
+      createNewProject,
+      newProjectName: createNewProject ? (String(applyProjectName || '').trim() || undefined) : undefined,
+    });
+    setIsApplyDialogOpen(false);
+  };
 
   const normalizeReplayResult = (data: ReplayReverseScriptData, source: string): ReplayParseResult => {
     const fallbackTags = [
@@ -106,10 +154,6 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
         formData.append('video_file', uploadedFile as File);
         formData.append('user_language', language);
         response = await videoApi.reverseScriptFromVideo(user.id, formData);
-      }
-
-      if (response?.code !== undefined && response.code !== 0) {
-        throw new Error(response?.message || (t.replay_error_failed || 'Replay analysis failed.'));
       }
 
       const payload = response?.data;
@@ -244,14 +288,7 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
               <button
                 type="button"
                 className="px-4 py-2 rounded-xl text-sm font-bold border border-emerald-500/40 text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 transition flex items-center gap-2"
-                onClick={() =>
-                  onReuseToWorkbench({
-                    prompt: result.suggestedPrompt,
-                    referenceScript: buildReuseReferenceScript(result),
-                    productCategory: result.suggestedCategory,
-                    coreSellingPoints: result.suggestedSellingPoints,
-                  })
-                }
+                onClick={openReuseToWorkbenchDialog}
               >
                 <Sparkles className="w-4 h-4" />
                 {t.replay_btn_reuse_to_workbench || '复用到工作台'}
@@ -260,6 +297,61 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
           </div>
         )}
       </div>
+
+      <AppDialog
+        isOpen={isApplyDialogOpen}
+        title={t.replay_btn_reuse_to_workbench || '复用到工作台'}
+        onClose={() => setIsApplyDialogOpen(false)}
+        widthClassName="max-w-md"
+        footer={(
+          <>
+            <button
+              type="button"
+              className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+              onClick={() => setIsApplyDialogOpen(false)}
+            >
+              {t.wb_confirm_cancel || 'Cancel'}
+            </button>
+            <button
+              type="button"
+              className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-500"
+              onClick={confirmReuseToWorkbench}
+            >
+              {t.hist_img_apply_confirm || 'Apply'}
+            </button>
+          </>
+        )}
+      >
+        <div className="space-y-4">
+          <div>
+            <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_img_apply_select_workspace || '选择工作台'}</div>
+            <select
+              value={applyTargetProjectId}
+              onChange={(e) => setApplyTargetProjectId(e.target.value)}
+              className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
+            >
+              {applyProjectOptions.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}{project.id === applyCurrentProjectId ? ` (${t.hist_img_apply_current_workspace || '当前'})` : ''}
+                </option>
+              ))}
+              <option value={WORKBENCH_NEW_PROJECT_TARGET}>{t.hist_img_apply_create_new_workspace || '新建工作台'}</option>
+            </select>
+          </div>
+
+          {applyTargetProjectId === WORKBENCH_NEW_PROJECT_TARGET && (
+            <div>
+              <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_img_apply_project_name || '工程名称'}</div>
+              <input
+                value={applyProjectName}
+                onChange={(e) => setApplyProjectName(e.target.value)}
+                className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
+                maxLength={30}
+              />
+            </div>
+          )}
+        </div>
+      </AppDialog>
     </div>
   );
 };

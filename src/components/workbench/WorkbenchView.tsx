@@ -233,6 +233,8 @@ type ProjectWorkspaceState = {
   videoType: string;
   aspectRatio: '9:16' | '16:9' | '1:1';
   hasAiRecognized: boolean;
+  recognizedProductSourceSignature: string;
+  needsAiReRecognize: boolean;
   genPrompt: string;
   referenceScript: string;
   genDuration: number;
@@ -372,6 +374,8 @@ const createWorkspaceState = (params?: {
   videoType: prefs.videoType || '',
   aspectRatio: prefs.aspectRatio === '16:9' ? '16:9' : (prefs.aspectRatio === '1:1' ? '1:1' : '9:16'),
     hasAiRecognized: false,
+    recognizedProductSourceSignature: '',
+    needsAiReRecognize: false,
     genPrompt: '',
     referenceScript: '',
     genDuration: prefs.genDuration || 10,
@@ -495,6 +499,21 @@ const inferMediaKind = (value: { name?: string | null; url?: string | null; type
   return 'file';
 };
 
+const buildProductRecognitionSourceSignature = (assets: QueuedAsset[]): string => {
+  const entries = assets
+    .filter((asset) => asset.materialType === 'product' && asset.mediaKind === 'image')
+    .map((asset) => {
+      const path = String(asset.uploadedPath || asset.assetUrl || asset.previewUrl || '').trim();
+      const fileName = String(asset.fileObj?.name || '').trim();
+      const fileSize = Number(asset.fileObj?.size || 0);
+      const fileLastModified = Number(asset.fileObj?.lastModified || 0);
+      return `${asset.id}::${path}::${fileName}::${fileSize}::${fileLastModified}`;
+    })
+    .sort();
+
+  return entries.join('|');
+};
+
 // 增加前端图片压缩函数
 const compressImage = async (file: File, maxWidth = 1920, maxHeight = 1920, quality = 0.8): Promise<File> => {
   if (!file.type.startsWith('image/')) return file;
@@ -595,8 +614,9 @@ interface WorkbenchViewProps {
   initialLibraryAsset?: LibraryAsset | null;
   initialLibraryAssetToken?: string | null;
   initialLibraryAssetMode?: 'library_asset' | 'background_audio';
+  initialLibraryAssetTargetProjectId?: string | null;
   onInitialLibraryAssetHandled?: () => void;
-  initialTransferRole?: 'first_frame' | null;
+  initialTransferRole?: 'first_frame' | 'asset_apply' | 'replay_apply' | null;
   initialTransferProjectName?: string | null;
   initialTransferModel?: 'sora2' | 'sora2pro' | 'seedance2.0' | null;
   onTransferRoleHandled?: () => void;
@@ -618,6 +638,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                                               initialLibraryAsset,
                                                               initialLibraryAssetToken,
                                                               initialLibraryAssetMode,
+                                                              initialLibraryAssetTargetProjectId,
                                                               onInitialLibraryAssetHandled,
                                                               initialTransferRole,
                                                               initialTransferProjectName,
@@ -812,21 +833,73 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   useEffect(() => {
     if (!replayReusePayload) return;
-    const nextCategory = String(replayReusePayload.productCategory || '').trim();
-    const nextSellingPoints = String(replayReusePayload.coreSellingPoints || '').trim();
-    const nextPrompt = String(replayReusePayload.prompt || '').trim();
-    const nextReferenceScript = String(replayReusePayload.referenceScript || replayReusePayload.prompt || '').trim();
+    if (initialTransferRole === 'replay_apply') return;
 
-    if (nextCategory) setProductCategory(nextCategory);
-    if (nextSellingPoints) setCoreSellingPoints(nextSellingPoints);
-    if (nextPrompt) setGenPrompt(nextPrompt);
-    if (nextReferenceScript) setReferenceScript(nextReferenceScript);
-    setCreationMode('replay');
-    setSelectedModel('seedance2.0');
+    const applyReplayPayload = () => {
+      const nextCategory = String(replayReusePayload.productCategory || '').trim();
+      const nextSellingPoints = String(replayReusePayload.coreSellingPoints || '').trim();
+      const nextPrompt = String(replayReusePayload.prompt || '').trim();
+      const nextReferenceScript = String(replayReusePayload.referenceScript || replayReusePayload.prompt || '').trim();
 
-    setToastMessage(t.wb_replay_applied_to_workbench || '复刻结果已带入工作台，可继续上传图片并生成新脚本。');
-    onReplayReusePayloadHandled?.();
-  }, [onReplayReusePayloadHandled, replayReusePayload, setSelectedModel, t.wb_replay_applied_to_workbench]);
+      if (nextCategory) setProductCategory(nextCategory);
+      if (nextSellingPoints) setCoreSellingPoints(nextSellingPoints);
+      if (nextPrompt) setGenPrompt(nextPrompt);
+      if (nextReferenceScript) setReferenceScript(nextReferenceScript);
+      setCreationMode('replay');
+      setSelectedModel('seedance2.0');
+
+      setToastMessage(t.wb_replay_applied_to_workbench || '复刻结果已带入工作台，可继续上传图片并生成新脚本。');
+      onReplayReusePayloadHandled?.();
+    };
+
+    const targetProjectId = String(replayReusePayload.targetProjectId || '').trim();
+    if (targetProjectId && targetProjectId !== projectStore.currentProjectId) {
+      setProjectStore((prev) => {
+        const now = Date.now();
+        const hasProject = prev.projects.some((project) => project.id === targetProjectId);
+        const hasWorkspace = !!prev.workspaces[targetProjectId];
+
+        const projects = hasProject
+          ? prev.projects
+          : [{
+            id: targetProjectId,
+            name: ensureUniqueProjectName(`Project ${targetProjectId.slice(0, 6)}`, prev.projects),
+            updatedAt: now,
+            createdAt: now,
+          }, ...prev.projects];
+
+        const workspaces = hasWorkspace
+          ? prev.workspaces
+          : {
+            ...prev.workspaces,
+            [targetProjectId]: createWorkspaceState({
+              scriptPagePrefix: t.wb_script_page_prefix,
+              userId: user?.id ?? null,
+            }),
+          };
+
+        return {
+          ...prev,
+          currentProjectId: targetProjectId,
+          projects,
+          workspaces,
+        };
+      });
+
+      window.setTimeout(applyReplayPayload, 460);
+      return;
+    }
+
+    applyReplayPayload();
+  }, [
+    initialTransferRole,
+    onReplayReusePayloadHandled,
+    replayReusePayload,
+    setSelectedModel,
+    t.wb_replay_applied_to_workbench,
+    t.wb_script_page_prefix,
+    user?.id,
+  ]);
 
   const productNameFieldRef = useRef<HTMLInputElement | null>(null);
   const productCategoryFieldRef = useRef<HTMLDivElement | null>(null);
@@ -849,6 +922,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isModelSectionCollapsed, setIsModelSectionCollapsed] = useState(false);
   const [isAiRecognizing, setIsAiRecognizing] = useState(false);
   const [hasAiRecognized, setHasAiRecognized] = useState(false);
+  const [recognizedProductSourceSignature, setRecognizedProductSourceSignature] = useState('');
+  const [needsAiReRecognize, setNeedsAiReRecognize] = useState(false);
 
   useEffect(() => {
     if (soundSetting !== 'off') {
@@ -1017,6 +1092,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [aiOptimizeStyleStrength, setAiOptimizeStyleStrength] = useState(60);
   const [aiOptimizeCount, setAiOptimizeCount] = useState(2);
   const [isAiOptimizeGenerating, setIsAiOptimizeGenerating] = useState(false);
+  const [isAiOptimizePromptGenerating, setIsAiOptimizePromptGenerating] = useState(false);
   const [aiOptimizeResults, setAiOptimizeResults] = useState<Array<{ id: string; url: string }>>([]);
   const [projectStore, setProjectStore] = useState<LocalProjectStore>(() => loadLocalProjectStore(user?.id ?? null));
   const [projectStoreOwner, setProjectStoreOwner] = useState<string>(() => getLocalProjectStoreOwner(user?.id ?? null));
@@ -1438,6 +1514,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           : (initialPrefs.aspectRatio === '16:9' ? '16:9' : (initialPrefs.aspectRatio === '1:1' ? '1:1' : '9:16')))
     );
     setHasAiRecognized(!!workspace.hasAiRecognized);
+    setRecognizedProductSourceSignature(String(workspace.recognizedProductSourceSignature || ''));
+    setNeedsAiReRecognize(!!workspace.needsAiReRecognize);
     setGenPrompt(workspace.genPrompt || '');
     setReferenceScript(workspace.referenceScript || '');
     setGenDuration(normalizeDurationForModel(
@@ -1812,9 +1890,34 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (initialTransferRole || initialTransferModel) return;
     if (injectedAssetSignaturesRef.current.has(initialLibraryAssetToken)) return;
     injectedAssetSignaturesRef.current.add(initialLibraryAssetToken);
-    queueLibraryAssetIntoWorkbench(initialLibraryAsset, { preferLastModeRouting: true });
-    onInitialLibraryAssetHandled?.();
-  }, [initialLibraryAsset, initialLibraryAssetMode, initialLibraryAssetToken, isRestoring, onInitialLibraryAssetHandled, queueLibraryAssetIntoWorkbench, initialTransferRole, initialTransferModel]);
+
+    const injectAssetIntoCurrentProject = () => {
+      queueLibraryAssetIntoWorkbench(initialLibraryAsset, { preferLastModeRouting: true });
+      onInitialLibraryAssetHandled?.();
+    };
+
+    const targetProjectId = String(initialLibraryAssetTargetProjectId || '').trim();
+    if (targetProjectId && targetProjectId !== projectStore.currentProjectId) {
+      ensureProjectInStore(targetProjectId);
+      goToProject(targetProjectId, injectAssetIntoCurrentProject);
+      return;
+    }
+
+    injectAssetIntoCurrentProject();
+  }, [
+    ensureProjectInStore,
+    goToProject,
+    initialLibraryAsset,
+    initialLibraryAssetMode,
+    initialLibraryAssetTargetProjectId,
+    initialLibraryAssetToken,
+    initialTransferModel,
+    initialTransferRole,
+    isRestoring,
+    onInitialLibraryAssetHandled,
+    projectStore.currentProjectId,
+    queueLibraryAssetIntoWorkbench,
+  ]);
 
   // Switch model and create a new project when a transfer comes from ImageHistoryPanel "apply to workbench"
   //
@@ -1831,8 +1934,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!initialTransferRole && !initialTransferModel) return;
 
     // 1. Create a new project first (this triggers applyWorkspaceState which blanks everything)
-    if (initialTransferProjectName) {
-      createNewProject(initialTransferProjectName);
+    if (initialTransferRole) {
+      createNewProject(initialTransferProjectName || projectUiText.defaultProjectName);
     }
 
     // 2. Poll until applyWorkspaceState finishes (isApplyingProjectWorkspaceRef becomes false)
@@ -1850,22 +1953,51 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         setSelectedModel(initialTransferModel);
       }
 
-      // 2b. Inject the asset that was set in selectedAssetForWorkbench by Workbench.tsx
-      if (initialLibraryAsset && initialLibraryAssetToken) {
-        // Reset the dedup set so this token can be consumed after the workspace reset
-        injectedAssetSignaturesRef.current.delete(initialLibraryAssetToken);
-        queueLibraryAssetIntoWorkbench(initialLibraryAsset, { preferLastModeRouting: true });
-        // Also mark the asset as handled so the normal injection effect doesn't fire again
-        onInitialLibraryAssetHandled?.();
+      const finalizeTransfer = () => {
+        onTransferRoleHandled?.();
+      };
+
+      const injectTransferredAsset = () => {
+        // 2b. Inject the asset that was set in selectedAssetForWorkbench by Workbench.tsx
+        if (initialLibraryAsset && initialLibraryAssetToken) {
+          // Reset the dedup set so this token can be consumed after the workspace reset
+          injectedAssetSignaturesRef.current.delete(initialLibraryAssetToken);
+          queueLibraryAssetIntoWorkbench(initialLibraryAsset, { preferLastModeRouting: true });
+          // Also mark the asset as handled so the normal injection effect doesn't fire again
+          onInitialLibraryAssetHandled?.();
+        }
+        // 2c. Clear the transfer signals
+        finalizeTransfer();
+      };
+
+      const targetProjectId = String(initialLibraryAssetTargetProjectId || '').trim();
+      if (targetProjectId && targetProjectId !== projectStore.currentProjectId) {
+        ensureProjectInStore(targetProjectId);
+        goToProject(targetProjectId, injectTransferredAsset);
+        return;
       }
 
-      // 2c. Clear the transfer signals
-      onTransferRoleHandled?.();
+      injectTransferredAsset();
     }, POLL_INTERVAL);
 
     return () => window.clearInterval(poller);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialTransferRole, initialTransferModel]);
+  }, [
+    ensureProjectInStore,
+    goToProject,
+    initialLibraryAsset,
+    initialLibraryAssetTargetProjectId,
+    initialLibraryAssetToken,
+    initialTransferModel,
+    initialTransferProjectName,
+    initialTransferRole,
+    projectUiText.defaultProjectName,
+    onInitialLibraryAssetHandled,
+    onTransferRoleHandled,
+    projectStore.currentProjectId,
+    queueLibraryAssetIntoWorkbench,
+    setSelectedModel,
+  ]);
 
   useEffect(() => {
     if (initialLibraryAsset) return;
@@ -2011,6 +2143,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       videoType,
       aspectRatio,
       hasAiRecognized,
+      recognizedProductSourceSignature,
+      needsAiReRecognize,
       genPrompt,
       referenceScript,
       genDuration,
@@ -2061,6 +2195,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     videoType,
     aspectRatio,
     hasAiRecognized,
+    recognizedProductSourceSignature,
+    needsAiReRecognize,
     genPrompt,
     referenceScript,
     genDuration,
@@ -2820,6 +2956,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     selectedFileObj,
     uploadedFile,
   ]);
+  const currentProductRecognitionSourceSignature = useMemo(
+    () => buildProductRecognitionSourceSignature(uploadDisplayAssets),
+    [uploadDisplayAssets]
+  );
   const seedanceReplayUploadAssets = useMemo<SeedanceReplayUploadAsset[]>(() => (
     uploadDisplayAssets.flatMap((asset) => {
       if (asset.mediaKind !== 'image' && asset.mediaKind !== 'video' && asset.mediaKind !== 'audio') {
@@ -2915,6 +3055,55 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     selectedQueueAssetId,
     t.wb_ai_opt_need_image,
     uploadedFile,
+  ]);
+  const handleBuildAiOptimizePromptScript = useCallback(async () => {
+    const selected = aiOptimizeImageCandidates.find((item) => item.id === aiOptimizeReferenceId) || null;
+    const fallbackPrompt = buildAiOptimizePromptScript(selected);
+
+    setIsAiOptimizePromptGenerating(true);
+    try {
+      const resp = await videoApi.generateOptimizedPromptScript({
+        raw_prompt: fallbackPrompt,
+        reference_name: String(selected?.name || '').trim() || undefined,
+        product_name: String(productName || '').trim() || undefined,
+        product_category: String(aiOptimizeCategory || productCategory || '').trim() || undefined,
+        core_selling_points: String(coreSellingPoints || '').trim() || undefined,
+        keyword_tags: aiOptimizeKeywords,
+        output_language: language,
+        sound: soundSetting,
+      });
+
+      const body = resp?.data || resp?.result || resp;
+      const promptScript = String(body?.prompt_script || body?.prompt || body?.kling_prompt || '').trim();
+      if (!promptScript) {
+        setAiOptimizePrompt(fallbackPrompt);
+        openInfo(popupTitles.notice, t.wb_ai_opt_prompt_empty || '后端未返回提示词脚本，已使用默认草稿。');
+        return;
+      }
+
+      setAiOptimizePrompt(promptScript);
+    } catch (err) {
+      const message = err instanceof Error && err.message.trim()
+        ? err.message.trim()
+        : (t.wb_ai_opt_prompt_empty || '提示词脚本生成失败，请稍后重试。');
+      openInfo(popupTitles.notice, message);
+    } finally {
+      setIsAiOptimizePromptGenerating(false);
+    }
+  }, [
+    aiOptimizeCategory,
+    aiOptimizeImageCandidates,
+    aiOptimizeKeywords,
+    aiOptimizeReferenceId,
+    buildAiOptimizePromptScript,
+    coreSellingPoints,
+    language,
+    openInfo,
+    popupTitles.notice,
+    productCategory,
+    productName,
+    soundSetting,
+    t.wb_ai_opt_prompt_empty,
   ]);
   const openSeedanceReplayLibraryPicker = useCallback((targetMediaKind?: SeedanceReplayMediaKind | null) => {
     const nextIntent = getSeedanceReplayLibraryIntent(targetMediaKind);
@@ -3497,6 +3686,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return paths;
   }, [extractUploadedAssetPath, getProductRecognitionSources]);
 
+  useEffect(() => {
+    if (!hasAiRecognized) {
+      if (needsAiReRecognize) setNeedsAiReRecognize(false);
+      return;
+    }
+
+    if (!recognizedProductSourceSignature) {
+      if (needsAiReRecognize) setNeedsAiReRecognize(false);
+      return;
+    }
+
+    const nextDirty = currentProductRecognitionSourceSignature !== recognizedProductSourceSignature;
+    if (nextDirty !== needsAiReRecognize) {
+      setNeedsAiReRecognize(nextDirty);
+    }
+  }, [
+    currentProductRecognitionSourceSignature,
+    hasAiRecognized,
+    needsAiReRecognize,
+    recognizedProductSourceSignature,
+  ]);
+
   const handleResizeMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -3640,7 +3851,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           setTargetAudience(nextAudience);
           setProductInfoTouched({ name: false, category: false, sellingPoints: false, audience: false });
 
+          const recognizedSignature = imagePaths
+            .map((item) => String(item || '').trim())
+            .filter(Boolean)
+            .sort()
+            .join('|');
+
           setHasAiRecognized(true);
+          setRecognizedProductSourceSignature(recognizedSignature);
+          setNeedsAiReRecognize(false);
         } catch (err: any) {
           openErrorModal(err, { category: 'recognize_failed' });
         } finally {
@@ -6686,12 +6905,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   }
                   void handleAiRecognize();
                 }}
-                className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border ${isAiRecognizing || getProductRecognitionSources().length === 0 ? 'border-white/10 bg-black/30 text-zinc-600 opacity-70 hover:bg-black/30' : 'border-orange-500/40 bg-orange-500/10 text-orange-300 hover:bg-orange-500/20'}`}
+                className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border ${isAiRecognizing || getProductRecognitionSources().length === 0 ? 'border-white/10 bg-black/30 text-zinc-600 opacity-70 hover:bg-black/30' : needsAiReRecognize ? 'border-amber-500/50 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20' : 'border-orange-500/40 bg-orange-500/10 text-orange-300 hover:bg-orange-500/20'}`}
             >
               {isAiRecognizing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
               {isAiRecognizing ? t.wb_ai_recognizing_btn : t.wb_ai_recognize_btn}
+              {needsAiReRecognize && !isAiRecognizing && <AlertCircle className="w-3.5 h-3.5 text-amber-300" />}
             </button>
           </div>
+
+          {needsAiReRecognize && (
+            <div className="-mt-1 text-[10px] text-amber-300 font-medium">
+              {t.wb_ai_recognize_dirty_hint || '素材已变更，请重新执行 AI 识别。'}
+            </div>
+          )}
 
           <div className="flex flex-col gap-4">
             <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
@@ -8611,13 +8837,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_prompt_label || '提示词脚本'}</label>
                     <button
                         type="button"
-                        onClick={() => {
-                          const selected = aiOptimizeImageCandidates.find((item) => item.id === aiOptimizeReferenceId) || null;
-                          setAiOptimizePrompt(buildAiOptimizePromptScript(selected));
-                        }}
-                        className="text-[11px] px-2 py-1 rounded border border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20"
+                        onClick={() => void handleBuildAiOptimizePromptScript()}
+                        disabled={isAiOptimizePromptGenerating}
+                        className={`text-[11px] px-2 py-1 rounded border transition ${isAiOptimizePromptGenerating ? 'border-orange-500/30 bg-orange-500/5 text-orange-200/70 cursor-not-allowed' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
                     >
-                      {t.wb_ai_opt_build_prompt_btn || '生成提示词脚本'}
+                      {isAiOptimizePromptGenerating
+                        ? (t.wb_ai_opt_prompt_generating || '生成中...')
+                        : (t.wb_ai_opt_build_prompt_btn || '生成提示词脚本')}
                     </button>
                   </div>
                   <textarea

@@ -14,6 +14,24 @@ interface ProductImagesViewProps {
   setActiveView: (view: ViewType) => void;
 }
 
+type GalleryHistorySettings = {
+  targetScene: string;
+  style: string;
+  aspectRatio: string;
+  resolution: string;
+  productName: string;
+  productCategory: string;
+  sellingPoints: string[];
+  typeSelections: Record<string, { enabled: boolean; count: number }>;
+};
+
+type GalleryHistoryItem = {
+  id: string;
+  createdAt: string;
+  images: string[];
+  settings?: GalleryHistorySettings;
+};
+
 const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setActiveView }) => {
   const { language, t } = useLanguage();
   const isZh = language === 'zh';
@@ -79,7 +97,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     message: '',
   });
   const [galleryRightPanel, setGalleryRightPanel] = useState<'preview' | 'history'>('preview');
-  const [galleryHistoryItems, setGalleryHistoryItems] = useState<Array<{ id: string; createdAt: string; images: string[] }>>([]);
+  const [galleryHistoryItems, setGalleryHistoryItems] = useState<GalleryHistoryItem[]>([]);
   const [isGalleryHistoryManaging, setIsGalleryHistoryManaging] = useState(false);
   const [galleryHistorySelectedKeys, setGalleryHistorySelectedKeys] = useState<string[]>([]);
   const [isGalleryGenerating, setIsGalleryGenerating] = useState(false);
@@ -194,7 +212,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           if (images.length === item.images.length) return item;
           return { ...item, images };
         })
-        .filter(Boolean) as Array<{ id: string; createdAt: string; images: string[] }>;
+        .filter(Boolean) as GalleryHistoryItem[];
 
       try {
         localStorage.setItem(GALLERY_HISTORY_KEY, JSON.stringify(next));
@@ -251,7 +269,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           const settings = item?.settings && typeof item.settings === 'object' ? item.settings : undefined;
           return { id, createdAt, images, settings };
         })
-        .filter(Boolean) as Array<{ id: string; createdAt: string; images: string[]; settings?: { targetScene: string; style: string; aspectRatio: string; resolution: string; productName: string; productCategory: string; sellingPoints: string[]; typeSelections: Record<string, { enabled: boolean; count: number }> } }>;
+        .filter(Boolean) as GalleryHistoryItem[];
       setGalleryHistoryItems(normalized);
     } catch {
       setGalleryHistoryItems([]);

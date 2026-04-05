@@ -683,7 +683,7 @@ export const videoApi = {
   }) => {
     const csrftoken = getCookie('csrftoken');
 
-    const response = await fetch(`${API_BASE_URL}/generate-image/`, {
+    const response = await fetch(`${API_BASE_URL}/generate_optimized_image`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -696,6 +696,37 @@ export const videoApi = {
 
     if (!response.ok) {
       const fallback = `Image optimization failed: ${response.status} ${response.statusText || ''}`.trim();
+      throw await parseApiError(response, fallback);
+    }
+
+    return await response.json();
+  },
+
+  generateOptimizedPromptScript: async (payload: {
+    raw_prompt?: string;
+    reference_name?: string;
+    product_name?: string;
+    product_category?: string;
+    core_selling_points?: string;
+    keyword_tags?: string[];
+    output_language?: string;
+    sound?: 'on' | 'off';
+  }) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/generate_prompt_script`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload || {}),
+    });
+
+    if (!response.ok) {
+      const fallback = `Prompt script generation failed: ${response.status} ${response.statusText || ''}`.trim();
       throw await parseApiError(response, fallback);
     }
 

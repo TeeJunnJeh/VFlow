@@ -7,7 +7,13 @@ import { useAuth } from '../../context/AuthContext'
 import { assetsApi, type Asset, type AssetFolder, type PlazaAssetItem, type PlazaCollectPolicy } from '../../services/assets';
 import { videoApi } from '../../services/video';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
+import { AppDialog } from '../common/AppDialog';
 import { getSubjectGuideContent } from './subjectGuideContent';
+import {
+  loadWorkbenchProjectStore,
+  WORKBENCH_NEW_PROJECT_TARGET,
+  type WorkbenchProjectMeta,
+} from '../../utils/workbenchProjectStore';
 
 type AssetType = 'model' | 'product' | 'scene' | 'motion' | 'audio';
 type AssetsNavigationIntent =
@@ -16,7 +22,7 @@ type AssetsNavigationIntent =
   | null;
 
 interface AssetsViewProps {
-  onSelectAsset: (asset: Asset) => void;
+  onSelectAsset: (asset: Asset, options?: { targetProjectId?: string | null; createNewProject?: boolean; newProjectName?: string }) => void;
   currentFolderId: string | null;
   setCurrentFolderId: (id: string | null) => void;
   navigationIntent?: AssetsNavigationIntent;
@@ -48,7 +54,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   onSubjectGuideCompleted,
 }) => {
   const { t, language } = useLanguage();
-  const { updateUser } = useAuth();
+  const { updateUser, user } = useAuth();
   const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
   const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
   const VIDEO_EXTS = ['mp4', 'mov', 'mkv', 'webm', 'avi'];
@@ -214,6 +220,47 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const renameIgnoreBlurRef = useRef(false);
   const suppressPreviewClickUntilRef = useRef<number>(0);
   const suppressDragUntilRef = useRef<number>(0);
+
+  const [applyWorkbenchAsset, setApplyWorkbenchAsset] = useState<Asset | null>(null);
+  const [applyProjectOptions, setApplyProjectOptions] = useState<WorkbenchProjectMeta[]>([]);
+  const [applyCurrentProjectId, setApplyCurrentProjectId] = useState('');
+  const [applyTargetProjectId, setApplyTargetProjectId] = useState('');
+  const [applyProjectName, setApplyProjectName] = useState('');
+
+  const openApplyWorkbenchDialog = useCallback((asset: Asset) => {
+    const store = loadWorkbenchProjectStore(user?.id ?? null);
+    const sortedProjects = [...store.projects].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+
+    setApplyWorkbenchAsset(asset);
+    setApplyProjectOptions(sortedProjects);
+    setApplyCurrentProjectId(store.currentProjectId || sortedProjects[0]?.id || '');
+    setApplyTargetProjectId(store.currentProjectId || sortedProjects[0]?.id || '');
+    setApplyProjectName('');
+  }, [user?.id]);
+
+  const closeApplyWorkbenchDialog = useCallback(() => {
+    setApplyWorkbenchAsset(null);
+    setApplyProjectName('');
+  }, []);
+
+  const confirmApplyWorkbenchDialog = useCallback(() => {
+    if (!applyWorkbenchAsset) return;
+
+    const createNewProject = applyTargetProjectId === WORKBENCH_NEW_PROJECT_TARGET;
+    const targetProjectId = createNewProject ? null : (String(applyTargetProjectId || '').trim() || null);
+    onSelectAsset(applyWorkbenchAsset, {
+      targetProjectId,
+      createNewProject,
+      newProjectName: createNewProject ? (String(applyProjectName || '').trim() || undefined) : undefined,
+    });
+    closeApplyWorkbenchDialog();
+  }, [
+    applyProjectName,
+    applyTargetProjectId,
+    applyWorkbenchAsset,
+    closeApplyWorkbenchDialog,
+    onSelectAsset,
+  ]);
   
   // --- Modal States ---
   
@@ -2026,7 +2073,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                             {/* Hover actions (under info bar) */}
                             {!isSelectionMode && (
                               <div className="absolute inset-0 z-10 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-xl flex flex-col items-center justify-center gap-2 py-4 px-2">
-                                <button onClick={(e) => { e.stopPropagation(); onSelectAsset(asset); }} className="w-full bg-white text-black py-2 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition shadow-lg">{t.assets_use_in_workbench}</button>
+                                <button onClick={(e) => { e.stopPropagation(); openApplyWorkbenchDialog(asset); }} className="w-full bg-white text-black py-2 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition shadow-lg">{t.assets_use_in_workbench}</button>
                                 <div className="flex w-full gap-2">
                                   <button onClick={(e) => { e.stopPropagation(); openSingleMoveDialog(asset); }} className="flex-1 bg-zinc-700 text-white py-2 rounded-lg text-xs font-bold hover:bg-zinc-600 transition">{t.assets_move_asset}</button>
                                   <button onClick={(e) => { e.stopPropagation(); openConfirmModal({ title: t.assets_confirm_delete_asset, message: `${asset.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => deleteAssetById(asset.id) }); }} className="flex-1 bg-zinc-800 text-red-400 py-2 rounded-lg text-xs font-bold hover:bg-red-500 hover:text-white transition">{t.assets_delete}</button>
@@ -2483,6 +2530,61 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
             </div>
           </div>
         )}
+
+        <AppDialog
+          isOpen={!!applyWorkbenchAsset}
+          title={t.assets_use_in_workbench || '用于工作台'}
+          onClose={closeApplyWorkbenchDialog}
+          widthClassName="max-w-md"
+          footer={(
+            <>
+              <button
+                type="button"
+                className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                onClick={closeApplyWorkbenchDialog}
+              >
+                {t.assets_move_cancel || 'Cancel'}
+              </button>
+              <button
+                type="button"
+                className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-500"
+                onClick={confirmApplyWorkbenchDialog}
+              >
+                {t.hist_img_apply_confirm || 'Apply'}
+              </button>
+            </>
+          )}
+        >
+          <div className="space-y-4">
+            <div>
+              <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_img_apply_select_workspace || '选择工作台'}</div>
+              <select
+                value={applyTargetProjectId}
+                onChange={(e) => setApplyTargetProjectId(e.target.value)}
+                className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
+              >
+                {applyProjectOptions.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}{project.id === applyCurrentProjectId ? ` (${t.hist_img_apply_current_workspace || '当前'})` : ''}
+                  </option>
+                ))}
+                <option value={WORKBENCH_NEW_PROJECT_TARGET}>{t.hist_img_apply_create_new_workspace || '新建工作台'}</option>
+              </select>
+            </div>
+
+            {applyTargetProjectId === WORKBENCH_NEW_PROJECT_TARGET && (
+              <div>
+                <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_img_apply_project_name || '工程名称'}</div>
+                <input
+                  value={applyProjectName}
+                  onChange={(e) => setApplyProjectName(e.target.value)}
+                  className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
+                  maxLength={30}
+                />
+              </div>
+            )}
+          </div>
+        </AppDialog>
 
         {subjectPreviewImage && (
           <div className="fixed inset-0 z-[111] flex items-center justify-center bg-black/80 backdrop-blur-sm p-6" onClick={() => setSubjectPreviewImage(null)}>

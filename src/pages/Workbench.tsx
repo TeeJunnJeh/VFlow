@@ -28,6 +28,11 @@ type AssetsNavigationIntent =
   | null;
 
 type WorkbenchAssetSelectionMode = 'library_asset' | 'background_audio';
+type WorkbenchApplyOptions = {
+  targetProjectId?: string | null;
+  createNewProject?: boolean;
+  newProjectName?: string;
+};
 const FIRST_FRAME_TRANSFER_KEY = 'vflow_apply_first_frame';
 
 // Helper to get display URL for asset passing
@@ -52,6 +57,7 @@ const Workbench = () => {
     asset: LibraryAsset;
     token: string;
     mode: WorkbenchAssetSelectionMode;
+    targetProjectId?: string | null;
   } | null>(null);
 
   // --- Template State ---
@@ -168,7 +174,21 @@ const Workbench = () => {
   };
 
   // --- Event Handlers ---
-  const handleAssetSelect = (asset: LibraryAsset) => {
+  const handleAssetSelect = (asset: LibraryAsset, options?: WorkbenchApplyOptions) => {
+    const createNewProject = options?.createNewProject === true;
+    const normalizedTargetProjectId = String(options?.targetProjectId || '').trim() || null;
+    const normalizedNewProjectName = String(options?.newProjectName || '').trim();
+
+    if (createNewProject) {
+      setTransferRole('asset_apply');
+      setTransferProjectName(normalizedNewProjectName || null);
+      setTransferModel(null);
+    } else {
+      setTransferRole(null);
+      setTransferProjectName(null);
+      setTransferModel(null);
+    }
+
     setSelectedAssetForWorkbench({
       asset: {
         ...asset,
@@ -176,6 +196,7 @@ const Workbench = () => {
       },
       token: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       mode: asset.media_kind === 'audio' ? 'background_audio' : 'library_asset',
+      targetProjectId: createNewProject ? null : normalizedTargetProjectId,
     });
     setGeneratedVideoUrl(null);
     setActiveView('workbench');
@@ -247,6 +268,8 @@ const Workbench = () => {
         imageUrls?: string[];
         model?: string;
         newProjectName?: string;
+        targetProjectId?: string;
+        createNewProject?: boolean;
         // Legacy format (single image)
         imageUrl?: string;
         imageName?: string;
@@ -265,6 +288,11 @@ const Workbench = () => {
       // Use the first image as the workbench asset
       const primaryUrl = urls[0];
       const displayUrl = getDisplayUrl(primaryUrl) || primaryUrl;
+      const requestedTargetProjectId = String(parsed.targetProjectId || '').trim() || null;
+      const shouldCreateProject =
+        parsed.createNewProject === true
+        || (!requestedTargetProjectId && !!String(parsed.newProjectName || '').trim());
+
       setSelectedAssetForWorkbench({
         asset: {
           id: `first-frame-${Date.now()}`,
@@ -278,15 +306,23 @@ const Workbench = () => {
         },
         token: `first-frame-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         mode: 'library_asset',
+        targetProjectId: shouldCreateProject ? null : requestedTargetProjectId,
       });
 
-      // Set a transfer signal so WorkbenchView knows to create new project + inject asset
-      setTransferRole('first_frame');
-      if (parsed.newProjectName) setTransferProjectName(parsed.newProjectName);
+      // Transfer signal: create new project only when explicitly requested (or legacy payload with newProjectName only).
+      if (shouldCreateProject) {
+        setTransferRole('first_frame');
+        setTransferProjectName(String(parsed.newProjectName || '').trim() || null);
+      } else {
+        setTransferRole(null);
+        setTransferProjectName(null);
+      }
 
       // Transfer model selection (Sora-family only)
       if (parsed.model && ['sora2', 'sora2pro', 'seedance2.0'].includes(parsed.model)) {
         setTransferModel(parsed.model as 'sora2' | 'sora2pro' | 'seedance2.0');
+      } else {
+        setTransferModel(null);
       }
 
       setGeneratedVideoUrl(null);
@@ -300,7 +336,7 @@ const Workbench = () => {
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [infoTitle, setInfoTitle] = useState('');
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
-  const [transferRole, setTransferRole] = useState<'first_frame' | null>(null);
+  const [transferRole, setTransferRole] = useState<'first_frame' | 'asset_apply' | 'replay_apply' | null>(null);
   const [transferProjectName, setTransferProjectName] = useState<string | null>(null);
   const [transferModel, setTransferModel] = useState<'sora2' | 'sora2pro' | 'seedance2.0' | null>(null);
 
@@ -400,6 +436,7 @@ const Workbench = () => {
                 initialLibraryAsset={selectedAssetForWorkbench?.asset || null}
                 initialLibraryAssetToken={selectedAssetForWorkbench?.token || null}
                 initialLibraryAssetMode={selectedAssetForWorkbench?.mode || 'library_asset'}
+                initialLibraryAssetTargetProjectId={selectedAssetForWorkbench?.targetProjectId || null}
                 onInitialLibraryAssetHandled={() => setSelectedAssetForWorkbench(null)}
                 initialTransferRole={transferRole}
                 initialTransferProjectName={transferProjectName}
@@ -421,6 +458,15 @@ const Workbench = () => {
           <div className={activeView === 'replay_lab' ? 'flex-1 h-full min-h-0' : 'hidden'}>
             <ReplayScriptView
               onReuseToWorkbench={(payload) => {
+                if (payload.createNewProject) {
+                  setTransferRole('replay_apply');
+                  setTransferProjectName(String(payload.newProjectName || '').trim() || null);
+                  setTransferModel(null);
+                } else {
+                  setTransferRole(null);
+                  setTransferProjectName(null);
+                  setTransferModel(null);
+                }
                 setReplayReusePayload(payload);
                 setActiveView('workbench');
               }}

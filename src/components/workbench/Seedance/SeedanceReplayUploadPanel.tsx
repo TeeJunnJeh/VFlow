@@ -11,16 +11,33 @@ import {
   X,
 } from 'lucide-react';
 import {
+  SEEDANCE_REPLAY_AUDIO_MAX_BYTES,
   SEEDANCE_REPLAY_AUDIO_LIMIT,
+  SEEDANCE_REPLAY_AUDIO_TOTAL_BYTES_LIMIT,
+  SEEDANCE_REPLAY_DIMENSION_MAX,
+  SEEDANCE_REPLAY_DIMENSION_MIN,
+  SEEDANCE_REPLAY_DURATION_MIN,
   SEEDANCE_REPLAY_DURATION_MAX,
+  SEEDANCE_REPLAY_IMAGE_EXTS,
+  SEEDANCE_REPLAY_IMAGE_MAX_BYTES,
   SEEDANCE_REPLAY_IMAGE_LIMIT,
+  SEEDANCE_REPLAY_IMAGE_TOTAL_BYTES_LIMIT,
+  SEEDANCE_REPLAY_RATIO_MAX,
+  SEEDANCE_REPLAY_RATIO_MIN,
+  SEEDANCE_REPLAY_VIDEO_EXTS,
+  SEEDANCE_REPLAY_VIDEO_FPS_MAX,
+  SEEDANCE_REPLAY_VIDEO_FPS_MIN,
+  SEEDANCE_REPLAY_VIDEO_MAX_BYTES,
   SEEDANCE_REPLAY_VIDEO_LIMIT,
+  SEEDANCE_REPLAY_VIDEO_PIXELS_MAX,
+  SEEDANCE_REPLAY_VIDEO_PIXELS_MIN,
   type SeedanceReplayMediaKind,
   type SeedanceReplayValidationSummary,
 } from './seedanceReplayUploadRules';
 
 type SourceType = 'library' | 'local';
 type MediaKind = 'image' | 'video' | 'audio';
+type TooltipAlign = 'left' | 'center' | 'right';
 
 export type SeedanceReplayUploadAsset = {
   id: string;
@@ -41,6 +58,12 @@ type SeedanceReplayUploadPanelProps = {
 };
 
 const noop = () => {};
+const FILE_SIZE_MB = 1024 * 1024;
+const tooltipBaseClass = 'pointer-events-none absolute top-full mt-2 w-[240px] rounded-2xl border border-white/20 bg-zinc-950/90 p-3 text-left opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition group-hover:opacity-100 group-focus-visible:opacity-100 z-20';
+const normalizedFormatLabelMap: Record<string, string> = {
+  jpg: 'jpeg',
+  tif: 'tiff',
+};
 
 const sourceLabelMap: Record<SourceType, string> = {
   library: '素材库',
@@ -50,6 +73,47 @@ const sourceLabelMap: Record<SourceType, string> = {
 function formatSeconds(value: number) {
   return `${value.toFixed(1)}s`;
 }
+
+function formatMegabytes(value: number) {
+  return `${Math.round(value / FILE_SIZE_MB)}MB`;
+}
+
+function formatExtensions(exts: string[]) {
+  return Array.from(new Set(exts.map((ext) => normalizedFormatLabelMap[ext] || ext))).join('/');
+}
+
+function tooltipAlignClass(align: TooltipAlign) {
+  if (align === 'left') return 'left-0 translate-x-0';
+  if (align === 'right') return 'right-0 left-auto translate-x-0';
+  return 'left-1/2 -translate-x-1/2';
+}
+
+const mediaTooltipItems: Record<MediaKind, string[]> = {
+  image: [
+    `格式：${formatExtensions(SEEDANCE_REPLAY_IMAGE_EXTS)}`,
+    `单张 < ${formatMegabytes(SEEDANCE_REPLAY_IMAGE_MAX_BYTES)}`,
+    `宽高 ${SEEDANCE_REPLAY_DIMENSION_MIN}–${SEEDANCE_REPLAY_DIMENSION_MAX}`,
+    `宽高比 ${SEEDANCE_REPLAY_RATIO_MIN}–${SEEDANCE_REPLAY_RATIO_MAX}`,
+    `总大小 ≤ ${formatMegabytes(SEEDANCE_REPLAY_IMAGE_TOTAL_BYTES_LIMIT)}`,
+  ],
+  video: [
+    `格式：${formatExtensions(SEEDANCE_REPLAY_VIDEO_EXTS)}`,
+    `单个 ≤ ${formatMegabytes(SEEDANCE_REPLAY_VIDEO_MAX_BYTES)}`,
+    `时长 ${SEEDANCE_REPLAY_DURATION_MIN}–${SEEDANCE_REPLAY_DURATION_MAX}s`,
+    `宽高 ${SEEDANCE_REPLAY_DIMENSION_MIN}–${SEEDANCE_REPLAY_DIMENSION_MAX}`,
+    `宽高比 ${SEEDANCE_REPLAY_RATIO_MIN}–${SEEDANCE_REPLAY_RATIO_MAX}`,
+    `总像素 ${SEEDANCE_REPLAY_VIDEO_PIXELS_MIN}–${SEEDANCE_REPLAY_VIDEO_PIXELS_MAX}`,
+    `FPS ${SEEDANCE_REPLAY_VIDEO_FPS_MIN}–${SEEDANCE_REPLAY_VIDEO_FPS_MAX}`,
+    `总时长 ≤ ${SEEDANCE_REPLAY_DURATION_MAX}s`,
+  ],
+  audio: [
+    '格式：wav/mp3',
+    `单个 ≤ ${formatMegabytes(SEEDANCE_REPLAY_AUDIO_MAX_BYTES)}`,
+    `时长 ${SEEDANCE_REPLAY_DURATION_MIN}–${SEEDANCE_REPLAY_DURATION_MAX}s`,
+    `总时长 ≤ ${SEEDANCE_REPLAY_DURATION_MAX}s`,
+    `总大小 ≤ ${formatMegabytes(SEEDANCE_REPLAY_AUDIO_TOTAL_BYTES_LIMIT)}`,
+  ],
+};
 
 export function SeedanceReplayUploadPanel({
   assets,
@@ -88,12 +152,12 @@ export function SeedanceReplayUploadPanel({
   return (
     <div className="flex flex-col gap-3">
       {!hasContent ? (
-        <div className="glass-panel rounded-xl border border-dashed border-white/10 p-5 sm:p-6">
+        <div className="glass-panel relative z-10 rounded-xl border border-dashed border-white/10 p-5 sm:p-6">
           <div className="mx-auto flex max-w-lg flex-col items-center text-center">
             <div className="mb-4 flex items-center gap-2">
-              <RoundIcon icon={<ImageIcon className="h-4 w-4" />} />
-              <RoundIcon icon={<Video className="h-4 w-4" />} />
-              <RoundIcon icon={<Music className="h-4 w-4" />} />
+              <RoundIcon icon={<ImageIcon className="h-4 w-4" />} label="图片" tooltipItems={mediaTooltipItems.image} />
+              <RoundIcon icon={<Video className="h-4 w-4" />} label="视频" tooltipItems={mediaTooltipItems.video} />
+              <RoundIcon icon={<Music className="h-4 w-4" />} label="音频" tooltipItems={mediaTooltipItems.audio} />
             </div>
 
             <h3 className="text-base font-bold text-zinc-100">添加参考素材</h3>
@@ -194,7 +258,6 @@ export function SeedanceReplayUploadPanel({
 
       <div className="grid grid-cols-1 gap-3">
         <CategoryCard
-          mediaKind="image"
           title="参考图片"
           icon={<ImageIcon className="h-4 w-4" />}
           items={imageAssets}
@@ -208,7 +271,6 @@ export function SeedanceReplayUploadPanel({
           onRemove={onRemove}
         />
         <CategoryCard
-          mediaKind="video"
           title="参考视频"
           icon={<Video className="h-4 w-4" />}
           items={videoAssets}
@@ -224,7 +286,6 @@ export function SeedanceReplayUploadPanel({
           onRemove={onRemove}
         />
         <CategoryCard
-          mediaKind="audio"
           title="参考音频"
           icon={<Music className="h-4 w-4" />}
           items={audioAssets}
@@ -244,10 +305,38 @@ export function SeedanceReplayUploadPanel({
   );
 }
 
-function RoundIcon({ icon }: { icon: React.ReactNode }) {
+function RoundIcon({
+  icon,
+  label,
+  tooltipItems,
+  tooltipAlign = 'center',
+}: {
+  icon: React.ReactNode;
+  label?: string;
+  tooltipItems?: string[];
+  tooltipAlign?: TooltipAlign;
+}) {
+  const hasTooltip = Boolean(label && tooltipItems?.length);
+
   return (
-    <div className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
-      {icon}
+    <div className="group relative">
+      <div
+        className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400 transition hover:border-white/20 hover:bg-white/10 hover:text-zinc-200"
+        tabIndex={hasTooltip ? 0 : -1}
+        aria-label={label}
+      >
+        {icon}
+      </div>
+      {hasTooltip && (
+        <div className={`${tooltipBaseClass} ${tooltipAlignClass(tooltipAlign)}`}>
+          <div className="text-[11px] font-bold text-white/90">{label}</div>
+          <div className="mt-1 space-y-1 text-[10px] leading-relaxed text-zinc-200/80">
+            {tooltipItems!.map((item) => (
+              <div key={item}>{item}</div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -325,7 +414,6 @@ function MetricDivider() {
 }
 
 type CategoryCardProps = {
-  mediaKind: MediaKind;
   title: string;
   icon: React.ReactNode;
   items: SeedanceReplayUploadAsset[];
@@ -342,7 +430,6 @@ type CategoryCardProps = {
 };
 
 function CategoryCard({
-  mediaKind: _mediaKind,
   title,
   icon,
   items,

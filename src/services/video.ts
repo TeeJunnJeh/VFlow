@@ -157,11 +157,13 @@ const findSseBoundary = (buffer: string): { index: number; separatorLength: numb
 };
 
 export const videoApi = {
-  estimateVideoTime: async (params: { model: string; duration: number; sound?: string }) => {
+  estimateVideoTime: async (params: { model: string; duration: number; sound?: string; aspect_ratio?: string; resolution?: string }) => {
     const query = new URLSearchParams();
     query.set('model', String(params.model || ''));
     query.set('duration', String(params.duration ?? ''));
     if (params.sound) query.set('sound', String(params.sound));
+    if (params.aspect_ratio) query.set('aspect_ratio', String(params.aspect_ratio));
+    if (params.resolution) query.set('resolution', String(params.resolution));
 
     const response = await fetch(`/api/tasks/estimate/?${query.toString()}`, {
       method: 'GET',

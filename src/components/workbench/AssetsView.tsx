@@ -14,6 +14,7 @@ import {
   WORKBENCH_NEW_PROJECT_TARGET,
   type WorkbenchProjectMeta,
 } from '../../utils/workbenchProjectStore';
+import { addTransferStationItems } from '../../utils/workbenchTransferStation';
 
 type AssetType = 'model' | 'product' | 'scene' | 'motion' | 'audio';
 type AssetsNavigationIntent =
@@ -261,6 +262,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     closeApplyWorkbenchDialog,
     onSelectAsset,
   ]);
+
   
   // --- Modal States ---
   
@@ -311,6 +313,45 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     setInfoMessage(message || null);
     setIsInfoOpen(true);
   };
+
+  const addApplyAssetToTransferStation = useCallback(() => {
+    if (!applyWorkbenchAsset) return;
+
+    const mediaKind = applyWorkbenchAsset.media_kind || 'image';
+    const mappedType: Asset['type'] =
+      applyWorkbenchAsset.type === 'model' ||
+      applyWorkbenchAsset.type === 'product' ||
+      applyWorkbenchAsset.type === 'scene' ||
+      applyWorkbenchAsset.type === 'motion' ||
+      applyWorkbenchAsset.type === 'audio'
+        ? applyWorkbenchAsset.type
+        : (mediaKind === 'video' ? 'motion' : mediaKind === 'audio' ? 'audio' : 'product');
+
+    const result = addTransferStationItems([
+      {
+        assetId: applyWorkbenchAsset.id,
+        name: applyWorkbenchAsset.name,
+        fileUrl: applyWorkbenchAsset.file_url,
+        mediaKind,
+        type: mappedType,
+        source: 'assets',
+      },
+    ], user?.id ?? null);
+
+    if (result.addedCount > 0) {
+      openInfo(
+        t.assets_confirm_title || 'Notice',
+        t.wb_transfer_station_add_success || '已加入中转站，可在工作台悬浮球中拖拽使用。',
+      );
+      closeApplyWorkbenchDialog();
+      return;
+    }
+
+    openInfo(
+      t.assets_confirm_title || 'Notice',
+      t.wb_transfer_station_add_duplicate || '素材已在中转站中，无需重复添加。',
+    );
+  }, [applyWorkbenchAsset, closeApplyWorkbenchDialog, t.assets_confirm_title, t.wb_transfer_station_add_duplicate, t.wb_transfer_station_add_success, user?.id]);
   const openSubjectGuideModal = useCallback((withSpotlight = false) => {
     setShouldRunSubjectGuideSpotlight(withSpotlight);
     setIsSubjectGuideModalOpen(true);
@@ -2544,6 +2585,13 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                 onClick={closeApplyWorkbenchDialog}
               >
                 {t.assets_move_cancel || 'Cancel'}
+              </button>
+              <button
+                type="button"
+                className="bg-sky-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-sky-500"
+                onClick={addApplyAssetToTransferStation}
+              >
+                {t.wb_transfer_station_add_btn || '加入中转站'}
               </button>
               <button
                 type="button"

@@ -31,6 +31,12 @@ import { ErrorModal } from './workflow/ErrorModal';
 import type { ErrorModalProps } from './workflow/ErrorModal';
 import { buildErrorModalData, type ErrorCategory, type ErrorI18n } from '../../utils/errorModalHelper';
 import { getWorkbenchPreferences, setWorkbenchPreferences } from '../../utils/preferences';
+import {
+  clearTransferStationItems,
+  loadTransferStationItems,
+  removeTransferStationItem,
+  type TransferStationItem,
+} from '../../utils/workbenchTransferStation';
 import { type ReplayReusePayload } from './ReplayScriptView';
 import {
   SeedanceReplayUploadPanel,
@@ -62,6 +68,7 @@ const SCRIPT_PROGRESS_HOLD_MAX = 96;
 const SCRIPT_ESTIMATE_STORAGE_KEY_PREFIX = 'vflow_script_eta_v1';
 const WAITING_PREVIEW_VIDEO_SRC = (import.meta.env.VITE_WAITING_PREVIEW_VIDEO_URL || 'https://vflow.genviewtech.com/media/vedio.mp4').toString();
 const ASSET_PLACEHOLDER_DATA_URL = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiB2aWV3Qm94PSIwIDAgMzAwIDQwMCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzFmMjkzNyIvPjx0ZXh0IHg9IjE1MCIgeT0iMjAwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiBmaWxsPSIjOWNhM2FmIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiPk5vIFByZXZpZXc8L3RleHQ+PC9zdmc+';
+const TRANSFER_STATION_DRAG_MIME = 'application/x-vflow-transfer-station-item';
 const revokeBlobUrl = (url: string | null | undefined) => {
   if (url && url.startsWith('blob:')) {
     URL.revokeObjectURL(url);
@@ -805,6 +812,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [assetLibraryError, setAssetLibraryError] = useState<string | null>(null);
   const [seedanceReplayLibraryIntent, setSeedanceReplayLibraryIntent] = useState<SeedanceReplayLibraryIntent | null>(null);
   const [draggingWorkbenchAssetId, setDraggingWorkbenchAssetId] = useState<string | null>(null);
+  const [transferStationItems, setTransferStationItems] = useState<TransferStationItem[]>([]);
+  const [isTransferStationOpen, setIsTransferStationOpen] = useState(false);
   const [isKlingSubjectGuideOpen, setIsKlingSubjectGuideOpen] = useState(false);
   const [isKlingSubjectModeHintDismissed, setIsKlingSubjectModeHintDismissed] = useState(false);
 
@@ -871,6 +880,31 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const scriptGenerationFinishingRef = useRef(false);
   const scriptGenerationAbortRef = useRef<AbortController | null>(null);
   const activeScriptGenerationSeqRef = useRef(0);
+  const scriptGenerationProjectIdRef = useRef<string | null>(null);
+  const transferStationOwnerId = user?.id ?? null;
+  const refreshTransferStationItems = useCallback(() => {
+    setTransferStationItems(loadTransferStationItems(transferStationOwnerId));
+  }, [transferStationOwnerId]);
+
+  useEffect(() => {
+    refreshTransferStationItems();
+  }, [refreshTransferStationItems]);
+
+  useEffect(() => {
+    const handleTransferStationUpdated = () => {
+      refreshTransferStationItems();
+    };
+
+    if (typeof window === 'undefined') return undefined;
+    window.addEventListener('vflow-transfer-station-updated', handleTransferStationUpdated);
+    return () => window.removeEventListener('vflow-transfer-station-updated', handleTransferStationUpdated);
+  }, [refreshTransferStationItems]);
+
+  useEffect(() => {
+    if (transferStationItems.length === 0) {
+      setIsTransferStationOpen(false);
+    }
+  }, [transferStationItems.length]);
 
   useEffect(() => {
     if (!replayReusePayload) return;
@@ -927,8 +961,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         };
       });
 
-      window.setTimeout(applyReplayPayload, 460);
-      return;
+      let elapsed = 0;
+      const MIN_WAIT_MS = 180;
+      const MAX_WAIT_MS = 5000;
+      const POLL_INTERVAL_MS = 50;
+
+      const timer = window.setInterval(() => {
+        elapsed += POLL_INTERVAL_MS;
+
+        const shouldWaitForWorkspaceRestore = elapsed < MIN_WAIT_MS || isApplyingProjectWorkspaceRef.current;
+        if (shouldWaitForWorkspaceRestore && elapsed < MAX_WAIT_MS) return;
+
+        window.clearInterval(timer);
+        applyReplayPayload();
+      }, POLL_INTERVAL_MS);
+
+      return () => window.clearInterval(timer);
     }
 
     applyReplayPayload();
@@ -2144,6 +2192,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   useEffect(() => {
     const currentProjectId = projectStore.currentProjectId;
+
+    if (
+      isGeneratingScript
+      && scriptGenerationProjectIdRef.current
+      && scriptGenerationProjectIdRef.current !== currentProjectId
+    ) {
+      // Keep the remote generation running, but detach UI from the previous project.
+      activeScriptGenerationSeqRef.current += 1;
+      scriptGenerationAbortRef.current = null;
+      scriptGenerationStartedAtRef.current = null;
+      scriptGenerationEstimateKeyRef.current = null;
+      scriptGenerationFinishingRef.current = false;
+      scriptGenerationProjectIdRef.current = null;
+      setIsGeneratingScript(false);
+      setIsScriptGenerationProgressVisible(false);
+      setScriptGenerationProgress(0);
+      setScriptGenerationCompletedCount(0);
+      setScriptGenerationTotalCount(0);
+    }
+
     const workspace = projectStore.workspaces[currentProjectId];
     if (workspace) {
       applyWorkspaceState(workspace);
@@ -2154,7 +2222,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       scriptPagePrefix: t.wb_script_page_prefix,
       userId: user?.id ?? null,
     }));
-  }, [projectStore.currentProjectId, projectStoreLoadVersion, applyWorkspaceState, buildDemoScripts, t.wb_script_page_prefix, user?.id]);
+  }, [
+    applyWorkspaceState,
+    buildDemoScripts,
+    isGeneratingScript,
+    projectStore.currentProjectId,
+    projectStoreLoadVersion,
+    t.wb_script_page_prefix,
+    user?.id,
+  ]);
 
   useEffect(() => {
     if (projectStoreOwner !== getLocalProjectStoreOwner(user?.id ?? null)) return;
@@ -2967,6 +3043,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         return;
       }
 
+      const normalizedQueuedUrl = normalizeSeedanceAssetUrl(
+        queuedAsset.assetUrl || queuedAsset.uploadedPath || queuedAsset.previewUrl || '',
+      );
+      const duplicateExists = uploadDisplayAssets.some((item) => {
+        const sameAssetId = !!queuedAsset.assetId && !!item.assetId && String(item.assetId).trim() === String(queuedAsset.assetId).trim();
+        if (sameAssetId) return true;
+
+        const normalizedItemUrl = normalizeSeedanceAssetUrl(item.assetUrl || item.uploadedPath || item.previewUrl || '');
+        return !!normalizedQueuedUrl && normalizedQueuedUrl === normalizedItemUrl;
+      });
+      if (duplicateExists) {
+        openInfo(
+          popupTitles.notice,
+          t.wb_seedance_replay_notice_duplicate_asset || 'This asset has already been added. Please choose another one.',
+        );
+        return;
+      }
+
       const currentCount = uploadDisplayAssets.filter((item) => item.mediaKind === queuedAsset.mediaKind).length;
       const limit = queuedAsset.mediaKind === 'image'
         ? SEEDANCE_REPLAY_IMAGE_LIMIT
@@ -3082,6 +3176,99 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     () => buildSeedanceReplayValidationSummary(uploadDisplayAssets, t),
     [t, uploadDisplayAssets]
   );
+  const normalizeSeedanceAssetUrl = useCallback((raw: string | null | undefined) => {
+    const normalized = String(raw || '').trim();
+    if (!normalized) return '';
+    return normalized.split('#', 1)[0].split('?', 1)[0].trim().toLowerCase();
+  }, []);
+  const seedanceReplaySelectedAssetSignatures = useMemo(() => {
+    const signatures = new Set<string>();
+    for (const item of uploadDisplayAssets) {
+      const id = String(item.assetId || '').trim();
+      if (id) signatures.add(`id:${id}`);
+
+      const normalizedUrl = normalizeSeedanceAssetUrl(item.assetUrl || item.uploadedPath || item.previewUrl || '');
+      if (normalizedUrl) signatures.add(`url:${normalizedUrl}`);
+    }
+    return signatures;
+  }, [normalizeSeedanceAssetUrl, uploadDisplayAssets]);
+  const isSeedanceReplayAssetAlreadyAdded = useCallback((asset: LibraryAsset) => {
+    const assetId = String(asset.id || '').trim();
+    if (assetId && seedanceReplaySelectedAssetSignatures.has(`id:${assetId}`)) return true;
+
+    const normalizedUrl = normalizeSeedanceAssetUrl(asset.file_url);
+    if (normalizedUrl && seedanceReplaySelectedAssetSignatures.has(`url:${normalizedUrl}`)) return true;
+
+    return false;
+  }, [normalizeSeedanceAssetUrl, seedanceReplaySelectedAssetSignatures]);
+  const toLibraryAssetFromTransferStationItem = (item: TransferStationItem): LibraryAsset | null => {
+    const fileUrl = toDisplayUrl(item.fileUrl);
+    if (!fileUrl) return null;
+
+    const mediaKind = item.mediaKind === 'file'
+      ? inferMediaKind({ name: item.name, url: fileUrl })
+      : item.mediaKind;
+    const type: LibraryAsset['type'] =
+      item.type === 'model' || item.type === 'product' || item.type === 'scene' || item.type === 'motion' || item.type === 'audio'
+        ? item.type
+        : (mediaKind === 'video' ? 'motion' : mediaKind === 'audio' ? 'audio' : 'product');
+
+    return {
+      id: String(item.assetId || `transfer-${item.id}`),
+      name: item.name || 'Untitled Asset',
+      type,
+      file_url: fileUrl,
+      media_kind: mediaKind,
+      size: '',
+      status: 'ready',
+      created_at: item.createdAt || new Date().toISOString(),
+    };
+  };
+
+  const applyTransferStationItemToWorkbench = (item: TransferStationItem): boolean => {
+    const libraryAsset = toLibraryAssetFromTransferStationItem(item);
+    if (!libraryAsset) {
+      openInfo(popupTitles.notice, t.wb_transfer_station_apply_failed || 'Unable to read this transfer-station asset.');
+      return false;
+    }
+
+    if (isSeedanceReplayMode && isSeedanceReplayAssetAlreadyAdded(libraryAsset)) {
+      openInfo(
+        popupTitles.notice,
+        t.wb_seedance_replay_notice_duplicate_asset || 'This asset has already been added. Please choose another one.',
+      );
+      return false;
+    }
+
+    const queuedAsset = queueLibraryAssetIntoWorkbench(libraryAsset, { preferLastModeRouting: true });
+    if (!queuedAsset) {
+      openInfo(popupTitles.notice, t.wb_transfer_station_apply_failed || 'Unable to read this transfer-station asset.');
+      return false;
+    }
+
+    setToastMessage(t.wb_transfer_station_apply_success || 'Asset applied to workbench.');
+    return true;
+  };
+
+  const handleUseTransferStationItem = (item: TransferStationItem) => {
+    applyTransferStationItemToWorkbench(item);
+  };
+
+  const handleRemoveTransferStationEntry = (itemId: string) => {
+    removeTransferStationItem(itemId, transferStationOwnerId);
+    refreshTransferStationItems();
+  };
+
+  const handleClearTransferStationEntries = () => {
+    clearTransferStationItems(transferStationOwnerId);
+    setIsTransferStationOpen(false);
+    refreshTransferStationItems();
+  };
+
+  const handleTransferStationItemDragStart = (item: TransferStationItem, event: React.DragEvent<HTMLButtonElement>) => {
+    event.dataTransfer.setData(TRANSFER_STATION_DRAG_MIME, JSON.stringify(item));
+    event.dataTransfer.effectAllowed = 'copy';
+  };
   const aiOptimizeImageCandidates = useMemo(
     () => uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image'),
     [uploadDisplayAssets]
@@ -4241,6 +4428,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       prompt: buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts, activeCreativeCardText),
       product_name: productName,
       duration: genDuration,
+      aspect_ratio: aspectRatio,
       sound: soundSetting,
       ...(selectedBackgroundAudio && soundSetting === 'off'
         ? {
@@ -4313,6 +4501,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         model: backendModel,
         duration: Number(requestPayload.duration ?? genDuration),
         sound: String(requestPayload.sound || '') === 'off' ? 'off' : 'on',
+        aspect_ratio: String(requestPayload.aspect_ratio || ''),
+        resolution: String((requestPayload as any).resolution || (requestPayload as any).size || ''),
       });
       console.log('[Estimate] submitSingleGeneration', { taskId, projectId, estimatedSeconds });
 
@@ -4889,21 +5079,48 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const handleUploadDragOver = (e: React.DragEvent) => {
-    if (!e.dataTransfer.types?.includes('Files')) return;
+    const supportsFiles = e.dataTransfer.types?.includes('Files');
+    const supportsTransferStation = e.dataTransfer.types?.includes(TRANSFER_STATION_DRAG_MIME);
+    if (!supportsFiles && !supportsTransferStation) return;
     e.preventDefault();
     setIsDragUploadActive(true);
   };
 
   const handleUploadDragLeave = (e: React.DragEvent) => {
-    if (!e.dataTransfer.types?.includes('Files')) return;
+    const supportsFiles = e.dataTransfer.types?.includes('Files');
+    const supportsTransferStation = e.dataTransfer.types?.includes(TRANSFER_STATION_DRAG_MIME);
+    if (!supportsFiles && !supportsTransferStation) return;
     e.preventDefault();
     setIsDragUploadActive(false);
   };
 
   const handleUploadDrop = (e: React.DragEvent) => {
-    if (!e.dataTransfer.types?.includes('Files')) return;
+    const supportsFiles = e.dataTransfer.types?.includes('Files');
+    const supportsTransferStation = e.dataTransfer.types?.includes(TRANSFER_STATION_DRAG_MIME);
+    if (!supportsFiles && !supportsTransferStation) return;
     e.preventDefault();
     setIsDragUploadActive(false);
+
+    if (supportsTransferStation) {
+      const raw = e.dataTransfer.getData(TRANSFER_STATION_DRAG_MIME);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as Partial<TransferStationItem>;
+          const droppedItemId = String(parsed?.id || '').trim();
+          const droppedItem = droppedItemId
+            ? transferStationItems.find((item) => item.id === droppedItemId)
+            : null;
+          if (droppedItem) {
+            applyTransferStationItemToWorkbench(droppedItem);
+            return;
+          }
+        } catch {
+          // Fallback to file processing if parsing fails.
+        }
+      }
+    }
+
+    if (!supportsFiles) return;
     const files = Array.from(e.dataTransfer.files || []);
     handleLocalFiles(files);
   };
@@ -5864,6 +6081,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     scriptGenerationStartedAtRef.current = null;
     scriptGenerationEstimateKeyRef.current = null;
     scriptGenerationFinishingRef.current = false;
+    scriptGenerationProjectIdRef.current = null;
     controller.abort();
     setIsGeneratingScript(false);
     setIsScriptGenerationProgressVisible(false);
@@ -5881,6 +6099,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       scriptGenerationStartedAtRef.current = null;
       scriptGenerationEstimateKeyRef.current = null;
       scriptGenerationFinishingRef.current = false;
+      scriptGenerationProjectIdRef.current = null;
     };
   }, []);
 
@@ -5974,6 +6193,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     scriptGenerationStartedAtRef.current = Date.now();
     scriptGenerationEstimateKeyRef.current = estimateStorageKey;
     scriptGenerationFinishingRef.current = false;
+    scriptGenerationProjectIdRef.current = projectStore.currentProjectId;
     const generationSeq = activeScriptGenerationSeqRef.current + 1;
     activeScriptGenerationSeqRef.current = generationSeq;
     const abortController = new AbortController();
@@ -6229,6 +6449,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       scriptGenerationStartedAtRef.current = null;
       scriptGenerationEstimateKeyRef.current = null;
       if (generationSeq === activeScriptGenerationSeqRef.current) {
+        scriptGenerationProjectIdRef.current = null;
         setIsGeneratingScript(false);
         if (shouldHideProgressImmediately) {
           setIsScriptGenerationProgressVisible(false);
@@ -6513,6 +6734,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               product_name: productName,
               project_id: newProjectId,
               duration: scriptPack.duration,
+              aspect_ratio: aspectRatio,
               ...(asset
                   ? (asset.mediaKind === 'video'
                       ? { motion_video_path: (asset as any).apiPath }
@@ -6544,6 +6766,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 model: backendModel,
                 duration: scriptPack.duration,
                 sound: soundSetting,
+                aspect_ratio: String(payload.aspect_ratio || ''),
+                resolution: String((payload as any).resolution || (payload as any).size || ''),
               });
               console.log('[Estimate] batchGeneration', { taskId, projectId: String(projectId), estimatedSeconds });
 
@@ -6737,33 +6961,46 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   ? 'kling'
                   : 'seedance-2.0';
 
-  const fetchEstimatedSeconds = useCallback(async (params: { model: string; duration: number; sound: 'on' | 'off' }) => {
+  const fetchEstimatedSeconds = useCallback(async (params: { model: string; duration: number; sound: 'on' | 'off'; aspect_ratio?: string; resolution?: string }) => {
     const model = String(params.model || '').trim();
     const duration = Number(params.duration);
     const sound = params.sound;
+    const aspectRatioHint = String(params.aspect_ratio || '').trim();
+    const resolutionHint = String(params.resolution || '').trim();
 
     const timeoutMs = 1200;
 
     try {
       const resp: any = await Promise.race([
-        videoApi.estimateVideoTime({ model, duration, sound }),
+        videoApi.estimateVideoTime({ model, duration, sound, aspect_ratio: aspectRatioHint || undefined, resolution: resolutionHint || undefined }),
         new Promise((resolve) => window.setTimeout(() => resolve(null), timeoutMs)),
       ]);
 
       const estimated = Number(resp?.data?.estimated_seconds);
       if (Number.isFinite(estimated) && estimated > 0) {
         const val = Math.round(estimated);
-        console.log('[Estimate] from api', { model, duration, sound, estimated_seconds: val, sample_count: resp?.data?.sample_count });
+        console.log('[Estimate] from api', { model, duration, sound, aspect_ratio: aspectRatioHint, resolution: resolutionHint, estimated_seconds: val, sample_count: resp?.data?.sample_count });
         return val;
       }
 
-      console.log('[Estimate] fallback default (invalid response)', { model, duration, sound, resp });
+      console.log('[Estimate] fallback default (invalid response)', { model, duration, sound, aspect_ratio: aspectRatioHint, resolution: resolutionHint, resp });
     } catch (err) {
-      console.log('[Estimate] fallback default (error)', { model, duration, sound, err });
+      console.log('[Estimate] fallback default (error)', { model, duration, sound, aspect_ratio: aspectRatioHint, resolution: resolutionHint, err });
     }
 
     return 120;
   }, []);
+
+  const isScriptGenerationForCurrentProject = (
+    isGeneratingScript
+    && !!scriptGenerationProjectIdRef.current
+    && scriptGenerationProjectIdRef.current === projectStore.currentProjectId
+  );
+  const showScriptGenerationProgressForCurrentProject = (
+    isScriptGenerationProgressVisible
+    && !!scriptGenerationProjectIdRef.current
+    && scriptGenerationProjectIdRef.current === projectStore.currentProjectId
+  );
 
   const renderLeftColumn = () => {
     const segmentBase =
@@ -8148,12 +8385,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           {renderLeftColumnSettings()}
 
           <div className="pt-1">
-            {scriptGenerationNotice && !isGeneratingScript && (
+            {scriptGenerationNotice && !isScriptGenerationForCurrentProject && (
               <div className="mb-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-medium text-emerald-200 shadow-[0_8px_24px_rgba(16,185,129,0.12)]">
                 {scriptGenerationNotice}
               </div>
             )}
-            {isScriptGenerationProgressVisible && (
+            {showScriptGenerationProgressForCurrentProject && (
               <div className="mb-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                 <div className="mb-1 flex items-center justify-between gap-3 text-[10px] text-zinc-400">
                   <span>{t.wb_waiting_progress || '进度'}</span>
@@ -8170,7 +8407,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </div>
               </div>
             )}
-            {isGeneratingScript ? (
+            {isScriptGenerationForCurrentProject ? (
               <div className="flex w-full gap-2">
                 <button
                   type="button"
@@ -8188,7 +8425,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <button
                   type="button"
                   onClick={() => {
-                    if (isGeneratingScript) {
+                    if (isScriptGenerationForCurrentProject) {
                       openInfo(popupTitles.notice, t.wb_generate_in_progress);
                       return;
                     }
@@ -8780,6 +9017,111 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
         )}
 
+        <div className="fixed right-6 bottom-6 z-[132] flex flex-col items-end gap-2">
+          {isTransferStationOpen && (
+            <div className="w-[320px] max-h-[52vh] overflow-hidden rounded-2xl border border-orange-500/25 bg-zinc-950/92 shadow-2xl shadow-black/50 backdrop-blur-xl">
+              <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+                <div className="text-xs font-bold text-zinc-100">
+                  {t.wb_transfer_station_title || 'Transfer Station'}
+                </div>
+                <div className="flex items-center gap-2">
+                  {transferStationItems.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleClearTransferStationEntries}
+                      className="rounded-md border border-white/10 px-2 py-1 text-[10px] text-zinc-300 transition hover:bg-white/10 hover:text-white"
+                    >
+                      {t.wb_transfer_station_clear_btn || 'Clear'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsTransferStationOpen(false)}
+                    className="text-zinc-400 transition hover:text-white"
+                    title={t.wb_queue_close || 'Close'}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {transferStationItems.length === 0 ? (
+                <div className="px-4 py-6 text-center text-xs text-zinc-500">
+                  {t.wb_transfer_station_empty || 'No assets yet. Add assets or history items into the transfer station first.'}
+                </div>
+              ) : (
+                <div className="max-h-[42vh] space-y-2 overflow-y-auto p-3 custom-scroll">
+                  {transferStationItems.map((item) => {
+                    const mediaLabel = item.mediaKind === 'video'
+                      ? (t.wb_upload_video || 'Video')
+                      : item.mediaKind === 'audio'
+                        ? (t.wb_upload_audio || 'Audio')
+                        : (t.wb_upload_image || 'Image');
+                    const sourceLabel = item.source === 'history'
+                      ? (t.wb_transfer_station_source_history || 'History')
+                      : (t.wb_transfer_station_source_assets || 'Assets');
+
+                    return (
+                      <div key={item.id} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-2">
+                        <button
+                          type="button"
+                          draggable
+                          onDragStart={(event) => handleTransferStationItemDragStart(item, event)}
+                          onClick={() => handleUseTransferStationItem(item)}
+                          className="group flex min-w-0 flex-1 items-center gap-2 text-left"
+                          title={t.wb_transfer_station_drag_hint || 'Drag to upload area, or click to apply'}
+                        >
+                          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-black/40">
+                            {item.mediaKind === 'video' ? (
+                              <video src={item.fileUrl} className="h-full w-full object-cover" muted playsInline />
+                            ) : item.mediaKind === 'audio' ? (
+                              <div className="flex h-full w-full items-center justify-center text-zinc-300">
+                                <Music className="h-4 w-4" />
+                              </div>
+                            ) : (
+                              <img src={item.fileUrl} alt={item.name} className="h-full w-full object-cover" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-xs font-semibold text-zinc-100">{item.name}</div>
+                            <div className="mt-1 flex items-center gap-1 text-[10px] text-zinc-400">
+                              <span className="rounded border border-white/10 px-1.5 py-0.5">{mediaLabel}</span>
+                              <span className="rounded border border-white/10 px-1.5 py-0.5">{sourceLabel}</span>
+                            </div>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveTransferStationEntry(item.id)}
+                          className="rounded-md border border-white/10 p-1.5 text-zinc-400 transition hover:border-red-400/60 hover:text-red-300"
+                          title={t.wb_transfer_station_remove_btn || 'Remove'}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setIsTransferStationOpen((prev) => !prev)}
+            className="group relative flex h-14 w-14 items-center justify-center rounded-full border border-orange-400/50 bg-gradient-to-br from-orange-500/90 to-amber-500/80 text-white shadow-[0_16px_35px_rgba(251,146,60,0.35)] transition hover:scale-[1.04]"
+            title={t.wb_transfer_station_title || 'Transfer Station'}
+          >
+            <FolderPlus className="h-6 w-6" />
+            <span className="pointer-events-none absolute -right-1 -top-1 min-w-[20px] rounded-full border border-black/20 bg-black/75 px-1.5 py-0.5 text-[10px] font-black leading-none text-orange-200">
+              {transferStationItems.length}
+            </span>
+            <span className="pointer-events-none absolute right-full mr-2 whitespace-nowrap rounded-md border border-white/10 bg-black/80 px-2 py-1 text-[10px] font-semibold text-zinc-100 opacity-0 transition group-hover:opacity-100">
+              {t.wb_transfer_station_title || 'Transfer Station'}
+            </span>
+          </button>
+        </div>
+
         {/* 结构化错误弹窗 —— 替代原有的 openInfo(error) 纯文本展示 */}
         {errorModalData && (
           <ErrorModal
@@ -9262,17 +9604,33 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{folder.name}</div>
                             </button>
                         ))}
-                        {assetLibraryItems.map((asset) => (
+                        {assetLibraryItems.map((asset) => {
+                          const alreadyAddedInSeedance = (
+                            isSeedanceReplayMode
+                            && assetLibraryPickMode === 'default'
+                            && isSeedanceReplayAssetAlreadyAdded(asset)
+                          );
+
+                          return (
                             <button
                                 key={asset.id}
                                 type="button"
-                                onClick={() => selectAssetFromLibraryPopup(asset)}
-                                className="text-left rounded-lg border border-white/10 bg-black/30 p-1 hover:border-orange-500/50 hover:bg-white/5 transition"
+                                onClick={() => {
+                                  if (alreadyAddedInSeedance) return;
+                                  selectAssetFromLibraryPopup(asset);
+                                }}
+                                className={`text-left rounded-lg border bg-black/30 p-1 transition ${alreadyAddedInSeedance ? 'border-emerald-400/70 ring-1 ring-emerald-400/35' : 'border-white/10 hover:border-orange-500/50 hover:bg-white/5'}`}
+                                title={alreadyAddedInSeedance ? (t.wb_seedance_replay_notice_duplicate_asset || 'This asset has already been added.') : undefined}
                             >
                               <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
                                 {isKlingOmniMode && hasSubjectOtherViews(asset) && (
                                   <div className="absolute top-1.5 right-1.5 z-10 rounded-full bg-black/55 border border-white/15 p-1 text-white shadow-lg">
                                     <Layers3 className="w-3.5 h-3.5" />
+                                  </div>
+                                )}
+                                {alreadyAddedInSeedance && (
+                                  <div className="absolute left-1.5 top-1.5 z-10 rounded-full border border-emerald-400/70 bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold text-emerald-200">
+                                    {t.wb_seedance_replay_added_badge || '已添加'}
                                   </div>
                                 )}
                                 {asset.media_kind === 'video' ? (
@@ -9287,7 +9645,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               </div>
                               <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{asset.name}</div>
                             </button>
-                        ))}
+                          );
+                        })}
                       </div>
                   )}
                 </div>

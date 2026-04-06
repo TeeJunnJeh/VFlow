@@ -176,7 +176,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
           <div className="mt-3 flex flex-col gap-2">
             <ProductSubNav icon={Shirt} view="product_images_clothing_swap" label={tx('wb_nav_product_clothing_swap', tr('AI 换装', 'AI Clothing Swap'))} />
             <ProductSubNav icon={ImagePlus} view="product_images_first_frame" label={tx('wb_nav_product_first_frame', tr('AI 首帧图', 'AI First Frame'))} />
-            <ProductSubNav icon={WandSparkles} view="product_images_smart_repair" label={tx('wb_nav_product_smart_repair', tr('智能修复', 'Smart Repair'))} />
+            <ProductSubNav icon={WandSparkles} view="product_images_smart_repair" label={tx('wb_nav_product_smart_repair', tr('AI智能修复', 'AI Smart Repair'))} />
             <ProductSubNav icon={LayoutGrid} view="product_images_gallery" label={tx('wb_nav_product_gallery', tr('AI 商品套图', 'AI Product Gallery'))} />
             <ProductSubNav icon={ScanText} view="product_images_text_separation" label={tr('文本分离', 'Text Separation')} />
           </div>

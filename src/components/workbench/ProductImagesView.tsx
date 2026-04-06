@@ -98,7 +98,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         };
       case 'product_images_smart_repair':
         return {
-          title: tr('智能修复', 'Smart Repair'),
+          title: tr('AI智能修复', 'AI Smart Repair'),
           subtitle: tr('基于三类能力中心进行可扩展的智能修图', 'Extensible smart-retouch workspace with three capability groups'),
         };
       case 'product_images_gallery':

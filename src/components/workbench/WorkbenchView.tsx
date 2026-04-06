@@ -108,6 +108,25 @@ type ScriptItem = {
   audioTranslation: string;
 };
 
+type WorkbenchAspectRatio = '9:16' | '16:9' | '1:1' | '4:3' | '3:4' | '21:9';
+
+const DEFAULT_WORKBENCH_ASPECT_RATIO: WorkbenchAspectRatio = '9:16';
+
+const normalizeWorkbenchAspectRatio = (value: string | null | undefined): WorkbenchAspectRatio => {
+  if (
+    value === '9:16' ||
+    value === '16:9' ||
+    value === '1:1' ||
+    value === '4:3' ||
+    value === '3:4' ||
+    value === '21:9'
+  ) {
+    return value;
+  }
+
+  return DEFAULT_WORKBENCH_ASPECT_RATIO;
+};
+
 type ScriptCreativeCard = {
   style?: string;
   environment?: string;
@@ -206,7 +225,7 @@ type GeneratePayload = {
   kling_mode?: 'first_frame' | 'subject' | 'first_last_frame';
   omni_assets?: Array<{ role: 'first_frame' | 'last_frame' | 'reference' | 'subject'; image_url: string; asset_id?: string | null; name?: string }>;
   subject_description_hint?: string;
-  aspect_ratio?: '9:16' | '16:9' | '1:1';
+  aspect_ratio?: WorkbenchAspectRatio;
   mode?: 'pro' | 'std';
   user_language: string;
   target_language: string;
@@ -252,7 +271,7 @@ type ProjectWorkspaceState = {
   targetAudience: string;
   deliveryRegion: string;
   videoType: string;
-  aspectRatio: '9:16' | '16:9' | '1:1';
+  aspectRatio: WorkbenchAspectRatio;
   hasAiRecognized: boolean;
   recognizedProductSourceSignature: string;
   needsAiReRecognize: boolean;
@@ -392,8 +411,8 @@ const createWorkspaceState = (params?: {
     coreSellingPoints: '',
     targetAudience: '',
     deliveryRegion: prefs.deliveryRegion || '中国',
-  videoType: prefs.videoType || '',
-  aspectRatio: prefs.aspectRatio === '16:9' ? '16:9' : (prefs.aspectRatio === '1:1' ? '1:1' : '9:16'),
+    videoType: prefs.videoType || '',
+    aspectRatio: normalizeWorkbenchAspectRatio(prefs.aspectRatio),
     hasAiRecognized: false,
     recognizedProductSourceSignature: '',
     needsAiReRecognize: false,
@@ -502,6 +521,8 @@ const RATIO_TO_RES: Record<string, string> = {
   '9:16': '720*1280',
   '1:1': '1080*1080',
   '4:3': '1024*768',
+  '3:4': '768*1024',
+  '21:9': '1680*720',
 };
 
 const USER_CANCELLED_ADAPT = '__USER_CANCELLED_IMAGE_ADAPT__';
@@ -835,7 +856,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       ), allowed[1]);
     }
 
-    return numeric === 5 || numeric === 10 || numeric === 15 ? numeric : 10;
+    return Math.min(15, Math.max(4, Math.round(numeric)));
   }, []);
 
   const [productName, setProductName] = useState('');
@@ -850,8 +871,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   });
   const [deliveryRegion, setDeliveryRegion] = useState(() => initialPrefs.deliveryRegion || '中国');
   const [videoType, setVideoType] = useState(() => initialPrefs.videoType || '');
-  const [aspectRatio, setAspectRatio] = useState<'9:16' | '16:9' | '1:1'>(() => (
-    initialPrefs.aspectRatio === '16:9' ? '16:9' : (initialPrefs.aspectRatio === '1:1' ? '1:1' : '9:16')
+  const [aspectRatio, setAspectRatio] = useState<WorkbenchAspectRatio>(() => (
+    normalizeWorkbenchAspectRatio(initialPrefs.aspectRatio)
   ));
   const [requiredErrors, setRequiredErrors] = useState<{
     productName?: string;
@@ -1548,13 +1569,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setTargetAudience(workspace.targetAudience || '');
     setDeliveryRegion(workspace.deliveryRegion || initialPrefs.deliveryRegion || '中国');
     setVideoType(workspace.videoType || initialPrefs.videoType || '');
-    setAspectRatio(
-      workspace.aspectRatio === '16:9'
-        ? '16:9'
-        : (workspace.aspectRatio === '1:1'
-          ? '1:1'
-          : (initialPrefs.aspectRatio === '16:9' ? '16:9' : (initialPrefs.aspectRatio === '1:1' ? '1:1' : '9:16')))
-    );
+    setAspectRatio(normalizeWorkbenchAspectRatio(workspace.aspectRatio || initialPrefs.aspectRatio));
     setHasAiRecognized(!!workspace.hasAiRecognized);
     setRecognizedProductSourceSignature(String(workspace.recognizedProductSourceSignature || ''));
     setNeedsAiReRecognize(!!workspace.needsAiReRecognize);
@@ -3141,7 +3156,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setAiOptimizeReferenceId(nextReferenceId);
     setAiOptimizeCategory(productCategory || '');
     setAiOptimizeKeywords([]);
-    setAiOptimizeAspectRatio(aspectRatio);
+    setAiOptimizeAspectRatio(aspectRatio === '16:9' || aspectRatio === '1:1' ? aspectRatio : '9:16');
     setAiOptimizeResolution('hd');
     setAiOptimizeStyleStrength(60);
     setAiOptimizeCount(2);
@@ -4259,6 +4274,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       ...(resolvedVideoPath ? { motion_video_path: resolvedVideoPath } : {}),
       ...(allVideoPaths.length > 1 ? { video_paths: allVideoPaths } : {}),
       ...(singleAudioPaths.length > 0 ? { audio_paths: singleAudioPaths } : {}),
+      ...(selectedModel === 'seedance2.0' ? { aspect_ratio: aspectRatio } : {}),
       ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
     };
 
@@ -7302,14 +7318,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.aspect_ratio}</label>
                   <DropdownSelect
                     value={aspectRatio}
-                    options={[
-                      { value: '9:16', label: t.mobile },
-                      { value: '16:9', label: t.landscape },
-                      ...(selectedModel === 'kling' && klingGenerateMode === 'subject'
-                        ? [{ value: '1:1', label: t.square }]
-                        : []),
-                    ]}
-                    onChange={(v) => setAspectRatio(v === '16:9' ? '16:9' : (v === '1:1' ? '1:1' : '9:16'))}
+                    options={selectedModel === 'seedance2.0'
+                      ? [
+                        { value: '16:9', label: '16:9' },
+                        { value: '4:3', label: '4:3' },
+                        { value: '1:1', label: '1:1' },
+                        { value: '3:4', label: '3:4' },
+                        { value: '9:16', label: '9:16' },
+                        { value: '21:9', label: '21:9' },
+                      ]
+                      : [
+                        { value: '9:16', label: t.mobile },
+                        { value: '16:9', label: t.landscape },
+                        ...(selectedModel === 'kling' && klingGenerateMode === 'subject'
+                          ? [{ value: '1:1', label: t.square }]
+                          : []),
+                      ]}
+                    onChange={(v) => setAspectRatio(normalizeWorkbenchAspectRatio(v))}
                     buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
                     labelClassName=""
                     iconClassName="w-3 h-3 text-zinc-500"
@@ -7341,7 +7366,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
             <div className="flex flex-col gap-4">
               <div>
-                {selectedModel === 'kling' ? (
+                {selectedModel === 'kling' || selectedModel === 'seedance2.0' ? (
                   <div className="flex flex-col gap-3">
                     <div className="flex justify-between items-center">
                       <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_config_duration}</label>
@@ -7349,11 +7374,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </div>
                     <input
                       type="range"
-                      min={3}
-                      max={10}
+                      min={selectedModel === 'kling' ? 3 : 4}
+                      max={selectedModel === 'kling' ? 10 : 15}
                       step={1}
                       value={genDuration}
-                      onChange={(e) => setGenDuration(Number(e.target.value))}
+                      onChange={(e) => setGenDuration(normalizeDurationForModel(Number(e.target.value), selectedModel))}
                       className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
                     />
                   </div>

@@ -2,7 +2,7 @@ export type WorkbenchPreferences = {
   deliveryRegion: string;
   targetLanguage: string;
   videoType: string;
-  aspectRatio: '9:16' | '16:9' | '1:1';
+  aspectRatio: '9:16' | '16:9' | '1:1' | '4:3' | '3:4' | '21:9';
   genDuration: number;
   soundSetting: 'on' | 'off';
   creationMode: 'fast' | 'replay';
@@ -15,7 +15,7 @@ const STORAGE_KEY_PREFIX = 'vflow_workbench_preferences_v1';
 const LEGACY_STORAGE_KEY = 'vflow_workbench_preferences_v1';
 const LEGACY_OWNER_KEY = 'vflow_workbench_preferences_v1_owner';
 
-const ALLOWED_DURATIONS = new Set([3, 4, 5, 6, 7, 8, 9, 10, 15]);
+const ALLOWED_DURATIONS = new Set([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
 
 const isBrowser = () => typeof window !== 'undefined' && typeof localStorage !== 'undefined';
 
@@ -37,7 +37,16 @@ const parsePreferences = (raw: string | null): Partial<WorkbenchPreferences> => 
     if (typeof parsed.deliveryRegion === 'string') next.deliveryRegion = parsed.deliveryRegion;
     if (typeof parsed.targetLanguage === 'string') next.targetLanguage = parsed.targetLanguage;
     if (typeof parsed.videoType === 'string') next.videoType = parsed.videoType;
-    if (parsed.aspectRatio === '9:16' || parsed.aspectRatio === '16:9' || parsed.aspectRatio === '1:1') next.aspectRatio = parsed.aspectRatio;
+    if (
+      parsed.aspectRatio === '9:16' ||
+      parsed.aspectRatio === '16:9' ||
+      parsed.aspectRatio === '1:1' ||
+      parsed.aspectRatio === '4:3' ||
+      parsed.aspectRatio === '3:4' ||
+      parsed.aspectRatio === '21:9'
+    ) {
+      next.aspectRatio = parsed.aspectRatio;
+    }
     if (typeof parsed.genDuration === 'number' && Number.isFinite(parsed.genDuration) && ALLOWED_DURATIONS.has(parsed.genDuration)) {
       next.genDuration = parsed.genDuration;
     }

@@ -10,6 +10,7 @@ import {
   Video,
   X,
 } from 'lucide-react';
+import { useLanguage } from '../../../context/LanguageContext';
 import {
   SEEDANCE_REPLAY_AUDIO_MAX_BYTES,
   SEEDANCE_REPLAY_AUDIO_LIMIT,
@@ -65,11 +66,6 @@ const normalizedFormatLabelMap: Record<string, string> = {
   tif: 'tiff',
 };
 
-const sourceLabelMap: Record<SourceType, string> = {
-  library: '素材库',
-  local: '本地',
-};
-
 function formatSeconds(value: number) {
   return `${value.toFixed(1)}s`;
 }
@@ -82,38 +78,53 @@ function formatExtensions(exts: string[]) {
   return Array.from(new Set(exts.map((ext) => normalizedFormatLabelMap[ext] || ext))).join('/');
 }
 
+function formatText(template: string, values: Record<string, string | number>) {
+  return template.replace(/\{(\w+)\}/g, (match, key) => (
+    Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : match
+  ));
+}
+
+function getSourceLabelMap(t: any): Record<SourceType, string> {
+  return {
+    library: t.wb_seedance_replay_source_library || 'Library',
+    local: t.wb_seedance_replay_source_local || 'Local',
+  };
+}
+
+function getMediaTooltipItems(t: any): Record<MediaKind, string[]> {
+  return {
+    image: [
+      formatText(t.wb_seedance_replay_tip_format || 'Format: {formats}', { formats: formatExtensions(SEEDANCE_REPLAY_IMAGE_EXTS) }),
+      formatText(t.wb_seedance_replay_tip_single_size_lt || 'Single item < {size}', { size: formatMegabytes(SEEDANCE_REPLAY_IMAGE_MAX_BYTES) }),
+      formatText(t.wb_seedance_replay_tip_dimensions || 'Dimensions {min}-{max}', { min: SEEDANCE_REPLAY_DIMENSION_MIN, max: SEEDANCE_REPLAY_DIMENSION_MAX }),
+      formatText(t.wb_seedance_replay_tip_ratio || 'Aspect ratio {min}-{max}', { min: SEEDANCE_REPLAY_RATIO_MIN, max: SEEDANCE_REPLAY_RATIO_MAX }),
+      formatText(t.wb_seedance_replay_tip_total_size || 'Total size <= {size}', { size: formatMegabytes(SEEDANCE_REPLAY_IMAGE_TOTAL_BYTES_LIMIT) }),
+    ],
+    video: [
+      formatText(t.wb_seedance_replay_tip_format || 'Format: {formats}', { formats: formatExtensions(SEEDANCE_REPLAY_VIDEO_EXTS) }),
+      formatText(t.wb_seedance_replay_tip_single_size_lte || 'Single item <= {size}', { size: formatMegabytes(SEEDANCE_REPLAY_VIDEO_MAX_BYTES) }),
+      formatText(t.wb_seedance_replay_tip_duration || 'Duration {min}-{max}s', { min: SEEDANCE_REPLAY_DURATION_MIN, max: SEEDANCE_REPLAY_DURATION_MAX }),
+      formatText(t.wb_seedance_replay_tip_dimensions || 'Dimensions {min}-{max}', { min: SEEDANCE_REPLAY_DIMENSION_MIN, max: SEEDANCE_REPLAY_DIMENSION_MAX }),
+      formatText(t.wb_seedance_replay_tip_ratio || 'Aspect ratio {min}-{max}', { min: SEEDANCE_REPLAY_RATIO_MIN, max: SEEDANCE_REPLAY_RATIO_MAX }),
+      formatText(t.wb_seedance_replay_tip_pixels || 'Total pixels {min}-{max}', { min: SEEDANCE_REPLAY_VIDEO_PIXELS_MIN, max: SEEDANCE_REPLAY_VIDEO_PIXELS_MAX }),
+      formatText(t.wb_seedance_replay_tip_fps || 'FPS {min}-{max}', { min: SEEDANCE_REPLAY_VIDEO_FPS_MIN, max: SEEDANCE_REPLAY_VIDEO_FPS_MAX }),
+      formatText(t.wb_seedance_replay_tip_total_duration || 'Total duration <= {duration}s', { duration: SEEDANCE_REPLAY_DURATION_MAX }),
+    ],
+    audio: [
+      formatText(t.wb_seedance_replay_tip_format || 'Format: {formats}', { formats: 'wav/mp3' }),
+      formatText(t.wb_seedance_replay_tip_single_size_lte || 'Single item <= {size}', { size: formatMegabytes(SEEDANCE_REPLAY_AUDIO_MAX_BYTES) }),
+      formatText(t.wb_seedance_replay_tip_duration || 'Duration {min}-{max}s', { min: SEEDANCE_REPLAY_DURATION_MIN, max: SEEDANCE_REPLAY_DURATION_MAX }),
+      formatText(t.wb_seedance_replay_tip_total_duration || 'Total duration <= {duration}s', { duration: SEEDANCE_REPLAY_DURATION_MAX }),
+      formatText(t.wb_seedance_replay_tip_total_size || 'Total size <= {size}', { size: formatMegabytes(SEEDANCE_REPLAY_AUDIO_TOTAL_BYTES_LIMIT) }),
+    ],
+  };
+}
+
 function tooltipAlignClass(align: TooltipAlign) {
   if (align === 'left') return 'left-0 translate-x-0';
   if (align === 'right') return 'right-0 left-auto translate-x-0';
   return 'left-1/2 -translate-x-1/2';
 }
-
-const mediaTooltipItems: Record<MediaKind, string[]> = {
-  image: [
-    `格式：${formatExtensions(SEEDANCE_REPLAY_IMAGE_EXTS)}`,
-    `单张 < ${formatMegabytes(SEEDANCE_REPLAY_IMAGE_MAX_BYTES)}`,
-    `宽高 ${SEEDANCE_REPLAY_DIMENSION_MIN}–${SEEDANCE_REPLAY_DIMENSION_MAX}`,
-    `宽高比 ${SEEDANCE_REPLAY_RATIO_MIN}–${SEEDANCE_REPLAY_RATIO_MAX}`,
-    `总大小 ≤ ${formatMegabytes(SEEDANCE_REPLAY_IMAGE_TOTAL_BYTES_LIMIT)}`,
-  ],
-  video: [
-    `格式：${formatExtensions(SEEDANCE_REPLAY_VIDEO_EXTS)}`,
-    `单个 ≤ ${formatMegabytes(SEEDANCE_REPLAY_VIDEO_MAX_BYTES)}`,
-    `时长 ${SEEDANCE_REPLAY_DURATION_MIN}–${SEEDANCE_REPLAY_DURATION_MAX}s`,
-    `宽高 ${SEEDANCE_REPLAY_DIMENSION_MIN}–${SEEDANCE_REPLAY_DIMENSION_MAX}`,
-    `宽高比 ${SEEDANCE_REPLAY_RATIO_MIN}–${SEEDANCE_REPLAY_RATIO_MAX}`,
-    `总像素 ${SEEDANCE_REPLAY_VIDEO_PIXELS_MIN}–${SEEDANCE_REPLAY_VIDEO_PIXELS_MAX}`,
-    `FPS ${SEEDANCE_REPLAY_VIDEO_FPS_MIN}–${SEEDANCE_REPLAY_VIDEO_FPS_MAX}`,
-    `总时长 ≤ ${SEEDANCE_REPLAY_DURATION_MAX}s`,
-  ],
-  audio: [
-    '格式：wav/mp3',
-    `单个 ≤ ${formatMegabytes(SEEDANCE_REPLAY_AUDIO_MAX_BYTES)}`,
-    `时长 ${SEEDANCE_REPLAY_DURATION_MIN}–${SEEDANCE_REPLAY_DURATION_MAX}s`,
-    `总时长 ≤ ${SEEDANCE_REPLAY_DURATION_MAX}s`,
-    `总大小 ≤ ${formatMegabytes(SEEDANCE_REPLAY_AUDIO_TOTAL_BYTES_LIMIT)}`,
-  ],
-};
 
 export function SeedanceReplayUploadPanel({
   assets,
@@ -123,9 +134,11 @@ export function SeedanceReplayUploadPanel({
   onPreview = noop,
   onRemove = noop,
 }: SeedanceReplayUploadPanelProps) {
+  const { t } = useLanguage();
   const imageAssets = assets.filter((asset) => asset.mediaKind === 'image');
   const videoAssets = assets.filter((asset) => asset.mediaKind === 'video');
   const audioAssets = assets.filter((asset) => asset.mediaKind === 'audio');
+  const mediaTooltipItems = getMediaTooltipItems(t);
 
   const imageCount = imageAssets.length;
   const videoCount = videoAssets.length;
@@ -155,24 +168,24 @@ export function SeedanceReplayUploadPanel({
         <div className="glass-panel relative z-10 rounded-xl border border-dashed border-white/10 p-5 sm:p-6">
           <div className="mx-auto flex max-w-lg flex-col items-center text-center">
             <div className="mb-4 flex items-center gap-2">
-              <RoundIcon icon={<ImageIcon className="h-4 w-4" />} label="图片" tooltipItems={mediaTooltipItems.image} />
-              <RoundIcon icon={<Video className="h-4 w-4" />} label="视频" tooltipItems={mediaTooltipItems.video} />
-              <RoundIcon icon={<Music className="h-4 w-4" />} label="音频" tooltipItems={mediaTooltipItems.audio} />
+              <RoundIcon icon={<ImageIcon className="h-4 w-4" />} label={t.wb_seedance_replay_media_image || 'Image'} tooltipItems={mediaTooltipItems.image} />
+              <RoundIcon icon={<Video className="h-4 w-4" />} label={t.wb_seedance_replay_media_video || 'Video'} tooltipItems={mediaTooltipItems.video} />
+              <RoundIcon icon={<Music className="h-4 w-4" />} label={t.wb_seedance_replay_media_audio || 'Audio'} tooltipItems={mediaTooltipItems.audio} />
             </div>
 
-            <h3 className="text-base font-bold text-zinc-100">添加参考素材</h3>
+            <h3 className="text-base font-bold text-zinc-100">{t.wb_seedance_replay_add_reference_title || 'Add Reference Assets'}</h3>
             <p className="mt-1 text-xs leading-5 text-zinc-400">
-              支持图片、视频、音频混合添加，系统自动分类整理
+              {t.wb_seedance_replay_add_reference_desc || 'Add images, videos, and audio together; the system will organize them automatically.'}
             </p>
 
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
               <PrimaryButton onClick={() => handleAddFromLibrary()}>
                 <FolderOpen className="h-3.5 w-3.5" />
-                从素材库选择
+                {t.wb_seedance_replay_choose_from_library || 'Choose From Library'}
               </PrimaryButton>
               <SecondaryButton onClick={() => onAddFromLocal()}>
                 <Upload className="h-3.5 w-3.5" />
-                从本地上传
+                {t.wb_seedance_replay_upload_local || 'Upload Local Files'}
               </SecondaryButton>
             </div>
 
@@ -181,14 +194,14 @@ export function SeedanceReplayUploadPanel({
       ) : (
         <div className="glass-panel rounded-xl border border-white/10 p-3">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-bold text-zinc-500">快速添加</span>
+            <span className="text-[11px] font-bold text-zinc-500">{t.wb_seedance_replay_quick_add || 'Quick Add'}</span>
             <PrimaryButton onClick={() => handleAddFromLibrary()}>
               <FolderOpen className="h-3.5 w-3.5" />
-              从素材库选择
+              {t.wb_seedance_replay_choose_from_library || 'Choose From Library'}
             </PrimaryButton>
             <SecondaryButton onClick={() => onAddFromLocal()}>
               <Upload className="h-3.5 w-3.5" />
-              从本地上传
+              {t.wb_seedance_replay_upload_local || 'Upload Local Files'}
             </SecondaryButton>
           </div>
         </div>
@@ -197,11 +210,11 @@ export function SeedanceReplayUploadPanel({
       <div className="glass-panel rounded-xl border border-white/10 px-3 py-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-300 lg:gap-5">
-            <StatusMetric icon={<ImageIcon className="h-3.5 w-3.5 text-zinc-500" />} label="图片" value={imageCount} limit={SEEDANCE_REPLAY_IMAGE_LIMIT} error={imageOverLimit} />
+            <StatusMetric icon={<ImageIcon className="h-3.5 w-3.5 text-zinc-500" />} label={t.wb_seedance_replay_media_image || 'Image'} value={imageCount} limit={SEEDANCE_REPLAY_IMAGE_LIMIT} error={imageOverLimit} />
             <MetricDivider />
             <StatusMetric
               icon={<Video className="h-3.5 w-3.5 text-zinc-500" />}
-              label="视频"
+              label={t.wb_seedance_replay_media_video || 'Video'}
               value={videoCount}
               limit={SEEDANCE_REPLAY_VIDEO_LIMIT}
               duration={formatSeconds(videoTotalDuration)}
@@ -211,7 +224,7 @@ export function SeedanceReplayUploadPanel({
             <MetricDivider />
             <StatusMetric
               icon={<Music className="h-3.5 w-3.5 text-zinc-500" />}
-              label="音频"
+              label={t.wb_seedance_replay_media_audio || 'Audio'}
               value={audioCount}
               limit={SEEDANCE_REPLAY_AUDIO_LIMIT}
               duration={formatSeconds(audioTotalDuration)}
@@ -222,7 +235,9 @@ export function SeedanceReplayUploadPanel({
 
           <div className={`flex items-center gap-2 text-xs font-medium ${hasSatisfiedConditions ? 'text-emerald-400' : 'text-zinc-500'}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${hasSatisfiedConditions ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
-            {hasSatisfiedConditions ? '条件满足' : '待满足条件'}
+            {hasSatisfiedConditions
+              ? (t.wb_seedance_replay_conditions_ready || 'Requirements Met')
+              : (t.wb_seedance_replay_conditions_pending || 'Requirements Pending')}
           </div>
         </div>
 
@@ -258,7 +273,7 @@ export function SeedanceReplayUploadPanel({
 
       <div className="grid grid-cols-1 gap-3">
         <CategoryCard
-          title="参考图片"
+          title={t.wb_seedance_replay_ref_images || 'Reference Images'}
           icon={<ImageIcon className="h-4 w-4" />}
           items={imageAssets}
           count={imageCount}
@@ -271,7 +286,7 @@ export function SeedanceReplayUploadPanel({
           onRemove={onRemove}
         />
         <CategoryCard
-          title="参考视频"
+          title={t.wb_seedance_replay_ref_videos || 'Reference Videos'}
           icon={<Video className="h-4 w-4" />}
           items={videoAssets}
           count={videoCount}
@@ -286,7 +301,7 @@ export function SeedanceReplayUploadPanel({
           onRemove={onRemove}
         />
         <CategoryCard
-          title="参考音频"
+          title={t.wb_seedance_replay_ref_audio || 'Reference Audio'}
           icon={<Music className="h-4 w-4" />}
           items={audioAssets}
           count={audioCount}
@@ -444,6 +459,7 @@ function CategoryCard({
   onPreview,
   onRemove,
 }: CategoryCardProps) {
+  const { t } = useLanguage();
   const [menuOpen, setMenuOpen] = useState(false);
   const isEmpty = items.length === 0;
 
@@ -483,7 +499,7 @@ function CategoryCard({
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-200 transition hover:bg-white/5"
               >
                 <FolderOpen className="h-3.5 w-3.5" />
-                从素材库添加
+                {t.wb_seedance_replay_add_from_library || 'Add From Library'}
               </button>
               <button
                 type="button"
@@ -494,7 +510,7 @@ function CategoryCard({
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-200 transition hover:bg-white/5"
               >
                 <Upload className="h-3.5 w-3.5" />
-                从本地添加
+                {t.wb_seedance_replay_add_from_local || 'Add Local Files'}
               </button>
             </div>
           )}
@@ -503,7 +519,7 @@ function CategoryCard({
 
       {isEmpty ? (
         <div className="rounded-xl border border-dashed border-white/10 bg-black/10 px-4 py-8 text-center text-xs leading-5 text-zinc-500">
-          点击 "+" 选择素材库或本地上传
+          {t.wb_seedance_replay_empty_hint || 'Click \"+\" to choose from the library or upload local files.'}
         </div>
       ) : items[0].mediaKind === 'image' ? (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
@@ -566,6 +582,8 @@ function ImageCard({
   onPreview: (assetId: string) => void;
   onRemove: (assetId: string) => void;
 }) {
+  const { t } = useLanguage();
+  const sourceLabelMap = getSourceLabelMap(t);
   return (
     <div className="group relative aspect-square overflow-hidden rounded-xl border border-white/10 bg-black/20">
       {item.previewUrl ? (
@@ -599,6 +617,8 @@ function VideoCard({
   onPreview: (assetId: string) => void;
   onRemove: (assetId: string) => void;
 }) {
+  const { t } = useLanguage();
+  const sourceLabelMap = getSourceLabelMap(t);
   return (
     <div className="group rounded-xl border border-white/10 bg-black/20 p-3 transition hover:bg-white/5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -644,6 +664,8 @@ function AudioCard({
   onPreview: (assetId: string) => void;
   onRemove: (assetId: string) => void;
 }) {
+  const { t } = useLanguage();
+  const sourceLabelMap = getSourceLabelMap(t);
   return (
     <div className="group rounded-xl border border-white/10 bg-black/20 p-3 transition hover:bg-white/5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">

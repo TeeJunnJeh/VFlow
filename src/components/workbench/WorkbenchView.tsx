@@ -2933,19 +2933,35 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const queuedAsset = buildSeedanceReplayQueuedAssetFromLibrary(asset);
       const candidate = buildSeedanceReplayLibraryCandidate(asset);
       if (!queuedAsset || !candidate) {
-        openInfo(popupTitles.notice, '所选素材暂不支持用于 Seedance 参考素材。');
+        openInfo(
+          popupTitles.notice,
+          t.wb_seedance_replay_notice_unsupported_library_asset || 'The selected asset is not supported as a Seedance reference asset.',
+        );
         return;
       }
       if (!seedanceReplayLibraryIntent.allowedTabs.includes(queuedAsset.materialType || 'product')) {
-        openInfo(popupTitles.notice, '当前入口不支持该素材分类。');
+        openInfo(
+          popupTitles.notice,
+          t.wb_seedance_replay_notice_unsupported_library_category || 'This entry does not support the selected asset category.',
+        );
         return;
       }
       if (seedanceReplayLibraryIntent.targetMediaKind && queuedAsset.mediaKind !== seedanceReplayLibraryIntent.targetMediaKind) {
-        const kindLabel = seedanceReplayLibraryIntent.targetMediaKind === 'image' ? '图片' : seedanceReplayLibraryIntent.targetMediaKind === 'video' ? '视频' : '音频';
-        openInfo(popupTitles.notice, `当前入口仅支持选择${kindLabel}素材。`);
+        const kindLabel = seedanceReplayLibraryIntent.targetMediaKind === 'image'
+          ? (t.wb_seedance_replay_media_image || 'Image')
+          : seedanceReplayLibraryIntent.targetMediaKind === 'video'
+            ? (t.wb_seedance_replay_media_video || 'Video')
+            : (t.wb_seedance_replay_media_audio || 'Audio');
+        openInfo(
+          popupTitles.notice,
+          formatMessage(
+            t.wb_seedance_replay_notice_library_kind_only || 'This entry only supports selecting {kind} assets.',
+            { kind: kindLabel },
+          ),
+        );
         return;
       }
-      const validationMessage = validateSeedanceReplayParsedAsset(candidate);
+      const validationMessage = validateSeedanceReplayParsedAsset(candidate, t);
       if (validationMessage) {
         openInfo(popupTitles.notice, validationMessage);
         return;
@@ -2958,8 +2974,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           ? SEEDANCE_REPLAY_VIDEO_LIMIT
           : SEEDANCE_REPLAY_AUDIO_LIMIT;
       if (currentCount >= limit) {
-        const kindLabel = queuedAsset.mediaKind === 'image' ? '图片' : queuedAsset.mediaKind === 'video' ? '视频' : '音频';
-        openInfo(popupTitles.notice, `${kindLabel}最多添加 ${limit} 个。`);
+        const kindLabel = queuedAsset.mediaKind === 'image'
+          ? (t.wb_seedance_replay_media_image || 'Image')
+          : queuedAsset.mediaKind === 'video'
+            ? (t.wb_seedance_replay_media_video || 'Video')
+            : (t.wb_seedance_replay_media_audio || 'Audio');
+        openInfo(
+          popupTitles.notice,
+          formatMessage(
+            t.wb_seedance_replay_notice_kind_limit || 'Up to {limit} {kind} assets can be added.',
+            { limit, kind: kindLabel },
+          ),
+        );
         return;
       }
 
@@ -3053,8 +3079,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     })
   ), [uploadDisplayAssets]);
   const seedanceReplayValidation = useMemo(
-    () => buildSeedanceReplayValidationSummary(uploadDisplayAssets),
-    [uploadDisplayAssets]
+    () => buildSeedanceReplayValidationSummary(uploadDisplayAssets, t),
+    [t, uploadDisplayAssets]
   );
   const aiOptimizeImageCandidates = useMemo(
     () => uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image'),
@@ -5277,20 +5303,30 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         const parsedAsset = await parseSeedanceReplayLocalFile(file, {
           inferMediaKind,
           compressImage,
-        });
+        }, t);
         if (intent.targetMediaKind && parsedAsset.mediaKind !== intent.targetMediaKind) {
-          const kindLabel = intent.targetMediaKind === 'image' ? '图片' : intent.targetMediaKind === 'video' ? '视频' : '音频';
-          errors.push(`当前入口仅支持上传${kindLabel}：${file.name}`);
+          const kindLabel = intent.targetMediaKind === 'image'
+            ? (t.wb_seedance_replay_media_image || 'Image')
+            : intent.targetMediaKind === 'video'
+              ? (t.wb_seedance_replay_media_video || 'Video')
+              : (t.wb_seedance_replay_media_audio || 'Audio');
+          errors.push(formatMessage(
+            t.wb_seedance_replay_notice_upload_kind_only || 'This entry only supports uploading {kind}: {name}',
+            { kind: kindLabel, name: file.name },
+          ));
           continue;
         }
-        const validationMessage = validateSeedanceReplayParsedAsset(parsedAsset);
+        const validationMessage = validateSeedanceReplayParsedAsset(parsedAsset, t);
         if (validationMessage) {
           errors.push(validationMessage);
           continue;
         }
         parsedAssets.push(parsedAsset);
       } catch (error: any) {
-        errors.push(error?.message || `无法处理文件：${file.name}`);
+        errors.push(error?.message || formatMessage(
+          t.wb_seedance_replay_notice_file_process_failed || 'Unable to process file: {name}',
+          { name: file.name },
+        ));
       }
     }
 
@@ -5322,9 +5358,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     if (acceptedAssets.length === 0) {
       const summaryLines = [...errors];
-      if (overflow.image > 0) summaryLines.push(`图片最多添加 ${SEEDANCE_REPLAY_IMAGE_LIMIT} 张，已忽略 ${overflow.image} 张。`);
-      if (overflow.video > 0) summaryLines.push(`视频最多添加 ${SEEDANCE_REPLAY_VIDEO_LIMIT} 个，已忽略 ${overflow.video} 个。`);
-      if (overflow.audio > 0) summaryLines.push(`音频最多添加 ${SEEDANCE_REPLAY_AUDIO_LIMIT} 个，已忽略 ${overflow.audio} 个。`);
+      if (overflow.image > 0) summaryLines.push(formatMessage(
+        t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
+        { limit: SEEDANCE_REPLAY_IMAGE_LIMIT, kind: t.wb_seedance_replay_media_image || 'Image', count: overflow.image },
+      ));
+      if (overflow.video > 0) summaryLines.push(formatMessage(
+        t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
+        { limit: SEEDANCE_REPLAY_VIDEO_LIMIT, kind: t.wb_seedance_replay_media_video || 'Video', count: overflow.video },
+      ));
+      if (overflow.audio > 0) summaryLines.push(formatMessage(
+        t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
+        { limit: SEEDANCE_REPLAY_AUDIO_LIMIT, kind: t.wb_seedance_replay_media_audio || 'Audio', count: overflow.audio },
+      ));
       if (summaryLines.length > 0) {
         openInfo(popupTitles.notice, summaryLines.join('\n'));
       }
@@ -5344,9 +5389,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const summaryLines = [
       ...errors,
-      ...(overflow.image > 0 ? [`图片最多添加 ${SEEDANCE_REPLAY_IMAGE_LIMIT} 张，已忽略 ${overflow.image} 张。`] : []),
-      ...(overflow.video > 0 ? [`视频最多添加 ${SEEDANCE_REPLAY_VIDEO_LIMIT} 个，已忽略 ${overflow.video} 个。`] : []),
-      ...(overflow.audio > 0 ? [`音频最多添加 ${SEEDANCE_REPLAY_AUDIO_LIMIT} 个，已忽略 ${overflow.audio} 个。`] : []),
+      ...(overflow.image > 0 ? [formatMessage(
+        t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
+        { limit: SEEDANCE_REPLAY_IMAGE_LIMIT, kind: t.wb_seedance_replay_media_image || 'Image', count: overflow.image },
+      )] : []),
+      ...(overflow.video > 0 ? [formatMessage(
+        t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
+        { limit: SEEDANCE_REPLAY_VIDEO_LIMIT, kind: t.wb_seedance_replay_media_video || 'Video', count: overflow.video },
+      )] : []),
+      ...(overflow.audio > 0 ? [formatMessage(
+        t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
+        { limit: SEEDANCE_REPLAY_AUDIO_LIMIT, kind: t.wb_seedance_replay_media_audio || 'Audio', count: overflow.audio },
+      )] : []),
     ];
     if (summaryLines.length > 0) {
       openInfo(popupTitles.notice, summaryLines.join('\n'));
@@ -5360,6 +5414,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     openInfo,
     persistLocalQueuedAsset,
     popupTitles.notice,
+    t,
   ]);
 
   const handleSeedanceReplayFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -9244,7 +9299,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           isOpen={!!seedanceReplayPreviewAsset}
           title={(
             <span className="inline-flex max-w-full items-center gap-3">
-              <span className="truncate">{seedanceReplayPreviewAsset?.name || '预览素材'}</span>
+              <span className="truncate">{seedanceReplayPreviewAsset?.name || (t.wb_seedance_replay_preview_asset || 'Preview Asset')}</span>
               {seedanceReplayPreviewAsset?.sizeBytes ? (
                 <span className="shrink-0 text-xs font-normal text-zinc-500">
                   {formatAssetSize(seedanceReplayPreviewAsset.sizeBytes)}

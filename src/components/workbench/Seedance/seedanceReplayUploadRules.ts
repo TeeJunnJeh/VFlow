@@ -63,6 +63,13 @@ export const SEEDANCE_REPLAY_VIDEO_FPS_MAX = 60;
 
 const getFileExtension = (name: string) => name.split('.').pop()?.toLowerCase() || '';
 const formatMegabytes = (bytes: number) => `${(bytes / FILE_SIZE_MB).toFixed(bytes >= 10 * FILE_SIZE_MB ? 1 : 2)}MB`;
+const formatSeedanceReplayText = (template: string, values: Record<string, string | number>) =>
+  template.replace(/\{(\w+)\}/g, (match, key) => (Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : match));
+const getSeedanceReplayKindLabel = (t: any, mediaKind: SeedanceReplayMediaKind) => {
+  if (mediaKind === 'image') return t?.wb_seedance_replay_media_image || 'Image';
+  if (mediaKind === 'video') return t?.wb_seedance_replay_media_video || 'Video';
+  return t?.wb_seedance_replay_media_audio || 'Audio';
+};
 const normalizeFormat = (value: string | null | undefined) => {
   const normalized = String(value || '').trim().toLowerCase();
   if (!normalized) return '';
@@ -101,7 +108,7 @@ const resolveSeedanceReplayFormat = (asset: {
   return getFileExtension(asset.name);
 };
 
-const loadImageFileMetadata = (file: File): Promise<{ width: number; height: number }> => new Promise((resolve, reject) => {
+const loadImageFileMetadata = (file: File, t?: any): Promise<{ width: number; height: number }> => new Promise((resolve, reject) => {
   const objectUrl = URL.createObjectURL(file);
   const image = new Image();
   const cleanup = () => {
@@ -119,13 +126,16 @@ const loadImageFileMetadata = (file: File): Promise<{ width: number; height: num
 
   image.onerror = () => {
     cleanup();
-    reject(new Error(`无法读取图片信息：${file.name}`));
+    reject(new Error(formatSeedanceReplayText(
+      t?.wb_seedance_replay_error_read_image_info || 'Unable to read image info: {name}',
+      { name: file.name },
+    )));
   };
 
   image.src = objectUrl;
 });
 
-const loadVideoFileMetadata = (file: File): Promise<{ width: number; height: number; durationSeconds: number; fps: number | null }> => new Promise((resolve, reject) => {
+const loadVideoFileMetadata = (file: File, t?: any): Promise<{ width: number; height: number; durationSeconds: number; fps: number | null }> => new Promise((resolve, reject) => {
   const objectUrl = URL.createObjectURL(file);
   const video = document.createElement('video');
   const cleanup = () => {
@@ -144,7 +154,10 @@ const loadVideoFileMetadata = (file: File): Promise<{ width: number; height: num
     const durationSeconds = Number.isFinite(video.duration) ? video.duration : NaN;
     cleanup();
     if (!Number.isFinite(durationSeconds)) {
-      reject(new Error(`无法读取视频时长：${file.name}`));
+      reject(new Error(formatSeedanceReplayText(
+        t?.wb_seedance_replay_error_read_video_duration || 'Unable to read video duration: {name}',
+        { name: file.name },
+      )));
       return;
     }
     resolve({ width, height, durationSeconds, fps: null });
@@ -152,13 +165,16 @@ const loadVideoFileMetadata = (file: File): Promise<{ width: number; height: num
 
   video.onerror = () => {
     cleanup();
-    reject(new Error(`无法读取视频信息：${file.name}`));
+    reject(new Error(formatSeedanceReplayText(
+      t?.wb_seedance_replay_error_read_video_info || 'Unable to read video info: {name}',
+      { name: file.name },
+    )));
   };
 
   video.src = objectUrl;
 });
 
-const loadAudioFileMetadata = (file: File): Promise<{ durationSeconds: number }> => new Promise((resolve, reject) => {
+const loadAudioFileMetadata = (file: File, t?: any): Promise<{ durationSeconds: number }> => new Promise((resolve, reject) => {
   const objectUrl = URL.createObjectURL(file);
   const audio = document.createElement('audio');
   const cleanup = () => {
@@ -174,7 +190,10 @@ const loadAudioFileMetadata = (file: File): Promise<{ durationSeconds: number }>
     const durationSeconds = Number.isFinite(audio.duration) ? audio.duration : NaN;
     cleanup();
     if (!Number.isFinite(durationSeconds)) {
-      reject(new Error(`无法读取音频时长：${file.name}`));
+      reject(new Error(formatSeedanceReplayText(
+        t?.wb_seedance_replay_error_read_audio_duration || 'Unable to read audio duration: {name}',
+        { name: file.name },
+      )));
       return;
     }
     resolve({ durationSeconds });
@@ -182,7 +201,10 @@ const loadAudioFileMetadata = (file: File): Promise<{ durationSeconds: number }>
 
   audio.onerror = () => {
     cleanup();
-    reject(new Error(`无法读取音频信息：${file.name}`));
+    reject(new Error(formatSeedanceReplayText(
+      t?.wb_seedance_replay_error_read_audio_info || 'Unable to read audio info: {name}',
+      { name: file.name },
+    )));
   };
 
   audio.src = objectUrl;
@@ -194,10 +216,14 @@ export const parseSeedanceReplayLocalFile = async (
     inferMediaKind: (value: { name?: string | null; url?: string | null; type?: string | null; file?: File | null }) => SeedanceReplayMediaKind | 'file';
     compressImage?: (file: File) => Promise<File> | File;
   },
+  t?: any,
 ): Promise<SeedanceReplayParsedAsset> => {
   const rawMediaKind = options.inferMediaKind({ name: inputFile.name, file: inputFile });
   if (rawMediaKind !== 'image' && rawMediaKind !== 'video' && rawMediaKind !== 'audio') {
-    throw new Error(`格式不支持：${inputFile.name}`);
+    throw new Error(formatSeedanceReplayText(
+      t?.wb_seedance_replay_error_unsupported_format || 'Unsupported format: {name}',
+      { name: inputFile.name },
+    ));
   }
 
   const extension = getFileExtension(inputFile.name);
@@ -207,7 +233,7 @@ export const parseSeedanceReplayLocalFile = async (
     : inputFile;
 
   if (rawMediaKind === 'image') {
-    const { width, height } = await loadImageFileMetadata(file);
+    const { width, height } = await loadImageFileMetadata(file, t);
     return {
       file,
       name: file.name,
@@ -223,7 +249,7 @@ export const parseSeedanceReplayLocalFile = async (
   }
 
   if (rawMediaKind === 'video') {
-    const { width, height, durationSeconds, fps } = await loadVideoFileMetadata(file);
+    const { width, height, durationSeconds, fps } = await loadVideoFileMetadata(file, t);
     return {
       file,
       name: file.name,
@@ -238,7 +264,7 @@ export const parseSeedanceReplayLocalFile = async (
     };
   }
 
-  const { durationSeconds } = await loadAudioFileMetadata(file);
+  const { durationSeconds } = await loadAudioFileMetadata(file, t);
   return {
     file,
     name: file.name,
@@ -253,66 +279,109 @@ export const parseSeedanceReplayLocalFile = async (
   };
 };
 
-export const validateSeedanceReplayParsedAsset = (asset: SeedanceReplayValidationCandidate | SeedanceReplayParsedAsset) => {
+export const validateSeedanceReplayParsedAsset = (asset: SeedanceReplayValidationCandidate | SeedanceReplayParsedAsset, t?: any) => {
   const extension = resolveSeedanceReplayFormat(asset);
   const ratio = asset.width && asset.height ? asset.width / asset.height : null;
   const duration = asset.durationSeconds ?? 0;
+  const kindLabel = getSeedanceReplayKindLabel(t, asset.mediaKind);
 
   if (asset.mediaKind === 'image') {
     if (!SEEDANCE_REPLAY_IMAGE_EXTS.includes(extension)) {
-      return `图片格式不支持：${asset.name}。支持 jpeg / png / webp / bmp / tiff / gif`;
+      return formatSeedanceReplayText(
+        t?.wb_seedance_replay_error_unsupported_format || '{kind} format not supported: {name}. Supported {formats}',
+        { kind: kindLabel, name: asset.name, formats: 'jpeg / png / webp / bmp / tiff / gif' },
+      );
     }
     if (asset.sizeBytes >= SEEDANCE_REPLAY_IMAGE_MAX_BYTES) {
-      return `图片大小不能超过 30MB：${asset.name}`;
+      return formatSeedanceReplayText(
+        t?.wb_seedance_replay_error_size_limit || '{kind} size cannot exceed {size}: {name}',
+        { kind: kindLabel, size: '30MB', name: asset.name },
+      );
     }
     if (!asset.width || !asset.height || asset.width < SEEDANCE_REPLAY_DIMENSION_MIN || asset.width > SEEDANCE_REPLAY_DIMENSION_MAX || asset.height < SEEDANCE_REPLAY_DIMENSION_MIN || asset.height > SEEDANCE_REPLAY_DIMENSION_MAX) {
-      return `图片宽高需在 ${SEEDANCE_REPLAY_DIMENSION_MIN}-${SEEDANCE_REPLAY_DIMENSION_MAX} 之间：${asset.name}`;
+      return formatSeedanceReplayText(
+        t?.wb_seedance_replay_error_dimensions || '{kind} dimensions must be between {min}-{max}: {name}',
+        { kind: kindLabel, min: SEEDANCE_REPLAY_DIMENSION_MIN, max: SEEDANCE_REPLAY_DIMENSION_MAX, name: asset.name },
+      );
     }
     if (!ratio || ratio < SEEDANCE_REPLAY_RATIO_MIN || ratio > SEEDANCE_REPLAY_RATIO_MAX) {
-      return `图片宽高比需在 ${SEEDANCE_REPLAY_RATIO_MIN}-${SEEDANCE_REPLAY_RATIO_MAX} 之间：${asset.name}`;
+      return formatSeedanceReplayText(
+        t?.wb_seedance_replay_error_ratio || '{kind} aspect ratio must be between {min}-{max}: {name}',
+        { kind: kindLabel, min: SEEDANCE_REPLAY_RATIO_MIN, max: SEEDANCE_REPLAY_RATIO_MAX, name: asset.name },
+      );
     }
     return null;
   }
 
   if (asset.mediaKind === 'video') {
     if (!SEEDANCE_REPLAY_VIDEO_EXTS.includes(extension)) {
-      return `视频格式不支持：${asset.name}。支持 mp4 / mov`;
+      return formatSeedanceReplayText(
+        t?.wb_seedance_replay_error_unsupported_format || '{kind} format not supported: {name}. Supported {formats}',
+        { kind: kindLabel, name: asset.name, formats: 'mp4 / mov' },
+      );
     }
     if (asset.sizeBytes > SEEDANCE_REPLAY_VIDEO_MAX_BYTES) {
-      return `视频大小不能超过 50MB：${asset.name}`;
+      return formatSeedanceReplayText(
+        t?.wb_seedance_replay_error_size_limit || '{kind} size cannot exceed {size}: {name}',
+        { kind: kindLabel, size: '50MB', name: asset.name },
+      );
     }
     if (duration < SEEDANCE_REPLAY_DURATION_MIN || duration > SEEDANCE_REPLAY_DURATION_MAX) {
-      return `视频时长需在 ${SEEDANCE_REPLAY_DURATION_MIN}-${SEEDANCE_REPLAY_DURATION_MAX} 秒之间：${asset.name}`;
+      return formatSeedanceReplayText(
+        t?.wb_seedance_replay_error_duration || '{kind} duration must be between {min}-{max}s: {name}',
+        { kind: kindLabel, min: SEEDANCE_REPLAY_DURATION_MIN, max: SEEDANCE_REPLAY_DURATION_MAX, name: asset.name },
+      );
     }
     if (!asset.width || !asset.height || asset.width < SEEDANCE_REPLAY_DIMENSION_MIN || asset.width > SEEDANCE_REPLAY_DIMENSION_MAX || asset.height < SEEDANCE_REPLAY_DIMENSION_MIN || asset.height > SEEDANCE_REPLAY_DIMENSION_MAX) {
-      return `视频宽高需在 ${SEEDANCE_REPLAY_DIMENSION_MIN}-${SEEDANCE_REPLAY_DIMENSION_MAX} 之间：${asset.name}`;
+      return formatSeedanceReplayText(
+        t?.wb_seedance_replay_error_dimensions || '{kind} dimensions must be between {min}-{max}: {name}',
+        { kind: kindLabel, min: SEEDANCE_REPLAY_DIMENSION_MIN, max: SEEDANCE_REPLAY_DIMENSION_MAX, name: asset.name },
+      );
     }
     if (!ratio || ratio < SEEDANCE_REPLAY_RATIO_MIN || ratio > SEEDANCE_REPLAY_RATIO_MAX) {
-      return `视频宽高比需在 ${SEEDANCE_REPLAY_RATIO_MIN}-${SEEDANCE_REPLAY_RATIO_MAX} 之间：${asset.name}`;
+      return formatSeedanceReplayText(
+        t?.wb_seedance_replay_error_ratio || '{kind} aspect ratio must be between {min}-{max}: {name}',
+        { kind: kindLabel, min: SEEDANCE_REPLAY_RATIO_MIN, max: SEEDANCE_REPLAY_RATIO_MAX, name: asset.name },
+      );
     }
     const pixels = asset.width * asset.height;
     if (pixels < SEEDANCE_REPLAY_VIDEO_PIXELS_MIN || pixels > SEEDANCE_REPLAY_VIDEO_PIXELS_MAX) {
-      return `视频总像素需在 ${SEEDANCE_REPLAY_VIDEO_PIXELS_MIN}-${SEEDANCE_REPLAY_VIDEO_PIXELS_MAX} 之间：${asset.name}`;
+      return formatSeedanceReplayText(
+        t?.wb_seedance_replay_error_pixels || '{kind} total pixels must be between {min}-{max}: {name}',
+        { kind: kindLabel, min: SEEDANCE_REPLAY_VIDEO_PIXELS_MIN, max: SEEDANCE_REPLAY_VIDEO_PIXELS_MAX, name: asset.name },
+      );
     }
     if (typeof asset.fps === 'number' && (asset.fps < SEEDANCE_REPLAY_VIDEO_FPS_MIN || asset.fps > SEEDANCE_REPLAY_VIDEO_FPS_MAX)) {
-      return `视频帧率需在 ${SEEDANCE_REPLAY_VIDEO_FPS_MIN}-${SEEDANCE_REPLAY_VIDEO_FPS_MAX} FPS 之间：${asset.name}`;
+      return formatSeedanceReplayText(
+        t?.wb_seedance_replay_error_fps || '{kind} FPS must be between {min}-{max}: {name}',
+        { kind: kindLabel, min: SEEDANCE_REPLAY_VIDEO_FPS_MIN, max: SEEDANCE_REPLAY_VIDEO_FPS_MAX, name: asset.name },
+      );
     }
     return null;
   }
 
   if (!SEEDANCE_REPLAY_AUDIO_EXTS.includes(extension)) {
-    return `音频格式不支持：${asset.name}。支持 wav / mp3`;
+    return formatSeedanceReplayText(
+      t?.wb_seedance_replay_error_unsupported_format || '{kind} format not supported: {name}. Supported {formats}',
+      { kind: kindLabel, name: asset.name, formats: 'wav / mp3' },
+    );
   }
   if (asset.sizeBytes > SEEDANCE_REPLAY_AUDIO_MAX_BYTES) {
-    return `音频大小不能超过 15MB：${asset.name}`;
+    return formatSeedanceReplayText(
+      t?.wb_seedance_replay_error_size_limit || '{kind} size cannot exceed {size}: {name}',
+      { kind: kindLabel, size: '15MB', name: asset.name },
+    );
   }
   if (duration < SEEDANCE_REPLAY_DURATION_MIN || duration > SEEDANCE_REPLAY_DURATION_MAX) {
-    return `音频时长需在 ${SEEDANCE_REPLAY_DURATION_MIN}-${SEEDANCE_REPLAY_DURATION_MAX} 秒之间：${asset.name}`;
+    return formatSeedanceReplayText(
+      t?.wb_seedance_replay_error_duration || '{kind} duration must be between {min}-{max}s: {name}',
+      { kind: kindLabel, min: SEEDANCE_REPLAY_DURATION_MIN, max: SEEDANCE_REPLAY_DURATION_MAX, name: asset.name },
+    );
   }
   return null;
 };
 
-export const buildSeedanceReplayValidationSummary = <T extends SeedanceReplayValidationAsset>(assets: T[]): SeedanceReplayValidationSummary => {
+export const buildSeedanceReplayValidationSummary = <T extends SeedanceReplayValidationAsset>(assets: T[], t?: any): SeedanceReplayValidationSummary => {
   const seedanceAssets = assets.filter(
     (asset): asset is T & { mediaKind: SeedanceReplayMediaKind } =>
       asset.mediaKind === 'image' || asset.mediaKind === 'video' || asset.mediaKind === 'audio'
@@ -327,25 +396,65 @@ export const buildSeedanceReplayValidationSummary = <T extends SeedanceReplayVal
   const totalVideoDuration = sumDuration(videoAssets);
   const totalAudioDuration = sumDuration(audioAssets);
   const totalAudioBytes = sumSizeBytes(audioAssets);
+  const imageKindLabel = getSeedanceReplayKindLabel(t, 'image');
+  const videoKindLabel = getSeedanceReplayKindLabel(t, 'video');
+  const audioKindLabel = getSeedanceReplayKindLabel(t, 'audio');
 
   const imageErrors = uniqueMessages([
-    ...(imageAssets.length > SEEDANCE_REPLAY_IMAGE_LIMIT ? [`图片数量超过限制（${imageAssets.length}/${SEEDANCE_REPLAY_IMAGE_LIMIT}）`] : []),
-    ...(totalImageBytes > SEEDANCE_REPLAY_IMAGE_TOTAL_BYTES_LIMIT ? [`图片总大小超过限制（${formatMegabytes(totalImageBytes)}/64MB）`] : []),
+    ...(imageAssets.length > SEEDANCE_REPLAY_IMAGE_LIMIT
+      ? [formatSeedanceReplayText(
+          t?.wb_seedance_replay_error_count || '{kind} count exceeds limit ({count}/{limit})',
+          { kind: imageKindLabel, count: imageAssets.length, limit: SEEDANCE_REPLAY_IMAGE_LIMIT },
+        )]
+      : []),
+    ...(totalImageBytes > SEEDANCE_REPLAY_IMAGE_TOTAL_BYTES_LIMIT
+      ? [formatSeedanceReplayText(
+          t?.wb_seedance_replay_error_total_size || '{kind} total size exceeds limit ({current}/{limit})',
+          { kind: imageKindLabel, current: formatMegabytes(totalImageBytes), limit: '64MB' },
+        )]
+      : []),
     ...imageAssets.flatMap((asset) => asset.validationMessages || []),
   ]);
   const videoErrors = uniqueMessages([
-    ...(videoAssets.length > SEEDANCE_REPLAY_VIDEO_LIMIT ? [`视频数量超过限制（${videoAssets.length}/${SEEDANCE_REPLAY_VIDEO_LIMIT}）`] : []),
-    ...(totalVideoDuration > SEEDANCE_REPLAY_DURATION_MAX ? [`视频总时长超过限制（${totalVideoDuration.toFixed(1)}s/${SEEDANCE_REPLAY_DURATION_MAX}s）`] : []),
+    ...(videoAssets.length > SEEDANCE_REPLAY_VIDEO_LIMIT
+      ? [formatSeedanceReplayText(
+          t?.wb_seedance_replay_error_count || '{kind} count exceeds limit ({count}/{limit})',
+          { kind: videoKindLabel, count: videoAssets.length, limit: SEEDANCE_REPLAY_VIDEO_LIMIT },
+        )]
+      : []),
+    ...(totalVideoDuration > SEEDANCE_REPLAY_DURATION_MAX
+      ? [formatSeedanceReplayText(
+          t?.wb_seedance_replay_error_total_duration || '{kind} total duration exceeds limit ({current}/{limit})',
+          { kind: videoKindLabel, current: `${totalVideoDuration.toFixed(1)}s`, limit: `${SEEDANCE_REPLAY_DURATION_MAX}s` },
+        )]
+      : []),
     ...videoAssets.flatMap((asset) => asset.validationMessages || []),
   ]);
   const audioErrors = uniqueMessages([
-    ...(audioAssets.length > SEEDANCE_REPLAY_AUDIO_LIMIT ? [`音频数量超过限制（${audioAssets.length}/${SEEDANCE_REPLAY_AUDIO_LIMIT}）`] : []),
-    ...(totalAudioDuration > SEEDANCE_REPLAY_DURATION_MAX ? [`音频总时长超过限制（${totalAudioDuration.toFixed(1)}s/${SEEDANCE_REPLAY_DURATION_MAX}s）`] : []),
-    ...(totalAudioBytes > SEEDANCE_REPLAY_AUDIO_TOTAL_BYTES_LIMIT ? [`音频总大小超过限制（${formatMegabytes(totalAudioBytes)}/64MB）`] : []),
+    ...(audioAssets.length > SEEDANCE_REPLAY_AUDIO_LIMIT
+      ? [formatSeedanceReplayText(
+          t?.wb_seedance_replay_error_count || '{kind} count exceeds limit ({count}/{limit})',
+          { kind: audioKindLabel, count: audioAssets.length, limit: SEEDANCE_REPLAY_AUDIO_LIMIT },
+        )]
+      : []),
+    ...(totalAudioDuration > SEEDANCE_REPLAY_DURATION_MAX
+      ? [formatSeedanceReplayText(
+          t?.wb_seedance_replay_error_total_duration || '{kind} total duration exceeds limit ({current}/{limit})',
+          { kind: audioKindLabel, current: `${totalAudioDuration.toFixed(1)}s`, limit: `${SEEDANCE_REPLAY_DURATION_MAX}s` },
+        )]
+      : []),
+    ...(totalAudioBytes > SEEDANCE_REPLAY_AUDIO_TOTAL_BYTES_LIMIT
+      ? [formatSeedanceReplayText(
+          t?.wb_seedance_replay_error_total_size || '{kind} total size exceeds limit ({current}/{limit})',
+          { kind: audioKindLabel, current: formatMegabytes(totalAudioBytes), limit: '64MB' },
+        )]
+      : []),
     ...audioAssets.flatMap((asset) => asset.validationMessages || []),
   ]);
   const hasMinimumAssets = imageAssets.length > 0 || videoAssets.length > 0;
-  const globalErrors = hasMinimumAssets ? [] : ['请至少上传 1 张图片或 1 个视频'];
+  const globalErrors = hasMinimumAssets
+    ? []
+    : [t?.wb_seedance_replay_error_min_assets || 'Please upload at least 1 image or 1 video'];
 
   return {
     imageErrors,

@@ -1,6 +1,8 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Download, ImagePlus, Plus, Replace, Trash2, Type, ZoomIn, ZoomOut } from 'lucide-react';
 import { AppDialog } from '../common/AppDialog';
+import { galleryApi } from '../../services/galleryApi';
+import type { GalleryAiLayoutProposal } from '../../types/gallery';
 
 export type GalleryBoardAsset = {
   localId: string;
@@ -129,6 +131,7 @@ type PickerColorState = {
 };
 
 type RightPanelSectionKey = 'board' | 'inspector' | 'assets';
+type LeftPanelSectionKey = 'templates' | 'aiLayouts';
 
 const FONT_FAMILY_OPTIONS = ['system-ui', 'Microsoft YaHei', 'PingFang SC', 'SimHei', 'serif'];
 const CANVAS_SIZE_OPTIONS = [
@@ -461,6 +464,31 @@ const loadImageFromUrl = async (url: string) => {
   }
 };
 
+const blobToDataUrl = async (blob: Blob) => {
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Failed to read file as data URL'));
+    reader.readAsDataURL(blob);
+  });
+};
+
+const inferAspectRatioId = (width: number, height: number) => {
+  const matched = CANVAS_SIZE_OPTIONS.find((item) => item.width === width && item.height === height);
+  if (matched) return matched.id;
+
+  const safeWidth = Math.max(Math.round(width || 1), 1);
+  const safeHeight = Math.max(Math.round(height || 1), 1);
+  const ratio = safeWidth / safeHeight;
+
+  if (Math.abs(ratio - 1) < 0.02) return '1:1';
+  if (Math.abs(ratio - 4 / 5) < 0.02) return '4:5';
+  if (Math.abs(ratio - 3 / 4) < 0.02) return '3:4';
+  if (Math.abs(ratio - 9 / 16) < 0.02) return '9:16';
+  if (Math.abs(ratio - 16 / 9) < 0.02) return '16:9';
+  return 'custom';
+};
+
 const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   assets,
   productName,
@@ -485,10 +513,19 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   const [localAssets, setLocalAssets] = useState<GalleryBoardAsset[]>([]);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [textFontSizeDraft, setTextFontSizeDraft] = useState('');
+  const [selectedAssetLocalIds, setSelectedAssetLocalIds] = useState<string[]>([]);
+  const [isGeneratingAiLayouts, setIsGeneratingAiLayouts] = useState(false);
+  const [aiLayoutProposals, setAiLayoutProposals] = useState<GalleryAiLayoutProposal[]>([]);
+  const [aiLayoutFallbackUsed, setAiLayoutFallbackUsed] = useState(false);
+  const [aiLayoutMessage, setAiLayoutMessage] = useState('');
   const [rightPanelSections, setRightPanelSections] = useState<Record<RightPanelSectionKey, boolean>>({
     board: true,
     inspector: true,
     assets: false,
+  });
+  const [leftPanelSections, setLeftPanelSections] = useState<Record<LeftPanelSectionKey, boolean>>({
+    templates: true,
+    aiLayouts: true,
   });
 
   const nextLayerId = () => {
@@ -497,6 +534,10 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   };
 
   const mergedAssets = useMemo(() => [...localAssets, ...assets], [assets, localAssets]);
+  const selectedAssets = useMemo(
+    () => selectedAssetLocalIds.map((localId) => mergedAssets.find((item) => item.localId === localId)).filter(Boolean) as GalleryBoardAsset[],
+    [mergedAssets, selectedAssetLocalIds]
+  );
 
   useEffect(() => {
     localAssetUrlsRef.current = localAssets
@@ -509,6 +550,11 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       localAssetUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     };
   }, []);
+
+  useEffect(() => {
+    const availableIds = new Set(mergedAssets.map((item) => item.localId));
+    setSelectedAssetLocalIds((prev) => prev.filter((item) => availableIds.has(item)));
+  }, [mergedAssets]);
 
   const assetMap = useMemo(() => {
     const entries = mergedAssets
@@ -705,6 +751,159 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
   const toggleRightPanelSection = (section: RightPanelSectionKey) => {
     setRightPanelSections((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  const toggleLeftPanelSection = (section: LeftPanelSectionKey) => {
+    setLeftPanelSections((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  const toggleAssetSelection = (assetLocalId: string) => {
+    setSelectedAssetLocalIds((prev) => {
+      if (prev.includes(assetLocalId)) return prev.filter((item) => item !== assetLocalId);
+      return [...prev, assetLocalId];
+    });
+  };
+
+  const applyAiLayoutProposal = (proposal: GalleryAiLayoutProposal) => {
+    const canvasWidth = clamp(Math.round(proposal.canvas?.width || board.canvasWidth), 600, 2400);
+    const canvasHeight = clamp(Math.round(proposal.canvas?.height || board.canvasHeight), 600, 2400);
+    const palette = proposal.design_tokens?.palette || [];
+    const backgroundColor = String(proposal.background?.color || palette[0] || board.background || '#111111').trim() || '#111111';
+    const fontFamily = String(proposal.design_tokens?.font_family || 'Microsoft YaHei').trim() || 'Microsoft YaHei';
+    const nextLayers = [...(proposal.layers || [])]
+      .sort((a, b) => (a.z_index || 0) - (b.z_index || 0))
+      .reduce<BoardLayer[]>((result, layer, index) => {
+        const rect = layer.rect || { x: 0.1, y: 0.1, w: 0.3, h: 0.2 };
+        const x = clamp(Number(rect.x || 0) * canvasWidth, 0, canvasWidth);
+        const y = clamp(Number(rect.y || 0) * canvasHeight, 0, canvasHeight);
+        const w = clamp(Number(rect.w || 0.3) * canvasWidth, 80, canvasWidth);
+        const h = clamp(Number(rect.h || 0.2) * canvasHeight, 60, canvasHeight);
+        const layerId = nextLayerId();
+
+        if (layer.type === 'image') {
+          const source = layer.source || {};
+          const assetIndex = clamp(Number(source.asset_index || 0), 0, Math.max(selectedAssetLocalIds.length - 1, 0));
+          const assetLocalId = selectedAssetLocalIds[assetIndex] || selectedAssets[assetIndex]?.localId || null;
+          if (!assetLocalId) return result;
+          const style = layer.style || {};
+          result.push({
+            id: layerId,
+            type: 'image',
+            name: String(layer.name || layer.role || `图片 ${index + 1}`),
+            assetLocalId,
+            x,
+            y,
+            w: clamp(w, 120, canvasWidth),
+            h: clamp(h, 120, canvasHeight),
+            fit: 'contain',
+            radius: clamp(Number(style.radius || 0), 0, 160),
+            opacity: clamp(Number(style.opacity ?? 1), 0, 1),
+            showOriginal: true,
+            keepAspectRatio: true,
+          });
+          return result;
+        }
+
+        const style = layer.style || {};
+        result.push({
+          id: layerId,
+          type: 'text',
+          name: String(layer.name || layer.role || `文字 ${index + 1}`),
+          text: String(layer.text_content || '').trim(),
+          x,
+          y,
+          w: clamp(w, 120, canvasWidth),
+          h: clamp(h, 60, canvasHeight),
+          fontSize: clamp((Number(style.font_size || 0.03) || 0.03) * canvasHeight, 12, 160),
+          fontWeight: clamp(Number(style.font_weight || 600), 300, 900),
+          fontFamily,
+          color: String(style.color || '#1F1F1F'),
+          background: String(style.background || 'transparent'),
+          align: style.align === 'center' || style.align === 'right' ? style.align : 'left',
+          lineHeight: 1.2,
+          padding: 0,
+        });
+        return result;
+      }, []);
+
+    if (nextLayers.length < 1) {
+      onAlert?.(tr('AI 排版方案中没有可用图层。', 'No usable layers were returned in this AI layout.'));
+      return;
+    }
+
+    setBoard({
+      templateId: String(proposal.id || inferAspectRatioId(canvasWidth, canvasHeight)),
+      canvasWidth,
+      canvasHeight,
+      background: backgroundColor,
+      backgroundImageAssetLocalId: null,
+      backgroundImageX: 0,
+      backgroundImageY: 0,
+      backgroundImageW: canvasWidth,
+      backgroundImageH: canvasHeight,
+      backgroundImageFit: 'cover',
+      backgroundImageOpacity: 1,
+      layers: nextLayers,
+      selectedLayerId: nextLayers[0]?.id || null,
+      selectedBackground: false,
+    });
+    setLeftPanelSections((prev) => ({ ...prev, aiLayouts: true }));
+  };
+
+  const generateAiLayouts = async () => {
+    if (selectedAssets.length < 1) {
+      onAlert?.(tr('请先在右侧素材区勾选至少一张素材图。', 'Select at least one asset from the asset panel first.'));
+      return;
+    }
+
+    setIsGeneratingAiLayouts(true);
+    try {
+      setAiLayoutMessage('');
+      const selectedAssetsForLlm = await Promise.all(
+        selectedAssets.map(async (asset, index) => {
+          let imageUrl = String(asset.imageUrl || '').trim();
+          if (imageUrl.startsWith('blob:')) {
+            try {
+              const blobResponse = await fetch(imageUrl);
+              if (blobResponse.ok) {
+                const blob = await blobResponse.blob();
+                imageUrl = await blobToDataUrl(blob);
+              }
+            } catch {
+              imageUrl = String(asset.imageUrl || '').trim();
+            }
+          }
+
+          return {
+            local_id: asset.localId,
+            name: `${tr('图片', 'Image')} ${index + 1}`,
+            image_url: imageUrl,
+          };
+        })
+      );
+      const response = await galleryApi.generateLayouts({
+        product_name: productName,
+        core_selling_points: sellingPoints.filter((item) => String(item || '').trim()),
+        aspect_ratio: currentCanvasPresetId === 'custom' ? inferAspectRatioId(board.canvasWidth, board.canvasHeight) : currentCanvasPresetId,
+        count: 3,
+        selected_assets: selectedAssetsForLlm,
+      });
+
+      const proposals = response?.data?.proposals || [];
+      setAiLayoutProposals(proposals);
+      setAiLayoutFallbackUsed(Boolean(response?.data?.fallback_used));
+      setAiLayoutMessage(String(response?.data?.warning || ''));
+      setLeftPanelSections((prev) => ({ ...prev, aiLayouts: true }));
+      if (proposals.length < 1) {
+        onAlert?.(tr('未生成可用的排版方案。', 'No usable layout proposals were generated.'));
+      }
+    } catch (error: any) {
+      setAiLayoutFallbackUsed(false);
+      setAiLayoutMessage('');
+      onAlert?.(String(error?.message || error || tr('生成 AI 排版失败。', 'Failed to generate AI layouts.')));
+    } finally {
+      setIsGeneratingAiLayouts(false);
+    }
   };
 
   const removeSelectedLayer = () => {
@@ -1293,62 +1492,141 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
   return (
     <>
-      <div className="grid min-h-[72vh] grid-cols-1 gap-4 xl:grid-cols-[220px_minmax(0,1fr)_340px]">
+      <div className="grid min-h-[72vh] grid-cols-1 gap-4 xl:grid-cols-[240px_minmax(0,1fr)_360px]">
       <aside className="flex min-h-0 flex-col rounded-2xl border border-white/10 bg-black/20 p-3">
-        <div className="mb-3">
-          <div className="text-xs font-bold uppercase tracking-[0.24em] text-zinc-500">
-            {tr('拼图模板', 'Templates')}
-          </div>
-          <div className="mt-1 text-[11px] text-zinc-400">
-            {tr('点击模板后，会把当前素材自动铺到画板。', 'Templates will seed the board with current assets.')}
-          </div>
-        </div>
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+          <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+            <button
+              type="button"
+              onClick={() => toggleLeftPanelSection('templates')}
+              className="flex w-full items-start justify-between gap-3 px-3 py-3 text-left"
+            >
+              <div>
+                <div className="text-xs font-bold uppercase tracking-[0.24em] text-zinc-500">
+                  {tr('拼图模板', 'Templates')}
+                </div>
+                <div className="mt-1 text-[11px] text-zinc-400">
+                  {tr('点击模板后，会把当前素材自动铺到画板。', 'Templates will seed the board with current assets.')}
+                </div>
+              </div>
+              <ChevronDown
+                className={`mt-0.5 h-4 w-4 shrink-0 text-zinc-400 transition ${leftPanelSections.templates ? 'rotate-180' : ''}`}
+              />
+            </button>
 
-        <div className="space-y-2 overflow-y-auto pr-1">
-          {TEMPLATE_DEFINITIONS.map((template) => {
-            const active = board.templateId === template.id;
-            return (
-              <button
-                key={template.id}
-                type="button"
-                onClick={() => applyTemplate(template.id)}
-                className={`rounded-xl border p-2.5 text-left transition ${
-                  active
-                    ? 'border-orange-500 bg-orange-500/10 text-orange-200'
-                    : 'border-white/10 bg-black/20 text-zinc-200 hover:bg-white/5'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="text-xs font-semibold">{template.name}</div>
-                    <div className="mt-1 text-[11px] leading-5 text-zinc-400">{template.description}</div>
-                  </div>
-                  <div className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-zinc-400">
-                    {template.canvasWidth}:{template.canvasHeight}
-                  </div>
+            {leftPanelSections.templates ? (
+              <div className="space-y-2 border-t border-white/10 px-3 pb-3 pt-3">
+                {TEMPLATE_DEFINITIONS.map((template) => {
+                  const active = board.templateId === template.id;
+                  return (
+                    <button
+                      key={template.id}
+                      type="button"
+                      onClick={() => applyTemplate(template.id)}
+                      className={`rounded-xl border p-2.5 text-left transition ${
+                        active
+                          ? 'border-orange-500 bg-orange-500/10 text-orange-200'
+                          : 'border-white/10 bg-black/20 text-zinc-200 hover:bg-white/5'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-semibold">{template.name}</div>
+                          <div className="mt-1 text-[11px] leading-5 text-zinc-400">{template.description}</div>
+                        </div>
+                        <div className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-zinc-400">
+                          {template.canvasWidth}:{template.canvasHeight}
+                        </div>
+                      </div>
+                      <div className="mt-2 overflow-hidden rounded-lg border border-white/10 bg-zinc-950/70 p-1.5">
+                        <div
+                          className="relative mx-auto w-full rounded-md border border-white/5 bg-white/5"
+                          style={{ aspectRatio: `${template.canvasWidth} / ${template.canvasHeight}` }}
+                        >
+                          {template.slots.map((slot, index) => (
+                            <div
+                              key={`${template.id}-${index}`}
+                              className="absolute rounded-sm border border-white/30 bg-white/10"
+                              style={{
+                                left: `${(slot.x / template.canvasWidth) * 100}%`,
+                                top: `${(slot.y / template.canvasHeight) * 100}%`,
+                                width: `${(slot.w / template.canvasWidth) * 100}%`,
+                                height: `${(slot.h / template.canvasHeight) * 100}%`,
+                              }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+            <button
+              type="button"
+              onClick={() => toggleLeftPanelSection('aiLayouts')}
+              className="flex w-full items-start justify-between gap-3 px-3 py-3 text-left"
+            >
+              <div>
+                <div className="text-xs font-bold uppercase tracking-[0.24em] text-zinc-500">
+                  {tr('AI排版方案', 'AI Layouts')}
                 </div>
-                <div className="mt-2 overflow-hidden rounded-lg border border-white/10 bg-zinc-950/70 p-1.5">
-                  <div
-                    className="relative mx-auto w-full rounded-md border border-white/5 bg-white/5"
-                    style={{ aspectRatio: `${template.canvasWidth} / ${template.canvasHeight}` }}
-                  >
-                    {template.slots.map((slot, index) => (
-                      <div
-                        key={`${template.id}-${index}`}
-                        className="absolute rounded-sm border border-white/30 bg-white/10"
-                        style={{
-                          left: `${(slot.x / template.canvasWidth) * 100}%`,
-                          top: `${(slot.y / template.canvasHeight) * 100}%`,
-                          width: `${(slot.w / template.canvasWidth) * 100}%`,
-                          height: `${(slot.h / template.canvasHeight) * 100}%`,
-                        }}
-                      />
-                    ))}
-                  </div>
+                <div className="mt-1 text-[11px] text-zinc-400">
+                  {tr('先在右侧勾选素材，再生成多套可编辑排版。', 'Select assets on the right, then generate editable layout ideas.')}
                 </div>
-              </button>
-            );
-          })}
+              </div>
+              <ChevronDown
+                className={`mt-0.5 h-4 w-4 shrink-0 text-zinc-400 transition ${leftPanelSections.aiLayouts ? 'rotate-180' : ''}`}
+              />
+            </button>
+
+            {leftPanelSections.aiLayouts ? (
+              <div className="space-y-2 border-t border-white/10 px-3 pb-3 pt-3">
+                {isGeneratingAiLayouts ? (
+                  <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-4 text-sm text-zinc-400">
+                    {tr('正在生成 AI 排版方案...', 'Generating AI layout proposals...')}
+                  </div>
+                ) : aiLayoutProposals.length > 0 ? (
+                  aiLayoutProposals.map((proposal, index) => (
+                    <div key={proposal.id || index} className="rounded-xl border border-white/10 bg-black/20 p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-semibold text-zinc-100">{proposal.name || `${tr('方案', 'Plan')} ${index + 1}`}</div>
+                          <div className="mt-1 text-[10px] text-zinc-500">
+                            {proposal.canvas?.aspect_ratio} · {proposal.canvas?.width} x {proposal.canvas?.height}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => applyAiLayoutProposal(proposal)}
+                          className="rounded-lg border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 text-[10px] font-semibold text-orange-200 transition hover:bg-orange-500/15"
+                        >
+                          {tr('应用', 'Apply')}
+                        </button>
+                      </div>
+                      {proposal.reason ? (
+                        <div className="mt-2 text-[11px] leading-5 text-zinc-400">{proposal.reason}</div>
+                      ) : null}
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-4 text-sm text-zinc-500">
+                    {tr('还没有生成方案。勾选素材后点击上方“生成AI排版”。', 'No proposals yet. Select assets and click Generate AI Layouts.')}
+                  </div>
+                )}
+
+                {aiLayoutMessage ? (
+                  <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-[11px] leading-5 text-zinc-500">
+                    {aiLayoutFallbackUsed ? tr('当前显示的是稳定回退方案：', 'Showing fallback proposals: ') : ''}
+                    {aiLayoutMessage}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
       </aside>
 
@@ -1363,6 +1641,14 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={generateAiLayouts}
+              disabled={isGeneratingAiLayouts || selectedAssets.length < 1}
+              className="inline-flex items-center gap-2 rounded-xl border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs font-semibold text-orange-200 transition hover:bg-orange-500/15 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {isGeneratingAiLayouts ? tr('生成中...', 'Generating...') : tr('生成AI排版', 'Generate AI Layouts')}
+            </button>
             <button
               type="button"
               onClick={addTextLayer}
@@ -2189,7 +2475,9 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
             {rightPanelSections.assets ? (
               <div className="border-t border-white/10 px-4 pb-4 pt-4">
                 <div className="flex items-start justify-between gap-3">
-                  <div />
+                  <div className="text-[11px] text-zinc-500">
+                    {tr('已选素材', 'Selected')} {selectedAssetLocalIds.length}
+                  </div>
                   <div className="shrink-0">
                     <input
                       ref={uploadInputRef}
@@ -2215,12 +2503,29 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                       const imageUrl = String(asset.imageUrl || '').trim();
                       const canRender = Boolean(imageUrl);
                       const canReplace = canRender && selectedLayer?.type === 'image';
+                      const isAssetSelected = selectedAssetLocalIds.includes(asset.localId);
                       return (
-                        <div key={asset.localId} className="rounded-xl border border-white/10 bg-black/20 p-2.5">
-                          <div className="mb-2 min-w-0">
+                        <div
+                          key={asset.localId}
+                          className={`rounded-xl border p-2.5 ${
+                            isAssetSelected ? 'border-orange-500/40 bg-orange-500/5' : 'border-white/10 bg-black/20'
+                          }`}
+                        >
+                          <div className="mb-2 flex items-center justify-between gap-2 min-w-0">
                             <div className="truncate text-[11px] font-semibold text-zinc-200">
                               {tr('图片', 'Image')} {index + 1}
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => toggleAssetSelection(asset.localId)}
+                              className={`shrink-0 rounded-lg border px-2 py-1 text-[10px] font-semibold transition ${
+                                isAssetSelected
+                                  ? 'border-orange-500/30 bg-orange-500/10 text-orange-200'
+                                  : 'border-white/10 bg-zinc-900/70 text-zinc-300 hover:bg-zinc-800'
+                              }`}
+                            >
+                              {isAssetSelected ? tr('已选中', 'Selected') : tr('选中排版', 'Select')}
+                            </button>
                           </div>
 
                           <div

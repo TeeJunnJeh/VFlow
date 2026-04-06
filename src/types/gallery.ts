@@ -75,3 +75,75 @@ export interface GalleryTemplatesData {
   templates: GalleryTemplateDefinition[];
 }
 
+export interface GalleryAiLayoutRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface GalleryAiLayoutImageLayer {
+  id: string;
+  type: 'image';
+  role?: string;
+  name?: string;
+  editable?: boolean;
+  visible?: boolean;
+  z_index?: number;
+  rect: GalleryAiLayoutRect;
+  source?: {
+    mode?: string;
+    asset_index?: number;
+  };
+  style?: {
+    fit?: 'cover' | 'contain';
+    radius?: number;
+    opacity?: number;
+  };
+}
+
+export interface GalleryAiLayoutTextLayer {
+  id: string;
+  type: 'text';
+  role?: string;
+  name?: string;
+  editable?: boolean;
+  visible?: boolean;
+  z_index?: number;
+  rect: GalleryAiLayoutRect;
+  text_content?: string;
+  style?: {
+    font_size?: number;
+    font_weight?: number;
+    color?: string;
+    align?: 'left' | 'center' | 'right';
+    background?: string;
+  };
+}
+
+export interface GalleryAiLayoutProposal {
+  id: string;
+  name: string;
+  reason?: string;
+  canvas: {
+    width: number;
+    height: number;
+    aspect_ratio: string;
+  };
+  background?: {
+    color?: string;
+  };
+  design_tokens?: {
+    palette?: string[];
+    font_family?: string;
+    tone?: string;
+  };
+  layers: Array<GalleryAiLayoutImageLayer | GalleryAiLayoutTextLayer>;
+}
+
+export interface GalleryGenerateLayoutsData {
+  proposals: GalleryAiLayoutProposal[];
+  fallback_used?: boolean;
+  model?: string;
+  warning?: string;
+}

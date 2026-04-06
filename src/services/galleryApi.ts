@@ -3,6 +3,7 @@ import type {
   GalleryAnalyzeProductData,
   GalleryApiEnvelope,
   GalleryCreateJobData,
+  GalleryGenerateLayoutsData,
   GalleryJobDetailData,
   GalleryTemplatesData,
 } from '../types/gallery';
@@ -51,6 +52,25 @@ export const galleryApi = {
     });
   },
 
+  generateLayouts: async (body: {
+    product_name?: string;
+    product_category?: string;
+    core_selling_points?: string[];
+    aspect_ratio?: string;
+    count?: number;
+    selected_assets: Array<{
+      local_id: string;
+      name?: string;
+      image_url?: string;
+    }>;
+  }) => {
+    return apiRequest<GalleryApiEnvelope<GalleryGenerateLayoutsData>>(`${API_BASE_URL}/layouts/generate`, {
+      method: 'POST',
+      body,
+      fallbackMessage: '生成画板排版方案失败',
+    });
+  },
+
   getJob: async (jobId: string) => {
     const id = String(jobId || '').trim();
     if (!id) throw new Error('jobId is required');
@@ -59,4 +79,3 @@ export const galleryApi = {
     });
   },
 };
-

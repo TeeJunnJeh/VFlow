@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Image as ImageIcon, Star, Trash2, Settings2, Wand2, RefreshCw, X, Download, Check, Sparkles, Video } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
 import { AppDialog } from '../common/AppDialog';
 import {
   loadWorkbenchProjectStore,
   WORKBENCH_NEW_PROJECT_TARGET,
   type WorkbenchProjectMeta,
 } from '../../utils/workbenchProjectStore';
+import { addTransferStationItems } from '../../utils/workbenchTransferStation';
 
 // ————— Types —————
 
@@ -243,6 +245,7 @@ interface ImageHistoryPanelProps {
 
 export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigateToWorkbench, onNavigateToProductImages }) => {
   const { t } = useLanguage();
+  const { user } = useAuth();
 
   const [items, setItems] = useState<UnifiedImageHistoryItem[]>([]);
   const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
@@ -345,6 +348,34 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
 
     setApplyTarget(null);
     onNavigateToWorkbench();
+  };
+
+  const addSelectedToTransferStation = () => {
+    if (!applyTarget || applySelectedImages.size === 0) return;
+
+    const images = [...applySelectedImages];
+    const baseLabel = applyTarget.source === 'first_frame'
+      ? (t.hist_img_source_first_frame || '首帧图')
+      : (t.hist_img_source_gallery || '商品套图');
+
+    const result = addTransferStationItems(
+      images.map((url, index) => ({
+        name: `${baseLabel} ${index + 1}`,
+        fileUrl: url,
+        mediaKind: 'image' as const,
+        type: 'product' as const,
+        source: 'history' as const,
+      })),
+      user?.id ?? null,
+    );
+
+    if (result.addedCount > 0) {
+      setFeedbackMessage(t.wb_transfer_station_add_success || '已加入中转站，可在工作台悬浮球中拖拽使用。');
+      setApplyTarget(null);
+      return;
+    }
+
+    setFeedbackMessage(t.wb_transfer_station_add_duplicate || '素材已在中转站中，无需重复添加。');
   };
 
   const downloadImage = async (url: string, index?: number) => {
@@ -666,6 +697,17 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
           <>
             <button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setApplyTarget(null)}>
               {t.assets_move_cancel || 'Cancel'}
+            </button>
+            <button
+              className={`px-4 py-2 rounded-lg text-sm font-bold transition ${
+                applySelectedImages.size > 0
+                  ? 'bg-sky-600 text-white hover:bg-sky-500'
+                  : 'bg-zinc-700 text-zinc-400 cursor-not-allowed'
+              }`}
+              onClick={addSelectedToTransferStation}
+              disabled={applySelectedImages.size === 0}
+            >
+              {t.wb_transfer_station_add_btn || '加入中转站'} ({applySelectedImages.size})
             </button>
             <button
               className={`px-4 py-2 rounded-lg text-sm font-bold transition ${

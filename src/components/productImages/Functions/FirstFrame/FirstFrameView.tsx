@@ -10,6 +10,7 @@ import { LoadingProgress } from '../../Common/LoadingProgress';
 import { ErrorDialog, type ErrorInfo } from '../../Common/ErrorDialog';
 import { downloadBlob, productImagesApi } from '../../../../services/productImagesApi';
 import type { FirstFrameParams, ProductImageResult } from '../../../../types/productImages';
+import { appendImageHistoryItem, readImageHistoryByFeature, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
 
 type Phase = 'upload' | 'form' | 'generating' | 'result' | 'error';
 
@@ -37,7 +38,6 @@ interface FirstFrameViewProps {
 }
 
 const FIRST_FRAME_TRANSFER_KEY = 'vflow_apply_first_frame';
-const FIRST_FRAME_HISTORY_KEY = 'vflow_first_frame_history_v1';
 const FIRST_FRAME_WORKSPACE_META_KEY = 'vflow_first_frame_workspaces_v1';
 const FIRST_FRAME_ACTIVE_WORKSPACE_KEY = 'vflow_first_frame_active_workspace_v1';
 const FIRST_FRAME_COUNTDOWN_SECONDS = 120;
@@ -65,56 +65,26 @@ const sanitizeHistoryImage = (item: any, index: number): ProductImageResult | nu
   };
 };
 
-const readFirstFrameHistory = (): FirstFrameHistoryItem[] => {
-  if (typeof window === 'undefined') return [];
+const mapImageHistoryToFirstFrameItem = (item: ImageHistoryItem): FirstFrameHistoryItem | null => {
+  if (item.featureType !== 'first_frame') return null;
 
-  try {
-    const raw = window.localStorage.getItem(FIRST_FRAME_HISTORY_KEY);
-    if (!raw) return [];
+  const outputImages = (Array.isArray(item.metadata?.outputImages)
+    ? item.metadata.outputImages
+        .map((img: any, index: number) => sanitizeHistoryImage(img, index))
+        .filter(Boolean)
+    : item.images
+        .map((imageUrl, index) => sanitizeHistoryImage({ imageUrl, downloadUrl: imageUrl }, index))
+        .filter(Boolean)) as ProductImageResult[];
 
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
+  if (outputImages.length === 0) return null;
 
-    return parsed
-      .map((item: any) => {
-        const id = String(item?.id || '').trim();
-        const workspaceId = String(item?.workspaceId || '').trim();
-        const createdAt = String(item?.createdAt || '').trim();
-        const workspaceOrderRaw = Number(item?.workspaceOrder);
-        const workspaceOrder = Number.isFinite(workspaceOrderRaw) && workspaceOrderRaw > 0
-          ? Math.floor(workspaceOrderRaw)
-          : 1;
-
-        const outputImages = Array.isArray(item?.outputImages)
-          ? item.outputImages
-              .map((img: any, index: number) => sanitizeHistoryImage(img, index))
-              .filter(Boolean) as ProductImageResult[]
-          : [];
-
-        if (!id || !workspaceId || !createdAt || outputImages.length === 0) return null;
-
-        return {
-          id,
-          workspaceId,
-          workspaceOrder,
-          createdAt,
-          outputImages,
-        } satisfies FirstFrameHistoryItem;
-      })
-      .filter(Boolean) as FirstFrameHistoryItem[];
-  } catch {
-    return [];
-  }
-};
-
-const writeFirstFrameHistory = (items: FirstFrameHistoryItem[]) => {
-  if (typeof window === 'undefined') return;
-
-  try {
-    window.localStorage.setItem(FIRST_FRAME_HISTORY_KEY, JSON.stringify(items));
-  } catch {
-    // Ignore localStorage write failures.
-  }
+  return {
+    id: item.id,
+    workspaceId: item.workspaceId || 'ff-workspace-1',
+    workspaceOrder: item.workspaceOrder || 1,
+    createdAt: item.createdAt,
+    outputImages,
+  } satisfies FirstFrameHistoryItem;
 };
 
 const readWorkspaceMetas = (): FirstFrameWorkspaceMeta[] => {
@@ -186,8 +156,9 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const hasResults = results.length > 0;
 
   const refreshWorkspaceHistory = useCallback(() => {
-    const all = readFirstFrameHistory();
-    const filtered = all
+    const filtered = (readImageHistoryByFeature('first_frame')
+      .map((item) => mapImageHistoryToFirstFrameItem(item))
+      .filter(Boolean) as FirstFrameHistoryItem[])
       .filter((item) => item.workspaceId === workspaceId)
       .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
     setHistoryItems(filtered);
@@ -195,6 +166,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
   useEffect(() => {
     refreshWorkspaceHistory();
+    return subscribeImageHistory(refreshWorkspaceHistory);
   }, [refreshWorkspaceHistory]);
 
   const clearProgressTimer = useCallback(() => {
@@ -233,22 +205,20 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
     if (outputImages.length === 0) return;
 
-    const nextItem: FirstFrameHistoryItem = {
+    appendImageHistoryItem({
       id: `ff-history-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      featureType: 'first_frame',
+      createdAt: new Date().toISOString(),
+      status: 'succeeded',
+      images: outputImages.map((item) => item.imageUrl),
       workspaceId,
       workspaceOrder,
-      createdAt: new Date().toISOString(),
-      outputImages,
-    };
-
-    const all = [nextItem, ...readFirstFrameHistory()].slice(0, 200);
-    writeFirstFrameHistory(all);
-
-    const filtered = all
-      .filter((item) => item.workspaceId === workspaceId)
-      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-    setHistoryItems(filtered);
-  }, [workspaceId, workspaceOrder]);
+      metadata: {
+        outputImages,
+      },
+    });
+    refreshWorkspaceHistory();
+  }, [refreshWorkspaceHistory, workspaceId, workspaceOrder]);
 
   const handleImagesSelected = useCallback((files: File[]) => {
     setImages(files);

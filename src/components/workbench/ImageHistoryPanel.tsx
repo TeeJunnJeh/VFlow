@@ -9,8 +9,15 @@ import {
   type WorkbenchProjectMeta,
 } from '../../utils/workbenchProjectStore';
 import { addTransferStationItems } from '../../utils/workbenchTransferStation';
-
-// ————— Types —————
+import {
+  deleteImageHistoryItem,
+  readAllImageHistory,
+  readImageHistoryFavorites,
+  subscribeImageHistory,
+  toggleImageHistoryFavorite,
+  type ImageHistoryFeatureType,
+  type ImageHistoryItem,
+} from '../../utils/imageHistory';
 
 interface GallerySettings {
   targetScene: string;
@@ -26,171 +33,34 @@ interface GallerySettings {
 
 interface UnifiedImageHistoryItem {
   id: string;
-  source: 'first_frame' | 'gallery';
+  source: ImageHistoryFeatureType;
   createdAt: string;
-  /** Epoch ms for reliable sorting */
   createdAtMs: number;
   images: string[];
   settings?: GallerySettings;
+  metadata?: Record<string, any>;
   isFavorited: boolean;
 }
 
 type ApplyModel = 'sora2' | 'sora2pro' | 'seedance2.0';
 
-// ————— LocalStorage Keys —————
-
-const FIRST_FRAME_HISTORY_KEY = 'vflow_first_frame_history_v1';
-const GALLERY_HISTORY_KEY = 'vflow_product_gallery_history';
-const IMAGE_FAVORITES_KEY = 'vflow_image_history_favorites_v1';
 const FIRST_FRAME_TRANSFER_KEY = 'vflow_apply_first_frame';
 const GALLERY_RESTORE_KEY = 'vflow_gallery_restore_settings';
 
-// ————— Mock / Seed Data —————
-
-const MOCK_GALLERY_ITEM = {
-  id: 'mock-gallery-001',
-  createdAt: new Date(Date.now() - 3600_000).toLocaleString(),
-  images: [
-    'https://placehold.co/400x400/1a1a2e/e94560?text=Gallery+1',
-    'https://placehold.co/400x400/16213e/0f3460?text=Gallery+2',
-    'https://placehold.co/400x400/1a1a2e/533483?text=Gallery+3',
-  ],
-  settings: {
-    targetScene: 'detail',
-    style: 'ecom_clean',
-    aspectRatio: '1:1',
-    resolution: '1k',
-    productName: '便携榨汁杯',
-    productCategory: '小家电',
-    sellingPoints: ['无线便携', '一键启动', '304不锈钢刀头'],
-    typeSelections: {
-      white_bg: { enabled: true, count: 2 },
-      scene: { enabled: true, count: 1 },
-      selling_point: { enabled: false, count: 0 },
-      cover: { enabled: false, count: 0 },
-      poster: { enabled: false, count: 0 },
-    },
-  },
-};
-
-const MOCK_FIRST_FRAME_ITEM = {
-  id: 'mock-ff-001',
-  workspaceId: 'ff-workspace-1',
-  workspaceOrder: 1,
-  createdAt: new Date(Date.now() - 7200_000).toISOString(),
-  outputImages: [
-    { id: 'mock-ff-img-1', imageUrl: 'https://placehold.co/400x400/0f3460/e94560?text=FirstFrame+1', downloadUrl: '', format: 'jpg' },
-    { id: 'mock-ff-img-2', imageUrl: 'https://placehold.co/400x400/533483/e94560?text=FirstFrame+2', downloadUrl: '', format: 'jpg' },
-  ],
-};
-
-// ————— Helpers —————
-
-const readFavorites = (): Set<string> => {
-  try {
-    const raw = localStorage.getItem(IMAGE_FAVORITES_KEY);
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw);
-    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
-  } catch {
-    return new Set();
-  }
-};
-
-const writeFavorites = (set: Set<string>) => {
-  try {
-    localStorage.setItem(IMAGE_FAVORITES_KEY, JSON.stringify([...set]));
-  } catch { /* ignore */ }
-};
-
-const seedMockDataIfEmpty = () => {
-  // Gallery
-  try {
-    const galleryRaw = localStorage.getItem(GALLERY_HISTORY_KEY);
-    const galleryList = galleryRaw ? JSON.parse(galleryRaw) : [];
-    if (!Array.isArray(galleryList) || galleryList.length === 0) {
-      localStorage.setItem(GALLERY_HISTORY_KEY, JSON.stringify([MOCK_GALLERY_ITEM]));
-    }
-  } catch { /* ignore */ }
-
-  // FirstFrame
-  try {
-    const ffRaw = localStorage.getItem(FIRST_FRAME_HISTORY_KEY);
-    const ffList = ffRaw ? JSON.parse(ffRaw) : [];
-    if (!Array.isArray(ffList) || ffList.length === 0) {
-      localStorage.setItem(FIRST_FRAME_HISTORY_KEY, JSON.stringify([MOCK_FIRST_FRAME_ITEM]));
-    }
-  } catch { /* ignore */ }
-};
+const readFavorites = (): Set<string> => readImageHistoryFavorites();
 
 const loadUnifiedHistory = (): UnifiedImageHistoryItem[] => {
   const favorites = readFavorites();
-  const items: UnifiedImageHistoryItem[] = [];
-
-  // Gallery
-  try {
-    const raw = localStorage.getItem(GALLERY_HISTORY_KEY);
-    const list = raw ? JSON.parse(raw) : [];
-    if (Array.isArray(list)) {
-      for (const item of list) {
-        const id = String(item?.id || '').trim();
-        const createdAt = String(item?.createdAt || '').trim();
-        const images = Array.isArray(item?.images)
-          ? item.images.map((x: any) => String(x || '').trim()).filter(Boolean)
-          : [];
-        if (!id || !createdAt || images.length === 0) continue;
-        items.push({
-          id,
-          source: 'gallery',
-          createdAt,
-          createdAtMs: new Date(createdAt).getTime() || Date.now(),
-          images,
-          settings: item?.settings && typeof item.settings === 'object' ? item.settings : undefined,
-          isFavorited: favorites.has(id),
-        });
-      }
-    }
-  } catch { /* ignore */ }
-
-  // FirstFrame
-  try {
-    const raw = localStorage.getItem(FIRST_FRAME_HISTORY_KEY);
-    const list = raw ? JSON.parse(raw) : [];
-    if (Array.isArray(list)) {
-      for (const item of list) {
-        const id = String(item?.id || '').trim();
-        const createdAt = String(item?.createdAt || '').trim();
-        const outputImages = Array.isArray(item?.outputImages) ? item.outputImages : [];
-        const images = outputImages
-          .map((img: any) => String(img?.imageUrl || '').trim())
-          .filter(Boolean);
-        if (!id || !createdAt || images.length === 0) continue;
-        items.push({
-          id,
-          source: 'first_frame',
-          createdAt,
-          createdAtMs: new Date(createdAt).getTime() || Date.now(),
-          images,
-          isFavorited: favorites.has(id),
-        });
-      }
-    }
-  } catch { /* ignore */ }
-
-  // Sort descending by time
-  items.sort((a, b) => b.createdAtMs - a.createdAtMs);
-  return items;
-};
-
-const deleteHistoryItem = (id: string, source: 'first_frame' | 'gallery') => {
-  const key = source === 'gallery' ? GALLERY_HISTORY_KEY : FIRST_FRAME_HISTORY_KEY;
-  try {
-    const raw = localStorage.getItem(key);
-    const list = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(list)) return;
-    const next = list.filter((item: any) => String(item?.id || '') !== id);
-    localStorage.setItem(key, JSON.stringify(next));
-  } catch { /* ignore */ }
+  return readAllImageHistory().map((item: ImageHistoryItem) => ({
+    id: item.id,
+    source: item.featureType,
+    createdAt: item.createdAt,
+    createdAtMs: item.createdAtMs,
+    images: item.images,
+    settings: item.featureType === 'gallery' ? (item.settings as GallerySettings | undefined) : undefined,
+    metadata: item.metadata,
+    isFavorited: favorites.has(item.id),
+  }));
 };
 
 const formatI18n = (template: string | undefined, vars: Record<string, string | number>) => {
@@ -236,7 +106,9 @@ const TYPE_LABELS: Record<string, string> = {
   poster: '海报图',
 };
 
-// ————— Component —————
+const canApplyToWorkbench = (item: UnifiedImageHistoryItem) => item.source === 'first_frame' || item.source === 'gallery';
+const canRegenerate = (item: UnifiedImageHistoryItem) => item.source === 'first_frame' || item.source === 'gallery';
+const canViewSettings = (item: UnifiedImageHistoryItem) => item.source === 'gallery' && !!item.settings;
 
 interface ImageHistoryPanelProps {
   onNavigateToWorkbench: () => void;
@@ -261,48 +133,74 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
   const [applyProjectName, setApplyProjectName] = useState('');
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
+  const getSourceLabel = useCallback((source: ImageHistoryFeatureType) => {
+    switch (source) {
+      case 'first_frame':
+        return t.hist_img_source_first_frame || 'AI首帧图';
+      case 'gallery':
+        return t.hist_img_source_gallery || '商品套图';
+      case 'text_separation':
+        return t.hist_img_source_text_separation || '文本分离';
+      case 'smart_repair':
+        return t.hist_img_source_smart_repair || 'AI智能修复';
+      default:
+        return source;
+    }
+  }, [t]);
+
+  const getSourceBadgeClass = useCallback((source: ImageHistoryFeatureType) => {
+    switch (source) {
+      case 'first_frame':
+        return 'bg-blue-500/15 text-blue-400 border border-blue-500/20';
+      case 'gallery':
+        return 'bg-purple-500/15 text-purple-400 border border-purple-500/20';
+      case 'text_separation':
+        return 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20';
+      case 'smart_repair':
+        return 'bg-amber-500/15 text-amber-400 border border-amber-500/20';
+      default:
+        return 'bg-zinc-500/15 text-zinc-300 border border-zinc-500/20';
+    }
+  }, []);
+
   const reload = useCallback(() => {
-    seedMockDataIfEmpty();
     setItems(loadUnifiedHistory());
   }, []);
 
   useEffect(() => {
     reload();
+    return subscribeImageHistory(reload);
   }, [reload]);
 
   const displayed = useMemo(() => {
     if (!showOnlyFavorites) return items;
-    return items.filter((i) => i.isFavorited);
+    return items.filter((item) => item.isFavorited);
   }, [items, showOnlyFavorites]);
 
   const toggleFavorite = (id: string) => {
-    const favs = readFavorites();
-    if (favs.has(id)) {
-      favs.delete(id);
-    } else {
-      favs.add(id);
-    }
-    writeFavorites(favs);
-    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, isFavorited: favs.has(id) } : it)));
+    toggleImageHistoryFavorite(id);
+    reload();
   };
 
   const confirmDelete = () => {
     if (!deleteTarget) return;
-    deleteHistoryItem(deleteTarget.id, deleteTarget.source);
-    setItems((prev) => prev.filter((it) => it.id !== deleteTarget.id));
+    deleteImageHistoryItem(deleteTarget.id);
     setDeleteTarget(null);
+    reload();
   };
 
   const openApplyDialog = (item: UnifiedImageHistoryItem) => {
+    if (!canApplyToWorkbench(item)) return;
+
     const store = loadWorkbenchProjectStore();
     const sortedProjects = [...store.projects].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
 
     setApplyTarget(item);
-    setApplySelectedImages(new Set(item.images.slice(0, 1))); // default select first
+    setApplySelectedImages(new Set(item.images.slice(0, 1)));
     setApplyProjectOptions(sortedProjects);
     setApplyCurrentProjectId(store.currentProjectId || sortedProjects[0]?.id || '');
     setApplyTargetProjectId(store.currentProjectId || sortedProjects[0]?.id || '');
-    // Read current model from localStorage context
+
     try {
       const storedModel = localStorage.getItem('vflow_workbench_model');
       if (storedModel === 'sora2' || storedModel === 'sora2pro' || storedModel === 'seedance2.0') {
@@ -310,8 +208,11 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
       } else {
         setApplyModel('sora2');
       }
-    } catch { setApplyModel('sora2'); }
-    const defaultName = `${item.source === 'first_frame' ? t.hist_img_source_first_frame : t.hist_img_source_gallery}_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
+    } catch {
+      setApplyModel('sora2');
+    }
+
+    const defaultName = `${getSourceLabel(item.source)}_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
     setApplyProjectName(defaultName);
   };
 
@@ -344,7 +245,9 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
 
     try {
       localStorage.setItem(FIRST_FRAME_TRANSFER_KEY, JSON.stringify(transferPayload));
-    } catch { /* ignore */ }
+    } catch {
+      // ignore
+    }
 
     setApplyTarget(null);
     onNavigateToWorkbench();
@@ -354,9 +257,7 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
     if (!applyTarget || applySelectedImages.size === 0) return;
 
     const images = [...applySelectedImages];
-    const baseLabel = applyTarget.source === 'first_frame'
-      ? (t.hist_img_source_first_frame || '首帧图')
-      : (t.hist_img_source_gallery || '商品套图');
+    const baseLabel = getSourceLabel(applyTarget.source);
 
     const result = addTransferStationItems(
       images.map((url, index) => ({
@@ -383,59 +284,58 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
       const response = await fetch(url, { mode: 'cors' });
       const blob = await response.blob();
       const ext = blob.type?.includes('png') ? '.png' : blob.type?.includes('webp') ? '.webp' : '.jpg';
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `image${index != null ? `_${index + 1}` : ''}${ext}`;
-      a.click();
-      URL.revokeObjectURL(a.href);
+      const anchor = document.createElement('a');
+      anchor.href = URL.createObjectURL(blob);
+      anchor.download = `image${index != null ? `_${index + 1}` : ''}${ext}`;
+      anchor.click();
+      URL.revokeObjectURL(anchor.href);
     } catch {
-      // fallback: open in new tab
       window.open(url, '_blank');
     }
   };
 
   const downloadAllImages = async (images: string[]) => {
-    for (let i = 0; i < images.length; i++) {
-      await downloadImage(images[i], i);
-      // small delay between downloads to avoid browser blocking
-      if (i < images.length - 1) await new Promise((r) => setTimeout(r, 300));
+    for (let index = 0; index < images.length; index += 1) {
+      await downloadImage(images[index], index);
+      if (index < images.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
     }
   };
 
   const handleRegenerate = (item: UnifiedImageHistoryItem) => {
+    if (!canRegenerate(item)) return;
+
     if (item.source === 'gallery') {
       if (!item.settings) {
         setFeedbackMessage(t.hist_img_regenerate_no_settings);
         return;
       }
 
-      // Check whether the history record has saved image paths
       const hasImagePaths = Array.isArray(item.settings.uploadedImagePaths) && item.settings.uploadedImagePaths.length > 0;
-
-      // Write the settings to localStorage for ProductImagesView to restore
       try {
         localStorage.setItem(GALLERY_RESTORE_KEY, JSON.stringify(item.settings));
-      } catch { /* ignore */ }
+      } catch {
+        // ignore
+      }
 
       if (!hasImagePaths) {
-        // Show warning but still navigate — settings will be restored, user just needs to re-upload images
         setFeedbackMessage(t.hist_img_regenerate_no_images);
       }
 
       onNavigateToProductImages('product_images_gallery');
-    } else {
-      // first_frame items — just navigate back to the first-frame tool
-      onNavigateToProductImages('product_images_first_frame');
+      return;
     }
+
+    onNavigateToProductImages('product_images_first_frame');
   };
 
   return (
     <div className="h-full flex flex-col">
-      {/* Toolbar */}
       <div className="flex items-center gap-3 mb-4 px-1">
         <button
           type="button"
-          onClick={() => setShowOnlyFavorites((v) => !v)}
+          onClick={() => setShowOnlyFavorites((value) => !value)}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition ${
             showOnlyFavorites
               ? 'bg-amber-500/10 border-amber-500/40 text-amber-300'
@@ -447,7 +347,6 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
         </button>
       </div>
 
-      {/* Content */}
       {displayed.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center text-zinc-500">
@@ -460,25 +359,19 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
             {displayed.map((item) => (
               <div key={item.id} className="rounded-2xl border border-white/5 bg-white/[0.02] overflow-hidden hover:border-white/10 transition group">
-                {/* Header */}
                 <div className="px-4 py-2.5 border-b border-white/5 bg-black/20 flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                      item.source === 'first_frame'
-                        ? 'bg-blue-500/15 text-blue-400 border border-blue-500/20'
-                        : 'bg-purple-500/15 text-purple-400 border border-purple-500/20'
-                    }`}>
-                      {item.source === 'first_frame' ? t.hist_img_source_first_frame : t.hist_img_source_gallery}
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${getSourceBadgeClass(item.source)}`}>
+                      {getSourceLabel(item.source)}
                     </span>
                     <span className="text-[11px] text-zinc-500">{formatHistoryTime(item.createdAt)}</span>
                   </div>
                   <span className="text-[11px] text-zinc-600">{formatI18n(t.hist_img_count, { count: item.images.length })}</span>
                 </div>
 
-                {/* Image Grid */}
                 <div className="p-3 grid grid-cols-4 gap-1.5">
-                  {item.images.slice(0, 4).map((url, idx) => (
-                    <div key={`${item.id}-${idx}`} className="relative group/img rounded-lg overflow-hidden border border-white/10 bg-black/30 aspect-square">
+                  {item.images.slice(0, 4).map((url, index) => (
+                    <div key={`${item.id}-${index}`} className="relative group/img rounded-lg overflow-hidden border border-white/10 bg-black/30 aspect-square">
                       <button
                         type="button"
                         onClick={() => setPreviewImageUrl(url)}
@@ -488,7 +381,10 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
                       </button>
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); downloadImage(url, idx); }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          downloadImage(url, index);
+                        }}
                         className="absolute bottom-1 right-1 w-6 h-6 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
                         title={t.hist_img_download}
                       >
@@ -503,8 +399,7 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
                   )}
                 </div>
 
-                {/* Settings Summary (Gallery only) */}
-                {item.settings && (
+                {canViewSettings(item) && item.settings && (
                   <div className="px-3 pb-1 flex flex-wrap gap-1.5">
                     <span className="text-[10px] bg-zinc-800/80 text-zinc-400 px-1.5 py-0.5 rounded">{SCENE_LABELS[item.settings.targetScene] || item.settings.targetScene}</span>
                     <span className="text-[10px] bg-zinc-800/80 text-zinc-400 px-1.5 py-0.5 rounded">{STYLE_LABELS[item.settings.style] || item.settings.style}</span>
@@ -513,7 +408,6 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
                   </div>
                 )}
 
-                {/* Actions */}
                 <div className="px-3 py-2.5 border-t border-white/5 flex items-center gap-2 flex-wrap">
                   <button
                     type="button"
@@ -524,7 +418,7 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
                     <Star className="w-3.5 h-3.5" fill={item.isFavorited ? 'currentColor' : 'none'} strokeWidth={item.isFavorited ? 0 : 2} style={item.isFavorited ? { color: '#f59e0b' } : undefined} />
                   </button>
 
-                  {item.settings && (
+                  {canViewSettings(item) && (
                     <button
                       type="button"
                       onClick={() => setSettingsItem(item)}
@@ -535,23 +429,27 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
                     </button>
                   )}
 
-                  <button
-                    type="button"
-                    onClick={() => openApplyDialog(item)}
-                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-orange-300 border border-orange-500/20 bg-orange-500/10 hover:bg-orange-500/20 transition"
-                  >
-                    <Wand2 className="w-3.5 h-3.5" />
-                    <span>{t.hist_img_apply_to_workbench}</span>
-                  </button>
+                  {canApplyToWorkbench(item) && (
+                    <button
+                      type="button"
+                      onClick={() => openApplyDialog(item)}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-orange-300 border border-orange-500/20 bg-orange-500/10 hover:bg-orange-500/20 transition"
+                    >
+                      <Wand2 className="w-3.5 h-3.5" />
+                      <span>{t.hist_img_apply_to_workbench}</span>
+                    </button>
+                  )}
 
-                  <button
-                    type="button"
-                    onClick={() => handleRegenerate(item)}
-                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-sky-300 border border-sky-500/20 bg-sky-500/10 hover:bg-sky-500/20 transition"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>{t.hist_img_regenerate}</span>
-                  </button>
+                  {canRegenerate(item) && (
+                    <button
+                      type="button"
+                      onClick={() => handleRegenerate(item)}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-sky-300 border border-sky-500/20 bg-sky-500/10 hover:bg-sky-500/20 transition"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>{t.hist_img_regenerate}</span>
+                    </button>
+                  )}
 
                   <button
                     type="button"
@@ -576,15 +474,12 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
         </div>
       )}
 
-      {/* ——— Dialogs ——— */}
-
-      {/* Image Preview */}
       {previewImageUrl && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md p-4"
           onClick={() => setPreviewImageUrl(null)}
         >
-          <div className="relative max-w-4xl w-full" onClick={(e) => e.stopPropagation()}>
+          <div className="relative max-w-4xl w-full" onClick={(event) => event.stopPropagation()}>
             <button
               onClick={() => setPreviewImageUrl(null)}
               className="absolute -top-10 right-0 w-8 h-8 bg-black/50 hover:bg-white/20 rounded-full flex items-center justify-center text-white transition"
@@ -596,7 +491,6 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
         </div>
       )}
 
-      {/* Settings Dialog */}
       <AppDialog
         isOpen={!!settingsItem}
         title={t.hist_img_settings_title}
@@ -644,7 +538,7 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
               <div>
                 <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_img_setting_selling_points}</div>
                 <ul className="list-disc list-inside text-zinc-300 text-xs space-y-0.5">
-                  {settingsItem.settings.sellingPoints.map((sp, idx) => <li key={idx}>{sp}</li>)}
+                  {settingsItem.settings.sellingPoints.map((sellingPoint, index) => <li key={index}>{sellingPoint}</li>)}
                 </ul>
               </div>
             )}
@@ -653,10 +547,10 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
                 <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_img_setting_types}</div>
                 <div className="flex flex-wrap gap-2">
                   {Object.entries(settingsItem.settings.typeSelections)
-                    .filter(([, v]) => v.enabled && v.count > 0)
-                    .map(([key, v]) => (
+                    .filter(([, value]) => value.enabled && value.count > 0)
+                    .map(([key, value]) => (
                       <span key={key} className="text-xs bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded border border-white/10">
-                        {TYPE_LABELS[key] || key} ×{v.count}
+                        {TYPE_LABELS[key] || key} ×{value.count}
                       </span>
                     ))}
                 </div>
@@ -668,7 +562,6 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
         )}
       </AppDialog>
 
-      {/* Delete Confirm */}
       <AppDialog
         isOpen={!!deleteTarget}
         title={t.hist_delete_confirm_title}
@@ -687,7 +580,6 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
         <div className="text-zinc-300 text-sm">{t.hist_img_delete_confirm}</div>
       </AppDialog>
 
-      {/* Apply to Workbench Dialog */}
       <AppDialog
         isOpen={!!applyTarget}
         title={t.hist_img_apply_title}
@@ -725,15 +617,14 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
       >
         {applyTarget && (
           <div className="space-y-5">
-            {/* 1. Image Selection Grid */}
             <div>
               <div className="text-[11px] text-zinc-500 font-bold mb-2">{t.hist_img_apply_select_images}</div>
               <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto custom-scroll">
-                {applyTarget.images.map((url, idx) => {
+                {applyTarget.images.map((url, index) => {
                   const selected = applySelectedImages.has(url);
                   return (
                     <button
-                      key={`${applyTarget.id}-apply-${idx}`}
+                      key={`${applyTarget.id}-apply-${index}`}
                       type="button"
                       onClick={() => toggleApplyImage(url)}
                       className={`relative rounded-lg overflow-hidden border-2 aspect-square transition ${
@@ -754,7 +645,6 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
               </div>
             </div>
 
-            {/* 2. Model Selection */}
             <div>
               <div className="text-[11px] text-zinc-500 font-bold mb-2">{t.hist_img_apply_select_model}</div>
               <div className="grid grid-cols-3 gap-2">
@@ -762,33 +652,32 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
                   { id: 'sora2' as ApplyModel, title: 'Sora 2', Icon: Sparkles },
                   { id: 'sora2pro' as ApplyModel, title: 'Sora 2 Pro', Icon: Sparkles },
                   { id: 'seedance2.0' as ApplyModel, title: 'Seedance 2.0', Icon: Video },
-                ] as const).map((opt) => {
-                  const active = applyModel === opt.id;
+                ] as const).map((option) => {
+                  const active = applyModel === option.id;
                   return (
                     <button
-                      key={opt.id}
+                      key={option.id}
                       type="button"
-                      onClick={() => setApplyModel(opt.id)}
+                      onClick={() => setApplyModel(option.id)}
                       className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm transition ${
                         active
                           ? 'border-orange-500/40 bg-orange-500/10 text-orange-300'
                           : 'border-white/10 bg-white/[0.02] text-zinc-300 hover:bg-white/5'
                       }`}
                     >
-                      <opt.Icon className="w-4 h-4 flex-shrink-0" />
-                      <span className="truncate">{opt.title}</span>
+                      <option.Icon className="w-4 h-4 flex-shrink-0" />
+                      <span className="truncate">{option.title}</span>
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            {/* 4. Project Name */}
             <div>
               <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_img_apply_select_workspace || '选择工作台'}</div>
               <select
                 value={applyTargetProjectId}
-                onChange={(e) => setApplyTargetProjectId(e.target.value)}
+                onChange={(event) => setApplyTargetProjectId(event.target.value)}
                 className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
               >
                 {applyProjectOptions.map((project) => (
@@ -805,14 +694,13 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
                 <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_img_apply_project_name}</div>
                 <input
                   value={applyProjectName}
-                  onChange={(e) => setApplyProjectName(e.target.value)}
+                  onChange={(event) => setApplyProjectName(event.target.value)}
                   className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
                   maxLength={30}
                 />
               </div>
             )}
 
-            {/* Hint */}
             <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-300">
               {applyTargetProjectId === WORKBENCH_NEW_PROJECT_TARGET
                 ? (t.hist_img_apply_new_project_hint || '将在工作台中创建新工程。')
@@ -822,7 +710,6 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
         )}
       </AppDialog>
 
-      {/* Feedback */}
       <AppDialog
         isOpen={!!feedbackMessage}
         title={t.hist_title}

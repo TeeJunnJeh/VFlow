@@ -28,7 +28,7 @@ export const LanguageSwitcher = () => {
   }, []);
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="relative z-[200]" ref={dropdownRef}>
       {/* Trigger Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
@@ -45,7 +45,7 @@ export const LanguageSwitcher = () => {
 
       {/* Dropdown Menu - FIXED Z-INDEX */}
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-48 bg-[#1a1a1a] border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden z-[100] animate-in fade-in zoom-in-95 duration-200">
+        <div className="absolute right-0 top-full mt-2 w-48 bg-[#1a1a1a] border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden z-[210] animate-in fade-in zoom-in-95 duration-200">
           <div className="p-1 flex flex-col gap-0.5">
             {languages.map((lang) => (
               <button

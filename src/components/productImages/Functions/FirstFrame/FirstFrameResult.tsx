@@ -63,8 +63,8 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
 
   return (
     <div className="w-full space-y-6">
-      <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
-        <p className="text-green-400 text-sm font-medium">
+      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+        <p className="text-sm font-medium text-emerald-400/85">
           {t.ff_result_generated_prefix} {results.length} {t.ff_result_generated_suffix}
         </p>
       </div>
@@ -124,7 +124,7 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
             </div>
             <div className="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
               <p className="text-zinc-400 text-xs mb-1">{t.ff_framing}</p>
-              <p className="text-green-400 font-semibold">{t.ff_optimized}</p>
+              <p className="font-semibold text-emerald-400/85">{t.ff_optimized}</p>
             </div>
           </div>
 
@@ -132,14 +132,14 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
             <button
               onClick={() => handleDownload(selectedImage.id)}
               disabled={downloadingIds.has(selectedImage.id)}
-              className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition flex items-center justify-center gap-2 font-medium"
+              className="px-4 py-3 rounded-xl border border-white/10 bg-zinc-900/70 text-sm font-bold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-50 flex items-center justify-center gap-2"
             >
               <Download className="w-4 h-4" />
               {downloadingIds.has(selectedImage.id) ? t.ff_downloading : t.ff_download_image}
             </button>
             <button
               onClick={() => onSetAsFirstFrame(selectedImage.id)}
-              className="px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition flex items-center justify-center gap-2 font-medium"
+              className="px-4 py-3 rounded-xl border border-orange-500/40 bg-orange-500/10 text-sm font-bold text-orange-300 transition hover:bg-orange-500/20 flex items-center justify-center gap-2"
             >
               {t.ff_set_as_workbench_first_frame}
             </button>
@@ -156,7 +156,7 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
             <button
               onClick={handleDownloadAll}
               disabled={isDownloadingAll}
-              className="w-full px-4 py-2.5 bg-green-600/20 text-green-400 border border-green-600/30 rounded-lg hover:bg-green-600/30 disabled:opacity-60 transition font-medium text-sm"
+              className="w-full px-4 py-2.5 rounded-xl border border-orange-500/40 bg-orange-500/10 text-sm font-bold text-orange-300 transition hover:bg-orange-500/20 disabled:opacity-60"
             >
               {isDownloadingAll ? t.ff_downloading_all : `${t.ff_download_all} (${results.length})`}
             </button>
@@ -165,14 +165,14 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <button
               onClick={onRegenerate}
-              className="px-4 py-3 bg-zinc-800 text-zinc-300 border border-zinc-700 rounded-lg hover:bg-zinc-700 transition flex items-center justify-center gap-2 font-medium"
+              className="px-4 py-3 rounded-xl border border-white/10 bg-zinc-900/70 text-sm font-bold text-zinc-200 transition hover:bg-zinc-800 flex items-center justify-center gap-2"
             >
               <RotateCcw className="w-4 h-4" />
               {t.ff_regenerate}
             </button>
             <button
               onClick={() => onNextStep(selectedImage.id)}
-              className="px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition flex items-center justify-center gap-2 font-medium"
+              className="px-4 py-3 rounded-xl border border-orange-500/40 bg-orange-500/10 text-sm font-bold text-orange-300 transition hover:bg-orange-500/20 flex items-center justify-center gap-2"
             >
               <ArrowRight className="w-4 h-4" />
               {t.ff_use_in_workbench_and_generate_video}

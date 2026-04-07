@@ -12,6 +12,7 @@ export type {
   FirstFrameHoldingStyle,
   FirstFrameAspectRatio,
   FirstFrameStyle,
+  FirstFrameModel,
   FirstFrameWhitespace,
   ProductImageResult,
   SmartRepairParams,

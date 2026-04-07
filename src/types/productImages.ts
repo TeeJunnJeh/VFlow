@@ -57,6 +57,11 @@ export type FirstFrameStyle =
   | 'studio'
   | 'clean';
 
+export type FirstFrameModel =
+  | 'flux-2-pro'
+  | 'flux-2-flex'
+  | 'gpt-image-1.5';
+
 export type FirstFrameWhitespace = 
   | 'top'
   | 'bottom'
@@ -68,6 +73,7 @@ export interface FirstFrameParams {
   personType?: FirstFramePersonType;
   holdingStyle?: FirstFrameHoldingStyle;
   aspectRatio?: FirstFrameAspectRatio;
+  model?: FirstFrameModel;
   style?: FirstFrameStyle;
   textWhitespace?: FirstFrameWhitespace;
   outputCount?: 1 | 2 | 4;

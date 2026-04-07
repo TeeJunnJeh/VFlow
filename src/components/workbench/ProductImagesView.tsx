@@ -1996,7 +1996,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         )}
       </AppDialog>
 
-      <header className="flex justify-between gap-6 px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
+      <header className="relative z-[220] flex justify-between gap-6 px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
             {currentHeader.title}

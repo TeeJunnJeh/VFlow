@@ -1028,6 +1028,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [translatingShots, setTranslatingShots] = useState<Record<number, boolean>>({});
   const [creationMode, setCreationMode] = useState<'fast' | 'replay'>(() => (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
   const [seedanceReplayUploadIntent, setSeedanceReplayUploadIntent] = useState<SeedanceReplayUploadIntent>({ targetMediaKind: null });
+  const [seedanceReplayFocusTarget, setSeedanceReplayFocusTarget] = useState<'top' | SeedanceReplayMediaKind | null>(null);
   const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
   const [isModelSectionCollapsed, setIsModelSectionCollapsed] = useState(false);
   const [isAiRecognizing, setIsAiRecognizing] = useState(false);
@@ -3191,6 +3192,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     () => buildSeedanceReplayValidationSummary(uploadDisplayAssets, t),
     [t, uploadDisplayAssets]
   );
+  const focusSeedanceReplayValidationTarget = useCallback((target: 'top' | SeedanceReplayMediaKind) => {
+    setSeedanceReplayFocusTarget(null);
+    window.setTimeout(() => setSeedanceReplayFocusTarget(target), 0);
+  }, []);
   const normalizeSeedanceAssetUrl = useCallback((raw: string | null | undefined) => {
     const normalized = String(raw || '').trim();
     if (!normalized) return '';
@@ -6173,6 +6178,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     if (Object.keys(requiredErrors).length > 0) setRequiredErrors({});
 
+    if (isSeedanceReplayMode && seedanceReplayValidation.hasBlockingIssues) {
+      const focusTarget: 'top' | SeedanceReplayMediaKind = seedanceReplayValidation.globalErrors.length > 0
+        ? 'top'
+        : seedanceReplayValidation.imageErrors.length > 0
+          ? 'image'
+          : seedanceReplayValidation.videoErrors.length > 0
+            ? 'video'
+            : seedanceReplayValidation.audioErrors.length > 0
+              ? 'audio'
+              : 'top';
+      focusSeedanceReplayValidationTarget(focusTarget);
+      return;
+    }
+
     const totalScriptCount = Math.max(1, scriptVariantCount || 1);
     const estimateParams = {
       script_count: 1,
@@ -7780,6 +7799,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 <SeedanceReplayUploadPanel
                   assets={seedanceReplayUploadAssets}
                   validationSummary={seedanceReplayValidation}
+                  focusTarget={seedanceReplayFocusTarget}
                   onAddFromLibrary={handleSeedanceReplayAddFromLibrary}
                   onAddFromLocal={handleSeedanceReplayAddFromLocal}
                   onPreview={handleSeedanceReplayPreview}

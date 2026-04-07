@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Eye,
   FolderOpen,
@@ -52,6 +52,7 @@ export type SeedanceReplayUploadAsset = {
 type SeedanceReplayUploadPanelProps = {
   assets: SeedanceReplayUploadAsset[];
   validationSummary?: SeedanceReplayValidationSummary;
+  focusTarget?: 'top' | SeedanceReplayMediaKind | null;
   onAddFromLibrary?: (targetMediaKind?: SeedanceReplayMediaKind) => void;
   onAddFromLocal?: (targetMediaKind?: SeedanceReplayMediaKind) => void;
   onPreview?: (assetId: string) => void;
@@ -126,15 +127,25 @@ function tooltipAlignClass(align: TooltipAlign) {
   return 'left-1/2 -translate-x-1/2';
 }
 
+const shakeAnimationStyle: React.CSSProperties = {
+  animation: 'seedanceReplayShake 520ms ease-in-out 2',
+};
+
 export function SeedanceReplayUploadPanel({
   assets,
   validationSummary,
+  focusTarget = null,
   onAddFromLibrary = noop,
   onAddFromLocal = noop,
   onPreview = noop,
   onRemove = noop,
 }: SeedanceReplayUploadPanelProps) {
   const { t } = useLanguage();
+  const topRef = useRef<HTMLDivElement>(null);
+  const imageCardRef = useRef<HTMLDivElement>(null);
+  const videoCardRef = useRef<HTMLDivElement>(null);
+  const audioCardRef = useRef<HTMLDivElement>(null);
+  const [flashTarget, setFlashTarget] = useState<'top' | SeedanceReplayMediaKind | null>(null);
   const imageAssets = assets.filter((asset) => asset.mediaKind === 'image');
   const videoAssets = assets.filter((asset) => asset.mediaKind === 'video');
   const audioAssets = assets.filter((asset) => asset.mediaKind === 'audio');
@@ -162,8 +173,35 @@ export function SeedanceReplayUploadPanel({
     onAddFromLibrary(targetMediaKind);
   };
 
+  useEffect(() => {
+    if (!focusTarget) return;
+    const targetRef = focusTarget === 'top'
+      ? topRef
+      : focusTarget === 'image'
+        ? imageCardRef
+        : focusTarget === 'video'
+          ? videoCardRef
+          : audioCardRef;
+    targetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setFlashTarget(focusTarget);
+    const timer = window.setTimeout(() => {
+      setFlashTarget((current) => (current === focusTarget ? null : current));
+    }, 1600);
+    return () => window.clearTimeout(timer);
+  }, [focusTarget]);
+
   return (
     <div className="flex flex-col gap-3">
+      <style>{`
+        @keyframes seedanceReplayShake {
+          0% { transform: translate3d(0, 0, 0); }
+          18% { transform: translate3d(-5px, 0, 0); }
+          36% { transform: translate3d(5px, 0, 0); }
+          54% { transform: translate3d(-4px, 0, 0); }
+          72% { transform: translate3d(4px, 0, 0); }
+          100% { transform: translate3d(0, 0, 0); }
+        }
+      `}</style>
       {!hasContent ? (
         <div className="glass-panel relative z-10 rounded-xl border border-dashed border-white/10 p-5 sm:p-6">
           <div className="mx-auto flex max-w-lg flex-col items-center text-center">
@@ -194,7 +232,12 @@ export function SeedanceReplayUploadPanel({
       ) : (
         <div className="glass-panel rounded-xl border border-white/10 p-3">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-bold text-zinc-500">{t.wb_seedance_replay_quick_add || 'Quick Add'}</span>
+            <span className="text-[11px] font-bold text-zinc-500">
+              {t.wb_seedance_replay_quick_add || 'Quick Add'}
+              <span className="ml-1 font-medium text-zinc-500/80">
+                {t.wb_seedance_replay_quick_add_hint || '(Supports mixed additions, auto-classified by system)'}
+              </span>
+            </span>
             <PrimaryButton onClick={() => handleAddFromLibrary()}>
               <FolderOpen className="h-3.5 w-3.5" />
               {t.wb_seedance_replay_choose_from_library || 'Choose From Library'}
@@ -207,7 +250,15 @@ export function SeedanceReplayUploadPanel({
         </div>
       )}
 
-      <div className="glass-panel rounded-xl border border-white/10 px-3 py-3">
+      <div
+        ref={topRef}
+        style={flashTarget === 'top' ? shakeAnimationStyle : undefined}
+        className={`glass-panel rounded-xl border px-3 py-3 transition-all duration-300 ${
+          flashTarget === 'top'
+            ? 'border-orange-400/70 ring-2 ring-orange-400/40 shadow-[0_0_0_1px_rgba(251,146,60,0.35),0_0_28px_rgba(251,146,60,0.14)]'
+            : 'border-white/10'
+        }`}
+      >
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-300 lg:gap-5">
             <StatusMetric icon={<ImageIcon className="h-3.5 w-3.5 text-zinc-500" />} label={t.wb_seedance_replay_media_image || 'Image'} value={imageCount} limit={SEEDANCE_REPLAY_IMAGE_LIMIT} error={imageOverLimit} />
@@ -273,6 +324,8 @@ export function SeedanceReplayUploadPanel({
 
       <div className="grid grid-cols-1 gap-3">
         <CategoryCard
+          containerRef={imageCardRef}
+          highlighted={flashTarget === 'image'}
           title={t.wb_seedance_replay_ref_images || 'Reference Images'}
           icon={<ImageIcon className="h-4 w-4" />}
           items={imageAssets}
@@ -286,6 +339,8 @@ export function SeedanceReplayUploadPanel({
           onRemove={onRemove}
         />
         <CategoryCard
+          containerRef={videoCardRef}
+          highlighted={flashTarget === 'video'}
           title={t.wb_seedance_replay_ref_videos || 'Reference Videos'}
           icon={<Video className="h-4 w-4" />}
           items={videoAssets}
@@ -301,6 +356,8 @@ export function SeedanceReplayUploadPanel({
           onRemove={onRemove}
         />
         <CategoryCard
+          containerRef={audioCardRef}
+          highlighted={flashTarget === 'audio'}
           title={t.wb_seedance_replay_ref_audio || 'Reference Audio'}
           icon={<Music className="h-4 w-4" />}
           items={audioAssets}
@@ -431,6 +488,8 @@ function MetricDivider() {
 type CategoryCardProps = {
   title: string;
   icon: React.ReactNode;
+  containerRef?: React.RefObject<HTMLDivElement | null>;
+  highlighted?: boolean;
   items: SeedanceReplayUploadAsset[];
   count: number;
   limit: number;
@@ -447,6 +506,8 @@ type CategoryCardProps = {
 function CategoryCard({
   title,
   icon,
+  containerRef,
+  highlighted = false,
   items,
   count,
   limit,
@@ -464,7 +525,17 @@ function CategoryCard({
   const isEmpty = items.length === 0;
 
   return (
-    <div className={`glass-panel rounded-xl border p-3.5 ${exceedsLimit ? 'border-red-500/40' : 'border-white/10'}`}>
+    <div
+      ref={containerRef}
+      style={highlighted ? shakeAnimationStyle : undefined}
+      className={`glass-panel rounded-xl border p-3.5 transition-all duration-300 ${
+        highlighted
+          ? 'border-orange-400/70 ring-2 ring-orange-400/40 shadow-[0_0_0_1px_rgba(251,146,60,0.35),0_0_28px_rgba(251,146,60,0.14)]'
+          : exceedsLimit
+            ? 'border-red-500/40'
+            : 'border-white/10'
+      }`}
+    >
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
           <div className="text-zinc-400">{icon}</div>

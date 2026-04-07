@@ -425,7 +425,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   return (
     <>
       {phase !== 'error' && (
-        <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(280px,1fr)_minmax(380px,1.2fr)_minmax(320px,1fr)]">
+        <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(240px,0.82fr)_minmax(360px,1.18fr)_minmax(360px,1.1fr)]">
           <section className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5">
             <div className="mb-5">
               <h2 className="text-lg font-semibold text-white">

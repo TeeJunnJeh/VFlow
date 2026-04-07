@@ -283,8 +283,8 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
           </button>
         </div>
 
-        <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-          <p className="text-blue-400 text-xs leading-relaxed">
+        <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3">
+          <p className="text-xs text-blue-300">
             {t.ff_generation_tip_with_prefix}
           </p>
         </div>

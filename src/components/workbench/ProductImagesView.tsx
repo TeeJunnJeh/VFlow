@@ -10,6 +10,7 @@ import TextSeparationDemoView, { type TextSeparationBlock } from './TextSeparati
 import { assetsApi } from '../../services/assets';
 import { videoApi } from '../../services/video';
 import { downloadBlob, productImagesApi } from '../../services/productImagesApi';
+import { appendImageHistoryItem, readImageHistoryByFeature, subscribeImageHistory, updateImageHistoryItem, type ImageHistoryItem } from '../../utils/imageHistory';
 
 interface ProductImagesViewProps {
   activeView: ViewType;
@@ -52,6 +53,7 @@ type GalleryHistorySettings = {
   productCategory: string;
   sellingPoints: string[];
   typeSelections: Record<string, { enabled: boolean; count: number }>;
+  uploadedImagePaths?: string[];
 };
 
 type GalleryHistoryItem = {
@@ -141,6 +143,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   });
   const galleryFileInputRef = useRef<HTMLInputElement | null>(null);
   const [galleryPreviewUrls, setGalleryPreviewUrls] = useState<string[]>([]);
+  const [isGalleryDragActive, setIsGalleryDragActive] = useState(false);
   const [isGalleryAnalyzing, setIsGalleryAnalyzing] = useState(false);
   const [galleryAlert, setGalleryAlert] = useState<{ open: boolean; title: string; message: string }>({
     open: false,
@@ -156,6 +159,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [isTextSeparationLoading, setIsTextSeparationLoading] = useState(false);
   const [textSeparationSession, setTextSeparationSession] = useState<TextSeparationSession | null>(null);
   const textSeparationFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isTextSeparationDragActive, setIsTextSeparationDragActive] = useState(false);
   const [textSeparationUploadPreviewUrl, setTextSeparationUploadPreviewUrl] = useState<string | null>(null);
   const [textSeparationUploadName, setTextSeparationUploadName] = useState<string>('');
   const [isTextSeparationHistoryPickerOpen, setIsTextSeparationHistoryPickerOpen] = useState(false);
@@ -198,8 +202,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const isGalleryHistoryAllSelected =
     galleryHistoryAllKeys.length > 0 && galleryHistoryAllKeys.every((key) => galleryHistorySelectedSet.has(key));
 
-  const GALLERY_HISTORY_KEY = 'vflow_product_gallery_history';
-  const TEXT_SEPARATION_HISTORY_KEY = 'vflow_text_separation_history_v1';
   const galleryPollAbortRef = useRef(false);
   const galleryPollRunIdRef = useRef<number>(0);
 
@@ -544,19 +546,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
     if (galleryPreviewSource.kind === 'history_item') {
       const { itemId, index } = galleryPreviewSource;
-      setGalleryHistoryItems((prev) => {
-        const next = prev.map((it) => {
-          if (it.id !== itemId) return it;
-          const images = it.images.slice();
-          if (index >= 0 && index < images.length) images[index] = nextUrl;
-          return { ...it, images };
-        });
-        try {
-          localStorage.setItem(GALLERY_HISTORY_KEY, JSON.stringify(next));
-        } catch {
-          void 0;
-        }
-        return next;
+      updateImageHistoryItem(itemId, (current) => {
+        if (current.featureType !== 'gallery') return current;
+        const images = current.images.slice();
+        if (index >= 0 && index < images.length) images[index] = nextUrl;
+        return { ...current, images };
       });
     }
   };
@@ -665,26 +659,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       }
     } catch (err: any) {
       setGalleryInpaint((prev) => ({ ...prev, isGenerating: false, error: String(err?.message || err), resultUrl: null }));
-    }
-  };
-
-  const persistTextSeparationRecords = (records: TextSeparationRecordItem[]) => {
-    try {
-      const persisted = records
-        .filter((item) => item.status === 'succeeded' && item.backgroundImageUrl && Array.isArray(item.textBlocks))
-        .map(({ id, createdAt, sampleTitle, originalImageUrl, backgroundImageUrl, textBlocks, status, progress }) => ({
-          id,
-          createdAt,
-          sampleTitle,
-          originalImageUrl,
-          backgroundImageUrl,
-          textBlocks,
-          status,
-          progress,
-        }));
-      localStorage.setItem(TEXT_SEPARATION_HISTORY_KEY, JSON.stringify(persisted.slice(0, 30)));
-    } catch {
-      void 0;
     }
   };
 
@@ -838,6 +812,59 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       })
       .filter(Boolean) as TextSeparationBlock[];
 
+  const loadGalleryHistoryFromStore = (): GalleryHistoryItem[] =>
+    readImageHistoryByFeature('gallery')
+      .map((item) => {
+        const images = Array.isArray(item.images)
+          ? item.images.map((value) => String(value || '').trim()).filter(Boolean)
+          : [];
+        if (images.length === 0) return null;
+        return {
+          id: item.id,
+          createdAt: item.createdAt,
+          images,
+          settings: item.settings as GalleryHistorySettings | undefined,
+        } satisfies GalleryHistoryItem;
+      })
+      .filter(Boolean) as GalleryHistoryItem[];
+
+  const mapImageHistoryToTextSeparationRecord = (item: ImageHistoryItem): TextSeparationRecordItem | null => {
+    if (item.featureType !== 'text_separation') return null;
+    const backgroundImageUrl = String(item.metadata?.backgroundImageUrl || item.images[0] || '').trim();
+    const originalImageUrl = String(item.metadata?.originalImageUrl || backgroundImageUrl).trim();
+    if (!backgroundImageUrl || !originalImageUrl) return null;
+    return {
+      id: item.id,
+      createdAt: item.createdAt,
+      sampleTitle: String(item.metadata?.sampleTitle || tr('未命名图片', 'Untitled image')).trim(),
+      originalImageUrl,
+      backgroundImageUrl,
+      textBlocks: normalizeTextSeparationBlocks(Array.isArray(item.metadata?.textBlocks) ? item.metadata.textBlocks : []),
+      status: 'succeeded',
+      progress: 100,
+    } as TextSeparationRecordItem;
+  };
+
+  const mergeTextSeparationRecords = (persisted: TextSeparationRecordItem[], current: TextSeparationRecordItem[]): TextSeparationRecordItem[] => {
+    const byId = new Map<string, TextSeparationRecordItem>();
+
+    for (const item of persisted) {
+      byId.set(item.id, item);
+    }
+
+    for (const item of current) {
+      if (item.status === 'processing' || !byId.has(item.id)) {
+        byId.set(item.id, item);
+      }
+    }
+
+    return [...byId.values()].sort((a, b) => {
+      const aMs = new Date(a.createdAt).getTime() || 0;
+      const bMs = new Date(b.createdAt).getTime() || 0;
+      return bMs - aMs;
+    });
+  };
+
   const openTextSeparationByImagePath = async (imagePath: string, sampleTitle: string, originalImageUrl?: string) => {
     const cleaned = String(imagePath || '').trim();
     if (!cleaned || isTextSeparationLoading) return;
@@ -889,8 +916,22 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       return;
     }
 
-    setTextSeparationRecords((prev) => {
-      const next = prev.map((item) =>
+    appendImageHistoryItem({
+      id: recordId,
+      featureType: 'text_separation',
+      createdAt,
+      status: 'succeeded',
+      images: [result.backgroundImageUrl],
+      metadata: {
+        sampleTitle,
+        originalImageUrl,
+        backgroundImageUrl: result.backgroundImageUrl,
+        textBlocks: result.textBlocks,
+      },
+    });
+
+    setTextSeparationRecords((prev) =>
+      prev.map((item) =>
         item.id === recordId
           ? {
               ...item,
@@ -901,10 +942,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               startedAtMs: undefined,
             }
           : item
-      );
-      persistTextSeparationRecords(next);
-      return next;
-    });
+      )
+    );
   };
 
   const handleTextSeparationUpload = async (file: File) => {
@@ -955,23 +994,15 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
     const selected = new Set(galleryHistorySelectedKeys);
 
-    setGalleryHistoryItems((prev) => {
-      const next = prev
-        .map((item) => {
-          const images = item.images.filter((_, idx) => !selected.has(`${item.id}:${idx}`));
-          if (images.length === 0) return null;
-          if (images.length === item.images.length) return item;
-          return { ...item, images };
-        })
-        .filter(Boolean) as GalleryHistoryItem[];
-
-      try {
-        localStorage.setItem(GALLERY_HISTORY_KEY, JSON.stringify(next));
-      } catch {
-        void 0;
-      }
-
-      return next;
+    galleryHistoryItems.forEach((item) => {
+      if (!item.images.some((_, idx) => selected.has(`${item.id}:${idx}`))) return;
+      updateImageHistoryItem(item.id, (current) => {
+        if (current.featureType !== 'gallery') return current;
+        const images = current.images.filter((_, idx) => !selected.has(`${item.id}:${idx}`));
+        if (images.length === 0) return null;
+        if (images.length === current.images.length) return current;
+        return { ...current, images };
+      });
     });
 
     setGalleryHistorySelectedKeys([]);
@@ -998,33 +1029,12 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   }, [galleryImages]);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(GALLERY_HISTORY_KEY);
-      if (!raw) {
-        setGalleryHistoryItems([]);
-        return;
-      }
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) {
-        setGalleryHistoryItems([]);
-        return;
-      }
-      const normalized = parsed
-        .map((item: any) => {
-          const id = String(item?.id || '').trim();
-          const createdAt = String(item?.createdAt || '').trim();
-          const images = Array.isArray(item?.images)
-            ? item.images.map((x: any) => String(x || '').trim()).filter(Boolean)
-            : [];
-          if (!id || !createdAt || images.length === 0) return null;
-          const settings = item?.settings && typeof item.settings === 'object' ? item.settings : undefined;
-          return { id, createdAt, images, settings };
-        })
-        .filter(Boolean) as GalleryHistoryItem[];
-      setGalleryHistoryItems(normalized);
-    } catch {
-      setGalleryHistoryItems([]);
-    }
+    const syncGalleryHistory = () => {
+      setGalleryHistoryItems(loadGalleryHistoryFromStore());
+    };
+
+    syncGalleryHistory();
+    return subscribeImageHistory(syncGalleryHistory);
   }, []);
 
   useEffect(() => {
@@ -1061,41 +1071,15 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   }, [textSeparationRecords]);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(TEXT_SEPARATION_HISTORY_KEY);
-      if (!raw) {
-        setTextSeparationRecords([]);
-        return;
-      }
-      const parsed = JSON.parse(raw);
-      const normalized = Array.isArray(parsed)
-        ? parsed
-            .map((item: any) => {
-              const id = String(item?.id || '').trim();
-              const createdAt = String(item?.createdAt || '').trim();
-              const sampleTitle = String(item?.sampleTitle || '').trim();
-              const originalImageUrl = String(item?.originalImageUrl || '').trim();
-              const backgroundImageUrl = String(item?.backgroundImageUrl || '').trim();
-              const rawBlocks = Array.isArray(item?.textBlocks) ? item.textBlocks : [];
-              const textBlocks = normalizeTextSeparationBlocks(rawBlocks);
-              if (!id || !createdAt || !originalImageUrl || !backgroundImageUrl || !Array.isArray(rawBlocks)) return null;
-              return {
-                id,
-                createdAt,
-                sampleTitle: sampleTitle || tr('未命名图片', 'Untitled image'),
-                originalImageUrl,
-                backgroundImageUrl,
-                textBlocks,
-                status: 'succeeded',
-                progress: 100,
-              } as TextSeparationRecordItem;
-            })
-            .filter(Boolean)
-        : [];
-      setTextSeparationRecords(normalized as TextSeparationRecordItem[]);
-    } catch {
-      setTextSeparationRecords([]);
-    }
+    const syncTextSeparationHistory = () => {
+      const persisted = readImageHistoryByFeature('text_separation')
+        .map((item) => mapImageHistoryToTextSeparationRecord(item))
+        .filter(Boolean) as TextSeparationRecordItem[];
+      setTextSeparationRecords((prev) => mergeTextSeparationRecords(persisted, prev));
+    };
+
+    syncTextSeparationHistory();
+    return subscribeImageHistory(syncTextSeparationHistory);
   }, [language]);
 
   // Restore settings from history "re-generate" flow
@@ -1138,6 +1122,38 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     const type = String(file?.type || '');
     if (type && !type.startsWith('image/')) return false;
     return true;
+  };
+
+  const appendGalleryFiles = (picked: File[]) => {
+    if (picked.length === 0) return;
+
+    const supported = picked.filter((f) => isSupportedGalleryImageFile(f));
+    const hasUnsupported = supported.length !== picked.length;
+    if (hasUnsupported) {
+      openGalleryAlert(gallerySupportedFormatTip);
+    }
+
+    if (supported.length === 0) {
+      return;
+    }
+
+    setGalleryImages((prev) => [...prev, ...supported].slice(0, 3));
+    setGalleryRestoredImagePaths([]);
+  };
+
+  const handleTextSeparationFileSelection = (picked: File[]) => {
+    const file = picked[0];
+    if (!file) return;
+    if (!isSupportedGalleryImageFile(file)) {
+      openGalleryAlert(gallerySupportedFormatTip);
+      return;
+    }
+    void handleTextSeparationUpload(file);
+  };
+
+  const preventDragDefaults = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   const extractUploadedAssetPath = (uploadResp: any): string | null => {
@@ -1502,22 +1518,15 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       const images = urls.map((u) => String(u || '').trim()).filter(Boolean);
       if (images.length === 0) return;
 
-      const nextItem = {
+      appendImageHistoryItem({
         id: `pg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        createdAt: new Date().toLocaleString(),
+        featureType: 'gallery',
+        createdAt: new Date().toISOString(),
+        status: 'succeeded',
         images,
         settings: settingsSnapshot,
-      };
-
-      setGalleryHistoryItems((prev) => {
-        const next = [nextItem, ...prev].slice(0, 50);
-        try {
-          localStorage.setItem(GALLERY_HISTORY_KEY, JSON.stringify(next));
-        } catch {
-          void 0;
-        }
-        return next;
       });
+      setGalleryHistoryItems(loadGalleryHistoryFromStore());
     };
 
     // Collect all successful image URLs across all poll tasks
@@ -2050,17 +2059,30 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                     accept="image/*"
                     className="hidden"
                     onChange={(e) => {
-                      const file = Array.from(e.target.files || [])[0];
-                      if (!file) return;
-                      if (!isSupportedGalleryImageFile(file)) {
-                        openGalleryAlert(gallerySupportedFormatTip);
-                        e.target.value = '';
-                        return;
-                      }
-                      void handleTextSeparationUpload(file);
+                      handleTextSeparationFileSelection(Array.from(e.target.files || []));
                       e.target.value = '';
                     }}
                   />
+                  <div
+                    className="transition-colors"
+                    onDragEnter={(e) => {
+                      preventDragDefaults(e);
+                      setIsTextSeparationDragActive(true);
+                    }}
+                    onDragOver={(e) => {
+                      preventDragDefaults(e);
+                      setIsTextSeparationDragActive(true);
+                    }}
+                    onDragLeave={(e) => {
+                      preventDragDefaults(e);
+                      setIsTextSeparationDragActive(false);
+                    }}
+                    onDrop={(e) => {
+                      preventDragDefaults(e);
+                      setIsTextSeparationDragActive(false);
+                      handleTextSeparationFileSelection(Array.from(e.dataTransfer.files || []));
+                    }}
+                  >
                   {textSeparationUploadPreviewUrl ? (
                     <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                       <div className="flex items-start justify-between gap-3">
@@ -2118,11 +2140,15 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                         type="button"
                         onClick={() => textSeparationFileInputRef.current?.click()}
                         disabled={isTextSeparationLoading}
-                        className="mt-4 w-full rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-10 text-center text-zinc-500 transition hover:border-white/20 hover:text-zinc-300 disabled:opacity-60"
+                        className={`mt-4 w-full rounded-2xl border border-dashed px-4 py-10 text-center transition disabled:opacity-60 ${
+                          isTextSeparationDragActive
+                            ? 'border-orange-500/70 bg-orange-500/10 text-orange-100'
+                            : 'border-white/10 bg-black/20 text-zinc-500 hover:border-white/20 hover:text-zinc-300'
+                        }`}
                       >
                         <Upload className="mx-auto mb-3 h-10 w-10 opacity-70" />
                         <div className="text-sm font-semibold">{tr('选择一张海报图片', 'Choose one poster image')}</div>
-                        <div className="mt-1 text-[11px]">JPG / PNG / WEBP</div>
+                        <div className="mt-1 text-[11px]">{tr('支持拖拽或点击上传，格式：JPG / PNG / WEBP', 'Drag and drop or click to upload. Formats: JPG / PNG / WEBP')}</div>
                       </button>
                       <button
                         type="button"
@@ -2134,6 +2160,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                       </button>
                     </>
                   )}
+                  </div>
                 </div>
               </div>
 
@@ -2212,27 +2239,30 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                     multiple
                     className="hidden"
                     onChange={(e) => {
-                      const picked = Array.from(e.target.files || []);
-                      if (picked.length === 0) return;
-
-                      const supported = picked.filter((f) => isSupportedGalleryImageFile(f));
-                      const hasUnsupported = supported.length !== picked.length;
-                      if (hasUnsupported) {
-                        openGalleryAlert(gallerySupportedFormatTip);
-                      }
-
-                      if (supported.length === 0) {
-                        e.target.value = '';
-                        return;
-                      }
-
-                      setGalleryImages((prev) => [...prev, ...supported].slice(0, 3));
-                      // Clear restored paths since user is uploading new images
-                      setGalleryRestoredImagePaths([]);
+                      appendGalleryFiles(Array.from(e.target.files || []));
                       e.target.value = '';
                     }}
                   />
-
+                  <div
+                    className="transition-colors"
+                    onDragEnter={(e) => {
+                      preventDragDefaults(e);
+                      setIsGalleryDragActive(true);
+                    }}
+                    onDragOver={(e) => {
+                      preventDragDefaults(e);
+                      setIsGalleryDragActive(true);
+                    }}
+                    onDragLeave={(e) => {
+                      preventDragDefaults(e);
+                      setIsGalleryDragActive(false);
+                    }}
+                    onDrop={(e) => {
+                      preventDragDefaults(e);
+                      setIsGalleryDragActive(false);
+                      appendGalleryFiles(Array.from(e.dataTransfer.files || []));
+                    }}
+                  >
                   {galleryImages.length === 0 && galleryRestoredImagePaths.length > 0 ? (
                     <>
                       <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-[11px] text-emerald-300 flex items-center justify-between gap-2">
@@ -2281,14 +2311,20 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                     <button
                       type="button"
                       onClick={() => galleryFileInputRef.current?.click()}
-                      className="group mt-3 w-full rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-10 text-center text-zinc-500 hover:text-zinc-300 hover:border-white/20 transition"
+                      className={`group mt-3 w-full rounded-2xl border border-dashed px-4 py-10 text-center transition ${
+                        isGalleryDragActive
+                          ? 'border-orange-500/70 bg-orange-500/10 text-orange-100'
+                          : 'border-white/10 bg-black/20 text-zinc-500 hover:text-zinc-300 hover:border-white/20'
+                      }`}
                     >
                       <div className="relative w-10 h-10 mx-auto mb-2">
                         <ImageIcon className="w-10 h-10 opacity-50 transition-opacity duration-150 group-hover:opacity-0" />
                         <Upload className="absolute inset-0 w-10 h-10 opacity-0 transition-opacity duration-150 group-hover:opacity-60" />
                       </div>
                       <div className="text-sm font-semibold">{t.pi_gallery_upload_title}</div>
-                      <div className="text-[11px] mt-1">{t.pi_gallery_upload_support}</div>
+                      <div className="text-[11px] mt-1">
+                        {tr('支持拖拽或点击上传，最多 3 张图片', 'Drag and drop or click to upload, up to 3 images')}
+                      </div>
                     </button>
                     </>
                   ) : (
@@ -2319,6 +2355,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                       )}
                     </div>
                   )}
+                  </div>
                 </div>
               </div>
 

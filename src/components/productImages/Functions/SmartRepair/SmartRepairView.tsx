@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, Download, Sparkles, ArrowLeft, Home } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { ErrorDialog, type ErrorInfo, ImageUploader, LoadingProgress } from '../../Common';
 import { downloadBlob, productImagesApi } from '../../../../services/productImagesApi';
 import type { ProductImageResult, SmartRepairParams, SmartRepairSubpage, SmartRepairToolCode } from '../../../../types/productImages';
+import { appendImageHistoryItem, readImageHistoryByFeature, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
 
 type Phase = 'setup' | 'generating' | 'result' | 'error';
 
@@ -22,6 +23,53 @@ interface SmartRepairToolDef {
   promptZh: string;
   promptEn: string;
 }
+
+interface SmartRepairHistoryEntry {
+  id: string;
+  createdAt: string;
+  outputImages: ProductImageResult[];
+  settings?: Partial<SmartRepairParams> & {
+    prompt?: string;
+    subpage?: SmartRepairSubpage;
+    toolCode?: SmartRepairToolCode;
+  };
+}
+
+const mapImageHistoryToSmartRepairEntry = (item: ImageHistoryItem): SmartRepairHistoryEntry | null => {
+  const outputImages = (Array.isArray(item.metadata?.outputImages)
+    ? item.metadata.outputImages
+        .map((image: any, index: number) => {
+          const imageUrl = String(image?.imageUrl || image?.downloadUrl || item.images[index] || '').trim();
+          if (!imageUrl) return null;
+          return {
+            id: String(image?.id || `smart-repair-history-${item.id}-${index}`),
+            imageUrl,
+            downloadUrl: String(image?.downloadUrl || imageUrl),
+            format: String(image?.format || 'jpg'),
+            category: image?.category,
+            metadata: image?.metadata && typeof image.metadata === 'object' ? image.metadata : undefined,
+            size: typeof image?.size === 'number' ? image.size : undefined,
+          } as ProductImageResult;
+        })
+        .filter(Boolean)
+    : item.images
+        .map((imageUrl, index) => ({
+          id: `smart-repair-history-${item.id}-${index}`,
+          imageUrl,
+          downloadUrl: imageUrl,
+          format: 'jpg',
+        } as ProductImageResult))
+  ) as ProductImageResult[];
+
+  if (outputImages.length === 0) return null;
+
+  return {
+    id: item.id,
+    createdAt: item.createdAt,
+    outputImages,
+    settings: item.settings as SmartRepairHistoryEntry['settings'] | undefined,
+  };
+};
 
 const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
   fashion_model: [
@@ -180,6 +228,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   const [activeToolCode, setActiveToolCode] = useState<SmartRepairToolCode | null>(null);
   const [sampleBeforeLoadFailed, setSampleBeforeLoadFailed] = useState(false);
   const [sampleAfterLoadFailed, setSampleAfterLoadFailed] = useState(false);
+  const [historyItems, setHistoryItems] = useState<SmartRepairHistoryEntry[]>([]);
 
   const subpageOptions: Array<{ key: SmartRepairSubpage; zh: string; en: string }> = [
     { key: 'fashion_model', zh: '服装/模特', en: 'Fashion/Model' },
@@ -192,6 +241,13 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
 
   const getSamplePath = (code: SmartRepairToolCode, type: 'before' | 'after') =>
     `/smart-repair-examples/${code}_${type}.jpg`;
+
+  const refreshHistory = useCallback(() => {
+    const nextItems = readImageHistoryByFeature('smart_repair')
+      .map((item) => mapImageHistoryToSmartRepairEntry(item))
+      .filter(Boolean) as SmartRepairHistoryEntry[];
+    setHistoryItems(nextItems);
+  }, []);
 
   const resetToStart = () => {
     setPhase('setup');
@@ -244,6 +300,11 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     });
   }, [activeTool, isZh]);
 
+  useEffect(() => {
+    refreshHistory();
+    return subscribeImageHistory(refreshHistory);
+  }, [refreshHistory]);
+
   const handleGenerate = async () => {
     if (!activeSubpage || !activeToolCode) {
       setError({
@@ -293,6 +354,21 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
 
       setProgress(100);
       if (response.status === 'completed' && response.outputImages && response.outputImages.length > 0) {
+        appendImageHistoryItem({
+          featureType: 'smart_repair',
+          images: response.outputImages.map((item) => item.imageUrl).filter(Boolean),
+          settings: {
+            prompt,
+            aspectRatio,
+            strength,
+            outputCount,
+            subpage: activeSubpage,
+            toolCode: activeToolCode,
+          },
+          metadata: {
+            outputImages: response.outputImages,
+          },
+        });
         setResults(response.outputImages);
         setPhase('result');
         return;
@@ -314,6 +390,19 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
       });
       setPhase('error');
     }
+  };
+
+  const restoreHistoryItem = (item: SmartRepairHistoryEntry) => {
+    if (item.settings?.prompt) setPrompt(item.settings.prompt);
+    if (item.settings?.aspectRatio) setAspectRatio(item.settings.aspectRatio);
+    if (item.settings?.strength) setStrength(item.settings.strength);
+    if (item.settings?.outputCount) setOutputCount(item.settings.outputCount);
+    if (item.settings?.subpage) setActiveSubpage(item.settings.subpage);
+    if (item.settings?.toolCode) setActiveToolCode(item.settings.toolCode);
+    setError(null);
+    setProgress(100);
+    setResults(item.outputImages);
+    setPhase('result');
   };
 
   const handleDownload = async (result: ProductImageResult, index: number) => {
@@ -676,6 +765,62 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
               </div>
             </div>
           )}
+
+          <div className="mt-8 border-t border-white/10 pt-6">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-base font-semibold text-white">{tr('历史记录', 'History')}</h3>
+                <p className="text-xs text-zinc-500 mt-1">
+                  {tr('保存最近成功生成的智能修复结果，可直接查看和恢复。', 'Recent successful smart repair results are stored here for quick restore and review.')}
+                </p>
+              </div>
+              <span className="text-xs text-zinc-500">{historyItems.length}</span>
+            </div>
+
+            {historyItems.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-white/10 bg-black/20 p-4 text-sm text-zinc-500">
+                {tr('暂无历史记录，生成成功后会出现在这里。', 'No history yet. Successful generations will appear here.')}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {historyItems.slice(0, 8).map((item) => (
+                  <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 p-3">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <div className="text-xs text-zinc-500">{new Date(item.createdAt).toLocaleString()}</div>
+                      <div className="text-xs text-zinc-500">{item.outputImages.length}</div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {item.outputImages.slice(0, 3).map((image, index) => (
+                        <img
+                          key={`${item.id}-${index}`}
+                          src={image.imageUrl}
+                          alt={`smart-repair-history-${index}`}
+                          className="w-full aspect-square rounded-lg border border-white/10 object-cover"
+                        />
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2 mt-3">
+                      <button
+                        type="button"
+                        onClick={() => restoreHistoryItem(item)}
+                        className="flex-1 px-3 py-2 text-sm bg-zinc-800 text-zinc-200 rounded-lg hover:bg-zinc-700 transition"
+                      >
+                        {tr('查看此记录', 'View This Result')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDownload(item.outputImages[0], 0)}
+                        className="px-3 py-2 text-sm bg-white/10 text-zinc-200 rounded-lg hover:bg-white/20 transition inline-flex items-center gap-2"
+                      >
+                        <Download className="w-4 h-4" />
+                        {tr('下载首张', 'Download First')}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {phase === 'error' && error && (
             <ErrorDialog

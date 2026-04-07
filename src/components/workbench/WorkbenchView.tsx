@@ -284,6 +284,7 @@ type ProjectWorkspaceState = {
   needsAiReRecognize: boolean;
   genPrompt: string;
   referenceScript: string;
+  referenceScriptProductSignature: string;
   genDuration: number;
   soundSetting: 'on' | 'off';
   selectedBackgroundAudio: SelectedBackgroundAudio | null;
@@ -425,6 +426,7 @@ const createWorkspaceState = (params?: {
     needsAiReRecognize: false,
     genPrompt: '',
     referenceScript: '',
+    referenceScriptProductSignature: '',
     genDuration: prefs.genDuration || 10,
     soundSetting: prefs.soundSetting === 'off' ? 'off' : 'on',
     selectedBackgroundAudio: null,
@@ -578,6 +580,18 @@ const buildProductRecognitionSourceSignature = (assets: QueuedAsset[]): string =
     .sort();
 
   return entries.join('|');
+};
+
+const buildProductInfoSignature = (params: {
+  productName?: string;
+  productCategory?: string;
+  coreSellingPoints?: string;
+}): string => {
+  return [
+    String(params.productName || '').trim(),
+    String(params.productCategory || '').trim(),
+    String(params.coreSellingPoints || '').trim().replace(/\s+/g, ' '),
+  ].join('||').toLowerCase();
 };
 
 // 增加前端图片压缩函数
@@ -936,11 +950,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const nextSellingPoints = String(replayReusePayload.coreSellingPoints || '').trim();
       const nextPrompt = String(replayReusePayload.prompt || '').trim();
       const nextReferenceScript = String(replayReusePayload.referenceScript || replayReusePayload.prompt || '').trim();
+      const nextReferenceScriptSignature = buildProductInfoSignature({
+        productName: latestProductInfoRef.current.productName,
+        productCategory: nextCategory,
+        coreSellingPoints: nextSellingPoints,
+      });
 
       if (nextCategory) setProductCategory(nextCategory);
       if (nextSellingPoints) setCoreSellingPoints(nextSellingPoints);
       if (nextPrompt) setGenPrompt(nextPrompt);
       if (nextReferenceScript) setReferenceScript(nextReferenceScript);
+      if (nextReferenceScript) setReferenceScriptProductSignature(nextReferenceScriptSignature);
       setCreationMode('replay');
       setSelectedModel('seedance2.0');
 
@@ -1035,12 +1055,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [hasAiRecognized, setHasAiRecognized] = useState(false);
   const [recognizedProductSourceSignature, setRecognizedProductSourceSignature] = useState('');
   const [needsAiReRecognize, setNeedsAiReRecognize] = useState(false);
+  const [referenceScriptProductSignature, setReferenceScriptProductSignature] = useState('');
+  const latestProductInfoRef = useRef({
+    productName: '',
+    productCategory: '',
+    coreSellingPoints: '',
+    targetAudience: '',
+  });
 
   useEffect(() => {
     if (soundSetting !== 'off') {
       setIsBackgroundAudioSourceOpen(false);
     }
   }, [soundSetting]);
+
+  useEffect(() => {
+    latestProductInfoRef.current = {
+      productName,
+      productCategory,
+      coreSellingPoints,
+      targetAudience,
+    };
+  }, [coreSellingPoints, productCategory, productName, targetAudience]);
 
   const LEFT_COLUMN_MIN_WIDTH = 260;
   const SCRIPT_COLUMN_MIN_WIDTH = 320;
@@ -1624,6 +1660,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setNeedsAiReRecognize(!!workspace.needsAiReRecognize);
     setGenPrompt(workspace.genPrompt || '');
     setReferenceScript(workspace.referenceScript || '');
+    setReferenceScriptProductSignature(
+      String(workspace.referenceScriptProductSignature || '')
+    );
     setGenDuration(normalizeDurationForModel(
       workspace.genDuration ?? initialPrefs.genDuration ?? 10,
       restoredModelId
@@ -1638,9 +1677,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setTargetLanguage(workspace.targetLanguage || initialPrefs.targetLanguage || 'en');
     setCreationMode(workspace.creationMode || (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
     setReuseQueueEnabled(!!workspace.reuseQueueEnabled);
-    setScripts(Array.isArray(workspace.scripts) ? workspace.scripts : []);
-    setScriptPages(Array.isArray(workspace.scriptPages) && workspace.scriptPages.length > 0 ? workspace.scriptPages : [{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: [] }]);
-    setActiveScriptPage(typeof workspace.activeScriptPage === 'number' ? workspace.activeScriptPage : 0);
+    const restoredScriptPages = (Array.isArray(workspace.scriptPages) && workspace.scriptPages.length > 0)
+      ? workspace.scriptPages
+      : [{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: [] }];
+    const restoredActivePage = (
+      typeof workspace.activeScriptPage === 'number'
+      && workspace.activeScriptPage >= 0
+      && workspace.activeScriptPage < restoredScriptPages.length
+    ) ? workspace.activeScriptPage : 0;
+    setScriptPages(restoredScriptPages);
+    setActiveScriptPage(restoredActivePage);
+    setScripts(restoredScriptPages[restoredActivePage]?.scripts || (Array.isArray(workspace.scripts) ? workspace.scripts : []));
     setAssetQueue(restoredAssetQueue);
     setScriptQueue(Array.isArray(workspace.scriptQueue) ? workspace.scriptQueue : []);
     setGeneratedVideoUrl(workspace.generatedVideoUrl || null);
@@ -2241,7 +2288,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [
     applyWorkspaceState,
     buildDemoScripts,
-    isGeneratingScript,
     projectStore.currentProjectId,
     projectStoreLoadVersion,
     t.wb_script_page_prefix,
@@ -2307,6 +2353,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       needsAiReRecognize,
       genPrompt,
       referenceScript,
+      referenceScriptProductSignature,
       genDuration,
       soundSetting,
       selectedBackgroundAudio,
@@ -2359,6 +2406,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     needsAiReRecognize,
     genPrompt,
     referenceScript,
+    referenceScriptProductSignature,
     genDuration,
     soundSetting,
     selectedBackgroundAudio,
@@ -3173,6 +3221,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     () => buildProductRecognitionSourceSignature(uploadDisplayAssets),
     [uploadDisplayAssets]
   );
+  const currentProductInfoSignature = useMemo(
+    () => buildProductInfoSignature({
+      productName,
+      productCategory,
+      coreSellingPoints,
+    }),
+    [coreSellingPoints, productCategory, productName]
+  );
   const seedanceReplayUploadAssets = useMemo<SeedanceReplayUploadAsset[]>(() => (
     uploadDisplayAssets.flatMap((asset) => {
       if (asset.mediaKind !== 'image' && asset.mediaKind !== 'video' && asset.mediaKind !== 'audio') {
@@ -3890,6 +3946,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       || Boolean((activeCreativeCardText || '').trim())
       || hasCreativeCardContent(activeCreativeCard);
 
+  useEffect(() => {
+    console.log('[ScriptDebug] render-state', {
+      activeScriptPage,
+      scriptPagesLength: scriptPages.length,
+      hasActiveScriptPlan: Boolean(activeScriptPlan),
+      activeCreativeCardTextLength: (activeScriptPlan?.creativeCardText || '').length,
+      activeFullScriptLength: (activeScriptPlan?.fullScript || '').length,
+    });
+  }, [activeScriptPage, scriptPages.length, activeScriptPlan?.creativeCardText, activeScriptPlan?.fullScript]);
+
   const buildCombinedScriptPrompt = (
       fullScript: string,
       card?: ScriptCreativeCard,
@@ -3933,7 +3999,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const buildScriptInputText = () => {
     const parts: string[] = [];
     const normalizedAdditionalRequirements = (genPrompt || '').trim();
-    const normalizedReferenceScript = (referenceScript || '').trim();
+    const normalizedReferenceScript = isReferenceScriptFresh ? (referenceScript || '').trim() : '';
 
     const pushLine = (label: string, value: string) => {
       const trimmed = (value || '').trim();
@@ -4022,6 +4088,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     needsAiReRecognize,
     recognizedProductSourceSignature,
   ]);
+
+  const isReferenceScriptFresh = !referenceScript || referenceScriptProductSignature === currentProductInfoSignature;
 
   const handleResizeMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -6006,6 +6074,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       callToAction: normalizeScriptText(creativeCard?.call_to_action),
     };
     const fullScript = normalizeScriptText(scriptContent?.video_master_script) || buildFullScriptFallback(shots);
+    const creativeCardText = buildCreativeCardEditorText(normalizedCreativeCard) || fullScript;
+    console.log('[ScriptDebug] parseScriptPage', {
+      idx,
+      shotCount: shots.length,
+      hasVideoMasterScript: Boolean(normalizeScriptText(scriptContent?.video_master_script)),
+      hasCreativeCard: Boolean(scriptContent?.creative_card && typeof scriptContent.creative_card === 'object'),
+      fullScriptLength: fullScript.length,
+      creativeCardTextLength: creativeCardText.length,
+    });
     return {
       id: `page-${idx + 1}`,
       name: `${t.wb_script_page_prefix} ${idx + 1}`,
@@ -6025,11 +6102,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       sceneSuggestions: parseScriptStringList(scriptContent?.scene_suggestions),
       styleTags: parseScriptStringList(scriptContent?.style_tags),
       creativeCard: normalizedCreativeCard,
-      creativeCardText: buildCreativeCardEditorText(normalizedCreativeCard),
+      creativeCardText,
     };
   }, [buildCreativeCardEditorText, buildFullScriptFallback, buildScriptsFromShots, normalizeScriptText, parseScriptStringList, t.wb_script_page_prefix]);
 
-  const appendGeneratedScriptPage = useCallback((raw: any) => {
+  const appendGeneratedScriptPage = useCallback((raw: any, options?: { replaceExisting?: boolean }) => {
+    const replaceExisting = !!options?.replaceExisting;
+    if (replaceExisting) {
+      const nextPage = parseScriptPage(raw, 0);
+      scriptPagesRef.current = [nextPage];
+      setScriptPages([nextPage]);
+      setActiveScriptPage(0);
+      setScripts(nextPage.scripts);
+      setIsShotBreakdownOpen(false);
+      return;
+    }
+
     const appendedIndex = scriptPagesRef.current.length;
     const appendedPage = parseScriptPage(raw, appendedIndex);
     scriptPagesRef.current = [...scriptPagesRef.current, appendedPage];
@@ -6351,7 +6439,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const rawRatio = aspectRatio || selectedTemplate?.aspect_ratio || "16:9";
       const duration = genDuration || selectedTemplate?.duration || 10;
       const shots = selectedTemplate?.shot_number || 5;
-      const normalizedReferenceScript = referenceScript.trim();
+      const normalizedReferenceScript = isReferenceScriptFresh ? referenceScript.trim() : '';
 
       const payload = {
         product_category: category,
@@ -6379,7 +6467,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           : {}),
         ...(referenceAssets.length > 0 ? { reference_assets: referenceAssets } : {}),
         ...(imagePath ? { product_image_path: imagePath } : {}),
-        ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
       };
       const reportPayload = {
         script_count: 1,
@@ -6403,16 +6490,30 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           },
           onVariant: async (event) => {
             if (generationSeq !== activeScriptGenerationSeqRef.current) return;
-            const data = event?.data || {};
-            const scriptContent = data.script_content;
-            if (!scriptContent) return;
+            const data: any = event?.data || {};
+            const scriptContent: any = data.script_content;
+            if (!scriptContent) {
+              console.warn('[ScriptDebug] onVariant missing script_content', data);
+              return;
+            }
 
+            console.log('[ScriptDebug] onVariant payload', {
+              index: data?.index,
+              completed: data?.completed,
+              total: data?.total,
+              scriptContentKeys: Object.keys(scriptContent || {}),
+              shotCount: Array.isArray(scriptContent?.shots) ? scriptContent.shots.length : 0,
+              hasVideoMasterScript: Boolean(String(scriptContent?.video_master_script || '').trim()),
+              hasCreativeCard: Boolean(scriptContent?.creative_card && typeof scriptContent.creative_card === 'object'),
+            });
+
+            const isFirstVariant = !sawVariant;
             sawVariant = true;
             const startedAt = scriptGenerationStartedAtRef.current;
             const elapsedSeconds = startedAt ? Math.max(1, Math.round((Date.now() - startedAt) / 1000)) : null;
             shouldHideProgressImmediately = false;
             await finishScriptGenerationProgress();
-            appendGeneratedScriptPage({ script_content: scriptContent });
+            appendGeneratedScriptPage({ script_content: scriptContent }, { replaceExisting: isFirstVariant });
 
             const completed = Number(data.completed);
             const total = Number(data.total);
@@ -7753,12 +7854,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_reference_script_label || '参考脚本（来自视频解析）'}</label>
                 <textarea
                   value={referenceScript}
-                  onChange={(e) => setReferenceScript(e.target.value)}
+                  onChange={(e) => {
+                    setReferenceScript(e.target.value);
+                    setReferenceScriptProductSignature(currentProductInfoSignature);
+                  }}
                   rows={4}
                   placeholder={t.wb_reference_script_placeholder || '粘贴或使用“视频解析反向生成脚本”应用到工作台后的参考脚本'}
                   className="w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-y min-h-[86px] text-zinc-300 focus:border-orange-500 focus:outline-none"
                 />
                 <div className="text-[10px] text-zinc-500">{t.wb_reference_script_hint || '该内容将作为风格参考一并输入脚本模型，帮助生成更接近参考风格的新脚本。'}</div>
+                {!isReferenceScriptFresh && referenceScript.trim() && (
+                  <div className="text-[10px] text-amber-300 font-medium">
+                    当前参考脚本对应的是旧商品信息，生成脚本时将自动忽略它。
+                  </div>
+                )}
               </div>
 
               <div className="border-t border-white/5 my-1" />
@@ -9866,10 +9975,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           <textarea
                               rows={1}
                               data-card-autosize="true"
-                              value={activeScriptPlan?.creativeCardText ?? buildCreativeCardEditorText(activeCreativeCard)}
+                              value={(activeScriptPlan?.creativeCardText ?? buildCreativeCardEditorText(activeCreativeCard)) || activeFullScript}
                               onChange={(e) => updateActiveCreativeCardText(e.target.value)}
                               onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
                               className={`${cardThemeClass.textarea} w-full min-h-[220px]`}
+                              style={{
+                                color: isLightTheme ? '#1f2937' : '#f4f4f5',
+                                WebkitTextFillColor: isLightTheme ? '#1f2937' : '#f4f4f5',
+                              }}
                           />
                         </div>
                       </div>

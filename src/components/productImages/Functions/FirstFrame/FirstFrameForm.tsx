@@ -59,14 +59,13 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
     [t]
   );
 
-  const styles = useMemo(
+  const models = useMemo(
     () => [
-      { label: t.ff_style_authentic_ugc, value: 'authentic' },
-      { label: t.ff_style_live_stream, value: 'live' },
-      { label: t.ff_style_studio, value: 'studio' },
-      { label: t.ff_style_clean_ecommerce, value: 'clean' },
+      { label: 'Flux 2 Pro', value: 'flux-2-pro' },
+      { label: 'Flux 2 Flex', value: 'flux-2-flex' },
+      { label: 'GPT Image 1.5', value: 'gpt-image-1.5' },
     ],
-    [t]
+    []
   );
 
   const whitespaceOptions = useMemo(
@@ -94,7 +93,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
     personType: 'female',
     holdingStyle: 'single_hand',
     aspectRatio: '9:16',
-    style: 'authentic',
+    model: 'flux-2-pro',
     textWhitespace: 'top',
     outputCount: 4,
   });
@@ -107,7 +106,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
     if (!formData.personType) nextErrors.personType = t.ff_validation_choose_person_type;
     if (!formData.holdingStyle) nextErrors.holdingStyle = t.ff_validation_choose_holding_style;
     if (!formData.aspectRatio) nextErrors.aspectRatio = t.ff_validation_choose_aspect_ratio;
-    if (!formData.style) nextErrors.style = t.ff_validation_choose_style;
+    if (!formData.model) nextErrors.model = t.ff_validation_choose_style;
 
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -125,7 +124,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
       personType: 'female',
       holdingStyle: 'single_hand',
       aspectRatio: '9:16',
-      style: 'authentic',
+      model: 'flux-2-pro',
       textWhitespace: 'top',
       outputCount: 4,
     });
@@ -135,7 +134,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
 
   return (
     <form onSubmit={handleSubmit} className="w-full">
-      <div className="space-y-6">
+      <div className="space-y-6">
         <div className="space-y-4">
           <h3 className="text-white font-medium">{t.ff_basic_settings}</h3>
 
@@ -203,15 +202,16 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
           </div>
 
           <div>
-            <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_style_label}</label>
+            <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.wb_model_title || t.ff_style_label}</label>
             <DropdownSelect
-              value={formData.style || ''}
-              options={styles}
-              onChange={(value) => setFormData({ ...formData, style: value as any })}
-              buttonClassName="w-full bg-zinc-900/70 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800"
+              value={formData.model || ''}
+              options={models}
+              onChange={(value) => setFormData({ ...formData, model: value as any })}
+              buttonClassName={`w-full bg-zinc-900/70 border rounded-xl px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 ${errors.model ? 'border-red-500' : 'border-white/10'}`}
               iconClassName="w-4 h-4 text-zinc-500"
               optionClassName="text-sm"
             />
+            {errors.model && <p className="text-red-400 text-xs mt-1">{errors.model}</p>}
           </div>
         </div>
 

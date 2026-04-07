@@ -2,6 +2,7 @@ import { getCookie } from './apiClient';
 import { parseApiError } from './errors';
 import type {
   FirstFrameParams,
+  FirstFrameModel,
   GenerationStatusResponse,
   ProductImageResult,
   SmartRepairParams,
@@ -27,6 +28,17 @@ function styleToModel(style?: FirstFrameParams['style']): string {
   if (style === 'studio') return 'gpt-image-1.5';
   if (style === 'clean') return 'flux-2-flex';
   return 'flux-2-pro';
+}
+
+const FIRST_FRAME_MODELS: FirstFrameModel[] = ['flux-2-pro', 'flux-2-flex', 'gpt-image-1.5'];
+
+function resolveFirstFrameModel(params: FirstFrameParams): FirstFrameModel {
+  const selected = String(params.model || '').trim() as FirstFrameModel;
+  if (FIRST_FRAME_MODELS.includes(selected)) {
+    return selected;
+  }
+
+  return styleToModel(params.style) as FirstFrameModel;
 }
 
 function smartRepairStrengthToHint(strength?: SmartRepairParams['strength']): string {
@@ -120,7 +132,7 @@ export const productImagesApi = {
     }
 
     const outputCount = params.outputCount || 1;
-    const model = styleToModel(params.style);
+    const model = resolveFirstFrameModel(params);
     const referenceImagePath = await uploadTempImage(images[0]);
 
     let resolvedProjectId = projectId;

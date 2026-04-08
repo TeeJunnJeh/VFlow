@@ -114,20 +114,13 @@ const resolveOutline = (outline: TextSeparationBlock['outline']) => {
 };
 
 const resolveShadow = (shadow: TextSeparationBlock['shadow']) => {
-  if (shadow === false) {
+  // Treat missing shadow (null/undefined) as no shadow by default.
+  if (shadow === false || shadow == null) {
     return {
       shadowColor: '#000000',
       shadowBlur: 0,
       shadowOffsetX: 0,
       shadowOffsetY: 0,
-    };
-  }
-  if (shadow == null) {
-    return {
-      shadowColor: '#000000',
-      shadowBlur: 0.012,
-      shadowOffsetX: 0,
-      shadowOffsetY: 0.004,
     };
   }
   if (shadow === true) {
@@ -230,9 +223,42 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
   } | null>(null);
 
   useEffect(() => {
-    setElements(initialElements);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      setElements(initialElements);
+      setSelectedId(initialElements[0]?.id || null);
+      return;
+    }
+
+    const adjustedElements = initialElements.map((item) => {
+      const normalizedText = String(item.text || '').replace(/\s+/g, ' ').trim() || ' ';
+      const fontSize = Math.max(1, item.fontSizePx);
+      ctx.font = `${item.fontWeight} ${fontSize}px ${WEB_FONT_FAMILY}`;
+      const requiredPx = ctx.measureText(normalizedText).width + Math.max(10, fontSize * 0.7);
+      const requiredW = clamp(requiredPx / Math.max(1, imageSize.width || 1), 0.06, 1);
+
+      if (item.w >= requiredW) return item;
+
+      const centerX = item.x + item.w / 2;
+      let nextX = centerX - requiredW / 2;
+      let nextW = requiredW;
+
+      if (nextX < 0) {
+        nextX = 0;
+      }
+
+      if (nextX + nextW > 1) {
+        nextX = Math.max(0, 1 - nextW);
+      }
+
+      nextW = Math.min(nextW, 1 - nextX);
+      return { ...item, x: nextX, w: nextW };
+    });
+
+    setElements(adjustedElements);
     setSelectedId(initialElements[0]?.id || null);
-  }, [initialElements]);
+  }, [initialElements, imageSize.width]);
 
   useEffect(() => {
     setIsExportMenuOpen(false);
@@ -327,6 +353,39 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
       setSelectedId(filtered[0]?.id || null);
       return filtered;
     });
+  };
+
+  const fitAllTextBoxesToSingleLine = () => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    setElements((prev) =>
+      prev.map((item) => {
+        const normalizedText = String(item.text || '').replace(/\s+/g, ' ').trim() || ' ';
+        const fontSize = Math.max(1, item.fontSizePx);
+        ctx.font = `${item.fontWeight} ${fontSize}px ${WEB_FONT_FAMILY}`;
+        const requiredPx = ctx.measureText(normalizedText).width + Math.max(10, fontSize * 0.7);
+        const requiredW = clamp(requiredPx / Math.max(1, imageSize.width), 0.06, 1);
+
+        if (item.w >= requiredW) return item;
+
+        const centerX = item.x + item.w / 2;
+        let nextX = centerX - requiredW / 2;
+        let nextW = requiredW;
+
+        if (nextX < 0) {
+          nextX = 0;
+        }
+
+        if (nextX + nextW > 1) {
+          nextX = Math.max(0, 1 - nextW);
+        }
+
+        nextW = Math.min(nextW, 1 - nextX);
+        return { ...item, x: nextX, w: nextW };
+      })
+    );
   };
 
   const startDrag = (id: string, e: React.PointerEvent<HTMLDivElement>) => {
@@ -723,6 +782,14 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
                 <Plus className="h-4 w-4" />
                 {tr('添加文本框', 'Add Text Box')}
               </button>
+              <button
+                type="button"
+                onClick={fitAllTextBoxesToSingleLine}
+                disabled={elements.length === 0}
+                className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs font-bold text-zinc-200 hover:bg-white/5 disabled:opacity-50 transition"
+              >
+                {tr('适配到一行', 'Fit to One Line')}
+              </button>
             </div>
           </div>
 
@@ -789,7 +856,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
                         type="button"
                         onPointerDown={(e) => startResize(item.id, e)}
                         className="absolute -bottom-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full border border-orange-300 bg-orange-500 text-black shadow"
-                        aria-label={tr('?', 'Resize text box')}
+                        aria-label={tr('调整文本框大小', 'Resize text box')}
                       >
                         <MoveDiagonal2 className="h-3 w-3" />
                       </button>
@@ -1043,8 +1110,12 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
 
           <div className="rounded-2xl border border-white/5 bg-white/2 p-4">
             <div className="text-sm font-bold text-zinc-100">{tr('原图参考', 'Original Reference')}</div>
-            <div className="mt-3 rounded-2xl overflow-hidden border border-white/10 bg-black/20">
-              <img src={originalImageUrl} alt={tr('原始海报', 'Original poster')} className="w-full aspect-square object-cover" />
+            <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-2">
+              <img
+                src={originalImageUrl}
+                alt={tr('原始海报', 'Original poster')}
+                className="block w-full h-auto max-h-[360px] object-contain rounded-xl"
+              />
             </div>
           </div>
         </div>

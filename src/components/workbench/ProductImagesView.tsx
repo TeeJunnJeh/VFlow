@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download, FileDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download, FileDown, ChevronLeft, ChevronRight, LayoutGrid } from 'lucide-react';
 import type { ViewType } from './types';
 import { useLanguage } from '../../context/LanguageContext';
 import { DropdownSelect } from '../common/DropdownSelect';
@@ -7,6 +7,7 @@ import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { FirstFrameView, SmartRepairView } from '../productImages';
 import { AppDialog } from '../common/AppDialog';
 import TextSeparationDemoView, { type TextSeparationBlock } from './TextSeparationDemoView';
+import GalleryBoardEditor from './GalleryBoardEditor';
 import { assetsApi } from '../../services/assets';
 import { videoApi } from '../../services/video';
 import { downloadBlob, productImagesApi } from '../../services/productImagesApi';
@@ -53,7 +54,16 @@ type GalleryHistorySettings = {
   productCategory: string;
   sellingPoints: string[];
   typeSelections: Record<string, { enabled: boolean; count: number }>;
+  sceneConfig?: GallerySceneConfig;
   uploadedImagePaths?: string[];
+};
+
+type GallerySceneConfig = {
+  sceneTheme: string;
+  sceneDescription: string;
+  sceneProps: string;
+  lighting: string;
+  mood: string;
 };
 
 type GalleryHistoryItem = {
@@ -74,6 +84,54 @@ const GALLERY_COPY_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: GalleryCop
   { value: 'ms', labelKey: 'lang_ms' },
   { value: 'vi', labelKey: 'lang_vi' },
   { value: 'id', labelKey: 'lang_id' },
+];
+
+const GALLERY_SCENE_PRESETS: Array<GallerySceneConfig & { id: string; name: string }> = [
+  {
+    id: 'kitchen_counter',
+    name: '厨房台面',
+    sceneTheme: '现代厨房台面',
+    sceneDescription: '干净的厨房石英台面，背景有轻微虚化的橱柜与餐具，整体整洁明亮。',
+    sceneProps: '瓷盘、亚麻餐巾、玻璃杯、少量食材点缀',
+    lighting: '侧前方自然柔光，明亮但不过曝',
+    mood: '清新、日常、高品质生活感',
+  },
+  {
+    id: 'vanity_desk',
+    name: '梳妆台',
+    sceneTheme: '精致梳妆台',
+    sceneDescription: '米白色或浅木色梳妆台，背景简洁，高级但生活化。',
+    sceneProps: '镜子、香氛、托盘、化妆刷、丝绸布料',
+    lighting: '柔和漫射光，略带暖调',
+    mood: '高级、女性化、精致护理感',
+  },
+  {
+    id: 'living_room',
+    name: '客厅茶几',
+    sceneTheme: '现代客厅茶几',
+    sceneDescription: '简洁现代客厅环境，茶几作为主要表面，背景为沙发和窗边虚化景深。',
+    sceneProps: '杂志、咖啡杯、小型绿植、摆件',
+    lighting: '窗边自然光，光线均匀柔和',
+    mood: '松弛、温暖、居家品质感',
+  },
+  {
+    id: 'bathroom_sink',
+    name: '浴室台面',
+    sceneTheme: '高级浴室洗手台',
+    sceneDescription: '石材洗手台面，背景有镜面和简洁卫浴元素，整体干净利落。',
+    sceneProps: '毛巾、托盘、香薰蜡烛、绿植',
+    lighting: '顶部柔光加侧面补光，清爽高亮',
+    mood: '洁净、护理感、高级氛围',
+  },
+  {
+    id: 'outdoor_picnic',
+    name: '户外野餐',
+    sceneTheme: '户外草地野餐',
+    sceneDescription: '自然草地或木桌环境，背景带户外虚化景色，画面通透轻松。',
+    sceneProps: '野餐布、藤篮、水果、玻璃瓶、花束',
+    lighting: '自然日光，通透明快',
+    mood: '轻松、活力、生活方式感',
+  },
 ];
 
 const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setActiveView }) => {
@@ -111,7 +169,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       case 'product_images_text_separation':
         return {
           title: tr('文本分离', 'Text Separation'),
-          subtitle: tr('上传海报，或复用商品套图历史图片，提取文本并生成去字底图', 'Upload a poster or reuse Product Gallery history to extract text and generate a clean background'),
+          subtitle: tr('上传海报，或复用商品套图历史图片，可生成去字底图和可编辑文本框', 'Upload a poster or reuse Product Gallery history to extract text and generate a clean background'),
         };
       case 'product_images_first_frame':
       default:
@@ -128,6 +186,12 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [gallerySellingPoints, setGallerySellingPoints] = useState<string[]>([]);
   const [galleryTargetScene, setGalleryTargetScene] = useState<'detail' | 'xiaohongshu' | 'douyin' | 'poster' | 'ads'>('detail');
   const [galleryStyle, setGalleryStyle] = useState<'ecom_clean' | 'lifestyle' | 'premium' | 'festival'>('ecom_clean');
+  const [galleryScenePresetId, setGalleryScenePresetId] = useState<string>('');
+  const [gallerySceneTheme, setGallerySceneTheme] = useState<string>('');
+  const [gallerySceneDescription, setGallerySceneDescription] = useState<string>('');
+  const [gallerySceneProps, setGallerySceneProps] = useState<string>('');
+  const [gallerySceneLighting, setGallerySceneLighting] = useState<string>('');
+  const [gallerySceneMood, setGallerySceneMood] = useState<string>('');
   const [galleryTypeSelections, setGalleryTypeSelections] = useState<Record<'white_bg' | 'scene' | 'selling_point' | 'cover' | 'poster', { enabled: boolean; count: number }>>({
     white_bg: { enabled: true, count: 4 },
     scene: { enabled: false, count: 4 },
@@ -178,6 +242,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       layout?: any;
     }>
   >([]);
+  const [isGalleryBoardEditorOpen, setIsGalleryBoardEditorOpen] = useState(false);
   const [galleryTextEditor, setGalleryTextEditor] = useState<{ open: boolean; localId: string; imageUrl: string; layout: any } | null>(null);
   const [galleryTextDraftLayout, setGalleryTextDraftLayout] = useState<any | null>(null);
   const [isGalleryTextExporting, setIsGalleryTextExporting] = useState(false);
@@ -201,6 +266,18 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const galleryHistorySelectedSet = useMemo(() => new Set(galleryHistorySelectedKeys), [galleryHistorySelectedKeys]);
   const isGalleryHistoryAllSelected =
     galleryHistoryAllKeys.length > 0 && galleryHistoryAllKeys.every((key) => galleryHistorySelectedSet.has(key));
+  const galleryBoardAssets = useMemo(
+    () =>
+      galleryPreviewItems
+        .filter((item) => item.status === 'succeeded' && Boolean(String(item.imageUrl || '').trim()))
+        .map((item) => ({
+          localId: item.localId,
+          requestId: item.requestId,
+          imageUrl: String(item.imageUrl || '').trim(),
+          layout: item.layout,
+        })),
+    [galleryPreviewItems]
+  );
 
   const galleryPollAbortRef = useRef(false);
   const galleryPollRunIdRef = useRef<number>(0);
@@ -212,6 +289,17 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       title: title || tr('提示', 'Notice'),
       message,
     });
+
+  const applyGalleryScenePreset = (presetId: string) => {
+    setGalleryScenePresetId(presetId);
+    const preset = GALLERY_SCENE_PRESETS.find((item) => item.id === presetId);
+    if (!preset) return;
+    setGallerySceneTheme(preset.sceneTheme);
+    setGallerySceneDescription(preset.sceneDescription);
+    setGallerySceneProps(preset.sceneProps);
+    setGallerySceneLighting(preset.lighting);
+    setGallerySceneMood(preset.mood);
+  };
 
   const galleryConfirmResolverRef = useRef<((value: boolean) => void) | null>(null);
   const [galleryConfirm, setGalleryConfirm] = useState<{
@@ -277,6 +365,18 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     if (!cleaned) return;
     setGalleryPreviewImageUrl(cleaned);
     setGalleryPreviewSource(source);
+  };
+
+  const openGalleryBoardEditor = () => {
+    if (galleryBoardAssets.length < 1) {
+      openGalleryAlert(tr('请先生成至少 1 张成功图片后再打开画板。', 'Generate at least 1 successful image before opening the board.'));
+      return;
+    }
+    setIsGalleryBoardEditorOpen(true);
+  };
+
+  const closeGalleryBoardEditor = () => {
+    setIsGalleryBoardEditorOpen(false);
   };
 
   const galleryPreviewNav = useMemo<
@@ -1089,6 +1189,14 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       if (s.productCategory) setGalleryCategory(s.productCategory);
       if (Array.isArray(s.sellingPoints) && s.sellingPoints.length > 0) setGallerySellingPoints(s.sellingPoints);
       if (s.typeSelections && typeof s.typeSelections === 'object') setGalleryTypeSelections(s.typeSelections);
+      if (s.sceneConfig && typeof s.sceneConfig === 'object') {
+        setGalleryScenePresetId('');
+        setGallerySceneTheme(String(s.sceneConfig.sceneTheme || ''));
+        setGallerySceneDescription(String(s.sceneConfig.sceneDescription || ''));
+        setGallerySceneProps(String(s.sceneConfig.sceneProps || ''));
+        setGallerySceneLighting(String(s.sceneConfig.lighting || ''));
+        setGallerySceneMood(String(s.sceneConfig.mood || ''));
+      }
       // Restore backend image paths so generation can skip the upload step
       if (Array.isArray(s.uploadedImagePaths) && s.uploadedImagePaths.length > 0) {
         const paths = s.uploadedImagePaths.map((p: any) => String(p || '').trim()).filter(Boolean);
@@ -1487,6 +1595,14 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       .map((s) => String(s || '').trim())
       .filter(Boolean)
       .slice(0, 5);
+    const sceneConfig: GallerySceneConfig = {
+      sceneTheme: String(gallerySceneTheme || '').trim(),
+      sceneDescription: String(gallerySceneDescription || '').trim(),
+      sceneProps: String(gallerySceneProps || '').trim(),
+      lighting: String(gallerySceneLighting || '').trim(),
+      mood: String(gallerySceneMood || '').trim(),
+    };
+    const hasSceneConfig = Object.values(sceneConfig).some((value) => Boolean(String(value || '').trim()));
 
     const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -1500,6 +1616,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       productCategory: galleryCategory.trim(),
       sellingPoints,
       typeSelections: { ...galleryTypeSelections },
+      sceneConfig: hasSceneConfig ? sceneConfig : undefined,
       uploadedImagePaths: [] as string[],
     };
 
@@ -1548,6 +1665,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         product_category: galleryCategory.trim(),
         core_selling_points: sellingPoints,
         target_scene: galleryTargetScene,
+        scene_config: hasSceneConfig ? sceneConfig : undefined,
         style: galleryStyle,
         target_language: galleryCopyLanguage,
         hot_style: hotStyleSelectedIndex !== null ? hotStyleItems[hotStyleSelectedIndex] : undefined,
@@ -2012,6 +2130,46 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         )}
       </AppDialog>
 
+      <AppDialog
+        isOpen={isGalleryBoardEditorOpen}
+        title={tr('画板编辑器', 'Board Editor')}
+        onClose={closeGalleryBoardEditor}
+        widthClassName="max-w-[96rem]"
+      >
+        {isGalleryBoardEditorOpen ? (
+          <GalleryBoardEditor
+            assets={galleryBoardAssets}
+            productName={galleryProductName}
+            sellingPoints={gallerySellingPoints}
+            tr={tr}
+            initialTitle={galleryProductName}
+            initialSubtitle={gallerySellingPoints.filter((item) => String(item || '').trim()).slice(0, 2).join(' / ')}
+            onClose={closeGalleryBoardEditor}
+            onAlert={openGalleryAlert}
+          />
+        ) : null}
+      </AppDialog>
+
+      <AppDialog
+        isOpen={isGalleryBoardEditorOpen}
+        title={tr('画板编辑器', 'Board Editor')}
+        onClose={closeGalleryBoardEditor}
+        widthClassName="max-w-[96rem]"
+      >
+        {isGalleryBoardEditorOpen ? (
+          <GalleryBoardEditor
+            assets={galleryBoardAssets}
+            productName={galleryProductName}
+            sellingPoints={gallerySellingPoints}
+            tr={tr}
+            initialTitle={galleryProductName}
+            initialSubtitle={gallerySellingPoints.filter((item) => String(item || '').trim()).slice(0, 2).join(' / ')}
+            onClose={closeGalleryBoardEditor}
+            onAlert={openGalleryAlert}
+          />
+        ) : null}
+      </AppDialog>
+
       <header className="relative z-50 flex justify-between gap-6 px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
@@ -2098,11 +2256,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                           <div className="mt-2 truncate text-sm font-bold text-zinc-200">
                             {textSeparationUploadName || tr('最近上传', 'Latest upload')}
                           </div>
-                          <div className="text-[11px] text-zinc-500">
-                            {isTextSeparationLoading
-                              ? tr('正在处理文本分离...', 'Text separation in progress...')
-                              : tr('点击“开始文本分离”后再发起处理', 'Start processing after you click "Start Text Separation"')}
-                          </div>
                         </div>
                         <button
                           type="button"
@@ -2124,7 +2277,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                           type="button"
                           onClick={handleStartTextSeparation}
                           disabled={isTextSeparationLoading || !textSeparationSelectedImagePath}
-                          className="flex-1 rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black transition hover:bg-orange-400 disabled:opacity-60"
+                          className="text-separation-start-btn flex-1 rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black transition hover:bg-orange-400 disabled:opacity-60 disabled:hover:bg-orange-500"
                         >
                           {isTextSeparationLoading ? tr('处理中...', 'Processing...') : tr('开始文本分离', 'Start Text Separation')}
                         </button>
@@ -2140,23 +2293,53 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   ) : (
                     <>
                       <div className="text-sm font-bold text-zinc-200">{tr('上传图片', 'Upload Image')}</div>
-                      <div className="mt-2 text-xs text-zinc-500">
-                        {tr('上传文件后会先转换成真实 image_path，确认预览后再开始文本分离', 'Uploaded files are converted to a real image_path before processing')}
-                      </div>
+                      <div
+                        onDragEnter={(e) => {
+                          e.preventDefault();
+                          if (!isTextSeparationLoading) setIsTextSeparationDragActive(true);
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          if (!isTextSeparationLoading) setIsTextSeparationDragActive(true);
+                        }}
+                        onDragLeave={(e) => {
+                          e.preventDefault();
+                          const nextTarget = e.relatedTarget as Node | null;
+                          if (!e.currentTarget.contains(nextTarget)) {
+                            setIsTextSeparationDragActive(false);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setIsTextSeparationDragActive(false);
+                          if (isTextSeparationLoading) return;
+                          const file = Array.from(e.dataTransfer.files || [])[0];
+                          if (!file) return;
+                          if (!isSupportedGalleryImageFile(file)) {
+                            openGalleryAlert(gallerySupportedFormatTip);
+                            return;
+                          }
+                          void handleTextSeparationUpload(file);
+                        }}
+                      >
                       <button
                         type="button"
                         onClick={() => textSeparationFileInputRef.current?.click()}
                         disabled={isTextSeparationLoading}
                         className={`mt-4 w-full rounded-2xl border border-dashed px-4 py-10 text-center transition disabled:opacity-60 ${
-                          isTextSeparationDragActive
-                            ? 'border-orange-500/70 bg-orange-500/10 text-orange-100'
-                            : 'border-white/10 bg-black/20 text-zinc-500 hover:border-white/20 hover:text-zinc-300'
+                          isTextSeparationLoading
+                            ? 'border-white/10 bg-black/20 text-zinc-500'
+                            : isTextSeparationDragActive
+                              ? 'border-orange-400 bg-orange-500/10 text-orange-200'
+                              : 'border-white/10 bg-black/20 text-zinc-500 hover:border-white/20 hover:text-zinc-300'
                         }`}
                       >
                         <Upload className="mx-auto mb-3 h-10 w-10 opacity-70" />
                         <div className="text-sm font-semibold">{tr('选择一张海报图片', 'Choose one poster image')}</div>
-                        <div className="mt-1 text-[11px]">{tr('支持拖拽或点击上传，格式：JPG / PNG / WEBP', 'Drag and drop or click to upload. Formats: JPG / PNG / WEBP')}</div>
+                        <div className="mt-1 text-[11px]">{tr('点击选择，或将文件拖拽到这里', 'Click to choose or drag a file here')}</div>
+                        <div className="mt-1 text-[11px]">JPG / PNG / WEBP</div>
                       </button>
+                      </div>
                       <button
                         type="button"
                         onClick={() => setIsTextSeparationHistoryPickerOpen(true)}
@@ -2577,6 +2760,90 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   </div>
 
                   <div>
+                    <div className="text-xs font-bold text-zinc-200">{tr('场景设定', 'Scene Settings')}</div>
+                    <div className="mt-3 space-y-3">
+                      <div className="space-y-2">
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('场景预设', 'Scene Preset')}</div>
+                        <DropdownSelect
+                          value={galleryScenePresetId || 'custom'}
+                          options={[
+                            { value: 'custom', label: tr('自定义', 'Custom') },
+                            ...GALLERY_SCENE_PRESETS.map((item) => ({ value: item.id, label: item.name })),
+                          ]}
+                          onChange={(value) => {
+                            const next = String(value || 'custom');
+                            if (next === 'custom') {
+                              setGalleryScenePresetId('');
+                              return;
+                            }
+                            applyGalleryScenePreset(next);
+                          }}
+                          buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                          iconClassName="w-4 h-4 text-zinc-500"
+                          optionClassName="text-xs"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="space-y-1">
+                          <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('场景主题', 'Scene Theme')}</div>
+                          <input
+                            type="text"
+                            value={gallerySceneTheme}
+                            onChange={(e) => setGallerySceneTheme(e.target.value)}
+                            className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
+                            placeholder={tr('例如：现代厨房台面', 'e.g. modern kitchen counter')}
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('氛围', 'Mood')}</div>
+                          <input
+                            type="text"
+                            value={gallerySceneMood}
+                            onChange={(e) => setGallerySceneMood(e.target.value)}
+                            className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
+                            placeholder={tr('例如：清新生活感', 'e.g. fresh lifestyle')}
+                          />
+                        </label>
+                      </div>
+
+                      <label className="space-y-1">
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('场景描述', 'Scene Description')}</div>
+                        <textarea
+                          value={gallerySceneDescription}
+                          onChange={(e) => setGallerySceneDescription(e.target.value)}
+                          rows={2}
+                          className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
+                          placeholder={tr('描述环境、背景和构图关系', 'Describe environment, background and composition')}
+                        />
+                      </label>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="space-y-1">
+                          <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('道具', 'Props')}</div>
+                          <input
+                            type="text"
+                            value={gallerySceneProps}
+                            onChange={(e) => setGallerySceneProps(e.target.value)}
+                            className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
+                            placeholder={tr('例如：玻璃杯、绿植', 'e.g. glass cup, plant')}
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('光线', 'Lighting')}</div>
+                          <input
+                            type="text"
+                            value={gallerySceneLighting}
+                            onChange={(e) => setGallerySceneLighting(e.target.value)}
+                            className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
+                            placeholder={tr('例如：侧前方柔光', 'e.g. soft side-front light')}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
                     <div className="text-xs font-bold text-zinc-200">{t.hist_img_setting_types}</div>
                     <div className="mt-3 space-y-3">
                       {([
@@ -2686,6 +2953,15 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   {galleryRightPanel === 'preview' ? tr('预览区', 'Preview') : tr('历史记录', 'History')}
                 </div>
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={openGalleryBoardEditor}
+                    disabled={galleryBoardAssets.length < 1}
+                    className="px-3 py-2 rounded-xl text-xs font-bold transition border border-orange-500/30 bg-orange-500/10 text-orange-300 hover:bg-orange-500/15 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-zinc-900 disabled:text-zinc-500 inline-flex items-center gap-2"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    {tr('画板编辑', 'Board')}
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
@@ -2802,6 +3078,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                                 <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">{item.settings.style}</span>
                                 <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">{item.settings.aspectRatio}</span>
                                 <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">{item.settings.resolution}</span>
+                                {String(item.settings.sceneConfig?.sceneTheme || '').trim() ? (
+                                  <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">
+                                    {item.settings.sceneConfig?.sceneTheme}
+                                  </span>
+                                ) : null}
                               </div>
                             )}
                           </div>

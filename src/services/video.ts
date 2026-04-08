@@ -327,6 +327,13 @@ export const videoApi = {
     product_category?: string;
     core_selling_points?: string[];
     target_scene?: string;
+    scene_config?: {
+      sceneTheme?: string;
+      sceneDescription?: string;
+      sceneProps?: string;
+      lighting?: string;
+      mood?: string;
+    };
     style?: string;
     target_language?: string;
     hot_style?: { name: string; tones: string[]; description: string };

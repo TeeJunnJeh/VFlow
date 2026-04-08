@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { AppDialog } from '../common/AppDialog';
 import { videoApi, type ReplayReverseScriptData } from '../../services/video';
+import { addTransferStationItems } from '../../utils/workbenchTransferStation';
 import {
   loadWorkbenchProjectStore,
   WORKBENCH_NEW_PROJECT_TARGET,
@@ -44,6 +45,7 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadedName, setUploadedName] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [feedbackMessage, setFeedbackMessage] = useState('');
   const [isParsing, setIsParsing] = useState(false);
   const [result, setResult] = useState<ReplayParseResult | null>(null);
   const [isApplyDialogOpen, setIsApplyDialogOpen] = useState(false);
@@ -54,14 +56,111 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
 
   const canParse = useMemo(() => videoUrl.trim().length > 0 || Boolean(uploadedFile), [videoUrl, uploadedFile]);
 
-  const buildReuseReferenceScript = (parseResult: ReplayParseResult) => {
-    const suggestedPrompt = String(parseResult.suggestedPrompt || '').trim();
-    const styleReference = String(parseResult.styleReferenceText || '').trim();
-    if (suggestedPrompt && styleReference) {
-      return `${suggestedPrompt}\n\n${t.replay_result_style_reference_label || '语言风格参考'}:\n${styleReference}`;
+  const scriptSectionLabels = useMemo(() => {
+    const lang = String(language || '').trim().toLowerCase();
+    if (lang.startsWith('en')) {
+      return {
+        fullScript: 'Complete Script',
+        style: 'Style',
+        environment: 'Environment',
+        tonePacing: 'Tone & Pacing',
+        camera: 'Camera',
+        lighting: 'Lighting',
+        action: 'Action',
+        backgroundSound: 'Background Audio',
+        transitionEditing: 'Transition / Editing',
+        callToAction: 'Call To Action',
+      };
     }
-    return suggestedPrompt || styleReference;
+    if (lang.startsWith('ms')) {
+      return {
+        fullScript: 'Skrip Penuh',
+        style: 'Gaya',
+        environment: 'Persekitaran',
+        tonePacing: 'Nada & Rentak',
+        camera: 'Kamera',
+        lighting: 'Pencahayaan',
+        action: 'Aksi',
+        backgroundSound: 'Audio Latar',
+        transitionEditing: 'Transisi / Suntingan',
+        callToAction: 'Seruan Tindakan',
+      };
+    }
+    if (lang.startsWith('vi')) {
+      return {
+        fullScript: 'Kich Ban Day Du',
+        style: 'Phong Cach',
+        environment: 'Moi Truong',
+        tonePacing: 'Giong Dieu & Nhip Do',
+        camera: 'May Quay',
+        lighting: 'Anh Sang',
+        action: 'Hanh Dong',
+        backgroundSound: 'Am Thanh Nen',
+        transitionEditing: 'Chuyen Canh / Dung',
+        callToAction: 'Loi Keu Goi Hanh Dong',
+      };
+    }
+    if (lang.startsWith('ko')) {
+      return {
+        fullScript: '전체 스크립트',
+        style: '스타일',
+        environment: '환경',
+        tonePacing: '톤과 리듬',
+        camera: '카메라',
+        lighting: '조명',
+        action: '동작',
+        backgroundSound: '배경음',
+        transitionEditing: '전환 / 편집',
+        callToAction: '행동 유도',
+      };
+    }
+
+    return {
+      fullScript: '完整脚本',
+      style: '风格',
+      environment: '环境',
+      tonePacing: '语调与节奏',
+      camera: '镜头',
+      lighting: '光线',
+      action: '动作',
+      backgroundSound: '背景音',
+      transitionEditing: '转场 / 剪辑',
+      callToAction: '行动号召',
+    };
+  }, [language]);
+
+  const buildStructuredReferenceScript = (parseResult: ReplayParseResult) => {
+    const sellingPointLines = String(parseResult.suggestedSellingPoints || '')
+      .split('\n')
+      .map((line) => line.replace(/^\s*\d+[\.、]\s*/, '').trim())
+      .filter(Boolean);
+
+    const styleText = parseResult.styleTags.length > 0
+      ? parseResult.styleTags.join(' / ')
+      : (parseResult.styleReferenceText || parseResult.summary || '').trim();
+
+    const ctaText = sellingPointLines[sellingPointLines.length - 1]
+      || (parseResult.suggestedPrompt || '').trim();
+
+    const blocks = [
+      [scriptSectionLabels.fullScript, (parseResult.suggestedPrompt || '').trim()],
+      [scriptSectionLabels.style, styleText],
+      [scriptSectionLabels.environment, (parseResult.suggestedCategory || parseResult.summary || '').trim()],
+      [scriptSectionLabels.tonePacing, (parseResult.styleReferenceText || styleText || '').trim()],
+      [scriptSectionLabels.camera, (parseResult.styleReferenceText || styleText || '').trim()],
+      [scriptSectionLabels.lighting, styleText],
+      [scriptSectionLabels.action, sellingPointLines.slice(0, 2).join(' / ') || styleText],
+      [scriptSectionLabels.backgroundSound, sellingPointLines[1] || styleText],
+      [scriptSectionLabels.transitionEditing, (parseResult.styleReferenceText || styleText || '').trim()],
+      [scriptSectionLabels.callToAction, ctaText],
+    ];
+
+    return blocks
+      .map(([label, value]) => `[${label}]\n${String(value || '').trim() || '-'}`)
+      .join('\n\n');
   };
+
+  const buildReuseReferenceScript = (parseResult: ReplayParseResult) => buildStructuredReferenceScript(parseResult);
 
   const mimicPromptPrefix = t.replay_mimic_prompt_prefix || '模仿下面的语言风格，为xx产品生成相近风格的提示词：';
 
@@ -71,6 +170,31 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
     productCategory: parseResult.suggestedCategory,
     coreSellingPoints: parseResult.suggestedSellingPoints,
   });
+
+  const handleAddToTransferStation = () => {
+    if (!result) return;
+    const scriptContent = buildStructuredReferenceScript(result);
+    const resultLabel = t.replay_result_title || 'Analysis Result';
+
+    const added = addTransferStationItems([
+      {
+        name: `${resultLabel} ${new Date().toLocaleString()}`,
+        fileUrl: '',
+        mediaKind: 'script',
+        type: 'script',
+        source: 'replay',
+        scriptContent,
+        scriptLanguage: language,
+      },
+    ], user?.id ?? null);
+
+    if (added.addedCount > 0) {
+      setFeedbackMessage(t.wb_transfer_station_add_success || 'Added to transfer station.');
+      return;
+    }
+
+    setFeedbackMessage(t.wb_transfer_station_add_duplicate || 'Already exists in transfer station.');
+  };
 
   const openReuseToWorkbenchDialog = () => {
     if (!result) return;
@@ -140,6 +264,7 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
     setIsParsing(true);
     setResult(null);
     setErrorMessage('');
+    setFeedbackMessage('');
 
     const source = videoUrl.trim() || uploadedName;
     try {
@@ -259,6 +384,12 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
           </div>
         )}
 
+        {feedbackMessage && (
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+            {feedbackMessage}
+          </div>
+        )}
+
         {result && (
           <div className="rounded-2xl border border-white/10 bg-black/20 p-5 space-y-4">
             <div className="text-xs uppercase tracking-widest text-zinc-500 font-bold">{t.replay_result_title || '解析结果'}</div>
@@ -284,7 +415,19 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
               <div className="text-sm text-zinc-200 whitespace-pre-line">{result.suggestedPrompt}</div>
             </div>
 
+            <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+              <div className="text-xs text-zinc-500 mb-2">{t.wb_reference_script_label || 'Reference Script'}</div>
+              <div className="text-sm text-zinc-200 whitespace-pre-line">{buildStructuredReferenceScript(result)}</div>
+            </div>
+
             <div className="flex items-center justify-end">
+              <button
+                type="button"
+                className="mr-2 px-4 py-2 rounded-xl text-sm font-bold border border-sky-500/40 text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 transition"
+                onClick={handleAddToTransferStation}
+              >
+                {t.wb_transfer_station_add_btn || 'Add to Transfer Station'}
+              </button>
               <button
                 type="button"
                 className="px-4 py-2 rounded-xl text-sm font-bold border border-emerald-500/40 text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 transition flex items-center gap-2"

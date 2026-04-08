@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download, FileDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { ViewType } from './types';
 import { useLanguage } from '../../context/LanguageContext';
 import { DropdownSelect } from '../common/DropdownSelect';
@@ -1832,21 +1832,21 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                 type="button"
                 onClick={handleExportGalleryPreviewAsPdf}
                 disabled={isGalleryPreviewExportingPdf}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 text-black hover:bg-orange-400 disabled:opacity-60 transition"
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 text-black hover:bg-orange-400 disabled:opacity-60 transition flex items-center gap-2"
               >
+                <FileDown className="w-4 h-4" />
                 {isGalleryPreviewExportingPdf ? tr('导出中...', 'Exporting...') : (t.pi_gallery_preview_export_pdf || tr('导出为PDF', 'Export as PDF'))}
               </button>
               <button
                 type="button"
                 onClick={openGalleryInpaint}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 text-zinc-200 hover:bg-white/10 transition"
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 text-zinc-200 hover:bg-white/10 transition flex items-center gap-2"
               >
+                <Wand2 className="w-4 h-4" />
                 {t.pi_gallery_inpaint_title || tr('局部修改', 'Local Edit')}
               </button>
             </div>
-            <div className="mt-2 text-[11px] text-zinc-500 text-center">
-              {t.pi_gallery_preview_export_pdf_hint || tr('将打开浏览器打印窗口，可选择“保存为 PDF”。', 'A browser print dialog will open — choose “Save as PDF”.')}
-            </div>
+
           </div>
         ) : null}
       </AppDialog>
@@ -1856,15 +1856,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         title={t.pi_gallery_inpaint_title || tr('局部修改', 'Local Edit')}
         onClose={closeGalleryInpaint}
         widthClassName="max-w-none w-[980px]"
-        footer={
-          <button
-            type="button"
-            onClick={closeGalleryInpaint}
-            className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
-          >
-            {tr('关闭', 'Close')}
-          </button>
-        }
       >
         {galleryPreviewImageUrl ? (
           <div className="w-full h-[680px] flex flex-col">
@@ -1941,6 +1932,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               >
                 {galleryInpaint.isGenerating ? (t.pi_gallery_inpaint_generating || tr('生成中...', 'Generating...')) : (t.pi_gallery_inpaint_generate || tr('开始生成', 'Generate'))}
               </button>
+              <button
+                type="button"
+                onClick={closeGalleryInpaint}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
+              >
+                {tr('关闭', 'Close')}
+              </button>
             </div>
           </div>
         ) : null}
@@ -2014,7 +2012,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         )}
       </AppDialog>
 
-      <header className="relative z-[220] flex justify-between gap-6 px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
+      <header className="relative z-50 flex justify-between gap-6 px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
             {currentHeader.title}

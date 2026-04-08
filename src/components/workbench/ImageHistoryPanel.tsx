@@ -11,8 +11,10 @@ import {
 import { addTransferStationItems } from '../../utils/workbenchTransferStation';
 import {
   deleteImageHistoryItem,
+  ensureImageHistoryLoaded,
   readAllImageHistory,
   readImageHistoryFavorites,
+  refreshImageHistory,
   subscribeImageHistory,
   toggleImageHistoryFavorite,
   type ImageHistoryFeatureType,
@@ -163,13 +165,17 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
     }
   }, []);
 
-  const reload = useCallback(() => {
+  const reload = useCallback(async () => {
+    await ensureImageHistoryLoaded();
+    await refreshImageHistory();
     setItems(loadUnifiedHistory());
   }, []);
 
   useEffect(() => {
-    reload();
-    return subscribeImageHistory(reload);
+    void reload();
+    return subscribeImageHistory(() => {
+      void reload();
+    });
   }, [reload]);
 
   const displayed = useMemo(() => {
@@ -177,16 +183,16 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
     return items.filter((item) => item.isFavorited);
   }, [items, showOnlyFavorites]);
 
-  const toggleFavorite = (id: string) => {
-    toggleImageHistoryFavorite(id);
-    reload();
+  const toggleFavorite = async (id: string) => {
+    await toggleImageHistoryFavorite(id);
+    await reload();
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!deleteTarget) return;
-    deleteImageHistoryItem(deleteTarget.id);
+    await deleteImageHistoryItem(deleteTarget.id);
     setDeleteTarget(null);
-    reload();
+    await reload();
   };
 
   const openApplyDialog = (item: UnifiedImageHistoryItem) => {

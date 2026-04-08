@@ -83,6 +83,8 @@ async function generateFirstFrameOnce(options: {
   aspectRatio?: string;
   projectId?: string;
   model: string;
+  workspaceId?: string;
+  workspaceOrder?: number;
 }): Promise<{ imagePath: string; projectId?: string }> {
   const payload: Record<string, unknown> = {
     reference_image_path: options.referenceImagePath,
@@ -93,6 +95,12 @@ async function generateFirstFrameOnce(options: {
 
   if (options.projectId) {
     payload.project_id = options.projectId;
+  }
+  if (options.workspaceId) {
+    payload.workspace_id = options.workspaceId;
+  }
+  if (Number.isFinite(options.workspaceOrder)) {
+    payload.workspace_order = options.workspaceOrder;
   }
 
   const response = await fetch(`${PROJECTS_API_BASE}/generate_first_frame`, {
@@ -125,7 +133,8 @@ export const productImagesApi = {
   async generateFirstFrame(
     images: File[],
     params: FirstFrameParams,
-    projectId?: string
+    projectId?: string,
+    workspaceMeta?: { workspaceId?: string; workspaceOrder?: number }
   ): Promise<GenerationStatusResponse> {
     if (!images || images.length === 0) {
       throw new Error('Please upload at least one product image');
@@ -144,6 +153,8 @@ export const productImagesApi = {
         aspectRatio: params.aspectRatio,
         projectId: resolvedProjectId,
         model,
+        workspaceId: workspaceMeta?.workspaceId,
+        workspaceOrder: workspaceMeta?.workspaceOrder,
       });
 
       if (!resolvedProjectId && generated.projectId) {

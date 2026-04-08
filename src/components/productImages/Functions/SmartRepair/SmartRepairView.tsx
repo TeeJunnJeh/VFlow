@@ -4,7 +4,7 @@ import { useLanguage } from '../../../../context/LanguageContext';
 import { ErrorDialog, type ErrorInfo, ImageUploader, LoadingProgress } from '../../Common';
 import { downloadBlob, productImagesApi } from '../../../../services/productImagesApi';
 import type { ProductImageResult, SmartRepairParams, SmartRepairSubpage, SmartRepairToolCode } from '../../../../types/productImages';
-import { appendImageHistoryItem, readImageHistoryByFeature, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
+import { notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
 
 type Phase = 'setup' | 'generating' | 'result' | 'error';
 
@@ -242,7 +242,8 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   const getSamplePath = (code: SmartRepairToolCode, type: 'before' | 'after') =>
     `/smart-repair-examples/${code}_${type}.jpg`;
 
-  const refreshHistory = useCallback(() => {
+  const refreshHistory = useCallback(async () => {
+    await refreshImageHistory();
     const nextItems = readImageHistoryByFeature('smart_repair')
       .map((item) => mapImageHistoryToSmartRepairEntry(item))
       .filter(Boolean) as SmartRepairHistoryEntry[];
@@ -301,8 +302,10 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   }, [activeTool, isZh]);
 
   useEffect(() => {
-    refreshHistory();
-    return subscribeImageHistory(refreshHistory);
+    void refreshHistory();
+    return subscribeImageHistory(() => {
+      void refreshHistory();
+    });
   }, [refreshHistory]);
 
   const handleGenerate = async () => {
@@ -354,21 +357,8 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
 
       setProgress(100);
       if (response.status === 'completed' && response.outputImages && response.outputImages.length > 0) {
-        appendImageHistoryItem({
-          featureType: 'smart_repair',
-          images: response.outputImages.map((item) => item.imageUrl).filter(Boolean),
-          settings: {
-            prompt,
-            aspectRatio,
-            strength,
-            outputCount,
-            subpage: activeSubpage,
-            toolCode: activeToolCode,
-          },
-          metadata: {
-            outputImages: response.outputImages,
-          },
-        });
+        await refreshHistory();
+        notifyImageHistoryUpdated();
         setResults(response.outputImages);
         setPhase('result');
         return;

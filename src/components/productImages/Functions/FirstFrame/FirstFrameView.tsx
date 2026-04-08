@@ -10,7 +10,7 @@ import { LoadingProgress } from '../../Common/LoadingProgress';
 import { ErrorDialog, type ErrorInfo } from '../../Common/ErrorDialog';
 import { downloadBlob, productImagesApi } from '../../../../services/productImagesApi';
 import type { FirstFrameParams, ProductImageResult } from '../../../../types/productImages';
-import { notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
+import { deleteImageHistoryItem, notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
 
 type Phase = 'upload' | 'form' | 'generating' | 'result' | 'error';
 

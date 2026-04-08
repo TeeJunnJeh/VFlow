@@ -111,7 +111,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       case 'product_images_text_separation':
         return {
           title: tr('文本分离', 'Text Separation'),
-          subtitle: tr('上传海报，或复用商品套图历史图片，提取文本并生成去字底图', 'Upload a poster or reuse Product Gallery history to extract text and generate a clean background'),
+          subtitle: tr('上传海报，或复用商品套图历史图片，可生成去字底图和可编辑文本框', 'Upload a poster or reuse Product Gallery history to extract text and generate a clean background'),
         };
       case 'product_images_first_frame':
       default:
@@ -162,6 +162,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [isTextSeparationDragActive, setIsTextSeparationDragActive] = useState(false);
   const [textSeparationUploadPreviewUrl, setTextSeparationUploadPreviewUrl] = useState<string | null>(null);
   const [textSeparationUploadName, setTextSeparationUploadName] = useState<string>('');
+  const [isTextSeparationDragActive, setIsTextSeparationDragActive] = useState(false);
   const [isTextSeparationHistoryPickerOpen, setIsTextSeparationHistoryPickerOpen] = useState(false);
   const [textSeparationSelectedImagePath, setTextSeparationSelectedImagePath] = useState<string | null>(null);
   const [textSeparationSelectedOriginalUrl, setTextSeparationSelectedOriginalUrl] = useState<string | null>(null);
@@ -2100,11 +2101,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                           <div className="mt-2 truncate text-sm font-bold text-zinc-200">
                             {textSeparationUploadName || tr('最近上传', 'Latest upload')}
                           </div>
-                          <div className="text-[11px] text-zinc-500">
-                            {isTextSeparationLoading
-                              ? tr('正在处理文本分离...', 'Text separation in progress...')
-                              : tr('点击“开始文本分离”后再发起处理', 'Start processing after you click "Start Text Separation"')}
-                          </div>
                         </div>
                         <button
                           type="button"
@@ -2126,7 +2122,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                           type="button"
                           onClick={handleStartTextSeparation}
                           disabled={isTextSeparationLoading || !textSeparationSelectedImagePath}
-                          className="flex-1 rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black transition hover:bg-orange-400 disabled:opacity-60"
+                          className="text-separation-start-btn flex-1 rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black transition hover:bg-orange-400 disabled:opacity-60 disabled:hover:bg-orange-500"
                         >
                           {isTextSeparationLoading ? tr('处理中...', 'Processing...') : tr('开始文本分离', 'Start Text Separation')}
                         </button>
@@ -2142,23 +2138,53 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   ) : (
                     <>
                       <div className="text-sm font-bold text-zinc-200">{tr('上传图片', 'Upload Image')}</div>
-                      <div className="mt-2 text-xs text-zinc-500">
-                        {tr('上传文件后会先转换成真实 image_path，确认预览后再开始文本分离', 'Uploaded files are converted to a real image_path before processing')}
-                      </div>
+                      <div
+                        onDragEnter={(e) => {
+                          e.preventDefault();
+                          if (!isTextSeparationLoading) setIsTextSeparationDragActive(true);
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          if (!isTextSeparationLoading) setIsTextSeparationDragActive(true);
+                        }}
+                        onDragLeave={(e) => {
+                          e.preventDefault();
+                          const nextTarget = e.relatedTarget as Node | null;
+                          if (!e.currentTarget.contains(nextTarget)) {
+                            setIsTextSeparationDragActive(false);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setIsTextSeparationDragActive(false);
+                          if (isTextSeparationLoading) return;
+                          const file = Array.from(e.dataTransfer.files || [])[0];
+                          if (!file) return;
+                          if (!isSupportedGalleryImageFile(file)) {
+                            openGalleryAlert(gallerySupportedFormatTip);
+                            return;
+                          }
+                          void handleTextSeparationUpload(file);
+                        }}
+                      >
                       <button
                         type="button"
                         onClick={() => textSeparationFileInputRef.current?.click()}
                         disabled={isTextSeparationLoading}
                         className={`mt-4 w-full rounded-2xl border border-dashed px-4 py-10 text-center transition disabled:opacity-60 ${
-                          isTextSeparationDragActive
-                            ? 'border-orange-500/70 bg-orange-500/10 text-orange-100'
-                            : 'border-white/10 bg-black/20 text-zinc-500 hover:border-white/20 hover:text-zinc-300'
+                          isTextSeparationLoading
+                            ? 'border-white/10 bg-black/20 text-zinc-500'
+                            : isTextSeparationDragActive
+                              ? 'border-orange-400 bg-orange-500/10 text-orange-200'
+                              : 'border-white/10 bg-black/20 text-zinc-500 hover:border-white/20 hover:text-zinc-300'
                         }`}
                       >
                         <Upload className="mx-auto mb-3 h-10 w-10 opacity-70" />
                         <div className="text-sm font-semibold">{tr('选择一张海报图片', 'Choose one poster image')}</div>
-                        <div className="mt-1 text-[11px]">{tr('支持拖拽或点击上传，格式：JPG / PNG / WEBP', 'Drag and drop or click to upload. Formats: JPG / PNG / WEBP')}</div>
+                        <div className="mt-1 text-[11px]">{tr('点击选择，或将文件拖拽到这里', 'Click to choose or drag a file here')}</div>
+                        <div className="mt-1 text-[11px]">JPG / PNG / WEBP</div>
                       </button>
+                      </div>
                       <button
                         type="button"
                         onClick={() => setIsTextSeparationHistoryPickerOpen(true)}

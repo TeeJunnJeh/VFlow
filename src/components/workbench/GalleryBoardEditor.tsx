@@ -27,6 +27,9 @@ type BoardImageLayer = {
   opacity: number;
   showOriginal: boolean;
   keepAspectRatio: boolean;
+  cropScale: number;
+  cropOffsetX: number;
+  cropOffsetY: number;
 };
 
 type BoardTextLayer = {
@@ -78,6 +81,7 @@ type TemplateSlot = {
 
 type TemplateDefinition = {
   id: string;
+  imageCount: 1 | 2 | 3 | 4;
   name: string;
   description: string;
   previewAssetPath: string;
@@ -147,40 +151,156 @@ const CANVAS_SIZE_OPTIONS = [
   { id: '16:9', label: '16:9', width: 1600, height: 900 },
 ] as const;
 
+const TEMPLATE_MODE_OPTIONS: Array<TemplateDefinition['imageCount']> = [1, 2, 3, 4];
+const TEMPLATE_MODE_LABELS: Record<TemplateDefinition['imageCount'], { zh: string; en: string }> = {
+  1: { zh: '1图', en: '1 Image' },
+  2: { zh: '2图', en: '2 Images' },
+  3: { zh: '3图', en: '3 Images' },
+  4: { zh: '4图', en: '4 Images' },
+};
+
 const TEMPLATE_DEFINITIONS: TemplateDefinition[] = [
   {
+    id: 'single_hero',
+    imageCount: 1,
+    name: 'Single Hero',
+    description: '单图主视觉，适合商品首图和封面场景。',
+    previewAssetPath: '/templates/gallery-board/single-hero-preview.png',
+    canvasWidth: 1200,
+    canvasHeight: 1500,
+    background: '#111827',
+    slots: [{ x: 84, y: 230, w: 1032, h: 1180, fit: 'cover' }],
+    titleBox: { x: 84, y: 72, w: 780, h: 96 },
+    subtitleBox: { x: 84, y: 170, w: 900, h: 64 },
+  },
+  {
+    id: 'single_center_card',
+    imageCount: 1,
+    name: 'Single Center Card',
+    description: '中置单图留白排版，适合品牌感与高端视觉。',
+    previewAssetPath: '/templates/gallery-board/single-center-card-preview.png',
+    canvasWidth: 1200,
+    canvasHeight: 1500,
+    background: '#0f172a',
+    slots: [{ x: 150, y: 300, w: 900, h: 940, fit: 'contain' }],
+    titleBox: { x: 96, y: 84, w: 820, h: 98 },
+    subtitleBox: { x: 96, y: 186, w: 940, h: 76 },
+  },
+  {
+    id: 'single_full_bleed',
+    imageCount: 1,
+    name: 'Single Full Bleed',
+    description: '满版单图，适合冲击感强的场景封面。',
+    previewAssetPath: '/templates/gallery-board/single-full-bleed-preview.png',
+    canvasWidth: 1200,
+    canvasHeight: 1500,
+    background: '#101010',
+    slots: [{ x: 0, y: 0, w: 1200, h: 1500, fit: 'cover' }],
+    titleBox: { x: 68, y: 1080, w: 900, h: 140 },
+    subtitleBox: { x: 68, y: 1226, w: 980, h: 96 },
+  },
+  {
+    id: 'dual_split',
+    imageCount: 2,
+    name: 'Dual Split',
+    description: '左右双图对比，适合前后对比或双卖点展示。',
+    previewAssetPath: '/templates/gallery-board/dual-split-preview.png',
+    canvasWidth: 1200,
+    canvasHeight: 1500,
+    background: '#1f2937',
+    slots: [
+      { x: 72, y: 360, w: 518, h: 1020, fit: 'cover' },
+      { x: 610, y: 360, w: 518, h: 1020, fit: 'cover' },
+    ],
+    titleBox: { x: 72, y: 84, w: 800, h: 110 },
+    subtitleBox: { x: 72, y: 200, w: 980, h: 84 },
+  },
+  {
+    id: 'dual_stack',
+    imageCount: 2,
+    name: 'Dual Stack',
+    description: '上下双图，适合步骤展示与体验流程。',
+    previewAssetPath: '/templates/gallery-board/dual-stack-preview.png',
+    canvasWidth: 1200,
+    canvasHeight: 1500,
+    background: '#0b1120',
+    slots: [
+      { x: 84, y: 280, w: 1032, h: 520, fit: 'cover' },
+      { x: 84, y: 860, w: 1032, h: 520, fit: 'cover' },
+    ],
+    titleBox: { x: 84, y: 80, w: 760, h: 100 },
+    subtitleBox: { x: 84, y: 182, w: 940, h: 72 },
+  },
+  {
     id: 'hero_split',
+    imageCount: 2,
     name: 'Hero Split',
-    description: '左侧信息区 + 右侧主图，适合封面与主卖点。',
+    description: '右侧主图 + 左侧信息区，适合重点商品宣传。',
     previewAssetPath: '/templates/gallery-board/hero-split-preview.png',
     canvasWidth: 1200,
     canvasHeight: 1500,
     background: '#151515',
     slots: [
-      { x: 500, y: 240, w: 640, h: 1040, radius: 36, fit: 'cover' },
-      { x: 86, y: 980, w: 320, h: 300, radius: 28, fit: 'cover' },
+      { x: 500, y: 240, w: 640, h: 1040, fit: 'cover' },
+      { x: 86, y: 980, w: 320, h: 300, fit: 'cover' },
     ],
     titleBox: { x: 86, y: 120, w: 340, h: 180 },
     subtitleBox: { x: 86, y: 330, w: 340, h: 260 },
   },
   {
     id: 'story_triptych',
+    imageCount: 3,
     name: 'Story Triptych',
-    description: '三段式内容布局，适合场景图 + 卖点图组合。',
+    description: '三段式叙事结构，适合场景图和卖点图组合。',
     previewAssetPath: '/templates/gallery-board/story-triptych-preview.png',
     canvasWidth: 1200,
     canvasHeight: 1500,
     background: '#111827',
     slots: [
-      { x: 72, y: 300, w: 320, h: 420, radius: 28, fit: 'cover' },
-      { x: 72, y: 760, w: 320, h: 420, radius: 28, fit: 'cover' },
-      { x: 430, y: 300, w: 700, h: 880, radius: 36, fit: 'cover' },
+      { x: 72, y: 300, w: 320, h: 420, fit: 'cover' },
+      { x: 72, y: 760, w: 320, h: 420, fit: 'cover' },
+      { x: 430, y: 300, w: 700, h: 880, fit: 'cover' },
     ],
     titleBox: { x: 72, y: 80, w: 680, h: 120 },
     subtitleBox: { x: 72, y: 200, w: 860, h: 84 },
   },
   {
+    id: 'tri_columns',
+    imageCount: 3,
+    name: 'Tri Columns',
+    description: '三列等宽结构，适合多规格或多场景对比。',
+    previewAssetPath: '/templates/gallery-board/tri-columns-preview.png',
+    canvasWidth: 1200,
+    canvasHeight: 1500,
+    background: '#0f172a',
+    slots: [
+      { x: 72, y: 320, w: 336, h: 1080, fit: 'cover' },
+      { x: 432, y: 320, w: 336, h: 1080, fit: 'cover' },
+      { x: 792, y: 320, w: 336, h: 1080, fit: 'cover' },
+    ],
+    titleBox: { x: 72, y: 84, w: 820, h: 100 },
+    subtitleBox: { x: 72, y: 190, w: 980, h: 80 },
+  },
+  {
+    id: 'tri_top_two_bottom_one',
+    imageCount: 3,
+    name: 'Tri Top Two + Bottom One',
+    description: '上两图下单图，适合细节补充 + 主视觉收束。',
+    previewAssetPath: '/templates/gallery-board/tri-top-two-bottom-one-preview.png',
+    canvasWidth: 1200,
+    canvasHeight: 1500,
+    background: '#13131a',
+    slots: [
+      { x: 72, y: 280, w: 518, h: 470, fit: 'cover' },
+      { x: 610, y: 280, w: 518, h: 470, fit: 'cover' },
+      { x: 72, y: 800, w: 1056, h: 600, fit: 'cover' },
+    ],
+    titleBox: { x: 72, y: 80, w: 760, h: 100 },
+    subtitleBox: { x: 72, y: 188, w: 960, h: 72 },
+  },
+  {
     id: 'quad_mosaic',
+    imageCount: 4,
     name: 'Quad Mosaic',
     description: '四宫格拼贴，适合同类款式快速排版。',
     previewAssetPath: '/templates/gallery-board/quad-mosaic-preview.png',
@@ -188,15 +308,56 @@ const TEMPLATE_DEFINITIONS: TemplateDefinition[] = [
     canvasHeight: 1200,
     background: '#0f172a',
     slots: [
-      { x: 72, y: 220, w: 498, h: 398, radius: 28, fit: 'cover' },
-      { x: 630, y: 220, w: 498, h: 398, radius: 28, fit: 'cover' },
-      { x: 72, y: 680, w: 498, h: 398, radius: 28, fit: 'cover' },
-      { x: 630, y: 680, w: 498, h: 398, radius: 28, fit: 'cover' },
+      { x: 72, y: 220, w: 498, h: 398, fit: 'cover' },
+      { x: 630, y: 220, w: 498, h: 398, fit: 'cover' },
+      { x: 72, y: 680, w: 498, h: 398, fit: 'cover' },
+      { x: 630, y: 680, w: 498, h: 398, fit: 'cover' },
     ],
     titleBox: { x: 72, y: 72, w: 640, h: 80 },
     subtitleBox: { x: 72, y: 150, w: 900, h: 56 },
   },
+  {
+    id: 'quad_equal_grid',
+    imageCount: 4,
+    name: 'Quad Equal Grid',
+    description: '四图等分，适合统一风格的套餐图输出。',
+    previewAssetPath: '/templates/gallery-board/quad-equal-grid-preview.png',
+    canvasWidth: 1200,
+    canvasHeight: 1500,
+    background: '#111827',
+    slots: [
+      { x: 72, y: 320, w: 498, h: 538, fit: 'cover' },
+      { x: 630, y: 320, w: 498, h: 538, fit: 'cover' },
+      { x: 72, y: 878, w: 498, h: 538, fit: 'cover' },
+      { x: 630, y: 878, w: 498, h: 538, fit: 'cover' },
+    ],
+    titleBox: { x: 72, y: 84, w: 740, h: 100 },
+    subtitleBox: { x: 72, y: 188, w: 960, h: 72 },
+  },
+  {
+    id: 'quad_focus',
+    imageCount: 4,
+    name: 'Quad Focus',
+    description: '一张主图 + 三张辅助图，适合主次关系明显的商品套图。',
+    previewAssetPath: '/templates/gallery-board/quad-focus-preview.png',
+    canvasWidth: 1200,
+    canvasHeight: 1500,
+    background: '#101827',
+    slots: [
+      { x: 72, y: 290, w: 690, h: 1120, fit: 'cover' },
+      { x: 792, y: 290, w: 336, h: 350, fit: 'cover' },
+      { x: 792, y: 675, w: 336, h: 350, fit: 'cover' },
+      { x: 792, y: 1060, w: 336, h: 350, fit: 'cover' },
+    ],
+    titleBox: { x: 72, y: 84, w: 760, h: 100 },
+    subtitleBox: { x: 72, y: 188, w: 940, h: 72 },
+  },
 ];
+
+const resolveTemplateModeById = (templateId?: string): TemplateDefinition['imageCount'] => {
+  const matched = TEMPLATE_DEFINITIONS.find((item) => item.id === templateId);
+  return matched?.imageCount || TEMPLATE_DEFINITIONS[0].imageCount;
+};
 
 const clamp = (value: number, min: number, max: number) => {
   if (!Number.isFinite(value)) return min;
@@ -424,6 +585,39 @@ const fitImageRect = (
   };
 };
 
+const resolveImageFitMode = (layer: Pick<BoardImageLayer, 'fit' | 'showOriginal'>): 'cover' | 'contain' =>
+  layer.showOriginal ? 'contain' : layer.fit;
+
+const getLayerImageDrawRect = (
+  layer: Pick<BoardImageLayer, 'w' | 'h' | 'fit' | 'showOriginal' | 'cropScale' | 'cropOffsetX' | 'cropOffsetY'>,
+  sourceWidth: number,
+  sourceHeight: number
+) => {
+  const safeSourceWidth = Math.max(sourceWidth, 1);
+  const safeSourceHeight = Math.max(sourceHeight, 1);
+  const targetWidth = Math.max(layer.w, 1);
+  const targetHeight = Math.max(layer.h, 1);
+  const fitMode = resolveImageFitMode(layer);
+  const baseScale =
+    fitMode === 'contain'
+      ? Math.min(targetWidth / safeSourceWidth, targetHeight / safeSourceHeight)
+      : Math.max(targetWidth / safeSourceWidth, targetHeight / safeSourceHeight);
+  const cropScale = clamp(layer.cropScale ?? 1, 1, 6);
+  const drawW = safeSourceWidth * baseScale * cropScale;
+  const drawH = safeSourceHeight * baseScale * cropScale;
+  const overflowX = Math.max(drawW - targetWidth, 0);
+  const overflowY = Math.max(drawH - targetHeight, 0);
+  const offsetX = clamp(layer.cropOffsetX ?? 0, -1, 1) * (overflowX / 2);
+  const offsetY = clamp(layer.cropOffsetY ?? 0, -1, 1) * (overflowY / 2);
+
+  return {
+    dx: (targetWidth - drawW) / 2 + offsetX,
+    dy: (targetHeight - drawH) / 2 + offsetY,
+    dw: drawW,
+    dh: drawH,
+  };
+};
+
 const alignFrameToContainedImage = (
   layer: Pick<BoardImageLayer, 'x' | 'y' | 'w' | 'h'>,
   sourceWidth: number,
@@ -545,6 +739,8 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   const [aiLayoutProposals, setAiLayoutProposals] = useState<GalleryAiLayoutProposal[]>([]);
   const [aiLayoutFallbackUsed, setAiLayoutFallbackUsed] = useState(false);
   const [aiLayoutMessage, setAiLayoutMessage] = useState('');
+  const [templateMode, setTemplateMode] = useState<TemplateDefinition['imageCount']>(() => resolveTemplateModeById(initialTemplateId));
+  const [, setAssetImageMetaVersion] = useState(0);
   const [rightPanelSections, setRightPanelSections] = useState<Record<RightPanelSectionKey, boolean>>({
     board: true,
     inspector: true,
@@ -605,27 +801,63 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       String(initialTitle || '').trim() ||
       String(productName || '').trim() ||
       tr('商品主标题', 'Product Headline');
-    const subtitleText =
-      String(initialSubtitle || '').trim() ||
-      sellingPoints.filter(Boolean).slice(0, 2).join(' / ') ||
-      tr('从右侧拖入图片，并在上方属性区继续微调文字与图片。', 'Drag images from the asset panel and fine-tune text or images in the inspector.');
+    const subtitleFallback = String(initialSubtitle || '').trim();
+    const sellingPointTexts = Array.from({ length: template.imageCount }, (_, index) => {
+      const current = String(sellingPoints[index] || '').trim();
+      if (current) return current;
+      if (index === 0 && subtitleFallback) return subtitleFallback;
+      return `${tr('卖点', 'Selling Point')} ${index + 1}`;
+    });
+
+    const imageLayers: BoardLayer[] = template.slots.map((slot, index) => ({
+      id: nextLayerId(),
+      type: 'image' as const,
+      name: `${tr('图片', 'Image')} ${index + 1}`,
+      assetLocalId: assetIds[index] || null,
+      x: slot.x,
+      y: slot.y,
+      w: slot.w,
+      h: slot.h,
+      fit: slot.fit || 'cover',
+      radius: 0,
+      opacity: 1,
+      showOriginal: false,
+      keepAspectRatio: false,
+      cropScale: 1,
+      cropOffsetX: 0,
+      cropOffsetY: 0,
+    }));
+
+    const sellingPointLayers: BoardLayer[] = template.slots
+      .slice(0, template.imageCount)
+      .map((slot, index) => {
+        const boxHeight = clamp(Math.round(slot.h * 0.2), 56, 132);
+        const x = clamp(slot.x + 12, 0, template.canvasWidth - 120);
+        const y = clamp(slot.y + slot.h - boxHeight - 12, 0, template.canvasHeight - boxHeight);
+        const maxWidth = Math.max(template.canvasWidth - x, 120);
+        return {
+          id: nextLayerId(),
+          type: 'text',
+          name: `${tr('卖点', 'Selling Point')} ${index + 1}`,
+          text: sellingPointTexts[index],
+          x,
+          y,
+          w: clamp(slot.w - 24, 120, maxWidth),
+          h: boxHeight,
+          fontSize: clamp(Math.round(slot.h * 0.08), 20, 38),
+          fontWeight: 600,
+          fontFamily: 'Microsoft YaHei',
+          color: '#ffffff',
+          background: 'rgba(0,0,0,0.35)',
+          align: 'left',
+          lineHeight: 1.2,
+          padding: 12,
+        } as BoardTextLayer;
+      });
 
     const layers: BoardLayer[] = [
-      ...template.slots.map((slot, index) => ({
-        id: nextLayerId(),
-        type: 'image' as const,
-        name: `${tr('图片', 'Image')} ${index + 1}`,
-        assetLocalId: assetIds[index] || null,
-        x: slot.x,
-        y: slot.y,
-        w: slot.w,
-        h: slot.h,
-        fit: slot.fit || 'cover',
-        radius: 0,
-        opacity: 1,
-        showOriginal: false,
-        keepAspectRatio: false,
-      })),
+      ...imageLayers,
+      ...sellingPointLayers,
       {
         id: nextLayerId(),
         type: 'text',
@@ -642,24 +874,6 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
         background: 'transparent',
         align: 'left',
         lineHeight: 1.1,
-        padding: 0,
-      },
-      {
-        id: nextLayerId(),
-        type: 'text',
-        name: tr('副标题', 'Subtitle'),
-        text: subtitleText,
-        x: template.subtitleBox.x,
-        y: template.subtitleBox.y,
-        w: template.subtitleBox.w,
-        h: template.subtitleBox.h,
-        fontSize: template.canvasWidth >= 1200 ? 28 : 24,
-        fontWeight: 500,
-        fontFamily: 'Microsoft YaHei',
-        color: 'rgba(255,255,255,0.86)',
-        background: 'transparent',
-        align: 'left',
-        lineHeight: 1.35,
         padding: 0,
       },
     ];
@@ -691,6 +905,16 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   };
 
   const [board, setBoard] = useState<BoardState>(() => buildBoardFromTemplate(initialTemplateId || TEMPLATE_DEFINITIONS[0].id));
+  const filteredTemplates = useMemo(
+    () => TEMPLATE_DEFINITIONS.filter((item) => item.imageCount === templateMode),
+    [templateMode]
+  );
+
+  useEffect(() => {
+    const matched = TEMPLATE_DEFINITIONS.find((item) => item.id === board.templateId);
+    if (!matched) return;
+    setTemplateMode((prev) => (prev === matched.imageCount ? prev : matched.imageCount));
+  }, [board.templateId]);
 
   useEffect(() => {
     const element = viewportRef.current;
@@ -772,6 +996,20 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     };
     assetImageSizeCacheRef.current.set(imageUrl, size);
     return size;
+  };
+
+  const cacheAssetImageSize = (imageUrl: string, width: number, height: number) => {
+    if (!imageUrl || width <= 0 || height <= 0) return;
+    const current = assetImageSizeCacheRef.current.get(imageUrl);
+    if (current && current.width === width && current.height === height) return;
+    assetImageSizeCacheRef.current.set(imageUrl, { width, height });
+    setAssetImageMetaVersion((prev) => prev + 1);
+  };
+
+  const rememberAssetImageSize = (imageUrl: string, element: HTMLImageElement) => {
+    const width = element.naturalWidth || element.width;
+    const height = element.naturalHeight || element.height;
+    cacheAssetImageSize(imageUrl, width, height);
   };
 
   const alignImageLayerToSourceBounds = async (layerId: string, assetLocalIdOverride?: string | null) => {
@@ -871,6 +1109,9 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
             opacity: clamp(Number(style.opacity ?? 1), 0, 1),
             showOriginal: true,
             keepAspectRatio: true,
+            cropScale: 1,
+            cropOffsetX: 0,
+            cropOffsetY: 0,
           });
           return result;
         }
@@ -1066,6 +1307,9 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       opacity: 1,
       showOriginal: false,
       keepAspectRatio: false,
+      cropScale: 1,
+      cropOffsetX: 0,
+      cropOffsetY: 0,
     };
 
     updateBoard((prev) => ({
@@ -1141,6 +1385,8 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   };
 
   const applyTemplate = (templateId: string) => {
+    const template = TEMPLATE_DEFINITIONS.find((item) => item.id === templateId);
+    if (template) setTemplateMode(template.imageCount);
     setBoard((prev) => buildBoardFromTemplate(templateId, prev));
   };
 
@@ -1390,19 +1636,15 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
           const image = url ? imageCache.get(url) : undefined;
 
           if (image) {
-            const rect = fitImageRect(
-              layer.showOriginal ? 'contain' : layer.fit,
-              image.naturalWidth || image.width,
-              image.naturalHeight || image.height,
-              layer.w,
-              layer.h
-            );
+            const sourceWidth = image.naturalWidth || image.width;
+            const sourceHeight = image.naturalHeight || image.height;
+            const rect = getLayerImageDrawRect(layer, sourceWidth, sourceHeight);
             context.drawImage(
               image,
-              rect.sx,
-              rect.sy,
-              rect.sw,
-              rect.sh,
+              0,
+              0,
+              sourceWidth,
+              sourceHeight,
               layer.x + rect.dx,
               layer.y + rect.dy,
               rect.dw,
@@ -1510,6 +1752,9 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
               y: clamp(patch.y ?? layer.y, 0, Math.max(board.canvasHeight - nextH, 0)),
               radius: clamp(patch.radius ?? layer.radius, 0, 160),
               opacity: clamp(patch.opacity ?? layer.opacity, 0, 1),
+              cropScale: clamp(patch.cropScale ?? layer.cropScale ?? 1, 1, 6),
+              cropOffsetX: clamp(patch.cropOffsetX ?? layer.cropOffsetX ?? 0, -1, 1),
+              cropOffsetY: clamp(patch.cropOffsetY ?? layer.cropOffsetY ?? 0, -1, 1),
             };
           })()
         : layer
@@ -1533,6 +1778,15 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     if (checked) {
       void alignImageLayerToSourceBounds(selectedLayer.id);
     }
+  };
+
+  const resetSelectedImageCrop = () => {
+    if (!selectedLayer || selectedLayer.type !== 'image') return;
+    updateSelectedImageLayer({
+      cropScale: 1,
+      cropOffsetX: 0,
+      cropOffsetY: 0,
+    });
   };
 
   const updateSelectedBackground = (
@@ -1609,7 +1863,28 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
             {leftPanelSections.templates ? (
               <div className="space-y-2 border-t border-white/10 px-3 pb-3 pt-3">
-                {TEMPLATE_DEFINITIONS.map((template) => {
+                <div className="grid grid-cols-4 gap-2">
+                  {TEMPLATE_MODE_OPTIONS.map((mode) => {
+                    const active = templateMode === mode;
+                    const label = TEMPLATE_MODE_LABELS[mode];
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setTemplateMode(mode)}
+                        className={`rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition ${
+                          active
+                            ? 'border-orange-500/40 bg-orange-500/10 text-orange-200'
+                            : 'border-white/10 bg-zinc-900/70 text-zinc-300 hover:bg-zinc-800'
+                        }`}
+                      >
+                        {tr(label.zh, label.en)}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {filteredTemplates.map((template) => {
                   const active = board.templateId === template.id;
                   return (
                     <button
@@ -1653,6 +1928,12 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                     </button>
                   );
                 })}
+
+                {filteredTemplates.length < 1 ? (
+                  <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-4 text-xs text-zinc-500">
+                    {tr('该模式下暂无模板。', 'No templates in this mode yet.')}
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -1849,6 +2130,14 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                 const isSelected = layer.id === board.selectedLayerId;
                 const asset = layer.type === 'image' && layer.assetLocalId ? assetMap.get(layer.assetLocalId) : undefined;
                 const imageUrl = layer.type === 'image' ? String(asset?.imageUrl || '').trim() : '';
+                const imageRect =
+                  layer.type === 'image' && imageUrl
+                    ? (() => {
+                        const size = assetImageSizeCacheRef.current.get(imageUrl);
+                        if (!size) return null;
+                        return getLayerImageDrawRect(layer, size.width, size.height);
+                      })()
+                    : null;
 
                 return (
                   <div
@@ -1868,7 +2157,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                   >
                     {layer.type === 'image' ? (
                       <div
-                        className={`relative h-full w-full overflow-hidden bg-white/5 ${isSelected ? 'border border-white/40' : 'border border-transparent'}`}
+                        className={`relative h-full w-full overflow-hidden bg-transparent ${isSelected ? 'border border-white/40' : 'border border-transparent'}`}
                         style={{ borderRadius: layer.radius * boardScale, opacity: layer.opacity }}
                       >
                         {imageUrl ? (
@@ -1876,7 +2165,25 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                             src={imageUrl}
                             alt={layer.name}
                             draggable={false}
-                            className={`h-full w-full ${(layer.showOriginal || layer.fit === 'contain') ? 'object-contain' : 'object-cover'}`}
+                            onLoad={(event) => rememberAssetImageSize(imageUrl, event.currentTarget)}
+                            className={
+                              imageRect
+                                ? 'pointer-events-none absolute max-w-none select-none'
+                                : `h-full w-full ${(layer.showOriginal || layer.fit === 'contain') ? 'object-contain' : 'object-cover'}`
+                            }
+                            style={
+                              imageRect
+                                ? {
+                                    left: imageRect.dx * boardScale,
+                                    top: imageRect.dy * boardScale,
+                                    width: imageRect.dw * boardScale,
+                                    height: imageRect.dh * boardScale,
+                                  }
+                                : {
+                                    transform: `translate(${(clamp(layer.cropOffsetX ?? 0, -1, 1) * 50).toFixed(2)}%, ${(clamp(layer.cropOffsetY ?? 0, -1, 1) * 50).toFixed(2)}%) scale(${clamp(layer.cropScale ?? 1, 1, 6)})`,
+                                    transformOrigin: 'center center',
+                                  }
+                            }
                           />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center bg-white/5 px-4 text-center text-xs text-zinc-500">
@@ -2375,6 +2682,68 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                         className="accent-orange-500"
                       />
                       <span>{tr('等比例缩放', 'Keep Aspect Ratio')}</span>
+                    </label>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
+                        {tr('图片裁剪', 'Image Crop')}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={resetSelectedImageCrop}
+                        className="rounded-lg border border-white/10 bg-zinc-900/70 px-2 py-1 text-[10px] font-semibold text-zinc-200 transition hover:bg-zinc-800"
+                      >
+                        {tr('重置裁剪', 'Reset Crop')}
+                      </button>
+                    </div>
+
+                    <label className="space-y-1">
+                      <div className="flex items-center justify-between text-[11px] text-zinc-500">
+                        <span>{tr('缩放', 'Zoom')}</span>
+                        <span>{selectedLayer.cropScale.toFixed(2)}x</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="1"
+                        max="6"
+                        step="0.01"
+                        value={selectedLayer.cropScale}
+                        onChange={(event) => updateSelectedImageLayer({ cropScale: Number(event.target.value) || 1 })}
+                        className="w-full accent-orange-400"
+                      />
+                    </label>
+
+                    <label className="space-y-1">
+                      <div className="flex items-center justify-between text-[11px] text-zinc-500">
+                        <span>{tr('水平偏移', 'Horizontal Offset')}</span>
+                        <span>{Math.round(selectedLayer.cropOffsetX * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="-1"
+                        max="1"
+                        step="0.01"
+                        value={selectedLayer.cropOffsetX}
+                        onChange={(event) => updateSelectedImageLayer({ cropOffsetX: Number(event.target.value) || 0 })}
+                        className="w-full accent-orange-400"
+                      />
+                    </label>
+
+                    <label className="space-y-1">
+                      <div className="flex items-center justify-between text-[11px] text-zinc-500">
+                        <span>{tr('垂直偏移', 'Vertical Offset')}</span>
+                        <span>{Math.round(selectedLayer.cropOffsetY * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="-1"
+                        max="1"
+                        step="0.01"
+                        value={selectedLayer.cropOffsetY}
+                        onChange={(event) => updateSelectedImageLayer({ cropOffsetY: Number(event.target.value) || 0 })}
+                        className="w-full accent-orange-400"
+                      />
                     </label>
                   </div>
                   <div className="grid grid-cols-2 gap-3">

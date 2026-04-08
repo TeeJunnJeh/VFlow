@@ -56,6 +56,11 @@ import {
   type SeedanceReplayParsedAsset,
   validateSeedanceReplayParsedAsset,
 } from './Seedance/seedanceReplayUploadRules';
+import {
+  closeTikTokAuthPopup,
+  navigateTikTokAuthPopup,
+  openTikTokAuthPopup,
+} from '../../utils/tiktokAuthPopup';
 
 const ENABLE_PROMPT_LAB = true;
 const ENABLE_STORYBOARD_PROMPT = false;
@@ -7165,6 +7170,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
+    const authPopup = openTikTokAuthPopup({
+      loadingTitle: t.app_tiktok_popup_loading_title,
+      loadingDescription: t.app_tiktok_popup_loading_desc,
+    });
+
     setIsPostingTikTok(true);
     try {
       let isAuthorized = false;
@@ -7180,7 +7190,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       if (!isAuthorized) {
         const authUrl = await tiktokApi.getAuthUrl(targetProjectId);
-        window.location.href = authUrl;
+        const popupWindow = navigateTikTokAuthPopup(authPopup, authUrl);
+        if (!popupWindow) {
+          openInfo(popupTitles.notice, t.app_tiktok_popup_blocked);
+        }
         return;
       }
 
@@ -7202,14 +7215,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (switchAccount) {
           try {
             await tiktokApi.revokeAuth();
-            openInfo(popupTitles.notice, t.wb_popup_tiktok_switch_cancelled);
             const authUrl = await tiktokApi.getAuthUrl(targetProjectId);
-            window.location.href = authUrl;
+            const popupWindow = navigateTikTokAuthPopup(authPopup, authUrl);
+            if (!popupWindow) {
+              openInfo(popupTitles.notice, t.app_tiktok_popup_blocked);
+              return;
+            }
+            openInfo(popupTitles.notice, t.wb_popup_tiktok_switch_cancelled);
             return;
           } catch (err: any) {
+            closeTikTokAuthPopup(authPopup);
             openErrorModal(err, { category: 'upload_failed' });
           }
         }
+        closeTikTokAuthPopup(authPopup);
         setIsPostingTikTok(false);
         return;
       }
@@ -7217,12 +7236,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const result = await tiktokApi.publishDraft(targetProjectId);
       if (result.requiresAuth) {
         const authUrl = result.authUrl || await tiktokApi.getAuthUrl(targetProjectId);
-        window.location.href = authUrl;
+        const popupWindow = navigateTikTokAuthPopup(authPopup, authUrl);
+        if (!popupWindow) {
+          openInfo(popupTitles.notice, t.app_tiktok_popup_blocked);
+        }
         return;
       }
 
+      closeTikTokAuthPopup(authPopup);
       openInfo(popupTitles.success, t.wb_popup_tiktok_upload_success);
     } catch (err: any) {
+      closeTikTokAuthPopup(authPopup);
       openErrorModal(err, { category: 'upload_failed', onRetry: handlePublishToTikTok });
     } finally {
       setIsPostingTikTok(false);

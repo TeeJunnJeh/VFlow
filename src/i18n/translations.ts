@@ -71,6 +71,9 @@ export const translations = {
     app_tiktok_auth_success_default: "TikTok authorization succeeded, the video has been uploaded to the draft box",
     app_tiktok_auth_incomplete: "Authorization parameters are incomplete",
     app_tiktok_auth_rejected: "Authorization was rejected",
+    app_tiktok_popup_loading_title: "Preparing TikTok authorization",
+    app_tiktok_popup_loading_desc: "This window will continue the TikTok authorization flow shortly. You can return to VFlow after authorization is complete.",
+    app_tiktok_popup_blocked: "Popup blocked by browser. Please allow popups and try again.",
 
     // Workbench popups
     wb_popup_image_adjustment_title: "Image Adjustment",
@@ -1361,6 +1364,9 @@ export const translations = {
     app_tiktok_auth_success_default: "TikTok 授权成功，视频已上传到草稿箱",
     app_tiktok_auth_incomplete: "授权参数不完整",
     app_tiktok_auth_rejected: "授权被拒绝",
+    app_tiktok_popup_loading_title: "正在准备 TikTok 授权",
+    app_tiktok_popup_loading_desc: "该窗口即将继续 TikTok 授权流程。授权完成后，您可以回到 VFlow 继续操作。",
+    app_tiktok_popup_blocked: "浏览器阻止了新窗口，请允许弹窗后重试。",
 
     wb_popup_image_adjustment_title: "图片调整",
     wb_popup_need_reference_or_template: "请先上传参考素材或选择模板！",
@@ -5808,7 +5814,6 @@ export const translations = {
     ff_workspace_tip: "팁: 여러 첫 프레임 작업공간을 만들어 병렬로 생성할 수 있습니다. 전환해도 각 기록은 유지됩니다.",
   }
 };
-
 
 
 

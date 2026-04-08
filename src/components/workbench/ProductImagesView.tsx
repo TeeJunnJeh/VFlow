@@ -162,7 +162,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [isTextSeparationDragActive, setIsTextSeparationDragActive] = useState(false);
   const [textSeparationUploadPreviewUrl, setTextSeparationUploadPreviewUrl] = useState<string | null>(null);
   const [textSeparationUploadName, setTextSeparationUploadName] = useState<string>('');
-  const [isTextSeparationDragActive, setIsTextSeparationDragActive] = useState(false);
   const [isTextSeparationHistoryPickerOpen, setIsTextSeparationHistoryPickerOpen] = useState(false);
   const [textSeparationSelectedImagePath, setTextSeparationSelectedImagePath] = useState<string | null>(null);
   const [textSeparationSelectedOriginalUrl, setTextSeparationSelectedOriginalUrl] = useState<string | null>(null);

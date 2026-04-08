@@ -93,6 +93,7 @@ export type TextSeparationBlockPayload = {
 
 export type TextSeparationResponse = {
   sample_id?: string;
+  history_record_id?: string;
   original_image_url: string;
   clean_image_url: string;
   text_blocks: TextSeparationBlockPayload[];
@@ -316,6 +317,7 @@ export const videoApi = {
   },
 
   generateProductGallery: async (payload: {
+    client_history_id?: string;
     prompt?: string;
     image_paths: string[];
     aspect_ratio?: string;
@@ -400,7 +402,7 @@ export const videoApi = {
     return await response.json();
   },
 
-  textSeparation: async (payload?: { sample_id?: string; image_path?: string }): Promise<TextSeparationResponse> => {
+  textSeparation: async (payload?: { sample_id?: string; sample_title?: string; image_path?: string }): Promise<TextSeparationResponse> => {
     const csrftoken = getCookie('csrftoken');
 
     const response = await fetch(`${API_BASE_URL}/text-separation`, {

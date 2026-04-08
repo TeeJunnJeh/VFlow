@@ -10,7 +10,7 @@ import { LoadingProgress } from '../../Common/LoadingProgress';
 import { ErrorDialog, type ErrorInfo } from '../../Common/ErrorDialog';
 import { downloadBlob, productImagesApi } from '../../../../services/productImagesApi';
 import type { FirstFrameParams, ProductImageResult } from '../../../../types/productImages';
-import { appendImageHistoryItem, deleteImageHistoryItem, readImageHistoryByFeature, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
+import { notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
 
 type Phase = 'upload' | 'form' | 'generating' | 'result' | 'error';
 
@@ -155,7 +155,8 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const isGenerating = phase === 'generating';
   const hasResults = results.length > 0;
 
-  const refreshWorkspaceHistory = useCallback(() => {
+  const refreshWorkspaceHistory = useCallback(async () => {
+    await refreshImageHistory();
     const filtered = (readImageHistoryByFeature('first_frame')
       .map((item) => mapImageHistoryToFirstFrameItem(item))
       .filter(Boolean) as FirstFrameHistoryItem[])
@@ -165,8 +166,10 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   }, [workspaceId]);
 
   useEffect(() => {
-    refreshWorkspaceHistory();
-    return subscribeImageHistory(refreshWorkspaceHistory);
+    void refreshWorkspaceHistory();
+    return subscribeImageHistory(() => {
+      void refreshWorkspaceHistory();
+    });
   }, [refreshWorkspaceHistory]);
 
   const clearProgressTimer = useCallback(() => {
@@ -198,28 +201,6 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     clearProgressTimer();
   }, [clearProgressTimer]);
 
-  const appendHistory = useCallback((generated: ProductImageResult[]) => {
-    const outputImages = generated
-      .map((item, index) => sanitizeHistoryImage(item, index))
-      .filter(Boolean) as ProductImageResult[];
-
-    if (outputImages.length === 0) return;
-
-    appendImageHistoryItem({
-      id: `ff-history-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      featureType: 'first_frame',
-      createdAt: new Date().toISOString(),
-      status: 'succeeded',
-      images: outputImages.map((item) => item.imageUrl),
-      workspaceId,
-      workspaceOrder,
-      metadata: {
-        outputImages,
-      },
-    });
-    refreshWorkspaceHistory();
-  }, [refreshWorkspaceHistory, workspaceId, workspaceOrder]);
-
   const handleImagesSelected = useCallback((files: File[]) => {
     setImages(files);
     setError(null);
@@ -248,7 +229,10 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       setProgress(2);
       startProgressSimulation();
 
-      const response = await productImagesApi.generateFirstFrame(images, params, projectId);
+      const response = await productImagesApi.generateFirstFrame(images, params, projectId, {
+        workspaceId,
+        workspaceOrder,
+      });
       if (generationSeqRef.current !== runSeq) return;
 
       clearProgressTimer();
@@ -256,7 +240,8 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
       if (response.status === 'completed' && response.outputImages && response.outputImages.length > 0) {
         setResults(response.outputImages);
-        appendHistory(response.outputImages);
+        await refreshWorkspaceHistory();
+        notifyImageHistoryUpdated();
         setPhase('result');
         return;
       }

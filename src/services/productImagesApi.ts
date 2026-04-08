@@ -83,6 +83,9 @@ async function generateFirstFrameOnce(options: {
   aspectRatio?: string;
   projectId?: string;
   model: string;
+  workspaceId?: string;
+  workspaceOrder?: number;
+  clientHistoryId?: string;
 }): Promise<{ imagePath: string; projectId?: string }> {
   const payload: Record<string, unknown> = {
     reference_image_path: options.referenceImagePath,
@@ -93,6 +96,15 @@ async function generateFirstFrameOnce(options: {
 
   if (options.projectId) {
     payload.project_id = options.projectId;
+  }
+  if (options.workspaceId) {
+    payload.workspace_id = options.workspaceId;
+  }
+  if (Number.isFinite(options.workspaceOrder)) {
+    payload.workspace_order = options.workspaceOrder;
+  }
+  if (options.clientHistoryId) {
+    payload.client_history_id = options.clientHistoryId;
   }
 
   const response = await fetch(`${PROJECTS_API_BASE}/generate_first_frame`, {
@@ -125,7 +137,8 @@ export const productImagesApi = {
   async generateFirstFrame(
     images: File[],
     params: FirstFrameParams,
-    projectId?: string
+    projectId?: string,
+    workspaceMeta?: { workspaceId?: string; workspaceOrder?: number }
   ): Promise<GenerationStatusResponse> {
     if (!images || images.length === 0) {
       throw new Error('Please upload at least one product image');
@@ -134,6 +147,10 @@ export const productImagesApi = {
     const outputCount = params.outputCount || 1;
     const model = resolveFirstFrameModel(params);
     const referenceImagePath = await uploadTempImage(images[0]);
+    const clientHistoryId =
+      (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `first-frame-batch-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
 
     let resolvedProjectId = projectId;
     const outputImages: ProductImageResult[] = [];
@@ -144,6 +161,9 @@ export const productImagesApi = {
         aspectRatio: params.aspectRatio,
         projectId: resolvedProjectId,
         model,
+        workspaceId: workspaceMeta?.workspaceId,
+        workspaceOrder: workspaceMeta?.workspaceOrder,
+        clientHistoryId,
       });
 
       if (!resolvedProjectId && generated.projectId) {

@@ -10,7 +10,7 @@ import TextSeparationDemoView, { type TextSeparationBlock } from './TextSeparati
 import { assetsApi } from '../../services/assets';
 import { videoApi } from '../../services/video';
 import { downloadBlob, productImagesApi } from '../../services/productImagesApi';
-import { appendImageHistoryItem, readImageHistoryByFeature, subscribeImageHistory, updateImageHistoryItem, type ImageHistoryItem } from '../../utils/imageHistory';
+import { notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, removeImageHistoryAssets, replaceImageHistoryAsset, subscribeImageHistory, type ImageHistoryItem } from '../../utils/imageHistory';
 
 interface ProductImagesViewProps {
   activeView: ViewType;
@@ -533,7 +533,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     return canvas.toDataURL('image/png');
   };
 
-  const applyGalleryPreviewOverwrite = (nextUrl: string) => {
+  const applyGalleryPreviewOverwrite = async (nextUrl: string) => {
     setGalleryPreviewImageUrl(nextUrl);
 
     if (!galleryPreviewSource) return;
@@ -546,12 +546,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
     if (galleryPreviewSource.kind === 'history_item') {
       const { itemId, index } = galleryPreviewSource;
-      updateImageHistoryItem(itemId, (current) => {
-        if (current.featureType !== 'gallery') return current;
-        const images = current.images.slice();
-        if (index >= 0 && index < images.length) images[index] = nextUrl;
-        return { ...current, images };
-      });
+      await replaceImageHistoryAsset(itemId, index, nextUrl);
     }
   };
 
@@ -654,7 +649,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       });
 
       if (ok) {
-        applyGalleryPreviewOverwrite(outputUrl);
+        await applyGalleryPreviewOverwrite(outputUrl);
         closeGalleryInpaint();
       }
     } catch (err: any) {
@@ -871,13 +866,14 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
     setIsTextSeparationLoading(true);
     try {
-      const parsed = await videoApi.textSeparation({ image_path: cleaned });
+      const parsed = await videoApi.textSeparation({ image_path: cleaned, sample_title: sampleTitle });
       const textBlocks = normalizeTextSeparationBlocks(Array.isArray(parsed?.text_blocks) ? parsed.text_blocks : []);
       return {
         sampleTitle,
         originalImageUrl: String(originalImageUrl || parsed.original_image_url || cleaned),
         backgroundImageUrl: String(parsed.clean_image_url || ''),
         textBlocks,
+        historyRecordId: String((parsed as any)?.history_record_id || '').trim(),
       };
     } catch (err: any) {
       openGalleryAlert(String(err?.message || tr('打开文本分离失败', 'Failed to open text separation')));
@@ -916,25 +912,15 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       return;
     }
 
-    appendImageHistoryItem({
-      id: recordId,
-      featureType: 'text_separation',
-      createdAt,
-      status: 'succeeded',
-      images: [result.backgroundImageUrl],
-      metadata: {
-        sampleTitle,
-        originalImageUrl,
-        backgroundImageUrl: result.backgroundImageUrl,
-        textBlocks: result.textBlocks,
-      },
-    });
+    await refreshImageHistory();
+    notifyImageHistoryUpdated();
 
     setTextSeparationRecords((prev) =>
       prev.map((item) =>
         item.id === recordId
           ? {
               ...item,
+              id: result.historyRecordId || item.id,
               status: 'succeeded' as const,
               progress: 100,
               backgroundImageUrl: result.backgroundImageUrl,
@@ -994,16 +980,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
     const selected = new Set(galleryHistorySelectedKeys);
 
-    galleryHistoryItems.forEach((item) => {
-      if (!item.images.some((_, idx) => selected.has(`${item.id}:${idx}`))) return;
-      updateImageHistoryItem(item.id, (current) => {
-        if (current.featureType !== 'gallery') return current;
-        const images = current.images.filter((_, idx) => !selected.has(`${item.id}:${idx}`));
-        if (images.length === 0) return null;
-        if (images.length === current.images.length) return current;
-        return { ...current, images };
-      });
-    });
+    for (const item of galleryHistoryItems) {
+      const indices = item.images
+        .map((_, idx) => idx)
+        .filter((idx) => selected.has(`${item.id}:${idx}`));
+      if (indices.length === 0) continue;
+      await removeImageHistoryAssets(item.id, indices);
+    }
 
     setGalleryHistorySelectedKeys([]);
   };
@@ -1029,12 +1012,15 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   }, [galleryImages]);
 
   useEffect(() => {
-    const syncGalleryHistory = () => {
+    const syncGalleryHistory = async () => {
+      await refreshImageHistory();
       setGalleryHistoryItems(loadGalleryHistoryFromStore());
     };
 
-    syncGalleryHistory();
-    return subscribeImageHistory(syncGalleryHistory);
+    void syncGalleryHistory();
+    return subscribeImageHistory(() => {
+      void syncGalleryHistory();
+    });
   }, []);
 
   useEffect(() => {
@@ -1071,15 +1057,18 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   }, [textSeparationRecords]);
 
   useEffect(() => {
-    const syncTextSeparationHistory = () => {
+    const syncTextSeparationHistory = async () => {
+      await refreshImageHistory();
       const persisted = readImageHistoryByFeature('text_separation')
         .map((item) => mapImageHistoryToTextSeparationRecord(item))
         .filter(Boolean) as TextSeparationRecordItem[];
       setTextSeparationRecords((prev) => mergeTextSeparationRecords(persisted, prev));
     };
 
-    syncTextSeparationHistory();
-    return subscribeImageHistory(syncTextSeparationHistory);
+    void syncTextSeparationHistory();
+    return subscribeImageHistory(() => {
+      void syncTextSeparationHistory();
+    });
   }, [language]);
 
   // Restore settings from history "re-generate" flow
@@ -1514,23 +1503,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       uploadedImagePaths: [] as string[],
     };
 
-    const appendHistory = (urls: string[]) => {
-      const images = urls.map((u) => String(u || '').trim()).filter(Boolean);
-      if (images.length === 0) return;
-
-      appendImageHistoryItem({
-        id: `pg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        featureType: 'gallery',
-        createdAt: new Date().toISOString(),
-        status: 'succeeded',
-        images,
-        settings: settingsSnapshot,
-      });
-      setGalleryHistoryItems(loadGalleryHistoryFromStore());
-    };
-
     // Collect all successful image URLs across all poll tasks
     const collectedImageUrls: string[] = [];
+    const clientHistoryId = `pg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
     const runId = Date.now();
     galleryPollRunIdRef.current = runId;
@@ -1568,6 +1543,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         aspect_ratio: aspectRatio,
         resolution: galleryResolution,
         count: totalCount,
+        client_history_id: clientHistoryId,
         product_name: galleryProductName.trim(),
         product_category: galleryCategory.trim(),
         core_selling_points: sellingPoints,
@@ -1655,13 +1631,25 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         );
 
         for (let i = 0; i < 120; i += 1) {
-          if (galleryPollAbortRef.current) return;
-          if (galleryPollRunIdRef.current !== runId) return;
+          if (galleryPollAbortRef.current) {
+            return { status: 'failed' as const, error: tr('生成流程被中断', 'Generation was interrupted') };
+          }
+          if (galleryPollRunIdRef.current !== runId) {
+            return { status: 'failed' as const, error: tr('生成任务已失效，请重试。', 'Generation task became stale. Please try again.') };
+          }
 
           const statusResp = await videoApi.getProductGalleryResult(requestId);
           const data = (statusResp as any)?.data || statusResp;
           const status = String(data?.status || '').trim().toLowerCase();
           const outputs = collectOutputUrls(data);
+          const upstreamError = String(data?.error || '').trim();
+
+          if (upstreamError && outputs.length === 0) {
+            setGalleryPreviewItems((prev) =>
+              prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: upstreamError } : it))
+            );
+            return { status: 'failed' as const, error: upstreamError };
+          }
 
           if (outputs.length > 0) {
             const url = String(outputs[0] || '').trim();
@@ -1677,36 +1665,57 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               const u = String(o || '').trim();
               if (u) collectedImageUrls.push(u);
             });
-            return;
+            return { status: 'succeeded' as const, outputs };
           }
 
           if (failureStatuses.has(status)) {
+            const errorMessage = upstreamError || tr('生成失败', 'Failed');
             setGalleryPreviewItems((prev) =>
-              prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: tr('生成失败', 'Failed') } : it))
+              prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: errorMessage } : it))
             );
-            return;
+            return { status: 'failed' as const, error: errorMessage };
           }
 
           if (successStatuses.has(status)) {
+            const errorMessage = upstreamError || tr('生成成功但无结果', 'Succeeded but no output');
             setGalleryPreviewItems((prev) =>
-              prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: tr('生成成功但无结果', 'Succeeded but no output') } : it))
+              prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: errorMessage } : it))
             );
-            return;
+            return { status: 'failed' as const, error: errorMessage };
           }
 
           await sleep(1500);
         }
 
+        const timeoutMessage = tr('生成超时', 'Timeout');
         setGalleryPreviewItems((prev) =>
-          prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: tr('生成超时', 'Timeout') } : it))
+          prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: timeoutMessage } : it))
         );
+        return { status: 'failed' as const, error: timeoutMessage };
       };
 
-      await Promise.all(initial.map((it) => pollOne(it.requestId)));
+      const pollResults = await Promise.all(initial.map((it) => pollOne(it.requestId)));
 
-      // Write one history entry for the entire generation task
+      const failedResults = pollResults.filter((item) => item?.status === 'failed');
+      if (failedResults.length > 0) {
+        const firstError = String(failedResults[0]?.error || '').trim();
+        if (collectedImageUrls.length === 0) {
+          throw new Error(firstError || tr('商品套图生成失败，请稍后重试。', 'Product gallery generation failed. Please try again.'));
+        }
+        openGalleryAlert(
+          firstError
+            ? tr('部分图片生成失败：', 'Some images failed to generate: ') + firstError
+            : tr('部分图片生成失败，请检查结果后重试。', 'Some images failed to generate. Please review the results and try again.')
+        );
+      }
+
+      if (collectedImageUrls.length === 0 && failedResults.length === 0) {
+        throw new Error(tr('商品套图生成未返回结果，请重试。', 'Product gallery generation returned no result. Please try again.'));
+      }
+
       if (collectedImageUrls.length > 0) {
-        appendHistory(collectedImageUrls);
+        await refreshImageHistory();
+        notifyImageHistoryUpdated();
       }
     } catch (err: any) {
       openGalleryAlert(String(err?.message || tr('生成失败，请重试。', 'Generation failed. Please try again.')));

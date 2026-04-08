@@ -130,6 +130,11 @@ type PickerColorState = {
   transparent: boolean;
 };
 
+type AssetImageSize = {
+  width: number;
+  height: number;
+};
+
 type RightPanelSectionKey = 'board' | 'inspector' | 'assets';
 type LeftPanelSectionKey = 'templates' | 'aiLayouts';
 
@@ -419,6 +424,27 @@ const fitImageRect = (
   };
 };
 
+const alignFrameToContainedImage = (
+  layer: Pick<BoardImageLayer, 'x' | 'y' | 'w' | 'h'>,
+  sourceWidth: number,
+  sourceHeight: number,
+  canvasWidth: number,
+  canvasHeight: number
+) => {
+  const rect = fitImageRect('contain', sourceWidth, sourceHeight, layer.w, layer.h);
+  const nextW = clamp(rect.dw, 24, canvasWidth);
+  const nextH = clamp(rect.dh, 24, canvasHeight);
+  const nextX = clamp(layer.x + rect.dx, 0, Math.max(canvasWidth - nextW, 0));
+  const nextY = clamp(layer.y + rect.dy, 0, Math.max(canvasHeight - nextH, 0));
+
+  return {
+    x: nextX,
+    y: nextY,
+    w: nextW,
+    h: nextH,
+  };
+};
+
 const wrapTextLines = (ctx: CanvasRenderingContext2D, content: string, maxWidth: number) => {
   const paragraphs = String(content || '').split(/\r?\n/);
   const result: string[] = [];
@@ -507,6 +533,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   const pointerActionRef = useRef<PointerAction | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const localAssetUrlsRef = useRef<string[]>([]);
+  const assetImageSizeCacheRef = useRef<Map<string, AssetImageSize>>(new Map());
   const [zoom, setZoom] = useState(1);
   const [isExporting, setIsExporting] = useState(false);
   const [viewportSize, setViewportSize] = useState({ width: 960, height: 720 });
@@ -728,6 +755,50 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
   const updateBoard = (updater: (prev: BoardState) => BoardState) => {
     setBoard((prev) => updater(prev));
+  };
+
+  const getAssetImageSize = async (assetLocalId: string | null | undefined) => {
+    const asset = assetLocalId ? assetMap.get(assetLocalId) : undefined;
+    const imageUrl = String(asset?.imageUrl || '').trim();
+    if (!imageUrl) return null;
+
+    const cached = assetImageSizeCacheRef.current.get(imageUrl);
+    if (cached) return cached;
+
+    const image = await loadImageFromUrl(imageUrl);
+    const size = {
+      width: image.naturalWidth || image.width,
+      height: image.naturalHeight || image.height,
+    };
+    assetImageSizeCacheRef.current.set(imageUrl, size);
+    return size;
+  };
+
+  const alignImageLayerToSourceBounds = async (layerId: string, assetLocalIdOverride?: string | null) => {
+    const layer = board.layers.find((item) => item.id === layerId);
+    if (!layer || layer.type !== 'image') return;
+
+    const imageSize = await getAssetImageSize(assetLocalIdOverride ?? layer.assetLocalId);
+    if (!imageSize) return;
+
+    updateBoard((prev) => ({
+      ...prev,
+      layers: prev.layers.map((item) => {
+        if (item.id !== layerId || item.type !== 'image') return item;
+        const nextBounds = alignFrameToContainedImage(
+          item,
+          imageSize.width,
+          imageSize.height,
+          prev.canvasWidth,
+          prev.canvasHeight
+        );
+        return {
+          ...item,
+          ...nextBounds,
+          keepAspectRatio: true,
+        };
+      }),
+    }));
   };
 
   const updateLayer = (layerId: string, updater: (layer: BoardLayer) => BoardLayer) => {
@@ -1012,6 +1083,9 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     }
 
     updateLayer(selectedLayer.id, (layer) => (layer.type === 'image' ? { ...layer, assetLocalId } : layer));
+    if (selectedLayer.showOriginal) {
+      void alignImageLayerToSourceBounds(selectedLayer.id, assetLocalId);
+    }
   };
 
   const setBackgroundImage = (assetLocalId: string | null) => {
@@ -1440,6 +1514,25 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
           })()
         : layer
     );
+  };
+
+  const handleSelectedImageAssetChange = (assetLocalId: string | null) => {
+    if (!selectedLayer || selectedLayer.type !== 'image') return;
+    updateSelectedImageLayer({ assetLocalId });
+    if (selectedLayer.showOriginal && assetLocalId) {
+      void alignImageLayerToSourceBounds(selectedLayer.id, assetLocalId);
+    }
+  };
+
+  const handleSelectedImageShowOriginalChange = (checked: boolean) => {
+    if (!selectedLayer || selectedLayer.type !== 'image') return;
+    updateSelectedImageLayer({
+      showOriginal: checked,
+      keepAspectRatio: checked ? true : selectedLayer.keepAspectRatio,
+    });
+    if (checked) {
+      void alignImageLayerToSourceBounds(selectedLayer.id);
+    }
   };
 
   const updateSelectedBackground = (
@@ -2238,7 +2331,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                     </div>
                     <select
                       value={selectedLayer.assetLocalId || ''}
-                      onChange={(event) => updateSelectedImageLayer({ assetLocalId: event.target.value || null })}
+                      onChange={(event) => handleSelectedImageAssetChange(event.target.value || null)}
                       className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
                     >
                       <option value="">{tr('未绑定图片', 'No Image')}</option>
@@ -2269,7 +2362,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                       <input
                         type="checkbox"
                         checked={selectedLayer.showOriginal}
-                        onChange={(event) => updateSelectedImageLayer({ showOriginal: event.target.checked })}
+                        onChange={(event) => handleSelectedImageShowOriginalChange(event.target.checked)}
                         className="accent-orange-500"
                       />
                       <span>{tr('显示原图', 'Show Original')}</span>

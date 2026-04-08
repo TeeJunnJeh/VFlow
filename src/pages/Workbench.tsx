@@ -349,6 +349,20 @@ const Workbench = () => {
     setActiveView('workbench');
   };
 
+  const handleTaskNavigate = useCallback((target: { view?: string; focus?: string }) => {
+    const targetViewRaw = String(target?.view || '').trim();
+    const targetFocusRaw = String(target?.focus || '').trim();
+
+    const targetView = (targetViewRaw || 'workbench') as ViewType;
+    setActiveView(targetView);
+
+    if (targetFocusRaw) {
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('vflow:queue-focus', { detail: { focus: targetFocusRaw } }));
+      }, 50);
+    }
+  }, []);
+
   const getSubjectGuideSeenKey = useCallback(() => `vflow_subject_guide_seen_${user?.id ?? 'guest'}`, [user?.id]);
 
   const hasSeenSubjectGuide = useCallback(() => {
@@ -526,7 +540,7 @@ const Workbench = () => {
             />
           )}
 
-          <TaskQueueWidget onPreview={handleTaskPreview} />
+          <TaskQueueWidget onPreview={handleTaskPreview} onNavigate={handleTaskNavigate} />
 
           {isInfoOpen && (
             <AppDialog

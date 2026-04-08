@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, Plus } from 'lucide-react';
+import { ChevronLeft, Minus, Plus } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import { ImageUploader } from '../../Common/ImageUploader';
@@ -584,10 +584,6 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
     return initialWorkspaceMetas[0]?.id || createDefaultWorkspaceMeta().id;
   });
 
-  const nextWorkspaceOrderRef = useRef(
-    Math.max(...initialWorkspaceMetas.map((ws) => ws.order), 0) + 1
-  );
-
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
@@ -632,8 +628,15 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
   );
 
   const createWorkspace = () => {
-    const order = nextWorkspaceOrderRef.current;
-    nextWorkspaceOrderRef.current += 1;
+    const occupiedOrders = new Set(
+      workspaceMetas
+        .map((workspace) => workspace.order)
+        .filter((order) => Number.isFinite(order) && order > 0)
+    );
+    let order = 1;
+    while (occupiedOrders.has(order)) {
+      order += 1;
+    }
 
     const now = Date.now();
     const newWorkspace: FirstFrameWorkspaceMeta = {
@@ -659,6 +662,25 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
     )));
   };
 
+  const deleteWorkspace = useCallback((workspaceId: string) => {
+    const id = String(workspaceId || '').trim();
+    if (!id || workspaceMetas.length <= 1) return;
+
+    const nextWorkspaces = workspaceMetas.filter((workspace) => workspace.id !== id);
+    if (nextWorkspaces.length === workspaceMetas.length) return;
+
+    setWorkspaceMetas(nextWorkspaces);
+    if (activeWorkspaceId === id && nextWorkspaces[0]) {
+      setActiveWorkspaceId(nextWorkspaces[0].id);
+    }
+
+    readImageHistoryByFeature('first_frame')
+      .filter((item) => (item.workspaceId || 'ff-workspace-1') === id)
+      .forEach((item) => {
+        deleteImageHistoryItem(item.id);
+      });
+  }, [activeWorkspaceId, workspaceMetas]);
+
   const shellClassName = useMemo(
     () => (embedded
       ? 'h-full'
@@ -677,6 +699,46 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
           buttonClassName="w-full bg-zinc-900/70 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800"
           iconClassName="w-4 h-4 text-zinc-500"
           optionClassName="text-xs"
+          renderOption={({ option, isSelected, onSelect }) => {
+            const canDelete = workspaceMetas.length > 1;
+            const targetWorkspace = workspaceMetas.find((workspace) => workspace.id === option.value);
+            const optionTitle = targetWorkspace ? workspaceLabel(targetWorkspace) : String(option.value || '');
+
+            return (
+              <div
+                className={`group flex items-center gap-2 px-3 py-2 text-xs transition ${
+                  isSelected ? 'bg-white/5 text-white' : 'text-zinc-200 hover:bg-white/5'
+                }`}
+              >
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 text-left"
+                  onClick={onSelect}
+                >
+                  <span className="block truncate">{option.label}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    deleteWorkspace(option.value);
+                  }}
+                  disabled={!canDelete}
+                  className={`shrink-0 rounded-full p-0.5 transition ${
+                    canDelete
+                      ? 'opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300'
+                      : 'opacity-0 pointer-events-none'
+                  }`}
+                  aria-label={`Delete ${optionTitle}`}
+                  title={canDelete ? `Delete ${optionTitle}` : undefined}
+                >
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full border border-current">
+                    <Minus className="h-2.5 w-2.5" strokeWidth={2.5} />
+                  </span>
+                </button>
+              </div>
+            );
+          }}
         />
       </div>
       <button

@@ -739,7 +739,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const { t, language } = useLanguage();
     const uiLanguageCode = useMemo(() => normalizeUiLanguageCode(language), [language]);
   const { user } = useAuth();
-  const { tasks, addTask } = useTasks();
+  const { tasks, addTask, updateTask, upsertTask } = useTasks();
   const { model: selectedModel, setModel: setSelectedModel } = useWorkbenchModel();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const seedanceReplayFileInputRef = useRef<HTMLInputElement>(null);
@@ -832,6 +832,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isGeneratingKlingBoundaryFrames, setIsGeneratingKlingBoundaryFrames] = useState(false);
   const [imageGenModel, setImageGenModel] = useState<'flux-2-pro' | 'flux-2-flex' | 'gpt-image-1.5'>('flux-2-pro');
   const [isDragUploadActive, setIsDragUploadActive] = useState(false);
+  const [isScriptDropActive, setIsScriptDropActive] = useState(false);
   const [selectedAssetUrl, setSelectedAssetUrl] = useState<string | null>(initialFileUrl || null);
   const [lastUploadedUrl, setLastUploadedUrl] = useState<string | null>(initialFileUrl || null);
   const [lastGeneratedProjectId, setLastGeneratedProjectId] = useState<string | null>(null);
@@ -916,6 +917,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const scriptGenerationAbortRef = useRef<AbortController | null>(null);
   const activeScriptGenerationSeqRef = useRef(0);
   const scriptGenerationProjectIdRef = useRef<string | null>(null);
+  const currentScriptQueueTaskIdRef = useRef<string | null>(null);
+  const currentImageQueueTaskIdRef = useRef<string | null>(null);
   const transferStationOwnerId = user?.id ?? null;
   const refreshTransferStationItems = useCallback(() => {
     setTransferStationItems(loadTransferStationItems(transferStationOwnerId));
@@ -1242,6 +1245,37 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isAiOptimizeGenerating, setIsAiOptimizeGenerating] = useState(false);
   const [isAiOptimizePromptGenerating, setIsAiOptimizePromptGenerating] = useState(false);
   const [aiOptimizeResults, setAiOptimizeResults] = useState<Array<{ id: string; url: string }>>([]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const handleQueueFocus = (event: Event) => {
+      const detail = (event as CustomEvent<{ focus?: string }>).detail;
+      const focus = String(detail?.focus || '').trim();
+      if (!focus) return;
+
+      if (focus === 'scripts') {
+        scriptsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        return;
+      }
+
+      if (focus === 'preview') {
+        previewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        return;
+      }
+
+      if (focus === 'image') {
+        uploadSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        if (!isAiOptimizeOpen && aiOptimizeResults.length > 0) {
+          setIsAiOptimizeOpen(true);
+        }
+      }
+    };
+
+    window.addEventListener('vflow:queue-focus', handleQueueFocus as EventListener);
+    return () => window.removeEventListener('vflow:queue-focus', handleQueueFocus as EventListener);
+  }, [aiOptimizeResults.length, isAiOptimizeOpen]);
+
   const [projectStore, setProjectStore] = useState<LocalProjectStore>(() => loadLocalProjectStore(user?.id ?? null));
   const [projectStoreOwner, setProjectStoreOwner] = useState<string>(() => getLocalProjectStoreOwner(user?.id ?? null));
   const [projectStoreLoadVersion, setProjectStoreLoadVersion] = useState(0);
@@ -2756,7 +2790,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     autoPreviewedTaskIdsRef.current[String(picked.task.id)] = true;
     setGeneratedVideoUrl(picked.url);
-    setPreviewProjectId(picked.task.projectId);
+    setPreviewProjectId(picked.task.projectId || null);
   }, [tasks, lastGeneratedProjectId, projectStore.currentProjectId, setGeneratedVideoUrl]);
 
   useEffect(() => {
@@ -3278,6 +3312,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return false;
   }, [normalizeSeedanceAssetUrl, seedanceReplaySelectedAssetSignatures]);
   const toLibraryAssetFromTransferStationItem = (item: TransferStationItem): LibraryAsset | null => {
+    if (item.mediaKind === 'script') return null;
+
     const fileUrl = toDisplayUrl(item.fileUrl);
     if (!fileUrl) return null;
 
@@ -3302,6 +3338,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const applyTransferStationItemToWorkbench = (item: TransferStationItem): boolean => {
+    if (item.mediaKind === 'script') {
+      const scriptContent = String(item.scriptContent || '').trim();
+      if (!scriptContent) {
+        openInfo(popupTitles.notice, t.wb_transfer_station_apply_failed || 'Unable to read this transfer-station asset.');
+        return false;
+      }
+
+      setReferenceScript(scriptContent);
+      setReferenceScriptProductSignature(currentProductInfoSignature);
+      setToastMessage(t.wb_transfer_station_apply_script_success || t.wb_transfer_station_apply_success || 'Script applied to workbench.');
+
+      window.setTimeout(() => {
+        configSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+      }, 80);
+      return true;
+    }
+
     const libraryAsset = toLibraryAssetFromTransferStationItem(item);
     if (!libraryAsset) {
       openInfo(popupTitles.notice, t.wb_transfer_station_apply_failed || 'Unable to read this transfer-station asset.');
@@ -3380,6 +3433,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (aiOptimizeKeywords.length > 0) {
       lines.push(`${t.wb_ai_opt_keywords_label || '关键词'}: ${aiOptimizeKeywords.join('、')}`);
     }
+    const outputLanguageOption = TARGET_LANGUAGE_OPTIONS.find((option) => option.value === uiLanguageCode);
+    const outputLanguageLabel = outputLanguageOption
+      ? t[outputLanguageOption.labelKey]
+      : uiLanguageCode.toUpperCase();
+    lines.push(`${t.wb_ai_opt_prompt_output_language || 'Output Language'}: ${outputLanguageLabel}`);
+    lines.push(t.wb_ai_opt_prompt_language_rule || `Use ${outputLanguageLabel} for the final prompt output.`);
     lines.push(`${t.wb_ai_opt_prompt_goal || '目标'}: ${t.wb_ai_opt_prompt_goal_default || '保留主体形态与核心卖点，提升电商展示质感和清晰度。'}`);
     lines.push(`${t.wb_ai_opt_prompt_constraints || '约束'}: ${t.wb_ai_opt_prompt_constraints_default || '仅输出商品图，不添加文字水印，不改变商品结构。'}`);
     return lines.join('\n');
@@ -3389,6 +3448,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     coreSellingPoints,
     productCategory,
     productName,
+    uiLanguageCode,
     t,
   ]);
   const openAiOptimizeDialog = useCallback(() => {
@@ -3515,6 +3575,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
+    const imageQueueTaskId = `image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const imageEstimatedSeconds = Math.max(15, Math.min(180, Math.round(aiOptimizeCount) * 30));
+    currentImageQueueTaskIdRef.current = imageQueueTaskId;
+    upsertTask({
+      id: imageQueueTaskId,
+      workbenchProjectId: projectStore.currentProjectId,
+      estimatedSeconds: imageEstimatedSeconds,
+      type: 'image_generation',
+      status: 'processing',
+      navigateTo: { view: 'workbench', focus: 'image' },
+      name: `${selectedAsset.name || (productName || '').trim() || 'AI Image Optimize'}`,
+      thumbnail: selectedAsset.previewUrl || uploadedFile || undefined,
+      createdAt: Date.now(),
+    });
+
     setIsAiOptimizeGenerating(true);
     try {
       const referencePath = await resolveAiOptimizeReferencePath(selectedAsset);
@@ -3550,18 +3625,44 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         .filter(Boolean) as Array<{ id: string; url: string }>;
 
       if (nextImages.length === 0) {
+        updateTask(imageQueueTaskId, {
+          status: 'failed',
+          result: { error: 'NO_RESULT' },
+          navigateTo: { view: 'workbench', focus: 'image' },
+        });
         openInfo(popupTitles.notice, t.wb_ai_opt_no_result || '后端未返回可用图片，请稍后重试。');
         return;
       }
       setAiOptimizeResults(nextImages);
+      updateTask(imageQueueTaskId, {
+        status: 'success',
+        result: { images: nextImages },
+        navigateTo: { view: 'workbench', focus: 'image' },
+      });
     } catch (err: any) {
       if (err instanceof VideoApiError && err.status === 404) {
+        updateTask(imageQueueTaskId, {
+          status: 'failed',
+          result: { error: 'BACKEND_NOT_READY' },
+          navigateTo: { view: 'workbench', focus: 'image' },
+        });
         openInfo(popupTitles.notice, t.wb_ai_opt_backend_not_ready || '后端暂未接入图生图接口。');
       } else {
+        const message = err instanceof Error && err.message.trim()
+          ? err.message.trim()
+          : (t.wb_ai_opt_generate_failed || 'Image optimization failed. Please try again.');
+        updateTask(imageQueueTaskId, {
+          status: 'failed',
+          result: { error: message },
+          navigateTo: { view: 'workbench', focus: 'image' },
+        });
         openErrorModal(err, { category: 'generation_failed', onRetry: handleGenerateOptimizedImages });
       }
     } finally {
       setIsAiOptimizeGenerating(false);
+      if (currentImageQueueTaskIdRef.current === imageQueueTaskId) {
+        currentImageQueueTaskIdRef.current = null;
+      }
     }
   }, [
     aiOptimizeAspectRatio,
@@ -3582,7 +3683,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     t.wb_ai_opt_need_image,
     t.wb_ai_opt_need_prompt,
     t.wb_ai_opt_no_result,
+    productName,
+    projectStore.currentProjectId,
     uiLanguageCode,
+    updateTask,
+    uploadedFile,
+    upsertTask,
   ]);
   const handleReplaceWithOptimizedImage = useCallback((imageUrl: string) => {
     const finalUrl = toDisplayUrl(imageUrl);
@@ -5167,6 +5273,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const resolveTransferStationItemFromDrag = (e: React.DragEvent): TransferStationItem | null => {
+    const supportsTransferStation = e.dataTransfer.types?.includes(TRANSFER_STATION_DRAG_MIME);
+    if (!supportsTransferStation) return null;
+
+    const raw = e.dataTransfer.getData(TRANSFER_STATION_DRAG_MIME);
+    if (!raw) return null;
+
+    try {
+      const parsed = JSON.parse(raw) as Partial<TransferStationItem>;
+      const droppedItemId = String(parsed?.id || '').trim();
+      if (!droppedItemId) return null;
+      return transferStationItems.find((item) => item.id === droppedItemId) || null;
+    } catch {
+      return null;
+    }
+  };
+
   const handleUploadDragOver = (e: React.DragEvent) => {
     const supportsFiles = e.dataTransfer.types?.includes('Files');
     const supportsTransferStation = e.dataTransfer.types?.includes(TRANSFER_STATION_DRAG_MIME);
@@ -5191,27 +5314,41 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setIsDragUploadActive(false);
 
     if (supportsTransferStation) {
-      const raw = e.dataTransfer.getData(TRANSFER_STATION_DRAG_MIME);
-      if (raw) {
-        try {
-          const parsed = JSON.parse(raw) as Partial<TransferStationItem>;
-          const droppedItemId = String(parsed?.id || '').trim();
-          const droppedItem = droppedItemId
-            ? transferStationItems.find((item) => item.id === droppedItemId)
-            : null;
-          if (droppedItem) {
-            applyTransferStationItemToWorkbench(droppedItem);
-            return;
-          }
-        } catch {
-          // Fallback to file processing if parsing fails.
-        }
+      const droppedItem = resolveTransferStationItemFromDrag(e);
+      if (droppedItem) {
+        applyTransferStationItemToWorkbench(droppedItem);
+        return;
       }
     }
 
     if (!supportsFiles) return;
     const files = Array.from(e.dataTransfer.files || []);
     handleLocalFiles(files);
+  };
+
+  const handleScriptDragOver = (e: React.DragEvent) => {
+    const supportsTransferStation = e.dataTransfer.types?.includes(TRANSFER_STATION_DRAG_MIME);
+    if (!supportsTransferStation) return;
+    e.preventDefault();
+    setIsScriptDropActive(true);
+  };
+
+  const handleScriptDragLeave = (e: React.DragEvent) => {
+    const supportsTransferStation = e.dataTransfer.types?.includes(TRANSFER_STATION_DRAG_MIME);
+    if (!supportsTransferStation) return;
+    e.preventDefault();
+    setIsScriptDropActive(false);
+  };
+
+  const handleScriptDrop = (e: React.DragEvent) => {
+    const supportsTransferStation = e.dataTransfer.types?.includes(TRANSFER_STATION_DRAG_MIME);
+    if (!supportsTransferStation) return;
+    e.preventDefault();
+    setIsScriptDropActive(false);
+
+    const droppedItem = resolveTransferStationItemFromDrag(e);
+    if (!droppedItem || droppedItem.mediaKind !== 'script') return;
+    applyTransferStationItemToWorkbench(droppedItem);
   };
 
   const removeUpload = (e: React.MouseEvent, assetId?: string) => {
@@ -6191,6 +6328,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     scriptGenerationEstimateKeyRef.current = null;
     scriptGenerationFinishingRef.current = false;
     scriptGenerationProjectIdRef.current = null;
+    const scriptTaskId = currentScriptQueueTaskIdRef.current;
+    if (scriptTaskId) {
+      updateTask(scriptTaskId, {
+        status: 'failed',
+        result: { error: 'CANCELLED' },
+        navigateTo: { view: 'workbench', focus: 'scripts' },
+      });
+      currentScriptQueueTaskIdRef.current = null;
+    }
     controller.abort();
     setIsGeneratingScript(false);
     setIsScriptGenerationProgressVisible(false);
@@ -6199,7 +6345,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setScriptGenerationTotalCount(0);
     recordScriptGenerationCancelTimestamp(user?.id ?? null);
     setScriptGenerationNotice(t.wb_popup_script_generation_cancelled || '已成功取消脚本');
-  }, [t.wb_popup_script_generation_cancelled, user?.id]);
+  }, [t.wb_popup_script_generation_cancelled, updateTask, user?.id]);
 
   useEffect(() => {
     return () => {
@@ -6306,6 +6452,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         estimatedSeconds = Math.max(1, Math.round(localEstimate.avgSeconds));
       }
     }
+
+    const scriptQueueTaskId = `script-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    currentScriptQueueTaskIdRef.current = scriptQueueTaskId;
+    upsertTask({
+      id: scriptQueueTaskId,
+      workbenchProjectId: projectStore.currentProjectId,
+      estimatedSeconds,
+      type: 'script_generation',
+      status: 'processing',
+      navigateTo: { view: 'workbench', focus: 'scripts' },
+      name: `${(productName || '').trim() || fileName || scriptPages[activeScriptPage]?.name || selectedTemplate?.name || 'Script'}`,
+      thumbnail: uploadDisplayAssets.find((asset) => asset.mediaKind === 'image')?.previewUrl || uploadedFile || undefined,
+      createdAt: Date.now(),
+    });
 
     setIsGeneratingScript(true);
     setIsScriptGenerationProgressVisible(true);
@@ -6553,6 +6713,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             if (Number.isFinite(total) && total > 0) {
               setScriptGenerationTotalCount(Math.max(1, Math.round(total)));
             }
+            updateTask(scriptQueueTaskId, {
+              status: sawVariant ? 'success' : 'failed',
+              result: sawVariant
+                ? {
+                  completed: Number.isFinite(completed) ? Math.round(completed) : undefined,
+                  total: Number.isFinite(total) ? Math.round(total) : undefined,
+                }
+                : { error: 'NO_SCRIPT_VARIANT' },
+              navigateTo: { view: 'workbench', focus: 'scripts' },
+            });
             setIsScriptGenerationProgressVisible(false);
           },
           onErrorEvent: (event) => {
@@ -6566,6 +6736,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         throw new Error(streamFailedMessage);
       }
       if (!sawVariant) {
+        updateTask(scriptQueueTaskId, {
+          status: 'failed',
+          result: { error: 'NO_SCRIPT_VARIANT' },
+          navigateTo: { view: 'workbench', focus: 'scripts' },
+        });
         openInfo(popupTitles.notice, t.wb_popup_script_unexpected);
       }
 
@@ -6577,6 +6752,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         return;
       }
       console.error("Script Gen Error:", err);
+      const message = err instanceof Error && err.message.trim()
+        ? err.message.trim()
+        : (t.wb_popup_script_unexpected || '生成失败');
+      updateTask(scriptQueueTaskId, {
+        status: 'failed',
+        result: { error: message },
+        navigateTo: { view: 'workbench', focus: 'scripts' },
+      });
       openErrorModal(err, { category: 'script_failed', onRetry: handleGenerateScripts });
     } finally {
       if (scriptGenerationAbortRef.current === abortController) {
@@ -6593,6 +6776,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         }
         setScriptGenerationCompletedCount(0);
         setScriptGenerationTotalCount(0);
+      }
+      if (currentScriptQueueTaskIdRef.current === scriptQueueTaskId) {
+        currentScriptQueueTaskIdRef.current = null;
       }
       scriptGenerationFinishingRef.current = false;
     }
@@ -9206,13 +9392,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               ) : (
                 <div className="max-h-[42vh] space-y-2 overflow-y-auto p-3 custom-scroll">
                   {transferStationItems.map((item) => {
-                    const mediaLabel = item.mediaKind === 'video'
+                    const mediaLabel = item.mediaKind === 'script'
+                      ? (t.wb_transfer_station_media_script || 'Script')
+                      : item.mediaKind === 'video'
                       ? (t.wb_upload_video || 'Video')
                       : item.mediaKind === 'audio'
                         ? (t.wb_upload_audio || 'Audio')
                         : (t.wb_upload_image || 'Image');
                     const sourceLabel = item.source === 'history'
                       ? (t.wb_transfer_station_source_history || 'History')
+                      : item.source === 'replay'
+                        ? (t.wb_transfer_station_source_replay || 'Replay')
                       : (t.wb_transfer_station_source_assets || 'Assets');
 
                     return (
@@ -9223,7 +9413,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           onDragStart={(event) => handleTransferStationItemDragStart(item, event)}
                           onClick={() => handleUseTransferStationItem(item)}
                           className="group flex min-w-0 flex-1 items-center gap-2 text-left"
-                          title={t.wb_transfer_station_drag_hint || 'Drag to upload area, or click to apply'}
+                          title={item.mediaKind === 'script'
+                            ? (t.wb_transfer_station_drag_hint_script || 'Drag to scripts area, or click to apply')
+                            : (t.wb_transfer_station_drag_hint || 'Drag to upload area, or click to apply')}
                         >
                           <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-black/40">
                             {item.mediaKind === 'video' ? (
@@ -9232,16 +9424,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               <div className="flex h-full w-full items-center justify-center text-zinc-300">
                                 <Music className="h-4 w-4" />
                               </div>
+                            ) : item.mediaKind === 'script' ? (
+                              <div className="flex h-full w-full items-center justify-center text-zinc-300">
+                                <FileJson className="h-4 w-4" />
+                              </div>
                             ) : (
                               <img src={item.fileUrl} alt={item.name} className="h-full w-full object-cover" />
                             )}
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="truncate text-xs font-semibold text-zinc-100">{item.name}</div>
-                            <div className="mt-1 flex items-center gap-1 text-[10px] text-zinc-400">
-                              <span className="rounded border border-white/10 px-1.5 py-0.5">{mediaLabel}</span>
-                              <span className="rounded border border-white/10 px-1.5 py-0.5">{sourceLabel}</span>
-                            </div>
+                            {item.mediaKind === 'script' && item.scriptContent ? (
+                              <div className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-zinc-400">
+                                {item.scriptContent}
+                              </div>
+                            ) : (
+                              <div className="mt-1 flex items-center gap-1 text-[10px] text-zinc-400">
+                                <span className="rounded border border-white/10 px-1.5 py-0.5">{mediaLabel}</span>
+                                <span className="rounded border border-white/10 px-1.5 py-0.5">{sourceLabel}</span>
+                              </div>
+                            )}
                           </div>
                         </button>
                         <button
@@ -9879,8 +10081,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           <div
             ref={scriptsSectionRef}
             style={{ flex: scriptPreviewRatio }}
-            className={`flex-auto flex flex-col gap-3 h-full min-w-[300px] ${getGuideFocusClass('scripts')}`}
+            onDragOver={handleScriptDragOver}
+            onDragLeave={handleScriptDragLeave}
+            onDrop={handleScriptDrop}
+            className={`relative flex-auto flex flex-col gap-3 h-full min-w-[300px] ${getGuideFocusClass('scripts')}`}
           >
+            {isScriptDropActive && (
+              <div className="pointer-events-none absolute inset-0 z-[12] rounded-xl border-2 border-dashed border-sky-400/70 bg-sky-500/10" />
+            )}
             <div className="flex justify-between items-center shrink-0 h-[32px]">
               <div className="flex items-center gap-3">
                 <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>

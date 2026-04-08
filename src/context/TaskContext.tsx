@@ -4,12 +4,20 @@ import { ApiError } from '../services/errors';
 
 export type TaskStatus = 'pending' | 'processing' | 'success' | 'failed';
 
+export type TaskType = 'video_generation' | 'script_generation' | 'image_generation';
+
+export type TaskNavigateTo = {
+  view?: string;
+  focus?: string;
+};
+
 export interface Task {
   id: string | number;       // backend GenerationTask.id
-  projectId: string;         // projects.Project UUID
+  projectId?: string;        // projects.Project UUID
   workbenchProjectId?: string; // Workbench local project id
   estimatedSeconds?: number; // from /api/tasks/estimate/
-  type: 'video_generation';
+  type: TaskType;
+  navigateTo?: TaskNavigateTo;
   status: TaskStatus;
   name?: string;
   thumbnail?: string;
@@ -21,6 +29,8 @@ export interface Task {
 interface TaskContextType {
   tasks: Task[];
   addTask: (task: Task) => void;
+  updateTask: (taskId: Task['id'], patch: Partial<Task>) => void;
+  upsertTask: (task: Task) => void;
   removeTask: (taskId: Task['id']) => void;
   clearTasks: () => void;
   getTaskByProjectId: (projectId: string) => Task | undefined;
@@ -29,6 +39,48 @@ interface TaskContextType {
 const TaskContext = createContext<TaskContextType | undefined>(undefined);
 
 const STORAGE_KEY_PREFIX = 'vflow_tasks_v1';
+
+const normalizeStoredTask = (raw: any): Task | null => {
+  if (!raw || typeof raw !== 'object') return null;
+
+  const id = raw.id;
+  if (id === null || id === undefined || id === '') return null;
+
+  const status = raw.status === 'pending' || raw.status === 'processing' || raw.status === 'success' || raw.status === 'failed'
+    ? raw.status
+    : 'pending';
+
+  const type: TaskType = raw.type === 'script_generation'
+    ? 'script_generation'
+    : raw.type === 'image_generation'
+      ? 'image_generation'
+      : 'video_generation';
+
+  const createdAtRaw = Number(raw.createdAt);
+  const updatedAtRaw = Number(raw.updatedAt);
+
+  const navigateTo = raw.navigateTo && typeof raw.navigateTo === 'object'
+    ? {
+      view: typeof raw.navigateTo.view === 'string' ? raw.navigateTo.view : undefined,
+      focus: typeof raw.navigateTo.focus === 'string' ? raw.navigateTo.focus : undefined,
+    }
+    : undefined;
+
+  return {
+    id,
+    projectId: typeof raw.projectId === 'string' ? raw.projectId : undefined,
+    workbenchProjectId: typeof raw.workbenchProjectId === 'string' ? raw.workbenchProjectId : undefined,
+    estimatedSeconds: Number.isFinite(Number(raw.estimatedSeconds)) ? Number(raw.estimatedSeconds) : undefined,
+    type,
+    navigateTo,
+    status,
+    name: typeof raw.name === 'string' ? raw.name : undefined,
+    thumbnail: typeof raw.thumbnail === 'string' ? raw.thumbnail : undefined,
+    result: raw.result,
+    createdAt: Number.isFinite(createdAtRaw) && createdAtRaw > 0 ? createdAtRaw : Date.now(),
+    updatedAt: Number.isFinite(updatedAtRaw) && updatedAtRaw > 0 ? updatedAtRaw : undefined,
+  };
+};
 
 export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
@@ -52,7 +104,12 @@ export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
       const raw = localStorage.getItem(`${STORAGE_KEY_PREFIX}_${user.id}`);
       if (!raw) return;
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) setTasks(parsed);
+      if (Array.isArray(parsed)) {
+        const normalized = parsed
+          .map((item) => normalizeStoredTask(item))
+          .filter(Boolean) as Task[];
+        setTasks(normalized);
+      }
     } catch (e) {
       console.warn('Failed to load tasks from localStorage', e);
     }
@@ -70,6 +127,21 @@ export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
 
   const addTask = (task: Task) => {
     setTasks(prev => [task, ...prev]);
+  };
+
+  const updateTask = (taskId: Task['id'], patch: Partial<Task>) => {
+    setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, ...patch, updatedAt: Date.now() } : task)));
+  };
+
+  const upsertTask = (task: Task) => {
+    setTasks((prev) => {
+      const index = prev.findIndex((item) => item.id === task.id);
+      if (index < 0) return [task, ...prev];
+
+      const next = [...prev];
+      next[index] = { ...next[index], ...task, updatedAt: Date.now() };
+      return next;
+    });
   };
 
   const removeTask = (taskId: Task['id']) => {
@@ -95,7 +167,10 @@ export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
       return status === 'pending' ? 'processing' : status;
     };
 
-    const activeTasks = tasksRef.current.filter(t => t.status === 'pending' || t.status === 'processing');
+    const activeTasks = tasksRef.current.filter((t) => (
+      (t.status === 'pending' || t.status === 'processing')
+      && t.type === 'video_generation'
+    ));
     if (activeTasks.length === 0) {
       stopPolling();
       return;
@@ -215,6 +290,8 @@ export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
   const value = useMemo(() => ({
     tasks,
     addTask,
+    updateTask,
+    upsertTask,
     removeTask,
     clearTasks,
     getTaskByProjectId,

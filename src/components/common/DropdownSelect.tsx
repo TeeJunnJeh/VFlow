@@ -6,6 +6,13 @@ export type DropdownSelectOption = {
   label: React.ReactNode;
 };
 
+type DropdownSelectRenderOptionArgs = {
+  option: DropdownSelectOption;
+  isSelected: boolean;
+  onSelect: () => void;
+  closeMenu: () => void;
+};
+
 type DropdownSelectProps = {
   value: string;
   options: DropdownSelectOption[];
@@ -18,6 +25,7 @@ type DropdownSelectProps = {
   iconClassName?: string;
   menuClassName?: string;
   optionClassName?: string;
+  renderOption?: (args: DropdownSelectRenderOptionArgs) => React.ReactNode;
 };
 
 export const DropdownSelect: React.FC<DropdownSelectProps> = ({
@@ -31,12 +39,14 @@ export const DropdownSelect: React.FC<DropdownSelectProps> = ({
   labelClassName = '',
   iconClassName = '',
   menuClassName = '',
-  optionClassName = ''
+  optionClassName = '',
+  renderOption
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const selected = options.find((o) => o.value === value);
+  const closeMenu = () => setIsOpen(false);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -73,6 +83,24 @@ export const DropdownSelect: React.FC<DropdownSelectProps> = ({
         >
           {options.map((opt) => {
             const isSelected = opt.value === value;
+            const handleSelect = () => {
+              onChange(opt.value);
+              closeMenu();
+            };
+
+            if (renderOption) {
+              return (
+                <div key={opt.value} role="option" aria-selected={isSelected}>
+                  {renderOption({
+                    option: opt,
+                    isSelected,
+                    onSelect: handleSelect,
+                    closeMenu,
+                  })}
+                </div>
+              );
+            }
+
             return (
               <button
                 type="button"
@@ -82,10 +110,7 @@ export const DropdownSelect: React.FC<DropdownSelectProps> = ({
                 className={`w-full text-left px-3 py-2 hover:bg-white/5 ${
                   isSelected ? 'text-white' : 'text-zinc-200'
                 } ${optionClassName}`}
-                onClick={() => {
-                  onChange(opt.value);
-                  setIsOpen(false);
-                }}
+                onClick={handleSelect}
               >
                 {opt.label}
               </button>

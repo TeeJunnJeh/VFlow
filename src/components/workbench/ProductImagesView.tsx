@@ -1631,13 +1631,25 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         );
 
         for (let i = 0; i < 120; i += 1) {
-          if (galleryPollAbortRef.current) return;
-          if (galleryPollRunIdRef.current !== runId) return;
+          if (galleryPollAbortRef.current) {
+            return { status: 'failed' as const, error: tr('生成流程被中断', 'Generation was interrupted') };
+          }
+          if (galleryPollRunIdRef.current !== runId) {
+            return { status: 'failed' as const, error: tr('生成任务已失效，请重试。', 'Generation task became stale. Please try again.') };
+          }
 
           const statusResp = await videoApi.getProductGalleryResult(requestId);
           const data = (statusResp as any)?.data || statusResp;
           const status = String(data?.status || '').trim().toLowerCase();
           const outputs = collectOutputUrls(data);
+          const upstreamError = String(data?.error || '').trim();
+
+          if (upstreamError && outputs.length === 0) {
+            setGalleryPreviewItems((prev) =>
+              prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: upstreamError } : it))
+            );
+            return { status: 'failed' as const, error: upstreamError };
+          }
 
           if (outputs.length > 0) {
             const url = String(outputs[0] || '').trim();
@@ -1653,32 +1665,53 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               const u = String(o || '').trim();
               if (u) collectedImageUrls.push(u);
             });
-            return;
+            return { status: 'succeeded' as const, outputs };
           }
 
           if (failureStatuses.has(status)) {
+            const errorMessage = upstreamError || tr('生成失败', 'Failed');
             setGalleryPreviewItems((prev) =>
-              prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: tr('生成失败', 'Failed') } : it))
+              prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: errorMessage } : it))
             );
-            return;
+            return { status: 'failed' as const, error: errorMessage };
           }
 
           if (successStatuses.has(status)) {
+            const errorMessage = upstreamError || tr('生成成功但无结果', 'Succeeded but no output');
             setGalleryPreviewItems((prev) =>
-              prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: tr('生成成功但无结果', 'Succeeded but no output') } : it))
+              prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: errorMessage } : it))
             );
-            return;
+            return { status: 'failed' as const, error: errorMessage };
           }
 
           await sleep(1500);
         }
 
+        const timeoutMessage = tr('生成超时', 'Timeout');
         setGalleryPreviewItems((prev) =>
-          prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: tr('生成超时', 'Timeout') } : it))
+          prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: timeoutMessage } : it))
         );
+        return { status: 'failed' as const, error: timeoutMessage };
       };
 
-      await Promise.all(initial.map((it) => pollOne(it.requestId)));
+      const pollResults = await Promise.all(initial.map((it) => pollOne(it.requestId)));
+
+      const failedResults = pollResults.filter((item) => item?.status === 'failed');
+      if (failedResults.length > 0) {
+        const firstError = String(failedResults[0]?.error || '').trim();
+        if (collectedImageUrls.length === 0) {
+          throw new Error(firstError || tr('商品套图生成失败，请稍后重试。', 'Product gallery generation failed. Please try again.'));
+        }
+        openGalleryAlert(
+          firstError
+            ? tr('部分图片生成失败：', 'Some images failed to generate: ') + firstError
+            : tr('部分图片生成失败，请检查结果后重试。', 'Some images failed to generate. Please review the results and try again.')
+        );
+      }
+
+      if (collectedImageUrls.length === 0 && failedResults.length === 0) {
+        throw new Error(tr('商品套图生成未返回结果，请重试。', 'Product gallery generation returned no result. Please try again.'));
+      }
 
       if (collectedImageUrls.length > 0) {
         await refreshImageHistory();

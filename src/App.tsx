@@ -17,6 +17,14 @@ import Workbench from './pages/Workbench';
 import TermsOfServicePage from './pages/TermsOfService';
 import PrivacyPolicyPage from './pages/PrivacyPolicy';
 import { debugLog, debugError } from './services/debugMode';
+import {
+    TIKTOK_AUTH_RESULT_STORAGE_KEY,
+    broadcastTikTokAuthResult,
+    emitTikTokAuthComplete,
+    isTikTokAuthPopupWindow,
+    parseTikTokAuthResult,
+    type TikTokAuthResult,
+} from './utils/tiktokAuthPopup';
 
 const MobileBlockedApp = () => {
     const { t } = useLanguage();
@@ -186,6 +194,18 @@ const AnimatedRoutes = () => {
       setErrorModalData(data);
     }, [t]);
 
+    const showTikTokAuthResult = React.useCallback((result: TikTokAuthResult) => {
+        setInfoTitle(result.status === 'success' ? t.ui_dialog_success : t.ui_dialog_error);
+        setInfoMessage(result.message || (result.status === 'success' ? t.app_tiktok_auth_success_default : t.app_tiktok_auth_failed));
+        setIsInfoOpen(true);
+        emitTikTokAuthComplete(result);
+    }, [
+        t.app_tiktok_auth_failed,
+        t.app_tiktok_auth_success_default,
+        t.ui_dialog_error,
+        t.ui_dialog_success,
+    ]);
+
     React.useEffect(() => {
         const onUnhandledRejection = (event: PromiseRejectionEvent) => {
             if (event.reason instanceof ApiError) {
@@ -244,11 +264,24 @@ const AnimatedRoutes = () => {
     }, [openErrorModalFromError]);
 
     React.useEffect(() => {
+        const onStorage = (event: StorageEvent) => {
+            if (event.key !== TIKTOK_AUTH_RESULT_STORAGE_KEY) return;
+            const result = parseTikTokAuthResult(event.newValue);
+            if (!result) return;
+            showTikTokAuthResult(result);
+        };
+
+        window.addEventListener('storage', onStorage);
+        return () => window.removeEventListener('storage', onStorage);
+    }, [showTikTokAuthResult]);
+
+    React.useEffect(() => {
         const params = new URLSearchParams(location.search);
         const code = params.get('code');
         const state = params.get('state');
         const error = params.get('error');
         const errorDescription = params.get('error_description');
+        const isPopupWindow = isTikTokAuthPopupWindow();
 
         // Only process if we have an OAuth callback (code or error present)
         if (!code && !error) return;
@@ -285,26 +318,47 @@ const AnimatedRoutes = () => {
                 });
                 debugLog('[TikTok OAuth] completeAuth success:', result);
 
-                // 显示成功消息，告知用户视频已上传到哪个账号
-                if (result?.message) {
-                    setInfoTitle(t.ui_dialog_success);
-                    setInfoMessage(String(result.message));
-                    setIsInfoOpen(true);
-                } else {
-                    setInfoTitle(t.ui_dialog_success);
-                    setInfoMessage(t.app_tiktok_auth_success_default);
-                    setIsInfoOpen(true);
+                const payload: TikTokAuthResult = {
+                    status: 'success',
+                    message: result?.message ? String(result.message) : t.app_tiktok_auth_success_default,
+                    ts: Date.now(),
+                };
+
+                if (isPopupWindow) {
+                    broadcastTikTokAuthResult(payload);
+                    window.setTimeout(() => window.close(), 80);
+                    return;
                 }
+
+                showTikTokAuthResult(payload);
             } catch (err: any) {
                 debugError('[TikTok OAuth] Error:', err);
-                setInfoTitle(t.ui_dialog_error);
-                setInfoMessage(`${t.app_tiktok_auth_failed}：${err?.message || '未知错误'}`);
-                setIsInfoOpen(true);
+                const payload: TikTokAuthResult = {
+                    status: 'error',
+                    message: `${t.app_tiktok_auth_failed}：${err?.message || '未知错误'}`,
+                    ts: Date.now(),
+                };
+
+                if (isPopupWindow) {
+                    broadcastTikTokAuthResult(payload);
+                    window.setTimeout(() => window.close(), 80);
+                    return;
+                }
+
+                showTikTokAuthResult(payload);
             } finally {
                 (window as any).__tiktok_callback_processing = false;
             }
         })();
-    }, [location.pathname, location.search]);
+    }, [
+        location.pathname,
+        location.search,
+        showTikTokAuthResult,
+        t.app_tiktok_auth_failed,
+        t.app_tiktok_auth_incomplete,
+        t.app_tiktok_auth_rejected,
+        t.app_tiktok_auth_success_default,
+    ]);
 
     return (
         // 2. 修复：将 AppDialog 移出 AnimatePresence，并根据你的注释将 mode 改为 wait 以实现无缝光影穿梭动画

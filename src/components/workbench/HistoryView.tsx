@@ -7,6 +7,13 @@ import { videoApi, type HistoryProject, type HistorySort } from '../../services/
 import { tiktokApi } from '../../services/tiktok';
 import { AppDialog } from '../common/AppDialog';
 import { ImageHistoryPanel } from './ImageHistoryPanel';
+import {
+  TIKTOK_AUTH_COMPLETE_EVENT,
+  closeTikTokAuthPopup,
+  navigateTikTokAuthPopup,
+  openTikTokAuthPopup,
+  type TikTokAuthResult,
+} from '../../utils/tiktokAuthPopup';
 
 type HistoryTab = 'video' | 'image';
 
@@ -163,6 +170,17 @@ export const HistoryView = () => {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    const onTikTokAuthComplete = (event: Event) => {
+      const detail = (event as CustomEvent<TikTokAuthResult>).detail;
+      if (detail?.status !== 'success') return;
+      void loadHistory();
+    };
+
+    window.addEventListener(TIKTOK_AUTH_COMPLETE_EVENT, onTikTokAuthComplete);
+    return () => window.removeEventListener(TIKTOK_AUTH_COMPLETE_EVENT, onTikTokAuthComplete);
+  }, [loadHistory]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -591,14 +609,24 @@ export const HistoryView = () => {
       return;
     }
 
+    const authPopup = openTikTokAuthPopup({
+      loadingTitle: t.app_tiktok_popup_loading_title,
+      loadingDescription: t.app_tiktok_popup_loading_desc,
+    });
+
     setPostingTikTokProjectId(proj.id);
     try {
       const result = await tiktokApi.publishDraft(proj.id);
       if (result.requiresAuth) {
         const authUrl = result.authUrl || await tiktokApi.getAuthUrl(proj.id);
-        window.location.href = authUrl;
+        const popupWindow = navigateTikTokAuthPopup(authPopup, authUrl);
+        if (!popupWindow) {
+          setFeedbackMessage(t.app_tiktok_popup_blocked);
+        }
         return;
       }
+
+      closeTikTokAuthPopup(authPopup);
 
       setProjects((prev) => prev.map((item) => {
         if (item.id !== proj.id) return item;
@@ -614,6 +642,7 @@ export const HistoryView = () => {
 
       setFeedbackMessage(result.message || '已上传到TikTok草稿箱，请在App中查看并发布');
     } catch (err: unknown) {
+      closeTikTokAuthPopup(authPopup);
       setFeedbackMessage(getErrorMessage(err, '上传 TikTok 草稿失败'));
     } finally {
       setPostingTikTokProjectId((prev) => (prev === proj.id ? null : prev));
@@ -1542,4 +1571,3 @@ export const HistoryView = () => {
     </div>
   );
 };
-

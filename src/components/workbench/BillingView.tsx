@@ -197,10 +197,10 @@ export const BillingView: React.FC = () => {
             <table className="w-full text-left text-xs">
               <thead className="bg-zinc-900/80 text-zinc-400">
                 <tr>
-                  <th className="px-4 py-2">{t.billing_col_time || 'Time'}</th>
                   <th className="px-4 py-2">{t.billing_col_type || 'Type'}</th>
                   <th className="px-4 py-2">{t.billing_col_amount || 'Amount'}</th>
                   <th className="px-4 py-2">{t.billing_col_description || 'Description'}</th>
+                  <th className="px-4 py-2">{t.billing_col_time || 'Time'}</th>
                 </tr>
               </thead>
               <tbody>
@@ -216,9 +216,6 @@ export const BillingView: React.FC = () => {
                 )}
                 {transactions.map((tx) => (
                   <tr key={tx.id} className="border-t border-white/5">
-                    <td className="px-4 py-2 text-zinc-400">
-                      {tx.created_at?.replace('T', ' ').slice(0, 19)}
-                    </td>
                     <td className="px-4 py-2 text-zinc-300">{getTxTypeLabel(tx)}</td>
                     <td
                       className={`px-4 py-2 font-medium ${
@@ -229,6 +226,9 @@ export const BillingView: React.FC = () => {
                     </td>
                     <td className="px-4 py-2 text-zinc-400">
                       {getTxDescriptionLabel(tx)}
+                    </td>
+                    <td className="px-4 py-2 text-zinc-400">
+                      {tx.created_at?.replace('T', ' ').slice(0, 19)}
                     </td>
                   </tr>
                 ))}

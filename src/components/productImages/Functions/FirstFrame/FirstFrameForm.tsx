@@ -170,9 +170,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   return (
     <form onSubmit={handleSubmit} className="w-full">
       <div className="space-y-6">
-        <div className="space-y-4">
-          <h3 className="text-white font-medium">{t.ff_basic_settings}</h3>
-
+        <div className="space-y-3">
           <div>
             <label className="block text-sm text-zinc-300 mb-2 font-medium">
               {t.ff_category_label}

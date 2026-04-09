@@ -147,6 +147,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const [uploaderResetKey, setUploaderResetKey] = useState(0);
   const [rightPanel, setRightPanel] = useState<'preview' | 'history'>('preview');
   const [historyItems, setHistoryItems] = useState<FirstFrameHistoryItem[]>([]);
+  const [lastElapsedSeconds, setLastElapsedSeconds] = useState<number | null>(null);
 
   const generationSeqRef = useRef(0);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -206,6 +207,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     setError(null);
     setProgress(0);
     setResults([]);
+    setLastElapsedSeconds(null);
     setPhase(files.length > 0 ? 'form' : 'upload');
   }, []);
 
@@ -237,6 +239,11 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
       clearProgressTimer();
       setProgress(100);
+      const completedElapsedSeconds = progressStartedAtRef.current
+        ? Math.max(1, Math.floor((Date.now() - progressStartedAtRef.current) / 1000))
+        : null;
+      setLastElapsedSeconds(completedElapsedSeconds);
+      progressStartedAtRef.current = null;
 
       if (response.status === 'completed' && response.outputImages && response.outputImages.length > 0) {
         setResults(response.outputImages);
@@ -272,12 +279,14 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     generationSeqRef.current += 1;
     clearProgressTimer();
     progressStartedAtRef.current = null;
+    setLastElapsedSeconds(null);
     setPhase(images.length > 0 ? 'form' : 'upload');
     setProgress(0);
   };
 
   const handleRegenerate = () => {
     setResults([]);
+    setLastElapsedSeconds(null);
     setPhase('form');
     setProgress(0);
     setError(null);
@@ -291,6 +300,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
     setImages([]);
     setResults([]);
+    setLastElapsedSeconds(null);
     setProgress(0);
     setError(null);
     setPhase('upload');
@@ -365,6 +375,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const activateHistoryItem = (item: FirstFrameHistoryItem) => {
     if (!item.outputImages || item.outputImages.length === 0) return;
     setResults(item.outputImages);
+    setLastElapsedSeconds(null);
     setPhase('result');
     setProgress(100);
     setRightPanel('preview');
@@ -478,6 +489,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
               ) : hasResults ? (
                 <FirstFrameResult
                   results={results}
+                  elapsedSeconds={lastElapsedSeconds}
                   onRegenerate={handleRegenerate}
                   onDownload={handleDownload}
                   onDownloadAll={handleDownloadAll}

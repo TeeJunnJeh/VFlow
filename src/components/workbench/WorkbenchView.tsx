@@ -156,6 +156,7 @@ type ScriptPage = {
   name: string;
   scripts: ScriptItem[];
   fullScript?: string;
+  sourceLabel?: string;
   continuityAnchor?: {
     subject?: string;
     scene?: string;
@@ -1232,6 +1233,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [activeScriptPage, setActiveScriptPage] = useState(0);
   const [scriptGridPageStart, setScriptGridPageStart] = useState(0);
   const [isScriptGridDialogOpen, setIsScriptGridDialogOpen] = useState(false);
+  const [isScriptSaveDialogOpen, setIsScriptSaveDialogOpen] = useState(false);
+  const [scriptSaveNameDraft, setScriptSaveNameDraft] = useState('');
   const scriptPagesRef = useRef<ScriptPage[]>([]);
   const [isShotBreakdownOpen, setIsShotBreakdownOpen] = useState(false);
   const [enableStoryboardEditor, setEnableStoryboardEditor] = useState(false);
@@ -3096,6 +3099,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return amount;
   }, []);
 
+  const normalizeSeedanceAssetUrl = useCallback((value: string | null | undefined) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const withoutQuery = raw.split('#', 1)[0].split('?', 1)[0];
+    if (!withoutQuery) return '';
+    return withoutQuery.startsWith('/') ? withoutQuery : `/${withoutQuery.replace(/^\/+/, '')}`;
+  }, []);
+
   const buildSeedanceReplayLibraryCandidate = useCallback((asset: LibraryAsset) => {
     const assetUrl = asset.file_url || null;
     if (!assetUrl) return null;
@@ -3185,99 +3196,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setGeneratedVideoUrl(null);
     return queuedAsset;
   }
-
-  const applyImportedScriptText = useCallback((rawText: string, sourceName?: string) => {
-    const content = String(rawText || '').trim();
-    if (!content) {
-      openInfo(popupTitles.notice, t.wb_script_import_empty || '素材库中的脚本内容为空。');
-      return;
-    }
-
-    let parsed: any = null;
-    try {
-      parsed = JSON.parse(content);
-    } catch {
-      parsed = null;
-    }
-
-    const rawScripts = Array.isArray(parsed)
-      ? parsed
-      : (Array.isArray(parsed?.scripts)
-        ? parsed.scripts
-        : (Array.isArray(parsed?.shots) ? parsed.shots : null));
-
-    if (Array.isArray(rawScripts) && rawScripts.length > 0 && typeof rawScripts[0] === 'object') {
-      const importedScripts: ScriptItem[] = rawScripts.map((item: any, idx: number) => ({
-        id: Number(item?.id) || Date.now() + idx,
-        shot: String(item?.shot || idx + 1),
-        type: String(item?.type || 'Medium'),
-        dur: String(item?.dur || '2s'),
-        visual: String(item?.visual || item?.image_description || ''),
-        audio: String(item?.audio || item?.voiceover || ''),
-        audioTranslation: String(item?.audioTranslation || ''),
-      }));
-
-      setScripts(importedScripts);
-      setScriptPages((prev) => {
-        if (activeScriptPage < 0 || activeScriptPage >= prev.length) return prev;
-        const next = [...prev];
-        next[activeScriptPage] = {
-          ...next[activeScriptPage],
-          scripts: importedScripts,
-          fullScript: content,
-          creativeCardText: content,
-        };
-        return next;
-      });
-    } else {
-      setScriptPages((prev) => {
-        if (activeScriptPage < 0 || activeScriptPage >= prev.length) return prev;
-        const next = [...prev];
-        next[activeScriptPage] = {
-          ...next[activeScriptPage],
-          fullScript: content,
-          creativeCardText: content,
-        };
-        return next;
-      });
-    }
-
-    setIsShotBreakdownOpen(false);
-    openInfo(
-      popupTitles.success,
-      formatMessage(t.wb_script_imported_from_library || '已从素材库导入脚本：{name}', {
-        name: sourceName || 'script',
-      })
-    );
-  }, [activeScriptPage, formatMessage, openInfo, popupTitles.notice, popupTitles.success, t]);
-
-  const handleImportScriptFromLibraryAsset = useCallback(async (asset: LibraryAsset) => {
-    const assetUrl = toDisplayUrl(asset.file_url) || asset.file_url;
-    if (!assetUrl) {
-      openInfo(popupTitles.notice, t.wb_script_import_failed || '脚本地址无效，无法导入。');
-      return;
-    }
-
-    try {
-      const response = await fetch(assetUrl, {
-        method: 'GET',
-        credentials: 'include',
-      });
-      if (!response.ok) {
-        throw new Error(t.wb_script_import_failed || '脚本读取失败，请稍后重试。');
-      }
-
-      const text = await response.text();
-      applyImportedScriptText(text, asset.name || 'script');
-      setIsAssetLibraryOpen(false);
-      setAssetLibraryPickMode('default');
-    } catch (err: any) {
-      openInfo(
-        popupTitles.notice,
-        String(err?.message || t.wb_script_import_failed || '脚本读取失败，请稍后重试。')
-      );
-    }
-  }, [applyImportedScriptText, openInfo, popupTitles.notice, t]);
 
   const selectAssetFromLibraryPopup = (asset: LibraryAsset) => {
     if (assetLibraryPickMode === 'script_import') {
@@ -3408,6 +3326,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   );
   const canSlideScriptGridPrev = scriptGridPageStart > 0;
   const canSlideScriptGridNext = scriptGridPageStart + 4 < scriptPages.length;
+  const scriptPlanCardClass = 'w-[calc((100%-36px)/4)] min-w-[220px] flex-shrink-0 rounded-2xl border p-4 text-left transition h-[360px] flex flex-col gap-3';
+  const scriptPlanCardBodyClass = 'min-h-0 rounded-xl border px-3 py-3 text-[11px] leading-6 whitespace-pre-wrap break-words flex-1 overflow-y-auto';
   const materialTypeLabelMap: Record<AssetLibraryTab, string> = {
     product: t.assets_tab_products || '商品',
     model: t.assets_tab_models || '模特',
@@ -3473,45 +3393,35 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }),
     [coreSellingPoints, productCategory, productName]
   );
-  const seedanceReplayUploadAssets = useMemo<SeedanceReplayUploadAsset[]>(() => (
-    uploadDisplayAssets.flatMap((asset) => {
+  const seedanceReplayUploadAssets = useMemo<SeedanceReplayUploadAsset[]>(() => {
+    return uploadDisplayAssets.flatMap((asset) => {
       if (asset.mediaKind !== 'image' && asset.mediaKind !== 'video' && asset.mediaKind !== 'audio') {
         return [];
       }
+
       return [{
         id: asset.id,
-        name: asset.name || '未命名素材',
+        name: asset.name,
         mediaKind: asset.mediaKind,
-        source: asset.assetId && !asset.fileObj ? 'library' : 'local',
-        previewUrl: asset.previewUrl || null,
+        source: asset.fileObj ? 'local' : 'library',
+        previewUrl: asset.previewUrl || asset.assetUrl || asset.uploadedPath || null,
         durationSeconds: asset.durationSeconds ?? null,
       }];
-    })
-  ), [uploadDisplayAssets]);
-  const seedanceReplayValidation = useMemo(
-    () => buildSeedanceReplayValidationSummary(uploadDisplayAssets, t),
-    [t, uploadDisplayAssets]
-  );
-  const focusSeedanceReplayValidationTarget = useCallback((target: 'top' | SeedanceReplayMediaKind) => {
-    setSeedanceReplayFocusTarget(null);
-    window.setTimeout(() => setSeedanceReplayFocusTarget(target), 0);
-  }, []);
-  const normalizeSeedanceAssetUrl = useCallback((raw: string | null | undefined) => {
-    const normalized = String(raw || '').trim();
-    if (!normalized) return '';
-    return normalized.split('#', 1)[0].split('?', 1)[0].trim().toLowerCase();
-  }, []);
+    });
+  }, [uploadDisplayAssets]);
+
   const seedanceReplaySelectedAssetSignatures = useMemo(() => {
     const signatures = new Set<string>();
-    for (const item of uploadDisplayAssets) {
-      const id = String(item.assetId || '').trim();
-      if (id) signatures.add(`id:${id}`);
+    uploadDisplayAssets.forEach((asset) => {
+      const assetId = String(asset.assetId || asset.id || '').trim();
+      if (assetId) signatures.add(`id:${assetId}`);
 
-      const normalizedUrl = normalizeSeedanceAssetUrl(item.assetUrl || item.uploadedPath || item.previewUrl || '');
+      const normalizedUrl = normalizeSeedanceAssetUrl(asset.assetUrl || asset.uploadedPath || asset.previewUrl || '');
       if (normalizedUrl) signatures.add(`url:${normalizedUrl}`);
-    }
+    });
     return signatures;
   }, [normalizeSeedanceAssetUrl, uploadDisplayAssets]);
+
   const isSeedanceReplayAssetAlreadyAdded = useCallback((asset: LibraryAsset) => {
     const assetId = String(asset.id || '').trim();
     if (assetId && seedanceReplaySelectedAssetSignatures.has(`id:${assetId}`)) return true;
@@ -3521,6 +3431,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     return false;
   }, [normalizeSeedanceAssetUrl, seedanceReplaySelectedAssetSignatures]);
+
+  const seedanceReplayValidation = useMemo(
+    () => buildSeedanceReplayValidationSummary(uploadDisplayAssets, t),
+    [t, uploadDisplayAssets]
+  );
+
+  const focusSeedanceReplayValidationTarget = useCallback((target: 'top' | SeedanceReplayMediaKind) => {
+    setSeedanceReplayFocusTarget(target);
+  }, []);
+
   const toLibraryAssetFromTransferStationItem = (item: TransferStationItem): LibraryAsset | null => {
     if (item.mediaKind === 'script') return null;
 
@@ -4311,12 +4231,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     });
   }, [activeScriptPage, scriptPages.length, activeScriptPlan?.creativeCardText, activeScriptPlan?.fullScript]);
 
-  const buildCombinedScriptPrompt = (
+  function buildCombinedScriptPrompt(
       fullScript: string,
       card?: ScriptCreativeCard,
       inputScripts: ScriptItem[] = [],
       cardText?: string
-  ) => {
+  ) {
     const creativeCardPrompt = (cardText || '').trim() || buildCreativeCardPrompt(card);
     const masterScriptPrompt = (fullScript || '').trim() ? `[完整脚本]: ${(fullScript || '').trim()}` : '';
     const shotPrompt = inputScripts.map((script) => {
@@ -4333,7 +4253,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return `[分镜指引]: ${shotPrompt}\n${storyboardSupplement}${firstLastFrameAudioSupplement ? `\n${firstLastFrameAudioSupplement}` : ''}`;
     }
     return [basePrompt || shotPrompt, storyboardSupplement, firstLastFrameAudioSupplement].filter(Boolean).join('\n\n');
-  };
+  }
 
   const resolveCurrentSingleAssetPath = async () => {
     let apiPath = lastUploadedUrl;
@@ -6442,6 +6362,217 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       .join(' ')
   ), [normalizeScriptText]);
 
+  const applyImportedScriptText = useCallback((rawText: string, sourceName?: string, sourceLabel?: string) => {
+    const content = String(rawText || '').trim();
+    if (!content) {
+      openInfo(popupTitles.notice, t.wb_script_import_empty || '素材库中的脚本内容为空。');
+      return;
+    }
+
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      parsed = null;
+    }
+
+    const importedName = String(sourceName || parsed?.name || '').trim();
+    const importedSourceLabel = String(sourceLabel || t.wb_script_imported_from_library_badge || '从素材库导入').trim();
+    const scriptContent = parsed?.script_content || parsed || {};
+
+    const rawScripts = Array.isArray(parsed)
+      ? parsed
+      : (Array.isArray(scriptContent?.scripts)
+        ? scriptContent.scripts
+        : (Array.isArray(scriptContent?.shots) ? scriptContent.shots : null));
+
+    const hasStructuredShots = Array.isArray(rawScripts) && rawScripts.length > 0 && typeof rawScripts[0] === 'object';
+    const nextPageIndex = scriptPagesRef.current.length;
+
+    if (hasStructuredShots) {
+      const importedScripts: ScriptItem[] = rawScripts.map((item: any, idx: number) => ({
+        id: Number(item?.id) || Date.now() + idx,
+        shot: String(item?.shot || idx + 1),
+        type: String(item?.type || 'Medium'),
+        dur: String(item?.dur || '2s'),
+        visual: String(item?.visual || item?.image_description || ''),
+        audio: String(item?.audio || item?.voiceover || ''),
+        audioTranslation: String(item?.audioTranslation || ''),
+      }));
+
+      const normalizedCreativeCard: ScriptCreativeCard = {
+        style: normalizeScriptText(scriptContent?.creative_card?.style || parsed?.creative_card?.style),
+        environment: normalizeScriptText(scriptContent?.creative_card?.environment || parsed?.creative_card?.environment),
+        tonePacing: normalizeScriptText(scriptContent?.creative_card?.tone_pacing || parsed?.creative_card?.tone_pacing),
+        camera: normalizeScriptText(scriptContent?.creative_card?.camera || parsed?.creative_card?.camera),
+        lighting: normalizeScriptText(scriptContent?.creative_card?.lighting || parsed?.creative_card?.lighting),
+        actions: parseScriptStringList(scriptContent?.creative_card?.actions || parsed?.creative_card?.actions, 8),
+        backgroundSound: normalizeScriptText(scriptContent?.creative_card?.background_sound || parsed?.creative_card?.background_sound),
+        transitionEditing: normalizeScriptText(scriptContent?.creative_card?.transition_editing || parsed?.creative_card?.transition_editing),
+        callToAction: normalizeScriptText(scriptContent?.creative_card?.call_to_action || parsed?.creative_card?.call_to_action),
+      };
+
+      const importedFullScript = normalizeScriptText(
+        scriptContent?.video_master_script || parsed?.video_master_script || parsed?.fullScript || parsed?.full_script
+      ) || buildFullScriptFallback(importedScripts);
+      const importedCreativeCardText = normalizeScriptText(
+        scriptContent?.creative_card_text || parsed?.creative_card_text || parsed?.creativeCardText
+      ) || buildCreativeCardEditorText(normalizedCreativeCard) || importedFullScript;
+
+      const appendedPage: ScriptPage = {
+        id: `page-${nextPageIndex + 1}`,
+        name: importedName || `${t.wb_script_page_prefix} ${nextPageIndex + 1}`,
+        scripts: importedScripts,
+        fullScript: importedFullScript,
+        continuityAnchor: scriptContent?.continuity_anchor || parsed?.continuity_anchor || undefined,
+        scriptStructure: scriptContent?.script_structure || parsed?.script_structure || undefined,
+        sellingPoints: parseScriptStringList(scriptContent?.selling_points || parsed?.selling_points),
+        sceneSuggestions: parseScriptStringList(scriptContent?.scene_suggestions || parsed?.scene_suggestions),
+        styleTags: parseScriptStringList(scriptContent?.style_tags || parsed?.style_tags),
+        creativeCard: normalizedCreativeCard,
+        creativeCardText: importedCreativeCardText,
+        sourceLabel: importedSourceLabel,
+      };
+
+      scriptPagesRef.current = [...scriptPagesRef.current, appendedPage];
+      setScriptPages((prev) => [...prev, appendedPage]);
+      setActiveScriptPage(nextPageIndex);
+      setScripts(importedScripts);
+    } else {
+      const appendedPage: ScriptPage = {
+        id: `page-${nextPageIndex + 1}`,
+        name: importedName || `${t.wb_script_page_prefix} ${nextPageIndex + 1}`,
+        scripts: [],
+        fullScript: content,
+        creativeCardText: content,
+        sourceLabel: importedSourceLabel,
+      };
+
+      scriptPagesRef.current = [...scriptPagesRef.current, appendedPage];
+      setScriptPages((prev) => [...prev, appendedPage]);
+      setActiveScriptPage(nextPageIndex);
+      setScripts([]);
+    }
+
+    setIsShotBreakdownOpen(false);
+    openInfo(
+      popupTitles.success,
+      formatMessage(t.wb_script_imported_from_library || '已从素材库导入脚本：{name}', {
+        name: importedName || sourceName || 'script',
+      })
+    );
+  }, [buildCreativeCardEditorText, buildFullScriptFallback, formatMessage, normalizeScriptText, openInfo, parseScriptStringList, popupTitles.notice, popupTitles.success, t]);
+
+  const handleImportScriptFromLibraryAsset = useCallback(async (asset: LibraryAsset) => {
+    const assetUrl = toDisplayUrl(asset.file_url) || asset.file_url;
+    if (!assetUrl) {
+      openInfo(popupTitles.notice, t.wb_script_import_failed || '脚本地址无效，无法导入。');
+      return;
+    }
+
+    try {
+      const response = await fetch(assetUrl, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error(t.wb_script_import_failed || '脚本读取失败，请稍后重试。');
+      }
+
+      const text = await response.text();
+      applyImportedScriptText(text, asset.name || 'script', t.wb_script_imported_from_library_badge || '从素材库导入');
+      setIsAssetLibraryOpen(false);
+      setAssetLibraryPickMode('default');
+    } catch (err: any) {
+      openInfo(
+        popupTitles.notice,
+        String(err?.message || t.wb_script_import_failed || '脚本读取失败，请稍后重试。')
+      );
+    }
+  }, [applyImportedScriptText, openInfo, popupTitles.notice, t]);
+
+  const openScriptSaveDialog = useCallback(() => {
+    const fallbackName = scriptPages[activeScriptPage]?.name || `${t.wb_script_page_prefix} ${activeScriptPage + 1}`;
+    setScriptSaveNameDraft(fallbackName);
+    setIsScriptSaveDialogOpen(true);
+  }, [activeScriptPage, scriptPages, t.wb_script_page_prefix]);
+
+  const normalizeScriptAssetName = useCallback((rawName: string) => {
+    return String(rawName || '')
+      .trim()
+      .replace(/\.(json|txt|md)$/i, '')
+      .replace(/[\\/:*?"<>|]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }, []);
+
+  const confirmScriptSaveToLibrary = useCallback(async () => {
+    const displayName = normalizeScriptAssetName(scriptSaveNameDraft);
+    if (!displayName) {
+      openInfo(popupTitles.notice, t.wb_script_save_name_required || '请输入脚本名称后再保存。');
+      return;
+    }
+
+    const combinedScript = buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts, activeCreativeCardText).trim();
+    if (!combinedScript) {
+      openInfo(popupTitles.notice, t.wb_script_save_need_content || '请先生成或编辑脚本后再保存。');
+      return;
+    }
+
+    const payload = {
+      name: displayName,
+      video_master_script: activeFullScript?.trim() || combinedScript,
+      creative_card: activeCreativeCard || null,
+      creative_card_text: activeCreativeCardText || '',
+      scripts,
+      shots: scripts,
+      continuity_anchor: activeScriptPlan?.continuityAnchor || null,
+      script_structure: activeScriptPlan?.scriptStructure || null,
+      selling_points: activeScriptPlan?.sellingPoints || [],
+      scene_suggestions: activeScriptPlan?.sceneSuggestions || [],
+      style_tags: activeScriptPlan?.styleTags || [],
+      saved_at: new Date().toISOString(),
+    };
+    const fileName = `${displayName}.json`;
+    const scriptFile = new File([JSON.stringify(payload, null, 2)], fileName, { type: 'application/json' });
+
+    setIsSavingScriptAsset(true);
+    try {
+      const uploadResult = await assetsApi.uploadAsset(scriptFile, 'script');
+      const uploadedAsset = uploadResult?.data || uploadResult?.asset || uploadResult?.data?.asset || null;
+      const uploadedAssetId = uploadedAsset?.id ? String(uploadedAsset.id) : '';
+
+      if (uploadedAssetId) {
+        try {
+          await assetsApi.renameAsset(uploadedAssetId, displayName);
+        } catch (renameErr) {
+          console.warn('Rename saved script asset failed:', renameErr);
+        }
+      }
+
+      setScriptPages((prev) => {
+        if (activeScriptPage < 0 || activeScriptPage >= prev.length) return prev;
+        const next = [...prev];
+        next[activeScriptPage] = {
+          ...next[activeScriptPage],
+          name: displayName,
+          sourceLabel: undefined,
+        };
+        return next;
+      });
+
+      setIsScriptSaveDialogOpen(false);
+      openInfo(popupTitles.success, t.wb_script_saved_to_library || '已保存到素材库。');
+    } catch (err: any) {
+      openInfo(
+        popupTitles.notice,
+        String(err?.message || t.wb_script_save_failed || '保存失败，请稍后重试。')
+      );
+    } finally {
+      setIsSavingScriptAsset(false);
+    }
+  }, [activeCreativeCard, activeCreativeCardText, activeFullScript, activeScriptPage, activeScriptPlan?.continuityAnchor, activeScriptPlan?.sceneSuggestions, activeScriptPlan?.scriptStructure, activeScriptPlan?.sellingPoints, activeScriptPlan?.styleTags, buildCombinedScriptPrompt, normalizeScriptAssetName, openInfo, popupTitles.notice, popupTitles.success, scriptSaveNameDraft, scripts, t.wb_script_save_need_content, t.wb_script_save_failed, t.wb_script_saved_to_library, t.wb_script_save_name_required]);
+
   const parseScriptPage = useCallback((raw: any, idx: number): ScriptPage => {
     const shots = buildScriptsFromShots(raw?.shots || raw?.script_content?.shots || []);
     const scriptContent = raw?.script_content || raw || {};
@@ -6471,7 +6602,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     });
     return {
       id: `page-${idx + 1}`,
-      name: `${t.wb_script_page_prefix} ${idx + 1}`,
+      name: String(raw?.name || '').trim() || `${t.wb_script_page_prefix} ${idx + 1}`,
       scripts: shots,
       fullScript,
       continuityAnchor: {
@@ -6489,6 +6620,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       styleTags: parseScriptStringList(scriptContent?.style_tags),
       creativeCard: normalizedCreativeCard,
       creativeCardText,
+      sourceLabel: String(raw?.sourceLabel || '').trim() || undefined,
     };
   }, [buildCreativeCardEditorText, buildFullScriptFallback, buildScriptsFromShots, normalizeScriptText, parseScriptStringList, t.wb_script_page_prefix]);
 
@@ -7030,36 +7162,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         currentScriptQueueTaskIdRef.current = null;
       }
       scriptGenerationFinishingRef.current = false;
-    }
-  };
-
-  const handleSaveCurrentScriptToLibrary = async () => {
-    const combinedScript = buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts, activeCreativeCardText).trim();
-    if (!combinedScript) {
-      openInfo(popupTitles.notice, t.wb_script_save_need_content || '请先生成或编辑脚本后再保存。');
-      return;
-    }
-
-    const baseCandidate = String(productName || productCategory || 'workbench_script').trim();
-    const safeBase = baseCandidate
-      .replace(/[\\/:*?"<>|\s]+/g, '_')
-      .replace(/_+/g, '_')
-      .replace(/^_+|_+$/g, '') || 'workbench_script';
-    const timeSuffix = new Date().toISOString().replace(/[:.]/g, '-');
-    const fileName = `${safeBase}_${timeSuffix}.txt`;
-    const scriptFile = new File([combinedScript], fileName, { type: 'text/plain;charset=utf-8' });
-
-    setIsSavingScriptAsset(true);
-    try {
-      await assetsApi.uploadAsset(scriptFile, 'script');
-      openInfo(popupTitles.success, t.wb_script_saved_to_library || '已保存到素材库。');
-    } catch (err: any) {
-      openInfo(
-        popupTitles.notice,
-        String(err?.message || t.wb_script_save_failed || '保存失败，请稍后重试。')
-      );
-    } finally {
-      setIsSavingScriptAsset(false);
     }
   };
 
@@ -9857,10 +9959,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 isOpen={isScriptGridDialogOpen}
                 title={t.wb_script_grid_title || 'Script Variants'}
                 onClose={() => setIsScriptGridDialogOpen(false)}
-                widthClassName="max-w-[min(92vw,980px)]"
+                widthClassName="max-w-[min(96vw,1320px)]"
             >
-              <div className="max-h-[68vh] overflow-y-auto custom-scroll pr-1">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div className="max-h-[72vh] overflow-x-auto overflow-y-hidden custom-scroll pr-1 pb-2">
+                <div className="flex flex-nowrap gap-3">
                   {scriptPages.map((page, index) => {
                     const active = index === activeScriptPage;
                     const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim()
@@ -9873,21 +9975,76 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             handleScriptPageChange(index);
                             setIsScriptGridDialogOpen(false);
                           }}
-                          className={`rounded-xl border px-3 py-3 text-left transition ${active ? 'border-orange-500/70 bg-orange-500/10' : 'border-white/10 bg-black/25 hover:border-orange-500/35 hover:bg-white/5'}`}
+                          className={`${scriptPlanCardClass} ${active ? 'border-orange-500/70 bg-orange-500/10 ring-1 ring-orange-500/35' : 'border-white/10 bg-black/25 hover:border-orange-500/35 hover:bg-white/5'}`}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className={`${active ? 'text-base font-extrabold text-orange-200' : 'text-sm font-bold text-zinc-100'}`}>{page.name}</span>
-                          <span className={`text-[10px] ${active ? 'text-orange-300' : 'text-zinc-500'}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold ${active ? 'border-orange-400/70 bg-orange-500/20 text-orange-100' : 'border-white/10 bg-white/5 text-zinc-300'}`}>
+                                {t.wb_script_plan_card_badge || 'Kling prompt'}
+                              </span>
+                              {page.sourceLabel && (
+                                <span className="rounded border border-sky-400/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-200">
+                                  {page.sourceLabel}
+                                </span>
+                              )}
+                            </div>
+                            <div className={`mt-2 text-[12px] font-bold leading-5 ${active ? 'text-orange-100' : 'text-zinc-100'}`}>{page.name}</div>
+                          </div>
+                          <span className={`shrink-0 text-[10px] ${active ? 'text-orange-300' : 'text-zinc-500'}`}>
                             {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
                           </span>
                         </div>
-                        <div className={`mt-2 text-sm leading-6 min-h-[4.2rem] ${active ? 'font-semibold text-orange-100/90' : 'text-zinc-400'}`}>
+                        <div className={`${scriptPlanCardBodyClass} mt-1 ${active ? 'border-orange-400/30 bg-black/15 text-orange-100/90' : 'border-white/10 bg-black/20 text-zinc-300'}`}>
                           {previewText}
                         </div>
                       </button>
                     );
                   })}
                 </div>
+              </div>
+            </AppDialog>
+        )}
+
+        {isScriptSaveDialogOpen && (
+            <AppDialog
+                isOpen={isScriptSaveDialogOpen}
+                title={t.wb_script_save_dialog_title || '保存到素材库'}
+                onClose={() => setIsScriptSaveDialogOpen(false)}
+                footer={
+                  <>
+                    <button
+                        className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                        onClick={() => setIsScriptSaveDialogOpen(false)}
+                    >
+                      {t.wb_confirm_cancel}
+                    </button>
+                    <button
+                        className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
+                        onClick={() => void confirmScriptSaveToLibrary()}
+                        disabled={isSavingScriptAsset}
+                    >
+                      {isSavingScriptAsset ? (t.assets_saving_description || '保存中...') : (t.wb_script_save_to_library || '保存到素材库')}
+                    </button>
+                  </>
+                }
+            >
+              <div className="space-y-2">
+                <div className="text-sm text-zinc-300">{t.wb_script_save_name_label || '脚本名称'}</div>
+                <input
+                    autoFocus
+                    value={scriptSaveNameDraft}
+                    onChange={(e) => setScriptSaveNameDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void confirmScriptSaveToLibrary();
+                      }
+                    }}
+                    placeholder={t.wb_script_save_name_placeholder || '请输入脚本名称'}
+                    className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-orange-500"
+                />
+                <div className="text-xs text-zinc-500">{t.wb_script_save_name_hint || '保存后会以这个名称显示在素材库中。'}</div>
               </div>
             </AppDialog>
         )}
@@ -10392,8 +10549,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
                 <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{currentScriptDuration.toFixed(1)}s / {genDuration}s</div>
                 <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
-                  <button
-                      onClick={handleSaveCurrentScriptToLibrary}
+                    <button
+                      onClick={openScriptSaveDialog}
                       disabled={isSavingScriptAsset}
                       className={`flex items-center gap-1.5 px-2 py-1 rounded transition ${isSavingScriptAsset ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
                       title={t.wb_script_save_to_library || '保存到素材库'}
@@ -10458,7 +10615,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </button>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                <div className="flex gap-3 overflow-x-auto overflow-y-hidden custom-scroll pb-1">
                   {visibleScriptPages.map((page, offset) => {
                     const index = scriptGridPageStart + offset;
                     const active = index === activeScriptPage;
@@ -10469,15 +10626,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           key={page.id}
                           type="button"
                           onClick={() => handleScriptPageChange(index)}
-                          className={`rounded-xl border px-3 py-2.5 text-left transition min-h-[110px] ${active ? 'border-orange-500/70 bg-orange-500/10 ring-1 ring-orange-500/35' : 'border-white/10 bg-black/30 hover:border-white/25 hover:bg-white/5'}`}
+                          className={`${scriptPlanCardClass} ${active ? 'border-orange-500/70 bg-orange-500/10 ring-1 ring-orange-500/35' : 'border-white/10 bg-black/30 hover:border-white/25 hover:bg-white/5'}`}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className={`text-[11px] ${active ? 'font-extrabold text-orange-200' : 'font-bold text-zinc-200'}`}>{page.name}</span>
-                          <span className={`text-[9px] ${active ? 'text-orange-300 font-bold' : 'text-zinc-500'}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold ${active ? 'border-orange-400/70 bg-orange-500/20 text-orange-100' : 'border-white/10 bg-white/5 text-zinc-300'}`}>
+                                {t.wb_script_plan_card_badge || 'Kling prompt'}
+                              </span>
+                              {page.sourceLabel && (
+                                <span className="rounded border border-sky-400/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-200">
+                                  {page.sourceLabel}
+                                </span>
+                              )}
+                            </div>
+                            <div className={`mt-2 text-[12px] font-bold leading-5 ${active ? 'text-orange-100' : 'text-zinc-100'}`}>{page.name}</div>
+                          </div>
+                          <span className={`shrink-0 text-[9px] ${active ? 'text-orange-300 font-bold' : 'text-zinc-500'}`}>
                             {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
                           </span>
                         </div>
-                        <div className={`mt-1 text-[10px] leading-5 h-[3.8rem] overflow-hidden ${active ? 'text-orange-100/85' : 'text-zinc-400'}`}>
+                        <div className={`${scriptPlanCardBodyClass} ${active ? 'border-orange-400/30 bg-black/15 text-orange-100/90' : 'border-white/10 bg-black/20 text-zinc-300'}`}>
                           {previewText}
                         </div>
                       </button>
@@ -10500,16 +10669,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           <Sparkles className="w-4 h-4 text-purple-400" />
                         </div>
                         <div>
-                          <div className={`text-[13px] font-black tracking-wider flex items-center gap-2 ${isLightTheme ? 'text-slate-900' : 'text-zinc-100'}`}>
-                            {String(language || '').toLowerCase().startsWith('zh') ? '脚本方案卡' : 'Script Plan Card'}
+                          <div className={`flex flex-wrap items-center gap-2 text-[13px] font-black tracking-wider ${isLightTheme ? 'text-slate-900' : 'text-zinc-100'}`}>
+                            <span>{t.wb_script_plan_card_title || 'Script plan'}</span>
                             <span className={`text-[9px] px-1.5 py-0.5 rounded font-normal tracking-normal ${isLightTheme
                               ? 'border border-purple-300 bg-purple-100 text-purple-800'
                               : 'border border-purple-500/30 bg-purple-500/20 text-purple-200'
                             }`}>
-                              {String(language || '').toLowerCase().startsWith('zh') ? '可灵提示词' : 'Kling Prompt'}
+                              {t.wb_script_plan_card_badge || 'Kling prompt'}
                             </span>
+                            {activeScriptPlan?.sourceLabel && (
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-normal tracking-normal ${isLightTheme
+                                ? 'border border-sky-300 bg-sky-100 text-sky-700'
+                                : 'border border-sky-400/30 bg-sky-500/20 text-sky-200'
+                              }`}>
+                                {activeScriptPlan.sourceLabel}
+                              </span>
+                            )}
                           </div>
-                          <div className={`text-[10px] mt-0.5 font-medium ${isLightTheme ? 'text-slate-600' : 'text-zinc-500'}`}>{t.wb_script_page_prefix} {activeScriptPage + 1}</div>
+                          <div className={`text-[10px] mt-0.5 font-medium ${isLightTheme ? 'text-slate-600' : 'text-zinc-500'}`}>
+                            {activeScriptPlan?.name || `${t.wb_script_page_prefix} ${activeScriptPage + 1}`}
+                          </div>
                         </div>
                       </div>
                     </div>

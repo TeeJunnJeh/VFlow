@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder,
   Wand2, Loader2, Clapperboard, ArrowRight, PlayCircle, BookmarkPlus, FolderOpen,
@@ -3438,7 +3438,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   );
 
   const focusSeedanceReplayValidationTarget = useCallback((target: 'top' | SeedanceReplayMediaKind) => {
-    setSeedanceReplayFocusTarget(target);
+    setSeedanceReplayFocusTarget(null);
+    window.requestAnimationFrame(() => {
+      setSeedanceReplayFocusTarget(target);
+    });
   }, []);
 
   const toLibraryAssetFromTransferStationItem = (item: TransferStationItem): LibraryAsset | null => {
@@ -7616,6 +7619,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (creationMode !== 'replay') return;
     if (selectedModel !== 'seedance2.0') setSelectedModel('seedance2.0');
   }, [creationMode, selectedModel, setSelectedModel]);
+
+  useEffect(() => {
+    if (!isSeedanceReplayMode || !seedanceReplayValidation.hasBlockingIssues) {
+      setSeedanceReplayFocusTarget(null);
+    }
+  }, [isSeedanceReplayMode, seedanceReplayValidation.hasBlockingIssues]);
 
   useEffect(() => {
     setGenDuration((prev) => normalizeDurationForModel(prev, selectedModel));

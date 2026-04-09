@@ -14,6 +14,7 @@ import { useWorkbenchModel } from '../../context/WorkbenchModelContext';
 import { videoApi, VideoApiError, type GeneratePreviewData } from '../../services/video';
 import { assetsApi, type Asset as LibraryAsset, type AssetFolder } from '../../services/assets';
 import { tiktokApi } from '../../services/tiktok';
+import { billingApi } from '../../services/billing';
 import { getDebugModeEnabled } from '../../services/debugMode';
 import {
   PromptLabWindow,
@@ -98,6 +99,55 @@ const formatAssetSize = (sizeBytes?: number | null) => {
   if (sizeBytes >= 1024 * 1024) return `${(sizeBytes / (1024 * 1024)).toFixed(sizeBytes >= 10 * 1024 * 1024 ? 1 : 2)}MB`;
   if (sizeBytes >= 1024) return `${Math.round(sizeBytes / 1024)}KB`;
   return `${sizeBytes}B`;
+};
+
+type BillingPricingModelEntry = {
+  display_name?: string;
+  rate?: number;
+  rate_label?: string;
+  unit?: string;
+};
+
+type BillingPricingModeEntry = {
+  default_duration_seconds?: number;
+  default_model?: string;
+  models?: Record<string, BillingPricingModelEntry>;
+};
+
+type BillingPricingCatalog = {
+  video?: {
+    default_mode?: string;
+    models?: Record<string, BillingPricingModelEntry>;
+    modes?: Record<string, BillingPricingModeEntry>;
+  };
+};
+
+const VIDEO_MODEL_PRICING_ALIASES: Record<string, string> = {
+  kling: 'kling',
+  sora2: 'sora-2',
+  sora2pro: 'sora-2-pro',
+  'seedance2.0': 'seedance-2.0',
+};
+
+const getVideoPricingMode = (pricing: BillingPricingCatalog | null | undefined, creationMode: 'fast' | 'replay') => {
+  const requestedMode = creationMode === 'replay' ? 'replay' : 'fast';
+  const modes = pricing?.video?.modes;
+  if (!modes) return requestedMode;
+  if (modes[requestedMode]) return requestedMode;
+  const defaultMode = pricing?.video?.default_mode;
+  if (defaultMode && modes[defaultMode]) return defaultMode;
+  const firstMode = Object.keys(modes)[0];
+  return firstMode || requestedMode;
+};
+
+const getVideoModelPricingEntry = (
+  pricing: BillingPricingCatalog | null | undefined,
+  modelId: string,
+  creationMode: 'fast' | 'replay' = 'fast',
+) => {
+  const modelKey = VIDEO_MODEL_PRICING_ALIASES[modelId] || modelId;
+  const modeKey = getVideoPricingMode(pricing, creationMode);
+  return pricing?.video?.modes?.[modeKey]?.models?.[modelKey] || pricing?.video?.models?.[modelKey] || null;
 };
 
 const getSeedanceReplayLocalAccept = (mediaKind?: SeedanceReplayMediaKind | null) => {
@@ -1061,12 +1111,31 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [seedanceReplayUploadIntent, setSeedanceReplayUploadIntent] = useState<SeedanceReplayUploadIntent>({ targetMediaKind: null });
   const [seedanceReplayFocusTarget, setSeedanceReplayFocusTarget] = useState<'top' | SeedanceReplayMediaKind | null>(null);
   const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
+  const [billingPricing, setBillingPricing] = useState<BillingPricingCatalog | null>(null);
   const [isModelSectionCollapsed, setIsModelSectionCollapsed] = useState(false);
   const [isAiRecognizing, setIsAiRecognizing] = useState(false);
   const [hasAiRecognized, setHasAiRecognized] = useState(false);
   const [recognizedProductSourceSignature, setRecognizedProductSourceSignature] = useState('');
   const [needsAiReRecognize, setNeedsAiReRecognize] = useState(false);
   const [referenceScriptProductSignature, setReferenceScriptProductSignature] = useState('');
+  useEffect(() => {
+    let active = true;
+
+    billingApi.getOverview()
+      .then((res) => {
+        if (!active) return;
+        setBillingPricing((res?.data?.pricing as BillingPricingCatalog | null) || null);
+      })
+      .catch(() => {
+        if (!active) return;
+        setBillingPricing(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const latestProductInfoRef = useRef({
     productName: '',
     productCategory: '',
@@ -3312,6 +3381,31 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const hasAnyReuseQueue = assetQueue.length > 0 || scriptQueue.length > 0;
   const isReuseReady = assetQueue.length > 0 && scriptQueue.length > 0;
   const expectedBatchCount = isReuseReady ? assetQueue.length * scriptQueue.length : 0;
+  const selectedVideoPricing = getVideoModelPricingEntry(billingPricing, selectedModel, creationMode);
+  const formatVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined) => {
+    const rate = Number(entry?.rate ?? 0);
+    if (!Number.isFinite(rate) || rate <= 0) return '-';
+    return `${rate}${t.wb_vpoints_per_sec || ''}`;
+  };
+  const queuedRenderableAssetCount = assetQueue.length === 0
+    ? 0
+    : Math.max(1, assetQueue.filter((asset) => asset.mediaKind !== 'audio').length);
+  const estimatedVideoCost = useMemo(() => {
+    const rate = Number(selectedVideoPricing?.rate ?? 0);
+    if (!Number.isFinite(rate) || rate <= 0) return 0;
+
+    if (reuseQueueEnabled) {
+      if (queuedRenderableAssetCount <= 0 || scriptQueue.length <= 0) return 0;
+      const totalScriptSeconds = scriptQueue.reduce((sum, item) => {
+        const duration = Number(item.duration || 0);
+        return sum + (Number.isFinite(duration) && duration > 0 ? duration : genDuration);
+      }, 0);
+      return Math.max(0, Math.round(rate * totalScriptSeconds * queuedRenderableAssetCount));
+    }
+
+    return Math.max(0, Math.round(rate * Math.max(1, Number(genDuration) || 0)));
+  }, [genDuration, queuedRenderableAssetCount, reuseQueueEnabled, scriptQueue, selectedVideoPricing]);
+  const estimatedVideoCostLabel = estimatedVideoCost > 0 ? `-${estimatedVideoCost} ${t.v_points || 'V点'}` : '';
   const hasCurrentAsset = Boolean(uploadedFile || selectedAssetUrl || selectedFileObj);
   const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
   const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
@@ -4729,6 +4823,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         motion_asset_id: null,
         ...(klingGenerateMode === 'subject' ? { aspect_ratio: aspectRatio } : {}),
         mode: 'pro',
+        pricing_mode: creationMode,
         subject_description_hint: coreSellingPoints.trim() || undefined,
         asset_source: (normalizedAssets[0]?.source ?? null) as GeneratePayload['asset_source'],
         ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
@@ -4804,6 +4899,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         }
         : {}),
       asset_source: selectedAssetSource,
+      pricing_mode: creationMode,
       user_language: language,
       target_language: targetLanguage,
       model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
@@ -7773,35 +7869,30 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       id: 'kling' | 'sora2' | 'sora2pro' | 'seedance2.0';
       title: string;
       desc: string;
-      rate: number;
       Icon: React.ComponentType<{ className?: string }>;
     }> = [
       {
         id: 'kling',
         title: t.wb_model_kling_title || (language === 'zh' ? '可灵 o1' : 'Kling o1'),
         desc: t.wb_model_kling_desc,
-        rate: 20,
         Icon: Zap,
       },
       {
         id: 'sora2',
         title: 'Sora 2',
         desc: t.wb_model_sora2_desc,
-        rate: 100,
         Icon: SoraStarIcon,
       },
       {
         id: 'sora2pro',
         title: 'Sora 2 Pro',
         desc: t.wb_model_sora2pro_desc,
-        rate: 300,
         Icon: Sparkles,
       },
       {
         id: 'seedance2.0',
         title: 'Seedance 2.0',
         desc: t.wb_model_seedance_desc,
-        rate: 50,
         Icon: Video,
       },
     ];
@@ -7809,6 +7900,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const renderModelCard = (opt: typeof modelOptions[number]) => {
       const active = selectedModel === opt.id;
       const locked = false;  // Seedance 2.0 backend ready — unlock fast mode
+      const rateLabel = formatVideoRateLabel(getVideoModelPricingEntry(billingPricing, opt.id, 'fast'));
       return (
           <button
               key={opt.id}
@@ -7869,7 +7961,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         active ? 'font-bold text-orange-500' : 'font-medium text-zinc-500',
                       ].join(' ')}
                   >
-                    {opt.rate}{t.wb_vpoints_per_sec}
+                    {rateLabel}
                   </div>
                 </div>
             )}
@@ -7992,7 +8084,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       <Check className="w-2.5 h-2.5 text-white" />
                     </div>
                     <div className="text-[8px] whitespace-nowrap font-bold text-orange-500">
-                      300v点
+                      {formatVideoRateLabel(getVideoModelPricingEntry(billingPricing, 'seedance2.0', 'replay'))}
                     </div>
                   </div>
                 </div>
@@ -10580,8 +10672,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
               <div className="flex items-center gap-2">
                 <div className="relative group/cost-video">
-                  <button onClick={handleGenerateVideo} disabled={isGenerating} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
-                    {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}{isGenerating ? t.wb_generating : t.wb_btn_gen_video}
+                  <button onClick={handleGenerateVideo} disabled={isGenerating} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
+                    <span className="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="flex items-center gap-2 whitespace-nowrap">
+                        {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}
+                        {isGenerating ? t.wb_generating : t.wb_btn_gen_video}
+                      </span>
+                      {estimatedVideoCostLabel ? (
+                        <span className="ml-auto text-[9px] font-semibold text-white/80 whitespace-nowrap">{estimatedVideoCostLabel}</span>
+                      ) : null}
+                    </span>
                   </button>
                   <span className="pointer-events-none absolute bottom-full right-0 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/cost-video:opacity-100">
                     {t.wb_cost_tip_generate_video || '生成视频会消耗点数，具体以实际扣费为准。'}

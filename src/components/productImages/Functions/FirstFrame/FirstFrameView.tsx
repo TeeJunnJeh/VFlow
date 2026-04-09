@@ -11,6 +11,7 @@ import { ErrorDialog, type ErrorInfo } from '../../Common/ErrorDialog';
 import { downloadBlob, productImagesApi } from '../../../../services/productImagesApi';
 import type { FirstFrameParams, ProductImageResult } from '../../../../types/productImages';
 import { deleteImageHistoryItem, notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
+import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../../../utils/loadingTheme';
 
 type Phase = 'upload' | 'form' | 'generating' | 'result' | 'error';
 
@@ -148,6 +149,8 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const [rightPanel, setRightPanel] = useState<'preview' | 'history'>('preview');
   const [historyItems, setHistoryItems] = useState<FirstFrameHistoryItem[]>([]);
   const [lastElapsedSeconds, setLastElapsedSeconds] = useState<number | null>(null);
+  const [loadingTheme, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
+  const [loadingBackgroundSrc, setLoadingBackgroundSrc] = useState<string>('');
 
   const generationSeqRef = useRef(0);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -172,6 +175,26 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       void refreshWorkspaceHistory();
     });
   }, [refreshWorkspaceHistory]);
+
+  useEffect(() => {
+    let alive = true;
+    if (images.length === 0) {
+      setLoadingTheme(getDefaultLoadingTheme());
+      setLoadingBackgroundSrc('');
+      return;
+    }
+
+    const objectUrls = images.map((file) => URL.createObjectURL(file));
+    setLoadingBackgroundSrc(objectUrls[0] || '');
+    void extractLoadingThemeFromSources(objectUrls).then((theme) => {
+      if (alive) setLoadingTheme(theme);
+    });
+
+    return () => {
+      alive = false;
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [images]);
 
   const clearProgressTimer = useCallback(() => {
     if (progressTimerRef.current) {
@@ -483,6 +506,8 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                     startedAtMs={progressStartedAtRef.current || undefined}
                     currentStep={t.ff_generating_first_frame_images}
                     totalSteps={3}
+                    theme={loadingTheme}
+                    backgroundImageSrc={loadingBackgroundSrc}
                     onCancel={handleCancelGeneration}
                   />
                 </div>

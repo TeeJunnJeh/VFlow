@@ -5,6 +5,7 @@ import { ErrorDialog, type ErrorInfo, ImageUploader, LoadingProgress } from '../
 import { downloadBlob, productImagesApi } from '../../../../services/productImagesApi';
 import type { ProductImageResult, SmartRepairParams, SmartRepairSubpage, SmartRepairToolCode } from '../../../../types/productImages';
 import { notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
+import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../../../utils/loadingTheme';
 
 type Phase = 'setup' | 'generating' | 'result' | 'error';
 
@@ -229,6 +230,8 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   const [sampleBeforeLoadFailed, setSampleBeforeLoadFailed] = useState(false);
   const [sampleAfterLoadFailed, setSampleAfterLoadFailed] = useState(false);
   const [historyItems, setHistoryItems] = useState<SmartRepairHistoryEntry[]>([]);
+  const [loadingTheme, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
+  const [loadingBackgroundSrc, setLoadingBackgroundSrc] = useState<string>('');
 
   const subpageOptions: Array<{ key: SmartRepairSubpage; zh: string; en: string }> = [
     { key: 'fashion_model', zh: '服装/模特', en: 'Fashion/Model' },
@@ -307,6 +310,25 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
       void refreshHistory();
     });
   }, [refreshHistory]);
+
+  useEffect(() => {
+    let alive = true;
+    const sources = [sourcePreviewUrl, referencePreviewUrl].map((value) => String(value || '').trim()).filter(Boolean);
+    if (sources.length === 0) {
+      setLoadingTheme(getDefaultLoadingTheme());
+      setLoadingBackgroundSrc('');
+      return;
+    }
+
+    setLoadingBackgroundSrc(sources[0] || '');
+    void extractLoadingThemeFromSources(sources).then((theme) => {
+      if (alive) setLoadingTheme(theme);
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, [referencePreviewUrl, sourcePreviewUrl]);
 
   const handleGenerate = async () => {
     if (!activeSubpage || !activeToolCode) {
@@ -713,6 +735,8 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                 currentStep={tr('智能修复生成中', 'Generating smart-repair images')}
                 totalSteps={3}
                 title={tr('正在进行智能修复...', 'Performing smart repair...')}
+                theme={loadingTheme}
+                backgroundImageSrc={loadingBackgroundSrc}
                 onCancel={() => setPhase('setup')}
               />
             </div>

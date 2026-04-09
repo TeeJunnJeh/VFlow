@@ -1,7 +1,7 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder,
-  Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
+  Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowRight, PlayCircle,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift, ImagePlus,
   SlidersHorizontal,Palette, MapPin, Activity, Camera, Lightbulb, Music, Scissors, Megaphone, AlignLeft,
@@ -1228,6 +1228,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [scripts, setScripts] = useState<ScriptItem[]>(buildDemoScripts);
   const [scriptPages, setScriptPages] = useState<ScriptPage[]>(() => ([{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: buildDemoScripts() }]));
   const [activeScriptPage, setActiveScriptPage] = useState(0);
+  const [isScriptGridDialogOpen, setIsScriptGridDialogOpen] = useState(false);
   const scriptPagesRef = useRef<ScriptPage[]>([]);
   const [isShotBreakdownOpen, setIsShotBreakdownOpen] = useState(false);
   const [enableStoryboardEditor, setEnableStoryboardEditor] = useState(false);
@@ -1249,6 +1250,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [aiOptimizeCount, setAiOptimizeCount] = useState(2);
   const [isAiOptimizeGenerating, setIsAiOptimizeGenerating] = useState(false);
   const [isAiOptimizePromptGenerating, setIsAiOptimizePromptGenerating] = useState(false);
+  const [isAiOptimizePromptSaving, setIsAiOptimizePromptSaving] = useState(false);
   const [aiOptimizeResults, setAiOptimizeResults] = useState<Array<{ id: string; url: string }>>([]);
 
   useEffect(() => {
@@ -3535,6 +3537,45 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     soundSetting,
     t.wb_ai_opt_prompt_empty,
     uiLanguageCode,
+  ]);
+  const handleSaveAiOptimizePromptToLibrary = useCallback(async () => {
+    const promptContent = String(aiOptimizePrompt || '').trim();
+    if (!promptContent) {
+      openInfo(popupTitles.notice, t.wb_ai_opt_prompt_save_need_text || '请先生成或填写提示词脚本后再保存。');
+      return;
+    }
+
+    const baseCandidate = String(productName || aiOptimizeCategory || 'prompt').trim();
+    const safeBase = baseCandidate
+      .replace(/[\\/:*?"<>|\s]+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'prompt';
+    const timeSuffix = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileName = `${safeBase}_${timeSuffix}.txt`;
+    const promptFile = new File([promptContent], fileName, { type: 'text/plain;charset=utf-8' });
+
+    setIsAiOptimizePromptSaving(true);
+    try {
+      await assetsApi.uploadAsset(promptFile, 'script');
+      openInfo(popupTitles.success, t.wb_ai_opt_prompt_saved || '优质 Prompt 已保存到素材库。');
+    } catch (err) {
+      const message = err instanceof Error && err.message.trim()
+        ? err.message.trim()
+        : (t.wb_ai_opt_prompt_save_failed || '保存失败，请稍后重试。');
+      openInfo(popupTitles.notice, message);
+    } finally {
+      setIsAiOptimizePromptSaving(false);
+    }
+  }, [
+    aiOptimizeCategory,
+    aiOptimizePrompt,
+    openInfo,
+    popupTitles.notice,
+    popupTitles.success,
+    productName,
+    t.wb_ai_opt_prompt_save_failed,
+    t.wb_ai_opt_prompt_save_need_text,
+    t.wb_ai_opt_prompt_saved,
   ]);
   const openSeedanceReplayLibraryPicker = useCallback((targetMediaKind?: SeedanceReplayMediaKind | null) => {
     const nextIntent = getSeedanceReplayLibraryIntent(targetMediaKind);
@@ -7508,15 +7549,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
 
             <div className="flex-1 min-w-0">
-              <div className="text-[12px] font-black tracking-wide text-zinc-200 truncate">{opt.title}</div>
-              <div
-                  className={
-                    language === 'zh'
-                        ? 'mt-1 text-[9px] font-medium text-zinc-400 truncate'
-                        : 'mt-1 text-[8px] font-medium text-zinc-400 whitespace-normal break-words leading-snug'
-                  }
-              >
-                {opt.desc}
+              <div className="flex items-center gap-1.5">
+                <div className="text-[13px] font-black tracking-wide text-zinc-200 truncate">{opt.title}</div>
+                <span className="relative inline-flex items-center group/model-tip shrink-0">
+                  <Info className="h-3.5 w-3.5 text-zinc-500" />
+                  <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 w-52 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[11px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/model-tip:opacity-100">
+                    {opt.desc}
+                  </span>
+                </span>
               </div>
             </div>
             {locked ? (
@@ -7635,7 +7675,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className={language === 'vi' ? 'flex items-center gap-1.5' : 'flex items-center gap-2'}>
-                      <div className="text-[12px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div>
+                      <div className="text-[13px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div>
+                      <span className="relative inline-flex items-center group/replay-tip shrink-0">
+                        <Info className="h-3.5 w-3.5 text-zinc-500" />
+                        <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 w-60 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[11px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/replay-tip:opacity-100">
+                          <span className="block">{t.wb_recommend_engine_desc}</span>
+                          <span className="mt-1 block text-zinc-300">{t.wb_replay_seedance_only}</span>
+                        </span>
+                      </span>
                       <span
                           className={[
                             'rounded-full font-black bg-emerald-500 text-black whitespace-nowrap shrink-0',
@@ -7644,15 +7691,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       >
                     {t.wb_engine_dedicated}
                   </span>
-                    </div>
-                    <div
-                        className={
-                          language === 'zh'
-                              ? 'mt-1 text-[9px] font-medium text-zinc-400 truncate'
-                              : 'mt-1 text-[8px] font-medium text-zinc-400 whitespace-normal break-words leading-snug'
-                        }
-                    >
-                      {t.wb_recommend_engine_desc}
                     </div>
                   </div>
                   <div className="flex flex-col items-center gap-2 shrink-0">
@@ -7668,12 +7706,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
                 </div>
 
-                <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 flex items-start gap-2">
-                  <Info className="w-3 h-3 text-zinc-400 mt-0.5 shrink-0" />
-                  <div className="text-[10px] font-normal text-zinc-400 leading-relaxed">
-                    {t.wb_replay_seedance_only}
-                  </div>
-                </div>
               </div>
               )}
               </div>
@@ -8142,24 +8174,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       onClick={() => handleKlingGenerateModeChange('first_frame')}
                       className={`relative overflow-visible rounded-xl border px-3 py-2 text-left transition hover:z-20 ${klingGenerateMode === 'first_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
-                    <div className="flex items-center gap-1 text-[11px] font-bold">
+                    <div className="flex items-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_first_frame}</span>
                       <span className="relative z-10 inline-flex items-center group/info hover:z-20">
                         <Info className="h-3 w-3 text-zinc-400" />
                         <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 ml-6 w-40 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
                           <span className="block">{t.wb_material_requirement_title}</span>
                           <span className="block">{t.wb_kling_first_frame_requirement}</span>
+                          <span className="mt-1 block text-zinc-300">{t.wb_kling_first_frame_desc}</span>
                         </span>
                       </span>
                     </div>
-                    <div className="mt-1 text-[10px] text-zinc-400">{t.wb_kling_first_frame_desc}</div>
                   </button>
                   <button
                       type="button"
                       onClick={() => handleKlingGenerateModeChange('subject')}
                       className={`relative overflow-visible rounded-xl border px-3 py-2 text-left transition hover:z-20 ${klingGenerateMode === 'subject' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
-                    <div className="flex items-center gap-1 text-[11px] font-bold">
+                    <div className="flex items-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_subject}</span>
                       <span className="relative z-10 inline-flex items-center group/info hover:z-20">
                         <Info className="h-3 w-3 text-zinc-400" />
@@ -8167,27 +8199,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           <span className="block">{t.wb_material_requirement_title}</span>
                           <span className="block">{t.wb_kling_subject_requirement}</span>
                           <span className="mt-1 block text-zinc-300">{t.wb_kling_subject_requirement_note}</span>
+                          <span className="mt-1 block text-zinc-300">{t.wb_kling_subject_desc}</span>
                         </span>
                       </span>
                     </div>
-                    <div className="mt-1 text-[10px] text-zinc-400">{t.wb_kling_subject_desc}</div>
                   </button>
                   <button
                       type="button"
                       onClick={() => handleKlingGenerateModeChange('first_last_frame')}
                       className={`relative overflow-visible rounded-xl border px-3 py-2 text-left transition hover:z-20 ${klingGenerateMode === 'first_last_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
-                    <div className="flex items-center gap-1 text-[11px] font-bold">
+                    <div className="flex items-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_first_last_frame || 'First + Last Frame Mode'}</span>
                       <span className="relative z-10 inline-flex items-center group/info hover:z-20">
                         <Info className="h-3 w-3 text-zinc-400" />
                         <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 ml-6 w-44 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
                           <span className="block">{t.wb_material_requirement_title}</span>
                           <span className="block">{t.wb_kling_first_last_frame_requirement || '1 first-frame image + 1 tail-frame image + 0-6 reference images'}</span>
+                          <span className="mt-1 block text-zinc-300">{t.wb_kling_first_last_frame_desc || 'Constrain the beginning and ending of the video with first and last keyframes'}</span>
                         </span>
                       </span>
                     </div>
-                    <div className="mt-1 text-[10px] text-zinc-400">{t.wb_kling_first_last_frame_desc || 'Constrain the beginning and ending of the video with first and last keyframes'}</div>
                   </button>
                 </div>
             )}
@@ -8528,17 +8560,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
               )}
             </div>
-          <div className={`grid gap-2  'grid-cols-2'`}>
-            <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  fileInputRef.current?.click();
-                }}
-                className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
-            >
-              {t.wb_btn_upload_local_asset || '从本地上传素材'}
-            </button>
+          <div className={`grid gap-2 grid-cols-1`}>
             <button
                 type="button"
                 onClick={(e) => {
@@ -9681,6 +9703,46 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </AppDialog>
         )}
 
+        {isScriptGridDialogOpen && (
+            <AppDialog
+                isOpen={isScriptGridDialogOpen}
+                title={t.wb_script_grid_title || 'Script Variants'}
+                onClose={() => setIsScriptGridDialogOpen(false)}
+                widthClassName="max-w-[min(92vw,980px)]"
+            >
+              <div className="max-h-[68vh] overflow-y-auto custom-scroll pr-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {scriptPages.map((page, index) => {
+                    const active = index === activeScriptPage;
+                    const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim()
+                      || (t.wb_script_grid_card_empty || 'No script content yet');
+                    return (
+                      <button
+                          key={page.id}
+                          type="button"
+                          onClick={() => {
+                            handleScriptPageChange(index);
+                            setIsScriptGridDialogOpen(false);
+                          }}
+                          className={`rounded-xl border px-3 py-3 text-left transition ${active ? 'border-orange-500/70 bg-orange-500/10' : 'border-white/10 bg-black/25 hover:border-orange-500/35 hover:bg-white/5'}`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`text-sm font-bold ${active ? 'text-orange-200' : 'text-zinc-100'}`}>{page.name}</span>
+                          <span className={`text-[10px] ${active ? 'text-orange-300' : 'text-zinc-500'}`}>
+                            {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
+                          </span>
+                        </div>
+                        <div className={`mt-2 text-xs leading-5 min-h-[3.2rem] ${active ? 'text-orange-100/90' : 'text-zinc-400'}`}>
+                          {previewText}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </AppDialog>
+        )}
+
         {isAiOptimizeOpen && (
             <AppDialog
                 isOpen={isAiOptimizeOpen}
@@ -9695,16 +9757,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     >
                       {t.wb_confirm_cancel}
                     </button>
-                    <button
-                        type="button"
-                        onClick={() => void handleGenerateOptimizedImages()}
-                        disabled={isAiOptimizeGenerating}
-                        className={`px-4 py-2 rounded-lg text-sm font-bold text-white transition ${isAiOptimizeGenerating ? 'bg-orange-500/70 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600'}`}
-                    >
-                      {isAiOptimizeGenerating
-                        ? (t.wb_ai_opt_generating || '生成中...')
-                        : (t.wb_ai_opt_generate_btn || '生成优化图')}
-                    </button>
+                    <div className="relative group/cost-image">
+                      <button
+                          type="button"
+                          onClick={() => void handleGenerateOptimizedImages()}
+                          disabled={isAiOptimizeGenerating}
+                          className={`px-4 py-2 rounded-lg text-sm font-bold text-white transition ${isAiOptimizeGenerating ? 'bg-orange-500/70 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600'}`}
+                      >
+                        {isAiOptimizeGenerating
+                          ? (t.wb_ai_opt_generating || '生成中...')
+                          : (t.wb_ai_opt_generate_btn || '生成优化图')}
+                      </button>
+                      <span className="pointer-events-none absolute bottom-full right-0 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/cost-image:opacity-100">
+                        {t.wb_cost_tip_generate_image || '生成图片会消耗点数，具体以实际扣费为准。'}
+                      </span>
+                    </div>
                   </>
                 }
             >
@@ -9770,16 +9837,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_prompt_label || '提示词脚本'}</label>
-                    <button
-                        type="button"
-                        onClick={() => void handleBuildAiOptimizePromptScript()}
-                        disabled={isAiOptimizePromptGenerating}
-                        className={`text-[11px] px-2 py-1 rounded border transition ${isAiOptimizePromptGenerating ? 'border-orange-500/30 bg-orange-500/5 text-orange-200/70 cursor-not-allowed' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
-                    >
-                      {isAiOptimizePromptGenerating
-                        ? (t.wb_ai_opt_prompt_generating || '生成中...')
-                        : (t.wb_ai_opt_build_prompt_btn || '生成提示词脚本')}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                          type="button"
+                          onClick={() => void handleBuildAiOptimizePromptScript()}
+                          disabled={isAiOptimizePromptGenerating}
+                          className={`text-[11px] px-2 py-1 rounded border transition ${isAiOptimizePromptGenerating ? 'border-orange-500/30 bg-orange-500/5 text-orange-200/70 cursor-not-allowed' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+                      >
+                        {isAiOptimizePromptGenerating
+                          ? (t.wb_ai_opt_prompt_generating || '生成中...')
+                          : (t.wb_ai_opt_build_prompt_btn || '生成提示词脚本')}
+                      </button>
+                      <button
+                          type="button"
+                          onClick={() => void handleSaveAiOptimizePromptToLibrary()}
+                          disabled={isAiOptimizePromptSaving}
+                          className={`text-[11px] px-2 py-1 rounded border transition ${isAiOptimizePromptSaving ? 'border-sky-500/25 bg-sky-500/5 text-sky-200/70 cursor-not-allowed' : 'border-sky-500/55 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20'}`}
+                      >
+                        {isAiOptimizePromptSaving
+                          ? (t.assets_saving_description || '保存中...')
+                          : (t.wb_ai_opt_save_prompt_btn || '保存进素材库')}
+                      </button>
+                    </div>
                   </div>
                   <textarea
                       value={aiOptimizePrompt}
@@ -10113,7 +10192,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             {isScriptDropActive && (
               <div className="pointer-events-none absolute inset-0 z-[12] rounded-xl border-2 border-dashed border-sky-400/70 bg-sky-500/10" />
             )}
-            <div className="flex justify-between items-center shrink-0 h-[32px]">
+            <div className="flex justify-between items-center shrink-0 min-h-[32px] gap-3">
               <div className="flex items-center gap-3">
                 <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
                 <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{currentScriptDuration.toFixed(1)}s / {genDuration}s</div>
@@ -10146,33 +10225,59 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   />
                 </div>
               </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                    onClick={() => handleScriptPageChange(activeScriptPage - 1)}
-                    disabled={scriptPages.length <= 1 || activeScriptPage === 0}
-                    className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
-                >
-                  <ArrowLeft className="w-3 h-3" />
-                </button>
-
-                <div className="text-[10px] text-zinc-400 border border-white/10 px-2 py-0.5 rounded">
-                  {t.wb_script_page_prefix} {activeScriptPage + 1} / {Math.max(scriptPages.length, 1)}
-                </div>
-
-                <button
-                    onClick={() => handleScriptPageChange(activeScriptPage + 1)}
-                    disabled={scriptPages.length <= 1 || activeScriptPage === scriptPages.length - 1}
-                    className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === scriptPages.length - 1 ? 'opacity-40 cursor-not-allowed' : ''}`}
-                >
-                  <ArrowRight className="w-3 h-3" />
-                </button>
-              </div>
               <div className="flex items-center gap-2">
-                <button onClick={handleGenerateVideo} disabled={isGenerating} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
-                  {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}{isGenerating ? t.wb_generating : t.wb_btn_gen_video}
-                </button>
+                <div className="relative group/cost-video">
+                  <button onClick={handleGenerateVideo} disabled={isGenerating} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
+                    {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}{isGenerating ? t.wb_generating : t.wb_btn_gen_video}
+                  </button>
+                  <span className="pointer-events-none absolute bottom-full right-0 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/cost-video:opacity-100">
+                    {t.wb_cost_tip_generate_video || '生成视频会消耗点数，具体以实际扣费为准。'}
+                  </span>
+                </div>
               </div>
             </div>
+
+            {scriptPages.length > 0 && (
+              <div className="shrink-0 rounded-xl border border-white/10 bg-black/20 p-2.5">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                    {t.wb_script_grid_title || 'Script Variants'}
+                  </div>
+                  <button
+                      type="button"
+                      onClick={() => setIsScriptGridDialogOpen(true)}
+                      className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5 transition"
+                  >
+                    {(t.wb_script_grid_open_more || 'View More')} ({scriptPages.length})
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {scriptPages.slice(0, 6).map((page, index) => {
+                    const active = index === activeScriptPage;
+                    const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim()
+                      || (t.wb_script_grid_card_empty || 'No script content yet');
+                    return (
+                      <button
+                          key={page.id}
+                          type="button"
+                          onClick={() => handleScriptPageChange(index)}
+                          className={`rounded-lg border px-2.5 py-2 text-left transition ${active ? 'border-orange-500/70 bg-orange-500/10' : 'border-white/10 bg-black/30 hover:border-white/25 hover:bg-white/5'}`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`text-[11px] font-bold ${active ? 'text-orange-200' : 'text-zinc-200'}`}>{page.name}</span>
+                          <span className={`text-[9px] ${active ? 'text-orange-300' : 'text-zinc-500'}`}>
+                            {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
+                          </span>
+                        </div>
+                        <div className={`mt-1 text-[10px] leading-4 h-8 overflow-hidden ${active ? 'text-orange-100/85' : 'text-zinc-400'}`}>
+                          {previewText}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
               {activeScriptPlan && (

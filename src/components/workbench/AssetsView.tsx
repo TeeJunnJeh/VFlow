@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
-  FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil, Search, Heart, Download, Library, Globe, Info, Settings, Eye, EyeOff, Layers3, Plus, Sparkles, AlertCircle
+  FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil, Search, Heart, Download, Library, Globe, Info, Settings, Eye, EyeOff, Layers3, Plus, Sparkles, AlertCircle, FileText
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext'
@@ -16,7 +16,8 @@ import {
 } from '../../utils/workbenchProjectStore';
 import { addTransferStationItems } from '../../utils/workbenchTransferStation';
 
-type AssetType = 'model' | 'product' | 'scene' | 'motion' | 'audio';
+type AssetType = 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script';
+type PlazaCategory = 'model' | 'product' | 'scene' | 'motion' | 'audio';
 type AssetsNavigationIntent =
   | 'open_assets_for_subject_creation'
   | 'open_assets_for_subject_creation_first_time'
@@ -60,10 +61,12 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
   const VIDEO_EXTS = ['mp4', 'mov', 'mkv', 'webm', 'avi'];
   const AUDIO_EXTS = ['mp3', 'wav', 'flac'];
+  const DOC_EXTS = ['txt', 'md', 'json'];
   const imageFormats = IMAGE_EXTS.join('/');
   const videoFormats = VIDEO_EXTS.join('/');
   const audioFormats = AUDIO_EXTS.join('/');
-  const formatHint = `${t.wb_upload_image}: ${imageFormats}\n${t.wb_upload_video}: ${videoFormats}\n${t.wb_upload_audio}: ${audioFormats}\n${t.wb_upload_max_size}`;
+  const docFormats = DOC_EXTS.join('/');
+  const formatHint = `${t.wb_upload_image}: ${imageFormats}\n${t.wb_upload_video}: ${videoFormats}\n${t.wb_upload_audio}: ${audioFormats}\n${t.assets_tab_scripts || '脚本'}: ${docFormats}\n${t.wb_upload_max_size}`;
 
   const validateUploadFile = (file: File) => {
     if (file.size > MAX_UPLOAD_BYTES) return `${t.assets_upload_error_too_large}: ${file.name} (>1GB)`;
@@ -71,7 +74,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     const isImage = file.type.startsWith('image/') || IMAGE_EXTS.includes(ext);
     const isVideo = file.type.startsWith('video/') || VIDEO_EXTS.includes(ext);
     const isAudio = file.type.startsWith('audio/') || AUDIO_EXTS.includes(ext);
-    if (!isImage && !isVideo && !isAudio) return `${t.assets_upload_error_unsupported}: ${file.name}`;
+    const isDocument = file.type.startsWith('text/') || file.type === 'application/json' || DOC_EXTS.includes(ext);
+    if (activeAssetTab === 'script' && !isDocument) return `${t.assets_upload_error_unsupported}: ${file.name}`;
+    if (activeAssetTab !== 'script' && !isImage && !isVideo && !isAudio) return `${t.assets_upload_error_unsupported}: ${file.name}`;
     return null;
   };
   const getFileExtension = (name: string) => name.split('.').pop()?.toLowerCase() || '';
@@ -159,7 +164,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     product: t.assets_tab_products,
     scene: t.assets_tab_scenes,
     motion: t.assets_tab_motion,
-    audio: t.assets_tab_audio || '音频'
+    audio: t.assets_tab_audio || '音频',
+    script: t.assets_tab_scripts || '脚本'
   };
   const [themeClassSnapshot, setThemeClassSnapshot] = useState<string>('');
   useEffect(() => {
@@ -175,7 +181,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const isDimTheme = themeClassSnapshot.includes('theme-dim');
 
   const [viewMode, setViewMode] = useState<'library' | 'plaza'>('library');
-  
+
   // Data State
   const [assetList, setAssetList] = useState<Asset[]>([]);
   const [folderList, setFolderList] = useState<AssetFolder[]>([]);
@@ -184,6 +190,13 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [folderBreadcrumb, setFolderBreadcrumb] = useState<AssetFolder[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeAssetTab, setActiveAssetTab] = useState<AssetType>('product');
+
+  useEffect(() => {
+    if (viewMode === 'plaza' && activeAssetTab === 'script') {
+      setActiveAssetTab('product');
+    }
+  }, [activeAssetTab, viewMode]);
+
   const [isUploading, setIsUploading] = useState(false);
   const [isDragUploadActive, setIsDragUploadActive] = useState(false);
   const [plazaItems, setPlazaItems] = useState<PlazaAssetItem[]>([]);
@@ -200,7 +213,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [plazaDetailItem, setPlazaDetailItem] = useState<PlazaAssetItem | null>(null);
   const [plazaManageItem, setPlazaManageItem] = useState<PlazaAssetItem | null>(null);
   const [plazaManageName, setPlazaManageName] = useState('');
-  const [plazaManageCategory, setPlazaManageCategory] = useState<AssetType>('product');
+  const [plazaManageCategory, setPlazaManageCategory] = useState<PlazaCategory>('product');
   const [plazaManageKeywords, setPlazaManageKeywords] = useState('');
   const [isPlazaManaging, setIsPlazaManaging] = useState(false);
   const plazaUploadInputRef = useRef<HTMLInputElement>(null);
@@ -318,6 +331,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     if (!applyWorkbenchAsset) return;
 
     const mediaKind = applyWorkbenchAsset.media_kind || 'image';
+    const transferMediaKind = mediaKind === 'document' ? 'file' : mediaKind;
     const mappedType: Asset['type'] =
       applyWorkbenchAsset.type === 'model' ||
       applyWorkbenchAsset.type === 'product' ||
@@ -325,14 +339,14 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       applyWorkbenchAsset.type === 'motion' ||
       applyWorkbenchAsset.type === 'audio'
         ? applyWorkbenchAsset.type
-        : (mediaKind === 'video' ? 'motion' : mediaKind === 'audio' ? 'audio' : 'product');
+        : (transferMediaKind === 'video' ? 'motion' : transferMediaKind === 'audio' ? 'audio' : 'product');
 
     const result = addTransferStationItems([
       {
         assetId: applyWorkbenchAsset.id,
         name: applyWorkbenchAsset.name,
         fileUrl: applyWorkbenchAsset.file_url,
-        mediaKind,
+        mediaKind: transferMediaKind,
         type: mappedType,
         source: 'assets',
       },
@@ -629,7 +643,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     setPlazaLoading(true);
     try {
       const resp = await assetsApi.getPlazaAssets({
-        category: activeAssetTab,
+        category: activeAssetTab === 'script' ? 'product' : activeAssetTab,
         source: plazaSource,
         q: plazaSearch.trim(),
         limit: 120,
@@ -872,7 +886,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const openPlazaManage = (item: PlazaAssetItem) => {
     setPlazaManageItem(item);
     setPlazaManageName(item.display_name || '');
-    setPlazaManageCategory((item.category || 'product') as AssetType);
+    setPlazaManageCategory((item.category || 'product') as PlazaCategory);
     setPlazaManageKeywords(item.keywords || '');
   };
 
@@ -951,7 +965,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     try {
       await Promise.all(list.map((file) => assetsApi.uploadPlazaAsset({
         file,
-        category: activeAssetTab,
+        category: activeAssetTab === 'script' ? 'product' : activeAssetTab,
         keywords: plazaKeywordDraft,
       })));
       setPlazaKeywordDraft('');
@@ -1721,7 +1735,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                      <div className="whitespace-pre-line text-zinc-300 leading-relaxed">{formatHint}</div>
                    </div>
                  </div>
-                 <input type="file" ref={assetInputRef} className="hidden" multiple accept="image/*,video/*,audio/*" onChange={handleAssetUpload} />
+                <input type="file" ref={assetInputRef} className="hidden" multiple accept="image/*,video/*,audio/*,.txt,.md,.json,text/plain,application/json" onChange={handleAssetUpload} />
                </>
              ) : (
                <>
@@ -1762,7 +1776,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
        <div className="flex-1 flex flex-col px-10 pt-4 pb-10 overflow-hidden">
          {/* Tabs */}
          <div className="flex gap-4 mb-8 border-b border-white/5 pb-2">
-             {(['model', 'product', 'scene', 'motion', 'audio'] as AssetType[]).map(type => (
+             {((viewMode === 'library'
+               ? ['model', 'product', 'scene', 'motion', 'audio', 'script']
+               : ['model', 'product', 'scene', 'motion', 'audio']) as AssetType[]).map(type => (
                 <button
                   key={type}
                   onClick={() => {
@@ -2032,6 +2048,11 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                                 playsInline
                                 preload="metadata"
                               />
+                            ) : asset.media_kind === 'document' ? (
+                              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-zinc-900/90 text-zinc-200 px-3 text-center">
+                                <FileText className="w-7 h-7 text-sky-300" />
+                                <div className="text-[11px] font-bold truncate w-full">{asset.name}</div>
+                              </div>
                             ) : asset.file_url ? (
                               <img
                                 src={getDisplayUrl(asset.thumbnail || asset.file_url) || ASSET_PLACEHOLDER_DATA_URL}
@@ -2114,7 +2135,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                             {/* Hover actions (under info bar) */}
                             {!isSelectionMode && (
                               <div className="absolute inset-0 z-10 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-xl flex flex-col items-center justify-center gap-2 py-4 px-2">
-                                <button onClick={(e) => { e.stopPropagation(); openApplyWorkbenchDialog(asset); }} className="w-full bg-white text-black py-2 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition shadow-lg">{t.assets_use_in_workbench}</button>
+                                {asset.type !== 'script' && (
+                                  <button onClick={(e) => { e.stopPropagation(); openApplyWorkbenchDialog(asset); }} className="w-full bg-white text-black py-2 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition shadow-lg">{t.assets_use_in_workbench}</button>
+                                )}
                                 <div className="flex w-full gap-2">
                                   <button onClick={(e) => { e.stopPropagation(); openSingleMoveDialog(asset); }} className="flex-1 bg-zinc-700 text-white py-2 rounded-lg text-xs font-bold hover:bg-zinc-600 transition">{t.assets_move_asset}</button>
                                   <button onClick={(e) => { e.stopPropagation(); openConfirmModal({ title: t.assets_confirm_delete_asset, message: `${asset.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => deleteAssetById(asset.id) }); }} className="flex-1 bg-zinc-800 text-red-400 py-2 rounded-lg text-xs font-bold hover:bg-red-500 hover:text-white transition">{t.assets_delete}</button>
@@ -2371,6 +2394,19 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                        loop
                        playsInline
                      />
+                   ) : assetPreview.media_kind === 'document' ? (
+                     <div className="w-full max-w-xl rounded-xl border border-white/10 bg-black/20 p-6 text-center">
+                       <FileText className="mx-auto w-9 h-9 text-sky-300" />
+                       <div className="mt-3 text-sm text-zinc-200 break-words">{assetPreview.name}</div>
+                       <a
+                         href={getDisplayUrl(assetPreview.file_url) || undefined}
+                         target="_blank"
+                         rel="noreferrer"
+                         className="mt-4 inline-flex items-center rounded-lg border border-sky-500/50 bg-sky-500/10 px-3 py-1.5 text-xs font-bold text-sky-200 hover:bg-sky-500/20"
+                       >
+                         {t.assets_preview_title || 'Preview'}
+                       </a>
+                     </div>
                    ) : (
                      <img
                        src={getDisplayUrl(assetPreview.file_url) || ASSET_PLACEHOLDER_DATA_URL}
@@ -2558,6 +2594,19 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       loop
                       playsInline
                     />
+                  ) : assetPreview.media_kind === 'document' ? (
+                    <div className="w-full max-w-xl rounded-xl border border-white/10 bg-black/20 p-6 text-center">
+                      <FileText className="mx-auto w-9 h-9 text-sky-300" />
+                      <div className="mt-3 text-sm text-zinc-200 break-words">{assetPreview.name}</div>
+                      <a
+                        href={getDisplayUrl(assetPreview.file_url) || undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-4 inline-flex items-center rounded-lg border border-sky-500/50 bg-sky-500/10 px-3 py-1.5 text-xs font-bold text-sky-200 hover:bg-sky-500/20"
+                      >
+                        {t.assets_preview_title || 'Preview'}
+                      </a>
+                    </div>
                   ) : (
                     <img
                       src={getDisplayUrl(assetPreview.file_url) || ASSET_PLACEHOLDER_DATA_URL}
@@ -2802,10 +2851,10 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                 />
                 <select
                   value={plazaManageCategory}
-                  onChange={(e) => setPlazaManageCategory(e.target.value as AssetType)}
+                  onChange={(e) => setPlazaManageCategory(e.target.value as PlazaCategory)}
                   className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-orange-500"
                 >
-                  {(['model', 'product', 'scene', 'motion', 'audio'] as AssetType[]).map((cat) => (
+                  {(['model', 'product', 'scene', 'motion', 'audio'] as PlazaCategory[]).map((cat) => (
                     <option key={cat} value={cat}>{assetTabLabel[cat] || cat}</option>
                   ))}
                 </select>

@@ -15,6 +15,9 @@ const API_BASE_URL = '/api/assets';
 // In development, keep it empty so Vite's `/media` proxy works.
 const MEDIA_BASE_URL = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
 
+export type LibraryAssetType = 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script';
+export type LibraryMediaKind = 'image' | 'video' | 'audio' | 'document' | 'file';
+
 function toDisplayUrl(pathOrUrl: string | null | undefined): string {
   if (!pathOrUrl) return '';
   const raw = String(pathOrUrl).trim();
@@ -35,10 +38,10 @@ function toDisplayUrl(pathOrUrl: string | null | undefined): string {
 export interface Asset {
   id: string;
   name: string;
-  type: 'model' | 'product' | 'scene' | 'motion' | 'audio';
+  type: LibraryAssetType;
   file_url: string;
   thumbnail?: string;
-  media_kind?: 'image' | 'video' | 'audio' | 'file';
+  media_kind?: LibraryMediaKind;
   size: string;
   status: 'ready' | 'processing' | 'failed';
   created_at: string;
@@ -68,7 +71,7 @@ export interface AssetFolder {
   id: string;
   name: string;
   parent_id: string | null;
-  asset_type: 'model' | 'product' | 'scene' | 'motion' | 'audio';
+  asset_type: LibraryAssetType;
   created_at?: string;
 }
 
@@ -100,7 +103,7 @@ export interface PlazaCollectPolicy {
 
 export const assetsApi = {
   // 1. GET List
-  getAssets: async (params?: { type?: 'model' | 'product' | 'scene' | 'motion' | 'audio'; folderId?: string | null }): Promise<Asset[]> => {
+  getAssets: async (params?: { type?: LibraryAssetType; folderId?: string | null }): Promise<Asset[]> => {
     try {
       return traceApiRequest({
         metricName: 'assets_list',
@@ -160,12 +163,13 @@ export const assetsApi = {
             let mediaKind: Asset['media_kind'] = 'file';
             if (lowerType === 'motion' || /\.(mp4|mov|mkv|webm|avi)$/.test(rawPathLower)) mediaKind = 'video';
             else if (lowerType === 'audio' || /\.(mp3|wav|flac)$/.test(rawPathLower)) mediaKind = 'audio';
+            else if (lowerType === 'script' || /\.(txt|md|json|csv)$/.test(rawPathLower)) mediaKind = 'document';
             else if (/\.(jpg|jpeg|png|webp|gif)$/.test(rawPathLower)) mediaKind = 'image';
 
             return {
               id: item.id.toString(),
               name: item.display_name,
-              type: item.type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion' | 'audio',
+              type: item.type.toLowerCase() as LibraryAssetType,
               file_url: fullUrl,
               thumbnail: thumbnailUrl || undefined,
               media_kind: mediaKind,
@@ -333,7 +337,7 @@ export const assetsApi = {
   },
 
   // 5. FOLDERS
-  getFolders: async (params: { type: 'model' | 'product' | 'scene' | 'motion' | 'audio'; parentId: string | null }) => {
+  getFolders: async (params: { type: LibraryAssetType; parentId: string | null }) => {
     const search = new URLSearchParams();
     search.set('type', params.type.toUpperCase());
     search.set('parent_id', params.parentId ?? '');
@@ -356,19 +360,19 @@ export const assetsApi = {
         id: item.id.toString(),
         name: item.name,
         parent_id: item.parent_id ? item.parent_id.toString() : null,
-        asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion' | 'audio',
+        asset_type: item.asset_type.toLowerCase() as LibraryAssetType,
         created_at: item.created_at
       })),
       breadcrumb: breadcrumb.map(item => ({
         id: item.id.toString(),
         name: item.name,
         parent_id: item.parent_id ? item.parent_id.toString() : null,
-        asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion' | 'audio'
+        asset_type: item.asset_type.toLowerCase() as LibraryAssetType
       }))
     };
   },
 
-  getAllFolders: async (type: 'model' | 'product' | 'scene' | 'motion' | 'audio') => {
+  getAllFolders: async (type: LibraryAssetType) => {
     const search = new URLSearchParams();
     search.set('type', type.toUpperCase());
     search.set('all', '1');
@@ -389,12 +393,12 @@ export const assetsApi = {
       id: item.id.toString(),
       name: item.name,
       parent_id: item.parent_id ? item.parent_id.toString() : null,
-      asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion' | 'audio',
+      asset_type: item.asset_type.toLowerCase() as LibraryAssetType,
       created_at: item.created_at
     })) as AssetFolder[];
   },
 
-  createFolder: async (name: string, type: 'model' | 'product' | 'scene' | 'motion' | 'audio', parentId: string | null) => {
+  createFolder: async (name: string, type: LibraryAssetType, parentId: string | null) => {
     const csrftoken = getCookie('csrftoken');
     const response = await fetch(`${API_BASE_URL}/folders/`, {
       method: 'POST',

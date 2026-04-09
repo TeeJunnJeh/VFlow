@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download, FileDown, ChevronLeft, ChevronRight, LayoutGrid } from 'lucide-react';
+import { ChevronDown, Eye, Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download, FileDown, ChevronLeft, ChevronRight, LayoutGrid } from 'lucide-react';
 import type { ViewType } from './types';
 import { useLanguage } from '../../context/LanguageContext';
-import { DropdownSelect } from '../common/DropdownSelect';
+import { DropdownSelect, type DropdownSelectOption } from '../common/DropdownSelect';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { FirstFrameView, SmartRepairView } from '../productImages';
 import { AppDialog } from '../common/AppDialog';
@@ -71,6 +71,7 @@ type GalleryHistoryItem = {
   createdAt: string;
   images: string[];
   settings?: GalleryHistorySettings;
+  metadata?: Record<string, any>;
 };
 
 type GalleryCopyLanguageLabelKey = 'lang_en' | 'lang_zh' | 'lang_es' | 'lang_ja' | 'lang_ko' | 'lang_ms' | 'lang_vi' | 'lang_id';
@@ -134,10 +135,50 @@ const GALLERY_SCENE_PRESETS: Array<GallerySceneConfig & { id: string; name: stri
   },
 ];
 
+const formatGalleryPreviewDatetime = (raw: string) => {
+  const value = String(raw || '').trim();
+  if (!value || value === '-') return '-';
+
+  const direct = value.match(/^(\d{4})[-/](\d{2})[-/](\d{2})\s+(\d{2}):(\d{2})/);
+  if (direct) {
+    const [, y, m, d, hh, mm] = direct;
+    return `${y}-${m}-${d} ${hh}:${mm}`;
+  }
+
+  const numeric = value.match(/^\d{10,13}$/);
+  const date = numeric
+    ? new Date(Number(value) * (value.length === 10 ? 1000 : 1))
+    : new Date(value);
+
+  if (!Number.isFinite(date.getTime())) return value;
+
+  const pad2 = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+};
+
+const getGalleryPreviewAspectClass = (ratio: string) => {
+  const cleaned = String(ratio || '').trim();
+  const map: Record<string, string> = {
+    '21:9': 'aspect-[21/9]',
+    '16:9': 'aspect-video',
+    '4:3': 'aspect-[4/3]',
+    '3:2': 'aspect-[3/2]',
+    '1:1': 'aspect-square',
+    '9:16': 'aspect-[9/16]',
+    '3:4': 'aspect-[3/4]',
+    '2:3': 'aspect-[2/3]',
+    '5:4': 'aspect-[5/4]',
+    '4:5': 'aspect-[4/5]',
+    default: 'aspect-square',
+  };
+  return map[cleaned] || 'aspect-square';
+};
+
 const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setActiveView }) => {
   const { language, t } = useLanguage();
   const isZh = language === 'zh';
   const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
+  const tx = (key: string, fallback: string) => ((t as any)[key] as string) || fallback;
   const isProductView =
     activeView === 'product_images_clothing_swap' ||
     activeView === 'product_images_first_frame' ||
@@ -149,6 +190,52 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const panelClassName = (view: ViewType) => (currentValue === view ? 'block' : 'hidden');
   const [firstFrameHeaderActionsContainer, setFirstFrameHeaderActionsContainer] = useState<HTMLDivElement | null>(null);
 
+  const productToolOptions = useMemo<DropdownSelectOption[]>(
+    () => [
+      {
+        value: 'product_images_clothing_swap',
+        label: tx('wb_nav_product_clothing_swap', tr('AI 换装', 'AI Clothing Swap')),
+      },
+      {
+        value: 'product_images_first_frame',
+        label: tx('wb_nav_product_first_frame', tr('AI 首帧图', 'AI First Frame')),
+      },
+      {
+        value: 'product_images_smart_repair',
+        label: tx('wb_nav_product_smart_repair', tr('AI 智能修复', 'AI Smart Repair')),
+      },
+      {
+        value: 'product_images_gallery',
+        label: tx('wb_nav_product_gallery', tr('AI 商品套图', 'AI Product Gallery')),
+      },
+      {
+        value: 'product_images_text_separation',
+        label: tr('文本分离', 'Text Separation'),
+      },
+    ],
+    [t, isZh]
+  );
+
+  const [isProductToolMenuOpen, setIsProductToolMenuOpen] = useState(false);
+  const productToolMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isProductToolMenuOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (productToolMenuRef.current && !productToolMenuRef.current.contains(event.target as Node)) {
+        setIsProductToolMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isProductToolMenuOpen]);
+
+  useEffect(() => {
+    setIsProductToolMenuOpen(false);
+  }, [currentValue]);
+
   const currentHeader = useMemo(() => {
     switch (currentValue) {
       case 'product_images_clothing_swap':
@@ -158,7 +245,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         };
       case 'product_images_smart_repair':
         return {
-          title: tr('AI智能修复', 'AI Smart Repair'),
+          title: tr('AI 智能修复', 'AI Smart Repair'),
           subtitle: tr('基于三类能力中心进行可扩展的智能修图', 'Extensible smart-retouch workspace with three capability groups'),
         };
       case 'product_images_gallery':
@@ -200,6 +287,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     poster: { enabled: false, count: 4 },
   });
   const [galleryAspectRatio, setGalleryAspectRatio] = useState<string>('1:1');
+  const galleryPreviewAspectClass = useMemo(() => getGalleryPreviewAspectClass(galleryAspectRatio), [galleryAspectRatio]);
   const [galleryResolution, setGalleryResolution] = useState<'1k' | '2k' | '4k'>('1k');
   const [galleryCopyLanguage, setGalleryCopyLanguage] = useState<string>(() => {
     const defaultLang = language === 'zh' || language === 'ms' || language === 'vi' || language === 'ko' ? language : 'en';
@@ -239,6 +327,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       status: 'created' | 'processing' | 'succeeded' | 'failed';
       imageUrl?: string;
       error?: string;
+      outputType?: string;
+      createdAt?: string;
       layout?: any;
     }>
   >([]);
@@ -331,6 +421,18 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [isGalleryPreviewDownloading, setIsGalleryPreviewDownloading] = useState(false);
   const [isGalleryPreviewExportingPdf, setIsGalleryPreviewExportingPdf] = useState(false);
   const [galleryPreviewSource, setGalleryPreviewSource] = useState<GalleryPreviewSource>(null);
+  const [galleryToastMessage, setGalleryToastMessage] = useState<string | null>(null);
+  const [galleryPreviewResolution, setGalleryPreviewResolution] = useState<{ w: number; h: number } | null>(null);
+
+  useEffect(() => {
+    if (!galleryToastMessage) return;
+    const timer = window.setTimeout(() => setGalleryToastMessage(null), 2200);
+    return () => window.clearTimeout(timer);
+  }, [galleryToastMessage]);
+
+  useEffect(() => {
+    setGalleryPreviewResolution(null);
+  }, [galleryPreviewImageUrl]);
 
   const [galleryInpaint, setGalleryInpaint] = useState<{
     open: boolean;
@@ -453,6 +555,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     try {
       const blob = await productImagesApi.downloadImageByUrl(galleryPreviewImageUrl);
       downloadBlob(blob, buildGalleryPreviewFilename(galleryPreviewImageUrl));
+      setGalleryToastMessage(tr('已开始下载', 'Download started'));
     } catch (err: any) {
       openGalleryAlert(String(err?.message || tr('下载失败，请重试。', 'Download failed. Please try again.')));
     } finally {
@@ -919,6 +1022,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           createdAt: item.createdAt,
           images,
           settings: item.settings as GalleryHistorySettings | undefined,
+          metadata: item.metadata as Record<string, any> | undefined,
         } satisfies GalleryHistoryItem;
       })
       .filter(Boolean) as GalleryHistoryItem[];
@@ -1679,13 +1783,17 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         .map((r: any, idx: number) => {
           const requestId = String(r?.request_id || r?.id || '').trim();
           if (!requestId) return null;
+          const outputType = String(r?.type || r?.output_type || r?.image_type || r?.kind || '').trim();
+          const createdAt = String(r?.created_at || r?.createdAt || '').trim() || new Date().toISOString();
           return {
             localId: `pg-prev-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
             requestId,
             status: 'created' as const,
+            outputType: outputType || undefined,
+            createdAt,
           };
         })
-        .filter(Boolean) as Array<{ localId: string; requestId: string; status: 'created' | 'processing' | 'succeeded' | 'failed'; imageUrl?: string; error?: string; layout?: any }>;
+        .filter(Boolean) as Array<{ localId: string; requestId: string; status: 'created' | 'processing' | 'succeeded' | 'failed'; imageUrl?: string; error?: string; outputType?: string; createdAt?: string; layout?: any }>;
 
       if (initial.length === 0) {
         throw new Error(tr('创建生成任务失败，请重试。', 'Failed to create generation tasks.'));
@@ -1775,8 +1883,21 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               throw new Error(tr('生成结果为空', 'Output is empty'));
             }
 
+            const outputType = String(data?.type || data?.output_type || data?.image_type || data?.kind || '').trim();
+            const createdAt = String(data?.created_at || data?.createdAt || '').trim();
+
             setGalleryPreviewItems((prev) =>
-              prev.map((it) => (it.requestId === requestId ? { ...it, status: 'succeeded' as const, imageUrl: url } : it))
+              prev.map((it) =>
+                it.requestId === requestId
+                  ? {
+                      ...it,
+                      status: 'succeeded' as const,
+                      imageUrl: url,
+                      outputType: it.outputType || outputType || undefined,
+                      createdAt: it.createdAt || createdAt || undefined,
+                    }
+                  : it
+              )
             );
             // Collect URL for batch history write
             outputs.forEach((o: any) => {
@@ -1894,80 +2015,244 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
       <AppDialog
         isOpen={Boolean(galleryPreviewImageUrl)}
-        title={tr('图片预览', 'Image Preview')}
+        title={tr('图片详情预览', 'Image Details')}
         onClose={closeGalleryImagePreview}
-        widthClassName="max-w-5xl"
-        footer={
-          <button
-            type="button"
-            onClick={closeGalleryImagePreview}
-            className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
-          >
-            {tr('关闭', 'Close')}
-          </button>
-        }
+        widthClassName="max-w-6xl h-[calc(100vh-3rem)]"
+        titleClassName="text-base"
+        subtitle={(() => {
+          const activeHistoryItem = galleryPreviewSource?.kind === 'history_item' ? galleryHistoryItems.find((it) => it.id === galleryPreviewSource.itemId) : null;
+          const productNameLabel = String(activeHistoryItem?.settings?.productName || '').trim() || String(galleryProductName || '').trim() || '-';
+          const targetSceneValue = String(activeHistoryItem?.settings?.targetScene || galleryTargetScene || '').trim();
+          const targetSceneLabel =
+            targetSceneValue === 'detail'
+              ? tr('详情页风格', 'Detail Style')
+              : targetSceneValue === 'poster'
+                ? tr('海报风格', 'Poster Style')
+                : targetSceneValue === 'xiaohongshu'
+                  ? tr('小红书风格', 'Xiaohongshu Style')
+                  : targetSceneValue === 'douyin'
+                    ? tr('抖音风格', 'Douyin Style')
+                    : targetSceneValue === 'ads'
+                      ? tr('广告风格', 'Ads Style')
+                      : '-';
+          return `${productNameLabel} · ${targetSceneLabel}`;
+        })()}
+        contentClassName="overflow-hidden"
       >
-        {galleryPreviewImageUrl ? (
-          <div className="w-full flex flex-col items-center justify-center">
-            <div className="relative w-full flex items-center justify-center">
-              {galleryPreviewNav && galleryPreviewNav.total > 1 ? (
-                <button
-                  type="button"
-                  onClick={handleGalleryPreviewPrev}
-                  disabled={galleryPreviewNav.index <= 0}
-                  className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 border border-white/10 text-zinc-200 hover:bg-black/75 disabled:opacity-40 disabled:hover:bg-black/60 transition flex items-center justify-center"
-                  aria-label={tr('上一张', 'Previous')}
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-              ) : null}
+        {galleryPreviewImageUrl ? (() => {
+          const activePreviewItem = galleryPreviewSource?.kind === 'preview_item' ? galleryPreviewItems.find((it) => it.localId === galleryPreviewSource.localId) : null;
+          const activeHistoryItem =
+            galleryPreviewSource?.kind === 'history_item' ? galleryHistoryItems.find((it) => it.id === galleryPreviewSource.itemId) : null;
 
-              <img src={galleryPreviewImageUrl} alt={tr('预览图片', 'Preview image')} className="max-h-[70vh] w-auto object-contain rounded-xl border border-white/10" />
+          const resolveHistoryOutputType = () => {
+            if (!activeHistoryItem) return '';
 
-              {galleryPreviewNav && galleryPreviewNav.total > 1 ? (
-                <button
-                  type="button"
-                  onClick={handleGalleryPreviewNext}
-                  disabled={galleryPreviewNav.index >= galleryPreviewNav.total - 1}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 border border-white/10 text-zinc-200 hover:bg-black/75 disabled:opacity-40 disabled:hover:bg-black/60 transition flex items-center justify-center"
-                  aria-label={tr('下一张', 'Next')}
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-              ) : null}
+            const historyIndex = galleryPreviewSource?.kind === 'history_item' ? Number((galleryPreviewSource as any).index) : -1;
+            const imageUrl = String(galleryPreviewImageUrl || '').trim();
+            const metadata = (activeHistoryItem.metadata && typeof activeHistoryItem.metadata === 'object' && !Array.isArray(activeHistoryItem.metadata))
+              ? activeHistoryItem.metadata
+              : {};
+
+            const outputTypesByUrl = (metadata as any).outputTypesByUrl;
+            if (outputTypesByUrl && typeof outputTypesByUrl === 'object') {
+              const mapped = String((outputTypesByUrl as any)[imageUrl] || '').trim();
+              if (mapped) return mapped;
+            }
+
+            const imageTypes = Array.isArray((metadata as any).imageTypes) ? (metadata as any).imageTypes : [];
+            if (historyIndex >= 0 && historyIndex < imageTypes.length) {
+              const mapped = String(imageTypes[historyIndex] || '').trim();
+              if (mapped) return mapped;
+            }
+
+            const outputImages = Array.isArray((metadata as any).outputImages) ? (metadata as any).outputImages : [];
+            if (outputImages.length > 0) {
+              const matched = outputImages.find((img: any) => {
+                const url = String(img?.imageUrl || img?.downloadUrl || img?.url || img?.preview_url || img?.image_url || '').trim();
+                return url && url === imageUrl;
+              });
+              const mapped = String(matched?.outputType || matched?.output_type || matched?.category || matched?.type || '').trim();
+              if (mapped) return mapped;
+            }
+
+            const maybeResults = (metadata as any).results || (metadata as any).items || (metadata as any).outputs;
+            const results = Array.isArray(maybeResults) ? maybeResults : [];
+            if (results.length > 0) {
+              const matched = results.find((row: any) => {
+                const url = String(row?.preview_url || row?.image_url || row?.url || row?.src || '').trim();
+                return url && url === imageUrl;
+              });
+              const mapped = String(matched?.outputType || matched?.output_type || matched?.type || matched?.category || '').trim();
+              if (mapped) return mapped;
+            }
+
+            const selections = activeHistoryItem.settings?.typeSelections;
+            if (selections && typeof selections === 'object') {
+              const enabledKeys = Object.entries(selections)
+                .filter(([, value]) => Boolean((value as any)?.enabled) && Number((value as any)?.count || 0) > 0)
+                .map(([key]) => key);
+              if (enabledKeys.length === 1) return enabledKeys[0];
+              if (enabledKeys.length > 1) return tr('多种', 'Multiple');
+            }
+
+            return '';
+          };
+
+          const createdAtRaw = activeHistoryItem?.createdAt
+            ? String(activeHistoryItem.createdAt)
+            : activePreviewItem?.createdAt
+              ? String(activePreviewItem.createdAt)
+              : '';
+          const createdAtLabel = createdAtRaw ? formatGalleryPreviewDatetime(createdAtRaw) : '-';
+          const modelLabel = 'nano banana pro';
+          const productNameLabel =
+            String(activeHistoryItem?.settings?.productName || '').trim() || String(galleryProductName || '').trim() || '-';
+          const targetSceneValue = String(activeHistoryItem?.settings?.targetScene || galleryTargetScene || '').trim();
+          const targetSceneLabel =
+            targetSceneValue === 'detail'
+              ? tr('详情页风格', 'Detail Style')
+              : targetSceneValue === 'poster'
+                ? tr('海报风格', 'Poster Style')
+                : targetSceneValue === 'xiaohongshu'
+                  ? tr('小红书风格', 'Xiaohongshu Style')
+                  : targetSceneValue === 'douyin'
+                    ? tr('抖音风格', 'Douyin Style')
+                    : targetSceneValue === 'ads'
+                      ? tr('广告风格', 'Ads Style')
+                      : '-';
+          const previewSubtitle = `${productNameLabel} · ${targetSceneLabel}`;
+          const outputType = String(activePreviewItem?.outputType || resolveHistoryOutputType() || '').trim();
+          const outputTypeLabel =
+            outputType === 'white_bg'
+              ? t.pi_gallery_output_white_bg
+              : outputType === 'scene'
+                ? t.pi_gallery_output_scene
+                : outputType === 'selling_point'
+                  ? t.pi_gallery_output_selling_point
+                  : outputType === 'cover'
+                    ? t.pi_gallery_output_cover
+                    : outputType === 'poster'
+                      ? t.pi_gallery_output_poster
+                      : '';
+          const typeLabel = String(outputTypeLabel || '').trim() || (outputType ? outputType : '-');
+
+          return (
+            <div className="w-full h-full flex flex-col min-h-0">
+              <div className="hidden">
+                <div className="text-xs font-semibold text-zinc-500">{previewSubtitle}</div>
+              </div>
+
+              <div className="w-full flex-1 min-h-0 flex overflow-hidden">
+                <div className="flex-1 min-w-0 min-h-0 flex items-center justify-center pr-6">
+                  <div className="relative w-full h-full flex items-center justify-center rounded-2xl bg-black/5 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)]">
+                  {galleryPreviewNav && galleryPreviewNav.total > 1 ? (
+                    <button
+                      type="button"
+                      onClick={handleGalleryPreviewPrev}
+                      disabled={galleryPreviewNav.index <= 0}
+                      className="absolute left-2 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-black/60 border border-white/10 text-zinc-200 hover:bg-black/75 disabled:opacity-40 disabled:hover:bg-black/60 transition flex items-center justify-center"
+                      aria-label={tr('上一张', 'Previous')}
+                    >
+                      <ChevronLeft className="w-5 h-5" />
+                    </button>
+                  ) : null}
+
+                  <div className="relative h-full w-full overflow-hidden">
+                    <img
+                      src={galleryPreviewImageUrl}
+                      alt={tr('预览图片', 'Preview image')}
+                      className="h-full w-full object-contain transition-transform duration-300 ease-out group-hover:scale-105"
+                      onLoad={(e) => {
+                        const img = e.currentTarget;
+                        if (img.naturalWidth && img.naturalHeight) setGalleryPreviewResolution({ w: img.naturalWidth, h: img.naturalHeight });
+                      }}
+                    />
+                  </div>
+
+                  {galleryPreviewNav && galleryPreviewNav.total > 1 ? (
+                    <button
+                      type="button"
+                      onClick={handleGalleryPreviewNext}
+                      disabled={galleryPreviewNav.index >= galleryPreviewNav.total - 1}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-black/60 border border-white/10 text-zinc-200 hover:bg-black/75 disabled:opacity-40 disabled:hover:bg-black/60 transition flex items-center justify-center"
+                      aria-label={tr('下一张', 'Next')}
+                    >
+                      <ChevronRight className="w-5 h-5" />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="w-[320px] shrink-0 min-h-0 flex flex-col gap-3 pl-6 border-l border-white/10">
+
+
+                <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="text-xs font-bold text-zinc-200">{tr('生成信息', 'Generation Info')}</div>
+                  <div className="mt-3 space-y-2 text-xs">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-zinc-500">{tr('分辨率', 'Resolution')}</span>
+                      <span className="text-zinc-200 font-bold">
+                        {galleryPreviewResolution ? `${galleryPreviewResolution.w} × ${galleryPreviewResolution.h} px` : '-'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-zinc-500">{tr('生成时间', 'Created At')}</span>
+                      <span className="text-zinc-200 font-bold">{createdAtLabel}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-zinc-500">{tr('类型', 'Type')}</span>
+                      <span className="text-zinc-200 font-bold">{typeLabel}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-zinc-500">{tr('生成模型', 'Model')}</span>
+                      <span className="text-zinc-200 font-bold">{modelLabel}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-auto flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={openGalleryInpaint}
+                    className="w-full rounded-xl border border-white/10 bg-black/80 px-4 py-3 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:bg-indigo-600 hover:shadow-xl active:scale-[0.96] active:shadow-lg flex items-center justify-center gap-2"
+                  >
+                    <Wand2 className="w-4 h-4" />
+                    {tr('局部重绘 / 修改', 'Inpaint / Edit')}
+                  </button>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDownloadGalleryPreviewImage}
+                      disabled={isGalleryPreviewDownloading}
+                      className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-zinc-200 transition-all duration-200 hover:bg-white/10 hover:border-white/20 active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
+                    >
+                      <Download className="w-4 h-4" />
+                      {isGalleryPreviewDownloading ? tr('下载中...', 'Downloading...') : (t.pi_gallery_preview_download_image || tr('下载图片', 'Download'))}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExportGalleryPreviewAsPdf}
+                      disabled={isGalleryPreviewExportingPdf}
+                      className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-zinc-200 transition-all duration-200 hover:bg-white/10 hover:border-white/20 active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
+                    >
+                      <FileDown className="w-4 h-4" />
+                      {isGalleryPreviewExportingPdf ? tr('导出中...', 'Exporting...') : (t.pi_gallery_preview_export_pdf || tr('导出 PDF', 'Export PDF'))}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              </div>
             </div>
-            <div className="mt-4 flex items-center justify-center gap-3">
-              <button
-                type="button"
-                onClick={handleDownloadGalleryPreviewImage}
-                disabled={isGalleryPreviewDownloading}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 disabled:opacity-60 transition flex items-center gap-2"
-              >
-                <Download className="w-4 h-4" />
-                {isGalleryPreviewDownloading ? tr('下载中...', 'Downloading...') : (t.pi_gallery_preview_download_image || tr('下载图片', 'Download Image'))}
-              </button>
-              <button
-                type="button"
-                onClick={handleExportGalleryPreviewAsPdf}
-                disabled={isGalleryPreviewExportingPdf}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 text-black hover:bg-orange-400 disabled:opacity-60 transition flex items-center gap-2"
-              >
-                <FileDown className="w-4 h-4" />
-                {isGalleryPreviewExportingPdf ? tr('导出中...', 'Exporting...') : (t.pi_gallery_preview_export_pdf || tr('导出为PDF', 'Export as PDF'))}
-              </button>
-              <button
-                type="button"
-                onClick={openGalleryInpaint}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 text-zinc-200 hover:bg-white/10 transition flex items-center gap-2"
-              >
-                <Wand2 className="w-4 h-4" />
-                {t.pi_gallery_inpaint_title || tr('局部修改', 'Local Edit')}
-              </button>
-            </div>
-
-          </div>
-        ) : null}
+          );
+        })() : null}
       </AppDialog>
+
+      {galleryToastMessage ? (
+        <div className="fixed left-6 bottom-6 z-[170] max-w-[360px] rounded-xl border border-white/10 bg-black/70 px-4 py-3 text-xs text-zinc-200 shadow-lg shadow-black/30">
+          {galleryToastMessage}
+        </div>
+      ) : null}
 
       <AppDialog
         isOpen={galleryInpaint.open}
@@ -2172,9 +2457,51 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
       <header className="relative z-50 flex justify-between gap-6 px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
-            {currentHeader.title}
-          </h1>
+          <div ref={productToolMenuRef} className="relative inline-block">
+            <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
+              <button
+                type="button"
+                onClick={() => setIsProductToolMenuOpen((prev) => !prev)}
+                className="group inline-flex items-center gap-2 rounded-lg px-2 py-1 -ml-2 text-left transition hover:bg-white/5"
+                aria-haspopup="listbox"
+                aria-expanded={isProductToolMenuOpen}
+              >
+                <ChevronDown
+                  className={`w-5 h-5 text-zinc-400 transition-transform ${isProductToolMenuOpen ? 'rotate-0' : '-rotate-90'} group-hover:text-zinc-200`}
+                />
+                <span>{currentHeader.title}</span>
+              </button>
+            </h1>
+
+            {isProductToolMenuOpen ? (
+              <div
+                className="absolute left-0 mt-2 w-56 max-h-72 overflow-auto custom-scroll rounded-xl border border-white/10 bg-zinc-950/95 backdrop-blur-sm shadow-xl z-[210] py-2"
+                role="listbox"
+              >
+                {productToolOptions.map((opt) => {
+                  const selected = opt.value === currentValue;
+                  return (
+                    <button
+                      type="button"
+                      key={opt.value}
+                      role="option"
+                      aria-selected={selected}
+                      onClick={() => {
+                        setActiveView(opt.value as ViewType);
+                        setIsProductToolMenuOpen(false);
+                      }}
+                      className={`w-full px-3 py-2 text-left text-sm transition ${
+                        selected ? 'bg-indigo-500/15 text-indigo-200' : 'text-zinc-200 hover:bg-white/5'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+
           <p className="mt-1 text-sm text-zinc-400">
             {currentHeader.subtitle}
           </p>
@@ -2354,7 +2681,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                 </div>
               </div>
 
-              <div className="flex-1 min-w-0 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0 max-h-[calc(100vh-220px)]">
+              <div className="flex-1 min-w-0 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0 max-h-[calc(100vh-80px)]">
                 <div className="text-sm font-bold text-zinc-200">{tr('生成记录', 'Generation Records')}</div>
                 <div className="flex-1 mt-4 rounded-2xl border border-dashed border-white/10 bg-black/10 overflow-y-auto">
                   {textSeparationRecords.length === 0 ? (
@@ -2415,10 +2742,18 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         <div className={panelClassName('product_images_gallery')}>
 
           <div className="h-full flex gap-6">
-            <div className="w-[30%] min-w-[360px] max-w-[520px] flex flex-col gap-4">
+            <div className="w-[22%] min-w-[300px] max-w-[380px] flex flex-col gap-4">
               <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-bold text-zinc-200">{tr('上传商品图', 'Upload Product Images')}</div>
+                  <button
+                    type="button"
+                    onClick={handleGalleryAiAnalyze}
+                    disabled={isGalleryAnalyzing}
+                    className="px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 disabled:opacity-60 disabled:hover:bg-zinc-900/70 transition"
+                  >
+                    {isGalleryAnalyzing ? tr('填写中...', 'Filling...') : tr('AI帮我填', 'AI Fill')}
+                  </button>
                 </div>
 
                 <div className="mt-4">
@@ -2552,14 +2887,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-bold text-zinc-200">{tr('商品信息', 'Product Info')}</div>
-                  <button
-                    type="button"
-                    onClick={handleGalleryAiAnalyze}
-                    disabled={isGalleryAnalyzing}
-                    className="px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 disabled:opacity-60 disabled:hover:bg-zinc-900/70 transition"
-                  >
-                    {isGalleryAnalyzing ? tr('分析中...', 'Analyzing...') : tr('AI分析', 'AI Analyze')}
-                  </button>
                 </div>
 
                 <div className="mt-4 grid grid-cols-1 gap-4">
@@ -2702,7 +3029,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                 )}
               </div>
             </div>
-            <div className="w-[32%] min-w-[420px] max-w-[640px] flex flex-col gap-4 min-h-0">
+            <div className="w-[24%] min-w-[320px] max-w-[460px] flex flex-col gap-4 min-h-0">
               <div className="rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0">
                 <div className="text-sm font-bold text-zinc-200 shrink-0">{t.hist_img_settings_title}</div>
 
@@ -2947,7 +3274,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               </div>
             </div>
 
-            <div className="flex-1 min-w-0 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0 max-h-[calc(100vh-220px)]">
+            <div className="flex-1 min-w-0 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0 max-h-[calc(100vh-80px)]">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-bold text-zinc-200">
                   {galleryRightPanel === 'preview' ? tr('预览区', 'Preview') : tr('历史记录', 'History')}
@@ -2999,8 +3326,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
                 <div className="flex-1 min-h-0 mt-4 rounded-2xl border border-dashed border-white/10 bg-black/10 overflow-y-auto custom-scroll">
                   {galleryPreviewItems.length === 0 ? (
-                    <div className="h-full flex items-center justify-center text-zinc-500">
-                      <div className="flex flex-col items-center justify-center gap-3">
+                    <div className="h-full flex items-center justify-center p-6">
+                      <div className="w-full max-w-[560px] aspect-square rounded-2xl border border-white/10 bg-black/20 flex flex-col items-center justify-center text-zinc-500 gap-3">
                         <ImageIcon className="w-10 h-10 opacity-60" />
                         <div className="text-sm font-semibold text-zinc-400">
                           {isGalleryGenerating ? tr('生成中...', 'Generating...') : tr('等待生成...', 'Waiting for generation...')}
@@ -3009,31 +3336,72 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                     </div>
                   ) : (
                     <div className="p-4 grid grid-cols-2 gap-3">
-                      {galleryPreviewItems.map((item) => (
-                        <div key={item.localId} className="rounded-xl border border-white/10 bg-black/20 overflow-hidden">
-                          <div className="px-3 py-2 text-[11px] text-zinc-400 border-b border-white/10 bg-black/30 flex items-center justify-between">
-                            <span>{item.status === 'succeeded' ? tr('已完成', 'Done') : item.status === 'failed' ? tr('失败', 'Failed') : tr('生成中', 'Generating')}</span>
-                            <span className="text-zinc-500">{item.requestId.slice(0, 8)}</span>
-                          </div>
-                          <div className="p-3">
-                            {item.imageUrl ? (
-                              <button
-                                type="button"
-                                onClick={() => openGalleryImagePreview(item.imageUrl as string, { kind: 'preview_item', localId: item.localId })}
-                                className="rounded-lg overflow-hidden border border-white/10 bg-black/30 aspect-square cursor-pointer"
-                                title={tr('点击预览', 'Click to preview')}
-                              >
-                                <img src={item.imageUrl} className="w-full h-full object-cover" alt={item.requestId} />
-                              </button>
-                            ) : (
-                              <div className="rounded-lg border border-white/10 bg-black/30 aspect-square flex flex-col items-center justify-center text-zinc-500 gap-2">
-                                <ImageIcon className={`w-8 h-8 ${item.status === 'failed' ? 'opacity-50' : 'opacity-60 animate-pulse'}`} />
-                                <div className="text-xs text-zinc-500">{item.error || (item.status === 'failed' ? tr('生成失败', 'Failed') : tr('等待生成...', 'Waiting...'))}</div>
+                      {galleryPreviewItems.map((item) => {
+                        const outputType = String(item.outputType || '').trim();
+                        const outputTypeLabel =
+                          outputType === 'white_bg'
+                            ? t.pi_gallery_output_white_bg
+                            : outputType === 'scene'
+                              ? t.pi_gallery_output_scene
+                              : outputType === 'selling_point'
+                                ? t.pi_gallery_output_selling_point
+                                : outputType === 'cover'
+                                  ? t.pi_gallery_output_cover
+                                  : outputType === 'poster'
+                                    ? t.pi_gallery_output_poster
+                                    : '';
+                        const rightLabel = String(outputTypeLabel || '').trim() || (outputType ? outputType : item.requestId.slice(0, 8));
+                        const statusLabel =
+                          item.status === 'succeeded'
+                            ? tr('已完成', 'Done')
+                            : item.status === 'failed'
+                              ? tr('失败', 'Failed')
+                              : tr('生成中', 'Generating');
+                        const badgeTone =
+                          item.status === 'succeeded'
+                            ? 'bg-emerald-500/15 text-emerald-200 border-emerald-500/30'
+                            : item.status === 'failed'
+                              ? 'bg-red-500/15 text-red-200 border-red-500/30'
+                              : 'bg-orange-500/15 text-orange-200 border-orange-500/30';
+
+                        return (
+                          <div
+                            key={item.localId}
+                            className="group rounded-xl border border-white/10 bg-black/20 overflow-hidden shadow-sm transition-all duration-200 ease-out hover:-translate-y-1 hover:border-indigo-500 hover:ring-1 hover:ring-indigo-500/50 hover:shadow-xl"
+                          >
+                            <div className={`relative w-full ${galleryPreviewAspectClass} border-b border-white/10 bg-black/30`}>
+                              {item.imageUrl ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openGalleryImagePreview(item.imageUrl as string, { kind: 'preview_item', localId: item.localId })}
+                                  className="absolute inset-0 relative"
+                                  title={tr('点击预览', 'Click to preview')}
+                                >
+                                  <img src={item.imageUrl} className="w-full h-full object-cover" alt={item.requestId} />
+                                  <div className="absolute inset-0 opacity-0 transition-opacity duration-200 bg-black/40 flex items-center justify-center group-hover:opacity-100">
+                                    <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-xs font-bold text-white">
+                                      <Eye className="w-4 h-4" />
+                                      {tr('预览', 'Preview')}
+                                    </div>
+                                  </div>
+                                </button>
+                              ) : (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500 gap-2">
+                                  <ImageIcon className={`w-8 h-8 ${item.status === 'failed' ? 'opacity-50' : 'opacity-60 animate-pulse'}`} />
+                                  <div className="text-xs text-zinc-500 px-4 text-center">
+                                    {item.error || (item.status === 'failed' ? tr('生成失败', 'Failed') : tr('等待生成...', 'Waiting...'))}
+                                  </div>
+                                </div>
+                              )}
+
+                              <div className={`absolute top-2 left-2 px-2 py-1 rounded-lg text-[11px] font-bold border ${badgeTone}`}>{statusLabel}</div>
+                              <div className="absolute top-2 right-2 px-2 py-1 rounded-lg text-[11px] font-bold border border-white/10 bg-black/50 text-zinc-200">
+                                {rightLabel}
                               </div>
-                            )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -3055,17 +3423,89 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                               <span className="text-zinc-500">{item.images.length} {tr('张', 'imgs')}</span>
                             </div>
                             <div className="p-3 grid grid-cols-4 gap-2">
-                              {item.images.slice(0, 4).map((url, idx) => (
-                                <button
-                                  type="button"
-                                  key={`${item.id}-${idx}`}
-                                  onClick={() => openGalleryImagePreview(url, { kind: 'history_item', itemId: item.id, index: idx })}
-                                  className="rounded-lg overflow-hidden border border-white/10 bg-black/30 aspect-square cursor-pointer"
-                                  title={tr('点击预览', 'Click to preview')}
-                                >
-                                  <img src={url} className="w-full h-full object-cover" alt={`history-${item.id}-${idx}`} />
-                                </button>
-                              ))}
+                              {item.images.slice(0, 4).map((url, idx) => {
+                                const outputType = (() => {
+                                  const imageUrl = String(url || '').trim();
+                                  const metadata = (item.metadata && typeof item.metadata === 'object' && !Array.isArray(item.metadata))
+                                    ? item.metadata
+                                    : {};
+
+                                  const outputTypesByUrl = (metadata as any).outputTypesByUrl;
+                                  if (outputTypesByUrl && typeof outputTypesByUrl === 'object') {
+                                    const mapped = String((outputTypesByUrl as any)[imageUrl] || '').trim();
+                                    if (mapped) return mapped;
+                                  }
+
+                                  const imageTypes = Array.isArray((metadata as any).imageTypes) ? (metadata as any).imageTypes : [];
+                                  if (idx >= 0 && idx < imageTypes.length) {
+                                    const mapped = String(imageTypes[idx] || '').trim();
+                                    if (mapped) return mapped;
+                                  }
+
+                                  const outputImages = Array.isArray((metadata as any).outputImages) ? (metadata as any).outputImages : [];
+                                  if (outputImages.length > 0) {
+                                    const matched = outputImages.find((img: any) => {
+                                      const rowUrl = String(img?.imageUrl || img?.downloadUrl || img?.url || img?.preview_url || img?.image_url || '').trim();
+                                      return rowUrl && rowUrl === imageUrl;
+                                    });
+                                    const mapped = String(matched?.outputType || matched?.output_type || matched?.category || matched?.type || '').trim();
+                                    if (mapped) return mapped;
+                                  }
+
+                                  const maybeResults = (metadata as any).results || (metadata as any).items || (metadata as any).outputs;
+                                  const results = Array.isArray(maybeResults) ? maybeResults : [];
+                                  if (results.length > 0) {
+                                    const matched = results.find((row: any) => {
+                                      const rowUrl = String(row?.preview_url || row?.image_url || row?.url || row?.src || '').trim();
+                                      return rowUrl && rowUrl === imageUrl;
+                                    });
+                                    const mapped = String(matched?.outputType || matched?.output_type || matched?.type || matched?.category || '').trim();
+                                    if (mapped) return mapped;
+                                  }
+
+                                  const selections = item.settings?.typeSelections;
+                                  if (selections && typeof selections === 'object') {
+                                    const enabledKeys = Object.entries(selections)
+                                      .filter(([, value]) => Boolean((value as any)?.enabled) && Number((value as any)?.count || 0) > 0)
+                                      .map(([key]) => key);
+                                    if (enabledKeys.length === 1) return enabledKeys[0];
+                                    if (enabledKeys.length > 1) return tr('多种', 'Multiple');
+                                  }
+
+                                  return '';
+                                })();
+
+                                const outputTypeLabel =
+                                  outputType === 'white_bg'
+                                    ? t.pi_gallery_output_white_bg
+                                    : outputType === 'scene'
+                                      ? t.pi_gallery_output_scene
+                                      : outputType === 'selling_point'
+                                        ? t.pi_gallery_output_selling_point
+                                        : outputType === 'cover'
+                                          ? t.pi_gallery_output_cover
+                                          : outputType === 'poster'
+                                            ? t.pi_gallery_output_poster
+                                            : '';
+                                const typeLabel = String(outputTypeLabel || '').trim() || (outputType ? outputType : '');
+
+                                return (
+                                  <button
+                                    type="button"
+                                    key={`${item.id}-${idx}`}
+                                    onClick={() => openGalleryImagePreview(url, { kind: 'history_item', itemId: item.id, index: idx })}
+                                    className="relative rounded-lg overflow-hidden border border-white/10 bg-black/30 aspect-square cursor-pointer"
+                                    title={tr('点击预览', 'Click to preview')}
+                                  >
+                                    <img src={url} className="w-full h-full object-cover" alt={`history-${item.id}-${idx}`} />
+                                    {typeLabel ? (
+                                      <div className="absolute top-1 left-1 pointer-events-none rounded-md border border-white/10 bg-black/60 px-1.5 py-0.5 text-[10px] font-bold text-zinc-200">
+                                        {typeLabel}
+                                      </div>
+                                    ) : null}
+                                  </button>
+                                );
+                              })}
                               {item.images.length > 4 && (
                                 <div className="rounded-lg border border-white/10 bg-black/30 aspect-square flex items-center justify-center text-zinc-500 text-xs font-bold">
                                   +{item.images.length - 4}

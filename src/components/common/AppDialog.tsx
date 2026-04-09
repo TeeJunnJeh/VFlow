@@ -10,6 +10,8 @@ interface AppDialogProps {
   widthClassName?: string;
   titleClassName?: string;
   overlayClassName?: string;
+  subtitle?: React.ReactNode;
+  contentClassName?: string;
 }
 
 export const AppDialog: React.FC<AppDialogProps> = ({
@@ -21,6 +23,8 @@ export const AppDialog: React.FC<AppDialogProps> = ({
   widthClassName = 'max-w-md',
   titleClassName = 'text-sm',
   overlayClassName = 'z-[120]',
+  subtitle,
+  contentClassName = 'overflow-y-auto pr-1',
 }) => {
   useEffect(() => {
     if (!isOpen) return;
@@ -42,13 +46,16 @@ export const AppDialog: React.FC<AppDialogProps> = ({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-4 mb-4 shrink-0">
-          <h3 className={`${titleClassName} font-bold text-zinc-100`}>{title}</h3>
+          <div className="min-w-0">
+            <div className={`${titleClassName} font-bold text-zinc-100 mt-1`}>{title}</div>
+            {subtitle ? <div className="text-xs font-semibold text-zinc-500">{subtitle}</div> : null}
+          </div>
           <button className="text-zinc-400 hover:text-white transition" onClick={onClose} aria-label="Close dialog">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {children ? <div className="text-sm text-zinc-300 min-h-0 flex-1 overflow-y-auto pr-1">{children}</div> : null}
+        {children ? <div className={`text-sm text-zinc-300 min-h-0 flex-1 ${contentClassName}`}>{children}</div> : null}
 
         {footer ? <div className="mt-5 flex justify-end gap-3 shrink-0">{footer}</div> : null}
       </div>

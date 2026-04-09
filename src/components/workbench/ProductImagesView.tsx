@@ -12,6 +12,7 @@ import { assetsApi } from '../../services/assets';
 import { videoApi } from '../../services/video';
 import { downloadBlob, productImagesApi } from '../../services/productImagesApi';
 import { notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, removeImageHistoryAssets, replaceImageHistoryAsset, subscribeImageHistory, type ImageHistoryItem } from '../../utils/imageHistory';
+import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../utils/loadingTheme';
 
 interface ProductImagesViewProps {
   activeView: ViewType;
@@ -172,6 +173,151 @@ const getGalleryPreviewAspectClass = (ratio: string) => {
     default: 'aspect-square',
   };
   return map[cleaned] || 'aspect-square';
+};
+
+const hexToRgba = (hex: string, alpha: number) => {
+  const cleaned = String(hex || '').trim().replace('#', '');
+  const normalized = cleaned.length === 3
+    ? cleaned.split('').map((char) => char + char).join('')
+    : cleaned;
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) {
+    return `rgba(255,255,255,${alpha})`;
+  }
+  const value = parseInt(normalized, 16);
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+const hashGallerySeed = (value: string) => {
+  let hash = 0;
+  const raw = String(value || '');
+  for (let index = 0; index < raw.length; index += 1) {
+    hash = (hash * 31 + raw.charCodeAt(index)) >>> 0;
+  }
+  return hash;
+};
+
+const GalleryLoadingCard: React.FC<{
+  theme: LoadingTheme;
+  seed: string;
+  label: string;
+  backgroundImageSrc?: string;
+}> = ({ theme, seed, label, backgroundImageSrc }) => {
+  const hash = hashGallerySeed(seed);
+  const durationBase = 5.4 + (hash % 5) * 0.7;
+  const shift = ((hash % 23) - 11) / 100;
+  const secondaryShift = (((hash >> 3) % 19) - 9) / 100;
+  const accentShift = (((hash >> 5) % 17) - 8) / 100;
+
+  const blobs = [
+    {
+      size: `${98 + (hash % 8)}%`,
+      top: '-16%',
+      left: `${-12 + (hash % 5)}%`,
+      duration: `${durationBase}s`,
+      delay: `-${(hash % 4) * 0.6}s`,
+      gradient: `radial-gradient(circle, ${hexToRgba(theme.primary, 0.92)} 0%, transparent 78%)`,
+    },
+    {
+      size: `${88 + ((hash >> 2) % 8)}%`,
+      bottom: '-6%',
+      right: `${-7 + ((hash >> 4) % 5)}%`,
+      duration: `${durationBase + 1.25}s`,
+      delay: `-${((hash >> 1) % 5) * 0.45}s`,
+      direction: 'reverse' as const,
+      gradient: `radial-gradient(circle, ${hexToRgba(theme.secondary, 0.9)} 0%, transparent 78%)`,
+    },
+    {
+      size: `${106 + ((hash >> 6) % 8)}%`,
+      top: `${18 + ((hash >> 7) % 6)}%`,
+      right: '-15%',
+      duration: `${durationBase + 2.1}s`,
+      delay: `-${((hash >> 2) % 4) * 0.55}s`,
+      gradient: `radial-gradient(circle, ${hexToRgba(theme.accent, 0.9)} 0%, transparent 78%)`,
+    },
+    {
+      size: `${82 + ((hash >> 8) % 6)}%`,
+      bottom: '13%',
+      left: `${4 + ((hash >> 10) % 6)}%`,
+      duration: `${durationBase + 0.6}s`,
+      delay: `-${((hash >> 4) % 4) * 0.35}s`,
+      gradient: `radial-gradient(circle, ${hexToRgba(theme.quaternary || theme.accent, 0.9)} 0%, transparent 78%)`,
+    },
+  ];
+
+  return (
+    <div
+      className="absolute inset-0 overflow-hidden"
+      style={{
+        background: `linear-gradient(180deg, ${hexToRgba(theme.primary, 0.08)} 0%, ${hexToRgba(theme.surface, 0.98)} 18%, rgba(255,255,255,0.98) 100%)`,
+      }}
+    >
+      {backgroundImageSrc ? (
+        <div
+          className="absolute inset-[-10%] opacity-[0.09] blur-[1200px]"
+          style={{
+            backgroundImage: `url("${backgroundImageSrc}")`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            filter: 'saturate(0.7) contrast(0.26) brightness(1.14)',
+          }}
+        />
+      ) : null}
+
+      <style>{`
+        @keyframes gallery-card-blob-shift {
+          0% { transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
+          33% { transform: translate3d(15%, 20%, 0) rotate(120deg) scale(1.2); }
+          66% { transform: translate3d(-15%, 15%, 0) rotate(240deg) scale(0.85); }
+          100% { transform: translate3d(0, 0, 0) rotate(360deg) scale(1); }
+        }
+      `}</style>
+
+      <div className={`absolute inset-0 blur-[45px] [transform:scale(1.3)] ${theme.mode === 'mono' ? 'saturate-[0.96]' : 'saturate-[1.02]'}`}>
+        {blobs.map((blob, index) => (
+          <div
+            key={`${seed}-${index}`}
+            className="absolute rounded-full"
+            style={{
+              width: blob.size,
+              height: blob.size,
+              top: blob.top,
+              left: blob.left,
+              right: blob.right,
+              bottom: blob.bottom,
+              background: blob.gradient,
+              animationName: 'gallery-card-blob-shift',
+              animationDuration: blob.duration,
+              animationDelay: blob.delay,
+              animationTimingFunction: 'linear',
+              animationIterationCount: 'infinite',
+              animationDirection: blob.direction || 'normal',
+            }}
+          />
+        ))}
+      </div>
+
+      <div className="absolute inset-x-5 bottom-5">
+        <div className="rounded-2xl border border-black/5 bg-white/45 px-4 py-3 backdrop-blur-md shadow-[0_10px_30px_rgba(255,255,255,0.18)]">
+          <div className="flex items-center gap-2">
+            <span
+              className="inline-flex h-2.5 w-2.5 rounded-full animate-pulse"
+              style={{
+                backgroundColor: theme.accent,
+                boxShadow: `0 0 18px ${hexToRgba(theme.accent, 0.5)}`,
+              }}
+            />
+            <div className="text-xs font-bold text-zinc-900/85">{label}</div>
+          </div>
+          <div className="mt-1 text-[11px] text-zinc-700/60">
+            Rendering preview...
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setActiveView }) => {
@@ -348,6 +494,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [hotStyleItems, setHotStyleItems] = useState<Array<{ name: string; tones: string[]; description: string }>>([]);
   const [hotStyleSelectedIndex, setHotStyleSelectedIndex] = useState<number | null>(null);
   const [hotStyleError, setHotStyleError] = useState<string | null>(null);
+  const [galleryLoadingTheme, setGalleryLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
+  const [galleryLoadingBackgroundSrc, setGalleryLoadingBackgroundSrc] = useState<string>('');
 
   const galleryHistoryAllKeys = useMemo(
     () => galleryHistoryItems.flatMap((item) => item.images.map((_, idx) => `${item.id}:${idx}`)),
@@ -368,7 +516,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         })),
     [galleryPreviewItems]
   );
-
   const galleryPollAbortRef = useRef(false);
   const galleryPollRunIdRef = useRef<number>(0);
 
@@ -1210,10 +1357,34 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   useEffect(() => {
     const urls = galleryImages.map((f) => URL.createObjectURL(f));
     setGalleryPreviewUrls(urls);
+    setGalleryLoadingBackgroundSrc(urls[0] || '');
     return () => {
       urls.forEach((u) => URL.revokeObjectURL(u));
     };
   }, [galleryImages]);
+
+  useEffect(() => {
+    let alive = true;
+    const sources = [...galleryPreviewUrls, ...galleryRestoredImagePaths]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+      .slice(0, 3);
+
+    if (sources.length === 0) {
+      setGalleryLoadingTheme(getDefaultLoadingTheme());
+      setGalleryLoadingBackgroundSrc('');
+      return;
+    }
+
+    setGalleryLoadingBackgroundSrc(sources[0] || '');
+    void extractLoadingThemeFromSources(sources).then((theme) => {
+      if (alive) setGalleryLoadingTheme(theme);
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, [galleryPreviewUrls, galleryRestoredImagePaths]);
 
   useEffect(() => {
     const syncGalleryHistory = async () => {
@@ -3330,7 +3501,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                       <div className="w-full max-w-[560px] aspect-square rounded-2xl border border-white/10 bg-black/20 flex flex-col items-center justify-center text-zinc-500 gap-3">
                         <ImageIcon className="w-10 h-10 opacity-60" />
                         <div className="text-sm font-semibold text-zinc-400">
-                          {isGalleryGenerating ? tr('生成中...', 'Generating...') : tr('等待生成...', 'Waiting for generation...')}
+                          {tr('等待生成...', 'Waiting for generation...')}
                         </div>
                       </div>
                     </div>
@@ -3385,6 +3556,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                                     </div>
                                   </div>
                                 </button>
+                              ) : item.status !== 'failed' ? (
+                                <GalleryLoadingCard
+                                  theme={galleryLoadingTheme}
+                                  seed={`${item.localId}-${item.requestId}-${rightLabel}`}
+                                  label={rightLabel}
+                                  backgroundImageSrc={galleryLoadingBackgroundSrc}
+                                />
                               ) : (
                                 <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500 gap-2">
                                   <ImageIcon className={`w-8 h-8 ${item.status === 'failed' ? 'opacity-50' : 'opacity-60 animate-pulse'}`} />

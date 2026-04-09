@@ -1,6 +1,7 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
+import type { LoadingTheme } from '../../../utils/loadingTheme';
 
 interface LoadingProgressProps {
   progress: number;
@@ -11,45 +12,72 @@ interface LoadingProgressProps {
   totalSteps?: number;
   queuePosition?: number;
   title?: string;
-  onCancel: () => void;
+  onCancel?: () => void;
+  theme?: LoadingTheme;
+  backgroundImageSrc?: string;
 }
+
+const hexToRgba = (hex: string, alpha: number) => {
+  const cleaned = String(hex || '').trim().replace('#', '');
+  const normalized = cleaned.length === 3
+    ? cleaned.split('').map((char) => char + char).join('')
+    : cleaned;
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) {
+    return `rgba(255,255,255,${alpha})`;
+  }
+  const value = parseInt(normalized, 16);
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
 
 export const LoadingProgress: React.FC<LoadingProgressProps> = ({
   progress,
   title,
   onCancel,
+  theme,
+  backgroundImageSrc,
 }) => {
   const { t } = useLanguage();
+  const palette = theme || {
+    mode: 'vivid' as const,
+    primary: '#baa8ff',
+    secondary: '#a5dcff',
+    accent: '#ffd2b4',
+    quaternary: '#ffb4dc',
+    surface: '#ffffff',
+  };
 
   const blobs = [
     {
-      size: '110%',
+      size: '100%',
       top: '-10%',
-      left: '-12%',
+      left: '-10%',
       duration: '6s',
-      gradient: 'radial-gradient(circle, rgba(186,168,255,0.9) 0%, transparent 78%)',
-    },
-    {
-      size: '96%',
-      bottom: '-8%',
-      right: '-8%',
-      duration: '8s',
-      direction: 'reverse' as const,
-      gradient: 'radial-gradient(circle, rgba(165,220,255,0.82) 0%, transparent 80%)',
-    },
-    {
-      size: '118%',
-      top: '18%',
-      right: '-14%',
-      duration: '10s',
-      gradient: 'radial-gradient(circle, rgba(255,210,180,0.76) 0%, transparent 80%)',
+      gradient: `radial-gradient(circle, ${hexToRgba(palette.primary, 0.92)} 0%, transparent 78%)`,
     },
     {
       size: '90%',
-      bottom: '10%',
-      left: '4%',
+      bottom: '-5%',
+      right: '-5%',
+      duration: '8s',
+      direction: 'reverse' as const,
+      gradient: `radial-gradient(circle, ${hexToRgba(palette.secondary, 0.9)} 0%, transparent 78%)`,
+    },
+    {
+      size: '110%',
+      top: '20%',
+      right: '-15%',
+      duration: '10s',
+      gradient: `radial-gradient(circle, ${hexToRgba(palette.accent, 0.9)} 0%, transparent 78%)`,
+    },
+    {
+      size: '85%',
+      bottom: '15%',
+      left: '5%',
       duration: '7s',
-      gradient: 'radial-gradient(circle, rgba(255,180,220,0.74) 0%, transparent 78%)',
+      gradient: `radial-gradient(circle, ${hexToRgba(palette.quaternary, 0.9)} 0%, transparent 78%)`,
     },
   ];
 
@@ -58,8 +86,8 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
       <style>{`
         @keyframes ff-gradient-blob {
           0% { transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
-          33% { transform: translate3d(14%, 18%, 0) rotate(120deg) scale(1.18); }
-          66% { transform: translate3d(-14%, 12%, 0) rotate(240deg) scale(0.86); }
+          33% { transform: translate3d(15%, 20%, 0) rotate(120deg) scale(1.2); }
+          66% { transform: translate3d(-15%, 15%, 0) rotate(240deg) scale(0.85); }
           100% { transform: translate3d(0, 0, 0) rotate(360deg) scale(1); }
         }
       `}</style>
@@ -71,8 +99,26 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
         <p className="text-sm text-zinc-400">{t.ff_loading_keep_page_open}</p>
       </div>
 
-      <div className="relative overflow-hidden rounded-[32px] border border-white/10 bg-black/20" style={{ minHeight: '520px' }}>
-        <div className="absolute inset-[-8%] blur-[78px]">
+      <div
+        className="relative overflow-hidden rounded-[40px]"
+        style={{
+          minHeight: '520px',
+          background: `linear-gradient(180deg, ${hexToRgba(palette.primary, 0.08)} 0%, ${palette.surface} 18%, ${palette.surface} 100%)`,
+          boxShadow: `0 20px 40px rgba(0, 0, 0, 0.05), inset 0 1px 0 ${hexToRgba(palette.primary, 0.16)}`,
+        }}
+      >
+        {backgroundImageSrc ? (
+          <div
+            className="absolute inset-[-10%] opacity-[0.1] blur-[1400px]"
+            style={{
+              backgroundImage: `url("${backgroundImageSrc}")`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              filter: 'saturate(0.7) contrast(0.26) brightness(1.14)',
+            }}
+          />
+        ) : null}
+        <div className="absolute inset-0 blur-[45px] [transform:scale(1.3)]">
           {blobs.map((blob, index) => (
             <div
               key={index}
@@ -94,21 +140,30 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
             />
           ))}
         </div>
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.1),transparent_52%),radial-gradient(circle_at_bottom,rgba(255,255,255,0.06),transparent_34%)]" />
-        <div className="absolute right-5 top-5 rounded-full border border-orange-400/25 bg-black/30 px-3 py-1 text-sm font-semibold tabular-nums text-orange-300 backdrop-blur-sm">
+        <div
+          className="absolute right-5 top-5 rounded-full px-3 py-1 text-sm font-semibold tabular-nums backdrop-blur-sm"
+          style={{
+            border: `1px solid ${hexToRgba(palette.primary, 0.24)}`,
+            backgroundColor: 'rgba(255,255,255,0.58)',
+            color: '#1a1a1a',
+            boxShadow: `0 10px 28px ${hexToRgba(palette.primary, 0.18)}`,
+          }}
+        >
           {progress}%
         </div>
       </div>
 
-      <div className="mt-4 flex justify-end">
-        <button
-          onClick={onCancel}
-          className="flex items-center justify-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/20 px-4 py-2 text-sm font-medium text-red-400 transition-all hover:bg-red-500/30"
-        >
-          <X className="h-4 w-4" />
-          {t.ff_cancel_generation}
-        </button>
-      </div>
+      {onCancel ? (
+        <div className="mt-4 flex justify-end">
+          <button
+            onClick={onCancel}
+            className="flex items-center justify-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/20 px-4 py-2 text-sm font-medium text-red-400 transition-all hover:bg-red-500/30"
+          >
+            <X className="h-4 w-4" />
+            {t.ff_cancel_generation}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 };

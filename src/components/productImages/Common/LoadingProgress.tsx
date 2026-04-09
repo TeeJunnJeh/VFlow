@@ -1,166 +1,114 @@
-/**
- * 生成进度显示组件
- */
-
-import React, { useEffect, useState } from 'react';
-import { Loader2, X } from 'lucide-react';
+import React from 'react';
+import { X } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
 
 interface LoadingProgressProps {
-  progress: number; // 0-100
-  estimatedTime?: number; // 秒
+  progress: number;
+  estimatedTime?: number;
   countdownStartSeconds?: number;
   startedAtMs?: number;
   currentStep?: string;
   totalSteps?: number;
   queuePosition?: number;
-  title?: string; // 自定义标题，默认为'正在生成首帧图...'
+  title?: string;
   onCancel: () => void;
 }
 
 export const LoadingProgress: React.FC<LoadingProgressProps> = ({
   progress,
-  estimatedTime,
-  countdownStartSeconds,
-  startedAtMs,
-  currentStep,
-  totalSteps,
-  queuePosition,
   title,
   onCancel,
 }) => {
   const { t } = useLanguage();
-  const countdownBase = (() => {
-    const direct = Number(countdownStartSeconds);
-    if (Number.isFinite(direct) && direct > 0) return Math.floor(direct);
 
-    const fallback = Number(estimatedTime);
-    if (Number.isFinite(fallback) && fallback > 0) return Math.floor(fallback);
-
-    return 0;
-  })();
-
-  const [elapsedTime, setElapsedTime] = useState(0);
-  const [remainingTime, setRemainingTime] = useState(countdownBase);
-
-  useEffect(() => {
-    const originMs = Number.isFinite(startedAtMs) ? Number(startedAtMs) : Date.now();
-
-    const tick = () => {
-      const elapsed = Math.max(0, Math.floor((Date.now() - originMs) / 1000));
-      setElapsedTime(elapsed);
-      setRemainingTime(countdownBase > 0 ? Math.max(0, countdownBase - elapsed) : 0);
-    };
-
-    tick();
-    const timer = window.setInterval(tick, 1000);
-
-    return () => window.clearInterval(timer);
-  }, [countdownBase, startedAtMs]);
-
-  const formatTime = (seconds: number): string => {
-    if (seconds < 60) return `${seconds}s`;
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}m ${secs}s`;
-  };
+  const blobs = [
+    {
+      size: '110%',
+      top: '-10%',
+      left: '-12%',
+      duration: '6s',
+      gradient: 'radial-gradient(circle, rgba(186,168,255,0.9) 0%, transparent 78%)',
+    },
+    {
+      size: '96%',
+      bottom: '-8%',
+      right: '-8%',
+      duration: '8s',
+      direction: 'reverse' as const,
+      gradient: 'radial-gradient(circle, rgba(165,220,255,0.82) 0%, transparent 80%)',
+    },
+    {
+      size: '118%',
+      top: '18%',
+      right: '-14%',
+      duration: '10s',
+      gradient: 'radial-gradient(circle, rgba(255,210,180,0.76) 0%, transparent 80%)',
+    },
+    {
+      size: '90%',
+      bottom: '10%',
+      left: '4%',
+      duration: '7s',
+      gradient: 'radial-gradient(circle, rgba(255,180,220,0.74) 0%, transparent 78%)',
+    },
+  ];
 
   return (
-    <div className="glass-panel w-full max-w-2xl mx-auto p-8 rounded-xl border border-white/10 shadow-2xl">
-      {/* 标题 */}
-      <div className="text-center mb-8">
-        <div className="flex items-center justify-center mb-4">
-          <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
-        </div>
-        <h3 className="text-lg font-semibold text-white mb-2">
+    <div className="mx-auto w-full max-w-2xl">
+      <style>{`
+        @keyframes ff-gradient-blob {
+          0% { transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
+          33% { transform: translate3d(14%, 18%, 0) rotate(120deg) scale(1.18); }
+          66% { transform: translate3d(-14%, 12%, 0) rotate(240deg) scale(0.86); }
+          100% { transform: translate3d(0, 0, 0) rotate(360deg) scale(1); }
+        }
+      `}</style>
+
+      <div className="mb-4 text-center">
+        <h3 className="mb-2 text-lg font-semibold text-white">
           {title ? title : t.ff_loading_title}
         </h3>
-        <p className="text-zinc-400 text-sm">
-          {t.ff_loading_keep_page_open}
-        </p>
+        <p className="text-sm text-zinc-400">{t.ff_loading_keep_page_open}</p>
       </div>
 
-      {/* 队列位置 */}
-      {queuePosition !== undefined && (
-        <div className="mb-6 p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg">
-          <p className="text-orange-400 text-sm">
-            {t.ff_loading_queue_position}: <span className="font-semibold">{queuePosition}</span>
-          </p>
-        </div>
-      )}
-
-      {/* 步骤显示（如果提供了步骤信息） */}
-      {currentStep && totalSteps && (
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-zinc-300 text-sm font-medium">
-              {t.ff_loading_step}: {currentStep}
-            </p>
-            <p className="text-zinc-400 text-xs">
-              {Math.ceil((progress / 100) * (totalSteps || 1))} / {totalSteps}
-            </p>
-          </div>
-          
-          {/* 步骤进度条 */}
-          <div className="w-full h-2 bg-black/20 rounded-full overflow-hidden">
+      <div className="relative overflow-hidden rounded-[32px] border border-white/10 bg-black/20" style={{ minHeight: '520px' }}>
+        <div className="absolute inset-[-8%] blur-[78px]">
+          {blobs.map((blob, index) => (
             <div
-              className="h-full bg-gradient-to-r from-orange-500 to-orange-400 rounded-full transition-all duration-500"
-              style={{ width: `${progress}%` }}
+              key={index}
+              className="absolute rounded-full"
+              style={{
+                width: blob.size,
+                height: blob.size,
+                top: blob.top,
+                left: blob.left,
+                right: blob.right,
+                bottom: blob.bottom,
+                background: blob.gradient,
+                animationName: 'ff-gradient-blob',
+                animationDuration: blob.duration,
+                animationTimingFunction: 'linear',
+                animationIterationCount: 'infinite',
+                animationDirection: blob.direction || 'normal',
+              }}
             />
-          </div>
+          ))}
         </div>
-      )}
-
-      {/* 主进度条 */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-zinc-300 text-sm font-medium">{t.ff_loading_generation_progress}</p>
-          <p className="text-orange-400 font-semibold text-sm">
-            {progress}%
-          </p>
-        </div>
-        <div className="w-full h-3 bg-black/20 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-orange-500 to-orange-400 rounded-full transition-all duration-500 shadow-lg shadow-orange-500/30"
-            style={{ width: `${progress}%` }}
-          />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.1),transparent_52%),radial-gradient(circle_at_bottom,rgba(255,255,255,0.06),transparent_34%)]" />
+        <div className="absolute right-5 top-5 rounded-full border border-orange-400/25 bg-black/30 px-3 py-1 text-sm font-semibold tabular-nums text-orange-300 backdrop-blur-sm">
+          {progress}%
         </div>
       </div>
 
-      {/* 时间信息 */}
-      <div className="grid grid-cols-2 gap-4 mb-8">
-        <div className="bg-zinc-800/50 rounded-lg p-3 border border-white/10">
-          <p className="text-zinc-400 text-xs mb-1">{t.ff_loading_elapsed}</p>
-          <p className="text-white font-semibold">
-            {formatTime(elapsedTime)}
-          </p>
-        </div>
-        <div className="bg-zinc-800/50 rounded-lg p-3 border border-white/10">
-          <p className="text-zinc-400 text-xs mb-1">
-            {countdownBase > 0 ? t.ff_loading_estimated_remaining : t.ff_loading_no_estimate}
-          </p>
-          <p className="text-white font-semibold">
-            {countdownBase > 0 ? formatTime(remainingTime) : '-'}
-          </p>
-        </div>
+      <div className="mt-4 flex justify-end">
+        <button
+          onClick={onCancel}
+          className="flex items-center justify-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/20 px-4 py-2 text-sm font-medium text-red-400 transition-all hover:bg-red-500/30"
+        >
+          <X className="h-4 w-4" />
+          {t.ff_cancel_generation}
+        </button>
       </div>
-
-      {/* 提示信息 */}
-      <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-        <p className="text-blue-400 text-sm">
-          <span className="font-medium">{t.ff_tip_label}:</span>{' '}
-          {t.ff_generation_tip}
-        </p>
-      </div>
-
-      {/* 取消按钮 */}
-      <button
-        onClick={onCancel}
-        className="w-full py-3 px-4 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/30 transition-all flex items-center justify-center gap-2 font-medium"
-      >
-        <X className="w-4 h-4" />
-        {t.ff_cancel_generation}
-      </button>
     </div>
   );
 };

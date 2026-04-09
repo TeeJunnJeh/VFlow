@@ -5,8 +5,6 @@ import {
   Image as ImageIcon,
   Music,
   Play,
-  Plus,
-  Upload,
   Video,
   X,
 } from 'lucide-react';
@@ -54,7 +52,6 @@ type SeedanceReplayUploadPanelProps = {
   validationSummary?: SeedanceReplayValidationSummary;
   focusTarget?: 'top' | SeedanceReplayMediaKind | null;
   onAddFromLibrary?: (targetMediaKind?: SeedanceReplayMediaKind) => void;
-  onAddFromLocal?: (targetMediaKind?: SeedanceReplayMediaKind) => void;
   onPreview?: (assetId: string) => void;
   onRemove?: (assetId: string) => void;
 };
@@ -136,7 +133,6 @@ export function SeedanceReplayUploadPanel({
   validationSummary,
   focusTarget = null,
   onAddFromLibrary = noop,
-  onAddFromLocal = noop,
   onPreview = noop,
   onRemove = noop,
 }: SeedanceReplayUploadPanelProps) {
@@ -221,10 +217,6 @@ export function SeedanceReplayUploadPanel({
                 <FolderOpen className="h-3.5 w-3.5" />
                 {t.wb_seedance_replay_choose_from_library || 'Choose From Library'}
               </PrimaryButton>
-              <SecondaryButton onClick={() => onAddFromLocal()}>
-                <Upload className="h-3.5 w-3.5" />
-                {t.wb_seedance_replay_upload_local || 'Upload Local Files'}
-              </SecondaryButton>
             </div>
 
           </div>
@@ -242,10 +234,6 @@ export function SeedanceReplayUploadPanel({
               <FolderOpen className="h-3.5 w-3.5" />
               {t.wb_seedance_replay_choose_from_library || 'Choose From Library'}
             </PrimaryButton>
-            <SecondaryButton onClick={() => onAddFromLocal()}>
-              <Upload className="h-3.5 w-3.5" />
-              {t.wb_seedance_replay_upload_local || 'Upload Local Files'}
-            </SecondaryButton>
           </div>
         </div>
       )}
@@ -334,7 +322,6 @@ export function SeedanceReplayUploadPanel({
           exceedsLimit={imageOverLimit}
           errorMessages={imageErrors}
           onAddFromLibrary={() => handleAddFromLibrary('image')}
-          onAddFromLocal={() => onAddFromLocal('image')}
           onPreview={onPreview}
           onRemove={onRemove}
         />
@@ -351,7 +338,6 @@ export function SeedanceReplayUploadPanel({
           exceedsLimit={videoOverLimit}
           errorMessages={videoErrors}
           onAddFromLibrary={() => handleAddFromLibrary('video')}
-          onAddFromLocal={() => onAddFromLocal('video')}
           onPreview={onPreview}
           onRemove={onRemove}
         />
@@ -368,7 +354,6 @@ export function SeedanceReplayUploadPanel({
           exceedsLimit={audioOverLimit}
           errorMessages={audioErrors}
           onAddFromLibrary={() => handleAddFromLibrary('audio')}
-          onAddFromLocal={() => onAddFromLocal('audio')}
           onPreview={onPreview}
           onRemove={onRemove}
         />
@@ -414,24 +399,6 @@ function RoundIcon({
 }
 
 function PrimaryButton({
-  children,
-  onClick,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/[0.04] px-3 py-2 text-xs font-bold text-white shadow-[0_2px_8px_rgba(0,0,0,0.18)] transition hover:border-white/30 hover:bg-white/[0.08]"
-    >
-      {children}
-    </button>
-  );
-}
-
-function SecondaryButton({
   children,
   onClick,
 }: {
@@ -498,7 +465,6 @@ type CategoryCardProps = {
   exceedsLimit?: boolean;
   errorMessages?: string[];
   onAddFromLibrary: () => void;
-  onAddFromLocal: () => void;
   onPreview: (assetId: string) => void;
   onRemove: (assetId: string) => void;
 };
@@ -516,12 +482,10 @@ function CategoryCard({
   exceedsLimit,
   errorMessages = [],
   onAddFromLibrary,
-  onAddFromLocal,
   onPreview,
   onRemove,
 }: CategoryCardProps) {
   const { t } = useLanguage();
-  const [menuOpen, setMenuOpen] = useState(false);
   const isEmpty = items.length === 0;
 
   return (
@@ -554,43 +518,16 @@ function CategoryCard({
           </div>
         </div>
 
-        <div className="relative flex items-center gap-1.5">
-          <MiniIconButton onClick={() => setMenuOpen((prev) => !prev)}>
-            <Plus className="h-3.5 w-3.5" />
+        <div className="flex items-center gap-1.5">
+          <MiniIconButton onClick={onAddFromLibrary}>
+            <FolderOpen className="h-3.5 w-3.5" />
           </MiniIconButton>
-
-          {menuOpen && (
-            <div className="absolute right-0 top-9 z-20 w-36 overflow-hidden rounded-lg border border-white/10 bg-zinc-900/95 shadow-2xl backdrop-blur">
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onAddFromLibrary();
-                }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-200 transition hover:bg-white/5"
-              >
-                <FolderOpen className="h-3.5 w-3.5" />
-                {t.wb_seedance_replay_add_from_library || 'Add From Library'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onAddFromLocal();
-                }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-200 transition hover:bg-white/5"
-              >
-                <Upload className="h-3.5 w-3.5" />
-                {t.wb_seedance_replay_add_from_local || 'Add Local Files'}
-              </button>
-            </div>
-          )}
         </div>
       </div>
 
       {isEmpty ? (
         <div className="rounded-xl border border-dashed border-white/10 bg-black/10 px-4 py-8 text-center text-xs leading-5 text-zinc-500">
-          {t.wb_seedance_replay_empty_hint || 'Click \"+\" to choose from the library or upload local files.'}
+          {t.wb_seedance_replay_empty_hint || 'Click "+" to choose from the library.'}
         </div>
       ) : items[0].mediaKind === 'image' ? (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">

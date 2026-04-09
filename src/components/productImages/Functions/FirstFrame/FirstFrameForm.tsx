@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Wand2 } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
@@ -9,15 +9,37 @@ interface FirstFrameFormProps {
   onSubmit: (params: FirstFrameParams) => Promise<void>;
   isSubmitting?: boolean;
   onReset: () => void;
+  defaultParams?: Partial<FirstFrameParams>;
 }
+
+const STORAGE_KEY = 'firstFrameParams';
+
+const FALLBACK_PARAMS: FirstFrameParams = {
+  category: 'beauty',
+  personType: 'female',
+  holdingStyle: 'single_hand',
+  aspectRatio: '9:16',
+  model: 'flux-2-pro',
+  textWhitespace: 'top',
+  outputCount: 4,
+};
 
 export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   images,
   onSubmit,
   isSubmitting = false,
   onReset,
+  defaultParams,
 }) => {
   const { t } = useLanguage();
+
+  const mergedDefaultParams = useMemo<FirstFrameParams>(
+    () => ({
+      ...FALLBACK_PARAMS,
+      ...(defaultParams || {}),
+    }),
+    [defaultParams]
+  );
 
   const categories = useMemo(
     () => [
@@ -88,16 +110,37 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   );
 
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [formData, setFormData] = useState<FirstFrameParams>({
-    category: 'beauty',
-    personType: 'female',
-    holdingStyle: 'single_hand',
-    aspectRatio: '9:16',
-    model: 'flux-2-pro',
-    textWhitespace: 'top',
-    outputCount: 4,
+  const [formData, setFormData] = useState<FirstFrameParams>(() => {
+    const baseDefaults: FirstFrameParams = { ...mergedDefaultParams };
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as Partial<FirstFrameParams>;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return { ...baseDefaults, ...parsed };
+        }
+      }
+    } catch {
+      // Ignore corrupted local cache and fallback to defaults.
+    }
+    return baseDefaults;
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setFormData((prev) => ({
+      ...mergedDefaultParams,
+      ...prev,
+    }));
+  }, [mergedDefaultParams]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(formData));
+    } catch {
+      // Ignore localStorage write failures.
+    }
+  }, [formData]);
 
   const validateForm = (): boolean => {
     const nextErrors: Record<string, string> = {};
@@ -119,15 +162,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   };
 
   const handleReset = () => {
-    setFormData({
-      category: 'beauty',
-      personType: 'female',
-      holdingStyle: 'single_hand',
-      aspectRatio: '9:16',
-      model: 'flux-2-pro',
-      textWhitespace: 'top',
-      outputCount: 4,
-    });
+    setFormData(mergedDefaultParams);
     setErrors({});
     onReset();
   };
@@ -202,7 +237,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
           </div>
 
           <div>
-            <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.wb_model_title || t.ff_style_label}</label>
+            <label className="block text-base text-zinc-300 mb-2 font-medium">{t.wb_model_title || t.ff_style_label}</label>
             <DropdownSelect
               value={formData.model || ''}
               options={models}

@@ -83,6 +83,10 @@ async function generateFirstFrameOnce(options: {
   aspectRatio?: string;
   projectId?: string;
   model: string;
+  category?: string;
+  personType?: string;
+  holdingStyle?: string;
+  textWhitespace?: string;
   workspaceId?: string;
   workspaceOrder?: number;
   clientHistoryId?: string;
@@ -92,6 +96,10 @@ async function generateFirstFrameOnce(options: {
     aspect_ratio: options.aspectRatio || '9:16',
     frame_type: 'first',
     model: options.model,
+    category: options.category,
+    person_type: options.personType,
+    holding_style: options.holdingStyle,
+    text_whitespace: options.textWhitespace,
   };
 
   if (options.projectId) {
@@ -161,6 +169,10 @@ export const productImagesApi = {
         aspectRatio: params.aspectRatio,
         projectId: resolvedProjectId,
         model,
+        category: params.category,
+        personType: params.personType,
+        holdingStyle: params.holdingStyle,
+        textWhitespace: params.textWhitespace,
         workspaceId: workspaceMeta?.workspaceId,
         workspaceOrder: workspaceMeta?.workspaceOrder,
         clientHistoryId,

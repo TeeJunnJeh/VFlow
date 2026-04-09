@@ -1,7 +1,7 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder,
-  Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowRight, PlayCircle,
+  Wand2, Loader2, Clapperboard, ArrowRight, PlayCircle, BookmarkPlus, FolderOpen,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift, ImagePlus,
   SlidersHorizontal,Palette, MapPin, Activity, Camera, Lightbulb, Music, Scissors, Megaphone, AlignLeft,
@@ -215,8 +215,8 @@ type SeedanceReplayLibraryIntent = {
   preferredTab: AssetLibraryTab;
 };
 
-type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion' | 'audio';
-type AssetLibraryPickMode = 'default' | 'background_audio';
+type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion' | 'audio' | 'script';
+type AssetLibraryPickMode = 'default' | 'background_audio' | 'script_import';
 type AiOptimizeResolution = 'sd' | 'hd' | 'uhd';
 type WaitProgressPhase = 'idle' | 'simulating' | 'holding' | 'finishing' | 'done';
 
@@ -750,6 +750,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const seedanceReplayFileInputRef = useRef<HTMLInputElement>(null);
   const backgroundAudioInputRef = useRef<HTMLInputElement>(null);
   const scriptFileInputRef = useRef<HTMLInputElement>(null);
+  const assetLibraryUploadInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const modeSectionRef = useRef<HTMLDivElement | null>(null);
   const uploadSectionRef = useRef<HTMLDivElement | null>(null);
@@ -850,6 +851,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [assetLibraryBreadcrumb, setAssetLibraryBreadcrumb] = useState<AssetFolder[]>([]);
   const [assetLibraryCurrentFolderId, setAssetLibraryCurrentFolderId] = useState<string | null>(null);
   const [assetLibraryLoading, setAssetLibraryLoading] = useState(false);
+  const [isAssetLibraryUploading, setIsAssetLibraryUploading] = useState(false);
   const [assetLibraryError, setAssetLibraryError] = useState<string | null>(null);
   const [seedanceReplayLibraryIntent, setSeedanceReplayLibraryIntent] = useState<SeedanceReplayLibraryIntent | null>(null);
   const [draggingWorkbenchAssetId, setDraggingWorkbenchAssetId] = useState<string | null>(null);
@@ -1164,7 +1166,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [waitProgressPhase, setWaitProgressPhase] = useState<WaitProgressPhase>('idle');
   const [waitingVideoFailed, setWaitingVideoFailed] = useState(false);
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
+  const [isSavingScriptAsset, setIsSavingScriptAsset] = useState(false);
   const [isPreparingDebug, setIsPreparingDebug] = useState(false);
   const [isSendingDebug, setIsSendingDebug] = useState(false);
   const [debugPayloadText, setDebugPayloadText] = useState('');
@@ -1228,6 +1230,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [scripts, setScripts] = useState<ScriptItem[]>(buildDemoScripts);
   const [scriptPages, setScriptPages] = useState<ScriptPage[]>(() => ([{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: buildDemoScripts() }]));
   const [activeScriptPage, setActiveScriptPage] = useState(0);
+  const [scriptGridPageStart, setScriptGridPageStart] = useState(0);
   const [isScriptGridDialogOpen, setIsScriptGridDialogOpen] = useState(false);
   const scriptPagesRef = useRef<ScriptPage[]>([]);
   const [isShotBreakdownOpen, setIsShotBreakdownOpen] = useState(false);
@@ -2800,56 +2803,69 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setPreviewProjectId(picked.task.projectId || null);
   }, [tasks, lastGeneratedProjectId, projectStore.currentProjectId, setGeneratedVideoUrl]);
 
+  const sortByCreatedAtDesc = useCallback(
+    function <T extends { created_at?: string }>(items: T[]): T[] {
+      return [...items].sort((a, b) => {
+        const at = Date.parse(String(a.created_at || ''));
+        const bt = Date.parse(String(b.created_at || ''));
+        return (Number.isFinite(bt) ? bt : 0) - (Number.isFinite(at) ? at : 0);
+      });
+    },
+    []
+  );
+
+  const filterAssetLibraryItems = useCallback((items: LibraryAsset[]): LibraryAsset[] => {
+    const normalizedItems = Array.isArray(items) ? items : [];
+
+    if (assetLibraryPickMode === 'script_import') {
+      return sortByCreatedAtDesc(
+        normalizedItems.filter((item) => item.type === 'script' || item.media_kind === 'document')
+      );
+    }
+
+    const filteredItems = seedanceReplayLibraryIntent
+      ? normalizedItems.filter((item) => {
+          const itemTab: AssetLibraryTab = item.media_kind === 'video'
+            ? 'motion'
+            : item.media_kind === 'audio'
+              ? 'audio'
+              : 'product';
+          return seedanceReplayLibraryIntent.allowedTabs.includes(itemTab);
+        })
+      : assetLibraryPickMode === 'background_audio'
+        ? normalizedItems.filter((item) => item.media_kind === 'audio')
+        : normalizedItems.filter((item) => item.media_kind !== 'audio');
+
+    return sortByCreatedAtDesc(filteredItems);
+  }, [assetLibraryPickMode, seedanceReplayLibraryIntent, sortByCreatedAtDesc]);
+
+  const reloadAssetLibraryItems = useCallback(async () => {
+    setAssetLibraryLoading(true);
+    setAssetLibraryError(null);
+    try {
+      const [items, folderData] = await Promise.all([
+        assetsApi.getAssets({ type: assetLibraryTab, folderId: assetLibraryCurrentFolderId }),
+        assetsApi.getFolders({ type: assetLibraryTab, parentId: assetLibraryCurrentFolderId }),
+      ]);
+
+      setAssetLibraryItems(filterAssetLibraryItems(items));
+      setAssetLibraryFolders(sortByCreatedAtDesc(Array.isArray(folderData.folders) ? folderData.folders : []));
+      setAssetLibraryBreadcrumb(Array.isArray(folderData.breadcrumb) ? folderData.breadcrumb : []);
+    } catch (err: any) {
+      console.error('Failed to load asset library items:', err);
+      setAssetLibraryItems([]);
+      setAssetLibraryFolders([]);
+      setAssetLibraryBreadcrumb([]);
+      setAssetLibraryError(String(err?.message || '加载素材失败'));
+    } finally {
+      setAssetLibraryLoading(false);
+    }
+  }, [assetLibraryCurrentFolderId, assetLibraryTab, filterAssetLibraryItems, sortByCreatedAtDesc]);
+
   useEffect(() => {
     if (!isAssetLibraryOpen) return;
-    let cancelled = false;
-
-    const loadAssetLibraryItems = async () => {
-      setAssetLibraryLoading(true);
-      setAssetLibraryError(null);
-      try {
-        const [items, folderData] = await Promise.all([
-          assetsApi.getAssets({ type: assetLibraryTab, folderId: assetLibraryCurrentFolderId }),
-          assetsApi.getFolders({ type: assetLibraryTab, parentId: assetLibraryCurrentFolderId }),
-        ]);
-        if (!cancelled) {
-          const normalizedItems = Array.isArray(items) ? items : [];
-          const filteredItems = seedanceReplayLibraryIntent
-            ? normalizedItems.filter((item) => {
-                const itemTab: AssetLibraryTab = item.media_kind === 'video'
-                  ? 'motion'
-                  : item.media_kind === 'audio'
-                    ? 'audio'
-                    : 'product';
-                return seedanceReplayLibraryIntent.allowedTabs.includes(itemTab);
-              })
-            : assetLibraryPickMode === 'background_audio'
-              ? normalizedItems.filter((item) => item.media_kind === 'audio')
-              : normalizedItems.filter((item) => item.media_kind !== 'audio');
-          setAssetLibraryItems(
-            filteredItems
-          );
-          setAssetLibraryFolders(Array.isArray(folderData.folders) ? folderData.folders : []);
-          setAssetLibraryBreadcrumb(Array.isArray(folderData.breadcrumb) ? folderData.breadcrumb : []);
-        }
-      } catch (err: any) {
-        console.error('Failed to load asset library items:', err);
-        if (!cancelled) {
-          setAssetLibraryItems([]);
-          setAssetLibraryFolders([]);
-          setAssetLibraryBreadcrumb([]);
-          setAssetLibraryError(String(err?.message || '加载素材失败'));
-        }
-      } finally {
-        if (!cancelled) setAssetLibraryLoading(false);
-      }
-    };
-
-    void loadAssetLibraryItems();
-    return () => {
-      cancelled = true;
-    };
-  }, [assetLibraryCurrentFolderId, assetLibraryPickMode, assetLibraryTab, isAssetLibraryOpen, seedanceReplayLibraryIntent]);
+    void reloadAssetLibraryItems();
+  }, [isAssetLibraryOpen, reloadAssetLibraryItems]);
 
   const openAssetLibraryPicker = () => {
     setSeedanceReplayLibraryIntent(null);
@@ -2867,6 +2883,83 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setIsAssetLibraryOpen(true);
     setIsBackgroundAudioSourceOpen(false);
   };
+
+  const openScriptLibraryPicker = useCallback(() => {
+    setSeedanceReplayLibraryIntent(null);
+    setAssetLibraryPickMode('script_import');
+    setAssetLibraryTab('script');
+    setAssetLibraryCurrentFolderId(null);
+    setIsAssetLibraryOpen(true);
+  }, []);
+
+  const getAssetLibraryUploadAccept = useCallback((tab: AssetLibraryTab) => {
+    if (tab === 'motion') return '.mp4,.mov,.mkv,.webm,.avi';
+    if (tab === 'audio') return '.mp3,.wav,.flac';
+    if (tab === 'script') return '.txt,.md,.json';
+    return '.jpg,.jpeg,.png,.webp';
+  }, []);
+
+  const triggerAssetLibraryLocalUpload = useCallback(() => {
+    const input = assetLibraryUploadInputRef.current;
+    if (!input || isAssetLibraryUploading) return;
+
+    input.value = '';
+    input.multiple = true;
+    input.accept = getAssetLibraryUploadAccept(assetLibraryTab);
+    input.click();
+  }, [assetLibraryTab, getAssetLibraryUploadAccept, isAssetLibraryUploading]);
+
+  const handleAssetLibraryLocalUploadChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    setIsAssetLibraryUploading(true);
+    const failedMessages: string[] = [];
+    let successCount = 0;
+
+    try {
+      for (const file of files) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await assetsApi.uploadAsset(file, assetLibraryTab, assetLibraryCurrentFolderId);
+          successCount += 1;
+        } catch (err: any) {
+          failedMessages.push(`${file.name}: ${String(err?.message || '上传失败')}`);
+        }
+      }
+
+      await reloadAssetLibraryItems();
+
+      if (successCount > 0 && failedMessages.length === 0) {
+        openInfo(popupTitles.success, formatMessage((t as any).assets_upload_success_count || '已上传 {count} 个文件', { count: successCount }));
+      } else if (successCount > 0) {
+        openInfo(
+          popupTitles.notice,
+          [
+            formatMessage((t as any).assets_upload_success_count || '已上传 {count} 个文件', { count: successCount }),
+            ...failedMessages,
+          ].join('\n')
+        );
+      } else if (failedMessages.length > 0) {
+        openInfo(popupTitles.notice, failedMessages.join('\n'));
+      }
+    } finally {
+      setIsAssetLibraryUploading(false);
+      if (assetLibraryUploadInputRef.current) {
+        assetLibraryUploadInputRef.current.value = '';
+      }
+    }
+  }, [
+    assetLibraryCurrentFolderId,
+    assetLibraryTab,
+    formatMessage,
+    openInfo,
+    popupTitles.notice,
+    popupTitles.success,
+    reloadAssetLibraryItems,
+    (t as any).assets_upload_success_count,
+  ]);
+
   const getSeedanceReplayLibraryIntent = useCallback((targetMediaKind?: SeedanceReplayMediaKind | null): SeedanceReplayLibraryIntent => {
     if (targetMediaKind === 'image') {
       return {
@@ -3093,7 +3186,105 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return queuedAsset;
   }
 
+  const applyImportedScriptText = useCallback((rawText: string, sourceName?: string) => {
+    const content = String(rawText || '').trim();
+    if (!content) {
+      openInfo(popupTitles.notice, t.wb_script_import_empty || '素材库中的脚本内容为空。');
+      return;
+    }
+
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      parsed = null;
+    }
+
+    const rawScripts = Array.isArray(parsed)
+      ? parsed
+      : (Array.isArray(parsed?.scripts)
+        ? parsed.scripts
+        : (Array.isArray(parsed?.shots) ? parsed.shots : null));
+
+    if (Array.isArray(rawScripts) && rawScripts.length > 0 && typeof rawScripts[0] === 'object') {
+      const importedScripts: ScriptItem[] = rawScripts.map((item: any, idx: number) => ({
+        id: Number(item?.id) || Date.now() + idx,
+        shot: String(item?.shot || idx + 1),
+        type: String(item?.type || 'Medium'),
+        dur: String(item?.dur || '2s'),
+        visual: String(item?.visual || item?.image_description || ''),
+        audio: String(item?.audio || item?.voiceover || ''),
+        audioTranslation: String(item?.audioTranslation || ''),
+      }));
+
+      setScripts(importedScripts);
+      setScriptPages((prev) => {
+        if (activeScriptPage < 0 || activeScriptPage >= prev.length) return prev;
+        const next = [...prev];
+        next[activeScriptPage] = {
+          ...next[activeScriptPage],
+          scripts: importedScripts,
+          fullScript: content,
+          creativeCardText: content,
+        };
+        return next;
+      });
+    } else {
+      setScriptPages((prev) => {
+        if (activeScriptPage < 0 || activeScriptPage >= prev.length) return prev;
+        const next = [...prev];
+        next[activeScriptPage] = {
+          ...next[activeScriptPage],
+          fullScript: content,
+          creativeCardText: content,
+        };
+        return next;
+      });
+    }
+
+    setIsShotBreakdownOpen(false);
+    openInfo(
+      popupTitles.success,
+      formatMessage(t.wb_script_imported_from_library || '已从素材库导入脚本：{name}', {
+        name: sourceName || 'script',
+      })
+    );
+  }, [activeScriptPage, formatMessage, openInfo, popupTitles.notice, popupTitles.success, t]);
+
+  const handleImportScriptFromLibraryAsset = useCallback(async (asset: LibraryAsset) => {
+    const assetUrl = toDisplayUrl(asset.file_url) || asset.file_url;
+    if (!assetUrl) {
+      openInfo(popupTitles.notice, t.wb_script_import_failed || '脚本地址无效，无法导入。');
+      return;
+    }
+
+    try {
+      const response = await fetch(assetUrl, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error(t.wb_script_import_failed || '脚本读取失败，请稍后重试。');
+      }
+
+      const text = await response.text();
+      applyImportedScriptText(text, asset.name || 'script');
+      setIsAssetLibraryOpen(false);
+      setAssetLibraryPickMode('default');
+    } catch (err: any) {
+      openInfo(
+        popupTitles.notice,
+        String(err?.message || t.wb_script_import_failed || '脚本读取失败，请稍后重试。')
+      );
+    }
+  }, [applyImportedScriptText, openInfo, popupTitles.notice, t]);
+
   const selectAssetFromLibraryPopup = (asset: LibraryAsset) => {
+    if (assetLibraryPickMode === 'script_import') {
+      void handleImportScriptFromLibraryAsset(asset);
+      return;
+    }
+
     if (assetLibraryPickMode === 'background_audio') {
       if (asset.media_kind !== 'audio') {
         openInfo(popupTitles.notice, t.wb_audio_picker_only_audio || '请选择音频素材');
@@ -3211,12 +3402,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const videoFormats = VIDEO_EXTS.join('/');
   const formatHint = `图片(${imageFormats}) 视频(${videoFormats}) · ≤1GB`;
   const isBatchDebugMode = reuseQueueEnabled && hasAnyReuseQueue;
+  const visibleScriptPages = useMemo(
+    () => scriptPages.slice(scriptGridPageStart, scriptGridPageStart + 4),
+    [scriptGridPageStart, scriptPages]
+  );
+  const canSlideScriptGridPrev = scriptGridPageStart > 0;
+  const canSlideScriptGridNext = scriptGridPageStart + 4 < scriptPages.length;
   const materialTypeLabelMap: Record<AssetLibraryTab, string> = {
     product: t.assets_tab_products || '商品',
     model: t.assets_tab_models || '模特',
     scene: t.assets_tab_scenes || '场景',
     motion: t.assets_tab_motion || '动作',
     audio: t.assets_tab_audio || '音频',
+    script: t.assets_tab_scripts || '脚本',
   };
   const defaultAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => ([
     { value: 'product', label: materialTypeLabelMap.product },
@@ -3229,7 +3427,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       ? seedanceReplayLibraryIntent.allowedTabs.map((tab) => ({ value: tab, label: materialTypeLabelMap[tab] }))
       : []
   ), [materialTypeLabelMap, seedanceReplayLibraryIntent]);
-  const assetLibraryVisibleTabs = seedanceReplayLibraryIntent ? seedanceReplayAssetLibraryTabs : defaultAssetLibraryTabs;
+  const scriptImportAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => ([
+    { value: 'script', label: materialTypeLabelMap.script },
+  ]), [materialTypeLabelMap.script]);
+  const assetLibraryVisibleTabs = assetLibraryPickMode === 'script_import'
+    ? scriptImportAssetLibraryTabs
+    : (seedanceReplayLibraryIntent ? seedanceReplayAssetLibraryTabs : defaultAssetLibraryTabs);
   const isSeedanceReplayMode = creationMode === 'replay' && selectedModel === 'seedance2.0';
   const uploadDisplayAssets: QueuedAsset[] = useMemo(() => {
     if (assetQueue.length > 0) return assetQueue;
@@ -6830,75 +7033,34 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
   };
 
-  const handleExportScripts = async () => {
-    if (scripts.length === 0) { openInfo(popupTitles.notice, t.wb_popup_no_scripts); return; }
-
-    setIsExporting(true);
-
-    try {
-      const dataStr = JSON.stringify(scripts, null, 2);
-      const blob = new Blob([dataStr], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `scripts_${new Date().toISOString().slice(0,10)}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
-      const enableSupabase = false;
-      if (onExportToServer && enableSupabase) {
-        await onExportToServer(scripts);
-      }
-    } catch (error) {
-      console.error('Export error:', error);
-    } finally {
-      setIsExporting(false);
+  const handleSaveCurrentScriptToLibrary = async () => {
+    const combinedScript = buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts, activeCreativeCardText).trim();
+    if (!combinedScript) {
+      openInfo(popupTitles.notice, t.wb_script_save_need_content || '请先生成或编辑脚本后再保存。');
+      return;
     }
-  };
 
-  const handleUploadScripts = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const baseCandidate = String(productName || productCategory || 'workbench_script').trim();
+    const safeBase = baseCandidate
+      .replace(/[\\/:*?"<>|\s]+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'workbench_script';
+    const timeSuffix = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileName = `${safeBase}_${timeSuffix}.txt`;
+    const scriptFile = new File([combinedScript], fileName, { type: 'text/plain;charset=utf-8' });
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const parsed = JSON.parse(event.target?.result as string);
-
-        if (Array.isArray(parsed) && parsed.length > 0 && ('visual' in parsed[0] || 'shot' in parsed[0])) {
-          const validScripts = parsed.map((item: any, idx: number) => ({
-            id: item.id || Date.now() + idx,
-            shot: item.shot || (idx + 1).toString(),
-            type: item.type || 'Medium',
-            dur: item.dur || '2s',
-            visual: item.visual || '',
-            audio: item.audio || '',
-            audioTranslation: item.audioTranslation || ''
-          }));
-          setScripts(validScripts);
-          setScriptPages(prev => {
-            const next = [...prev];
-            next[activeScriptPage] = { ...next[activeScriptPage], scripts: validScripts };
-            return next;
-          });
-
-          const newTotal = validScripts.reduce((acc: number, s: any) => acc + (parseFloat(s.dur.replace('s','')) || 0), 0);
-          if (Math.abs(newTotal - genDuration) > 0.5) {
-            setGenDuration(normalizeDurationForModel(Math.ceil(newTotal), selectedModel));
-          }
-        } else {
-          openInfo('Invalid file', 'Invalid script format. Please upload a valid JSON file.');
-        }
-      } catch (err) {
-        console.error(err);
-        openErrorModal(err, { category: 'parse_failed' });
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
+    setIsSavingScriptAsset(true);
+    try {
+      await assetsApi.uploadAsset(scriptFile, 'script');
+      openInfo(popupTitles.success, t.wb_script_saved_to_library || '已保存到素材库。');
+    } catch (err: any) {
+      openInfo(
+        popupTitles.notice,
+        String(err?.message || t.wb_script_save_failed || '保存失败，请稍后重试。')
+      );
+    } finally {
+      setIsSavingScriptAsset(false);
+    }
   };
 
   const handleScriptPageChange = (nextIndex: number) => {
@@ -6914,6 +7076,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     setScripts(scriptPages[nextIndex]?.scripts || []);
     setIsShotBreakdownOpen(false);
+  };
+
+  useEffect(() => {
+    setScriptGridPageStart((prev) => Math.min(prev, Math.max(0, scriptPages.length - 4)));
+  }, [scriptPages.length]);
+
+  useEffect(() => {
+    if (activeScriptPage < scriptGridPageStart || activeScriptPage >= scriptGridPageStart + 4) {
+      setScriptGridPageStart(Math.max(0, Math.floor(activeScriptPage / 4) * 4));
+    }
+  }, [activeScriptPage, scriptGridPageStart]);
+
+  const handleScriptGridSlidePrev = () => {
+    setScriptGridPageStart((prev) => Math.max(0, prev - 4));
+  };
+
+  const handleScriptGridSlideNext = () => {
+    setScriptGridPageStart((prev) => Math.min(Math.max(0, scriptPages.length - 4), prev + 4));
   };
 
   useEffect(() => {
@@ -7391,7 +7571,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const renderLeftColumn = () => {
     const segmentBase =
-        'group/seg relative flex-1 py-2.5 rounded-lg text-[10px] tracking-tight font-bold transition select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60';
+      'group/seg relative flex-1 py-2.5 rounded-lg text-[11px] tracking-tight font-bold transition select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60';
     const activeSegment = 'bg-gradient-to-r from-purple-600 to-orange-500 text-white shadow-lg shadow-orange-500/15';
     const inactiveSegment = 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5';
 
@@ -8015,13 +8195,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
                   {soundSetting === 'off' && (
                     <div className="mt-2 space-y-2">
-                      <input
-                        type="file"
-                        ref={backgroundAudioInputRef}
-                        className="hidden"
-                        accept=".mp3,.wav,.flac,audio/mpeg,audio/wav,audio/x-wav,audio/flac"
-                        onChange={handleBackgroundAudioFileChange}
-                      />
                       <button
                         type="button"
                         onClick={() => setIsBackgroundAudioSourceOpen((prev) => !prev)}
@@ -8049,16 +8222,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           >
                             <span>{t.wb_btn_choose_from_library || '从素材库选择'}</span>
                           </button>
-                          <div className="mx-3 h-px scale-y-50 bg-zinc-500/18" />
-                          <button
-                            type="button"
-                            onClick={() => backgroundAudioInputRef.current?.click()}
-                            className="mt-1 flex w-full items-center rounded-md border border-transparent px-3 py-2 text-left text-xs text-zinc-200 transition hover:border-zinc-400/30 hover:bg-zinc-500/10 hover:text-orange-200"
-                          >
-                            <span>{(t as any).wb_background_audio_upload || '上传本地音频'}</span>
-                          </button>
                           <div className="px-3 pb-1 pt-2 text-[10px] text-zinc-500">
-                            {(t as any).wb_background_audio_hint || 'mp3 / wav / flac · ≤ 1GB'}
+                            {(t as any).wb_background_audio_hint_library || '可在素材库弹窗中本地上传音频并保存'}
                           </div>
                         </div>
                       )}
@@ -8152,17 +8317,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   validationSummary={seedanceReplayValidation}
                   focusTarget={seedanceReplayFocusTarget}
                   onAddFromLibrary={handleSeedanceReplayAddFromLibrary}
-                  onAddFromLocal={handleSeedanceReplayAddFromLocal}
                   onPreview={handleSeedanceReplayPreview}
                   onRemove={handleSeedanceReplayRemove}
-                />
-                <input
-                  type="file"
-                  ref={seedanceReplayFileInputRef}
-                  className="hidden"
-                  accept={SEEDANCE_REPLAY_UPLOAD_ACCEPT}
-                  multiple
-                  onChange={handleSeedanceReplayFileChange}
                 />
               </>
             ) : (
@@ -8246,10 +8402,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </div>
             )}
             <div
-                onDragOver={isKlingOmniMode ? undefined : handleUploadDragOver}
-                onDragEnter={isKlingOmniMode ? undefined : handleUploadDragOver}
-                onDragLeave={isKlingOmniMode ? undefined : handleUploadDragLeave}
-                onDrop={isKlingOmniMode ? undefined : handleUploadDrop}
+                onDragOver={undefined}
+                onDragEnter={undefined}
+                onDragLeave={undefined}
+                onDrop={undefined}
                 className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors min-h-32 relative group ${uploadDisplayAssets.length > 0 ? 'border-none' : ''} ${isKlingOmniMode ? 'border-none' : (isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50')}`}
             >
               {!isKlingOmniMode && isDragUploadActive && (
@@ -8257,25 +8413,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               )}
               <input type="file" ref={fileInputRef} className="hidden" accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.mkv,.webm,.avi" multiple onChange={handleWorkbenchUpload} />
               {!isKlingOmniMode && uploadDisplayAssets.length === 0 ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center z-10 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-                    <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition duration-300"><Plus className="w-4 h-4 text-zinc-500 group-hover:text-orange-500" /></div>
-                    <p className="text-[10px] font-medium text-zinc-400">{t.wb_upload_click}</p>
-                    <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[10px] text-zinc-300">
-                      <span className="text-zinc-500">{t.wb_upload_support}</span>
-                      <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
-                  {t.wb_upload_image}
-                        <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
-                    {imageFormats}
-                  </span>
-                </span>
-                      <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
-                  {t.wb_upload_video}
-                        <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
-                    {videoFormats}
-                  </span>
-                </span>
-                      <span className="text-zinc-400">{t.wb_upload_max_size}</span>
-                    </div>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
+                    <button
+                        type="button"
+                        onClick={openAssetLibraryPicker}
+                        className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-bold text-zinc-100 transition hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-200"
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      {t.wb_btn_choose_from_library || '从素材库选择'}
+                    </button>
+                    <p className="mt-2 text-[10px] text-zinc-500">
+                      {t.wb_upload_library_hint || '可在素材库弹窗中本地上传并自动保存到素材库'}
+                    </p>
                   </div>
               ) : (
                   <div className="rounded-lg bg-zinc-900/80 p-2">
@@ -8284,11 +8433,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           klingPrimarySlotAsset && klingTailSlotAsset ? (
                             <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scroll pr-1">
                               <div className="rounded-xl border border-white/10 bg-black/25 p-2">
-                                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">{t.wb_label_first_frame_short || t.wb_label_first_frame || 'First'}</div>
+                                <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">{t.wb_label_first_frame_short || t.wb_label_first_frame || 'First'}</div>
                                 {renderUploadAssetCard(klingPrimarySlotAsset)}
                               </div>
                               <div className="rounded-xl border border-white/10 bg-black/25 p-2">
-                                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">{t.wb_label_tail_frame || 'Tail Frame'}</div>
+                                <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">{t.wb_label_tail_frame || 'Tail Frame'}</div>
                                 {renderUploadAssetCard(klingTailSlotAsset)}
                               </div>
                             </div>
@@ -8312,9 +8461,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               </div>
                               <div
                                   className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
-                                  onClick={() => fileInputRef.current?.click()}
+                                  onClick={openAssetLibraryPicker}
                               >
-                                <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                                <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
                                   <span>{t.wb_label_reference_image || '参考图'}</span>
                                   <UploadCloud className="w-3.5 h-3.5 text-zinc-500" />
                                 </div>
@@ -8335,7 +8484,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scroll pr-1">
                           <div
                               className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
-                              onClick={() => fileInputRef.current?.click()}
+                              onClick={openAssetLibraryPicker}
                               onDragOver={(e) => {
                                 if (!draggingWorkbenchAssetId) return;
                                 e.preventDefault();
@@ -8349,7 +8498,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 clearWorkbenchDragState();
                               }}
                           >
-                            <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                            <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
                               <span>{klingGenerateMode === 'subject' ? (t.wb_label_subject_image || 'Subject') : (t.wb_label_first_frame || 'First Frame')}</span>
                               {klingPrimarySlotHint}
                             </div>
@@ -8359,7 +8508,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           </div>
                           <div
                               className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
-                              onClick={() => fileInputRef.current?.click()}
+                              onClick={openAssetLibraryPicker}
                               onDragOver={(e) => {
                                 if (!draggingWorkbenchAssetId) return;
                                 e.preventDefault();
@@ -8373,7 +8522,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 clearWorkbenchDragState();
                               }}
                           >
-                            <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                            <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
                               <span>{t.wb_label_reference_image || 'Reference'}</span>
                               {klingReferenceSlotHint}
                             </div>
@@ -8507,7 +8656,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                             setSelectedAssetSource(nextSource);
                                           }
                                         }}
-                                        className={`rounded border px-1.5 py-0.5 text-[9px] font-bold transition ${
+                                        className={`rounded border px-1.5 py-0.5 text-[10px] font-bold transition ${
                                             selectedModel === 'sora2' || selectedModel === 'sora2pro'
                                                 ? ((
                                                     isKlingOmniMode
@@ -8704,7 +8853,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               </div>
                             </div>
                             <label
-                                className={`shrink-0 flex items-center gap-1 text-[9px] px-1.5 py-1 rounded border transition ${item.mediaKind === 'image' ? 'border-white/10 text-zinc-300 hover:bg-white/5 cursor-pointer' : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}
+                              className={`shrink-0 flex items-center gap-1 text-[10px] px-1.5 py-1 rounded border transition ${item.mediaKind === 'image' ? 'border-white/10 text-zinc-300 hover:bg-white/5 cursor-pointer' : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}
                                 onClick={(e) => e.stopPropagation()}
                                 title={item.mediaKind === 'image'
                                     ? (isKlingOmniMode
@@ -9727,12 +9876,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           className={`rounded-xl border px-3 py-3 text-left transition ${active ? 'border-orange-500/70 bg-orange-500/10' : 'border-white/10 bg-black/25 hover:border-orange-500/35 hover:bg-white/5'}`}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className={`text-sm font-bold ${active ? 'text-orange-200' : 'text-zinc-100'}`}>{page.name}</span>
+                          <span className={`${active ? 'text-base font-extrabold text-orange-200' : 'text-sm font-bold text-zinc-100'}`}>{page.name}</span>
                           <span className={`text-[10px] ${active ? 'text-orange-300' : 'text-zinc-500'}`}>
                             {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
                           </span>
                         </div>
-                        <div className={`mt-2 text-xs leading-5 min-h-[3.2rem] ${active ? 'text-orange-100/90' : 'text-zinc-400'}`}>
+                        <div className={`mt-2 text-sm leading-6 min-h-[4.2rem] ${active ? 'font-semibold text-orange-100/90' : 'text-zinc-400'}`}>
                           {previewText}
                         </div>
                       </button>
@@ -9969,7 +10118,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             <AppDialog
                 isOpen={isAssetLibraryOpen}
                 titleClassName="text-lg"
-                title={assetLibraryPickMode === 'background_audio' ? (t.wb_audio_picker_title || '选择音频素材') : (t.wb_dialog_choose_from_library || '从素材库选择')}
+                title={
+                  assetLibraryPickMode === 'background_audio'
+                    ? (t.wb_audio_picker_title || '选择音频素材')
+                    : assetLibraryPickMode === 'script_import'
+                      ? (t.wb_script_import_from_library || '从素材库导入脚本')
+                      : (t.wb_dialog_choose_from_library || '从素材库选择')
+                }
                 onClose={() => {
                   setIsAssetLibraryOpen(false);
                   setAssetLibraryPickMode('default');
@@ -9992,23 +10147,54 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 }
             >
               <div className="w-full h-[62vh] max-h-[600px] min-h-[440px] flex flex-col gap-2.5">
+                <input
+                  ref={assetLibraryUploadInputRef}
+                  type="file"
+                  className="hidden"
+                  multiple
+                  onChange={handleAssetLibraryLocalUploadChange}
+                />
                 {assetLibraryPickMode === 'background_audio' ? (
-                  <div className="text-xs text-zinc-400 px-1">{t.wb_audio_picker_hint || '仅显示音频素材'}</div>
+                  <div className="flex items-center justify-between gap-3 px-1">
+                    <div className="text-xs text-zinc-400">{t.wb_audio_picker_hint || '仅显示音频素材'}</div>
+                    <button
+                      type="button"
+                      onClick={triggerAssetLibraryLocalUpload}
+                      disabled={isAssetLibraryUploading}
+                      className={`shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] font-bold transition ${isAssetLibraryUploading ? 'border-white/10 bg-white/5 text-zinc-500 cursor-not-allowed' : 'border-orange-500/50 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+                    >
+                      {isAssetLibraryUploading
+                        ? ((t as any).assets_saving_description || '保存中...')
+                        : (t.wb_btn_upload_to_library || '从本地上传并保存')}
+                    </button>
+                  </div>
                 ) : (
-                  <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                    {assetLibraryVisibleTabs.map((tab) => (
-                        <button
-                            key={tab.value}
-                            type="button"
-                            onClick={() => {
-                              setAssetLibraryTab(tab.value);
-                              setAssetLibraryCurrentFolderId(null);
-                            }}
-                            className={`shrink-0 rounded-full border px-5 py-2 text-[14px] font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
-                        >
-                          {tab.label}
-                        </button>
-                    ))}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                      {assetLibraryVisibleTabs.map((tab) => (
+                          <button
+                              key={tab.value}
+                              type="button"
+                              onClick={() => {
+                                setAssetLibraryTab(tab.value);
+                                setAssetLibraryCurrentFolderId(null);
+                              }}
+                              className={`shrink-0 rounded-full border px-5 py-2 text-[14px] font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
+                          >
+                            {tab.label}
+                          </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={triggerAssetLibraryLocalUpload}
+                      disabled={isAssetLibraryUploading}
+                      className={`shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] font-bold transition ${isAssetLibraryUploading ? 'border-white/10 bg-white/5 text-zinc-500 cursor-not-allowed' : 'border-orange-500/50 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+                    >
+                      {isAssetLibraryUploading
+                        ? ((t as any).assets_saving_description || '保存中...')
+                        : (t.wb_btn_upload_to_library || '从本地上传并保存')}
+                    </button>
                   </div>
                 )}
                 <div className="flex items-center gap-2 text-xs text-zinc-500 min-w-0">
@@ -10044,7 +10230,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       </div>
                   ) : assetLibraryItems.length === 0 && assetLibraryFolders.length === 0 ? (
                       <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">
-                        {assetLibraryPickMode === 'background_audio' ? (t.wb_audio_picker_empty || '暂无音频素材') : '暂无素材'}
+                        {assetLibraryPickMode === 'background_audio'
+                          ? (t.wb_audio_picker_empty || '暂无音频素材')
+                          : assetLibraryPickMode === 'script_import'
+                            ? (t.wb_script_library_empty || '暂无脚本素材')
+                            : '暂无素材'}
                       </div>
                   ) : (
                       <div className="grid grid-cols-6 gap-2">
@@ -10097,6 +10287,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 ) : asset.media_kind === 'audio' ? (
                                   <div className="w-full h-full flex items-center justify-center bg-zinc-900 text-zinc-200">
                                     <Music className="w-5 h-5" />
+                                  </div>
+                                ) : asset.media_kind === 'document' || asset.type === 'script' ? (
+                                  <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-zinc-900 text-zinc-200">
+                                    <FileJson className="w-5 h-5" />
+                                    <span className="text-[10px] text-zinc-400">{t.assets_tab_scripts || 'Script'}</span>
                                   </div>
                                 ) : (
                                     <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} />
@@ -10198,31 +10393,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{currentScriptDuration.toFixed(1)}s / {genDuration}s</div>
                 <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
                   <button
-                      onClick={handleExportScripts}
-                      disabled={isExporting}
-                      className={`flex items-center gap-1.5 px-2 py-1 rounded transition ${isExporting ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
-                      title={t.wb_export_scripts}
+                      onClick={handleSaveCurrentScriptToLibrary}
+                      disabled={isSavingScriptAsset}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded transition ${isSavingScriptAsset ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
+                      title={t.wb_script_save_to_library || '保存到素材库'}
                   >
-                    {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
-                    <span className="text-[10px] font-medium">{t.wb_export_scripts}</span>
+                    {isSavingScriptAsset ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BookmarkPlus className="w-3.5 h-3.5" />}
+                    <span className="text-[10px] font-medium">{t.wb_script_save_to_library || '保存到素材库'}</span>
                   </button>
 
                   <button
-                      onClick={() => scriptFileInputRef.current?.click()}
+                      onClick={openScriptLibraryPicker}
                       className="flex items-center gap-1.5 px-2 py-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition"
-                      title={t.wb_import_scripts}
+                      title={t.wb_script_import_from_library || '从素材库导入'}
                   >
-                    <FileUp className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-medium">{t.wb_import_scripts}</span>
+                    <FolderOpen className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-medium">{t.wb_script_import_from_library || '从素材库导入'}</span>
                   </button>
-
-                  <input
-                      type="file"
-                      ref={scriptFileInputRef}
-                      className="hidden"
-                      accept=".json"
-                      onChange={handleUploadScripts}
-                  />
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -10243,16 +10430,37 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
                     {t.wb_script_grid_title || 'Script Variants'}
                   </div>
-                  <button
-                      type="button"
-                      onClick={() => setIsScriptGridDialogOpen(true)}
-                      className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5 transition"
-                  >
-                    {(t.wb_script_grid_open_more || 'View More')} ({scriptPages.length})
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                        type="button"
+                        onClick={handleScriptGridSlidePrev}
+                        disabled={!canSlideScriptGridPrev}
+                        className={`h-6 w-6 rounded border transition flex items-center justify-center ${canSlideScriptGridPrev ? 'border-white/15 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5' : 'border-white/10 text-zinc-600 cursor-not-allowed'}`}
+                        aria-label={(t as any).wb_previous || 'Previous'}
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleScriptGridSlideNext}
+                        disabled={!canSlideScriptGridNext}
+                        className={`h-6 w-6 rounded border transition flex items-center justify-center ${canSlideScriptGridNext ? 'border-white/15 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5' : 'border-white/10 text-zinc-600 cursor-not-allowed'}`}
+                        aria-label={(t as any).wb_next || 'Next'}
+                    >
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setIsScriptGridDialogOpen(true)}
+                        className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5 transition"
+                    >
+                      {(t.wb_script_grid_open_more || 'View More')} ({scriptPages.length})
+                    </button>
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {scriptPages.slice(0, 6).map((page, index) => {
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                  {visibleScriptPages.map((page, offset) => {
+                    const index = scriptGridPageStart + offset;
                     const active = index === activeScriptPage;
                     const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim()
                       || (t.wb_script_grid_card_empty || 'No script content yet');
@@ -10261,15 +10469,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           key={page.id}
                           type="button"
                           onClick={() => handleScriptPageChange(index)}
-                          className={`rounded-lg border px-2.5 py-2 text-left transition ${active ? 'border-orange-500/70 bg-orange-500/10' : 'border-white/10 bg-black/30 hover:border-white/25 hover:bg-white/5'}`}
+                          className={`rounded-xl border px-3 py-2.5 text-left transition min-h-[110px] ${active ? 'border-orange-500/70 bg-orange-500/10 ring-1 ring-orange-500/35' : 'border-white/10 bg-black/30 hover:border-white/25 hover:bg-white/5'}`}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className={`text-[11px] font-bold ${active ? 'text-orange-200' : 'text-zinc-200'}`}>{page.name}</span>
-                          <span className={`text-[9px] ${active ? 'text-orange-300' : 'text-zinc-500'}`}>
+                          <span className={`text-[11px] ${active ? 'font-extrabold text-orange-200' : 'font-bold text-zinc-200'}`}>{page.name}</span>
+                          <span className={`text-[9px] ${active ? 'text-orange-300 font-bold' : 'text-zinc-500'}`}>
                             {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
                           </span>
                         </div>
-                        <div className={`mt-1 text-[10px] leading-4 h-8 overflow-hidden ${active ? 'text-orange-100/85' : 'text-zinc-400'}`}>
+                        <div className={`mt-1 text-[10px] leading-5 h-[3.8rem] overflow-hidden ${active ? 'text-orange-100/85' : 'text-zinc-400'}`}>
                           {previewText}
                         </div>
                       </button>

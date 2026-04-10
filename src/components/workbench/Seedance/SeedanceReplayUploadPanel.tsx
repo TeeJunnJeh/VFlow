@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useEffect, useRef, useState } from 'react';
 import {
   Eye,
   FolderOpen,
@@ -80,13 +80,6 @@ function formatText(template: string, values: Record<string, string | number>) {
   return template.replace(/\{(\w+)\}/g, (match, key) => (
     Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : match
   ));
-}
-
-function getSourceLabelMap(t: any): Record<SourceType, string> {
-  return {
-    library: t.wb_seedance_replay_source_library || 'Library',
-    local: t.wb_seedance_replay_source_local || 'Local',
-  };
 }
 
 function getMediaTooltipItems(t: any): Record<MediaKind, string[]> {
@@ -590,8 +583,6 @@ function ImageCard({
   onPreview: (assetId: string) => void;
   onRemove: (assetId: string) => void;
 }) {
-  const { t } = useLanguage();
-  const sourceLabelMap = getSourceLabelMap(t);
   return (
     <div className="group relative aspect-square overflow-hidden rounded-xl border border-white/10 bg-black/20">
       {item.previewUrl ? (
@@ -599,10 +590,6 @@ function ImageCard({
       ) : (
         <div className="h-full w-full bg-white/5" />
       )}
-
-      <div className="absolute left-2 top-2 rounded-md border border-white/10 bg-black/40 px-1.5 py-0.5 text-[10px] font-bold text-zinc-100 backdrop-blur">
-        {sourceLabelMap[item.source]}
-      </div>
 
       <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-black/40 opacity-0 transition group-hover:opacity-100">
         <OverlayActionButton tone="neutral" onClick={() => onPreview(item.id)}>
@@ -625,8 +612,6 @@ function VideoCard({
   onPreview: (assetId: string) => void;
   onRemove: (assetId: string) => void;
 }) {
-  const { t } = useLanguage();
-  const sourceLabelMap = getSourceLabelMap(t);
   return (
     <div className="group rounded-xl border border-white/10 bg-black/20 p-3 transition hover:bg-white/5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -643,9 +628,6 @@ function VideoCard({
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-bold text-zinc-100">{item.name}</p>
           <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
-            <span className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-bold text-zinc-300">
-              {sourceLabelMap[item.source]}
-            </span>
             <span>{formatSeconds(item.durationSeconds || 0)}</span>
           </div>
         </div>
@@ -672,8 +654,6 @@ function AudioCard({
   onPreview: (assetId: string) => void;
   onRemove: (assetId: string) => void;
 }) {
-  const { t } = useLanguage();
-  const sourceLabelMap = getSourceLabelMap(t);
   return (
     <div className="group rounded-xl border border-white/10 bg-black/20 p-3 transition hover:bg-white/5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -684,9 +664,6 @@ function AudioCard({
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-bold text-zinc-100">{item.name}</p>
           <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
-            <span className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-bold text-zinc-300">
-              {sourceLabelMap[item.source]}
-            </span>
             <span>{formatSeconds(item.durationSeconds || 0)}</span>
           </div>
         </div>

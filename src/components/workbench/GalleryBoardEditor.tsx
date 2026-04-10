@@ -124,8 +124,11 @@ export interface GalleryBoardEditorProps {
   initialTitle?: string;
   initialSubtitle?: string;
   initialBackground?: string;
-  onClose?: () => void;
+  initialLocalAssets?: GalleryBoardAsset[];
+  initialDraft?: GalleryBoardDraft | null;
   onAlert?: (message: string) => void;
+  onLocalAssetsChange?: (assets: GalleryBoardAsset[]) => void;
+  onDraftChange?: (draft: GalleryBoardDraft) => void;
 }
 
 type PickerColorState = {
@@ -139,8 +142,20 @@ type AssetImageSize = {
   height: number;
 };
 
+export type GalleryBoardDraft = {
+  board: BoardState;
+  selectedAssetLocalIds: string[];
+  zoom: number;
+  templateMode: TemplateDefinition['imageCount'];
+};
+
 type RightPanelSectionKey = 'board' | 'inspector' | 'assets';
 type LeftPanelSectionKey = 'templates' | 'aiLayouts';
+type TemplateTooltipState = {
+  text: string;
+  top: number;
+  left: number;
+};
 
 const FONT_FAMILY_OPTIONS = ['system-ui', 'Microsoft YaHei', 'PingFang SC', 'SimHei', 'serif'];
 const CANVAS_SIZE_OPTIONS = [
@@ -718,8 +733,11 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   initialTitle,
   initialSubtitle,
   initialBackground,
-  onClose,
+  initialLocalAssets,
+  initialDraft,
   onAlert,
+  onLocalAssetsChange,
+  onDraftChange,
 }) => {
   const layerIdSeedRef = useRef(0);
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -728,23 +746,27 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const localAssetUrlsRef = useRef<string[]>([]);
   const assetImageSizeCacheRef = useRef<Map<string, AssetImageSize>>(new Map());
-  const [zoom, setZoom] = useState(1);
+  const shouldManageLocalAssetUrls = !onLocalAssetsChange;
+  const [zoom, setZoom] = useState(() => initialDraft?.zoom ?? 1);
   const [isExporting, setIsExporting] = useState(false);
   const [viewportSize, setViewportSize] = useState({ width: 960, height: 720 });
-  const [localAssets, setLocalAssets] = useState<GalleryBoardAsset[]>([]);
+  const [localAssets, setLocalAssets] = useState<GalleryBoardAsset[]>(() => initialLocalAssets || []);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [textFontSizeDraft, setTextFontSizeDraft] = useState('');
-  const [selectedAssetLocalIds, setSelectedAssetLocalIds] = useState<string[]>([]);
+  const [selectedAssetLocalIds, setSelectedAssetLocalIds] = useState<string[]>(() => initialDraft?.selectedAssetLocalIds || []);
   const [isGeneratingAiLayouts, setIsGeneratingAiLayouts] = useState(false);
   const [aiLayoutProposals, setAiLayoutProposals] = useState<GalleryAiLayoutProposal[]>([]);
   const [aiLayoutFallbackUsed, setAiLayoutFallbackUsed] = useState(false);
   const [aiLayoutMessage, setAiLayoutMessage] = useState('');
-  const [templateMode, setTemplateMode] = useState<TemplateDefinition['imageCount']>(() => resolveTemplateModeById(initialTemplateId));
+  const [templateTooltip, setTemplateTooltip] = useState<TemplateTooltipState | null>(null);
+  const [templateMode, setTemplateMode] = useState<TemplateDefinition['imageCount']>(() =>
+    initialDraft?.templateMode || resolveTemplateModeById(initialDraft?.board?.templateId || initialTemplateId)
+  );
   const [, setAssetImageMetaVersion] = useState(0);
   const [rightPanelSections, setRightPanelSections] = useState<Record<RightPanelSectionKey, boolean>>({
     board: true,
     inspector: true,
-    assets: false,
+    assets: (assets.length + (initialLocalAssets?.length || 0)) < 1,
   });
   const [leftPanelSections, setLeftPanelSections] = useState<Record<LeftPanelSectionKey, boolean>>({
     templates: true,
@@ -763,16 +785,22 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   );
 
   useEffect(() => {
+    if (!shouldManageLocalAssetUrls) return;
     localAssetUrlsRef.current = localAssets
       .map((item) => String(item.imageUrl || ''))
       .filter((url) => url.startsWith('blob:'));
-  }, [localAssets]);
+  }, [localAssets, shouldManageLocalAssetUrls]);
 
   useEffect(() => {
+    if (!shouldManageLocalAssetUrls) return;
     return () => {
       localAssetUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, []);
+  }, [shouldManageLocalAssetUrls]);
+
+  useEffect(() => {
+    onLocalAssetsChange?.(localAssets);
+  }, [localAssets, onLocalAssetsChange]);
 
   useEffect(() => {
     const availableIds = new Set(mergedAssets.map((item) => item.localId));
@@ -904,11 +932,29 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     };
   };
 
-  const [board, setBoard] = useState<BoardState>(() => buildBoardFromTemplate(initialTemplateId || TEMPLATE_DEFINITIONS[0].id));
+  const [board, setBoard] = useState<BoardState>(() => initialDraft?.board || buildBoardFromTemplate(initialTemplateId || TEMPLATE_DEFINITIONS[0].id));
   const filteredTemplates = useMemo(
     () => TEMPLATE_DEFINITIONS.filter((item) => item.imageCount === templateMode),
     [templateMode]
   );
+
+  useEffect(() => {
+    const maxLayerId = board.layers.reduce((maxValue, layer) => {
+      const matched = String(layer.id || '').match(/board-layer-(\d+)/);
+      if (!matched) return maxValue;
+      return Math.max(maxValue, Number(matched[1]) || 0);
+    }, 0);
+    layerIdSeedRef.current = Math.max(layerIdSeedRef.current, maxLayerId);
+  }, [board.layers]);
+
+  useEffect(() => {
+    onDraftChange?.({
+      board,
+      selectedAssetLocalIds,
+      zoom,
+      templateMode,
+    });
+  }, [board, onDraftChange, selectedAssetLocalIds, templateMode, zoom]);
 
   useEffect(() => {
     const matched = TEMPLATE_DEFINITIONS.find((item) => item.id === board.templateId);
@@ -1837,6 +1883,20 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     setTextFontSizeDraft(String(Math.round(clamp(nextFontSize, 12, 160))));
   };
 
+  const showTemplateTooltip = (text: string, element: HTMLButtonElement) => {
+    const rect = element.getBoundingClientRect();
+    const maxTop = Math.max(window.innerHeight - 20, 20);
+    setTemplateTooltip({
+      text,
+      left: rect.right + 10,
+      top: clamp(rect.top + rect.height / 2, 20, maxTop),
+    });
+  };
+
+  const hideTemplateTooltip = () => {
+    setTemplateTooltip(null);
+  };
+
   return (
     <>
       <div className="grid min-h-[72vh] grid-cols-1 gap-4 xl:grid-cols-[240px_minmax(0,1fr)_360px]">
@@ -1884,50 +1944,48 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                   })}
                 </div>
 
-                {filteredTemplates.map((template) => {
-                  const active = board.templateId === template.id;
-                  return (
-                    <button
-                      key={template.id}
-                      type="button"
-                      onClick={() => applyTemplate(template.id)}
-                      className={`rounded-xl border p-2.5 text-left transition ${
-                        active
-                          ? 'border-orange-500 bg-orange-500/10 text-orange-200'
-                          : 'border-white/10 bg-black/20 text-zinc-200 hover:bg-white/5'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="text-xs font-semibold">{template.name}</div>
-                          <div className="mt-1 text-[11px] leading-5 text-zinc-400">{template.description}</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {filteredTemplates.map((template) => {
+                    const active = board.templateId === template.id;
+                    return (
+                      <button
+                        key={template.id}
+                        type="button"
+                        onClick={() => applyTemplate(template.id)}
+                        onMouseEnter={(event) => showTemplateTooltip(template.description, event.currentTarget)}
+                        onMouseMove={(event) => showTemplateTooltip(template.description, event.currentTarget)}
+                        onMouseLeave={hideTemplateTooltip}
+                        onFocus={(event) => showTemplateTooltip(template.description, event.currentTarget)}
+                        onBlur={hideTemplateTooltip}
+                        className={`group relative rounded-xl border p-1.5 text-left transition ${
+                          active
+                            ? 'border-orange-500 bg-orange-500/10 text-orange-200 shadow-[0_0_0_1px_rgba(249,115,22,0.25)]'
+                            : 'border-white/10 bg-black/20 text-zinc-200 hover:border-white/20 hover:bg-white/5'
+                        }`}
+                      >
+                        <div className="overflow-hidden rounded-lg border border-white/10 bg-zinc-950/70 p-1">
+                          <div
+                            className="relative mx-auto w-full rounded-md border border-white/5 bg-white/5 overflow-hidden"
+                            style={{ aspectRatio: `${template.canvasWidth} / ${template.canvasHeight}` }}
+                          >
+                            {template.slots.map((slot, index) => (
+                              <div
+                                key={`${template.id}-${index}`}
+                                className="absolute rounded-[3px] border border-white/30 bg-white/10"
+                                style={{
+                                  left: `${(slot.x / template.canvasWidth) * 100}%`,
+                                  top: `${(slot.y / template.canvasHeight) * 100}%`,
+                                  width: `${(slot.w / template.canvasWidth) * 100}%`,
+                                  height: `${(slot.h / template.canvasHeight) * 100}%`,
+                                }}
+                              />
+                            ))}
+                          </div>
                         </div>
-                        <div className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-zinc-400">
-                          {template.canvasWidth}:{template.canvasHeight}
-                        </div>
-                      </div>
-                      <div className="mt-2 overflow-hidden rounded-lg border border-white/10 bg-zinc-950/70 p-1.5">
-                        <div
-                          className="relative mx-auto w-full rounded-md border border-white/5 bg-white/5"
-                          style={{ aspectRatio: `${template.canvasWidth} / ${template.canvasHeight}` }}
-                        >
-                          {template.slots.map((slot, index) => (
-                            <div
-                              key={`${template.id}-${index}`}
-                              className="absolute rounded-sm border border-white/30 bg-white/10"
-                              style={{
-                                left: `${(slot.x / template.canvasWidth) * 100}%`,
-                                top: `${(slot.y / template.canvasHeight) * 100}%`,
-                                width: `${(slot.w / template.canvasWidth) * 100}%`,
-                                height: `${(slot.h / template.canvasHeight) * 100}%`,
-                              }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
+                      </button>
+                    );
+                  })}
+                </div>
 
                 {filteredTemplates.length < 1 ? (
                   <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-4 text-xs text-zinc-500">
@@ -2004,6 +2062,18 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
         </div>
       </aside>
 
+      {templateTooltip ? (
+        <div
+          className="pointer-events-none fixed z-[260] w-max max-w-[180px] -translate-y-1/2 rounded-md border border-white/10 bg-black/92 px-2 py-1.5 text-center text-[10px] leading-4 text-zinc-100 shadow-xl"
+          style={{
+            left: templateTooltip.left,
+            top: templateTooltip.top,
+          }}
+        >
+          {templateTooltip.text}
+        </div>
+      ) : null}
+
       <section className="flex min-h-0 flex-col rounded-2xl border border-white/10 bg-black/20 p-4">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -2057,15 +2127,6 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
               <Download className="h-4 w-4" />
               {isExporting ? tr('导出中...', 'Exporting...') : tr('导出 PNG', 'Export PNG')}
             </button>
-            {onClose ? (
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
-              >
-                {tr('关闭', 'Close')}
-              </button>
-            ) : null}
           </div>
         </div>
 
@@ -3044,7 +3105,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                     })
                   ) : (
                     <div className="col-span-2 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-500">
-                      {tr('当前预览区还没有成功生成的图片素材。', 'There are no successful preview images yet.')}
+                      {tr('当前还没有素材，可先上传本地图片后再加入画板。', 'There are no assets yet. Upload local images first, then add them to the board.')}
                     </div>
                   )}
                 </div>

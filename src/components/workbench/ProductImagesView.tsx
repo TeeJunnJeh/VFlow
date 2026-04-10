@@ -7,7 +7,7 @@ import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { FirstFrameView, SmartRepairView } from '../productImages';
 import { AppDialog } from '../common/AppDialog';
 import TextSeparationDemoView, { type TextSeparationBlock } from './TextSeparationDemoView';
-import GalleryBoardEditor from './GalleryBoardEditor';
+import GalleryBoardEditor, { type GalleryBoardAsset, type GalleryBoardDraft } from './GalleryBoardEditor';
 import { assetsApi } from '../../services/assets';
 import { videoApi } from '../../services/video';
 import { downloadBlob, productImagesApi } from '../../services/productImagesApi';
@@ -115,6 +115,15 @@ const GALLERY_SCENE_PRESETS: Array<GallerySceneConfig & { id: string; name: stri
     sceneProps: '杂志、咖啡杯、小型绿植、摆件',
     lighting: '窗边自然光，光线均匀柔和',
     mood: '松弛、温暖、居家品质感',
+  },
+  {
+    id: 'family_room',
+    name: '家庭房',
+    sceneTheme: '温馨家庭房',
+    sceneDescription: '家庭房沙发与茶几区域，背景有地毯、落地灯和收纳柜，整体温暖放松，生活化明显。',
+    sceneProps: '抱枕、毛毯、杂志、马克杯、绿植',
+    lighting: '窗边自然光配合室内暖光，柔和通透',
+    mood: '温馨、陪伴感、家庭生活氛围',
   },
   {
     id: 'bathroom_sink',
@@ -479,9 +488,12 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     }>
   >([]);
   const [isGalleryBoardEditorOpen, setIsGalleryBoardEditorOpen] = useState(false);
+  const [galleryBoardLocalAssets, setGalleryBoardLocalAssets] = useState<GalleryBoardAsset[]>([]);
+  const [galleryBoardDraft, setGalleryBoardDraft] = useState<GalleryBoardDraft | null>(null);
   const [galleryTextEditor, setGalleryTextEditor] = useState<{ open: boolean; localId: string; imageUrl: string; layout: any } | null>(null);
   const [galleryTextDraftLayout, setGalleryTextDraftLayout] = useState<any | null>(null);
   const [isGalleryTextExporting, setIsGalleryTextExporting] = useState(false);
+  const galleryBoardLocalAssetUrlsRef = useRef<string[]>([]);
   const dragTextRef = useRef<{
     index: number;
     startClientX: number;
@@ -538,6 +550,15 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     setGallerySceneMood(preset.mood);
   };
 
+  const clearGallerySceneConfig = () => {
+    setGalleryScenePresetId('');
+    setGallerySceneTheme('');
+    setGallerySceneDescription('');
+    setGallerySceneProps('');
+    setGallerySceneLighting('');
+    setGallerySceneMood('');
+  };
+
   const galleryConfirmResolverRef = useRef<((value: boolean) => void) | null>(null);
   const [galleryConfirm, setGalleryConfirm] = useState<{
     open: boolean;
@@ -576,6 +597,18 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     const timer = window.setTimeout(() => setGalleryToastMessage(null), 2200);
     return () => window.clearTimeout(timer);
   }, [galleryToastMessage]);
+
+  useEffect(() => {
+    galleryBoardLocalAssetUrlsRef.current = galleryBoardLocalAssets
+      .map((item) => String(item.imageUrl || ''))
+      .filter((url) => url.startsWith('blob:'));
+  }, [galleryBoardLocalAssets]);
+
+  useEffect(() => {
+    return () => {
+      galleryBoardLocalAssetUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, []);
 
   useEffect(() => {
     setGalleryPreviewResolution(null);
@@ -617,10 +650,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   };
 
   const openGalleryBoardEditor = () => {
-    if (galleryBoardAssets.length < 1) {
-      openGalleryAlert(tr('请先生成至少 1 张成功图片后再打开画板。', 'Generate at least 1 successful image before opening the board.'));
-      return;
-    }
     setIsGalleryBoardEditorOpen(true);
   };
 
@@ -2070,6 +2099,12 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   : it
               )
             );
+            try {
+              await refreshImageHistory();
+              notifyImageHistoryUpdated();
+            } catch {
+              // Keep generation flow non-blocking when history refresh fails.
+            }
             // Collect URL for batch history write
             outputs.forEach((o: any) => {
               const u = String(o || '').trim();
@@ -2600,31 +2635,15 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             tr={tr}
             initialTitle={galleryProductName}
             initialSubtitle={gallerySellingPoints.filter((item) => String(item || '').trim()).slice(0, 2).join(' / ')}
-            onClose={closeGalleryBoardEditor}
+            initialLocalAssets={galleryBoardLocalAssets}
+            initialDraft={galleryBoardDraft}
+            onLocalAssetsChange={setGalleryBoardLocalAssets}
+            onDraftChange={setGalleryBoardDraft}
             onAlert={openGalleryAlert}
           />
         ) : null}
       </AppDialog>
 
-      <AppDialog
-        isOpen={isGalleryBoardEditorOpen}
-        title={tr('画板编辑器', 'Board Editor')}
-        onClose={closeGalleryBoardEditor}
-        widthClassName="max-w-[96rem]"
-      >
-        {isGalleryBoardEditorOpen ? (
-          <GalleryBoardEditor
-            assets={galleryBoardAssets}
-            productName={galleryProductName}
-            sellingPoints={gallerySellingPoints}
-            tr={tr}
-            initialTitle={galleryProductName}
-            initialSubtitle={gallerySellingPoints.filter((item) => String(item || '').trim()).slice(0, 2).join(' / ')}
-            onClose={closeGalleryBoardEditor}
-            onAlert={openGalleryAlert}
-          />
-        ) : null}
-      </AppDialog>
 
       <header className="relative z-50 flex justify-between gap-6 px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
         <div className="min-w-0">
@@ -3271,7 +3290,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                           onChange={(value) => {
                             const next = String(value || 'custom');
                             if (next === 'custom') {
-                              setGalleryScenePresetId('');
+                              clearGallerySceneConfig();
                               return;
                             }
                             applyGalleryScenePreset(next);
@@ -3454,8 +3473,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   <button
                     type="button"
                     onClick={openGalleryBoardEditor}
-                    disabled={galleryBoardAssets.length < 1}
-                    className="px-3 py-2 rounded-xl text-xs font-bold transition border border-orange-500/30 bg-orange-500/10 text-orange-300 hover:bg-orange-500/15 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-zinc-900 disabled:text-zinc-500 inline-flex items-center gap-2"
+                    className="px-3 py-2 rounded-xl text-xs font-bold transition border border-orange-500/30 bg-orange-500/10 text-orange-300 hover:bg-orange-500/15 inline-flex items-center gap-2"
                   >
                     <LayoutGrid className="w-3.5 h-3.5" />
                     {tr('画板编辑', 'Board')}

@@ -120,6 +120,10 @@ type BillingPricingCatalog = {
     models?: Record<string, BillingPricingModelEntry>;
     modes?: Record<string, BillingPricingModeEntry>;
   };
+  image?: {
+    default_model?: string;
+    models?: Record<string, BillingPricingModelEntry>;
+  };
 };
 
 const VIDEO_MODEL_PRICING_ALIASES: Record<string, string> = {
@@ -127,6 +131,12 @@ const VIDEO_MODEL_PRICING_ALIASES: Record<string, string> = {
   sora2: 'sora-2',
   sora2pro: 'sora-2-pro',
   'seedance2.0': 'seedance-2.0',
+};
+
+const IMAGE_MODEL_PRICING_ALIASES: Record<string, string> = {
+  'gpt-image-1.5': 'gpt-image-1.5',
+  'flux-2-pro': 'flux-2-pro',
+  'flux-2-flex': 'flux-2-flex',
 };
 
 const getVideoPricingMode = (pricing: BillingPricingCatalog | null | undefined, creationMode: 'fast' | 'replay') => {
@@ -148,6 +158,14 @@ const getVideoModelPricingEntry = (
   const modelKey = VIDEO_MODEL_PRICING_ALIASES[modelId] || modelId;
   const modeKey = getVideoPricingMode(pricing, creationMode);
   return pricing?.video?.modes?.[modeKey]?.models?.[modelKey] || pricing?.video?.models?.[modelKey] || null;
+};
+
+const getImageModelPricingEntry = (
+  pricing: BillingPricingCatalog | null | undefined,
+  modelId: string,
+) => {
+  const modelKey = IMAGE_MODEL_PRICING_ALIASES[modelId] || modelId;
+  return pricing?.image?.models?.[modelKey] || null;
 };
 
 const getSeedanceReplayLocalAccept = (mediaKind?: SeedanceReplayMediaKind | null) => {
@@ -3382,6 +3400,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const isReuseReady = assetQueue.length > 0 && scriptQueue.length > 0;
   const expectedBatchCount = isReuseReady ? assetQueue.length * scriptQueue.length : 0;
   const selectedVideoPricing = getVideoModelPricingEntry(billingPricing, selectedModel, creationMode);
+  const selectedImagePricing = getImageModelPricingEntry(billingPricing, imageGenModel);
   const formatVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined) => {
     const rate = Number(entry?.rate ?? 0);
     if (!Number.isFinite(rate) || rate <= 0) return '-';
@@ -3405,7 +3424,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     return Math.max(0, Math.round(rate * Math.max(1, Number(genDuration) || 0)));
   }, [genDuration, queuedRenderableAssetCount, reuseQueueEnabled, scriptQueue, selectedVideoPricing]);
+
+  const estimatedScriptVideoCost = useMemo(() => {
+    const rate = Number(selectedVideoPricing?.rate ?? 0);
+    if (!Number.isFinite(rate) || rate <= 0) return 0;
+    return Math.max(0, Math.round(rate * Math.max(1, Number(genDuration) || 0)));
+  }, [genDuration, selectedVideoPricing]);
+
+  const estimatedImageCost = useMemo(() => {
+    const rate = Number(selectedImagePricing?.rate ?? 0);
+    if (!Number.isFinite(rate) || rate <= 0) return 0;
+    return Math.max(0, Math.round(rate * Math.max(1, Math.min(4, Number(aiOptimizeCount) || 1))));
+  }, [aiOptimizeCount, selectedImagePricing]);
+
   const estimatedVideoCostLabel = estimatedVideoCost > 0 ? `-${estimatedVideoCost} ${t.v_points || 'V点'}` : '';
+  const estimatedScriptVideoCostLabel = estimatedScriptVideoCost > 0 ? `-${estimatedScriptVideoCost} ${t.v_points || 'V点'}` : '';
+  const estimatedImageCostLabel = estimatedImageCost > 0 ? `-${estimatedImageCost} ${t.v_points || 'V点'}` : '';
   const hasCurrentAsset = Boolean(uploadedFile || selectedAssetUrl || selectedFileObj);
   const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
   const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
@@ -9173,10 +9207,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     }
                     void handleGenerateScripts();
                   }}
-                  className={`w-full py-3 rounded-xl font-bold text-xs transition flex items-center justify-center gap-2 group border border-white/10 bg-black/30 text-zinc-200 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 ${!hasCurrentAsset ? 'opacity-40 hover:bg-black/30' : ''}`}
+                  className={`w-full py-3 rounded-xl font-bold text-xs transition group border border-white/10 bg-black/30 text-zinc-200 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 ${!hasCurrentAsset ? 'opacity-40 hover:bg-black/30' : ''}`}
               >
-                <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />
-                {t.wb_btn_gen_scripts}
+                <span className="flex w-full items-center gap-2 px-3">
+                  <span className="flex items-center gap-2 whitespace-nowrap">
+                    <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />
+                    {t.wb_btn_gen_scripts}
+                  </span>
+                  {estimatedScriptVideoCostLabel ? (
+                    <span className="ml-auto text-[10px] font-semibold text-zinc-300 whitespace-nowrap">{estimatedScriptVideoCostLabel}</span>
+                  ) : null}
+                </span>
               </button>
             )}
           </div>
@@ -10171,9 +10212,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           disabled={isAiOptimizeGenerating}
                           className={`px-4 py-2 rounded-lg text-sm font-bold text-white transition ${isAiOptimizeGenerating ? 'bg-orange-500/70 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600'}`}
                       >
-                        {isAiOptimizeGenerating
-                          ? (t.wb_ai_opt_generating || '生成中...')
-                          : (t.wb_ai_opt_generate_btn || '生成优化图')}
+                        <span className="flex items-center gap-3 whitespace-nowrap">
+                          <span>
+                            {isAiOptimizeGenerating
+                              ? (t.wb_ai_opt_generating || '生成中...')
+                              : (t.wb_ai_opt_generate_btn || '生成优化图')}
+                          </span>
+                          {estimatedImageCostLabel ? (
+                            <span className="text-[11px] font-semibold text-white/90">{estimatedImageCostLabel}</span>
+                          ) : null}
+                        </span>
                       </button>
                       <span className="pointer-events-none absolute bottom-full right-0 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/cost-image:opacity-100">
                         {t.wb_cost_tip_generate_image || '生成图片会消耗点数，具体以实际扣费为准。'}

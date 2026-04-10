@@ -102,7 +102,7 @@ export const BillingView: React.FC = () => {
 
   const balance = overview?.balance ?? 0;
   const planMeta = overview?.plan_meta || {};
-  const rechargeAmounts = [0.01, 9, 29, 99, 199];
+  const rechargeAmounts = [0.1, 9, 29, 99, 199];
 
   const getTxTypeLabel = (tx: any) => {
     const byType: Record<string, string> = {

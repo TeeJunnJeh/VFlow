@@ -15,7 +15,7 @@ const API_BASE_URL = '/api/assets';
 // In development, keep it empty so Vite's `/media` proxy works.
 const MEDIA_BASE_URL = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
 
-export type LibraryAssetType = 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script' | 'multimodal';
+export type LibraryAssetType = 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script' | 'multimodal' | 'subject';
 export type LibraryMediaKind = 'image' | 'video' | 'audio' | 'document' | 'file';
 
 function toDisplayUrl(pathOrUrl: string | null | undefined): string {

@@ -113,6 +113,7 @@ function getMediaTooltipItems(t: any): Record<MediaKind, string[]> {
       formatText(t.wb_seedance_replay_tip_total_duration || 'Total duration <= {duration}s', { duration: SEEDANCE_REPLAY_DURATION_MAX }),
       formatText(t.wb_seedance_replay_tip_total_size || 'Total size <= {size}', { size: formatMegabytes(SEEDANCE_REPLAY_AUDIO_TOTAL_BYTES_LIMIT) }),
     ],
+    model: [],
   };
 }
 

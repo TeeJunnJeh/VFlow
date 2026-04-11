@@ -659,7 +659,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     setPlazaLoading(true);
     try {
       const resp = await assetsApi.getPlazaAssets({
-        category: activeAssetTab === 'script' ? 'product' : activeAssetTab,
+        category: activeAssetTab === 'script' || activeAssetTab === 'subject' ? 'product' : activeAssetTab,
         source: plazaSource,
         q: plazaSearch.trim(),
         limit: 120,
@@ -1063,7 +1063,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     try {
       await Promise.all(list.map((file) => assetsApi.uploadPlazaAsset({
         file,
-        category: activeAssetTab === 'script' ? 'product' : activeAssetTab,
+        category: activeAssetTab === 'script' || activeAssetTab === 'subject' ? 'product' : activeAssetTab,
         keywords: plazaKeywordDraft,
       })));
       setPlazaKeywordDraft('');

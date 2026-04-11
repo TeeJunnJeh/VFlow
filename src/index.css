@@ -8,6 +8,14 @@
   .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
 }
 
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+.animate-fade-in-up {
+  animation: fade-in-up 0.25s ease-out forwards;
+}
+
 body {
   /* Deep dark blue background with a subtle gradient mesh */
   background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #020617 60%);

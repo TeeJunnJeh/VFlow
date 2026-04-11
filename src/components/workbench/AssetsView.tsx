@@ -1,22 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
-  FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil, Search, Heart, Download, Library, Globe, Info, Settings, Eye, EyeOff, Layers3, Plus, Sparkles, AlertCircle, FileText
+  FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil, Search, Heart, Download, Library, Globe, Info, Settings, Eye, EyeOff, Layers3, Plus, Sparkles, AlertCircle, FileText, LayoutGrid, List, Music, ImageIcon, Video, Type, ArrowUpRight, Check
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext'
-import { assetsApi, type Asset, type AssetFolder, type PlazaAssetItem, type PlazaCollectPolicy } from '../../services/assets';
+import { assetsApi, type Asset, type AssetFolder, type PlazaAssetItem, type PlazaCollectPolicy, seedanceApi, subjectGroupApi, type SeedanceCharacter, type SeedanceCharacterFilters, type SubjectGroup } from '../../services/assets';
 import { videoApi } from '../../services/video';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
-import { AppDialog } from '../common/AppDialog';
 import { getSubjectGuideContent } from './subjectGuideContent';
-import {
-  loadWorkbenchProjectStore,
-  WORKBENCH_NEW_PROJECT_TARGET,
-  type WorkbenchProjectMeta,
-} from '../../utils/workbenchProjectStore';
 import { addTransferStationItems } from '../../utils/workbenchTransferStation';
 
-type AssetType = 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script';
+type AssetType = 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script' | 'subject';
 type PlazaCategory = 'model' | 'product' | 'scene' | 'motion' | 'audio';
 type AssetsNavigationIntent =
   | 'open_assets_for_subject_creation'
@@ -24,7 +18,6 @@ type AssetsNavigationIntent =
   | null;
 
 interface AssetsViewProps {
-  onSelectAsset: (asset: Asset, options?: { targetProjectId?: string | null; createNewProject?: boolean; newProjectName?: string }) => void;
   currentFolderId: string | null;
   setCurrentFolderId: (id: string | null) => void;
   navigationIntent?: AssetsNavigationIntent;
@@ -48,16 +41,20 @@ const renderAudioArtwork = (name?: string, compact = false, isLightTheme = false
 );
 
 export const AssetsView: React.FC<AssetsViewProps> = ({ 
-  onSelectAsset, 
   currentFolderId, 
   setCurrentFolderId,
   navigationIntent,
   onNavigationIntentHandled,
   onSubjectGuideCompleted,
 }) => {
+  console.log('[AssetsView] render start');
   const { t, language } = useLanguage();
   const { updateUser, user } = useAuth();
-  const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
+  const _MB = 1024 * 1024;
+  const IMAGE_MAX_BYTES = 30 * _MB;   // 30 MB
+  const VIDEO_MAX_BYTES = 50 * _MB;   // 50 MB
+  const AUDIO_MAX_BYTES = 15 * _MB;   // 15 MB
+  const DOC_MAX_BYTES   = 10 * _MB;   // 10 MB
   const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
   const VIDEO_EXTS = ['mp4', 'mov', 'mkv', 'webm', 'avi'];
   const AUDIO_EXTS = ['mp3', 'wav', 'flac'];
@@ -66,19 +63,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const videoFormats = VIDEO_EXTS.join('/');
   const audioFormats = AUDIO_EXTS.join('/');
   const docFormats = DOC_EXTS.join('/');
-  const formatHint = `${t.wb_upload_image}: ${imageFormats}\n${t.wb_upload_video}: ${videoFormats}\n${t.wb_upload_audio}: ${audioFormats}\n${t.assets_tab_scripts || '脚本'}: ${docFormats}\n${t.wb_upload_max_size}`;
+  const formatHint = `${t.wb_upload_image}: ${imageFormats} (≤30MB)\n${t.wb_upload_video}: ${videoFormats} (≤50MB)\n${t.wb_upload_audio}: ${audioFormats} (≤15MB)\n${t.assets_tab_scripts || '脚本'}: ${docFormats} (≤10MB)`;
 
-  const validateUploadFile = (file: File) => {
-    if (file.size > MAX_UPLOAD_BYTES) return `${t.assets_upload_error_too_large}: ${file.name} (>1GB)`;
-    const ext = file.name.split('.').pop()?.toLowerCase() || '';
-    const isImage = file.type.startsWith('image/') || IMAGE_EXTS.includes(ext);
-    const isVideo = file.type.startsWith('video/') || VIDEO_EXTS.includes(ext);
-    const isAudio = file.type.startsWith('audio/') || AUDIO_EXTS.includes(ext);
-    const isDocument = file.type.startsWith('text/') || file.type === 'application/json' || DOC_EXTS.includes(ext);
-    if (activeAssetTab === 'script' && !isDocument) return `${t.assets_upload_error_unsupported}: ${file.name}`;
-    if (activeAssetTab !== 'script' && !isImage && !isVideo && !isAudio) return `${t.assets_upload_error_unsupported}: ${file.name}`;
-    return null;
-  };
   const getFileExtension = (name: string) => name.split('.').pop()?.toLowerCase() || '';
   const loadAudioDurationSeconds = (file: File): Promise<number | null> => new Promise((resolve) => {
     const objectUrl = URL.createObjectURL(file);
@@ -160,12 +146,13 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   }, []);
 
   const assetTabLabel: Record<AssetType, string> = {
-    model: t.assets_tab_models,
-    product: t.assets_tab_products,
-    scene: t.assets_tab_scenes,
-    motion: t.assets_tab_motion,
+    model: t.assets_tab_virtual_models || '虚拟模特',
+    product: t.assets_tab_images || '图片',
+    scene: t.assets_tab_scenes || '场景',
+    motion: t.assets_tab_videos || '视频',
     audio: t.assets_tab_audio || '音频',
-    script: t.assets_tab_scripts || '脚本'
+    script: t.assets_tab_scripts || '脚本/Prompt',
+    subject: (t as any).assets_tab_subjects || '主体',
   };
   const [themeClassSnapshot, setThemeClassSnapshot] = useState<string>('');
   useEffect(() => {
@@ -192,10 +179,51 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [activeAssetTab, setActiveAssetTab] = useState<AssetType>('product');
 
   useEffect(() => {
-    if (viewMode === 'plaza' && activeAssetTab === 'script') {
+    if (viewMode === 'plaza' && (activeAssetTab === 'script' || activeAssetTab === 'subject')) {
       setActiveAssetTab('product');
     }
   }, [activeAssetTab, viewMode]);
+
+  // Per-tab upload validation (must be after activeAssetTab declaration)
+  const validateUploadFile = (file: File) => {
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const isImage = file.type.startsWith('image/') || IMAGE_EXTS.includes(ext);
+    const isVideo = file.type.startsWith('video/') || VIDEO_EXTS.includes(ext);
+    const isAudio = file.type.startsWith('audio/') || AUDIO_EXTS.includes(ext);
+    const isDocument = file.type.startsWith('text/') || file.type === 'application/json' || DOC_EXTS.includes(ext);
+    // Per-type format check
+    if (activeAssetTab === 'product' && !isImage) return `${t.assets_upload_error_unsupported}: ${file.name}`;
+    if (activeAssetTab === 'motion' && !isVideo) return `${t.assets_upload_error_unsupported}: ${file.name}`;
+    if (activeAssetTab === 'audio' && !isAudio) return `${t.assets_upload_error_unsupported}: ${file.name}`;
+    if (activeAssetTab === 'script' && !isDocument) return `${t.assets_upload_error_unsupported}: ${file.name}`;
+    if (activeAssetTab === 'model') return `${t.assets_upload_error_unsupported}: ${file.name}`;
+    // Per-type size check
+    if (isImage && file.size > IMAGE_MAX_BYTES) return `${t.assets_upload_error_too_large}: ${file.name} (>30MB)`;
+    if (isVideo && file.size > VIDEO_MAX_BYTES) return `${t.assets_upload_error_too_large}: ${file.name} (>50MB)`;
+    if (isAudio && file.size > AUDIO_MAX_BYTES) return `${t.assets_upload_error_too_large}: ${file.name} (>15MB)`;
+    if (isDocument && file.size > DOC_MAX_BYTES) return `${t.assets_upload_error_too_large}: ${file.name} (>10MB)`;
+    return null;
+  };
+
+  const activeTabAccept = useMemo(() => {
+    switch (activeAssetTab) {
+      case 'product': return '.jpg,.jpeg,.png,.webp,image/*';
+      case 'motion': return '.mp4,.mov,.mkv,.webm,.avi,video/*';
+      case 'audio': return '.mp3,.wav,.flac,audio/*';
+      case 'script': return '.txt,.md,.json,text/plain,application/json';
+      default: return '';
+    }
+  }, [activeAssetTab]);
+
+  const activeTabFormatHint = useMemo(() => {
+    switch (activeAssetTab) {
+      case 'product': return `${t.wb_upload_image}: ${imageFormats} (≤30MB)`;
+      case 'motion': return `${t.wb_upload_video}: ${videoFormats} (≤50MB)`;
+      case 'audio': return `${t.wb_upload_audio}: ${audioFormats} (≤15MB)`;
+      case 'script': return `${t.assets_tab_scripts || '脚本'}: ${docFormats} (≤10MB)`;
+      default: return '';
+    }
+  }, [activeAssetTab, imageFormats, videoFormats, audioFormats, docFormats, formatHint, t]);
 
   const [isUploading, setIsUploading] = useState(false);
   const [isDragUploadActive, setIsDragUploadActive] = useState(false);
@@ -217,11 +245,51 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [plazaManageKeywords, setPlazaManageKeywords] = useState('');
   const [isPlazaManaging, setIsPlazaManaging] = useState(false);
   const plazaUploadInputRef = useRef<HTMLInputElement>(null);
+
+  // Subject Group State
+  const [subjects, setSubjects] = useState<SubjectGroup[]>([]);
+  const [subjectsLoading, setSubjectsLoading] = useState(false);
+  const [expandedSubjectId, setExpandedSubjectId] = useState<string | null>(null);
+  const [isSubjectCreateOpen, setIsSubjectCreateOpen] = useState(false);
+  const [subjectNameDraft, setSubjectNameDraft] = useState('');
+  const [subjectSlotPicking, setSubjectSlotPicking] = useState<{ subjectId: string; slot: 'primary' | 'other' } | null>(null);
+  const [renamingSubjectId, setRenamingSubjectId] = useState<string | null>(null);
+  const [subjectRenameDraft, setSubjectRenameDraft] = useState('');
+  const [selectedSubjectIds, setSelectedSubjectIds] = useState<Set<string>>(new Set());
+
+  // Seedance Virtual Models State
+  const [seedanceCharacters, setSeedanceCharacters] = useState<SeedanceCharacter[]>([]);
+  const [seedanceLoading, setSeedanceLoading] = useState(false);
+  const [seedancePage, setSeedancePage] = useState(1);
+  const [seedanceTotalCount, setSeedanceTotalCount] = useState(0);
+  const [seedanceCountries, setSeedanceCountries] = useState<string[]>([]);
+  const [seedanceFilters, setSeedanceFilters] = useState<SeedanceCharacterFilters>({ page_size: 40 });
+  const [showSeedanceBrowser, setShowSeedanceBrowser] = useState(false);
+
+  // New script dialog
+  const [isNewScriptDialogOpen, setIsNewScriptDialogOpen] = useState(false);
+  const [newScriptName, setNewScriptName] = useState('');
+  const [newScriptContent, setNewScriptContent] = useState('');
+  const [isSavingScript, setIsSavingScript] = useState(false);
+
+  // View mode: grid vs list
+  const [assetViewLayout, setAssetViewLayout] = useState<'grid' | 'list'>('grid');
+  const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
   
+  // Auto-dismiss toast
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback((msg: string, duration = 2500) => {
+    setToastMessage(msg);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastMessage(null), duration);
+  }, []);
+
   // UI State
   const [openFolderMenuId, setOpenFolderMenuId] = useState<string | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
+  const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set());
   const [hideReferencedOtherViews, setHideReferencedOtherViews] = useState(false);
   const subjectGuideContent = useMemo(() => getSubjectGuideContent(t, language), [t, language]);
   const [referencedOtherViewIds, setReferencedOtherViewIds] = useState<Set<string>>(new Set());
@@ -234,47 +302,6 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const renameIgnoreBlurRef = useRef(false);
   const suppressPreviewClickUntilRef = useRef<number>(0);
   const suppressDragUntilRef = useRef<number>(0);
-
-  const [applyWorkbenchAsset, setApplyWorkbenchAsset] = useState<Asset | null>(null);
-  const [applyProjectOptions, setApplyProjectOptions] = useState<WorkbenchProjectMeta[]>([]);
-  const [applyCurrentProjectId, setApplyCurrentProjectId] = useState('');
-  const [applyTargetProjectId, setApplyTargetProjectId] = useState('');
-  const [applyProjectName, setApplyProjectName] = useState('');
-
-  const openApplyWorkbenchDialog = useCallback((asset: Asset) => {
-    const store = loadWorkbenchProjectStore(user?.id ?? null);
-    const sortedProjects = [...store.projects].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
-
-    setApplyWorkbenchAsset(asset);
-    setApplyProjectOptions(sortedProjects);
-    setApplyCurrentProjectId(store.currentProjectId || sortedProjects[0]?.id || '');
-    setApplyTargetProjectId(store.currentProjectId || sortedProjects[0]?.id || '');
-    setApplyProjectName('');
-  }, [user?.id]);
-
-  const closeApplyWorkbenchDialog = useCallback(() => {
-    setApplyWorkbenchAsset(null);
-    setApplyProjectName('');
-  }, []);
-
-  const confirmApplyWorkbenchDialog = useCallback(() => {
-    if (!applyWorkbenchAsset) return;
-
-    const createNewProject = applyTargetProjectId === WORKBENCH_NEW_PROJECT_TARGET;
-    const targetProjectId = createNewProject ? null : (String(applyTargetProjectId || '').trim() || null);
-    onSelectAsset(applyWorkbenchAsset, {
-      targetProjectId,
-      createNewProject,
-      newProjectName: createNewProject ? (String(applyProjectName || '').trim() || undefined) : undefined,
-    });
-    closeApplyWorkbenchDialog();
-  }, [
-    applyProjectName,
-    applyTargetProjectId,
-    applyWorkbenchAsset,
-    closeApplyWorkbenchDialog,
-    onSelectAsset,
-  ]);
 
   
   // --- Modal States ---
@@ -327,45 +354,31 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     setIsInfoOpen(true);
   };
 
-  const addApplyAssetToTransferStation = useCallback(() => {
-    if (!applyWorkbenchAsset) return;
-
-    const mediaKind = applyWorkbenchAsset.media_kind || 'image';
+  const addAssetDirectlyToTransferStation = useCallback((asset: Asset) => {
+    const mediaKind = asset.media_kind || 'image';
     const transferMediaKind = mediaKind === 'document' ? 'file' : mediaKind;
     const mappedType: Asset['type'] =
-      applyWorkbenchAsset.type === 'model' ||
-      applyWorkbenchAsset.type === 'product' ||
-      applyWorkbenchAsset.type === 'scene' ||
-      applyWorkbenchAsset.type === 'motion' ||
-      applyWorkbenchAsset.type === 'audio'
-        ? applyWorkbenchAsset.type
+      asset.type === 'model' || asset.type === 'product' || asset.type === 'scene' || asset.type === 'motion' || asset.type === 'audio'
+        ? asset.type
         : (transferMediaKind === 'video' ? 'motion' : transferMediaKind === 'audio' ? 'audio' : 'product');
 
-    const result = addTransferStationItems([
-      {
-        assetId: applyWorkbenchAsset.id,
-        name: applyWorkbenchAsset.name,
-        fileUrl: applyWorkbenchAsset.file_url,
-        mediaKind: transferMediaKind,
-        type: mappedType,
-        source: 'assets',
-      },
-    ], user?.id ?? null);
-
-    if (result.addedCount > 0) {
-      openInfo(
-        t.assets_confirm_title || 'Notice',
-        t.wb_transfer_station_add_success || '已加入中转站，可在工作台悬浮球中拖拽使用。',
-      );
-      closeApplyWorkbenchDialog();
-      return;
-    }
+    const result = addTransferStationItems([{
+      assetId: asset.id,
+      name: asset.name,
+      fileUrl: asset.file_url,
+      mediaKind: transferMediaKind,
+      type: mappedType,
+      source: 'assets',
+    }], user?.id ?? null);
 
     openInfo(
       t.assets_confirm_title || 'Notice',
-      t.wb_transfer_station_add_duplicate || '素材已在中转站中，无需重复添加。',
+      result.addedCount > 0
+        ? (t.wb_transfer_station_add_success || '已加入中转站，可在工作台悬浮球中拖拽使用。')
+        : (t.wb_transfer_station_add_duplicate || '素材已在中转站中，无需重复添加。'),
     );
-  }, [applyWorkbenchAsset, closeApplyWorkbenchDialog, t.assets_confirm_title, t.wb_transfer_station_add_duplicate, t.wb_transfer_station_add_success, user?.id]);
+  }, [openInfo, t.assets_confirm_title, t.wb_transfer_station_add_duplicate, t.wb_transfer_station_add_success, user?.id]);
+
   const openSubjectGuideModal = useCallback((withSpotlight = false) => {
     setShouldRunSubjectGuideSpotlight(withSpotlight);
     setIsSubjectGuideModalOpen(true);
@@ -412,14 +425,15 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       assetsByFolderId.set(asset.folder_id, list);
     });
 
-    const cache = new Map<string, { assetCount: number; subfolderCount: number; previewAssets: Asset[]; previewFolderNames: string[] }>();
-    const collect = (folderId: string): { assetCount: number; subfolderCount: number; previewAssets: Asset[]; previewFolderNames: string[] } => {
+    const cache = new Map<string, { assetCount: number; subfolderCount: number; directSubfolderCount: number; previewAssets: Asset[]; previewFolderNames: string[] }>();
+    const collect = (folderId: string): { assetCount: number; subfolderCount: number; directSubfolderCount: number; previewAssets: Asset[]; previewFolderNames: string[] } => {
       const cached = cache.get(folderId);
       if (cached) return cached;
 
       const directChildren = childFoldersByParent.get(folderId) || [];
       const directAssets = assetsByFolderId.get(folderId) || [];
       let assetCount = directAssets.length;
+      const directSubfolderCount = directChildren.length;
       let subfolderCount = directChildren.length;
       let previewAssets = directAssets.slice(0, 3);
       let previewFolderNames = directChildren.slice(0, 3).map((item) => item.name);
@@ -432,12 +446,12 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
         if (previewFolderNames.length < 3) previewFolderNames = [...previewFolderNames, ...childSummary.previewFolderNames].slice(0, 3);
       });
 
-      const summary = { assetCount, subfolderCount, previewAssets, previewFolderNames };
+      const summary = { assetCount, subfolderCount, directSubfolderCount, previewAssets, previewFolderNames };
       cache.set(folderId, summary);
       return summary;
     };
 
-    const summaryMap = new Map<string, { assetCount: number; subfolderCount: number; previewAssets: Asset[]; previewFolderNames: string[] }>();
+    const summaryMap = new Map<string, { assetCount: number; subfolderCount: number; directSubfolderCount: number; previewAssets: Asset[]; previewFolderNames: string[] }>();
     allTypeFolders.forEach((folder) => {
       summaryMap.set(folder.id, collect(folder.id));
     });
@@ -493,6 +507,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [subjectSlotActionIndex, setSubjectSlotActionIndex] = useState<number | null>(null);
   const [subjectPreviewImage, setSubjectPreviewImage] = useState<Asset | null>(null);
   const [isSavingSubjectGroup, setIsSavingSubjectGroup] = useState(false);
+  const [textPreviewContent, setTextPreviewContent] = useState<string | null>(null);
+  const [textPreviewLoading, setTextPreviewLoading] = useState(false);
 
   const assetInputRef = useRef<HTMLInputElement>(null);
   const subjectOtherViewUploadRef = useRef<HTMLInputElement>(null);
@@ -659,17 +675,49 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     }
   }, [activeAssetTab, plazaSearch, plazaSource, t.assets_confirm_title, viewMode]);
 
+  const loadSubjects = useCallback(async () => {
+    if (activeAssetTab !== 'subject' || viewMode !== 'library') return;
+    setSubjectsLoading(true);
+    try {
+      const list = await subjectGroupApi.list();
+      setSubjects(list);
+    } catch (err) {
+      console.error('Failed to load subjects', err);
+    } finally {
+      setSubjectsLoading(false);
+    }
+  }, [activeAssetTab, viewMode]);
+
+  const loadSeedanceCharacters = useCallback(async (filters?: SeedanceCharacterFilters) => {
+    setSeedanceLoading(true);
+    try {
+      const resp = await seedanceApi.getCharacters(filters || seedanceFilters);
+      setSeedanceCharacters(resp.data.results);
+      setSeedanceTotalCount(resp.data.count);
+      setSeedancePage(resp.data.page);
+      if (resp.data.countries?.length) setSeedanceCountries(resp.data.countries);
+    } catch (err) {
+      console.error('Failed to load seedance characters', err);
+    } finally {
+      setSeedanceLoading(false);
+    }
+  }, [seedanceFilters]);
+
   // --- Effects ---
   useEffect(() => {
     if (viewMode === 'library') {
-      void loadData();
+      if (activeAssetTab === 'subject') {
+        void loadSubjects();
+      } else {
+        void loadData();
+      }
       setOpenFolderMenuId(null);
       setIsSelectionMode(false);
       setSelectedAssetIds(new Set());
       return;
     }
     void loadPlazaData();
-  }, [loadData, loadPlazaData, viewMode]);
+  }, [loadData, loadPlazaData, loadSubjects, viewMode, activeAssetTab]);
 
   useEffect(() => {
     if (isFolderModalOpen) {
@@ -780,6 +828,35 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     closeSubjectPicker();
   }, [closeSubjectPicker, isAssetPreviewOpen]);
 
+  // Auto-fetch text content for document previews
+  useEffect(() => {
+    const target = assetPreview;
+    if (!target || target.media_kind !== 'document') {
+      setTextPreviewContent(null);
+      return;
+    }
+    let cancelled = false;
+    const fetchText = async () => {
+      setTextPreviewLoading(true);
+      setTextPreviewContent(null);
+      try {
+        const url = getDisplayUrl(target.file_url);
+        if (!url) return;
+        const resp = await fetch(url);
+        if (cancelled) return;
+        const text = await resp.text();
+        if (cancelled) return;
+        setTextPreviewContent(text);
+      } catch {
+        if (!cancelled) setTextPreviewContent(null);
+      } finally {
+        if (!cancelled) setTextPreviewLoading(false);
+      }
+    };
+    void fetchText();
+    return () => { cancelled = true; };
+  }, [assetPreview]);
+
   const uploadFiles = async (files: FileList | File[]) => {
     const errors: string[] = [];
     const validFiles: File[] = [];
@@ -799,12 +876,33 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       });
       await Promise.all(uploadTasks);
       await loadData();
-      openInfo((t as any).assets_upload_success_title || 'Upload complete', `Successfully uploaded ${validFiles.length} files!`);
+      showToast((t as any).assets_upload_success_title || `Successfully uploaded ${validFiles.length} files!`);
     } catch (err) {
       console.error(err);
       openInfo((t as any).assets_upload_failed || 'Upload failed', String(err instanceof Error ? err.message : err));
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const handleSaveNewScript = async () => {
+    const name = (newScriptName || '').trim();
+    const content = (newScriptContent || '').trim();
+    if (!name || !content) return;
+    setIsSavingScript(true);
+    try {
+      const blob = new Blob([content], { type: 'text/plain' });
+      const file = new File([blob], name.endsWith('.txt') ? name : `${name}.txt`, { type: 'text/plain' });
+      await assetsApi.uploadAsset(file, 'script', currentFolderId);
+      await loadData();
+      setIsNewScriptDialogOpen(false);
+      setNewScriptName('');
+      setNewScriptContent('');
+    } catch (err) {
+      console.error(err);
+      openInfo('Error', String(err instanceof Error ? err.message : err));
+    } finally {
+      setIsSavingScript(false);
     }
   };
 
@@ -970,7 +1068,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       })));
       setPlazaKeywordDraft('');
       await loadPlazaData();
-      openInfo(t.assets_confirm_title || 'Notice', t.assets_plaza_upload_success || 'Plaza upload complete');
+      showToast(t.assets_plaza_upload_success || 'Plaza upload complete');
     } catch (err) {
       openInfo(t.assets_confirm_title || 'Notice', String(err instanceof Error ? err.message : err));
     } finally {
@@ -1048,6 +1146,24 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       openInfo((t as any).assets_delete_failed || 'Failed to delete asset', String(err instanceof Error ? err.message : err));
     }
   }, [assetList, assetPreview, buildInvalidatedSubjectMeta, getAssetParentSubjectId, getAssetSubjectMeta, getAssetSubjectOtherViewIds, hideReferencedOtherViews, openInfo, refreshReferencedOtherViewIds, subjectLibraryAssets, syncAssetMetaBatch, t]);
+
+  const handleToggleFavorite = async (asset: Asset) => {
+    try {
+      const newValue = await assetsApi.toggleFavorite(asset.id);
+      setAssetList(prev => prev.map(a => a.id === asset.id ? { ...a, is_favorited: newValue } : a));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleToggleFolderFavorite = async (folder: AssetFolder) => {
+    try {
+      const newValue = await assetsApi.toggleFolderFavorite(folder.id);
+      setFolderList(prev => prev.map(f => f.id === folder.id ? { ...f, is_favorited: newValue } : f));
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const beginRenameAsset = (asset: Asset) => {
     setRenamingAssetId(asset.id);
@@ -1272,6 +1388,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const exitSelectionMode = () => {
     setIsSelectionMode(false);
     setSelectedAssetIds(new Set());
+    setSelectedFolderIds(new Set());
   };
 
 
@@ -1284,12 +1401,33 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     });
   };
 
+  const toggleFolderSelection = (folderId: string) => {
+    setSelectedFolderIds(prev => {
+      const next = new Set(prev);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  };
+
   const visibleAssets = useMemo(() => (
     assetList.filter((asset) => (
       asset.type === activeAssetTab
       && (!hideReferencedOtherViews || !referencedOtherViewIds.has(asset.id))
+      && (!showOnlyFavorites || asset.is_favorited)
     ))
-  ), [activeAssetTab, assetList, hideReferencedOtherViews, referencedOtherViewIds]);
+  ), [activeAssetTab, assetList, hideReferencedOtherViews, referencedOtherViewIds, showOnlyFavorites]);
+
+  const visibleFolders = useMemo(() => (
+    showOnlyFavorites ? folderList.filter(f => f.is_favorited) : folderList
+  ), [folderList, showOnlyFavorites]);
+
+  // Force list view for audio / script tabs
+  const isListOnlyTab = activeAssetTab === 'audio' || activeAssetTab === 'script';
+  useEffect(() => {
+    if (isListOnlyTab) setAssetViewLayout('list');
+  }, [isListOnlyTab]);
+
   const subjectOtherViewAssets = useMemo(() => {
     if (!assetPreview) return [] as Asset[];
     const ids = getAssetSubjectOtherViewIds(assetPreview);
@@ -1312,12 +1450,18 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     ));
   }, [assetPreview, getAssetParentSubjectId, getAssetSubjectOtherViewIds, subjectPickerAssetsList]);
 
-  const selectAllVisibleAssets = () => {
+  const selectAllVisible = () => {
     setSelectedAssetIds(new Set(visibleAssets.map(a => a.id)));
+    setSelectedFolderIds(new Set(visibleFolders.map(f => f.id)));
+    if (activeAssetTab === 'subject') {
+      setSelectedSubjectIds(new Set(subjects.map(s => s.id)));
+    }
   };
 
-  const deselectAllVisibleAssets = () => {
+  const deselectAllVisible = () => {
     setSelectedAssetIds(new Set());
+    setSelectedFolderIds(new Set());
+    setSelectedSubjectIds(new Set());
   };
 
   // --- Folder Handlers ---
@@ -1373,6 +1517,156 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     } finally {
         setOpenFolderMenuId(null);
     }
+  };
+
+  // --- Bundle Handlers ---
+  const [slotPickerAssets, setSlotPickerAssets] = useState<Asset[]>([]);
+  const [slotPickerFolders, setSlotPickerFolders] = useState<AssetFolder[]>([]);
+  const [slotPickerFolderId, setSlotPickerFolderId] = useState<string | null>(null);
+  const [slotPickerBreadcrumb, setSlotPickerBreadcrumb] = useState<AssetFolder[]>([]);
+  const [slotPickerLoading, setSlotPickerLoading] = useState(false);
+  const [selectedPickerIds, setSelectedPickerIds] = useState<Set<string>>(new Set());
+
+  const togglePickerAsset = (assetId: string) => {
+    setSelectedPickerIds(prev => {
+      const next = new Set(prev);
+      if (next.has(assetId)) next.delete(assetId); else next.add(assetId);
+      return next;
+    });
+  };
+
+  // --- Subject Group handlers ---
+  const handleCreateSubject = async () => {
+    const name = subjectNameDraft.trim();
+    if (!name) return;
+    try {
+      await subjectGroupApi.create({ name });
+      setIsSubjectCreateOpen(false);
+      setSubjectNameDraft('');
+      void loadSubjects();
+    } catch (err) {
+      console.error('Failed to create subject', err);
+    }
+  };
+
+  const handleDeleteSubject = async (subjectId: string) => {
+    try {
+      await subjectGroupApi.delete(subjectId);
+      if (expandedSubjectId === subjectId) setExpandedSubjectId(null);
+      void loadSubjects();
+    } catch (err) {
+      console.error('Failed to delete subject', err);
+    }
+  };
+
+  const beginRenameSubject = (sg: SubjectGroup) => {
+    setRenamingSubjectId(sg.id);
+    setSubjectRenameDraft(sg.name);
+  };
+
+  const commitRenameSubject = async (subjectId: string) => {
+    const name = subjectRenameDraft.trim();
+    setRenamingSubjectId(null);
+    if (!name) return;
+    try {
+      await subjectGroupApi.update(subjectId, { name });
+      void loadSubjects();
+    } catch (err) {
+      console.error('Failed to rename subject', err);
+    }
+  };
+
+  const handleOpenSubjectSlotPicker = async (subjectId: string, slot: 'primary' | 'other') => {
+    setSubjectSlotPicking({ subjectId, slot });
+    setSlotPickerFolderId(null);
+    setSlotPickerBreadcrumb([]);
+    setSelectedPickerIds(new Set());
+    // Subject picker shows product (images) + model assets
+    await loadSlotPickerData('image', null);
+  };
+
+  const handleConfirmSubjectPickerSelection = async () => {
+    if (!subjectSlotPicking || selectedPickerIds.size === 0) return;
+    const { subjectId, slot } = subjectSlotPicking;
+    try {
+      const selectedArray = Array.from(selectedPickerIds);
+      if (slot === 'primary') {
+        await subjectGroupApi.update(subjectId, { primary_asset_id: selectedArray[0] });
+      } else {
+        await subjectGroupApi.update(subjectId, { add_other_asset_ids: selectedArray });
+      }
+      setSubjectSlotPicking(null);
+      setSlotPickerAssets([]);
+      setSlotPickerFolders([]);
+      setSelectedPickerIds(new Set());
+      void loadSubjects();
+    } catch (err) {
+      console.error('Failed to link asset to subject', err);
+    }
+  };
+
+  const handleRemoveSubjectAsset = async (subjectId: string, slot: 'primary' | 'other', assetId: string) => {
+    try {
+      if (slot === 'primary') {
+        await subjectGroupApi.update(subjectId, { primary_asset_id: '' });
+      } else {
+        await subjectGroupApi.update(subjectId, { remove_other_asset_id: assetId });
+      }
+      void loadSubjects();
+    } catch (err) {
+      console.error('Failed to remove asset from subject', err);
+    }
+  };
+
+  const toggleSubjectSelection = (subjectId: string) => {
+    setSelectedSubjectIds(prev => {
+      const next = new Set(prev);
+      if (next.has(subjectId)) next.delete(subjectId); else next.add(subjectId);
+      return next;
+    });
+  };
+
+  const handleBatchDeleteSubjects = async () => {
+    const ids = Array.from(selectedSubjectIds);
+    for (const id of ids) {
+      try { await subjectGroupApi.delete(id); } catch {}
+    }
+    setSelectedSubjectIds(new Set());
+    setIsSelectionMode(false);
+    void loadSubjects();
+  };
+
+  const slotTypeMap: Record<string, 'product' | 'motion' | 'audio' | 'script' | 'model'> = { image: 'product', video: 'motion', audio: 'audio', text: 'script', model: 'model' };
+
+  const loadSlotPickerData = async (slot: 'image' | 'video' | 'audio' | 'text' | 'model', folderId: string | null) => {
+    setSlotPickerLoading(true);
+    try {
+      const assetType = slotTypeMap[slot];
+      const [assetsResult, folderResult] = await Promise.all([
+        assetsApi.getAssets({ type: assetType, folderId }),
+        assetsApi.getFolders({ type: assetType, parentId: folderId }),
+      ]);
+      setSlotPickerAssets(assetsResult);
+      setSlotPickerFolders(folderResult.folders);
+      setSlotPickerBreadcrumb(folderResult.breadcrumb);
+      setSlotPickerFolderId(folderId);
+    } catch {
+      setSlotPickerAssets([]);
+      setSlotPickerFolders([]);
+    } finally {
+      setSlotPickerLoading(false);
+    }
+  };
+
+  const handleDownloadAsset = (asset: Asset) => {
+    const url = getDisplayUrl(asset.file_url);
+    if (!url) return;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = asset.name || 'download';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   // --- Move Handlers ---
@@ -1433,9 +1727,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   };
 
   const openBatchMoveDialog = () => {
-    const selected = assetList.filter(a => selectedAssetIds.has(a.id));
-    if (selected.length === 0) return;
-    void openMoveDialog(selected, currentFolderId ?? null);
+    const selectedAssets = assetList.filter(a => selectedAssetIds.has(a.id));
+    if (selectedAssets.length === 0 && selectedFolderIds.size === 0) return;
+    void openMoveDialog(selectedAssets, currentFolderId ?? null);
   };
 
   const beginDragAsset = (asset: Asset, e: React.DragEvent) => {
@@ -1504,10 +1798,11 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   };
 
   const handleConfirmMove = async () => {
-    if (moveAssets.length === 0 && !moveFolder) return;
+    if (moveAssets.length === 0 && !moveFolder && moveBatchFolderIds.length === 0) return;
     setIsMovingAsset(true);
     try {
-      if (moveFolder) {
+      // Single folder move
+      if (moveFolder && moveBatchFolderIds.length === 0) {
         const from = moveFolder.parent_id ?? null;
         const to = moveTargetFolderId ?? null;
         if (from !== to) {
@@ -1518,21 +1813,38 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
         return;
       }
 
-      const results = await Promise.allSettled(
-        moveAssets.map(a => {
-          const from = a.folder_id ?? null;
-          const to = moveTargetFolderId ?? null;
-          if (from === to) return Promise.resolve(null);
-          return assetsApi.moveAsset(a.id, moveTargetFolderId);
-        })
-      );
+      // Batch folder moves
+      if (moveBatchFolderIds.length > 0) {
+        const folderResults = await Promise.allSettled(
+          moveBatchFolderIds.map(fid => {
+            const folder = folderList.find(f => f.id === fid);
+            const from = folder?.parent_id ?? null;
+            const to = moveTargetFolderId ?? null;
+            if (from === to) return Promise.resolve(null);
+            return assetsApi.moveFolder(fid, to);
+          })
+        );
+        const folderFailed = folderResults.filter(r => r.status === 'rejected');
+        if (folderFailed.length > 0) openInfo('移动失败', `${folderFailed.length} 个文件夹移动失败`);
+      }
 
-      const failed = results.filter(r => r.status === 'rejected');
-      if (failed.length > 0) openInfo((t as any).assets_move_some_failed || 'Failed to move some assets', `Failed to move ${failed.length} assets`);
+      // Asset moves
+      if (moveAssets.length > 0) {
+        const results = await Promise.allSettled(
+          moveAssets.map(a => {
+            const from = a.folder_id ?? null;
+            const to = moveTargetFolderId ?? null;
+            if (from === to) return Promise.resolve(null);
+            return assetsApi.moveAsset(a.id, moveTargetFolderId);
+          })
+        );
+        const failed = results.filter(r => r.status === 'rejected');
+        if (failed.length > 0) openInfo((t as any).assets_move_some_failed || 'Failed to move some assets', `Failed to move ${failed.length} assets`);
+      }
+
       await loadData();
       setIsMoveModalOpen(false);
-      setSelectedAssetIds(new Set());
-      if (isSelectionMode) setIsSelectionMode(false);
+      exitSelectionMode();
     } catch (err) {
       console.error(err);
       openInfo((t as any).assets_move_failed || 'Failed to move asset', String(err instanceof Error ? err.message : err));
@@ -1576,33 +1888,59 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   };
 
   // Helper for display URL
-  const getDisplayUrl = (path: string | null) => {
-     if (!path) return null;
+  const getDisplayUrl = (path: string | null | undefined): string => {
+     if (!path) return '';
      if (path.startsWith('http')) return path;
      const mediaBaseUrl = import.meta.env.VITE_MEDIA_BASE_URL || '';
      return mediaBaseUrl ? `${mediaBaseUrl}${path}` : path;
   };
 
-  const selectedCount = selectedAssetIds.size;
-  const isAllVisibleSelected = visibleAssets.length > 0 && visibleAssets.every(a => selectedAssetIds.has(a.id));
+  const selectedCount = selectedAssetIds.size + selectedFolderIds.size + selectedSubjectIds.size;
+  const isAllVisibleSelected = (visibleAssets.length > 0 || visibleFolders.length > 0 || (activeAssetTab === 'subject' && subjects.length > 0))
+    && visibleAssets.every(a => selectedAssetIds.has(a.id))
+    && visibleFolders.every(f => selectedFolderIds.has(f.id))
+    && (activeAssetTab !== 'subject' || subjects.every(s => selectedSubjectIds.has(s.id)));
+
+  const moveBatchFolderIds = [...selectedFolderIds];
 
   const moveSubjectLabel = moveFolder
     ? moveFolder.name
+    : moveBatchFolderIds.length > 0 && moveAssets.length > 0
+    ? `${moveBatchFolderIds.length} 文件夹 + ${moveAssets.length} 素材`
+    : moveBatchFolderIds.length > 0
+    ? `${moveBatchFolderIds.length} 文件夹`
     : (moveAssets.length === 1 ? moveAssets[0]?.name : `${moveAssets.length} ${t.assets_items}`);
 
   const moveFoldersByParent = buildFolderTree(moveFolders);
 
   const invalidMoveTargetIds = (() => {
-    if (!moveFolder) return new Set<string>();
-    const invalid = new Set<string>([moveFolder.id]);
-    const stack = [moveFolder.id];
-    while (stack.length > 0) {
-      const cur = stack.pop()!;
-      const children = moveFoldersByParent.get(cur) || [];
-      for (const child of children) {
-        if (invalid.has(child.id)) continue;
-        invalid.add(child.id);
-        stack.push(child.id);
+    const invalid = new Set<string>();
+    // Single folder move: exclude it and its subtree
+    if (moveFolder) {
+      invalid.add(moveFolder.id);
+      const stack = [moveFolder.id];
+      while (stack.length > 0) {
+        const cur = stack.pop()!;
+        const children = moveFoldersByParent.get(cur) || [];
+        for (const child of children) {
+          if (invalid.has(child.id)) continue;
+          invalid.add(child.id);
+          stack.push(child.id);
+        }
+      }
+    }
+    // Batch folder move: exclude each selected folder and its subtree
+    for (const fid of moveBatchFolderIds) {
+      invalid.add(fid);
+      const stack = [fid];
+      while (stack.length > 0) {
+        const cur = stack.pop()!;
+        const children = moveFoldersByParent.get(cur) || [];
+        for (const child of children) {
+          if (invalid.has(child.id)) continue;
+          invalid.add(child.id);
+          stack.push(child.id);
+        }
       }
     }
     return invalid;
@@ -1686,6 +2024,45 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
             </div>
           </div>
         )}
+        {/* Auto-dismiss toast */}
+        {toastMessage && (
+          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[200] px-5 py-2.5 bg-zinc-800/95 backdrop-blur-sm border border-white/10 rounded-xl shadow-2xl text-sm text-zinc-100 font-medium animate-fade-in-up pointer-events-none">
+            {toastMessage}
+          </div>
+        )}
+        {/* New Script Dialog */}
+        {isNewScriptDialogOpen && (
+          <div className="fixed inset-0 z-[116] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6" onClick={() => { setIsNewScriptDialogOpen(false); setNewScriptName(''); setNewScriptContent(''); }}>
+            <div className="w-full max-w-lg glass-panel rounded-2xl p-6 border border-white/10" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-zinc-200">{(t as any).assets_new_script_title || '新建脚本'}</h3>
+                <button className="text-zinc-400 hover:text-white" onClick={() => { setIsNewScriptDialogOpen(false); setNewScriptName(''); setNewScriptContent(''); }}><X className="w-5 h-5"/></button>
+              </div>
+              <input
+                type="text"
+                placeholder={(t as any).assets_new_script_name_placeholder || '脚本名称'}
+                value={newScriptName}
+                onChange={(e) => setNewScriptName(e.target.value)}
+                className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-purple-500 mb-3"
+              />
+              <textarea
+                placeholder={(t as any).assets_new_script_content_placeholder || '在此输入脚本内容...'}
+                value={newScriptContent}
+                onChange={(e) => setNewScriptContent(e.target.value)}
+                rows={10}
+                className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-purple-500 resize-y mb-4"
+              />
+              <div className="flex justify-end gap-2">
+                <button onClick={() => { setIsNewScriptDialogOpen(false); setNewScriptName(''); setNewScriptContent(''); }} className="px-4 py-2 text-sm text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800 transition">{(t as any).assets_cancel || '取消'}</button>
+                <button
+                  onClick={handleSaveNewScript}
+                  disabled={isSavingScript || !newScriptName.trim() || !newScriptContent.trim()}
+                  className="px-4 py-2 text-sm font-bold text-white bg-purple-600 rounded-lg hover:bg-purple-500 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                >{isSavingScript ? ((t as any).assets_saving || '保存中...') : ((t as any).assets_save || '保存')}</button>
+              </div>
+            </div>
+          </div>
+        )}
        <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
           <div>
             <h1 className="text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{viewMode === 'library' ? t.assets_title : (t.assets_plaza_title || '素材广场')}</h1>
@@ -1710,32 +2087,24 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
             </div>
           </div>
           <div className="flex gap-3 items-center">
-             {viewMode === 'library' && (
-               <button
-                 type="button"
-                 ref={subjectGuideButtonRef}
-                 onClick={() => openSubjectGuideModal(false)}
-                 className={`flex items-center gap-1.5 px-2 py-1 rounded border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 transition ${isSubjectGuideSpotlightOpen ? 'relative z-[151]' : ''}`}
-                 title={t.assets_subject_guide_button || '主体创建说明'}
-               >
-                 <Sparkles className="w-3.5 h-3.5" />
-                 <span className="text-[10px] font-bold">{t.assets_subject_guide_button || '主体创建说明'}</span>
-               </button>
-             )}
              <LanguageSwitcher />
              {viewMode === 'library' ? (
                <>
-                 <button onClick={openCreateFolderModal} className="bg-zinc-800 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-zinc-700 transition flex items-center gap-2"><FolderPlus className="w-4 h-4" /> {t.assets_btn_new_folder}</button>
+                 {activeAssetTab !== 'subject' && activeAssetTab !== 'model' && (
+                   <button onClick={openCreateFolderModal} className="bg-zinc-800 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-zinc-700 transition flex items-center gap-2"><FolderPlus className="w-4 h-4" /> {t.assets_btn_new_folder}</button>
+                 )}
+                 {activeAssetTab !== 'model' && activeAssetTab !== 'subject' && (
                  <div className="relative group">
                    <button onClick={() => assetInputRef.current?.click()} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20" disabled={isUploading}>
                       {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} {t.assets_btn_upload}
                    </button>
                    <div className="absolute right-0 top-12 z-50 w-max max-w-[360px] rounded-xl border border-white/10 bg-zinc-900/95 px-3 py-2 text-[10px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover:opacity-100 hover:opacity-100">
                      <div className="text-[11px] font-bold text-white mb-1">{t.assets_upload_formats_title}</div>
-                     <div className="whitespace-pre-line text-zinc-300 leading-relaxed">{formatHint}</div>
+                     <div className="whitespace-pre-line text-zinc-300 leading-relaxed">{activeTabFormatHint}</div>
                    </div>
                  </div>
-                <input type="file" ref={assetInputRef} className="hidden" multiple accept="image/*,video/*,audio/*,.txt,.md,.json,text/plain,application/json" onChange={handleAssetUpload} />
+                 )}
+                <input type="file" ref={assetInputRef} className="hidden" multiple accept={activeTabAccept} onChange={handleAssetUpload} />
                </>
              ) : (
                <>
@@ -1775,10 +2144,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
        <div className="flex-1 flex flex-col px-10 pt-4 pb-10 overflow-hidden">
          {/* Tabs */}
-         <div className="flex gap-4 mb-8 border-b border-white/5 pb-2">
-             {((viewMode === 'library'
-               ? ['model', 'product', 'scene', 'motion', 'audio', 'script']
-               : ['model', 'product', 'scene', 'motion', 'audio']) as AssetType[]).map(type => (
+         <div className="flex items-center gap-1 mb-8 border-b border-white/5 pb-2">
+             {((['product', 'motion', 'audio', 'model', 'script'] as AssetType[]).map(type => (
                 <button
                   key={type}
                   onClick={() => {
@@ -1787,16 +2154,333 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                     setCurrentFolderId(null);
                     setFolderBreadcrumb([]);
                   }}
-                  className={`asset-type-tab text-sm font-bold px-6 py-2 rounded-full transition ${activeAssetTab === type ? 'asset-type-tab--active' : 'asset-type-tab--inactive'}`}
+                  className={`asset-type-tab text-sm font-bold px-5 py-2 rounded-full transition ${activeAssetTab === type ? 'asset-type-tab--active' : 'asset-type-tab--inactive'}`}
                 >
                   {assetTabLabel[type] || type.toUpperCase()}
                 </button>
-             ))}
+             )))}
+             {viewMode === 'library' && (
+               <>
+                 <div className="h-5 w-px bg-white/10 mx-2 self-center shrink-0" />
+                 {(['subject'] as AssetType[]).map(type => (
+                   <button
+                     key={type}
+                     onClick={() => {
+                       if (type === activeAssetTab) return;
+                       setActiveAssetTab(type);
+                       setCurrentFolderId(null);
+                       setFolderBreadcrumb([]);
+                     }}
+                     className={`asset-type-tab text-sm font-bold px-5 py-2 rounded-full transition ${activeAssetTab === type ? 'asset-type-tab--active' : 'asset-type-tab--inactive'}`}
+                   >
+                     {assetTabLabel[type] || type.toUpperCase()}
+                   </button>
+                 ))}
+               </>
+             )}
           </div>
 
              {viewMode === 'library' ? (
              <>
-          
+
+          {activeAssetTab === 'subject' ? (
+            /* ==================== Subject Groups Tab ==================== */
+            <div className="flex-1 overflow-y-auto">
+              {/* Subject toolbar */}
+              <div className="flex items-center justify-between gap-4 mb-4">
+                <div className="flex items-center gap-2 text-xs text-zinc-500" />
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    ref={subjectGuideButtonRef}
+                    onClick={() => openSubjectGuideModal(false)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 transition text-xs font-bold ${isSubjectGuideSpotlightOpen ? 'relative z-[151]' : ''}`}
+                    title={t.assets_subject_guide_button || '主体创建说明'}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>{t.assets_subject_guide_button || '主体创建说明'}</span>
+                  </button>
+                  {!isSelectionMode && (
+                    <button
+                      onClick={() => setIsSelectionMode(true)}
+                      className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition"
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" /> {'选择'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setIsSubjectCreateOpen(true)}
+                    className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-orange-500/20 text-orange-300 hover:bg-orange-500/30 transition shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> 新建主体
+                  </button>
+                </div>
+              </div>
+              {/* Selection mode toolbar */}
+              {isSelectionMode && (
+                <div className="flex items-center gap-3 mb-4 px-2">
+                  <button onClick={() => { setIsSelectionMode(false); setSelectedSubjectIds(new Set()); }} className="text-xs text-zinc-400 hover:text-white transition">取消</button>
+                  <span className="text-xs text-zinc-500">已选 {selectedSubjectIds.size} 项</span>
+                  {selectedSubjectIds.size > 0 && (
+                    <button onClick={() => openConfirmModal({ title: '批量删除主体', message: `确定删除 ${selectedSubjectIds.size} 个主体？\n\n此操作不可逆`, danger: true, onConfirm: handleBatchDeleteSubjects })} className="text-xs text-red-400 hover:text-red-300 transition">
+                      删除所选
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {subjectsLoading ? (
+                <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-zinc-500" /></div>
+              ) : subjects.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-zinc-500">
+                  <Layers3 className="w-10 h-10 mb-3 opacity-40" />
+                  <p className="text-sm font-bold">暂无主体</p>
+                  <p className="text-xs mt-1 opacity-70">点击上方按钮创建主体</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {subjects.map((sg) => {
+                    const isExpanded = expandedSubjectId === sg.id;
+                    const isSgSel = selectedSubjectIds.has(sg.id);
+                    return (
+                      <div key={`sg-${sg.id}`} className={`bg-zinc-900/80 rounded-xl border transition overflow-hidden group/subject ${
+                        isSelectionMode && isSgSel ? 'border-blue-500 bg-blue-500/10' : 'border-white/5 hover:border-orange-500/30'
+                      }`}>
+                        {/* Subject card header */}
+                        <div
+                          className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none"
+                          onClick={() => isSelectionMode ? toggleSubjectSelection(sg.id) : setExpandedSubjectId(isExpanded ? null : sg.id)}
+                        >
+                          {isSelectionMode && (
+                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 ${isSgSel ? 'bg-blue-500 border-blue-500' : 'border-zinc-500'}`}>
+                              {isSgSel && <Check className="w-3 h-3 text-white" />}
+                            </div>
+                          )}
+                          {isExpanded ? <ChevronDown className="w-4 h-4 text-zinc-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-zinc-400 shrink-0" />}
+                          {/* Primary asset thumbnail */}
+                          <div className="w-10 h-10 rounded-lg overflow-hidden bg-zinc-800 shrink-0">
+                            {sg.primary_asset ? (
+                              <img src={sg.primary_asset.thumbnail || sg.primary_asset.file_url} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center"><ImageIcon className="w-4 h-4 text-zinc-600" /></div>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            {renamingSubjectId === sg.id ? (
+                              <input
+                                value={subjectRenameDraft}
+                                autoFocus
+                                className="w-full bg-black/40 text-zinc-100 text-sm font-bold rounded-md border border-white/10 px-2 py-0.5 focus:outline-none focus:border-orange-500/50"
+                                onChange={(e) => setSubjectRenameDraft(e.target.value)}
+                                onClick={(e) => e.stopPropagation()}
+                                onBlur={() => void commitRenameSubject(sg.id)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void commitRenameSubject(sg.id); } if (e.key === 'Escape') { e.preventDefault(); setRenamingSubjectId(null); } }}
+                              />
+                            ) : (
+                              <div className="text-sm font-bold text-zinc-200 truncate">{sg.name}</div>
+                            )}
+                            <div className="text-[10px] text-zinc-500 mt-0.5">
+                              {sg.primary_asset ? '1 主图' : '无主图'}{sg.other_assets.length > 0 ? ` · ${sg.other_assets.length} 副图` : ''}
+                            </div>
+                          </div>
+                          {/* Actions */}
+                          <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover/subject:opacity-100 transition">
+                            <button onClick={(e) => { e.stopPropagation(); beginRenameSubject(sg); }} className="w-7 h-7 rounded-full bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700 flex items-center justify-center" title="重命名"><Pencil className="w-3.5 h-3.5" /></button>
+                          </div>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openConfirmModal({ title: '删除主体', message: `${sg.name}\n\n此操作不可逆`, danger: true, onConfirm: () => handleDeleteSubject(sg.id) }); }}
+                            className="w-7 h-7 rounded-full bg-zinc-800 text-zinc-500 hover:text-red-400 hover:bg-zinc-700 flex items-center justify-center transition shrink-0 ml-1"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Expanded detail */}
+                        {isExpanded && (
+                          <div className="border-t border-white/5 px-4 py-4 space-y-4">
+                            {/* Primary asset slot */}
+                            <div className="rounded-xl border border-orange-500/20 bg-zinc-950/50 p-3">
+                              <div className="flex items-center gap-2 mb-2">
+                                <ImageIcon className="w-4 h-4 text-orange-400" />
+                                <span className="text-xs font-bold text-orange-300">主图</span>
+                              </div>
+                              {sg.primary_asset ? (
+                                <div className="flex items-center gap-3 mb-2">
+                                  <div className="w-20 h-20 rounded-lg overflow-hidden bg-zinc-800 shrink-0">
+                                    <img src={sg.primary_asset.thumbnail || sg.primary_asset.file_url} alt="" className="w-full h-full object-cover" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs text-zinc-300 truncate">{sg.primary_asset.name}</div>
+                                  </div>
+                                  <button onClick={() => handleRemoveSubjectAsset(sg.id, 'primary', sg.primary_asset!.id)} className="text-zinc-500 hover:text-red-400 transition shrink-0"><X className="w-4 h-4" /></button>
+                                </div>
+                              ) : null}
+                              <button onClick={() => handleOpenSubjectSlotPicker(sg.id, 'primary')} className="w-full py-3 border border-dashed border-orange-500/20 rounded-lg text-xs text-zinc-500 hover:text-orange-400 hover:border-orange-500/40 transition flex items-center justify-center gap-1.5">
+                                <Plus className="w-3.5 h-3.5" /> {sg.primary_asset ? '更换主图' : '设置主图'}
+                              </button>
+                            </div>
+
+                            {/* Other assets slot */}
+                            <div className="rounded-xl border border-blue-500/20 bg-zinc-950/50 p-3">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Layers3 className="w-4 h-4 text-blue-400" />
+                                <span className="text-xs font-bold text-blue-300">副图</span>
+                                <span className="text-[10px] text-zinc-500 ml-auto">{sg.other_assets.length}/3</span>
+                              </div>
+                              {sg.other_assets.length > 0 && (
+                                <div className="space-y-2 mb-2 max-h-48 overflow-y-auto">
+                                  {sg.other_assets.map((asset) => (
+                                    <div key={asset.id} className="flex items-center gap-3">
+                                      <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-800 shrink-0">
+                                        <img src={asset.thumbnail || asset.file_url} alt="" className="w-full h-full object-cover" />
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="text-xs text-zinc-300 truncate">{asset.name}</div>
+                                      </div>
+                                      <button onClick={() => handleRemoveSubjectAsset(sg.id, 'other', asset.id)} className="text-zinc-500 hover:text-red-400 transition shrink-0"><X className="w-4 h-4" /></button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {sg.other_assets.length < 3 && (
+                                <button onClick={() => handleOpenSubjectSlotPicker(sg.id, 'other')} className="w-full py-3 border border-dashed border-blue-500/20 rounded-lg text-xs text-zinc-500 hover:text-blue-400 hover:border-blue-500/40 transition flex items-center justify-center gap-1.5">
+                                  <Plus className="w-3.5 h-3.5" /> 添加副图
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Create subject modal */}
+              {isSubjectCreateOpen && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setIsSubjectCreateOpen(false)}>
+                  <div className="bg-zinc-900 border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                    <h3 className="text-base font-bold text-white mb-4">新建主体</h3>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs text-zinc-400 mb-1 block">名称</label>
+                        <input
+                          type="text"
+                          className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-orange-500/50"
+                          placeholder="主体名称..."
+                          value={subjectNameDraft}
+                          onChange={(e) => setSubjectNameDraft(e.target.value)}
+                          autoFocus
+                          onKeyDown={(e) => { if (e.key === 'Enter') void handleCreateSubject(); }}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2 mt-5">
+                      <button onClick={() => setIsSubjectCreateOpen(false)} className="px-4 py-2 text-xs text-zinc-400 hover:text-white transition">取消</button>
+                      <button onClick={() => void handleCreateSubject()} disabled={!subjectNameDraft.trim()} className="px-4 py-2 text-xs font-bold bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition disabled:opacity-40 disabled:cursor-not-allowed">创建</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Subject slot picker overlay (reuses same picker pattern) */}
+              {subjectSlotPicking && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => { setSubjectSlotPicking(null); setSlotPickerAssets([]); setSlotPickerFolders([]); setSelectedPickerIds(new Set()); }}>
+                  <div className="bg-zinc-900 border border-white/10 rounded-2xl p-6 w-full max-w-2xl mx-4 shadow-2xl max-h-[70vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-base font-bold text-white">
+                        选择{subjectSlotPicking.slot === 'primary' ? '主图' : '副图'}
+                      </h3>
+                      <button onClick={() => { setSubjectSlotPicking(null); setSlotPickerAssets([]); setSlotPickerFolders([]); setSelectedPickerIds(new Set()); }} className="text-zinc-500 hover:text-white transition"><X className="w-5 h-5" /></button>
+                    </div>
+                    {/* Picker breadcrumb */}
+                    <div className="flex items-center gap-1.5 text-xs text-zinc-500 mb-3 pb-2 border-b border-white/5">
+                      <button onClick={() => { void loadSlotPickerData('image', null); }} className={`hover:text-white transition ${slotPickerFolderId === null ? 'text-white' : ''}`}>{t.assets_root}</button>
+                      {slotPickerBreadcrumb.map(f => (
+                        <div key={f.id} className="flex items-center gap-1.5">
+                          <span>/</span>
+                          <button onClick={() => { void loadSlotPickerData('image', f.id); }} className={`hover:text-white transition truncate max-w-[120px] ${slotPickerFolderId === f.id ? 'text-white' : ''}`}>{f.name}</button>
+                        </div>
+                      ))}
+                    </div>
+                    {slotPickerLoading ? (
+                      <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-zinc-500" /></div>
+                    ) : slotPickerFolders.length === 0 && slotPickerAssets.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-16 text-zinc-500">
+                        <p className="text-sm">当前目录为空</p>
+                        <p className="text-xs mt-1 opacity-70">请在图片/虚拟模特分类中上传素材</p>
+                      </div>
+                    ) : (
+                      <div className="flex-1 overflow-y-auto space-y-2">
+                        {slotPickerFolders.map((pf) => (
+                          <button
+                            key={`pf-${pf.id}`}
+                            onClick={() => void loadSlotPickerData('image', pf.id)}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg bg-zinc-800/60 hover:bg-zinc-800 border border-white/5 hover:border-orange-500/30 transition text-left"
+                          >
+                            <div className="w-7 h-7 rounded bg-orange-500/15 flex items-center justify-center shrink-0">
+                              <Folder className="w-3.5 h-3.5 text-orange-400" />
+                            </div>
+                            <span className="text-xs font-bold text-zinc-300 truncate flex-1">{pf.name}</span>
+                            <ChevronRight className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
+                          </button>
+                        ))}
+                        {slotPickerAssets.length > 0 && (
+                          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3 pt-1">
+                            {slotPickerAssets.map((asset) => {
+                              const isSelected = selectedPickerIds.has(asset.id);
+                              return (
+                                <button
+                                  key={asset.id}
+                                  onClick={() => {
+                                    if (subjectSlotPicking.slot === 'primary') {
+                                      // single select for primary
+                                      setSelectedPickerIds(new Set([asset.id]));
+                                    } else {
+                                      togglePickerAsset(asset.id);
+                                    }
+                                  }}
+                                  className={`group relative bg-zinc-800 rounded-lg overflow-hidden border-2 transition text-left ${isSelected ? 'border-orange-500 ring-1 ring-orange-500/30' : 'border-transparent hover:border-orange-500/40'}`}
+                                >
+                                  <div className={`absolute top-1.5 right-1.5 z-10 w-5 h-5 rounded-full flex items-center justify-center transition ${isSelected ? 'bg-orange-500 text-white' : 'bg-black/40 text-transparent group-hover:text-zinc-400'}`}>
+                                    <CheckCircle className="w-3.5 h-3.5" />
+                                  </div>
+                                  <div className="aspect-square bg-zinc-900 flex items-center justify-center">
+                                    {asset.thumbnail || asset.file_url ? (
+                                      <img src={asset.thumbnail || asset.file_url} alt="" className="w-full h-full object-cover" />
+                                    ) : (
+                                      <Layers3 className="w-6 h-6 text-zinc-600" />
+                                    )}
+                                  </div>
+                                  <div className="p-1.5">
+                                    <div className="text-[10px] text-zinc-300 truncate">{asset.name}</div>
+                                    <div className="text-[9px] text-zinc-500">{asset.size}</div>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {selectedPickerIds.size > 0 && (
+                      <div className="flex items-center justify-between pt-4 mt-3 border-t border-white/5">
+                        <span className="text-xs text-zinc-400">已选 {selectedPickerIds.size} 项</span>
+                        <button
+                          onClick={() => void handleConfirmSubjectPickerSelection()}
+                          className="px-5 py-2 text-xs font-bold bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition"
+                        >
+                          确认选择
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+          <>
+
            {/* Breadcrumb */}
             <div className="flex items-center justify-between gap-4 mb-4">
               <div className="flex items-center gap-2 text-xs text-zinc-500 min-w-0">
@@ -1840,11 +2524,55 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                     </button>
                   )}
                   <button
+                    type="button"
+                    onClick={() => setShowOnlyFavorites((prev) => !prev)}
+                    title={showOnlyFavorites ? ((t as any).assets_show_all || '显示全部') : ((t as any).assets_show_favorites_only || '只看收藏')}
+                    className={`w-9 h-9 rounded-lg border transition flex items-center justify-center ${showOnlyFavorites ? 'border-yellow-500/60 bg-yellow-500/15 text-yellow-200' : 'border-white/10 bg-zinc-800 text-zinc-200 hover:bg-zinc-700'}`}
+                  >
+                    <Heart className={`w-4 h-4 ${showOnlyFavorites ? 'fill-current' : ''}`} />
+                  </button>
+                  {!isListOnlyTab && (
+                  <div className="flex rounded-lg border border-white/10 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setAssetViewLayout('grid')}
+                      title={(t as any).assets_view_grid || '网格视图'}
+                      className={`w-9 h-9 flex items-center justify-center transition ${assetViewLayout === 'grid' ? 'bg-zinc-700 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'}`}
+                    >
+                      <LayoutGrid className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAssetViewLayout('list')}
+                      title={(t as any).assets_view_list || '列表视图'}
+                      className={`w-9 h-9 flex items-center justify-center transition ${assetViewLayout === 'list' ? 'bg-zinc-700 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'}`}
+                    >
+                      <List className="w-4 h-4" />
+                    </button>
+                  </div>
+                  )}
+                  <button
                     onClick={() => setIsSelectionMode(true)}
                     className="bg-zinc-800 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-zinc-700 transition flex items-center gap-2 shrink-0"
                   >
                     <CheckCircle className="w-4 h-4" /> {t.assets_select}
                   </button>
+                  {activeAssetTab === 'script' && (
+                    <button
+                      onClick={() => setIsNewScriptDialogOpen(true)}
+                      className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-orange-500/20 text-orange-300 hover:bg-orange-500/30 transition shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> {t.assets_btn_new_script || '新建脚本'}
+                    </button>
+                  )}
+                  {activeAssetTab === 'model' && (
+                    <button
+                      onClick={() => { setShowSeedanceBrowser(true); void loadSeedanceCharacters(); }}
+                      className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> {t.assets_add_from_model_library || '从模特库添加'}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1859,8 +2587,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={isAllVisibleSelected ? deselectAllVisibleAssets : selectAllVisibleAssets}
-                    disabled={visibleAssets.length === 0}
+                    onClick={isAllVisibleSelected ? deselectAllVisible : selectAllVisible}
+                    disabled={visibleAssets.length === 0 && visibleFolders.length === 0}
                     className="bg-zinc-900 text-zinc-200 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-zinc-800 transition disabled:opacity-50"
                   >
                     {isAllVisibleSelected ? t.assets_deselect_all : t.assets_select_all}
@@ -1872,28 +2600,52 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                   >
                     {t.assets_move_asset}
                   </button>
-                  <button
-                    onClick={() => {
-                      if (selectedCount === 0) return;
-                      openConfirmModal({
-                        title: t.assets_confirm_delete_asset,
-                        message: `${selectedCount} ${t.assets_items}\n\n${t.assets_confirm_body_irreversible}`,
-                        danger: true,
-                        onConfirm: async () => {
-                          const ids = Array.from(selectedAssetIds);
-                          const results = await Promise.allSettled(ids.map(id => deleteAssetById(id)));
-                          const failed = results.filter(r => r.status === 'rejected');
-                          if (failed.length > 0) openInfo((t as any).assets_delete_failed || 'Failed to delete some assets', `Failed to delete ${failed.length} assets`);
-                          setSelectedAssetIds(new Set());
-                          setIsSelectionMode(false);
-                        }
-                      });
-                    }}
-                    disabled={selectedCount === 0}
-                    className="bg-red-600 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-red-500 transition disabled:opacity-50"
-                  >
-                    {t.assets_delete}
-                  </button>
+                  {showOnlyFavorites ? (
+                    <button
+                      onClick={async () => {
+                        if (selectedCount === 0) return;
+                        const assetIds = Array.from(selectedAssetIds);
+                        const folderIds = Array.from(selectedFolderIds);
+                        await Promise.allSettled([
+                          ...assetIds.map(id => assetsApi.toggleFavorite(id)),
+                          ...folderIds.map(id => assetsApi.toggleFolderFavorite(id)),
+                        ]);
+                        await loadData();
+                        exitSelectionMode();
+                      }}
+                      disabled={selectedCount === 0}
+                      className="bg-yellow-600 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-yellow-500 transition disabled:opacity-50"
+                    >
+                      {'移除收藏'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        if (selectedCount === 0) return;
+                        openConfirmModal({
+                          title: t.assets_confirm_delete_asset,
+                          message: `${selectedCount} ${t.assets_items}\n\n${t.assets_confirm_body_irreversible}`,
+                          danger: true,
+                          onConfirm: async () => {
+                            const assetIds = Array.from(selectedAssetIds);
+                            const folderIds = Array.from(selectedFolderIds);
+                            const results = await Promise.allSettled([
+                              ...folderIds.map(id => assetsApi.deleteFolder(id)),
+                              ...assetIds.map(id => deleteAssetById(id)),
+                            ]);
+                            const failed = results.filter(r => r.status === 'rejected');
+                            if (failed.length > 0) openInfo((t as any).assets_delete_failed || 'Failed to delete some assets', `Failed to delete ${failed.length} items`);
+                            await loadData();
+                            exitSelectionMode();
+                          }
+                        });
+                      }}
+                      disabled={selectedCount === 0}
+                      className="bg-red-600 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-red-500 transition disabled:opacity-50"
+                    >
+                      {t.assets_delete}
+                    </button>
+                  )}
                   <button
                     onClick={exitSelectionMode}
                     className="bg-zinc-800 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-zinc-700 transition"
@@ -1906,23 +2658,100 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
            <div className="flex-1 overflow-y-auto custom-scroll">
              {isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-zinc-500" /></div> : (
-                <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-6">
+                <div className={assetViewLayout === 'list' ? 'flex flex-col gap-2' : 'grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-6'}>
                    {/* Folders */}
-                   {folderList.map(folder => (
+                   {visibleFolders.map(folder => {
+                      const summary = folderSummaryById.get(folder.id) || { assetCount: 0, subfolderCount: 0, previewAssets: [], previewFolderNames: [] };
+                      const firstVisualAsset = summary.previewAssets.find((a) => a.media_kind === 'image' || a.media_kind === 'video');
+                      const coverSrc = folder.cover_url
+                        ? getDisplayUrl(folder.cover_url)
+                        : firstVisualAsset
+                          ? (firstVisualAsset.media_kind === 'video' ? getDisplayUrl(firstVisualAsset.file_url) : getDisplayUrl(firstVisualAsset.thumbnail || firstVisualAsset.file_url))
+                          : '';
+
+                      /* ---- LIST VIEW folder row ---- */
+                      if (assetViewLayout === 'list') {
+                        const isFolderSelected = selectedFolderIds.has(folder.id);
+                        return (
+                          <div
+                            key={folder.id}
+                            onClick={() => isSelectionMode ? toggleFolderSelection(folder.id) : setCurrentFolderId(folder.id)}
+                            onDragOver={(e) => !isSelectionMode && dragOverFolder(folder.id, e)}
+                            onDragEnter={(e) => !isSelectionMode && dragOverFolder(folder.id, e)}
+                            onDragLeave={() => { if (dragOverFolderId === folder.id) setDragOverFolderId(null); }}
+                            onDrop={(e) => !isSelectionMode && dropMoveTo(folder.id, e)}
+                            className={`glass-card rounded-xl p-2 group relative flex items-center gap-3 h-16 cursor-pointer hover:bg-zinc-800/50 transition border-l-4 ${
+                              isSelectionMode && isFolderSelected ? 'border-l-blue-500 bg-blue-500/10' : 'border-l-orange-500/60'
+                            } ${
+                              draggingAsset ? 'border-zinc-700/80' : ''
+                            } ${draggingAsset && dragOverFolderId === folder.id ? 'ring-2 ring-orange-500/70' : ''}`}
+                          >
+                            {isSelectionMode && (
+                              <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 ${isFolderSelected ? 'bg-blue-500 border-blue-500' : 'border-zinc-500'}`}>
+                                {isFolderSelected && <Check className="w-3 h-3 text-white" />}
+                              </div>
+                            )}
+                            <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-800 shrink-0 flex items-center justify-center relative">
+                              {coverSrc ? (
+                                <>
+                                  <img src={coverSrc} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                                  <div className="absolute bottom-0 right-0 w-4 h-4 rounded-tl bg-black/60 flex items-center justify-center"><Folder className="w-2.5 h-2.5 text-orange-400" /></div>
+                                </>
+                              ) : (
+                                <Folder className="w-5 h-5 text-orange-400" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-bold text-zinc-200 truncate">{folder.name}</div>
+                              <div className="text-[11px] text-zinc-500">
+                                {summary.assetCount} {(t as any).assets_folder_summary_assets || '素材'} · {summary.subfolderCount} {(t as any).assets_folder_summary_subfolders || '子文件夹'}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition">
+                              <button onClick={(e) => { e.stopPropagation(); void handleToggleFolderFavorite(folder); }} className={`w-7 h-7 rounded-full flex items-center justify-center ${folder.is_favorited ? 'bg-yellow-500/80 text-white' : 'bg-zinc-700 text-zinc-400 hover:text-white'}`}><Heart className={`w-3.5 h-3.5 ${folder.is_favorited ? 'fill-current' : ''}`} /></button>
+                              <button onClick={(e) => { e.stopPropagation(); handleRenameFolder(folder); }} className="w-7 h-7 rounded-full bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center"><Pencil className="w-3.5 h-3.5" /></button>
+                              <button onClick={(e) => { e.stopPropagation(); openConfirmModal({ title: t.assets_confirm_delete_folder, message: `${folder.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => handleDeleteFolder(folder) }); }} className="w-7 h-7 rounded-full bg-zinc-700 text-red-400 hover:text-red-300 flex items-center justify-center"><X className="w-3.5 h-3.5" /></button>
+                            </div>
+                            <ChevronRight className="w-4 h-4 text-zinc-600 shrink-0" />
+                          </div>
+                        );
+                      }
+
+                      /* ---- GRID VIEW folder card ---- */
+                      const isFolderSelectedGrid = selectedFolderIds.has(folder.id);
+                      return (
                       <div
                         key={folder.id}
-                        onClick={() => setCurrentFolderId(folder.id)}
-                        onDragOver={(e) => dragOverFolder(folder.id, e)}
-                        onDragEnter={(e) => dragOverFolder(folder.id, e)}
+                        onClick={() => isSelectionMode ? toggleFolderSelection(folder.id) : setCurrentFolderId(folder.id)}
+                        onDragOver={(e) => !isSelectionMode && dragOverFolder(folder.id, e)}
+                        onDragEnter={(e) => !isSelectionMode && dragOverFolder(folder.id, e)}
                         onDragLeave={() => { if (dragOverFolderId === folder.id) setDragOverFolderId(null); }}
-                        onDrop={(e) => dropMoveTo(folder.id, e)}
-                        className={`glass-card rounded-2xl aspect-[3/4] border p-3 flex flex-col cursor-pointer transition group relative overflow-hidden ${
-                          draggingAsset ? 'border-zinc-700/80' : 'border-zinc-800 hover:border-orange-500/50 hover:bg-zinc-900/50'
+                        onDrop={(e) => !isSelectionMode && dropMoveTo(folder.id, e)}
+                        className={`glass-card rounded-2xl aspect-[3/4] border-2 cursor-pointer transition group relative overflow-hidden ${
+                          isSelectionMode && isFolderSelectedGrid ? 'border-blue-500 bg-blue-500/10' : (
+                          draggingAsset ? 'border-zinc-700/80' : 'border-orange-500/30 hover:border-orange-500/60 hover:bg-zinc-900/50')
                         } ${
                           draggingAsset && dragOverFolderId === folder.id ? 'ring-2 ring-orange-500/70 scale-[1.02] bg-zinc-900/50' : ''
                         }`}
                       >
-                         <button onClick={(e) => { e.stopPropagation(); setOpenFolderMenuId(prev => (prev === folder.id ? null : folder.id)); }} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/30 hover:bg-black/50 flex items-center justify-center text-zinc-300 hover:text-white z-20">...</button>
+                         {/* Selection checkbox */}
+                         {isSelectionMode && (
+                           <div className="absolute top-2 left-2 z-30">
+                             <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${isFolderSelectedGrid ? 'bg-blue-500 border-blue-500' : 'border-zinc-400 bg-black/30'}`}>
+                               {isFolderSelectedGrid && <Check className="w-3 h-3 text-white" />}
+                             </div>
+                           </div>
+                         )}
+                         {/* Folder badge */}
+                         <div className="absolute top-2 left-2 z-20 flex items-center gap-1 bg-black/50 backdrop-blur-sm rounded-md px-1.5 py-0.5">
+                           <Folder className="w-3 h-3 text-orange-400" />
+                           <span className="text-[10px] text-orange-300 font-bold">{(t as any).assets_folder_badge || '文件夹'}</span>
+                         </div>
+                         {/* Top-right actions */}
+                         <div className="absolute top-2 right-2 z-20 flex items-center gap-1">
+                           <button onClick={(e) => { e.stopPropagation(); void handleToggleFolderFavorite(folder); }} className={`w-7 h-7 rounded-full flex items-center justify-center transition ${folder.is_favorited ? 'bg-yellow-500/80 text-white' : 'bg-black/30 text-zinc-300 opacity-0 group-hover:opacity-100 hover:bg-black/50'}`}><Heart className={`w-3.5 h-3.5 ${folder.is_favorited ? 'fill-current' : ''}`} /></button>
+                           <button onClick={(e) => { e.stopPropagation(); setOpenFolderMenuId(prev => (prev === folder.id ? null : folder.id)); }} className="w-7 h-7 rounded-full bg-black/30 hover:bg-black/50 flex items-center justify-center text-zinc-300 hover:text-white opacity-0 group-hover:opacity-100 transition">...</button>
+                         </div>
                          {openFolderMenuId === folder.id && (
                              <div onClick={(e) => e.stopPropagation()} className="absolute top-10 right-2 bg-zinc-900/90 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden text-xs z-50 min-w-[140px]">
                                  <button className="w-full text-left px-3 py-2 hover:bg-white/5 text-zinc-200" onClick={() => handleRenameFolder(folder)}>{t.assets_folder_menu_rename}</button>
@@ -1930,67 +2759,95 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                                  <button className="w-full text-left px-3 py-2 hover:bg-white/5 text-red-300" onClick={() => { setOpenFolderMenuId(null); openConfirmModal({ title: t.assets_confirm_delete_folder, message: `${folder.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => handleDeleteFolder(folder) }); }}>{t.assets_folder_menu_delete}</button>
                              </div>
                          )}
-                         {(() => {
-                           const summary = folderSummaryById.get(folder.id) || { assetCount: 0, subfolderCount: 0, previewAssets: [], previewFolderNames: [] };
-                           const visualPreviewAssets = summary.previewAssets
-                             .filter((asset) => asset.media_kind === 'image' || asset.media_kind === 'video')
-                             .slice(0, 3);
-                           return (
-                             <>
-                               <div className="flex-1 rounded-[18px] border border-white/5 bg-black/20 p-3 flex flex-col justify-between overflow-hidden">
-                               <div className="flex items-start justify-between gap-2">
-                                   <div className="w-11 h-11 rounded-2xl bg-zinc-800 flex items-center justify-center group-hover:scale-105 transition">
-                                     <Folder className="w-5 h-5 text-zinc-400 group-hover:text-orange-500" />
-                                   </div>
-                                 </div>
-                                 {visualPreviewAssets.length > 0 ? (
-                                   <div className="grid grid-cols-3 gap-2">
-                                     {visualPreviewAssets.map((asset) => (
-                                       <div key={asset.id} className="aspect-square rounded-xl overflow-hidden bg-zinc-900/80 border border-white/5">
-                                         {asset.media_kind === 'video' ? (
-                                           <video
-                                             src={asset.file_url}
-                                             className="w-full h-full object-cover"
-                                             muted
-                                             playsInline
-                                             preload="metadata"
-                                           />
-                                         ) : (
-                                           <img src={asset.thumbnail || asset.file_url} alt={asset.name} className="w-full h-full object-cover" />
-                                         )}
-                                       </div>
-                                     ))}
-                                   </div>
-                                 ) : summary.previewFolderNames.length > 0 ? (
-                                   <div className="flex flex-wrap gap-2">
-                                     {summary.previewFolderNames.slice(0, 3).map((name) => (
-                                       <span key={name} className="max-w-full truncate rounded-full bg-white/5 px-2.5 py-1 text-[11px] text-zinc-400 border border-white/5">
-                                         {name}
-                                       </span>
-                                     ))}
-                                   </div>
-                                 ) : (
-                                   <div className="flex items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.03] py-4 text-[11px] text-zinc-500">
-                                     {(t as any).assets_folder_summary_empty || '空文件夹'}
-                                   </div>
-                                 )}
-                               </div>
-                               <div className="pt-3">
-                                 <div className="text-base font-bold text-zinc-200 truncate">{folder.name}</div>
-                                 <div className="mt-1 text-[11px] text-zinc-500 truncate">
-                                   {summary.assetCount} {(t as any).assets_folder_summary_assets || '素材'} · {summary.subfolderCount} {(t as any).assets_folder_summary_subfolders || '子文件夹'}
-                                 </div>
-                               </div>
-                             </>
-                           );
-                         })()}
+                         {/* Full-bleed cover / preview image */}
+                         {coverSrc ? (
+                           <div className="absolute inset-0">
+                             {(firstVisualAsset?.media_kind === 'video' && !folder.cover_url) ? (
+                               <video src={coverSrc} className="w-full h-full object-cover" muted playsInline preload="metadata" />
+                             ) : (
+                               <img src={coverSrc} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                             )}
+                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                           </div>
+                         ) : (
+                           <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/60">
+                             <Folder className="w-12 h-12 text-zinc-700 group-hover:text-orange-500/50 transition" />
+                           </div>
+                         )}
+                         {/* Bottom info overlay */}
+                         <div className="absolute bottom-0 inset-x-0 p-3 z-10">
+                           <div className="text-base font-bold text-white truncate drop-shadow-lg">{folder.name}</div>
+                           <div className="mt-0.5 text-[11px] text-zinc-300/80 truncate">
+                             {summary.assetCount} {(t as any).assets_folder_summary_assets || '素材'} · {summary.subfolderCount} {(t as any).assets_folder_summary_subfolders || '子文件夹'}
+                           </div>
+                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                     
                     {/* Assets */}
                     {visibleAssets.map(asset => {
                       const isSelected = selectedAssetIds.has(asset.id);
                       const subjectOtherViewCount = getAssetSubjectOtherViewIds(asset).length;
+                      if (assetViewLayout === 'list') {
+                        return (
+                          <div
+                            key={asset.id}
+                            className={`glass-card rounded-xl p-2 group relative flex items-center gap-3 h-16 ${draggingAsset?.id === asset.id ? 'opacity-60' : ''} ${isSelectionMode && isSelected ? 'ring-2 ring-orange-500/70' : ''} cursor-pointer hover:bg-zinc-800/50 transition`}
+                            draggable={!isSelectionMode && renamingAssetId !== asset.id}
+                            onDragStart={isSelectionMode ? undefined : (e) => { if (renamingAssetId || Date.now() < suppressDragUntilRef.current) { e.preventDefault(); return; } beginDragAsset(asset, e); }}
+                            onDragEnd={isSelectionMode ? undefined : endDragAsset}
+                            onClick={() => {
+                              if (isSelectionMode) { toggleAssetSelection(asset.id); return; }
+                              setAssetPreview(asset);
+                              setAssetDescriptionDraft(getAssetSubjectDescription(asset));
+                              setIsAssetDescriptionSaved(true);
+                              setAssetDescriptionSavedAt(String(asset.created_at || '').slice(0, 10));
+                              setIsAssetPreviewOpen(true);
+                            }}
+                          >
+                            {isSelectionMode && (
+                              <button onClick={(e) => { e.stopPropagation(); toggleAssetSelection(asset.id); }} className="shrink-0 w-7 h-7 rounded-full bg-black/30 flex items-center justify-center">
+                                {isSelected ? <CheckCircle className="w-4 h-4 text-orange-400" /> : <Circle className="w-4 h-4 text-white/60" />}
+                              </button>
+                            )}
+                            <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-800 shrink-0 relative">
+                              {asset.media_kind === 'audio' ? <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-500/20 to-zinc-900"><Music className="w-5 h-5 text-orange-400" /></div> :
+                               asset.media_kind === 'document' ? <div className="w-full h-full flex items-center justify-center"><FileText className="w-5 h-5 text-sky-300" /></div> :
+                               asset.media_kind === 'video' && asset.file_url ? <video src={getDisplayUrl(asset.file_url) || undefined} className="w-full h-full object-cover" muted preload="metadata" /> :
+                               asset.file_url ? <img src={getDisplayUrl(asset.thumbnail || asset.file_url) || ASSET_PLACEHOLDER_DATA_URL} className="w-full h-full object-cover" alt={asset.name} onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }} /> :
+                               <div className="w-full h-full flex items-center justify-center text-zinc-600 text-[10px]">N/A</div>}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              {renamingAssetId === asset.id ? (
+                                <input
+                                  ref={renameInputRef}
+                                  value={renameDraft}
+                                  disabled={isSavingRename}
+                                  className="w-full bg-black/40 text-zinc-100 text-xs font-bold rounded-md border border-white/10 px-2 py-1 focus:outline-none focus:border-orange-500/50"
+                                  onChange={(e) => setRenameDraft(e.target.value)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onBlur={() => { if (!renameIgnoreBlurRef.current) void commitRenameAsset(asset); }}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void commitRenameAsset(asset); } if (e.key === 'Escape') { e.preventDefault(); cancelRenameAsset(); } }}
+                                />
+                              ) : (
+                                <div className="text-xs font-bold text-zinc-200 truncate">{asset.name}</div>
+                              )}
+                              <div className="text-[11px] text-zinc-500">{asset.size} · {asset.created_at}</div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition">
+                              <button onClick={(e) => { e.stopPropagation(); void handleToggleFavorite(asset); }} className={`w-7 h-7 rounded-full flex items-center justify-center ${asset.is_favorited ? 'bg-yellow-500/80 text-white' : 'bg-zinc-700 text-zinc-400 hover:text-white'}`} title={asset.is_favorited ? '取消收藏' : '收藏'}><Heart className={`w-3.5 h-3.5 ${asset.is_favorited ? 'fill-current' : ''}`} /></button>
+                              <button onClick={(e) => { e.stopPropagation(); beginRenameAsset(asset); }} className="w-7 h-7 rounded-full bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center" title={t.assets_folder_menu_rename}><Pencil className="w-3.5 h-3.5" /></button>
+                              {asset.media_kind === 'image' && <button onClick={(e) => { e.stopPropagation(); addAssetDirectlyToTransferStation(asset); }} className="w-7 h-7 rounded-full bg-sky-700 text-sky-300 hover:text-white flex items-center justify-center" title={t.wb_transfer_station_add_btn || '加入中转站'}><ArrowUpRight className="w-3.5 h-3.5" /></button>}
+                              <button onClick={(e) => { e.stopPropagation(); handleDownloadAsset(asset); }} className="w-7 h-7 rounded-full bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center" title="下载"><Download className="w-3.5 h-3.5" /></button>
+                              <button onClick={(e) => { e.stopPropagation(); openSingleMoveDialog(asset); }} className="w-7 h-7 rounded-full bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center" title={t.assets_move_asset || '移动'}><Folder className="w-3.5 h-3.5" /></button>
+                              {currentFolderId && (asset.media_kind === 'image' || asset.media_kind === 'video') && <button onClick={(e) => { e.stopPropagation(); void assetsApi.setFolderCover(currentFolderId, asset.id).then(() => loadData()); }} className="w-7 h-7 rounded-full bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center" title={(t as any).assets_set_as_cover || '设为文件夹封面'}><ImageIcon className="w-3.5 h-3.5" /></button>}
+                              <button onClick={(e) => { e.stopPropagation(); openConfirmModal({ title: t.assets_confirm_delete_asset, message: `${asset.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => deleteAssetById(asset.id) }); }} className="w-7 h-7 rounded-full bg-zinc-700 text-red-400 hover:text-red-300 flex items-center justify-center" title={t.assets_delete || '删除'}><X className="w-3.5 h-3.5" /></button>
+                            </div>
+                            {!isSelectionMode && asset.is_favorited && <Heart className="w-3 h-3 text-yellow-400 fill-current shrink-0" />}
+                          </div>
+                        );
+                      }
                       return (
                         <div
                           key={asset.id}
@@ -2012,6 +2869,15 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                               aria-label="Select asset"
                             >
                               {isSelected ? <CheckCircle className="w-5 h-5 text-orange-400" /> : <Circle className="w-5 h-5 text-white/70" />}
+                            </button>
+                          )}
+                          {!isSelectionMode && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); void handleToggleFavorite(asset); }}
+                              className={`absolute top-2 right-2 z-20 w-7 h-7 rounded-full flex items-center justify-center transition ${asset.is_favorited ? 'bg-yellow-500/80 text-white' : 'bg-black/40 text-white/70 opacity-0 group-hover:opacity-100 hover:bg-black/60'}`}
+                              aria-label="Toggle favorite"
+                            >
+                              <Heart className={`w-3.5 h-3.5 ${asset.is_favorited ? 'fill-current' : ''}`} />
                             </button>
                           )}
                           <div
@@ -2135,13 +3001,15 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                             {/* Hover actions (under info bar) */}
                             {!isSelectionMode && (
                               <div className="absolute inset-0 z-10 bg-black/60 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition rounded-xl flex flex-col items-center justify-center gap-2 py-4 px-2">
-                                {asset.type !== 'script' && (
-                                  <button onClick={(e) => { e.stopPropagation(); openApplyWorkbenchDialog(asset); }} className="w-full bg-white text-black py-2 rounded-lg text-xs font-bold hover:bg-orange-500 hover:text-white transition shadow-lg">{t.assets_use_in_workbench}</button>
-                                )}
+                                {asset.media_kind === 'image' && <button onClick={(e) => { e.stopPropagation(); addAssetDirectlyToTransferStation(asset); }} className="w-full bg-sky-600 text-white py-2 rounded-lg text-xs font-bold hover:bg-sky-500 transition shadow-lg">{t.wb_transfer_station_add_btn || '加入中转站'}</button>}
+                                <button onClick={(e) => { e.stopPropagation(); handleDownloadAsset(asset); }} className="w-full bg-zinc-700 text-white py-1.5 rounded-lg text-xs font-bold hover:bg-zinc-600 transition">下载</button>
                                 <div className="flex w-full gap-2">
                                   <button onClick={(e) => { e.stopPropagation(); openSingleMoveDialog(asset); }} className="flex-1 bg-zinc-700 text-white py-2 rounded-lg text-xs font-bold hover:bg-zinc-600 transition">{t.assets_move_asset}</button>
                                   <button onClick={(e) => { e.stopPropagation(); openConfirmModal({ title: t.assets_confirm_delete_asset, message: `${asset.name}\n\n${t.assets_confirm_body_irreversible}`, danger: true, onConfirm: () => deleteAssetById(asset.id) }); }} className="flex-1 bg-zinc-800 text-red-400 py-2 rounded-lg text-xs font-bold hover:bg-red-500 hover:text-white transition">{t.assets_delete}</button>
                                 </div>
+                                {currentFolderId && (asset.media_kind === 'image' || asset.media_kind === 'video') && (
+                                  <button onClick={(e) => { e.stopPropagation(); void assetsApi.setFolderCover(currentFolderId, asset.id).then(() => loadData()); }} className="w-full bg-zinc-800 text-zinc-300 py-1.5 rounded-lg text-[11px] hover:bg-zinc-700 transition">{(t as any).assets_set_as_cover || '设为文件夹封面'}</button>
+                                )}
                               </div>
                             )}
                           </div>
@@ -2151,6 +3019,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                  </div>
               )}
            </div>
+          </>
+          )}
           </>
           ) : (
             <>
@@ -2369,209 +3239,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
           <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6" onClick={() => setIsAssetPreviewOpen(false)}>
             <div className="glass-panel rounded-2xl p-4 md:p-6 border border-white/10 w-full max-w-4xl max-h-[calc(100vh-3rem)] overflow-auto" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between gap-4 mb-4"><div className="min-w-0"><div className="text-xs text-zinc-500 truncate">{assetPreview.name}</div></div><button className="text-zinc-400 hover:text-white" onClick={() => setIsAssetPreviewOpen(false)}><X className="w-5 h-5"/></button></div>
-              {(assetPreview.type === 'product' || assetPreview.type === 'model') ? (
-              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)] gap-5">
-                <div className="flex items-center justify-center">
-                   {assetPreview.media_kind === 'audio' ? (
-                     <div className="w-full max-w-xl space-y-4">
-                       <div className="relative mx-auto aspect-[4/3] w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-black/30">
-                         {renderAudioArtwork(assetPreview.name, false, isLightTheme)}
-                       </div>
-                       <audio
-                         src={getDisplayUrl(assetPreview.file_url) || undefined}
-                         className="w-full"
-                         controls
-                         autoPlay
-                         preload="metadata"
-                       />
-                     </div>
-                   ) : assetPreview.media_kind === 'video' ? (
-                     <video
-                       src={getDisplayUrl(assetPreview.file_url) || undefined}
-                       className="block rounded-lg max-w-full max-h-[calc(100vh-10rem)] object-contain"
-                       controls
-                       autoPlay
-                       loop
-                       playsInline
-                     />
-                   ) : assetPreview.media_kind === 'document' ? (
-                     <div className="w-full max-w-xl rounded-xl border border-white/10 bg-black/20 p-6 text-center">
-                       <FileText className="mx-auto w-9 h-9 text-sky-300" />
-                       <div className="mt-3 text-sm text-zinc-200 break-words">{assetPreview.name}</div>
-                       <a
-                         href={getDisplayUrl(assetPreview.file_url) || undefined}
-                         target="_blank"
-                         rel="noreferrer"
-                         className="mt-4 inline-flex items-center rounded-lg border border-sky-500/50 bg-sky-500/10 px-3 py-1.5 text-xs font-bold text-sky-200 hover:bg-sky-500/20"
-                       >
-                         {t.assets_preview_title || 'Preview'}
-                       </a>
-                     </div>
-                   ) : (
-                     <img
-                       src={getDisplayUrl(assetPreview.file_url) || ASSET_PLACEHOLDER_DATA_URL}
-                       alt={assetPreview.name}
-                       className="block rounded-lg max-w-full max-h-[calc(100vh-10rem)] object-contain"
-                       onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }}
-                     />
-                   )}
-                </div>
-                <div className="space-y-4">
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <div className="text-xs text-zinc-500 mb-1">{t.assets_subject_name}</div>
-                    <div className="text-base font-bold text-zinc-100 break-words">{assetPreview.name}</div>
-                    <div className="mt-2 text-[11px] text-zinc-400">
-                      {t.assets_subject_status}: {(() => {
-                        const status = getAssetSubjectStatus(assetPreview);
-                        if (status === 'succeed') return t.assets_subject_status_succeed;
-                        if (status === 'processing') return t.assets_subject_status_processing;
-                        if (status === 'failed') return t.assets_subject_status_failed;
-                        if (status === 'deleted') return t.assets_subject_status_deleted;
-                        return t.assets_subject_status_not_created;
-                      })()}
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <div className="flex items-center justify-between gap-3 mb-2">
-                      <div className="text-xs text-zinc-500">{t.assets_subject_description}</div>
-                      {assetPreview.media_kind === 'image' && (
-                        <button
-                          type="button"
-                          disabled={isGeneratingAssetDescription}
-                          onClick={() => void generateAssetDescription()}
-                          className="rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-1 text-[11px] font-bold text-orange-200 disabled:opacity-60"
-                        >
-                          {isGeneratingAssetDescription ? t.wb_generating : t.assets_ai_generate_description}
-                        </button>
-                      )}
-                    </div>
-                    <textarea
-                      value={assetDescriptionDraft}
-                      onChange={(e) => {
-                        setAssetDescriptionDraft(e.target.value);
-                        setIsAssetDescriptionSaved(false);
-                      }}
-                      rows={6}
-                      className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-orange-500/50"
-                      placeholder={t.assets_description_placeholder}
-                    />
-                    <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-zinc-500">
-                      <span>{assetDescriptionSavedAt ? `${t.assets_updated_at} ${assetDescriptionSavedAt}` : ''}</span>
-                      <button
-                        type="button"
-                        disabled={isSavingAssetDescription}
-                        onClick={() => void saveAssetDescription()}
-                        className={`rounded-lg px-3 py-1.5 text-[11px] font-bold disabled:opacity-60 ${
-                          isAssetDescriptionSaved
-                            ? 'bg-zinc-200 text-zinc-600'
-                            : 'bg-white text-black'
-                        }`}
-                      >
-                        {isSavingAssetDescription
-                          ? t.assets_saving_description
-                          : (isAssetDescriptionSaved
-                              ? (t.assets_saved_description || '已保存')
-                              : t.assets_save_description)}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-xs text-zinc-500">{t.assets_other_views}</div>
-                        <div className="mt-1 text-[11px] text-zinc-400">{t.assets_other_views_hint}</div>
-                      </div>
-                      <button
-                        type="button"
-                        disabled={isSavingSubjectGroup}
-                        onClick={() => {
-                          setIsSubjectGroupEditing((prev) => !prev);
-                          setSubjectSlotActionIndex(null);
-                        }}
-                        className={`rounded-lg px-3 py-1.5 text-[11px] font-bold disabled:opacity-60 ${
-                          isSubjectGroupEditing
-                            ? 'border border-orange-400 bg-orange-500 text-white shadow-sm shadow-orange-500/30 hover:bg-orange-400'
-                            : 'border border-white/10 bg-white/5 text-zinc-100 hover:bg-white/10'
-                        }`}
-                      >
-                        {isSubjectGroupEditing ? t.assets_done : t.assets_edit}
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-3 gap-3">
-                      {[0, 1, 2].map((slotIndex) => {
-                        const slotAsset = subjectOtherViewAssets[slotIndex] || null;
-                        const canOpenAction = !slotAsset && slotIndex === subjectOtherViewAssets.length && subjectOtherViewAssets.length < 3;
-                        return (
-                          <div
-                            key={slotIndex}
-                            ref={canOpenAction ? subjectSlotActionRef : null}
-                            className="relative aspect-square rounded-2xl border border-white/10 bg-black/20 overflow-hidden"
-                          >
-                            {slotAsset ? (
-                              <>
-                                <button
-                                  type="button"
-                                  className="absolute inset-0"
-                                  onClick={() => setSubjectPreviewImage(slotAsset)}
-                                >
-                                  <img
-                                    src={getDisplayUrl(slotAsset.file_url) || ASSET_PLACEHOLDER_DATA_URL}
-                                    alt={slotAsset.name}
-                                    className="w-full h-full object-cover"
-                                    onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }}
-                                  />
-                                </button>
-                                {isSubjectGroupEditing && (
-                                  <button
-                                    type="button"
-                                    disabled={isSavingSubjectGroup}
-                                    onClick={() => void removeSubjectOtherView(slotAsset.id)}
-                                    className="absolute top-2 right-2 z-10 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center shadow-lg disabled:opacity-60"
-                                  >
-                                    <X className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
-                              </>
-                            ) : canOpenAction ? (
-                              <>
-                                <button
-                                  type="button"
-                                  className="absolute inset-0 flex items-center justify-center bg-white/[0.03] hover:bg-white/[0.06] transition"
-                                  onClick={() => setSubjectSlotActionIndex((prev) => prev === slotIndex ? null : slotIndex)}
-                                >
-                                  <div className="flex items-center justify-center w-16 h-16 rounded-full border border-white/10 bg-white/5 text-zinc-200">
-                                    <Plus className="w-8 h-8" />
-                                  </div>
-                                </button>
-                                {subjectSlotActionIndex === slotIndex && (
-                                  <div className="absolute inset-x-2 bottom-2 z-10 rounded-xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl">
-                                    <button
-                                      type="button"
-                                      className="flex w-full h-8 items-center justify-center rounded-lg bg-white px-2.5 text-[11px] font-bold leading-none whitespace-nowrap text-black hover:bg-orange-500 hover:text-white transition"
-                                      onClick={() => openSubjectPicker(slotIndex)}
-                                    >
-                                      {t.assets_from_library}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="mt-1.5 flex w-full h-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 px-2.5 text-[11px] font-bold leading-none whitespace-nowrap text-zinc-100 hover:bg-white/10 transition"
-                                      onClick={() => subjectOtherViewUploadRef.current?.click()}
-                                    >
-                                      {t.assets_btn_upload}
-                                    </button>
-                                  </div>
-                                )}
-                              </>
-                            ) : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              ) : (
-                <div className="flex items-center justify-center">
+              <div className="flex items-center justify-center">
                   {assetPreview.media_kind === 'audio' ? (
                     <div className="w-full max-w-xl space-y-4">
                       <div className="relative mx-auto aspect-[4/3] w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-black/30">
@@ -2595,17 +3263,25 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       playsInline
                     />
                   ) : assetPreview.media_kind === 'document' ? (
-                    <div className="w-full max-w-xl rounded-xl border border-white/10 bg-black/20 p-6 text-center">
-                      <FileText className="mx-auto w-9 h-9 text-sky-300" />
-                      <div className="mt-3 text-sm text-zinc-200 break-words">{assetPreview.name}</div>
-                      <a
-                        href={getDisplayUrl(assetPreview.file_url) || undefined}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-4 inline-flex items-center rounded-lg border border-sky-500/50 bg-sky-500/10 px-3 py-1.5 text-xs font-bold text-sky-200 hover:bg-sky-500/20"
-                      >
-                        {t.assets_preview_title || 'Preview'}
-                      </a>
+                    <div className="w-full max-w-2xl rounded-xl border border-white/10 bg-black/20 p-6">
+                      <div className="flex items-center gap-3 mb-4">
+                        <FileText className="w-6 h-6 text-green-400 shrink-0" />
+                        <div className="text-sm text-zinc-200 break-words truncate">{assetPreview.name}</div>
+                        <a
+                          href={getDisplayUrl(assetPreview.file_url) || undefined}
+                          download={assetPreview.name}
+                          className="ml-auto inline-flex items-center rounded-lg border border-sky-500/50 bg-sky-500/10 px-3 py-1.5 text-xs font-bold text-sky-200 hover:bg-sky-500/20 shrink-0"
+                        >
+                          <Download className="w-3.5 h-3.5 mr-1" /> 下载
+                        </a>
+                      </div>
+                      {textPreviewLoading ? (
+                        <div className="flex items-center justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-zinc-500" /></div>
+                      ) : textPreviewContent != null ? (
+                        <pre className="w-full max-h-[60vh] overflow-auto rounded-lg bg-zinc-950/80 border border-white/5 p-4 text-xs text-zinc-300 whitespace-pre-wrap break-words font-mono">{textPreviewContent}</pre>
+                      ) : (
+                        <div className="text-center text-xs text-zinc-500 py-6">无法加载文件内容</div>
+                      )}
                     </div>
                   ) : (
                     <img
@@ -2616,72 +3292,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                     />
                   )}
                 </div>
-              )}
             </div>
           </div>
         )}
-
-        <AppDialog
-          isOpen={!!applyWorkbenchAsset}
-          title={t.assets_use_in_workbench || '用于工作台'}
-          onClose={closeApplyWorkbenchDialog}
-          widthClassName="max-w-md"
-          footer={(
-            <>
-              <button
-                type="button"
-                className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                onClick={closeApplyWorkbenchDialog}
-              >
-                {t.assets_move_cancel || 'Cancel'}
-              </button>
-              <button
-                type="button"
-                className="bg-sky-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-sky-500"
-                onClick={addApplyAssetToTransferStation}
-              >
-                {t.wb_transfer_station_add_btn || '加入中转站'}
-              </button>
-              <button
-                type="button"
-                className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-500"
-                onClick={confirmApplyWorkbenchDialog}
-              >
-                {t.hist_img_apply_confirm || 'Apply'}
-              </button>
-            </>
-          )}
-        >
-          <div className="space-y-4">
-            <div>
-              <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_img_apply_select_workspace || '选择工作台'}</div>
-              <select
-                value={applyTargetProjectId}
-                onChange={(e) => setApplyTargetProjectId(e.target.value)}
-                className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
-              >
-                {applyProjectOptions.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}{project.id === applyCurrentProjectId ? ` (${t.hist_img_apply_current_workspace || '当前'})` : ''}
-                  </option>
-                ))}
-                <option value={WORKBENCH_NEW_PROJECT_TARGET}>{t.hist_img_apply_create_new_workspace || '新建工作台'}</option>
-              </select>
-            </div>
-
-            {applyTargetProjectId === WORKBENCH_NEW_PROJECT_TARGET && (
-              <div>
-                <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_img_apply_project_name || '工程名称'}</div>
-                <input
-                  value={applyProjectName}
-                  onChange={(e) => setApplyProjectName(e.target.value)}
-                  className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
-                  maxLength={30}
-                />
-              </div>
-            )}
-          </div>
-        </AppDialog>
 
         {subjectPreviewImage && (
           <div className="fixed inset-0 z-[111] flex items-center justify-center bg-black/80 backdrop-blur-sm p-6" onClick={() => setSubjectPreviewImage(null)}>
@@ -2976,6 +3589,156 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               <div className="flex justify-end gap-3 mt-5">
                 <button className={`px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-60 ${confirmIsDanger ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-orange-600 hover:bg-orange-500 text-white'}`} onClick={runConfirmAction} disabled={confirmIsWorking}>{confirmIsWorking ? '...' : t.assets_delete}</button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* 5. Seedance Virtual Model Browser Dialog */}
+        {showSeedanceBrowser && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6" onClick={() => setShowSeedanceBrowser(false)}>
+            <div className="w-full max-w-5xl max-h-[85vh] glass-panel rounded-2xl border border-white/10 flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
+                <h3 className="text-base font-bold text-zinc-100">{t.assets_seedance_browser_title || '虚拟模特库'}</h3>
+                <button className="text-zinc-400 hover:text-white" onClick={() => setShowSeedanceBrowser(false)}><X className="w-5 h-5" /></button>
+              </div>
+
+              {/* Filters */}
+              <div className="flex flex-wrap items-center gap-3 px-6 py-3 border-b border-white/5">
+                <select
+                  value={seedanceFilters.gender || ''}
+                  onChange={(e) => {
+                    const f = { ...seedanceFilters, gender: e.target.value as any || undefined, page: 1 };
+                    setSeedanceFilters(f);
+                    void loadSeedanceCharacters(f);
+                  }}
+                  className="bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-orange-500/50"
+                >
+                  <option value="">{t.assets_seedance_filter_all_gender || '全部性别'}</option>
+                  <option value="Male">{t.assets_seedance_filter_male || '男'}</option>
+                  <option value="Female">{t.assets_seedance_filter_female || '女'}</option>
+                </select>
+
+                <select
+                  value={seedanceFilters.country || ''}
+                  onChange={(e) => {
+                    const f = { ...seedanceFilters, country: e.target.value || undefined, page: 1 };
+                    setSeedanceFilters(f);
+                    void loadSeedanceCharacters(f);
+                  }}
+                  className="bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-orange-500/50"
+                >
+                  <option value="">{t.assets_seedance_filter_all_country || '全部国家'}</option>
+                  {seedanceCountries.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+
+                <div className="flex items-center gap-1 text-xs text-zinc-400">
+                  <span>{t.assets_seedance_filter_age || '年龄'}:</span>
+                  <input
+                    type="number"
+                    min={0} max={100}
+                    value={seedanceFilters.age_min ?? ''}
+                    onChange={(e) => {
+                      const f = { ...seedanceFilters, age_min: e.target.value ? Number(e.target.value) : undefined, page: 1 };
+                      setSeedanceFilters(f);
+                    }}
+                    onBlur={() => void loadSeedanceCharacters(seedanceFilters)}
+                    className="w-14 bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded px-2 py-1 focus:outline-none"
+                    placeholder="min"
+                  />
+                  <span>-</span>
+                  <input
+                    type="number"
+                    min={0} max={100}
+                    value={seedanceFilters.age_max ?? ''}
+                    onChange={(e) => {
+                      const f = { ...seedanceFilters, age_max: e.target.value ? Number(e.target.value) : undefined, page: 1 };
+                      setSeedanceFilters(f);
+                    }}
+                    onBlur={() => void loadSeedanceCharacters(seedanceFilters)}
+                    className="w-14 bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded px-2 py-1 focus:outline-none"
+                    placeholder="max"
+                  />
+                </div>
+
+                <div className="relative flex-1 min-w-[200px] max-w-sm">
+                  <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    value={seedanceFilters.search || ''}
+                    onChange={(e) => setSeedanceFilters((prev) => ({ ...prev, search: e.target.value }))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void loadSeedanceCharacters(seedanceFilters); }}
+                    placeholder={t.assets_seedance_search || '搜索模特...'}
+                    className="w-full bg-zinc-800 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-orange-500/50"
+                  />
+                </div>
+
+                <span className="text-[10px] text-zinc-500 ml-auto">{seedanceTotalCount} {t.assets_seedance_total || '位模特'}</span>
+              </div>
+
+              {/* Grid */}
+              <div className="flex-1 overflow-y-auto px-6 py-4 custom-scroll">
+                {seedanceLoading ? (
+                  <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-zinc-500" /></div>
+                ) : seedanceCharacters.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-zinc-500">
+                    <p className="text-sm">{t.assets_seedance_empty || '未找到匹配的模特'}</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
+                    {seedanceCharacters.map((char) => (
+                      <div
+                        key={char.id}
+                        className="group relative bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-purple-500/40 transition cursor-pointer"
+                        onClick={async () => {
+                          try {
+                            await seedanceApi.collectCharacter(char.id, currentFolderId);
+                            void loadData();
+                            openInfo(t.assets_confirm_title || 'OK', t.assets_seedance_collected || `已添加「${char.title}」到虚拟模特`);
+                          } catch (err) {
+                            openInfo(t.assets_confirm_title || 'Error', String(err instanceof Error ? err.message : err));
+                          }
+                        }}
+                      >
+                        <div className="aspect-[3/4] bg-zinc-800">
+                          <img src={char.image_url} alt={char.title} className="w-full h-full object-cover" loading="lazy" />
+                        </div>
+                        <div className="p-1.5">
+                          <div className="text-[10px] font-bold text-zinc-200 truncate">{char.title || `${char.country} ${char.gender}`}</div>
+                          <div className="text-[9px] text-zinc-500 truncate">{char.gender === 'Male' ? '男' : '女'} · {char.age}{t.assets_seedance_age_unit || '岁'} · {char.country}</div>
+                          {char.occupation && <div className="text-[9px] text-zinc-600 truncate">{char.occupation}</div>}
+                        </div>
+                        {/* Hover overlay */}
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                          <span className="bg-purple-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-full shadow-lg">
+                            <Plus className="w-3 h-3 inline mr-1" />{t.assets_seedance_add || '添加'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Pagination */}
+              {seedanceTotalCount > (seedanceFilters.page_size || 40) && (
+                <div className="flex items-center justify-center gap-3 px-6 py-3 border-t border-white/5">
+                  <button
+                    disabled={seedancePage <= 1}
+                    onClick={() => { const f = { ...seedanceFilters, page: seedancePage - 1 }; setSeedanceFilters(f); void loadSeedanceCharacters(f); }}
+                    className="px-3 py-1 text-xs rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40"
+                  >
+                    {t.assets_seedance_prev || '上一页'}
+                  </button>
+                  <span className="text-xs text-zinc-400">{seedancePage} / {Math.ceil(seedanceTotalCount / (seedanceFilters.page_size || 40))}</span>
+                  <button
+                    disabled={seedancePage >= Math.ceil(seedanceTotalCount / (seedanceFilters.page_size || 40))}
+                    onClick={() => { const f = { ...seedanceFilters, page: seedancePage + 1 }; setSeedanceFilters(f); void loadSeedanceCharacters(f); }}
+                    className="px-3 py-1 text-xs rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40"
+                  >
+                    {t.assets_seedance_next || '下一页'}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}

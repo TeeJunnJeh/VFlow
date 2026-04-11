@@ -1,9 +1,35 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { templatesApi, type Template } from '../services/templates';
 import { assetsApi, type Asset as LibraryAsset } from '../services/assets';
 import { authApi } from '../services/auth';
 import { getDebugModeEnabled, setDebugModeEnabled, clearDebugModeEnabled, debugLog, debugWarn } from '../services/debugMode';
+
+/** ErrorBoundary – catches render errors in child tree and shows a fallback */
+class ViewErrorBoundary extends React.Component<
+  { children: React.ReactNode; label?: string },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error(`[ViewErrorBoundary${this.props.label ? ` ${this.props.label}` : ''}]`, error, info.componentStack);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 p-10 text-zinc-300">
+          <div className="text-lg font-bold text-red-400">页面渲染出错 {this.props.label ? `(${this.props.label})` : ''}</div>
+          <pre className="max-w-2xl overflow-auto rounded-xl bg-zinc-900 p-4 text-xs text-red-300 border border-red-500/30 whitespace-pre-wrap">
+            {this.state.error.message}{'\n'}{this.state.error.stack}
+          </pre>
+          <button onClick={() => this.setState({ error: null })} className="rounded-lg bg-zinc-800 px-4 py-2 text-sm hover:bg-zinc-700">重试</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 import { TaskQueueWidget } from '../components/workbench/TaskQueueWidget';
 import { AppDialog } from '../components/common/AppDialog';
@@ -27,7 +53,7 @@ type AssetsNavigationIntent =
   | 'open_assets_for_subject_creation_first_time'
   | null;
 
-type WorkbenchAssetSelectionMode = 'library_asset' | 'background_audio';
+type WorkbenchAssetSelectionMode = 'library_asset' | 'background_audio' | 'script_import';
 type WorkbenchApplyOptions = {
   targetProjectId?: string | null;
   createNewProject?: boolean;
@@ -197,7 +223,7 @@ const Workbench = () => {
         file_url: getDisplayUrl(asset.file_url) || asset.file_url || '',
       },
       token: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      mode: asset.media_kind === 'audio' ? 'background_audio' : 'library_asset',
+      mode: asset.media_kind === 'audio' ? 'background_audio' : asset.type === 'script' ? 'script_import' : 'library_asset',
       targetProjectId: createNewProject ? null : normalizedTargetProjectId,
       forceFirstFrame,
     });
@@ -449,6 +475,7 @@ const Workbench = () => {
 
           {activeView === 'workbench' && (
             <div className="flex-1 h-full min-h-0">
+              <ViewErrorBoundary label="WorkbenchView">
               <WorkbenchView
                 initialFileUrl={selectedAssetForWorkbench?.mode === 'background_audio' ? null : (selectedAssetForWorkbench?.asset?.file_url || null)}
                 initialFileName={selectedAssetForWorkbench?.mode === 'background_audio' ? '' : selectedAssetForWorkbench?.asset?.name}
@@ -472,6 +499,7 @@ const Workbench = () => {
                 replayReusePayload={replayReusePayload}
                 onReplayReusePayloadHandled={() => setReplayReusePayload(null)}
               />
+              </ViewErrorBoundary>
             </div>
           )}
 
@@ -494,14 +522,15 @@ const Workbench = () => {
           </div>
 
           {activeView === 'assets' && (
+            <ViewErrorBoundary label="AssetsView">
             <AssetsView
-              onSelectAsset={handleAssetSelect}
               currentFolderId={currentFolderId}
               setCurrentFolderId={setCurrentFolderId}
               navigationIntent={assetsNavigationIntent}
               onNavigationIntentHandled={() => setAssetsNavigationIntent(null)}
               onSubjectGuideCompleted={markSubjectGuideSeen}
             />
+            </ViewErrorBoundary>
           )}
 
           <div className={isProductImagesActive ? 'flex-1 min-h-0' : 'hidden'}>

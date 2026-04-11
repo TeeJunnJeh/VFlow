@@ -1,12 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Loader2, X, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
-import { authApi } from '../services/auth';
+import { authApi, type InviterPreview } from '../services/auth';
 import { useLanguage } from '../context/LanguageContext';
 import { LanguageSwitcher } from '../components/common/LanguageSwitcher';
+import { AppDialog } from '../components/common/AppDialog';
+import { InviteCodeField } from '../components/common/InviteCodeField';
 import { isStrongPassword } from '../utils/passwordRules';
+
+const PENDING_INVITE_CODE_KEY = 'vflow_pending_invite_code';
+
+const readPendingInviteCode = (): string => {
+  try {
+    return (sessionStorage.getItem(PENDING_INVITE_CODE_KEY) || '').trim();
+  } catch {
+    return '';
+  }
+};
 
 const LoginPage = () => {
   const navigate = useNavigate();
@@ -28,6 +40,100 @@ const LoginPage = () => {
   const [isLoginSuccess, setIsLoginSuccess] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [error, setError] = useState('');
+
+  // 主表单上的"有邀请码？"输入，初始值取 sessionStorage（URL 捕获），允许用户手动粘贴/修改
+  const [inlineInviteCode, setInlineInviteCode] = useState<string>(() => readPendingInviteCode());
+
+  // --- 裂变：申请内测弹窗 ---
+  const [isApplyOpen, setIsApplyOpen] = useState(false);
+  const [applyPhone, setApplyPhone] = useState('');
+  const [applyInviteCode, setApplyInviteCode] = useState('');
+  const [applyScenario, setApplyScenario] = useState('');
+  const [applyFrequency, setApplyFrequency] = useState('');
+  const [applySubmitting, setApplySubmitting] = useState(false);
+  const [applySuccess, setApplySuccess] = useState(false);
+  const [applyError, setApplyError] = useState('');
+  const [inviteCodeChecking, setInviteCodeChecking] = useState(false);
+  const [inviteCodeValid, setInviteCodeValid] = useState<null | boolean>(null);
+  const [inviteCodeInviter, setInviteCodeInviter] = useState<InviterPreview | null>(null);
+  const inviteCodeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // On mount, pre-fill invite code from sessionStorage (captured from URL in App.tsx)
+  useEffect(() => {
+    const pending = readPendingInviteCode();
+    if (pending) setApplyInviteCode(pending);
+  }, []);
+
+  // Realtime invite-code validation (debounced)
+  useEffect(() => {
+    if (inviteCodeTimerRef.current) {
+      clearTimeout(inviteCodeTimerRef.current);
+      inviteCodeTimerRef.current = null;
+    }
+    const code = applyInviteCode.trim();
+    if (!code) {
+      setInviteCodeChecking(false);
+      setInviteCodeValid(null);
+      setInviteCodeInviter(null);
+      return;
+    }
+    setInviteCodeChecking(true);
+    inviteCodeTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await authApi.validateInviteCode(code);
+        setInviteCodeValid(res.valid);
+        setInviteCodeInviter(res.inviter || null);
+      } catch {
+        setInviteCodeValid(false);
+        setInviteCodeInviter(null);
+      } finally {
+        setInviteCodeChecking(false);
+      }
+    }, 400);
+    return () => {
+      if (inviteCodeTimerRef.current) {
+        clearTimeout(inviteCodeTimerRef.current);
+        inviteCodeTimerRef.current = null;
+      }
+    };
+  }, [applyInviteCode]);
+
+  const openApplyDialog = () => {
+    setApplyError('');
+    setApplySuccess(false);
+    setApplyPhone(phone && phone.length === 11 ? phone : '');
+    const pending = readPendingInviteCode();
+    if (pending && !applyInviteCode) setApplyInviteCode(pending);
+    setIsApplyOpen(true);
+  };
+
+  const closeApplyDialog = () => {
+    if (applySubmitting) return;
+    setIsApplyOpen(false);
+  };
+
+  const handleApplySubmit = async () => {
+    setApplyError('');
+    const phoneValue = applyPhone.trim();
+    if (!phoneValue || phoneValue.length < 6) {
+      setApplyError(t.invite_apply_error_missing_phone);
+      return;
+    }
+    setApplySubmitting(true);
+    try {
+      await authApi.submitInviteApplication({
+        phoneNumber: phoneValue,
+        usageScenario: applyScenario.trim() || undefined,
+        usageFrequency: applyFrequency.trim() || undefined,
+        inviteCode: applyInviteCode.trim() || undefined,
+      });
+      setApplySuccess(true);
+    } catch (err: any) {
+      setApplyError(err?.message || t.invite_apply_error_generic);
+    } finally {
+      setApplySubmitting(false);
+    }
+  };
 
   // --- 自动跳转逻辑 ---
   // 场景：用户打开页面时 Session 依然有效 (自动登录)
@@ -74,12 +180,15 @@ const LoginPage = () => {
       // 1. 标记正在提交 (这会防止下方的自动跳转拦截逻辑生效)
       setIsSubmitting(true);
 
+      // 优先使用主表单上用户手动填的邀请码；若为空则回退到 sessionStorage 里 URL 捕获的那份
+      const pendingInviteCode = inlineInviteCode.trim() || readPendingInviteCode();
+
       let data: any;
       let loginIdentifier = '';
       if (authMode === 'phone') {
         if (!phone || !otp) throw new Error(t.login_error_missing_fields);
         if (phone.length !== 11) throw new Error(t.login_error_invalid_phone);
-        data = await authApi.loginWithPhone(phone, otp);
+        data = await authApi.loginWithPhone(phone, otp, pendingInviteCode || undefined);
         loginIdentifier = phone;
       } else {
         if (!identifier || !password) throw new Error(t.login_error_missing_account_password);
@@ -90,12 +199,16 @@ const LoginPage = () => {
             identifier,
             password,
             confirmPassword,
+            inviteCode: pendingInviteCode || undefined,
           });
         } else {
           data = await authApi.loginWithPassword(identifier, password);
         }
         loginIdentifier = identifier;
       }
+
+      // Clear the pending invite code after it's been consumed by a successful auth call.
+      try { sessionStorage.removeItem(PENDING_INVITE_CODE_KEY); } catch {}
       
       // 2. 更新 Context 状态 (此时 user 变为非空)
       await login(loginIdentifier, data);
@@ -281,6 +394,13 @@ const LoginPage = () => {
                       {isSendingCode ? <Loader2 className="animate-spin" size={14} /> : countdown > 0 ? `${countdown}s` : t.login_btn_get_code}
                     </button>
                   </div>
+                  <InviteCodeField
+                    value={inlineInviteCode}
+                    onChange={setInlineInviteCode}
+                    disabled={isSubmitting}
+                    entryLabel={t.invite_code_field_entry_new_user}
+                    hint={t.invite_code_field_new_user_hint}
+                  />
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -316,6 +436,11 @@ const LoginPage = () => {
                             className="flex-1 bg-transparent text-white text-sm px-4 py-3 outline-none"
                         />
                       </div>
+                      <InviteCodeField
+                        value={inlineInviteCode}
+                        onChange={setInlineInviteCode}
+                        disabled={isSubmitting}
+                      />
                     </>
                   )}
                   <button
@@ -347,8 +472,131 @@ const LoginPage = () => {
                 )}
               </button>
             </form>
+
+            <div className="mt-6 flex justify-center">
+              <button
+                type="button"
+                onClick={openApplyDialog}
+                className="text-xs font-bold text-zinc-400 hover:text-violet-300 transition tracking-wide underline-offset-4 hover:underline"
+              >
+                {t.login_apply_beta_entry}
+              </button>
+            </div>
           </div>
         </div>
+
+        <AppDialog
+          isOpen={isApplyOpen}
+          title={applySuccess ? t.invite_apply_success_title : t.invite_apply_title}
+          subtitle={applySuccess ? undefined : t.invite_apply_desc}
+          onClose={closeApplyDialog}
+          overlayClassName="z-[130]"
+          footer={applySuccess ? (
+            <button
+              type="button"
+              onClick={closeApplyDialog}
+              className="px-4 py-2 rounded-lg bg-violet-500/80 hover:bg-violet-500 text-white text-xs font-bold transition"
+            >
+              {t.invite_reward_close}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={closeApplyDialog}
+                disabled={applySubmitting}
+                className="px-4 py-2 rounded-lg border border-white/10 text-zinc-300 hover:text-white hover:border-white/30 text-xs font-bold transition disabled:opacity-40"
+              >
+                {t.invite_apply_cancel}
+              </button>
+              <button
+                type="button"
+                onClick={handleApplySubmit}
+                disabled={applySubmitting}
+                className="px-4 py-2 rounded-lg bg-violet-500/80 hover:bg-violet-500 text-white text-xs font-bold transition flex items-center gap-2 disabled:opacity-40"
+              >
+                {applySubmitting && <Loader2 className="animate-spin" size={14} />}
+                {applySubmitting ? t.invite_apply_submitting : t.invite_apply_submit}
+              </button>
+            </>
+          )}
+        >
+          {applySuccess ? (
+            <div className="flex flex-col items-center gap-3 py-4 text-center">
+              <CheckCircle2 className="w-12 h-12 text-emerald-400" />
+              <div className="text-sm font-semibold text-zinc-100">{t.invite_apply_success_title}</div>
+              <div className="text-xs text-zinc-400 max-w-xs leading-relaxed">{t.invite_apply_success_desc}</div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {applyError && (
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-300 flex items-center gap-2">
+                  <AlertCircle size={14} /> {applyError}
+                </div>
+              )}
+              <label className="block">
+                <div className="text-xs font-bold text-zinc-300 mb-1.5">{t.invite_apply_phone_label}</div>
+                <input
+                  type="text"
+                  value={applyPhone}
+                  onChange={(e) => setApplyPhone(e.target.value)}
+                  placeholder={t.invite_apply_phone_placeholder}
+                  disabled={applySubmitting}
+                  className="w-full bg-[#0a0a0a] rounded-lg border border-white/10 text-white text-sm px-3 py-2.5 outline-none focus:border-violet-500/60 transition disabled:opacity-50"
+                />
+              </label>
+              <label className="block">
+                <div className="text-xs font-bold text-zinc-300 mb-1.5">{t.invite_apply_invite_code_label}</div>
+                <input
+                  type="text"
+                  value={applyInviteCode}
+                  onChange={(e) => setApplyInviteCode(e.target.value.toUpperCase())}
+                  placeholder={t.invite_apply_invite_code_placeholder}
+                  disabled={applySubmitting}
+                  maxLength={16}
+                  className="w-full bg-[#0a0a0a] rounded-lg border border-white/10 text-white text-sm px-3 py-2.5 outline-none focus:border-violet-500/60 transition disabled:opacity-50 tracking-widest"
+                />
+                {applyInviteCode.trim().length > 0 && (
+                  <div className="mt-1.5 text-[11px] font-semibold">
+                    {inviteCodeChecking && (
+                      <span className="text-zinc-400">{t.invite_code_checking}</span>
+                    )}
+                    {!inviteCodeChecking && inviteCodeValid === true && (
+                      <span className="text-emerald-400">
+                        {t.invite_code_valid_hint.replace('{name}', inviteCodeInviter?.nickname || inviteCodeInviter?.invite_code || '')}
+                      </span>
+                    )}
+                    {!inviteCodeChecking && inviteCodeValid === false && (
+                      <span className="text-amber-400">{t.invite_code_invalid_hint}</span>
+                    )}
+                  </div>
+                )}
+              </label>
+              <label className="block">
+                <div className="text-xs font-bold text-zinc-300 mb-1.5">{t.invite_apply_scenario_label}</div>
+                <textarea
+                  value={applyScenario}
+                  onChange={(e) => setApplyScenario(e.target.value)}
+                  placeholder={t.invite_apply_scenario_placeholder}
+                  disabled={applySubmitting}
+                  rows={2}
+                  className="w-full bg-[#0a0a0a] rounded-lg border border-white/10 text-white text-sm px-3 py-2.5 outline-none focus:border-violet-500/60 transition disabled:opacity-50 resize-none"
+                />
+              </label>
+              <label className="block">
+                <div className="text-xs font-bold text-zinc-300 mb-1.5">{t.invite_apply_frequency_label}</div>
+                <input
+                  type="text"
+                  value={applyFrequency}
+                  onChange={(e) => setApplyFrequency(e.target.value)}
+                  placeholder={t.invite_apply_frequency_placeholder}
+                  disabled={applySubmitting}
+                  className="w-full bg-[#0a0a0a] rounded-lg border border-white/10 text-white text-sm px-3 py-2.5 outline-none focus:border-violet-500/60 transition disabled:opacity-50"
+                />
+              </label>
+            </div>
+          )}
+        </AppDialog>
 
         <footer className="absolute right-8 bottom-4 z-[120] text-right">
           <a

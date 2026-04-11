@@ -275,6 +275,25 @@ const AnimatedRoutes = () => {
         return () => window.removeEventListener('storage', onStorage);
     }, [showTikTokAuthResult]);
 
+    // 裂变：把 ?invite_code=XXXX 捕获到 sessionStorage，随后清掉 URL，
+    // 避免刷新/分享时把邀请码暴露出去。登录/注册路径会从 sessionStorage 回读。
+    React.useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const inviteCode = params.get('invite_code');
+        if (!inviteCode) return;
+        try {
+            sessionStorage.setItem('vflow_pending_invite_code', inviteCode.trim());
+        } catch (err) {
+            debugError('[invite] failed to persist invite code:', err);
+        }
+        params.delete('invite_code');
+        const nextSearch = params.toString();
+        const nextUrl = nextSearch
+            ? `${location.pathname}?${nextSearch}`
+            : location.pathname;
+        window.history.replaceState({}, document.title, nextUrl);
+    }, [location.pathname, location.search]);
+
     React.useEffect(() => {
         const params = new URLSearchParams(location.search);
         const code = params.get('code');

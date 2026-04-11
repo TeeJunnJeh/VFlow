@@ -33,6 +33,7 @@ class ViewErrorBoundary extends React.Component<
 
 import { TaskQueueWidget } from '../components/workbench/TaskQueueWidget';
 import { AppDialog } from '../components/common/AppDialog';
+import { InviteRewardDialog } from '../components/common/InviteRewardDialog';
 import { WorkbenchView } from '../components/workbench/WorkbenchView';
 import { AssetsView } from '../components/workbench/AssetsView';
 import { TemplatesView } from '../components/workbench/TemplatesView';
@@ -72,11 +73,20 @@ const getDisplayUrl = (path: string | null): string | null => {
 };
 
 const Workbench = () => {
-  const { user } = useAuth();
+  const { user, justLoggedIn, consumeJustLoggedIn } = useAuth();
 
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
   const [theme, setTheme] = useState<'dark' | 'light' | 'dim'>(user?.theme || 'light');
+  const [isInviteRewardOpen, setIsInviteRewardOpen] = useState(false);
+
+  // Post-login reward popup: triggered only when the user has just logged in in this session,
+  // NOT when the session is restored via /api/auth/me/ on page reload.
+  useEffect(() => {
+    if (!justLoggedIn || !user) return;
+    setIsInviteRewardOpen(true);
+    consumeJustLoggedIn();
+  }, [justLoggedIn, user, consumeJustLoggedIn]);
 
   // --- Data Passing State ---
   const [selectedAssetForWorkbench, setSelectedAssetForWorkbench] = useState<{
@@ -570,6 +580,11 @@ const Workbench = () => {
           )}
 
           <TaskQueueWidget onPreview={handleTaskPreview} onNavigate={handleTaskNavigate} />
+
+          <InviteRewardDialog
+            isOpen={isInviteRewardOpen}
+            onClose={() => setIsInviteRewardOpen(false)}
+          />
 
           {isInfoOpen && (
             <AppDialog

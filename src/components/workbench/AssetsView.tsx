@@ -152,7 +152,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     motion: t.assets_tab_videos || '视频',
     audio: t.assets_tab_audio || '音频',
     script: t.assets_tab_scripts || '脚本/Prompt',
-    subject: (t as any).assets_tab_subjects || '主体',
+    subject: t.assets_tab_subjects || 'Subjects',
   };
   const [themeClassSnapshot, setThemeClassSnapshot] = useState<string>('');
   useEffect(() => {
@@ -2071,17 +2071,17 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               <button
                 type="button"
                 onClick={() => setViewMode('library')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition flex items-center gap-1.5 ${viewMode === 'library' ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10'}`}
+                className={`px-3.5 py-2 rounded-lg text-xs font-bold border transition flex items-center gap-1.5 ${viewMode === 'library' ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10'}`}
               >
-                <Library className="w-3.5 h-3.5" />
+                <Library className="w-4 h-4 shrink-0" />
                 {t.assets_title}
               </button>
               <button
                 type="button"
                 onClick={() => setViewMode('plaza')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition flex items-center gap-1.5 ${viewMode === 'plaza' ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10'}`}
+                className={`px-3.5 py-2 rounded-lg text-xs font-bold border transition flex items-center gap-1.5 ${viewMode === 'plaza' ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10'}`}
               >
-                <Globe className="w-3.5 h-3.5" />
+                <Globe className="w-4 h-4 shrink-0" />
                 {t.assets_plaza_title || '素材广场'}
               </button>
             </div>
@@ -2090,7 +2090,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
              <LanguageSwitcher />
              {viewMode === 'library' ? (
                <>
-                 {activeAssetTab !== 'subject' && activeAssetTab !== 'model' && (
+                 {activeAssetTab !== 'subject' && (
                    <button onClick={openCreateFolderModal} className="bg-zinc-800 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-zinc-700 transition flex items-center gap-2"><FolderPlus className="w-4 h-4" /> {t.assets_btn_new_folder}</button>
                  )}
                  {activeAssetTab !== 'model' && activeAssetTab !== 'subject' && (
@@ -2656,9 +2656,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               </div>
             )}
 
-           <div className="flex-1 overflow-y-auto custom-scroll">
+           <div className="flex-1 overflow-y-auto custom-scroll pt-3 pb-2 px-0.5">
              {isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-zinc-500" /></div> : (
-                <div className={assetViewLayout === 'list' ? 'flex flex-col gap-2' : 'grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-6'}>
+                <div className={assetViewLayout === 'list' ? 'flex flex-col gap-2' : 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-5'}>
                    {/* Folders */}
                    {visibleFolders.map(folder => {
                       const summary = folderSummaryById.get(folder.id) || { assetCount: 0, subfolderCount: 0, previewAssets: [], previewFolderNames: [] };
@@ -2743,9 +2743,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                            </div>
                          )}
                          {/* Folder badge */}
-                         <div className="absolute top-2 left-2 z-20 flex items-center gap-1 bg-black/50 backdrop-blur-sm rounded-md px-1.5 py-0.5">
-                           <Folder className="w-3 h-3 text-orange-400" />
-                           <span className="text-[10px] text-orange-300 font-bold">{(t as any).assets_folder_badge || '文件夹'}</span>
+                         <div className="absolute top-2 left-2 z-20 flex items-center gap-1.5 bg-black/50 backdrop-blur-sm rounded-lg px-2 py-1">
+                           <Folder className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+                           <span className="text-[11px] leading-tight text-orange-300 font-bold">{(t as any).assets_folder_badge || '文件夹'}</span>
                          </div>
                          {/* Top-right actions */}
                          <div className="absolute top-2 right-2 z-20 flex items-center gap-1">
@@ -2775,9 +2775,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                            </div>
                          )}
                          {/* Bottom info overlay */}
-                         <div className="absolute bottom-0 inset-x-0 p-3 z-10">
-                           <div className="text-base font-bold text-white truncate drop-shadow-lg">{folder.name}</div>
-                           <div className="mt-0.5 text-[11px] text-zinc-300/80 truncate">
+                         <div className="absolute bottom-0 inset-x-0 p-2.5 z-10">
+                           <div className="text-sm font-bold text-white truncate drop-shadow-lg">{folder.name}</div>
+                           <div className="mt-0.5 text-[10px] text-zinc-300/80 truncate">
                              {summary.assetCount} {(t as any).assets_folder_summary_assets || '素材'} · {summary.subfolderCount} {(t as any).assets_folder_summary_subfolders || '子文件夹'}
                            </div>
                          </div>

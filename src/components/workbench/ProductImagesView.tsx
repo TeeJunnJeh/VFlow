@@ -365,7 +365,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       },
       {
         value: 'product_images_text_separation',
-        label: tr('文本分离', 'Text Separation'),
+        label: tx('wb_nav_product_text_separation', tr('文本分离', 'Text Separation')),
       },
     ],
     [t, isZh]
@@ -2935,7 +2935,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             <div className="w-[22%] min-w-[300px] max-w-[380px] flex flex-col gap-4">
               <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
                 <div className="flex items-center justify-between">
-                  <div className="text-sm font-bold text-zinc-200">{tr('上传商品图', 'Upload Product Images')}</div>
+                  <div className="text-sm font-bold text-zinc-200">
+                    {t.wb_product_images_gallery_upload_title || 'Upload Product Images'}
+                  </div>
                   <button
                     type="button"
                     onClick={handleGalleryAiAnalyze}

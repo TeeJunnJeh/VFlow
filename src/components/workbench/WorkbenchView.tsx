@@ -207,6 +207,20 @@ const normalizeWorkbenchAspectRatio = (value: string | null | undefined): Workbe
   return DEFAULT_WORKBENCH_ASPECT_RATIO;
 };
 
+/** Default script-tab titles saved under any locale; re-render with current `wb_script_page_prefix` when the pattern matches. */
+const WB_SCRIPT_PAGE_DEFAULT_PREFIXES = new Set(['脚本', 'Script', 'Skrip', 'Kịch bản', '스크립트']);
+
+function formatScriptPageDisplayName(name: string | undefined, zeroBasedIndex: number, prefix: string): string {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return `${prefix} ${zeroBasedIndex + 1}`;
+  const m = trimmed.match(/^(.+?)\s+(\d+)\s*$/);
+  if (!m) return trimmed;
+  const n = parseInt(m[2], 10);
+  if (n !== zeroBasedIndex + 1) return trimmed;
+  if (!WB_SCRIPT_PAGE_DEFAULT_PREFIXES.has(m[1])) return trimmed;
+  return `${prefix} ${n}`;
+}
+
 type ScriptCreativeCard = {
   style?: string;
   environment?: string;
@@ -3073,7 +3087,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (targetMediaKind === 'image') {
       return {
         targetMediaKind: 'image',
-        allowedTabs: ['model', 'product'],
+        allowedTabs: ['product'],
         preferredTab: 'product',
       };
     }
@@ -3504,12 +3518,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return Math.max(0, Math.round(rate * Math.max(1, Number(genDuration) || 0)));
   }, [genDuration, queuedRenderableAssetCount, reuseQueueEnabled, scriptQueue, selectedVideoPricing]);
 
-  const estimatedScriptVideoCost = useMemo(() => {
-    const rate = Number(selectedVideoPricing?.rate ?? 0);
-    if (!Number.isFinite(rate) || rate <= 0) return 0;
-    return Math.max(0, Math.round(rate * Math.max(1, Number(genDuration) || 0)));
-  }, [genDuration, selectedVideoPricing]);
-
   const estimatedImageCost = useMemo(() => {
     const rate = Number(selectedImagePricing?.rate ?? 0);
     if (!Number.isFinite(rate) || rate <= 0) return 0;
@@ -3517,7 +3525,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [aiOptimizeCount, selectedImagePricing]);
 
   const estimatedVideoCostLabel = estimatedVideoCost > 0 ? `-${estimatedVideoCost} ${t.v_points || 'V点'}` : '';
-  const estimatedScriptVideoCostLabel = estimatedScriptVideoCost > 0 ? `-${estimatedScriptVideoCost} ${t.v_points || 'V点'}` : '';
   const estimatedImageCostLabel = estimatedImageCost > 0 ? `-${estimatedImageCost} ${t.v_points || 'V点'}` : '';
   const hasCurrentAsset = Boolean(uploadedFile || selectedAssetUrl || selectedFileObj);
   const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
@@ -3542,7 +3549,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     motion: t.assets_tab_videos || '视频',
     audio: t.assets_tab_audio || '音频',
     script: t.assets_tab_scripts || '脚本',
-    subject: (t as any).assets_tab_subjects || '主体',
+    subject: t.assets_tab_subjects || 'Subjects',
   };
   const defaultAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => ([
     { value: 'product', label: materialTypeLabelMap.product },
@@ -8348,7 +8355,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         <div ref={configSectionRef} className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${getGuideFocusClass('config')}`}>
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-              <Gift className="w-3 h-3" /> 商品信息
+              <Gift className="w-3 h-3 shrink-0" /> {t.wb_product_info_title || 'Product Info'}
             </h2>
             <button
                 type="button"
@@ -8767,6 +8774,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   validationSummary={seedanceReplayValidation}
                   focusTarget={seedanceReplayFocusTarget}
                   onAddVirtualModel={handleSeedanceReplayAddVirtualModel}
+                  onOpenLibraryForKind={handleSeedanceReplayAddFromLibrary}
                   onPreview={handleSeedanceReplayPreview}
                   onRemove={handleSeedanceReplayRemove}
                   onSetFrameRole={handleSeedanceReplaySetFrameRole}
@@ -9424,14 +9432,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   }}
                   className={`w-full py-3 rounded-xl font-bold text-xs transition group border border-white/10 bg-black/30 text-zinc-200 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 ${!hasCurrentAsset ? 'opacity-40 hover:bg-black/30' : ''}`}
               >
-                <span className="flex w-full items-center gap-2 px-3">
-                  <span className="flex items-center gap-2 whitespace-nowrap">
-                    <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />
-                    {t.wb_btn_gen_scripts}
-                  </span>
-                  {estimatedScriptVideoCostLabel ? (
-                    <span className="ml-auto text-[10px] font-semibold text-zinc-300 whitespace-nowrap">{estimatedScriptVideoCostLabel}</span>
-                  ) : null}
+                <span className="flex w-full items-center justify-center gap-2 px-3">
+                  <Wand2 className="w-4 h-4 shrink-0 group-hover:rotate-12 transition" />
+                  <span className="whitespace-nowrap">{t.wb_btn_gen_scripts}</span>
                 </span>
               </button>
             )}
@@ -10346,7 +10349,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 </span>
                               )}
                             </div>
-                            <div className={`mt-2 text-[12px] font-bold leading-5 ${active ? 'text-orange-100' : 'text-zinc-100'}`}>{page.name}</div>
+                            <div className={`mt-2 text-[12px] font-bold leading-5 ${active ? 'text-orange-100' : 'text-zinc-100'}`}>
+                              {formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix)}
+                            </div>
                           </div>
                           <span className={`shrink-0 text-[10px] ${active ? 'text-orange-300' : 'text-zinc-500'}`}>
                             {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
@@ -11038,7 +11043,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 </span>
                               )}
                             </div>
-                            <div className={`mt-2 text-[12px] font-bold leading-5 ${active ? 'text-orange-100' : 'text-zinc-100'}`}>{page.name}</div>
+                            <div className={`mt-2 text-[12px] font-bold leading-5 ${active ? 'text-orange-100' : 'text-zinc-100'}`}>
+                              {formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix)}
+                            </div>
                           </div>
                           <span className={`shrink-0 text-[9px] ${active ? 'text-orange-300 font-bold' : 'text-zinc-500'}`}>
                             {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
@@ -11096,7 +11103,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             )}
                           </div>
                           <div className={`text-[10px] mt-0.5 font-medium ${isLightTheme ? 'text-slate-600' : 'text-zinc-500'}`}>
-                            {activeScriptPlan?.name || `${t.wb_script_page_prefix} ${activeScriptPage + 1}`}
+                            {formatScriptPageDisplayName(activeScriptPlan?.name, activeScriptPage, t.wb_script_page_prefix)}
                           </div>
                         </div>
                       </div>

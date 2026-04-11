@@ -1,11 +1,11 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import {
   Eye,
-  FolderOpen,
   Image as ImageIcon,
   Library,
   Music,
   Play,
+  Plus,
   Users,
   Video,
   X,
@@ -55,6 +55,7 @@ type SeedanceReplayUploadPanelProps = {
   validationSummary?: SeedanceReplayValidationSummary;
   focusTarget?: 'top' | SeedanceReplayMediaKind | null;
   onAddVirtualModel?: () => void;
+  onOpenLibraryForKind?: (kind: SeedanceReplayMediaKind) => void;
   onPreview?: (assetId: string) => void;
   onRemove?: (assetId: string) => void;
   onSetFrameRole?: (assetId: string, role: 'firstFrame' | 'lastFrame' | null) => void;
@@ -113,7 +114,10 @@ function getMediaTooltipItems(t: any): Record<MediaKind, string[]> {
       formatText(t.wb_seedance_replay_tip_total_duration || 'Total duration <= {duration}s', { duration: SEEDANCE_REPLAY_DURATION_MAX }),
       formatText(t.wb_seedance_replay_tip_total_size || 'Total size <= {size}', { size: formatMegabytes(SEEDANCE_REPLAY_AUDIO_TOTAL_BYTES_LIMIT) }),
     ],
-    model: [],
+    model: [
+      t.wb_seedance_replay_virtual_model_icon_tooltip
+        || 'Reference images containing recognizable real human faces cannot be uploaded directly. Choose materials from the virtual portrait library to create.',
+    ],
   };
 }
 
@@ -132,6 +136,7 @@ export function SeedanceReplayUploadPanel({
   validationSummary,
   focusTarget = null,
   onAddVirtualModel = noop,
+  onOpenLibraryForKind,
   onPreview = noop,
   onRemove = noop,
   onSetFrameRole,
@@ -199,10 +204,11 @@ export function SeedanceReplayUploadPanel({
       {!hasContent ? (
         <div className="glass-panel relative z-10 rounded-xl border border-dashed border-white/10 p-5 sm:p-6">
           <div className="mx-auto flex max-w-lg flex-col items-center text-center">
-            <div className="mb-4 flex items-center gap-2">
+            <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
               <RoundIcon icon={<ImageIcon className="h-4 w-4" />} label={t.wb_seedance_replay_media_image || 'Image'} tooltipItems={mediaTooltipItems.image} />
               <RoundIcon icon={<Video className="h-4 w-4" />} label={t.wb_seedance_replay_media_video || 'Video'} tooltipItems={mediaTooltipItems.video} />
               <RoundIcon icon={<Music className="h-4 w-4" />} label={t.wb_seedance_replay_media_audio || 'Audio'} tooltipItems={mediaTooltipItems.audio} />
+              <RoundIcon icon={<Users className="h-4 w-4" />} label={t.wb_seedance_replay_virtual_models || 'Virtual Models'} tooltipItems={mediaTooltipItems.model} />
             </div>
 
             <h3 className="text-base font-bold text-zinc-100">{t.wb_seedance_replay_add_reference_title || 'Add Reference Assets'}</h3>
@@ -330,6 +336,7 @@ export function SeedanceReplayUploadPanel({
           onPreview={onPreview}
           onRemove={onRemove}
           onSetFrameRole={onSetFrameRole}
+          onOpenLibrary={onOpenLibraryForKind ? () => onOpenLibraryForKind('image') : undefined}
         />
         <CategoryCard
           containerRef={videoCardRef}
@@ -345,6 +352,7 @@ export function SeedanceReplayUploadPanel({
           errorMessages={videoErrors}
           onPreview={onPreview}
           onRemove={onRemove}
+          onOpenLibrary={onOpenLibraryForKind ? () => onOpenLibraryForKind('video') : undefined}
         />
         <CategoryCard
           containerRef={audioCardRef}
@@ -360,6 +368,7 @@ export function SeedanceReplayUploadPanel({
           errorMessages={audioErrors}
           onPreview={onPreview}
           onRemove={onRemove}
+          onOpenLibrary={onOpenLibraryForKind ? () => onOpenLibraryForKind('audio') : undefined}
         />
 
         {/* Virtual Model Zone */}
@@ -376,13 +385,13 @@ export function SeedanceReplayUploadPanel({
             </div>
             <div className="flex items-center gap-1.5">
               <MiniIconButton onClick={onAddVirtualModel}>
-                <FolderOpen className="h-3.5 w-3.5" />
+                <Plus className="h-3.5 w-3.5" />
               </MiniIconButton>
             </div>
           </div>
           {modelAssets.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-white/10 bg-black/10 px-4 py-8 text-center text-xs leading-5 text-zinc-500">
-              {t.wb_seedance_replay_virtual_models_empty || '点击文件夹图标从虚拟模特库中添加'}
+            <div className="flex min-h-[4.25rem] items-center justify-center rounded-xl border border-dashed border-white/10 bg-black/10 px-4 py-3 text-center text-xs leading-snug text-zinc-500">
+              {t.wb_seedance_replay_virtual_models_empty || 'Click the "+" icon to add from the virtual model library.'}
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -503,6 +512,7 @@ type CategoryCardProps = {
   onPreview: (assetId: string) => void;
   onRemove: (assetId: string) => void;
   onSetFrameRole?: (assetId: string, role: 'firstFrame' | 'lastFrame' | null) => void;
+  onOpenLibrary?: () => void;
 };
 
 function CategoryCard({
@@ -520,6 +530,7 @@ function CategoryCard({
   onPreview,
   onRemove,
   onSetFrameRole,
+  onOpenLibrary,
 }: CategoryCardProps) {
   const { t } = useLanguage();
   const isEmpty = items.length === 0;
@@ -553,11 +564,20 @@ function CategoryCard({
             </div>
           </div>
         </div>
+        {onOpenLibrary ? (
+          <div className="flex items-center gap-1.5">
+            <MiniIconButton onClick={onOpenLibrary}>
+              <Plus className="h-3.5 w-3.5" />
+            </MiniIconButton>
+          </div>
+        ) : null}
       </div>
 
       {isEmpty ? (
-        <div className="rounded-xl border border-dashed border-white/10 bg-black/10 px-4 py-8 text-center text-xs leading-5 text-zinc-500">
-          {t.wb_seedance_replay_empty_hint || 'Click "+" to choose from the library.'}
+        <div className="flex min-h-[4.25rem] items-center justify-center rounded-xl border border-dashed border-white/10 bg-black/10 px-4 py-3 text-center text-xs leading-snug text-zinc-500">
+          {onOpenLibrary
+            ? (t.wb_seedance_replay_empty_hint_library || 'Click the "+" icon to add from the material library.')
+            : (t.wb_seedance_replay_empty_hint || 'Choose from the material library.')}
         </div>
       ) : items[0].mediaKind === 'image' ? (
         <StackedImageDisplay items={items} onPreview={onPreview} onRemove={onRemove} onSetFrameRole={onSetFrameRole} />
@@ -794,7 +814,6 @@ function ImageCard({
   hasLastFrame?: boolean;
 }) {
   const { t } = useLanguage();
-  const sourceLabelMap: Record<string, string> = { library: t.wb_seedance_replay_source_library || '素材库', local: t.wb_seedance_replay_source_local || '本地' };
   const isFirstFrame = item.frameRole === '首帧';
   const isLastFrame = item.frameRole === '尾帧';
 
@@ -828,19 +847,15 @@ function ImageCard({
         <div className="h-full w-full bg-white/5" />
       )}
 
-      {/* Source + Frame Role labels */}
-      <div className="absolute left-2 top-2 flex flex-col gap-1">
-        <span className="rounded-md border border-white/10 bg-black/40 px-1.5 py-0.5 text-[10px] font-bold text-zinc-100 backdrop-blur">
-          {sourceLabelMap[item.source]}
-        </span>
-        {item.frameRole && (
+      {item.frameRole ? (
+        <div className="absolute left-2 top-2 flex flex-col gap-1">
           <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-bold backdrop-blur ${
             isFirstFrame ? 'border-blue-500/30 bg-blue-500/20 text-blue-200' : 'border-orange-500/30 bg-orange-500/20 text-orange-200'
           }`}>
             {item.frameRole}
           </span>
-        )}
-      </div>
+        </div>
+      ) : null}
 
       {/* Frame role toggle buttons in top-right */}
       {onSetFrameRole && (

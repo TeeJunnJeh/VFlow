@@ -475,6 +475,7 @@ const Workbench = () => {
 
           {activeView === 'workbench' && (
             <div className="flex-1 h-full min-h-0">
+              <ViewErrorBoundary label="WorkbenchView">
               <WorkbenchView
                 initialFileUrl={selectedAssetForWorkbench?.mode === 'background_audio' ? null : (selectedAssetForWorkbench?.asset?.file_url || null)}
                 initialFileName={selectedAssetForWorkbench?.mode === 'background_audio' ? '' : selectedAssetForWorkbench?.asset?.name}
@@ -498,6 +499,7 @@ const Workbench = () => {
                 replayReusePayload={replayReusePayload}
                 onReplayReusePayloadHandled={() => setReplayReusePayload(null)}
               />
+              </ViewErrorBoundary>
             </div>
           )}
 

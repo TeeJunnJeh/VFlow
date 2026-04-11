@@ -793,7 +793,7 @@ function ImageCard({
   hasLastFrame?: boolean;
 }) {
   const { t } = useLanguage();
-  const sourceLabelMap = getSourceLabelMap(t);
+  const sourceLabelMap: Record<string, string> = { library: t.wb_seedance_replay_source_library || '素材库', local: t.wb_seedance_replay_source_local || '本地' };
   const isFirstFrame = item.frameRole === '首帧';
   const isLastFrame = item.frameRole === '尾帧';
 

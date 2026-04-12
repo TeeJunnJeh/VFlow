@@ -338,6 +338,8 @@ export const videoApi = {
     target_language?: string;
     hot_style?: { name: string; tones: string[]; description: string };
     type_selections?: Record<string, { enabled?: boolean; count?: number }>;
+    model_image_path?: string;
+    model_info?: string;
   }) => {
     const csrftoken = getCookie('csrftoken');
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Eye, Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download, FileDown, ChevronLeft, ChevronRight, LayoutGrid } from 'lucide-react';
+import { ChevronDown, Eye, Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download, FileDown, ChevronLeft, ChevronRight, LayoutGrid, ArrowLeft, PencilLine, Trash2, Zap, Check } from 'lucide-react';
 import type { ViewType } from './types';
 import { useLanguage } from '../../context/LanguageContext';
 import { DropdownSelect, type DropdownSelectOption } from '../common/DropdownSelect';
@@ -57,6 +57,8 @@ type GalleryHistorySettings = {
   typeSelections: Record<string, { enabled: boolean; count: number }>;
   sceneConfig?: GallerySceneConfig;
   uploadedImagePaths?: string[];
+  modelInfo?: string;
+  modelImagePath?: string;
 };
 
 type GallerySceneConfig = {
@@ -509,6 +511,23 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [galleryLoadingTheme, setGalleryLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
   const [galleryLoadingBackgroundSrc, setGalleryLoadingBackgroundSrc] = useState<string>('');
 
+  const [isGalleryModelInfoOpen, setIsGalleryModelInfoOpen] = useState(false);
+  const [galleryModelInfo, setGalleryModelInfo] = useState('');
+  const [galleryModelImageFile, setGalleryModelImageFile] = useState<File | null>(null);
+  const [galleryModelImagePreviewUrl, setGalleryModelImagePreviewUrl] = useState<string | null>(null);
+  const [galleryModelImagePath, setGalleryModelImagePath] = useState<string>('');
+  const galleryModelFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!galleryModelImageFile) {
+      setGalleryModelImagePreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(galleryModelImageFile);
+    setGalleryModelImagePreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [galleryModelImageFile]);
+
   const galleryHistoryAllKeys = useMemo(
     () => galleryHistoryItems.flatMap((item) => item.images.map((_, idx) => `${item.id}:${idx}`)),
     [galleryHistoryItems]
@@ -616,19 +635,25 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
   const [galleryInpaint, setGalleryInpaint] = useState<{
     open: boolean;
+    step: 'edit' | 'compare';
+    selectedCompare: 'original' | 'edited';
     prompt: string;
     rect: { x: number; y: number; w: number; h: number } | null;
     isDragging: boolean;
     dragStart: { x: number; y: number } | null;
+    maskOpacity: number;
     isGenerating: boolean;
     resultUrl: string | null;
     error: string | null;
   }>({
     open: false,
+    step: 'edit',
+    selectedCompare: 'edited',
     prompt: '',
     rect: null,
     isDragging: false,
     dragStart: null,
+    maskOpacity: 0.55,
     isGenerating: false,
     resultUrl: null,
     error: null,
@@ -636,6 +661,24 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
   const galleryInpaintBoxRef = useRef<HTMLDivElement | null>(null);
   const galleryInpaintImgRef = useRef<HTMLImageElement | null>(null);
+  const inpaintRafRef = useRef<number | null>(null);
+  const inpaintPendingRef = useRef<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null);
+  const [inpaintBoxSize, setInpaintBoxSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+
+  useEffect(() => {
+    if (!galleryInpaint.open) return;
+
+    const update = () => {
+      const box = galleryInpaintBoxRef.current;
+      if (!box) return;
+      const r = box.getBoundingClientRect();
+      setInpaintBoxSize({ w: r.width, h: r.height });
+    };
+
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [galleryInpaint.open]);
 
   const closeGalleryImagePreview = () => {
     setGalleryPreviewImageUrl(null);
@@ -780,10 +823,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const closeGalleryInpaint = () =>
     setGalleryInpaint({
       open: false,
+      step: 'edit',
+      selectedCompare: 'edited',
       prompt: '',
       rect: null,
       isDragging: false,
       dragStart: null,
+      maskOpacity: 0.55,
       isGenerating: false,
       resultUrl: null,
       error: null,
@@ -794,10 +840,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     setGalleryInpaint((prev) => ({
       ...prev,
       open: true,
+      step: 'edit',
+      selectedCompare: 'edited',
       prompt: prev.prompt || '',
       rect: null,
       isDragging: false,
       dragStart: null,
+      maskOpacity: 0.55,
       isGenerating: false,
       resultUrl: null,
       error: null,
@@ -883,10 +932,24 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       y = clamp01(clampedY / rect.height);
     }
 
-    updateInpaintRectFromPoints(galleryInpaint.dragStart, { x, y });
+    inpaintPendingRef.current = { start: galleryInpaint.dragStart, end: { x, y } };
+    if (inpaintRafRef.current != null) return;
+
+    inpaintRafRef.current = window.requestAnimationFrame(() => {
+      inpaintRafRef.current = null;
+      const pending = inpaintPendingRef.current;
+      if (!pending) return;
+      updateInpaintRectFromPoints(pending.start, pending.end);
+    });
   };
 
   const handleInpaintPointerUp = () => {
+    if (inpaintRafRef.current != null) {
+      window.cancelAnimationFrame(inpaintRafRef.current);
+      inpaintRafRef.current = null;
+    }
+    inpaintPendingRef.current = null;
+
     if (!galleryInpaint.isDragging) return;
     setGalleryInpaint((prev) => ({ ...prev, isDragging: false, dragStart: null }));
   };
@@ -974,11 +1037,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       return;
     }
 
-    setGalleryInpaint((prev) => ({ ...prev, isGenerating: true, error: null, resultUrl: null }));
+    setGalleryInpaint((prev) => ({ ...prev, isGenerating: true, error: null }));
 
     try {
       const maskDataUrl = buildMaskDataUrl(img.naturalWidth, img.naturalHeight, rectPx);
-
       const apiBase = (import.meta as any).env?.VITE_API_BASE || '/api';
       const resp = await fetch(`${apiBase}/projects/inpaint_image`, {
         method: 'POST',
@@ -987,7 +1049,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         },
         credentials: 'include',
         body: JSON.stringify({
-          image_url: galleryPreviewImageUrl,
+          image_url: galleryInpaint.resultUrl || galleryPreviewImageUrl,
           mask_data_url: maskDataUrl,
           prompt,
         }),
@@ -1019,18 +1081,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         throw new Error(tr('生成失败，请重试。', 'Generation failed. Please try again.'));
       }
 
-      setGalleryInpaint((prev) => ({ ...prev, isGenerating: false, resultUrl: outputUrl, error: null }));
-
-      const ok = await openGalleryConfirm(t.pi_gallery_inpaint_overwrite_confirm || tr('是否用修改后的图片覆盖原图？', 'Replace the original image with the edited one?'), {
-        title: t.pi_gallery_inpaint_title || tr('局部修改', 'Local Edit'),
-        okLabel: tr('覆盖原图', 'Replace'),
-        cancelLabel: tr('取消', 'Cancel'),
-      });
-
-      if (ok) {
-        await applyGalleryPreviewOverwrite(outputUrl);
-        closeGalleryInpaint();
-      }
+      setGalleryInpaint((prev) => ({ ...prev, isGenerating: false, resultUrl: outputUrl, error: null, step: 'compare', selectedCompare: 'edited' }));
     } catch (err: any) {
       setGalleryInpaint((prev) => ({ ...prev, isGenerating: false, error: String(err?.message || err), resultUrl: null }));
     }
@@ -1506,6 +1557,14 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         const paths = s.uploadedImagePaths.map((p: any) => String(p || '').trim()).filter(Boolean);
         setGalleryRestoredImagePaths(paths);
       }
+
+      const restoredModelInfo = String(s.modelInfo || '').trim();
+      const restoredModelImagePath = String(s.modelImagePath || '').trim();
+      if (restoredModelInfo) setGalleryModelInfo(restoredModelInfo);
+      if (restoredModelImagePath) setGalleryModelImagePath(restoredModelImagePath);
+      if (restoredModelInfo || restoredModelImagePath) setIsGalleryModelInfoOpen(true);
+      setGalleryModelImageFile(null);
+
       // Switch right-panel to preview so user sees the form ready to generate
       setGalleryRightPanel('preview');
     } catch { /* ignore */ }
@@ -1550,6 +1609,17 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       return;
     }
     void handleTextSeparationUpload(file);
+  };
+
+  const handleGalleryModelFileSelection = (picked: File[]) => {
+    const file = picked[0];
+    if (!file) return;
+    if (!isSupportedGalleryImageFile(file)) {
+      openGalleryAlert(gallerySupportedFormatTip);
+      return;
+    }
+    setGalleryModelImageFile(file);
+    setGalleryModelImagePath('');
   };
 
   const preventDragDefaults = (e: React.DragEvent) => {
@@ -1959,6 +2029,16 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       // Clear restored paths once consumed
       setGalleryRestoredImagePaths([]);
 
+      const modelInfo = String(galleryModelInfo || '').trim();
+      let modelImagePath: string | null = String(galleryModelImagePath || '').trim() || null;
+      if (galleryModelImageFile) {
+        const uploadResp = await assetsApi.uploadTempAsset(galleryModelImageFile);
+        const path = extractUploadedAssetPath(uploadResp);
+        if (!path) throw new Error(tr('模特图片上传失败，请重试。', 'Model image upload failed. Please try again.'));
+        modelImagePath = String(path);
+        setGalleryModelImagePath(modelImagePath);
+      }
+
       const createResp = await videoApi.generateProductGallery({
         image_paths: imagePaths,
         aspect_ratio: aspectRatio,
@@ -1974,6 +2054,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         target_language: galleryCopyLanguage,
         hot_style: hotStyleSelectedIndex !== null ? hotStyleItems[hotStyleSelectedIndex] : undefined,
         type_selections: galleryTypeSelections as any,
+        model_image_path: modelImagePath || undefined,
+        model_info: modelInfo || undefined,
       });
 
       const list = (createResp as any)?.data?.requests || (createResp as any)?.requests || [];
@@ -2462,92 +2544,312 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
       <AppDialog
         isOpen={galleryInpaint.open}
-        title={t.pi_gallery_inpaint_title || tr('局部修改', 'Local Edit')}
+        title={
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={closeGalleryInpaint}
+              className="-ml-1 inline-flex items-center justify-center rounded-lg px-2 py-1 text-zinc-300 hover:bg-white/5 hover:text-white transition"
+              aria-label={tr('返回', 'Back')}
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <span>{galleryInpaint.step === 'compare' ? tr('重绘结果选择', 'Choose Result') : tr('局部重绘修改', 'Local Edit')}</span>
+          </div>
+        }
+        titleClassName="text-base"
+        subtitle={
+          galleryInpaint.step === 'compare'
+            ? tr('对比两张图片，选择继续修改或应用覆盖原图。', 'Compare two images, then continue editing or apply to replace the original.')
+            : tr('请在左侧框选需要修改的部分', 'Select the area to edit on the left')
+        }
         onClose={closeGalleryInpaint}
-        widthClassName="max-w-none w-[980px]"
+        widthClassName="max-w-none w-[1120px] max-w-[calc(100vw-3rem)]"
+        contentClassName="overflow-y-auto overflow-x-hidden"
       >
         {galleryPreviewImageUrl ? (
-          <div className="w-full h-[680px] flex flex-col">
-            <div className="text-xs text-zinc-500">
-              {t.pi_gallery_inpaint_hint || tr('拖拽框选需要修改的区域（矩形）。', 'Drag to select an area to edit (rectangle).')}
-            </div>
+          <div className="w-full h-[calc(100vh-12rem)] max-h-[680px] flex gap-6">
+            <div className="flex-1 min-w-0 min-h-0 rounded-2xl border border-white/10 bg-black/30 overflow-hidden">
+              {galleryInpaint.step === 'compare' && galleryInpaint.resultUrl ? (
+                <div className="h-full w-full flex items-center justify-center p-8">
+                  <div className="w-full h-full max-w-[720px] flex items-center justify-center gap-6">
+                    <button
+                      type="button"
+                      onClick={() => setGalleryInpaint((prev) => ({ ...prev, selectedCompare: 'original' }))}
+                      className={`relative flex-1 h-full rounded-2xl bg-black/40 overflow-hidden transition ${galleryInpaint.selectedCompare === 'original' ? 'border-2 border-indigo-500/70 shadow-lg shadow-indigo-600/10' : 'border border-white/10 hover:border-white/20'}`}
+                      aria-label={tr('选择原图', 'Select original')}
+                    >
+                      <img src={galleryPreviewImageUrl} alt={tr('原图', 'Original')} className="w-full h-full object-contain" draggable={false} />
+                      <div className="absolute left-3 top-3 rounded-full bg-black/60 px-3 py-1 text-[11px] font-bold text-white">{tr('原图', 'Original')}</div>
+                      {galleryInpaint.selectedCompare === 'original' ? (
+                        <div className="absolute right-3 top-3 rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-bold text-white">{tr('当前选中', 'Selected')}</div>
+                      ) : null}
+                    </button>
 
-            <div
-              ref={galleryInpaintBoxRef}
-              className="mt-3 relative w-full flex-1 min-h-0 rounded-xl border border-white/10 bg-black/30 overflow-hidden select-none"
-              onMouseDown={handleInpaintPointerDown}
-              onMouseMove={handleInpaintPointerMove}
-              onMouseUp={handleInpaintPointerUp}
-              onMouseLeave={handleInpaintPointerUp}
-            >
-              <img
-                ref={galleryInpaintImgRef}
-                src={galleryInpaint.resultUrl || galleryPreviewImageUrl}
-                alt={tr('预览图片', 'Preview image')}
-                className="w-full h-full object-contain"
-                draggable={false}
-              />
-
-              {galleryInpaint.rect ? (
-                <>
-                  <div
-                    className="absolute inset-0 pointer-events-none"
-                    style={{
-                      background: 'rgba(0,0,0,0.55)',
-                      clipPath: `polygon(0 0, 0 100%, ${galleryInpaint.rect.x * 100}% 100%, ${galleryInpaint.rect.x * 100}% ${galleryInpaint.rect.y * 100}%, ${(galleryInpaint.rect.x + galleryInpaint.rect.w) * 100}% ${galleryInpaint.rect.y * 100}%, ${(galleryInpaint.rect.x + galleryInpaint.rect.w) * 100}% ${(galleryInpaint.rect.y + galleryInpaint.rect.h) * 100}%, ${galleryInpaint.rect.x * 100}% ${(galleryInpaint.rect.y + galleryInpaint.rect.h) * 100}%, ${galleryInpaint.rect.x * 100}% 100%, 100% 100%, 100% 0)`
-                    }}
-                  />
-                  <div
-                    className="absolute border-2 border-orange-500 pointer-events-none"
-                    style={{
-                      left: `${galleryInpaint.rect.x * 100}%`,
-                      top: `${galleryInpaint.rect.y * 100}%`,
-                      width: `${galleryInpaint.rect.w * 100}%`,
-                      height: `${galleryInpaint.rect.h * 100}%`,
-                    }}
-                  />
-                </>
+                    <button
+                      type="button"
+                      onClick={() => setGalleryInpaint((prev) => ({ ...prev, selectedCompare: 'edited' }))}
+                      className={`relative flex-1 h-full rounded-2xl bg-black/40 overflow-hidden transition ${galleryInpaint.selectedCompare === 'edited' ? 'border-2 border-indigo-500/70 shadow-lg shadow-indigo-600/10' : 'border border-white/10 hover:border-white/20'}`}
+                      aria-label={tr('选择修改后', 'Select edited')}
+                    >
+                      <img src={galleryInpaint.resultUrl} alt={tr('修改后', 'Edited')} className="w-full h-full object-contain" draggable={false} />
+                      <div className="absolute left-3 top-3 rounded-full bg-black/60 px-3 py-1 text-[11px] font-bold text-white">{tr('修改后', 'Edited')}</div>
+                      {galleryInpaint.selectedCompare === 'edited' ? (
+                        <div className="absolute right-3 top-3 rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-bold text-white">{tr('当前选中', 'Selected')}</div>
+                      ) : null}
+                    </button>
+                  </div>
+                </div>
               ) : (
-                <div className="absolute inset-0 pointer-events-none bg-black/35" />
+                <div
+                  ref={galleryInpaintBoxRef}
+                  className="relative w-full h-full select-none"
+                  onMouseDown={handleInpaintPointerDown}
+                  onMouseMove={handleInpaintPointerMove}
+                  onMouseUp={handleInpaintPointerUp}
+                  onMouseLeave={handleInpaintPointerUp}
+                >
+                  <img
+                    ref={galleryInpaintImgRef}
+                    src={galleryInpaint.resultUrl || galleryPreviewImageUrl}
+                    alt={tr('预览图片', 'Preview image')}
+                    className="w-full h-full object-contain"
+                    draggable={false}
+                  />
+
+                  {galleryInpaint.rect ? (
+                    <>
+                      <style>{'@keyframes inpaintDash{to{stroke-dashoffset:-24;}}'}</style>
+
+                      <div
+                        className="absolute pointer-events-none rounded-xl"
+                        style={{
+                          left: `${galleryInpaint.rect.x * 100}%`,
+                          top: `${galleryInpaint.rect.y * 100}%`,
+                          width: `${galleryInpaint.rect.w * 100}%`,
+                          height: `${galleryInpaint.rect.h * 100}%`,
+                          boxShadow: `0 0 0 9999px rgba(0,0,0,${galleryInpaint.maskOpacity})`,
+                        }}
+                      />
+
+                      <style>{'@keyframes inpaintDash{from{stroke-dashoffset:0;}to{stroke-dashoffset:-28;}}'}</style>
+
+                      {(() => {
+                        const w = Math.max(1, Math.round(galleryInpaint.rect.w * (inpaintBoxSize.w || 100)));
+                        const h = Math.max(1, Math.round(galleryInpaint.rect.h * (inpaintBoxSize.h || 100)));
+                        const r = Math.max(0, Math.min(12, w / 2, h / 2));
+
+                        return (
+                          <svg
+                            className="absolute pointer-events-none"
+                            style={{
+                              left: `${galleryInpaint.rect.x * 100}%`,
+                              top: `${galleryInpaint.rect.y * 100}%`,
+                              width: `${galleryInpaint.rect.w * 100}%`,
+                              height: `${galleryInpaint.rect.h * 100}%`,
+                            }}
+                            viewBox={`0 0 ${w} ${h}`}
+                            preserveAspectRatio="none"
+                          >
+                            <rect
+                              x={1}
+                              y={1}
+                              width={Math.max(0, w - 2)}
+                              height={Math.max(0, h - 2)}
+                              rx={r}
+                              ry={r}
+                              fill="none"
+                              stroke="rgba(99,102,241,0.35)"
+                              strokeWidth={2}
+                            />
+                            <rect
+                              x={1}
+                              y={1}
+                              width={Math.max(0, w - 2)}
+                              height={Math.max(0, h - 2)}
+                              rx={r}
+                              ry={r}
+                              fill="none"
+                              stroke="rgba(255,255,255,0.95)"
+                              strokeWidth={2}
+                              strokeLinecap="round"
+                              strokeDasharray="6 7"
+                              style={{ animation: 'inpaintDash 1.15s linear infinite' }}
+                            />
+                          </svg>
+                        );
+                      })()}
+
+                      <div
+                        className="absolute pointer-events-none"
+                        style={{
+                          left: `${galleryInpaint.rect.x * 100}%`,
+                          top: `${galleryInpaint.rect.y * 100}%`,
+                          transform: 'translateY(-110%)',
+                        }}
+                      >
+                        <div className="inline-flex items-center rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-bold text-white shadow-sm">
+                          {tr('修改区域', 'Area')}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="absolute inset-0 pointer-events-none bg-black/35" />
+                  )}
+
+                  <div className="absolute left-1/2 bottom-5 -translate-x-1/2 flex items-center gap-2 rounded-2xl border border-white/10 bg-black/60 px-3 py-2 shadow-lg shadow-black/40">
+                    <button
+                      type="button"
+                      className="h-9 w-9 rounded-xl bg-white/10 text-white hover:bg-white/15 transition inline-flex items-center justify-center"
+                      aria-label={tr('框选', 'Select')}
+                    >
+                      <PencilLine className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGalleryInpaint((prev) => ({ ...prev, rect: null, error: null }))}
+                      disabled={galleryInpaint.isGenerating}
+                      className="h-9 w-9 rounded-xl bg-white/10 text-white hover:bg-white/15 transition inline-flex items-center justify-center disabled:opacity-60"
+                      aria-label={tr('清除选区', 'Clear selection')}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-2">
-              <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pi_gallery_inpaint_prompt_label || tr('修改指令', 'Edit instruction')}</div>
-              <textarea
-                value={galleryInpaint.prompt}
-                onChange={(e) => setGalleryInpaint((prev) => ({ ...prev, prompt: e.target.value }))}
-                placeholder={t.pi_gallery_inpaint_prompt_placeholder || tr('例如：把选中区域替换成一束橙色花朵，风格与原图一致。', 'E.g. Replace the selected area with a bouquet of orange flowers, keep style consistent.')}
-                className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20 min-h-[88px]"
-              />
-            </div>
+            <div className="w-[380px] shrink-0 min-h-0 rounded-2xl bg-white text-zinc-900 border border-white/10 overflow-hidden flex flex-col">
+              {galleryInpaint.step === 'compare' ? (
+                <div className="p-6 flex flex-col min-h-0 flex-1">
+                  <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-4 text-indigo-900">
+                    <div className="text-sm font-extrabold">{tr('生成完毕！', 'Done!')}</div>
+                    <div className="mt-2 text-xs leading-relaxed text-indigo-700">
+                      {tr('点击左侧图片选择要保留的版本，然后继续修改或直接应用。', 'Click an image on the left to select the version, then continue editing or apply it.')}
+                    </div>
+                  </div>
 
-            {galleryInpaint.error ? <div className="mt-2 text-[11px] text-red-400">{galleryInpaint.error}</div> : null}
+                  <div className="mt-5">
+                    <div className="text-xs font-bold text-zinc-500">{tr('当前版本', 'Current Version')}</div>
+                    <div className="mt-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-xl bg-indigo-600/10 flex items-center justify-center overflow-hidden">
+                        <img
+                          src={galleryInpaint.selectedCompare === 'edited' ? (galleryInpaint.resultUrl || galleryPreviewImageUrl) : galleryPreviewImageUrl}
+                          alt={tr('缩略图', 'Thumbnail')}
+                          className="h-full w-full object-cover"
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-extrabold text-zinc-900">
+                          {galleryInpaint.selectedCompare === 'edited' ? tr('AI 重绘版本', 'AI Edited Version') : tr('原图版本', 'Original Version')}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-zinc-500">
+                          {galleryInpaint.selectedCompare === 'edited' ? tr('已生成 1 个修改结果', '1 edited result generated') : tr('保留未修改版本', 'Keep unmodified version')}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
 
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setGalleryInpaint((prev) => ({ ...prev, rect: null, resultUrl: null, error: null }))}
-                disabled={galleryInpaint.isGenerating}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 disabled:opacity-60 transition"
-              >
-                {t.pi_gallery_inpaint_clear || tr('清除框选', 'Clear')}
-              </button>
-              <button
-                type="button"
-                onClick={handleRunInpaint}
-                disabled={galleryInpaint.isGenerating}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 text-black hover:bg-orange-400 disabled:opacity-60 transition"
-              >
-                {galleryInpaint.isGenerating ? (t.pi_gallery_inpaint_generating || tr('生成中...', 'Generating...')) : (t.pi_gallery_inpaint_generate || tr('开始生成', 'Generate'))}
-              </button>
-              <button
-                type="button"
-                onClick={closeGalleryInpaint}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
-              >
-                {tr('关闭', 'Close')}
-              </button>
+                  <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-amber-800">
+                    <div className="text-xs font-bold">{tr('提示', 'Tip')}</div>
+                    <div className="mt-2 text-xs leading-relaxed">
+                      {tr('点击“继续修改”将基于当前选中的版本进入下一轮修改。', 'Click “Continue editing” to start another edit based on the selected version.')}
+                    </div>
+                  </div>
+
+                  <div className="mt-auto pt-6 flex flex-col gap-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setGalleryInpaint((prev) => ({
+                          ...prev,
+                          step: 'edit',
+                          rect: null,
+                          isDragging: false,
+                          dragStart: null,
+                          error: null,
+                          resultUrl: prev.selectedCompare === 'edited' ? prev.resultUrl : null,
+                        }))
+                      }
+                      className="w-full rounded-xl border border-rose-400 bg-white px-4 py-3 text-sm font-extrabold text-rose-600 hover:bg-rose-50 transition"
+                    >
+                      {tr('继续修改', 'Continue Editing')}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={galleryInpaint.selectedCompare === 'edited' && !galleryInpaint.resultUrl}
+                      onClick={async () => {
+                        if (galleryInpaint.selectedCompare === 'original') {
+                          closeGalleryInpaint();
+                          return;
+                        }
+
+                        if (!galleryInpaint.resultUrl) return;
+                        try {
+                          await applyGalleryPreviewOverwrite(galleryInpaint.resultUrl);
+                          closeGalleryInpaint();
+                        } catch (err: any) {
+                          openGalleryAlert(String(err?.message || err || tr('应用失败，请重试。', 'Failed to apply. Please try again.')));
+                        }
+                      }}
+                      className="w-full rounded-xl bg-indigo-600 px-4 py-3 text-sm font-extrabold text-white hover:bg-indigo-500 disabled:opacity-60 transition inline-flex items-center justify-center gap-2"
+                    >
+                      <Check className="w-4 h-4" />
+                      {galleryInpaint.selectedCompare === 'original' ? tr('保留原图', 'Keep Original') : tr('应用并覆盖原图', 'Apply & Replace Original')}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-6 flex flex-col min-h-0 flex-1">
+                  <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-extrabold text-zinc-900">{t.pi_gallery_inpaint_prompt_label || tr('修改指令（Prompt）', 'Edit Prompt')}</div>
+                      <button
+                        type="button"
+                        onClick={() => setGalleryInpaint((prev) => ({ ...prev, rect: null, error: null }))}
+                        disabled={galleryInpaint.isGenerating}
+                        className="text-xs font-bold text-zinc-500 hover:text-zinc-900 disabled:opacity-60 transition"
+                      >
+                        {tr('清除全部选区', 'Clear Selection')}
+                      </button>
+                    </div>
+
+                    <textarea
+                      value={galleryInpaint.prompt}
+                      onChange={(e) => setGalleryInpaint((prev) => ({ ...prev, prompt: e.target.value }))}
+                      placeholder={t.pi_gallery_inpaint_prompt_placeholder || tr('例如：把选中区域的鞋带改成浅黄色，并增加质感，保持光影与原图一致。', 'E.g. Change the laces in the selected area to light yellow, add texture, keep lighting consistent.')}
+                      className="mt-3 w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 outline-none focus:border-indigo-300 min-h-[140px] resize-none"
+                    />
+
+                    <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-amber-800">
+                      <div className="text-xs font-bold">{tr('提示', 'Tip')}</div>
+                      <div className="mt-2 text-xs leading-relaxed">
+                        {tr('描述得越具体越好（如颜色、材质、环境光等），生成的效果更接近自然。', 'Be specific (color, material, lighting, etc.) for better results.')}
+                      </div>
+                    </div>
+
+                    {galleryInpaint.error ? <div className="mt-3 text-xs text-rose-600 font-bold">{galleryInpaint.error}</div> : null}
+                  </div>
+
+                  <div className="shrink-0 pt-6">
+                    <div className="flex items-center justify-between text-xs text-zinc-500">
+                      <div>{tr('预计消耗 2 算力', 'Estimated cost: 2 credits')}</div>
+                      <div className="font-bold text-indigo-600">{tr('极速模式', 'Fast Mode')}</div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleRunInpaint}
+                      disabled={galleryInpaint.isGenerating || !galleryInpaint.rect || !String(galleryInpaint.prompt || '').trim()}
+                      className="mt-3 w-full rounded-2xl bg-indigo-600 px-4 py-4 text-base font-extrabold text-white shadow-lg shadow-indigo-600/20 hover:bg-indigo-500 disabled:opacity-60 transition inline-flex items-center justify-center gap-2"
+                    >
+                      <Zap className="w-4 h-4" />
+                      {galleryInpaint.isGenerating ? (t.pi_gallery_inpaint_generating || tr('生成中...', 'Generating...')) : tr('开始生成修改', 'Start Editing')}
+                    </button>
+
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ) : null}
@@ -3217,6 +3519,91 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                     </div>
                   </>
                 )}
+              </div>
+
+              <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-bold text-zinc-200">{tr('模特信息', 'Model Info')}</div>
+                  <button
+                    type="button"
+                    onClick={() => setIsGalleryModelInfoOpen((prev) => !prev)}
+                    className="w-9 h-9 rounded-xl border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 flex items-center justify-center"
+                    aria-label={isGalleryModelInfoOpen ? tr('收起', 'Collapse') : tr('展开', 'Expand')}
+                  >
+                    <ChevronDown className={`w-4 h-4 transition-transform ${isGalleryModelInfoOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                </div>
+
+                {isGalleryModelInfoOpen ? (
+                  <div className="mt-4 space-y-4">
+                    <div className="space-y-2">
+                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('模特照片', 'Model Photo')}</div>
+                      <div className="flex items-start gap-3">
+                        <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-white/10 bg-black/20 shrink-0">
+                          {galleryModelImagePreviewUrl || galleryModelImagePath ? (
+                            <img
+                              src={galleryModelImagePreviewUrl || galleryModelImagePath}
+                              className="w-full h-full object-cover"
+                              alt={tr('模特照片', 'Model Photo')}
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => galleryModelFileInputRef.current?.click()}
+                              className="w-full h-full text-zinc-500 hover:text-zinc-300 hover:bg-white/5 transition flex items-center justify-center"
+                            >
+                              <Upload className="w-5 h-5" />
+                            </button>
+                          )}
+                          {galleryModelImagePreviewUrl || galleryModelImagePath ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setGalleryModelImageFile(null);
+                                setGalleryModelImagePath('');
+                              }}
+                              className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 border border-white/10 text-zinc-200 hover:text-white hover:bg-black/80 transition flex items-center justify-center"
+                              aria-label={tr('移除', 'Remove')}
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          ) : null}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => galleryModelFileInputRef.current?.click()}
+                            className="px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800"
+                          >
+                            {tr('上传模特照片', 'Upload Model Photo')}
+                          </button>
+                          <div className="mt-2 text-[11px] text-zinc-500">
+                            {tr('可选：用于生成含模特出镜的场景/封面/海报图。', 'Optional: used for scene/cover/poster images with the model.')}
+                          </div>
+                        </div>
+                      </div>
+                      <input
+                        ref={galleryModelFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => handleGalleryModelFileSelection(Array.from(e.target.files || []))}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('模特信息', 'Model Details')}</div>
+                      <textarea
+                        value={galleryModelInfo}
+                        onChange={(e) => setGalleryModelInfo(e.target.value)}
+                        rows={4}
+                        className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
+                        placeholder={tr('例如：女性，20-30岁，干净自然妆容，黑色长发，休闲运动风穿搭。', 'E.g. Female, 20-30, natural makeup, long black hair, casual sporty outfit.')}
+                      />
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
             <div className="w-[24%] min-w-[320px] max-w-[460px] flex flex-col gap-4 min-h-0">

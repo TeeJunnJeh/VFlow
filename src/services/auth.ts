@@ -35,6 +35,40 @@ type DebugModeResponse = {
   };
 };
 
+export type InviteSummary = {
+  invite_code: string;
+  invited_count: number;
+  cap: number;
+  reward_per_invite: number;
+  is_capped: boolean;
+  total_reward_earned: number;
+};
+
+export type InviterPreview = {
+  id: number;
+  nickname: string;
+  invite_code: string;
+};
+
+type InviteSummaryResponse = {
+  data: InviteSummary;
+};
+
+type InviteCodeValidateResponse = {
+  data: {
+    valid: boolean;
+    inviter: InviterPreview | null;
+  };
+};
+
+type InviteApplicationResponse = {
+  data: {
+    application_id: string;
+    status: string;
+    inviter: InviterPreview | null;
+  };
+};
+
 export const authApi = {
   // 1. Send Verification Code
   sendCode: async (phoneNumber: string) => {
@@ -46,10 +80,13 @@ export const authApi = {
   },
 
   // 2. Verify Code & Login
-  loginWithPhone: async (phoneNumber: string, code: string) => {
+  // 裂变：可选 inviteCode，若存在会原样带给后端
+  loginWithPhone: async (phoneNumber: string, code: string, inviteCode?: string) => {
+    const body: Record<string, string> = { phone: phoneNumber, code };
+    if (inviteCode) body.invite_code = inviteCode;
     return apiRequest(`${API_BASE_URL}/login/`, {
       method: 'POST',
-      body: { phone: phoneNumber, code },
+      body,
       fallbackMessage: 'Invalid code or login failed',
     });
   },
@@ -66,14 +103,17 @@ export const authApi = {
     identifier: string;
     password: string;
     confirmPassword?: string;
+    inviteCode?: string;
   }) => {
+    const body: Record<string, string> = {
+      identifier: payload.identifier,
+      password: payload.password,
+      confirm_password: payload.confirmPassword || '',
+    };
+    if (payload.inviteCode) body.invite_code = payload.inviteCode;
     return apiRequest(`${API_BASE_URL}/password-register/`, {
       method: 'POST',
-      body: {
-        identifier: payload.identifier,
-        password: payload.password,
-        confirm_password: payload.confirmPassword || '',
-      },
+      body,
       fallbackMessage: 'Register failed',
     });
   },
@@ -162,5 +202,42 @@ export const authApi = {
       fallbackMessage: 'Failed to update debug mode',
     });
     return json?.data?.enabled === true;
+  },
+
+  // 裂变：登录后弹窗数据
+  getInviteSummary: async (): Promise<InviteSummary> => {
+    const json = await apiRequest<InviteSummaryResponse>(`${API_BASE_URL}/invite-summary/`, {
+      fallbackMessage: 'Failed to load invite summary',
+    });
+    return json.data;
+  },
+
+  // 裂变：实时校验邀请码
+  validateInviteCode: async (code: string): Promise<{ valid: boolean; inviter: InviterPreview | null }> => {
+    const json = await apiRequest<InviteCodeValidateResponse>(
+      `${API_BASE_URL}/invite-code/validate/?code=${encodeURIComponent(code)}`,
+      { fallbackMessage: 'Failed to validate invite code' },
+    );
+    return json.data;
+  },
+
+  // 裂变：提交内测申请
+  submitInviteApplication: async (payload: {
+    phoneNumber: string;
+    usageScenario?: string;
+    usageFrequency?: string;
+    inviteCode?: string;
+  }): Promise<InviteApplicationResponse['data']> => {
+    const json = await apiRequest<InviteApplicationResponse>(`${API_BASE_URL}/invite-application/`, {
+      method: 'POST',
+      body: {
+        phone_number: payload.phoneNumber,
+        usage_scenario: payload.usageScenario || '',
+        usage_frequency: payload.usageFrequency || '',
+        invite_code: payload.inviteCode || '',
+      },
+      fallbackMessage: 'Failed to submit application',
+    });
+    return json.data;
   },
 };

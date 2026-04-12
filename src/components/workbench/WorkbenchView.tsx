@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder,
   Wand2, Loader2, Clapperboard, ArrowRight, PlayCircle, BookmarkPlus, FolderOpen,
@@ -12,7 +12,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useTasks } from '../../context/TaskContext';
 import { useWorkbenchModel } from '../../context/WorkbenchModelContext';
 import { videoApi, VideoApiError, type GeneratePreviewData } from '../../services/video';
-import { assetsApi, type Asset as LibraryAsset, type AssetFolder } from '../../services/assets';
+import { assetsApi, subjectGroupApi, type Asset as LibraryAsset, type AssetFolder, type SubjectGroup } from '../../services/assets';
 import { tiktokApi } from '../../services/tiktok';
 import { billingApi } from '../../services/billing';
 import { getDebugModeEnabled } from '../../services/debugMode';
@@ -120,6 +120,10 @@ type BillingPricingCatalog = {
     models?: Record<string, BillingPricingModelEntry>;
     modes?: Record<string, BillingPricingModeEntry>;
   };
+  image?: {
+    default_model?: string;
+    models?: Record<string, BillingPricingModelEntry>;
+  };
 };
 
 const VIDEO_MODEL_PRICING_ALIASES: Record<string, string> = {
@@ -127,6 +131,12 @@ const VIDEO_MODEL_PRICING_ALIASES: Record<string, string> = {
   sora2: 'sora-2',
   sora2pro: 'sora-2-pro',
   'seedance2.0': 'seedance-2.0',
+};
+
+const IMAGE_MODEL_PRICING_ALIASES: Record<string, string> = {
+  'gpt-image-1.5': 'gpt-image-1.5',
+  'flux-2-pro': 'flux-2-pro',
+  'flux-2-flex': 'flux-2-flex',
 };
 
 const getVideoPricingMode = (pricing: BillingPricingCatalog | null | undefined, creationMode: 'fast' | 'replay') => {
@@ -148,6 +158,14 @@ const getVideoModelPricingEntry = (
   const modelKey = VIDEO_MODEL_PRICING_ALIASES[modelId] || modelId;
   const modeKey = getVideoPricingMode(pricing, creationMode);
   return pricing?.video?.modes?.[modeKey]?.models?.[modelKey] || pricing?.video?.models?.[modelKey] || null;
+};
+
+const getImageModelPricingEntry = (
+  pricing: BillingPricingCatalog | null | undefined,
+  modelId: string,
+) => {
+  const modelKey = IMAGE_MODEL_PRICING_ALIASES[modelId] || modelId;
+  return pricing?.image?.models?.[modelKey] || null;
 };
 
 const getSeedanceReplayLocalAccept = (mediaKind?: SeedanceReplayMediaKind | null) => {
@@ -188,6 +206,20 @@ const normalizeWorkbenchAspectRatio = (value: string | null | undefined): Workbe
 
   return DEFAULT_WORKBENCH_ASPECT_RATIO;
 };
+
+/** Default script-tab titles saved under any locale; re-render with current `wb_script_page_prefix` when the pattern matches. */
+const WB_SCRIPT_PAGE_DEFAULT_PREFIXES = new Set(['脚本', 'Script', 'Skrip', 'Kịch bản', '스크립트']);
+
+function formatScriptPageDisplayName(name: string | undefined, zeroBasedIndex: number, prefix: string): string {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return `${prefix} ${zeroBasedIndex + 1}`;
+  const m = trimmed.match(/^(.+?)\s+(\d+)\s*$/);
+  if (!m) return trimmed;
+  const n = parseInt(m[2], 10);
+  if (n !== zeroBasedIndex + 1) return trimmed;
+  if (!WB_SCRIPT_PAGE_DEFAULT_PREFIXES.has(m[1])) return trimmed;
+  return `${prefix} ${n}`;
+}
 
 type ScriptCreativeCard = {
   style?: string;
@@ -244,6 +276,7 @@ type QueuedAsset = {
   validationMessages?: string[];
   uploadedPath?: string | null;
   hasSubjectOtherViews?: boolean;
+  frameRole?: '首帧' | '尾帧' | null;
 };
 
 type QueuedScript = {
@@ -266,7 +299,7 @@ type SeedanceReplayLibraryIntent = {
   preferredTab: AssetLibraryTab;
 };
 
-type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion' | 'audio' | 'script';
+type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion' | 'audio' | 'script' | 'subject';
 type AssetLibraryPickMode = 'default' | 'background_audio' | 'script_import';
 type AiOptimizeResolution = 'sd' | 'hd' | 'uhd';
 type WaitProgressPhase = 'idle' | 'simulating' | 'holding' | 'finishing' | 'done';
@@ -749,7 +782,7 @@ interface WorkbenchViewProps {
   initialAssetSource?: 'product' | 'preference' | null;
   initialLibraryAsset?: LibraryAsset | null;
   initialLibraryAssetToken?: string | null;
-  initialLibraryAssetMode?: 'library_asset' | 'background_audio';
+  initialLibraryAssetMode?: 'library_asset' | 'background_audio' | 'script_import';
   initialLibraryAssetTargetProjectId?: string | null;
   initialLibraryAssetForceFirstFrame?: boolean;
   onInitialLibraryAssetHandled?: () => void;
@@ -904,6 +937,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [assetLibraryLoading, setAssetLibraryLoading] = useState(false);
   const [isAssetLibraryUploading, setIsAssetLibraryUploading] = useState(false);
   const [assetLibraryError, setAssetLibraryError] = useState<string | null>(null);
+  const [assetLibrarySubjects, setAssetLibrarySubjects] = useState<SubjectGroup[]>([]);
   const [seedanceReplayLibraryIntent, setSeedanceReplayLibraryIntent] = useState<SeedanceReplayLibraryIntent | null>(null);
   const [draggingWorkbenchAssetId, setDraggingWorkbenchAssetId] = useState<string | null>(null);
   const [transferStationItems, setTransferStationItems] = useState<TransferStationItem[]>([]);
@@ -2161,7 +2195,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   useEffect(() => {
     if (!initialLibraryAsset || !initialLibraryAssetToken) return;
     if (isRestoring) return;
-    if (initialLibraryAssetMode === 'background_audio') return;
+    if (initialLibraryAssetMode === 'background_audio' || initialLibraryAssetMode === 'script_import') return;
     // Skip if a transfer operation is in progress — the transfer effect handles injection after workspace reset
     if (initialTransferRole || initialTransferModel) return;
     if (injectedAssetSignaturesRef.current.has(initialLibraryAssetToken)) return;
@@ -2915,14 +2949,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setAssetLibraryLoading(true);
     setAssetLibraryError(null);
     try {
-      const [items, folderData] = await Promise.all([
-        assetsApi.getAssets({ type: assetLibraryTab, folderId: assetLibraryCurrentFolderId }),
-        assetsApi.getFolders({ type: assetLibraryTab, parentId: assetLibraryCurrentFolderId }),
-      ]);
+      if (assetLibraryTab === 'subject') {
+        const subjects = await subjectGroupApi.list();
+        setAssetLibrarySubjects(subjects);
+        setAssetLibraryItems([]);
+        setAssetLibraryFolders([]);
+        setAssetLibraryBreadcrumb([]);
+      } else {
+        const [items, folderData] = await Promise.all([
+          assetsApi.getAssets({ type: assetLibraryTab, folderId: assetLibraryCurrentFolderId }),
+          assetsApi.getFolders({ type: assetLibraryTab, parentId: assetLibraryCurrentFolderId }),
+        ]);
 
-      setAssetLibraryItems(filterAssetLibraryItems(items));
-      setAssetLibraryFolders(sortByCreatedAtDesc(Array.isArray(folderData.folders) ? folderData.folders : []));
-      setAssetLibraryBreadcrumb(Array.isArray(folderData.breadcrumb) ? folderData.breadcrumb : []);
+        setAssetLibraryItems(filterAssetLibraryItems(items));
+        setAssetLibraryFolders(sortByCreatedAtDesc(Array.isArray(folderData.folders) ? folderData.folders : []));
+        setAssetLibraryBreadcrumb(Array.isArray(folderData.breadcrumb) ? folderData.breadcrumb : []);
+        setAssetLibrarySubjects([]);
+      }
     } catch (err: any) {
       console.error('Failed to load asset library items:', err);
       setAssetLibraryItems([]);
@@ -2941,8 +2984,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const openAssetLibraryPicker = () => {
     setSeedanceReplayLibraryIntent(null);
+    // Kling subject mode: show subject tab only
+    if (selectedModel === 'kling' && klingGenerateMode === 'subject') {
+      setAssetLibraryPickMode('default');
+      setAssetLibraryTab('subject');
+      setAssetLibraryCurrentFolderId(null);
+      setIsAssetLibraryOpen(true);
+      return;
+    }
     setAssetLibraryPickMode('default');
-    setAssetLibraryTab(currentAssetMediaKind === 'video' ? 'motion' : currentAssetMediaKind === 'audio' ? 'audio' : 'product');
+    setAssetLibraryTab('product');
     setAssetLibraryCurrentFolderId(null);
     setIsAssetLibraryOpen(true);
   };
@@ -3036,7 +3087,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (targetMediaKind === 'image') {
       return {
         targetMediaKind: 'image',
-        allowedTabs: ['model', 'product', 'scene'],
+        allowedTabs: ['product'],
         preferredTab: 'product',
       };
     }
@@ -3056,7 +3107,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
     return {
       targetMediaKind: null,
-      allowedTabs: ['product', 'model', 'scene', 'motion', 'audio'],
+      allowedTabs: ['product', 'model', 'motion', 'audio'],
       preferredTab: 'product',
     };
   }, []);
@@ -3080,7 +3131,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (typeof (asset as QueuedAsset).hasSubjectOtherViews === 'boolean') {
       return Boolean((asset as QueuedAsset).hasSubjectOtherViews);
     }
-    const raw = (asset as LibraryAsset).meta_data?.kling_subject;
+    const metaData = (asset as LibraryAsset).meta_data;
+    // Check subject_other_assets (from SubjectGroup picker)
+    const subjectOthers = metaData?.subject_other_assets;
+    if (Array.isArray(subjectOthers) && subjectOthers.length > 0) return true;
+    // Check kling_subject.other_view_asset_ids (from asset library)
+    const raw = metaData?.kling_subject;
     const meta = raw && typeof raw === 'object' ? raw as Record<string, unknown> : null;
     const otherViews = meta?.other_view_asset_ids;
     return Array.isArray(otherViews) && otherViews.some((item) => String(item || '').trim());
@@ -3217,7 +3273,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return {
       ...baseAsset,
       source: candidate.mediaKind === 'image' ? 'product' : 'preference',
-      materialType: candidate.mediaKind === 'video' ? 'motion' : candidate.mediaKind === 'audio' ? 'audio' : 'product',
+      materialType: candidate.mediaKind === 'video' ? 'motion'
+        : candidate.mediaKind === 'audio' ? 'audio'
+        : (baseAsset.materialType === 'model' ? 'model' : 'product'),
       isPrimaryFrame: candidate.mediaKind === 'image',
       mediaKind: candidate.mediaKind,
       durationSeconds: candidate.durationSeconds ?? null,
@@ -3374,6 +3432,59 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     queueLibraryAssetIntoWorkbench(asset);
   };
 
+  const selectSubjectFromLibraryPopup = (subject: SubjectGroup) => {
+    if (!subject.primary_asset) {
+      openInfo(popupTitles.notice, '该主体没有主图片，请先在素材库中设置主体图片。');
+      return;
+    }
+    // Clear existing queue before populating subject assets
+    setAssetQueue([]);
+
+    // Build primary asset (→ subject slot)
+    const pseudoPrimary: LibraryAsset = {
+      id: subject.primary_asset.id,
+      name: subject.name,
+      file_url: subject.primary_asset.file_url,
+      thumbnail: subject.primary_asset.thumbnail || subject.primary_asset.file_url,
+      type: 'product',
+      media_kind: 'image',
+      size: '0',
+      status: 'ready',
+      is_favorited: false,
+      created_at: subject.created_at,
+      meta_data: { subject_group_id: subject.id, subject_other_assets: subject.other_assets },
+      folder_id: null,
+    } as LibraryAsset;
+    const primaryResult = queueLibraryAssetIntoWorkbench(pseudoPrimary, { preferLastModeRouting: true });
+
+    // Build other assets (→ reference/preference slots)
+    if (subject.other_assets && subject.other_assets.length > 0) {
+      for (const otherAsset of subject.other_assets) {
+        const pseudoRef: LibraryAsset = {
+          id: otherAsset.id,
+          name: otherAsset.name || subject.name,
+          file_url: otherAsset.file_url,
+          thumbnail: otherAsset.thumbnail || otherAsset.file_url,
+          type: 'product',
+          media_kind: 'image',
+          size: '0',
+          status: 'ready',
+          is_favorited: false,
+          created_at: subject.created_at,
+          meta_data: { subject_group_id: subject.id },
+          folder_id: null,
+        } as LibraryAsset;
+        queueLibraryAssetIntoWorkbench(pseudoRef, { preferLastModeRouting: true });
+      }
+    }
+
+    // Re-select primary asset in UI
+    if (primaryResult) {
+      applyWorkbenchAssetSelection(primaryResult);
+      setSelectedQueueAssetId(primaryResult.id);
+    }
+  };
+
   const currentScriptDuration = enableStoryboardEditor
       ? scripts.reduce((total, s) => total + (parseFloat(s.dur.replace('s', '')) || 0), 0)
       : genDuration;
@@ -3382,6 +3493,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const isReuseReady = assetQueue.length > 0 && scriptQueue.length > 0;
   const expectedBatchCount = isReuseReady ? assetQueue.length * scriptQueue.length : 0;
   const selectedVideoPricing = getVideoModelPricingEntry(billingPricing, selectedModel, creationMode);
+  const selectedImagePricing = getImageModelPricingEntry(billingPricing, imageGenModel);
   const formatVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined) => {
     const rate = Number(entry?.rate ?? 0);
     if (!Number.isFinite(rate) || rate <= 0) return '-';
@@ -3405,7 +3517,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     return Math.max(0, Math.round(rate * Math.max(1, Number(genDuration) || 0)));
   }, [genDuration, queuedRenderableAssetCount, reuseQueueEnabled, scriptQueue, selectedVideoPricing]);
+
+  const estimatedImageCost = useMemo(() => {
+    const rate = Number(selectedImagePricing?.rate ?? 0);
+    if (!Number.isFinite(rate) || rate <= 0) return 0;
+    return Math.max(0, Math.round(rate * Math.max(1, Math.min(4, Number(aiOptimizeCount) || 1))));
+  }, [aiOptimizeCount, selectedImagePricing]);
+
   const estimatedVideoCostLabel = estimatedVideoCost > 0 ? `-${estimatedVideoCost} ${t.v_points || 'V点'}` : '';
+  const estimatedImageCostLabel = estimatedImageCost > 0 ? `-${estimatedImageCost} ${t.v_points || 'V点'}` : '';
   const hasCurrentAsset = Boolean(uploadedFile || selectedAssetUrl || selectedFileObj);
   const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
   const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
@@ -3423,18 +3543,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const scriptPlanCardClass = 'w-[calc((100%-36px)/4)] min-w-[220px] flex-shrink-0 rounded-2xl border p-4 text-left transition h-[360px] flex flex-col gap-3';
   const scriptPlanCardBodyClass = 'min-h-0 rounded-xl border px-3 py-3 text-[11px] leading-6 whitespace-pre-wrap break-words flex-1 overflow-y-auto';
   const materialTypeLabelMap: Record<AssetLibraryTab, string> = {
-    product: t.assets_tab_products || '商品',
-    model: t.assets_tab_models || '模特',
+    product: t.assets_tab_images || '图片',
+    model: t.assets_tab_virtual_models || '虚拟模特',
     scene: t.assets_tab_scenes || '场景',
-    motion: t.assets_tab_motion || '动作',
+    motion: t.assets_tab_videos || '视频',
     audio: t.assets_tab_audio || '音频',
     script: t.assets_tab_scripts || '脚本',
+    subject: t.assets_tab_subjects || 'Subjects',
   };
   const defaultAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => ([
     { value: 'product', label: materialTypeLabelMap.product },
-    { value: 'model', label: materialTypeLabelMap.model },
-    { value: 'scene', label: materialTypeLabelMap.scene },
-    { value: 'motion', label: materialTypeLabelMap.motion },
+  ]), [materialTypeLabelMap]);
+  const subjectAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => ([
+    { value: 'subject', label: materialTypeLabelMap.subject },
   ]), [materialTypeLabelMap]);
   const seedanceReplayAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => (
     seedanceReplayLibraryIntent
@@ -3446,6 +3567,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   ]), [materialTypeLabelMap.script]);
   const assetLibraryVisibleTabs = assetLibraryPickMode === 'script_import'
     ? scriptImportAssetLibraryTabs
+    : assetLibraryTab === 'subject'
+    ? subjectAssetLibraryTabs
     : (seedanceReplayLibraryIntent ? seedanceReplayAssetLibraryTabs : defaultAssetLibraryTabs);
   const isSeedanceReplayMode = creationMode === 'replay' && selectedModel === 'seedance2.0';
   const uploadDisplayAssets: QueuedAsset[] = useMemo(() => {
@@ -3493,13 +3616,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         return [];
       }
 
+      // Assets from the model tab become 'model' mediaKind in the panel
+      const panelMediaKind = asset.materialType === 'model' ? 'model' as const : asset.mediaKind;
+
       return [{
         id: asset.id,
         name: asset.name,
-        mediaKind: asset.mediaKind,
+        mediaKind: panelMediaKind,
         source: asset.fileObj ? 'local' : 'library',
         previewUrl: asset.previewUrl || asset.assetUrl || asset.uploadedPath || null,
         durationSeconds: asset.durationSeconds ?? null,
+        frameRole: asset.frameRole ?? null,
       }];
     });
   }, [uploadDisplayAssets]);
@@ -3594,6 +3721,47 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         t.wb_seedance_replay_notice_duplicate_asset || 'This asset has already been added. Please choose another one.',
       );
       return false;
+    }
+
+    // Seedance replay mode: append (not replace) — same as selectAssetFromLibraryPopup replay branch
+    if (isSeedanceReplayMode) {
+      const replayQueued = buildSeedanceReplayQueuedAssetFromLibrary(libraryAsset);
+      const replayCandidate = buildSeedanceReplayLibraryCandidate(libraryAsset);
+      if (!replayQueued || !replayCandidate) {
+        openInfo(popupTitles.notice, t.wb_transfer_station_apply_failed || 'Unable to read this transfer-station asset.');
+        return false;
+      }
+      const validationMessage = validateSeedanceReplayParsedAsset(replayCandidate, t);
+      if (validationMessage) {
+        openInfo(popupTitles.notice, validationMessage);
+        return false;
+      }
+      const currentCount = uploadDisplayAssets.filter((a) => a.mediaKind === replayQueued.mediaKind).length;
+      const limit = replayQueued.mediaKind === 'image'
+        ? SEEDANCE_REPLAY_IMAGE_LIMIT
+        : replayQueued.mediaKind === 'video'
+          ? SEEDANCE_REPLAY_VIDEO_LIMIT
+          : SEEDANCE_REPLAY_AUDIO_LIMIT;
+      if (currentCount >= limit) {
+        const kindLabel = replayQueued.mediaKind === 'image'
+          ? (t.wb_seedance_replay_media_image || 'Image')
+          : replayQueued.mediaKind === 'video'
+            ? (t.wb_seedance_replay_media_video || 'Video')
+            : (t.wb_seedance_replay_media_audio || 'Audio');
+        openInfo(
+          popupTitles.notice,
+          formatMessage(
+            t.wb_seedance_replay_notice_kind_limit || 'Up to {limit} {kind} assets can be added.',
+            { limit, kind: kindLabel },
+          ),
+        );
+        return false;
+      }
+      setAssetQueue((prev) => [...prev, replayQueued]);
+      applyWorkbenchAssetSelection(replayQueued);
+      setLastUploadedUrl(replayQueued.assetUrl || null);
+      setToastMessage(t.wb_transfer_station_apply_success || 'Asset applied to workbench.');
+      return true;
     }
 
     const queuedAsset = queueLibraryAssetIntoWorkbench(libraryAsset, { preferLastModeRouting: true });
@@ -3809,6 +3977,43 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const handleSeedanceReplayAddFromLibrary = useCallback((targetMediaKind?: SeedanceReplayMediaKind) => {
     openSeedanceReplayLibraryPicker(targetMediaKind || null);
   }, [openSeedanceReplayLibraryPicker]);
+
+  const handleSeedanceReplaySetFrameRole = useCallback((assetId: string, role: 'firstFrame' | 'lastFrame' | null) => {
+    setAssetQueue((prev) => {
+      // Clear the role from any other asset that holds it, then set on target
+      const roleLabel = role === 'firstFrame' ? '首帧' as const : role === 'lastFrame' ? '尾帧' as const : null;
+      return prev.map((item) => {
+        if (item.id === assetId) {
+          return { ...item, frameRole: roleLabel };
+        }
+        // If another asset already has this role, clear it
+        if (roleLabel && item.frameRole === roleLabel) {
+          return { ...item, frameRole: null };
+        }
+        // If we're clearing a first frame, also clear any last frame (can't have last without first)
+        if (role === null) {
+          const targetAsset = prev.find((a) => a.id === assetId);
+          if (targetAsset?.frameRole === '首帧' && item.frameRole === '尾帧') {
+            return { ...item, frameRole: null };
+          }
+        }
+        return item;
+      });
+    });
+  }, []);
+
+  const handleSeedanceReplayAddVirtualModel = useCallback(() => {
+    const intent: SeedanceReplayLibraryIntent = {
+      targetMediaKind: 'image',
+      allowedTabs: ['model'],
+      preferredTab: 'model',
+    };
+    setSeedanceReplayLibraryIntent(intent);
+    setAssetLibraryPickMode('default');
+    setAssetLibraryTab('model');
+    setAssetLibraryCurrentFolderId(null);
+    setIsAssetLibraryOpen(true);
+  }, []);
   const resolveAiOptimizeReferencePath = useCallback(async (asset: QueuedAsset) => {
     let referencePath = asset.uploadedPath || asset.assetUrl || null;
     if (!referencePath && asset.fileObj) {
@@ -4052,7 +4257,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       return { ...item, source: 'preference', isPrimaryFrame: false };
     });
-      return sortKlingQueueAssets(normalized);
+    const sorted = sortKlingQueueAssets(normalized);
+    if (mode === 'first_frame' || mode === 'first_last_frame') {
+      return sorted.map((item) => (item.mediaKind === 'image' ? { ...item, materialType: 'product' as const } : item));
+    }
+    return sorted;
   }, [canBeKlingSubject, sortKlingQueueAssets]);
 
   const suggestKlingImageSourceForMode = useCallback((existing: QueuedAsset[]): QueuedAsset['source'] => {
@@ -5692,6 +5901,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     });
   };
 
+  const removeScriptPage = (index: number) => {
+    if (scriptPages.length <= 1) return;
+    setScriptPages(prev => {
+      const next = prev.filter((_, i) => i !== index);
+      const newActive = index < activeScriptPage
+        ? activeScriptPage - 1
+        : index === activeScriptPage
+          ? Math.min(activeScriptPage, next.length - 1)
+          : activeScriptPage;
+      setActiveScriptPage(newActive);
+      setScripts(next[newActive]?.scripts || []);
+      return next;
+    });
+  };
+
   const updateActiveScriptPageMeta = (updater: (page: ScriptPage) => ScriptPage) => {
     setScriptPages((prev) => {
       if (activeScriptPage < 0 || activeScriptPage >= prev.length) return prev;
@@ -5980,9 +6204,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     seedanceReplayFileInputRef.current.click();
   }, []);
 
-  const handleSeedanceReplayAddFromLocal = useCallback((targetMediaKind?: SeedanceReplayMediaKind) => {
-    openSeedanceReplayLocalPicker({ targetMediaKind: targetMediaKind || null });
-  }, [openSeedanceReplayLocalPicker]);
+  const handleSeedanceReplayOpenLibrary = useCallback(() => {
+    const intent = getSeedanceReplayLibraryIntent(null);
+    setSeedanceReplayLibraryIntent(intent);
+    setAssetLibraryPickMode('default');
+    setAssetLibraryTab(intent.preferredTab);
+    setAssetLibraryCurrentFolderId(null);
+    setIsAssetLibraryOpen(true);
+  }, [getSeedanceReplayLibraryIntent]);
 
   const handleSeedanceReplayPreview = useCallback((assetId: string) => {
     const target = uploadDisplayAssets.find((asset) => asset.id === assetId);
@@ -6246,34 +6475,55 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           )) : (
             <div className="w-full h-24 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
           )}
-          <div className="absolute top-1 left-1 z-10 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-            {isKlingOmniMode && klingGenerateMode === 'subject' && hasSubjectOtherViews(asset) && (asset.materialType === 'product' || asset.materialType === 'model') && (
-                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm">
-                  <Layers3 className="h-3 w-3" />
-                </span>
-            )}
-            <select
-                className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
-                value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product')}
-                onChange={(e) => {
-                  const newType = e.target.value as AssetLibraryTab;
-                  setAssetQueue(prev => {
-                    const next = prev.map((item): QueuedAsset => item.id === asset.id ? { ...item, materialType: newType } : item);
-                    return isKlingOmniMode ? normalizeQueueSourcesForKlingMode(next, klingGenerateMode) : next;
-                  });
-                  if (selectedQueueAssetId === asset.id || uploadedFile === asset.previewUrl) {
-                    setCurrentMaterialType(newType);
-                  }
-                }}
-                style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
-            >
-              <option value="product">{materialTypeLabelMap['product']}</option>
-              <option value="model">{materialTypeLabelMap['model']}</option>
-              <option value="scene">{materialTypeLabelMap['scene']}</option>
-              <option value="motion">{materialTypeLabelMap['motion']}</option>
-              <option value="audio">{materialTypeLabelMap['audio']}</option>
-            </select>
-          </div>
+          {(() => {
+            const hideMaterialTypeSelect =
+              isKlingOmniMode && (klingGenerateMode === 'first_frame' || klingGenerateMode === 'first_last_frame');
+            const showSubjectBadge =
+              isKlingOmniMode &&
+              klingGenerateMode === 'subject' &&
+              hasSubjectOtherViews(asset) &&
+              (asset.materialType === 'product' || asset.materialType === 'model');
+            if (!showSubjectBadge && hideMaterialTypeSelect) return null;
+            return (
+              <div className="absolute top-1 left-1 z-10 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                {showSubjectBadge ? (
+                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm">
+                    <Layers3 className="h-3 w-3" />
+                  </span>
+                ) : null}
+                {!hideMaterialTypeSelect ? (
+                  <select
+                    className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
+                    value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product')}
+                    onChange={(e) => {
+                      const newType = e.target.value as AssetLibraryTab;
+                      setAssetQueue((prev) => {
+                        const next = prev.map((item): QueuedAsset =>
+                          item.id === asset.id ? { ...item, materialType: newType } : item
+                        );
+                        return isKlingOmniMode ? normalizeQueueSourcesForKlingMode(next, klingGenerateMode) : next;
+                      });
+                      if (selectedQueueAssetId === asset.id || uploadedFile === asset.previewUrl) {
+                        setCurrentMaterialType(newType);
+                      }
+                    }}
+                    style={{
+                      backgroundImage:
+                        'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")',
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 6px center',
+                    }}
+                  >
+                    <option value="product">{materialTypeLabelMap['product']}</option>
+                    <option value="model">{materialTypeLabelMap['model']}</option>
+                    <option value="scene">{materialTypeLabelMap['scene']}</option>
+                    <option value="motion">{materialTypeLabelMap['motion']}</option>
+                    <option value="audio">{materialTypeLabelMap['audio']}</option>
+                  </select>
+                ) : null}
+              </div>
+            );
+          })()}
           <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
             {!isKlingOmniMode && asset.mediaKind === 'image' && (
                 <button
@@ -6589,6 +6839,40 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       );
     }
   }, [applyImportedScriptText, openInfo, popupTitles.notice, t]);
+
+  // Script import from asset library — fetch script content and apply as new ScriptPage
+  useEffect(() => {
+    if (!initialLibraryAsset || !initialLibraryAssetToken) return;
+    if (isRestoring) return;
+    if (initialLibraryAssetMode !== 'script_import') return;
+    if (injectedAssetSignaturesRef.current.has(initialLibraryAssetToken)) return;
+    injectedAssetSignaturesRef.current.add(initialLibraryAssetToken);
+
+    const importScriptIntoProject = () => {
+      void handleImportScriptFromLibraryAsset(initialLibraryAsset);
+      onInitialLibraryAssetHandled?.();
+    };
+
+    const targetProjectId = String(initialLibraryAssetTargetProjectId || '').trim();
+    if (targetProjectId && targetProjectId !== projectStore.currentProjectId) {
+      ensureProjectInStore(targetProjectId);
+      goToProject(targetProjectId, importScriptIntoProject);
+      return;
+    }
+
+    importScriptIntoProject();
+  }, [
+    ensureProjectInStore,
+    goToProject,
+    handleImportScriptFromLibraryAsset,
+    initialLibraryAsset,
+    initialLibraryAssetMode,
+    initialLibraryAssetTargetProjectId,
+    initialLibraryAssetToken,
+    isRestoring,
+    onInitialLibraryAssetHandled,
+    projectStore.currentProjectId,
+  ]);
 
   const openScriptSaveDialog = useCallback(() => {
     const fallbackName = scriptPages[activeScriptPage]?.name || `${t.wb_script_page_prefix} ${activeScriptPage + 1}`;
@@ -7889,12 +8173,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         desc: t.wb_model_sora2pro_desc,
         Icon: Sparkles,
       },
-      {
-        id: 'seedance2.0',
-        title: 'Seedance 2.0',
-        desc: t.wb_model_seedance_desc,
-        Icon: Video,
-      },
+
     ];
 
     const renderModelCard = (opt: typeof modelOptions[number]) => {
@@ -7933,7 +8212,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
-                <div className="text-[13px] font-black tracking-wide text-zinc-200 truncate">{opt.title}</div>
+                <div className="text-[14px] font-black tracking-wide text-zinc-200 truncate">{opt.title}</div>
                 <span className="relative inline-flex items-center group/model-tip shrink-0">
                   <Info className="h-3.5 w-3.5 text-zinc-500" />
                   <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 w-52 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[11px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/model-tip:opacity-100">
@@ -8058,7 +8337,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className={language === 'vi' ? 'flex items-center gap-1.5' : 'flex items-center gap-2'}>
-                      <div className="text-[13px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div>
+                      <div className="text-[14px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div>
                       <span className="relative inline-flex items-center group/replay-tip shrink-0">
                         <Info className="h-3.5 w-3.5 text-zinc-500" />
                         <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 w-60 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[11px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/replay-tip:opacity-100">
@@ -8101,7 +8380,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         <div ref={configSectionRef} className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${getGuideFocusClass('config')}`}>
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-              <Gift className="w-3 h-3" /> 商品信息
+              <Gift className="w-3 h-3 shrink-0" /> {t.wb_product_info_title || 'Product Info'}
             </h2>
             <button
                 type="button"
@@ -8519,9 +8798,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   assets={seedanceReplayUploadAssets}
                   validationSummary={seedanceReplayValidation}
                   focusTarget={seedanceReplayFocusTarget}
-                  onAddFromLibrary={handleSeedanceReplayAddFromLibrary}
+                  onAddVirtualModel={handleSeedanceReplayAddVirtualModel}
+                  onOpenLibraryForKind={handleSeedanceReplayAddFromLibrary}
                   onPreview={handleSeedanceReplayPreview}
                   onRemove={handleSeedanceReplayRemove}
+                  onSetFrameRole={handleSeedanceReplaySetFrameRole}
+                  onOpenLibrary={handleSeedanceReplayOpenLibrary}
                 />
               </>
             ) : (
@@ -8804,29 +9086,38 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               )) : (
                                   <div className="w-full h-24 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
                               )}
-                              <div className="absolute top-1 left-1 z-10" onClick={(e) => e.stopPropagation()}>
-                                <select
+                              {!(isKlingOmniMode && (klingGenerateMode === 'first_frame' || klingGenerateMode === 'first_last_frame')) ? (
+                                <div className="absolute top-1 left-1 z-10" onClick={(e) => e.stopPropagation()}>
+                                  <select
                                     className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
                                     value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product')}
                                     onChange={(e) => {
                                       const newType = e.target.value as AssetLibraryTab;
-                                      setAssetQueue(prev => {
-                                        const next = prev.map((item): QueuedAsset => item.id === asset.id ? { ...item, materialType: newType } : item);
+                                      setAssetQueue((prev) => {
+                                        const next = prev.map((item): QueuedAsset =>
+                                          item.id === asset.id ? { ...item, materialType: newType } : item
+                                        );
                                         return isKlingOmniMode ? normalizeQueueSourcesForKlingMode(next, klingGenerateMode) : next;
                                       });
                                       if (selectedQueueAssetId === asset.id || uploadedFile === asset.previewUrl) {
                                         setCurrentMaterialType(newType);
                                       }
                                     }}
-                                    style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
-                                >
-                                  <option value="product">{materialTypeLabelMap['product']}</option>
-                                  <option value="model">{materialTypeLabelMap['model']}</option>
-                                  <option value="scene">{materialTypeLabelMap['scene']}</option>
-                                  <option value="motion">{materialTypeLabelMap['motion']}</option>
-                                  <option value="audio">{materialTypeLabelMap['audio']}</option>
-                                </select>
-                              </div>
+                                    style={{
+                                      backgroundImage:
+                                        'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")',
+                                      backgroundRepeat: 'no-repeat',
+                                      backgroundPosition: 'right 6px center',
+                                    }}
+                                  >
+                                    <option value="product">{materialTypeLabelMap['product']}</option>
+                                    <option value="model">{materialTypeLabelMap['model']}</option>
+                                    <option value="scene">{materialTypeLabelMap['scene']}</option>
+                                    <option value="motion">{materialTypeLabelMap['motion']}</option>
+                                    <option value="audio">{materialTypeLabelMap['audio']}</option>
+                                  </select>
+                                </div>
+                              ) : null}
                               <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
                                 {asset.mediaKind === 'image' && (
                                     <button
@@ -9173,10 +9464,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     }
                     void handleGenerateScripts();
                   }}
-                  className={`w-full py-3 rounded-xl font-bold text-xs transition flex items-center justify-center gap-2 group border border-white/10 bg-black/30 text-zinc-200 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 ${!hasCurrentAsset ? 'opacity-40 hover:bg-black/30' : ''}`}
+                  className={`w-full py-3 rounded-xl font-bold text-xs transition group border border-white/10 bg-black/30 text-zinc-200 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 ${!hasCurrentAsset ? 'opacity-40 hover:bg-black/30' : ''}`}
               >
-                <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />
-                {t.wb_btn_gen_scripts}
+                <span className="flex w-full items-center justify-center gap-2 px-3">
+                  <Wand2 className="w-4 h-4 shrink-0 group-hover:rotate-12 transition" />
+                  <span className="whitespace-nowrap">{t.wb_btn_gen_scripts}</span>
+                </span>
               </button>
             )}
           </div>
@@ -10069,8 +10362,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim()
                       || (t.wb_script_grid_card_empty || 'No script content yet');
                     return (
+                      <div key={page.id} className="relative group/scriptcard">
                       <button
-                          key={page.id}
                           type="button"
                           onClick={() => {
                             handleScriptPageChange(index);
@@ -10090,7 +10383,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 </span>
                               )}
                             </div>
-                            <div className={`mt-2 text-[12px] font-bold leading-5 ${active ? 'text-orange-100' : 'text-zinc-100'}`}>{page.name}</div>
+                            <div className={`mt-2 text-[12px] font-bold leading-5 ${active ? 'text-orange-100' : 'text-zinc-100'}`}>
+                              {formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix)}
+                            </div>
                           </div>
                           <span className={`shrink-0 text-[10px] ${active ? 'text-orange-300' : 'text-zinc-500'}`}>
                             {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
@@ -10100,6 +10395,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           {previewText}
                         </div>
                       </button>
+                      {scriptPages.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); removeScriptPage(index); }}
+                          className="absolute -top-1.5 -right-1.5 z-10 hidden group-hover/scriptcard:flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-zinc-900 text-zinc-400 transition hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-300"
+                          title={t.wb_delete || 'Delete'}
+                        >
+                          <Trash2 className="h-2.5 w-2.5" />
+                        </button>
+                      )}
+                      </div>
                     );
                   })}
                 </div>
@@ -10171,9 +10477,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           disabled={isAiOptimizeGenerating}
                           className={`px-4 py-2 rounded-lg text-sm font-bold text-white transition ${isAiOptimizeGenerating ? 'bg-orange-500/70 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600'}`}
                       >
-                        {isAiOptimizeGenerating
-                          ? (t.wb_ai_opt_generating || '生成中...')
-                          : (t.wb_ai_opt_generate_btn || '生成优化图')}
+                        <span className="flex items-center gap-3 whitespace-nowrap">
+                          <span>
+                            {isAiOptimizeGenerating
+                              ? (t.wb_ai_opt_generating || '生成中...')
+                              : (t.wb_ai_opt_generate_btn || '生成优化图')}
+                          </span>
+                          {estimatedImageCostLabel ? (
+                            <span className="text-[11px] font-semibold text-white/90">{estimatedImageCostLabel}</span>
+                          ) : null}
+                        </span>
                       </button>
                       <span className="pointer-events-none absolute bottom-full right-0 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/cost-image:opacity-100">
                         {t.wb_cost_tip_generate_image || '生成图片会消耗点数，具体以实际扣费为准。'}
@@ -10415,16 +10728,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 {assetLibraryPickMode === 'background_audio' ? (
                   <div className="flex items-center justify-between gap-3 px-1">
                     <div className="text-xs text-zinc-400">{t.wb_audio_picker_hint || '仅显示音频素材'}</div>
-                    <button
-                      type="button"
-                      onClick={triggerAssetLibraryLocalUpload}
-                      disabled={isAssetLibraryUploading}
-                      className={`shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] font-bold transition ${isAssetLibraryUploading ? 'border-white/10 bg-white/5 text-zinc-500 cursor-not-allowed' : 'border-orange-500/50 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
-                    >
-                      {isAssetLibraryUploading
-                        ? ((t as any).assets_saving_description || '保存中...')
-                        : (t.wb_btn_upload_to_library || '从本地上传并保存')}
-                    </button>
                   </div>
                 ) : (
                   <div className="flex items-center justify-between gap-3">
@@ -10443,18 +10746,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           </button>
                       ))}
                     </div>
-                    <button
-                      type="button"
-                      onClick={triggerAssetLibraryLocalUpload}
-                      disabled={isAssetLibraryUploading}
-                      className={`shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] font-bold transition ${isAssetLibraryUploading ? 'border-white/10 bg-white/5 text-zinc-500 cursor-not-allowed' : 'border-orange-500/50 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
-                    >
-                      {isAssetLibraryUploading
-                        ? ((t as any).assets_saving_description || '保存中...')
-                        : (t.wb_btn_upload_to_library || '从本地上传并保存')}
-                    </button>
                   </div>
                 )}
+                {assetLibraryTab !== 'subject' && (
                 <div className="flex items-center gap-2 text-xs text-zinc-500 min-w-0">
                   <button
                       type="button"
@@ -10476,6 +10770,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       </div>
                   ))}
                 </div>
+                )}
 
                 <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-1">
                   {assetLibraryLoading ? (
@@ -10486,6 +10781,39 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       <div className="h-52 flex items-center justify-center text-red-300 text-sm">
                         {assetLibraryError}
                       </div>
+                  ) : assetLibraryTab === 'subject' ? (
+                    assetLibrarySubjects.length === 0 ? (
+                      <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">
+                        暂无主体，请先在素材库中创建主体
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-6 gap-2">
+                        {assetLibrarySubjects.map((subject) => (
+                          <button
+                            key={subject.id}
+                            type="button"
+                            onClick={() => selectSubjectFromLibraryPopup(subject)}
+                            className="text-left rounded-lg border bg-black/30 p-1 transition border-white/10 hover:border-orange-500/50 hover:bg-white/5"
+                          >
+                            <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
+                              {subject.primary_asset ? (
+                                <img src={subject.primary_asset.file_url} className="w-full h-full object-cover" alt={subject.name} />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-zinc-500">
+                                  <Layers3 className="w-6 h-6" />
+                                </div>
+                              )}
+                              {subject.other_assets.length > 0 && (
+                                <div className="absolute top-1.5 right-1.5 z-10 rounded-full bg-black/55 border border-white/15 p-1 text-white shadow-lg">
+                                  <Layers3 className="w-3.5 h-3.5" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{subject.name}</div>
+                          </button>
+                        ))}
+                      </div>
+                    )
                   ) : assetLibraryItems.length === 0 && assetLibraryFolders.length === 0 ? (
                       <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">
                         {assetLibraryPickMode === 'background_audio'
@@ -10731,8 +11059,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim()
                       || (t.wb_script_grid_card_empty || 'No script content yet');
                     return (
+                      <div key={page.id} className="relative group/scriptcard">
                       <button
-                          key={page.id}
                           type="button"
                           onClick={() => handleScriptPageChange(index)}
                           className={`${scriptPlanCardClass} ${active ? 'border-orange-500/70 bg-orange-500/10 ring-1 ring-orange-500/35' : 'border-white/10 bg-black/30 hover:border-white/25 hover:bg-white/5'}`}
@@ -10749,7 +11077,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 </span>
                               )}
                             </div>
-                            <div className={`mt-2 text-[12px] font-bold leading-5 ${active ? 'text-orange-100' : 'text-zinc-100'}`}>{page.name}</div>
+                            <div className={`mt-2 text-[12px] font-bold leading-5 ${active ? 'text-orange-100' : 'text-zinc-100'}`}>
+                              {formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix)}
+                            </div>
                           </div>
                           <span className={`shrink-0 text-[9px] ${active ? 'text-orange-300 font-bold' : 'text-zinc-500'}`}>
                             {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
@@ -10759,6 +11089,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           {previewText}
                         </div>
                       </button>
+                      {scriptPages.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); removeScriptPage(index); }}
+                          className="absolute -top-1.5 -right-1.5 z-10 hidden group-hover/scriptcard:flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-zinc-900 text-zinc-400 transition hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-300"
+                          title={t.wb_delete || 'Delete'}
+                        >
+                          <Trash2 className="h-2.5 w-2.5" />
+                        </button>
+                      )}
+                      </div>
                     );
                   })}
                 </div>
@@ -10796,7 +11137,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             )}
                           </div>
                           <div className={`text-[10px] mt-0.5 font-medium ${isLightTheme ? 'text-slate-600' : 'text-zinc-500'}`}>
-                            {activeScriptPlan?.name || `${t.wb_script_page_prefix} ${activeScriptPage + 1}`}
+                            {formatScriptPageDisplayName(activeScriptPlan?.name, activeScriptPage, t.wb_script_page_prefix)}
                           </div>
                         </div>
                       </div>

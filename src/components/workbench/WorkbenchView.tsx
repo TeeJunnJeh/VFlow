@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder,
   Wand2, Loader2, Clapperboard, ArrowRight, PlayCircle, BookmarkPlus, FolderOpen,
@@ -1342,10 +1342,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isShotBreakdownOpen, setIsShotBreakdownOpen] = useState(false);
   const [enableStoryboardEditor, setEnableStoryboardEditor] = useState(false);
 
+  const [isBatchGenerateOpen, setIsBatchGenerateOpen] = useState(false);
+  const [batchGenerateCount, setBatchGenerateCount] = useState(2);
+  const [batchGenerateSlots, setBatchGenerateSlots] = useState<Array<{ slotId: string; scriptPageId: string | null }>>(() =>
+    Array.from({ length: 2 }, (_, idx) => ({ slotId: `slot-${idx + 1}`, scriptPageId: null }))
+  );
+  const batchGenerateDragRef = useRef<{ kind: 'script' | 'slot'; scriptPageId: string; slotId?: string } | null>(null);
+
+  useEffect(() => {
+    setBatchGenerateSlots((prev) => {
+      const nextCount = Math.max(1, Math.min(5, Math.floor(Number(batchGenerateCount) || 1)));
+      const existing = prev.slice(0, nextCount);
+      while (existing.length < nextCount) {
+        existing.push({ slotId: `slot-${existing.length + 1}`, scriptPageId: null });
+      }
+      return existing;
+    });
+  }, [batchGenerateCount]);
+
   const [assetQueue, setAssetQueue] = useState<QueuedAsset[]>([]);
   const [scriptQueue, setScriptQueue] = useState<QueuedScript[]>([]);
   const [currentMaterialType, setCurrentMaterialType] = useState<AssetLibraryTab | null>(null);
-  const [generatedBatch, setGeneratedBatch] = useState<Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }>>([]);
   const [selectedQueueAssetId, setSelectedQueueAssetId] = useState<string | null>(null);
   const [seedanceReplayPreviewAsset, setSeedanceReplayPreviewAsset] = useState<QueuedAsset | null>(null);
   const [isAiOptimizeOpen, setIsAiOptimizeOpen] = useState(false);
@@ -1399,6 +1416,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isTaskQueueOpen, setIsTaskQueueOpen] = useState(false);
   const taskQueueButtonRef = useRef<HTMLButtonElement | null>(null);
   const taskQueuePanelRef = useRef<HTMLDivElement | null>(null);
+  const currentProjectVideoQueue = useMemo(() => {
+    const currentId = String(projectStore.currentProjectId || '').trim();
+    if (!currentId) return [];
+    return tasks
+      .filter((task) => String(task.workbenchProjectId || '').trim() === currentId && task.type === 'video_generation')
+      .slice()
+      .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+  }, [projectStore.currentProjectId, tasks]);
   const [taskQueueNowTs, setTaskQueueNowTs] = useState<number>(Date.now());
   const taskQueueTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isCompletedCollapsed, setIsCompletedCollapsed] = useState(true);
@@ -2708,22 +2733,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [generatedVideoUrl]);
 
   useEffect(() => {
-    if (generatedBatch.length > 0) {
-      console.log('[WorkbenchView] generatedBatch updated:', generatedBatch);
-      generatedBatch.forEach(item => {
-        const task = tasks.find(t => t.id === item.taskId);
-        console.log(`[WorkbenchView] Batch item ${item.id} (taskId=${item.taskId}):`, {
-          found: !!task,
-          status: task?.status,
-          result: task?.result,
-          hasUrl: !!(task?.result?.video_url || task?.result?.url),
-          url: task?.result?.video_url || task?.result?.url
-        });
-      });
-    }
-  }, [generatedBatch, tasks]);
-
-  useEffect(() => {
     canAutoSaveRef.current = !!user?.id && !isRestoring;
   }, [user?.id, isRestoring]);
 
@@ -3524,8 +3533,29 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return Math.max(0, Math.round(rate * Math.max(1, Math.min(4, Number(aiOptimizeCount) || 1))));
   }, [aiOptimizeCount, selectedImagePricing]);
 
+  const estimatedBatchVideoCost = useMemo(() => {
+    const rate = Number(selectedVideoPricing?.rate ?? 0);
+    if (!Number.isFinite(rate) || rate <= 0) return 0;
+
+    const selectedIds = batchGenerateSlots
+      .map((slot) => String(slot.scriptPageId || '').trim())
+      .filter(Boolean);
+    if (selectedIds.length === 0) return 0;
+
+    const totalSeconds = selectedIds.reduce((sum, id) => {
+      const page = scriptPages.find((p) => p.id === id);
+      if (!page) return sum;
+      if (!enableStoryboardEditor) return sum + Math.max(1, Number(genDuration) || 0);
+      const s = (page.scripts || []).reduce((total, it) => total + (parseFloat(String(it.dur || '').replace('s', '')) || 0), 0);
+      return sum + (Number.isFinite(s) && s > 0 ? s : Math.max(1, Number(genDuration) || 0));
+    }, 0);
+
+    return Math.max(0, Math.round(rate * totalSeconds));
+  }, [batchGenerateSlots, enableStoryboardEditor, genDuration, scriptPages, selectedVideoPricing]);
+
   const estimatedVideoCostLabel = estimatedVideoCost > 0 ? `-${estimatedVideoCost} ${t.v_points || 'V点'}` : '';
   const estimatedImageCostLabel = estimatedImageCost > 0 ? `-${estimatedImageCost} ${t.v_points || 'V点'}` : '';
+  const estimatedBatchVideoCostLabel = estimatedBatchVideoCost > 0 ? `-${estimatedBatchVideoCost} ${t.v_points || 'V点'}` : '';
   const hasCurrentAsset = Boolean(uploadedFile || selectedAssetUrl || selectedFileObj);
   const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
   const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
@@ -7686,6 +7716,148 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     openInfo(title, `${intro}\n${details}`);
   };
 
+  const computeDurationFromScripts = (items: ScriptItem[]) =>
+    items.reduce((total, s) => total + (parseFloat(String(s.dur || '').replace('s', '')) || 0), 0);
+
+  const buildQueuedScriptFromPage = (page: ScriptPage): QueuedScript => {
+    const duration = enableStoryboardEditor ? computeDurationFromScripts(page.scripts || []) : genDuration;
+    const idx = Math.max(0, scriptPages.findIndex((p) => p.id === page.id));
+    return {
+      id: page.id,
+      name: formatScriptPageDisplayName(page.name, idx, t.wb_script_page_prefix),
+      scripts: page.scripts || [],
+      duration,
+      fullScript: page.fullScript,
+      creativeCard: page.creativeCard,
+      creativeCardText: page.creativeCardText,
+    };
+  };
+
+  const handleBatchGenerateSubmit = async () => {
+    const selectedScriptPages: ScriptPage[] = batchGenerateSlots
+      .map((slot) => (slot.scriptPageId ? scriptPages.find((p) => p.id === slot.scriptPageId) : null))
+      .filter(Boolean) as ScriptPage[];
+
+    if (selectedScriptPages.length === 0) {
+      openInfo(popupTitles.notice, language === 'zh' ? '请选择至少一个脚本。' : 'Select at least one script.');
+      return;
+    }
+
+    if (selectedModel === 'kling') {
+      openInfo(popupTitles.notice, 'Kling 当前版本暂不支持一次生成多条视频。');
+      return;
+    }
+
+    const issues: string[] = [];
+    if (!selectedTemplate?.id && !selectedFileObj && !selectedAssetUrl && !uploadedFile && uploadDisplayAssets.length === 0) {
+      issues.push(t.wb_gen_req_issue_asset_or_template || 'Assets: upload an asset or select a template first.');
+    }
+    if (!selectedTemplate?.id && !user?.id) {
+      issues.push(t.wb_gen_req_issue_login || 'Account: please sign in.');
+    }
+    if (enableStoryboardEditor) {
+      const invalid = selectedScriptPages
+        .map((p) => ({ page: p, duration: computeDurationFromScripts(p.scripts || []) }))
+        .filter((row) => Math.abs(row.duration - genDuration) >= 0.1);
+      if (invalid.length > 0) {
+        issues.push(t.wb_gen_req_issue_duration_mismatch || 'Storyboard duration must match configured duration.');
+      }
+    }
+    if (issues.length > 0) {
+      showGenerateValidationIssues(issues);
+      return;
+    }
+
+    setIsGenerating(true);
+    setGeneratedVideoUrl(null);
+
+    try {
+      const basePayload = await buildSingleGeneratePayload();
+      let createdCount = 0;
+
+      for (let i = 0; i < selectedScriptPages.length; i += 1) {
+        const page = selectedScriptPages[i];
+        const scriptPack = buildQueuedScriptFromPage(page);
+
+        let newProjectId: string | undefined;
+        if (selectedTemplate?.id) {
+          const cloneResp = await videoApi.cloneProject(selectedTemplate.id);
+          newProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
+          if (!newProjectId) throw new Error('Failed to clone project');
+        } else {
+          if (!user?.id) throw new Error('请先登录');
+          const createResp = await videoApi.createProject(user.id, {
+            title: (productName || '').trim() || `${fileName || 'Video'} × ${scriptPack.name}`,
+            aspect_ratio: aspectRatio || selectedTemplate?.aspect_ratio || '9:16',
+            script_content: {
+              duration: scriptPack.duration,
+              shots: enableStoryboardEditor ? scriptPack.scripts : [],
+            },
+          });
+          newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
+          if (!newProjectId) throw new Error('Failed to create project');
+        }
+
+        const combinedScriptPrompt = buildCombinedScriptPrompt(
+          scriptPack.fullScript || '',
+          scriptPack.creativeCard,
+          scriptPack.scripts,
+          scriptPack.creativeCardText || ''
+        );
+
+        const requestPayload: GeneratePayload = {
+          ...basePayload,
+          prompt: combinedScriptPrompt,
+          duration: scriptPack.duration,
+          project_id: String(newProjectId),
+        };
+
+        const genResp = await generateWithAdaptiveImageConfirm(requestPayload);
+        const taskId = genResp?.data?.task_id || genResp?.task_id;
+        const projectId = genResp?.data?.project_id || newProjectId;
+
+        if (genResp?.code === 0 && taskId) {
+          const estimatedSeconds = await fetchEstimatedSeconds({
+            model: backendModel,
+            duration: Number(requestPayload.duration ?? genDuration),
+            sound: String(requestPayload.sound || '') === 'off' ? 'off' : 'on',
+            aspect_ratio: String(requestPayload.aspect_ratio || ''),
+            resolution: String((requestPayload as any).resolution || (requestPayload as any).size || ''),
+          });
+
+          addTask({
+            id: taskId,
+            projectId: String(projectId),
+            workbenchProjectId: projectStore.currentProjectId,
+            estimatedSeconds,
+            type: 'video_generation',
+            status: 'processing',
+            name: `${(productName || '').trim() || fileName || 'Video'} · ${scriptPack.name}`,
+            thumbnail: uploadedFile || undefined,
+            createdAt: Date.now(),
+          });
+
+          createdCount += 1;
+        }
+      }
+
+      if (createdCount > 0) {
+        openInfo(popupTitles.success, formatMessage(t.wb_popup_batch_success, { count: createdCount }));
+        setIsBatchGenerateOpen(false);
+      } else {
+        openInfo(popupTitles.notice, t.wb_popup_batch_no_task_id);
+      }
+    } catch (err: any) {
+      if (err?.message === USER_CANCELLED_ADAPT) {
+        openInfo(popupTitles.notice, t.wb_popup_batch_cancelled);
+      } else {
+        openErrorModal(err, { category: 'generation_failed', onRetry: handleBatchGenerateSubmit });
+      }
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   const handleGenerateVideo = async () => {
     const issues = validateGenerateRequirements();
     if (issues.length > 0) {
@@ -7698,7 +7870,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setGeneratedVideoUrl(null);
 
       try {
-        const batchItems: Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }> = [];
+        let batchCount = 0;
 
         const preparedAssets = await Promise.all(assetQueue.map(async (asset) => {
           let apiPath = asset.uploadedPath || asset.assetUrl || null;
@@ -7816,21 +7988,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 createdAt: Date.now(),
               });
 
-              batchItems.push({
-                id: `${asset?.id || 'text'}-${scriptPack.id}-${taskId}`,
-                assetName: asset?.name || 'Text',
-                scriptName: scriptPack.name,
-                taskId,
-              });
+              batchCount += 1;
             } else {
               console.warn('Batch generation response invalid', genResp);
             }
           }
         }
 
-        if (batchItems.length > 0) {
-          setGeneratedBatch(prev => [...batchItems, ...prev]);
-          openInfo(popupTitles.success, formatMessage(t.wb_popup_batch_success, { count: batchItems.length }));
+        if (batchCount > 0) {
+          openInfo(popupTitles.success, formatMessage(t.wb_popup_batch_success, { count: batchCount }));
         } else {
           openInfo(popupTitles.notice, t.wb_popup_batch_no_task_id);
         }
@@ -10946,6 +11112,222 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           </div>
         </AppDialog>
 
+        <AppDialog
+          isOpen={isBatchGenerateOpen}
+          title={language === 'zh' ? '批量生成视频' : 'Batch Generate Videos'}
+          subtitle={language === 'zh' ? '选择一次性生成几条视频（最多 5 条），并拖拽指定每条视频对应的脚本。' : 'Choose up to 5 videos and drag scripts to map each video.'}
+          onClose={() => setIsBatchGenerateOpen(false)}
+          widthClassName="max-w-none w-[min(92vw,1080px)]"
+          contentClassName="overflow-hidden"
+        >
+          <div className="h-[min(72vh,720px)] flex gap-6">
+            <div className="w-[360px] shrink-0 rounded-2xl border border-white/10 bg-black/20 overflow-hidden flex flex-col">
+              <div className="px-5 py-4 border-b border-white/10 bg-black/30 flex items-center justify-between gap-3">
+                <div className="text-sm font-extrabold text-zinc-200">{language === 'zh' ? '脚本列表' : 'Scripts'}</div>
+                <div className="text-[11px] font-bold text-zinc-500">{scriptPages.length}</div>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scroll p-4 space-y-2">
+                {scriptPages.map((page, idx) => {
+                  const displayName = formatScriptPageDisplayName(page.name, idx, t.wb_script_page_prefix);
+                  const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim();
+                  return (
+                    <div
+                      key={page.id}
+                      draggable
+                      onDragStart={(e) => {
+                        batchGenerateDragRef.current = { kind: 'script', scriptPageId: page.id };
+                        e.dataTransfer.effectAllowed = 'copyMove';
+                      }}
+                      className="rounded-xl border border-white/10 bg-black/30 px-3 py-3 hover:border-white/20 transition cursor-grab active:cursor-grabbing"
+                      title={language === 'zh' ? '拖拽到右侧槽位' : 'Drag into a slot on the right'}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-xs font-extrabold text-zinc-200 truncate">{displayName}</div>
+                          <div className="mt-1 text-[11px] text-zinc-500 line-clamp-2">{previewText || (t.wb_script_grid_card_empty || 'No script content yet')}</div>
+                        </div>
+                        <div className="shrink-0 mt-0.5 text-[10px] font-bold text-zinc-500">#{idx + 1}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex-1 min-w-0 rounded-2xl border border-white/10 bg-black/20 overflow-hidden flex flex-col">
+              <div className="px-5 py-4 border-b border-white/10 bg-black/30 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="text-sm font-extrabold text-zinc-200">{language === 'zh' ? '生成映射' : 'Mapping'}</div>
+                  <div className="text-[11px] text-zinc-500">{language === 'zh' ? '把左侧脚本拖到下方每个视频槽位' : 'Drag a script into each slot'}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={batchGenerateCount}
+                    onChange={(e) => setBatchGenerateCount(Math.max(1, Math.min(5, Number(e.target.value) || 1)))}
+                    className="h-8 rounded-lg border border-white/10 bg-black/40 px-2 text-xs text-zinc-200 outline-none hover:border-white/20"
+                  >
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <option key={n} value={n}>
+                        {language === 'zh' ? `${n} 条` : `${n} videos`}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const ordered = scriptPages.map((p) => p.id);
+                      setBatchGenerateSlots((prev) =>
+                        prev.map((slot, idx) => ({ ...slot, scriptPageId: ordered[idx] || null }))
+                      );
+                    }}
+                    className="h-8 px-3 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition"
+                  >
+                    {language === 'zh' ? '自动填充' : 'Auto fill'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBatchGenerateSlots((prev) => prev.map((s) => ({ ...s, scriptPageId: null })))}
+                    className="h-8 px-3 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition"
+                  >
+                    {language === 'zh' ? '清空' : 'Clear'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scroll p-5">
+                <div className="grid grid-cols-1 gap-3">
+                  {batchGenerateSlots.map((slot, idx) => {
+                    const page = slot.scriptPageId ? scriptPages.find((p) => p.id === slot.scriptPageId) : null;
+                    const pageIndex = page ? scriptPages.findIndex((p) => p.id === page.id) : -1;
+                    const displayName = page ? formatScriptPageDisplayName(page.name, Math.max(0, pageIndex), t.wb_script_page_prefix) : '';
+                    const previewText = page ? String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim() : '';
+                    const hasValue = Boolean(page);
+
+                    return (
+                      <div
+                        key={slot.slotId}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const drag = batchGenerateDragRef.current;
+                          if (!drag) return;
+                          setBatchGenerateSlots((prev) => {
+                            const next = prev.map((x) => ({ ...x }));
+                            const targetIndex = next.findIndex((x) => x.slotId === slot.slotId);
+                            if (targetIndex < 0) return prev;
+
+                            if (drag.kind === 'script') {
+                              next[targetIndex].scriptPageId = drag.scriptPageId;
+                              return next;
+                            }
+
+                            if (drag.kind === 'slot' && drag.slotId) {
+                              const sourceIndex = next.findIndex((x) => x.slotId === drag.slotId);
+                              if (sourceIndex < 0 || sourceIndex === targetIndex) return prev;
+                              const tmp = next[targetIndex].scriptPageId;
+                              next[targetIndex].scriptPageId = drag.scriptPageId;
+                              next[sourceIndex].scriptPageId = tmp ?? null;
+                              return next;
+                            }
+
+                            return prev;
+                          });
+                        }}
+                        className={`rounded-2xl border p-4 transition ${
+                          hasValue ? 'border-white/15 bg-black/30' : 'border-dashed border-white/10 bg-black/20'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <div className="text-[11px] font-bold text-zinc-500">
+                              {language === 'zh' ? `视频 ${idx + 1}` : `Video ${idx + 1}`}
+                            </div>
+                            {hasValue ? (
+                              <>
+                                <div
+                                  draggable
+                                  onDragStart={(e) => {
+                                    if (!slot.scriptPageId) return;
+                                    batchGenerateDragRef.current = { kind: 'slot', scriptPageId: slot.scriptPageId, slotId: slot.slotId };
+                                    e.dataTransfer.effectAllowed = 'move';
+                                  }}
+                                  className="mt-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 cursor-grab active:cursor-grabbing"
+                                  title={language === 'zh' ? '拖拽到其它槽位以交换' : 'Drag to another slot to swap'}
+                                >
+                                  <div className="text-xs font-extrabold text-zinc-200 truncate">{displayName}</div>
+                                  <div className="mt-1 text-[11px] text-zinc-500 line-clamp-2">{previewText || (t.wb_script_grid_card_empty || 'No script content yet')}</div>
+                                </div>
+                              </>
+                            ) : (
+                              <div className="mt-2 text-xs text-zinc-500">{language === 'zh' ? '拖拽脚本到此处' : 'Drop a script here'}</div>
+                            )}
+                          </div>
+                          <div className="shrink-0 flex items-center gap-2">
+                            {hasValue ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setBatchGenerateSlots((prev) =>
+                                    prev.map((s) => (s.slotId === slot.slotId ? { ...s, scriptPageId: null } : s))
+                                  )
+                                }
+                                className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20 transition flex items-center justify-center"
+                                aria-label="Remove"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            ) : (
+                              <div className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-500 flex items-center justify-center">
+                                <Layers className="w-4 h-4" />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="px-5 py-4 border-t border-white/10 bg-black/30 flex items-center justify-between gap-3">
+                <div className="text-[11px] text-zinc-500">
+                  {language === 'zh' ? '提示：可以重复使用同一个脚本生成多条视频。' : 'Tip: you can reuse the same script for multiple videos.'}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsBatchGenerateOpen(false)}
+                    className="h-9 px-4 rounded-xl border border-white/10 bg-white/5 text-sm font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition"
+                  >
+                    {t.wb_confirm_cancel || '取消'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBatchGenerateSubmit}
+                    disabled={isGenerating}
+                    className={`relative overflow-hidden rounded-xl px-4 py-2 text-xs font-extrabold text-white shadow-lg transition active:scale-[0.98] ${
+                      isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : 'hover:brightness-110'
+                    }`}
+                  >
+                    <span className="absolute inset-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-600" />
+                    <span className="absolute inset-0 opacity-0 transition-opacity duration-200 hover:opacity-100 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.22),transparent_55%)]" />
+                    <span className="relative flex items-center gap-2">
+                      {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clapperboard className="w-4 h-4" />}
+                      <span>{language === 'zh' ? '开始批量生成' : 'Start Batch'}</span>
+                      {estimatedBatchVideoCostLabel ? (
+                        <span className="ml-2 text-[9px] font-semibold text-white/80 whitespace-nowrap">{estimatedBatchVideoCostLabel}</span>
+                      ) : null}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </AppDialog>
+
         <div ref={workspaceRowRef} className="flex-1 flex overflow-hidden p-6 gap-6" style={rowStyle}>
           <div style={{ width: leftColumnWidth }} className="shrink-0 h-full min-w-[260px] max-w-[640px]">
             {renderLeftColumn()}
@@ -10999,15 +11381,37 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsBatchGenerateOpen(true)}
+                  disabled={isGenerating}
+                  className={`h-9 px-3 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition inline-flex items-center gap-2 ${isGenerating ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title={language === 'zh' ? '批量生成视频' : 'Batch Generate Videos'}
+                >
+                  <Layers className="w-4 h-4" />
+                  {language === 'zh' ? '批量生成' : 'Batch'}
+                </button>
                 <div className="relative group/cost-video">
-                  <button onClick={handleGenerateVideo} disabled={isGenerating} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
+                  <button
+                    onClick={handleGenerateVideo}
+                    disabled={isGenerating}
+                    className={`relative overflow-hidden rounded-xl px-4 py-2 text-xs font-extrabold text-white shadow-lg transition active:scale-[0.98] ${
+                      isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : 'hover:brightness-110'
+                    }`}
+                  >
+                    <span className="absolute inset-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-600" />
+                    <span className="absolute inset-0 opacity-0 transition-opacity duration-200 group-hover/cost-video:opacity-100 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.22),transparent_55%)]" />
                     <span className="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5">
                       <span className="flex items-center gap-2 whitespace-nowrap">
-                        {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}
-                        {isGenerating ? t.wb_generating : t.wb_btn_gen_video}
+                        {isGenerating ? (
+                          <Loader2 className="relative w-4 h-4 animate-spin" />
+                        ) : (
+                          <Clapperboard className="relative w-4 h-4" />
+                        )}
+                        <span className="relative">{isGenerating ? (language === 'zh' ? '生成中' : 'Generating') : (language === 'zh' ? '生成视频' : 'Generate')}</span>
                       </span>
                       {estimatedVideoCostLabel ? (
-                        <span className="ml-auto text-[9px] font-semibold text-white/80 whitespace-nowrap">{estimatedVideoCostLabel}</span>
+                        <span className="relative ml-auto text-[9px] font-semibold text-white/80 whitespace-nowrap">{estimatedVideoCostLabel}</span>
                       ) : null}
                     </span>
                   </button>
@@ -11502,13 +11906,43 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
 
             <div className="glass-panel rounded-2xl p-4 border border-white/5 max-h-56 overflow-y-auto custom-scroll">
-              <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3">{t.wb_batch_results}</div>
-              {generatedBatch.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_batch_no_results}</div> : <div className="space-y-2">{generatedBatch.map(item => {
-                const task = tasks.find(t => t.id === item.taskId);
-                const status = task?.status;
-                const url = task?.result?.video_url || task?.result?.url;
-                return (<div key={item.id} className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>{status === 'success' && url ? (<button onClick={() => setGeneratedVideoUrl(url)} className="text-orange-400 hover:text-orange-300 transition">预览</button>) : status === 'failed' ? (<span className="text-red-400">失败</span>) : (<span className="text-zinc-500">生成中…</span>)}</div>);
-              })}</div>}
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest">
+                  {language === 'zh' ? '本项目视频队列' : 'Project Video Queue'}
+                </div>
+                <div className="text-[10px] font-bold text-zinc-600">{currentProjectVideoQueue.length}</div>
+              </div>
+              {currentProjectVideoQueue.length === 0 ? (
+                <div className="text-[10px] text-zinc-600">{language === 'zh' ? '暂无队列任务' : 'No queued tasks'}</div>
+              ) : (
+                <div className="space-y-2">
+                  {currentProjectVideoQueue.map((task) => {
+                    const status = task?.status;
+                    const url = task?.result?.video_url || task?.result?.url;
+                    return (
+                      <div key={String(task.id)} className="flex items-center justify-between gap-2 text-[10px]">
+                        <span className="truncate text-zinc-300">{String(task.name || '').trim() || `#${String(task.id).slice(0, 8)}`}</span>
+                        {status === 'success' && url ? (
+                          <button
+                            onClick={() => {
+                              setPreviewProjectId(task.projectId || null);
+                              setLastGeneratedProjectId(task.projectId || null);
+                              setGeneratedVideoUrl(url);
+                            }}
+                            className="text-orange-400 hover:text-orange-300 transition whitespace-nowrap"
+                          >
+                            {language === 'zh' ? '预览' : 'Preview'}
+                          </button>
+                        ) : status === 'failed' ? (
+                          <span className="text-red-400 whitespace-nowrap">{language === 'zh' ? '失败' : 'Failed'}</span>
+                        ) : (
+                          <span className="text-zinc-500 whitespace-nowrap">{language === 'zh' ? '生成中…' : 'Processing…'}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>

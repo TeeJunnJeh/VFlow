@@ -4,6 +4,8 @@
 
 export { FirstFrameView } from './Functions/FirstFrame';
 export { SmartRepairView } from './Functions/SmartRepair';
+export { ImagesGalleryView } from './Functions/ImagesGallery';
+export type { ImagesGalleryViewProps } from './Functions/ImagesGallery';
 export * from './Common';
 export type { 
   FirstFrameParams,

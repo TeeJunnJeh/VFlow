@@ -480,6 +480,13 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     setIsSelectionMode(false);
     setOpenFolderMenuId(null);
 
+    if (
+      navigationIntent === 'open_assets_for_subject_creation' ||
+      navigationIntent === 'open_assets_for_subject_creation_first_time'
+    ) {
+      setActiveAssetTab('subject');
+    }
+
     if (navigationIntent === 'open_assets_for_subject_creation_first_time') {
       openSubjectGuideModal(true);
     }

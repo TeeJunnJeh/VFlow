@@ -4257,7 +4257,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       return { ...item, source: 'preference', isPrimaryFrame: false };
     });
-      return sortKlingQueueAssets(normalized);
+    const sorted = sortKlingQueueAssets(normalized);
+    if (mode === 'first_frame' || mode === 'first_last_frame') {
+      return sorted.map((item) => (item.mediaKind === 'image' ? { ...item, materialType: 'product' as const } : item));
+    }
+    return sorted;
   }, [canBeKlingSubject, sortKlingQueueAssets]);
 
   const suggestKlingImageSourceForMode = useCallback((existing: QueuedAsset[]): QueuedAsset['source'] => {
@@ -6471,34 +6475,55 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           )) : (
             <div className="w-full h-24 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
           )}
-          <div className="absolute top-1 left-1 z-10 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-            {isKlingOmniMode && klingGenerateMode === 'subject' && hasSubjectOtherViews(asset) && (asset.materialType === 'product' || asset.materialType === 'model') && (
-                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm">
-                  <Layers3 className="h-3 w-3" />
-                </span>
-            )}
-            <select
-                className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
-                value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product')}
-                onChange={(e) => {
-                  const newType = e.target.value as AssetLibraryTab;
-                  setAssetQueue(prev => {
-                    const next = prev.map((item): QueuedAsset => item.id === asset.id ? { ...item, materialType: newType } : item);
-                    return isKlingOmniMode ? normalizeQueueSourcesForKlingMode(next, klingGenerateMode) : next;
-                  });
-                  if (selectedQueueAssetId === asset.id || uploadedFile === asset.previewUrl) {
-                    setCurrentMaterialType(newType);
-                  }
-                }}
-                style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
-            >
-              <option value="product">{materialTypeLabelMap['product']}</option>
-              <option value="model">{materialTypeLabelMap['model']}</option>
-              <option value="scene">{materialTypeLabelMap['scene']}</option>
-              <option value="motion">{materialTypeLabelMap['motion']}</option>
-              <option value="audio">{materialTypeLabelMap['audio']}</option>
-            </select>
-          </div>
+          {(() => {
+            const hideMaterialTypeSelect =
+              isKlingOmniMode && (klingGenerateMode === 'first_frame' || klingGenerateMode === 'first_last_frame');
+            const showSubjectBadge =
+              isKlingOmniMode &&
+              klingGenerateMode === 'subject' &&
+              hasSubjectOtherViews(asset) &&
+              (asset.materialType === 'product' || asset.materialType === 'model');
+            if (!showSubjectBadge && hideMaterialTypeSelect) return null;
+            return (
+              <div className="absolute top-1 left-1 z-10 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                {showSubjectBadge ? (
+                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm">
+                    <Layers3 className="h-3 w-3" />
+                  </span>
+                ) : null}
+                {!hideMaterialTypeSelect ? (
+                  <select
+                    className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
+                    value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product')}
+                    onChange={(e) => {
+                      const newType = e.target.value as AssetLibraryTab;
+                      setAssetQueue((prev) => {
+                        const next = prev.map((item): QueuedAsset =>
+                          item.id === asset.id ? { ...item, materialType: newType } : item
+                        );
+                        return isKlingOmniMode ? normalizeQueueSourcesForKlingMode(next, klingGenerateMode) : next;
+                      });
+                      if (selectedQueueAssetId === asset.id || uploadedFile === asset.previewUrl) {
+                        setCurrentMaterialType(newType);
+                      }
+                    }}
+                    style={{
+                      backgroundImage:
+                        'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")',
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 6px center',
+                    }}
+                  >
+                    <option value="product">{materialTypeLabelMap['product']}</option>
+                    <option value="model">{materialTypeLabelMap['model']}</option>
+                    <option value="scene">{materialTypeLabelMap['scene']}</option>
+                    <option value="motion">{materialTypeLabelMap['motion']}</option>
+                    <option value="audio">{materialTypeLabelMap['audio']}</option>
+                  </select>
+                ) : null}
+              </div>
+            );
+          })()}
           <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
             {!isKlingOmniMode && asset.mediaKind === 'image' && (
                 <button
@@ -9061,29 +9086,38 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               )) : (
                                   <div className="w-full h-24 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
                               )}
-                              <div className="absolute top-1 left-1 z-10" onClick={(e) => e.stopPropagation()}>
-                                <select
+                              {!(isKlingOmniMode && (klingGenerateMode === 'first_frame' || klingGenerateMode === 'first_last_frame')) ? (
+                                <div className="absolute top-1 left-1 z-10" onClick={(e) => e.stopPropagation()}>
+                                  <select
                                     className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
                                     value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product')}
                                     onChange={(e) => {
                                       const newType = e.target.value as AssetLibraryTab;
-                                      setAssetQueue(prev => {
-                                        const next = prev.map((item): QueuedAsset => item.id === asset.id ? { ...item, materialType: newType } : item);
+                                      setAssetQueue((prev) => {
+                                        const next = prev.map((item): QueuedAsset =>
+                                          item.id === asset.id ? { ...item, materialType: newType } : item
+                                        );
                                         return isKlingOmniMode ? normalizeQueueSourcesForKlingMode(next, klingGenerateMode) : next;
                                       });
                                       if (selectedQueueAssetId === asset.id || uploadedFile === asset.previewUrl) {
                                         setCurrentMaterialType(newType);
                                       }
                                     }}
-                                    style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
-                                >
-                                  <option value="product">{materialTypeLabelMap['product']}</option>
-                                  <option value="model">{materialTypeLabelMap['model']}</option>
-                                  <option value="scene">{materialTypeLabelMap['scene']}</option>
-                                  <option value="motion">{materialTypeLabelMap['motion']}</option>
-                                  <option value="audio">{materialTypeLabelMap['audio']}</option>
-                                </select>
-                              </div>
+                                    style={{
+                                      backgroundImage:
+                                        'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")',
+                                      backgroundRepeat: 'no-repeat',
+                                      backgroundPosition: 'right 6px center',
+                                    }}
+                                  >
+                                    <option value="product">{materialTypeLabelMap['product']}</option>
+                                    <option value="model">{materialTypeLabelMap['model']}</option>
+                                    <option value="scene">{materialTypeLabelMap['scene']}</option>
+                                    <option value="motion">{materialTypeLabelMap['motion']}</option>
+                                    <option value="audio">{materialTypeLabelMap['audio']}</option>
+                                  </select>
+                                </div>
+                              ) : null}
                               <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
                                 {asset.mediaKind === 'image' && (
                                     <button

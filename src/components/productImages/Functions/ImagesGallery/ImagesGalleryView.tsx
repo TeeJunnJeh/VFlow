@@ -748,7 +748,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
           <div className="rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0">
             <div className="text-sm font-bold text-zinc-200 shrink-0">{t.hist_img_settings_title}</div>
 
-            <div className="mt-4 space-y-6">
+            <div className="mt-4 p-4 rounded-xl border border-white/10 bg-black/20 space-y-6">
               <div>
                 <div className="text-xs font-bold text-zinc-200">{t.pi_gallery_settings_section_basics}</div>
                 <div className="mt-3 grid grid-cols-2 gap-4">

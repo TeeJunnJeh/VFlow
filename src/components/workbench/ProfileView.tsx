@@ -82,12 +82,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
     };
   };
 
-  const [isPreferencesDialogOpen, setIsPreferencesDialogOpen] = useState(false);
+  const [isPreferencesExpanded, setIsPreferencesExpanded] = useState(false);
   const [prefsDraft, setPrefsDraft] = useState<WorkbenchPreferences>(() => buildPrefsDraft());
 
-  const openPreferencesDialog = () => {
-    setPrefsDraft(buildPrefsDraft());
-    setIsPreferencesDialogOpen(true);
+  const togglePreferences = () => {
+    if (!isPreferencesExpanded) {
+      setPrefsDraft(buildPrefsDraft());
+    }
+    setIsPreferencesExpanded(!isPreferencesExpanded);
   };
 
   const handleResetVideoEstimate = async () => {
@@ -105,6 +107,21 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
       openInfo(t.profile_error || 'Error', err?.message || (t.profile_reset_video_estimate_failed || '重置失败'));
     } finally {
       setIsResettingVideoEstimate(false);
+    }
+  };
+
+  const handleThemeSelect = async (nextTheme: 'dark' | 'light' | 'dim') => {
+    setPrefsDraft((prev) => ({ ...prev, theme: nextTheme }));
+    setTheme(nextTheme);
+
+    const nextPrefs = { ...buildPrefsDraft(), theme: nextTheme };
+    setWorkbenchPreferences(nextPrefs, user?.id ?? null);
+
+    try {
+      const res = await authApi.updateProfile({ theme: nextTheme });
+      updateUser({ theme: res.data.theme });
+    } catch (err: any) {
+      openInfo(t.profile_error || 'Error', err?.message || 'Failed to save theme');
     }
   };
 
@@ -126,7 +143,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
     };
 
     setWorkbenchPreferences(next, user?.id ?? null);
-    setIsPreferencesDialogOpen(false);
+    setIsPreferencesExpanded(false);
 
     if (next.theme !== theme) {
       setTheme(next.theme);
@@ -526,8 +543,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                <div className={`grid grid-cols-1 gap-4 pb-12 ${isDebugModeEnabled ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
                   <button
                     type="button"
-                    onClick={openPreferencesDialog}
-                    className="w-full flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/item cursor-pointer shadow-sm hover:shadow-orange-500/5"
+                    onClick={togglePreferences}
+                    className={`w-full flex items-center justify-between p-6 rounded-2xl bg-white/5 border transition group/item cursor-pointer shadow-sm hover:shadow-orange-500/5 ${isPreferencesExpanded ? 'border-orange-500/40 shadow-[0_0_20px_rgba(249,115,22,0.1)]' : 'border-white/5 hover:border-white/10'}`}
                   >
                       <div className="flex items-center gap-4 w-full">
                           <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/item:text-orange-500 transition-colors"><Settings2 className="w-6 h-6" /></div>
@@ -576,212 +593,250 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                       </div>
                   </button>
                </div>
+
+               {isPreferencesExpanded && (
+                 <div className="mt-8 pt-8 border-t border-white/5 animate-in slide-in-from-top-4 duration-500">
+                   <div className="space-y-10">
+                     {/* 界面主题 */}
+                     <section className="space-y-4">
+                       <h3 className="text-sm font-bold text-zinc-200 flex items-center gap-2 uppercase tracking-wider">
+                         <Settings2 className="w-4 h-4 text-orange-500" /> 界面主题
+                       </h3>
+                       <div className="bg-white/2 border border-white/5 rounded-2xl p-6">
+                        <div className="space-y-2">
+                           <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_theme}</div>
+                          <div className="grid grid-cols-3 gap-2">
+                            {([
+                              { value: 'light', label: t.profile_theme_light || 'Light' },
+                              { value: 'dim', label: t.profile_theme_dim || 'Dim' },
+                              { value: 'dark', label: t.profile_theme_dark || 'Dark' },
+                            ] as const).map((opt) => (
+                              <button
+                                key={opt.value}
+                                type="button"
+                                onClick={() => handleThemeSelect(opt.value)}
+                                className={`rounded-xl border px-3 py-2.5 text-xs font-black uppercase tracking-widest transition ${
+                                  prefsDraft.theme === opt.value
+                                    ? 'bg-orange-500/15 border-orange-500/35 text-orange-200 shadow-[0_0_18px_rgba(249,115,22,0.12)]'
+                                    : 'bg-black/20 border-white/10 text-zinc-300 hover:bg-white/5 hover:border-white/20'
+                                }`}
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                         </div>
+                       </div>
+                     </section>
+
+                     {/* 商品图片生成 */}
+                     <section className="space-y-4">
+                       <h3 className="text-sm font-bold text-zinc-200 flex items-center gap-2 uppercase tracking-wider">
+                         <Gem className="w-4 h-4 text-orange-500" /> 商品图片生成
+                       </h3>
+                       <div className="bg-white/2 border border-white/5 rounded-2xl p-6">
+                         <div className="text-xs text-zinc-600 italic">
+                           暂无专属配置，后续将支持默认比例与风格预设。
+                         </div>
+                       </div>
+                     </section>
+
+                     {/* 视频生成 */}
+                     <section className="space-y-4">
+                       <h3 className="text-sm font-bold text-zinc-200 flex items-center gap-2 uppercase tracking-wider">
+                         <Zap className="w-4 h-4 text-orange-500" /> 视频生成
+                       </h3>
+                       <div className="bg-white/2 border border-white/5 rounded-2xl p-8">
+                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                           <div className="space-y-2">
+                             <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_delivery_region}</div>
+                             <DropdownSelect
+                               value={prefsDraft.deliveryRegion}
+                               options={[
+                                 { value: '中国', label: t.wb_region_cn },
+                                 { value: '美国', label: t.wb_region_us },
+                                 { value: '东南亚', label: t.wb_region_sea },
+                                 { value: '欧洲', label: t.wb_region_eu },
+                                 { value: '日本', label: t.wb_region_jp },
+                                 { value: '韩国', label: t.wb_region_kr },
+                                 { value: '墨西哥', label: t.wb_region_mx },
+                               ]}
+                               onChange={(v) => setPrefsDraft((prev) => ({ ...prev, deliveryRegion: v }))}
+                               buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-zinc-200 hover:bg-white/5"
+                               iconClassName="w-4 h-4 text-zinc-500"
+                               optionClassName="text-xs"
+                             />
+                           </div>
+
+                           <div className="space-y-2">
+                             <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_video_language}</div>
+                             <DropdownSelect
+                               value={prefsDraft.targetLanguage}
+                               options={[
+                                 { value: 'en', label: t.lang_en },
+                                 { value: 'zh', label: t.lang_zh },
+                                 { value: 'es', label: t.lang_es },
+                                 { value: 'ja', label: t.lang_ja },
+                                 { value: 'ko', label: t.lang_ko },
+                                 { value: 'ms', label: t.lang_ms },
+                                 { value: 'vi', label: t.lang_vi },
+                                 { value: 'id', label: t.lang_id },
+                               ]}
+                               onChange={(v) => setPrefsDraft((prev) => ({ ...prev, targetLanguage: v }))}
+                               buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-zinc-200 hover:bg-white/5"
+                               iconClassName="w-4 h-4 text-zinc-500"
+                               optionClassName="text-xs"
+                             />
+                           </div>
+
+                           <div className="space-y-2">
+                             <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_video_type}</div>
+                             <DropdownSelect
+                               value={prefsDraft.videoType}
+                               options={[
+                                 { value: 'UGC种草', label: t.wb_video_type_ugc },
+                                 { value: '产品口播', label: t.wb_video_type_talking },
+                                 { value: '产品演示', label: t.wb_video_type_demo },
+                                 { value: '痛点-解决', label: t.wb_video_type_problem_solution },
+                                 { value: '前后对比', label: t.wb_video_type_before_after },
+                                 { value: '反应展示', label: t.wb_video_type_reaction },
+                                 { value: '故事讲述', label: t.wb_video_type_story },
+                               ]}
+                               onChange={(v) => setPrefsDraft((prev) => ({ ...prev, videoType: v }))}
+                               buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-zinc-200 hover:bg-white/5"
+                               iconClassName="w-4 h-4 text-zinc-500"
+                               optionClassName="text-xs"
+                             />
+                           </div>
+
+                           <div className="space-y-2">
+                             <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.aspect_ratio}</div>
+                             <DropdownSelect
+                               value={prefsDraft.aspectRatio}
+                               options={[
+                                 { value: '9:16', label: t.mobile },
+                                 { value: '16:9', label: t.landscape },
+                               ]}
+                               onChange={(v) => setPrefsDraft((prev) => ({ ...prev, aspectRatio: (v === '16:9' ? '16:9' : '9:16') }))}
+                               buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-zinc-200 hover:bg-white/5"
+                               iconClassName="w-4 h-4 text-zinc-500"
+                               optionClassName="text-xs"
+                             />
+                           </div>
+
+                           <div className="space-y-2">
+                             <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_duration}</div>
+                             <DropdownSelect
+                               value={String(prefsDraft.genDuration)}
+                               options={[
+                                 { value: '5', label: '5s' },
+                                 { value: '10', label: '10s' },
+                                 { value: '15', label: '15s' },
+                               ]}
+                               onChange={(v) => {
+                                 const next = Number(v);
+                                 setPrefsDraft((prev) => ({ ...prev, genDuration: next === 5 || next === 10 || next === 15 ? next : 10 }));
+                               }}
+                               buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-zinc-200 hover:bg-white/5"
+                               iconClassName="w-4 h-4 text-zinc-500"
+                               optionClassName="text-xs"
+                             />
+                           </div>
+
+                           <div className="space-y-2">
+                             <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_sound}</div>
+                             <DropdownSelect
+                               value={prefsDraft.soundSetting}
+                               options={[
+                                 { value: 'on', label: t.profile_pref_sound_on },
+                                 { value: 'off', label: t.profile_pref_sound_off },
+                               ]}
+                               onChange={(v) => setPrefsDraft((prev) => ({ ...prev, soundSetting: v as any }))}
+                               buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-zinc-200 hover:bg-white/5"
+                               iconClassName="w-4 h-4 text-zinc-500"
+                               optionClassName="text-xs"
+                             />
+                           </div>
+
+                           <div className="space-y-2">
+                             <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_quality}</div>
+                             <DropdownSelect
+                               value={prefsDraft.creationMode}
+                               options={[
+                                 { value: 'fast', label: t.profile_pref_quality_fast },
+                                 { value: 'replay', label: t.profile_pref_quality_replay },
+                               ]}
+                               onChange={(v) => {
+                                 setPrefsDraft((prev) => ({
+                                   ...prev,
+                                   creationMode: v as any,
+                                   selectedModelId: v === 'replay' ? 'seedance2.0' : prev.selectedModelId,
+                                 }));
+                               }}
+                               buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-zinc-200 hover:bg-white/5"
+                               iconClassName="w-4 h-4 text-zinc-500"
+                               optionClassName="text-xs"
+                             />
+                           </div>
+
+                           <div className="space-y-2">
+                             <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_model}</div>
+                             <DropdownSelect
+                               value={prefsDraft.creationMode === 'replay' ? 'seedance2.0' : prefsDraft.selectedModelId}
+                               disabled={prefsDraft.creationMode === 'replay'}
+                               options={
+                                 prefsDraft.creationMode === 'replay'
+                                   ? [{ value: 'seedance2.0', label: 'SeeDance 2.0' }]
+                                   : [
+                                       { value: 'kling', label: 'Kling' },
+                                       { value: 'sora2', label: 'Sora 2' },
+                                       { value: 'sora2pro', label: 'Sora 2 Pro' },
+                                     ]
+                               }
+                               onChange={(v) => setPrefsDraft((prev) => ({ ...prev, selectedModelId: v as any }))}
+                               buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-zinc-200 hover:bg-white/5"
+                               iconClassName="w-4 h-4 text-zinc-500"
+                               optionClassName="text-xs"
+                             />
+                           </div>
+                         </div>
+
+                         <div className="mt-8 pt-6 border-t border-white/5 flex items-center justify-between">
+                           <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
+                             高级设置
+                           </div>
+                           <button
+                             className="bg-red-500/10 text-red-300 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-red-500/20 hover:bg-red-500/15 hover:border-red-500/30 disabled:opacity-60 transition"
+                             onClick={handleResetVideoEstimate}
+                             disabled={isResettingVideoEstimate}
+                           >
+                             {isResettingVideoEstimate ? (t.profile_reset_video_estimate_submitting || '重置中...') : (t.profile_reset_video_estimate_btn || '重置视频耗时预估')}
+                           </button>
+                         </div>
+                       </div>
+                     </section>
+
+                     {/* Action Buttons */}
+                     <div className="flex justify-end gap-3 pt-6">
+                       <button
+                         className="px-6 py-2 rounded-xl bg-zinc-800 text-white text-sm font-bold hover:bg-zinc-700 transition"
+                         onClick={() => setIsPreferencesExpanded(false)}
+                       >
+                         {t.profile_preferences_cancel || '取消'}
+                       </button>
+                       <button
+                         className="px-8 py-2 rounded-xl bg-orange-500 text-white text-sm font-bold hover:bg-orange-600 shadow-[0_0_20px_rgba(249,115,22,0.2)] hover:shadow-[0_0_25px_rgba(249,115,22,0.3)] transition"
+                         onClick={handleSavePreferences}
+                       >
+                         {t.profile_preferences_save || '保存设置'}
+                       </button>
+                     </div>
+                   </div>
+                 </div>
+               )}
             </div>
          </div>
       </div>
-       {isPreferencesDialogOpen && (
-         <AppDialog
-           isOpen={isPreferencesDialogOpen}
-           title={t.profile_preferences_title || 'Preferences'}
-           onClose={() => setIsPreferencesDialogOpen(false)}
-           footer={
-             <>
-               <button
-                 className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
-                 onClick={() => setIsPreferencesDialogOpen(false)}
-               >
-                 {t.profile_preferences_cancel || 'Cancel'}
-               </button>
-               <button
-                 className="bg-red-500/10 text-red-300 px-4 py-2 rounded-lg text-sm font-bold border border-red-500/20 hover:bg-red-500/15 hover:border-red-500/30 disabled:opacity-60"
-                 onClick={handleResetVideoEstimate}
-                 disabled={isResettingVideoEstimate}
-                 title={t.profile_reset_video_estimate_btn || '重置视频耗时预估'}
-               >
-                 {isResettingVideoEstimate ? (t.profile_reset_video_estimate_submitting || '重置中...') : (t.profile_reset_video_estimate_btn || '重置视频耗时预估')}
-               </button>
-               <button
-                 className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-bold border border-white/10 hover:bg-zinc-800 hover:border-white/20"
-                 onClick={handleSavePreferences}
-               >
-                 {t.profile_preferences_save || 'Save'}
-               </button>
-             </>
-           }
-         >
-           <div className="space-y-4 text-sm text-zinc-300">
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-               <div className="space-y-1">
-                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_delivery_region}</div>
-                 <DropdownSelect
-                   value={prefsDraft.deliveryRegion}
-                   options={[
-                     { value: '中国', label: t.wb_region_cn },
-                     { value: '美国', label: t.wb_region_us },
-                     { value: '东南亚', label: t.wb_region_sea },
-                     { value: '欧洲', label: t.wb_region_eu },
-                     { value: '日本', label: t.wb_region_jp },
-                     { value: '韩国', label: t.wb_region_kr },
-                     { value: '墨西哥', label: t.wb_region_mx },
-                   ]}
-                   onChange={(v) => setPrefsDraft((prev) => ({ ...prev, deliveryRegion: v }))}
-                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                   iconClassName="w-4 h-4 text-zinc-500"
-                   optionClassName="text-xs"
-                 />
-               </div>
-
-               <div className="space-y-1">
-                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_video_language}</div>
-                 <DropdownSelect
-                   value={prefsDraft.targetLanguage}
-                   options={[
-                     { value: 'en', label: t.lang_en },
-                     { value: 'zh', label: t.lang_zh },
-                     { value: 'es', label: t.lang_es },
-                     { value: 'ja', label: t.lang_ja },
-                     { value: 'ko', label: t.lang_ko },
-                     { value: 'ms', label: t.lang_ms },
-                     { value: 'vi', label: t.lang_vi },
-                     { value: 'id', label: t.lang_id },
-                   ]}
-                   onChange={(v) => setPrefsDraft((prev) => ({ ...prev, targetLanguage: v }))}
-                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                   iconClassName="w-4 h-4 text-zinc-500"
-                   optionClassName="text-xs"
-                 />
-               </div>
-
-               <div className="space-y-1">
-                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_video_type}</div>
-                 <DropdownSelect
-                   value={prefsDraft.videoType}
-                   options={[
-                     { value: 'UGC种草', label: t.wb_video_type_ugc },
-                     { value: '产品口播', label: t.wb_video_type_talking },
-                     { value: '产品演示', label: t.wb_video_type_demo },
-                     { value: '痛点-解决', label: t.wb_video_type_problem_solution },
-                     { value: '前后对比', label: t.wb_video_type_before_after },
-                     { value: '反应展示', label: t.wb_video_type_reaction },
-                     { value: '故事讲述', label: t.wb_video_type_story },
-                   ]}
-                   onChange={(v) => setPrefsDraft((prev) => ({ ...prev, videoType: v }))}
-                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                   iconClassName="w-4 h-4 text-zinc-500"
-                   optionClassName="text-xs"
-                 />
-               </div>
-
-               <div className="space-y-1">
-                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.aspect_ratio}</div>
-                 <DropdownSelect
-                   value={prefsDraft.aspectRatio}
-                   options={[
-                     { value: '9:16', label: t.mobile },
-                     { value: '16:9', label: t.landscape },
-                   ]}
-                   onChange={(v) => setPrefsDraft((prev) => ({ ...prev, aspectRatio: (v === '16:9' ? '16:9' : '9:16') }))}
-                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                   iconClassName="w-4 h-4 text-zinc-500"
-                   optionClassName="text-xs"
-                 />
-               </div>
-
-               <div className="space-y-1">
-                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_duration}</div>
-                 <DropdownSelect
-                   value={String(prefsDraft.genDuration)}
-                   options={[
-                     { value: '5', label: '5s' },
-                     { value: '10', label: '10s' },
-                     { value: '15', label: '15s' },
-                   ]}
-                   onChange={(v) => {
-                     const next = Number(v);
-                     setPrefsDraft((prev) => ({ ...prev, genDuration: next === 5 || next === 10 || next === 15 ? next : 10 }));
-                   }}
-                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                   iconClassName="w-4 h-4 text-zinc-500"
-                   optionClassName="text-xs"
-                 />
-               </div>
-
-               <div className="space-y-1">
-                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_sound}</div>
-                 <DropdownSelect
-                   value={prefsDraft.soundSetting}
-                   options={[
-                     { value: 'on', label: t.profile_pref_sound_on },
-                     { value: 'off', label: t.profile_pref_sound_off },
-                   ]}
-                   onChange={(v) => setPrefsDraft((prev) => ({ ...prev, soundSetting: v as any }))}
-                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                   iconClassName="w-4 h-4 text-zinc-500"
-                   optionClassName="text-xs"
-                 />
-               </div>
-
-               <div className="space-y-1">
-                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_quality}</div>
-                 <DropdownSelect
-                   value={prefsDraft.creationMode}
-                   options={[
-                     { value: 'fast', label: t.profile_pref_quality_fast },
-                     { value: 'replay', label: t.profile_pref_quality_replay },
-                   ]}
-                   onChange={(v) => {
-                     setPrefsDraft((prev) => ({
-                       ...prev,
-                       creationMode: v as any,
-                       selectedModelId: v === 'replay' ? 'seedance2.0' : prev.selectedModelId,
-                     }));
-                   }}
-                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                   iconClassName="w-4 h-4 text-zinc-500"
-                   optionClassName="text-xs"
-                 />
-               </div>
-
-               <div className="space-y-1">
-                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_model}</div>
-                 <DropdownSelect
-                   value={prefsDraft.creationMode === 'replay' ? 'seedance2.0' : prefsDraft.selectedModelId}
-                   disabled={prefsDraft.creationMode === 'replay'}
-                   options={
-                     prefsDraft.creationMode === 'replay'
-                       ? [{ value: 'seedance2.0', label: t.wb_model_seedance_desc ? 'SeeDance 2.0' : 'SeeDance 2.0' }]
-                       : [
-                           { value: 'kling', label: 'Kling' },
-                           { value: 'sora2', label: 'Sora 2' },
-                           { value: 'sora2pro', label: 'Sora 2 Pro' },
-                         ]
-                   }
-                   onChange={(v) => setPrefsDraft((prev) => ({ ...prev, selectedModelId: v as any }))}
-                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                   iconClassName="w-4 h-4 text-zinc-500"
-                   optionClassName="text-xs"
-                 />
-               </div>
-
-               <div className="space-y-1">
-                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_theme}</div>
-                 <DropdownSelect
-                   value={prefsDraft.theme}
-                   options={([
-                     { value: 'light', label: t.profile_theme_light || 'Light' },
-                     { value: 'dim', label: t.profile_theme_dim || 'Dim' },
-                     { value: 'dark', label: t.profile_theme_dark || 'Dark' },
-                   ] as const)}
-                   onChange={(v) => setPrefsDraft((prev) => ({ ...prev, theme: v as any }))}
-                   buttonClassName="bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                   iconClassName="w-4 h-4 text-zinc-500"
-                   optionClassName="text-xs"
-                 />
-               </div>
-             </div>
-           </div>
-         </AppDialog>
-       )}
 
        {isPasswordDialogOpen && (
          <AppDialog

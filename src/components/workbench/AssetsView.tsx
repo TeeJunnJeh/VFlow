@@ -2401,12 +2401,12 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       <button onClick={() => { setSubjectSlotPicking(null); setSlotPickerAssets([]); setSlotPickerFolders([]); setSelectedPickerIds(new Set()); }} className="text-zinc-500 hover:text-white transition"><X className="w-5 h-5" /></button>
                     </div>
                     {/* Picker breadcrumb */}
-                    <div className="flex items-center gap-1.5 text-xs text-zinc-500 mb-3 pb-2 border-b border-white/5">
-                      <button onClick={() => { void loadSlotPickerData('image', null); }} className={`hover:text-white transition ${slotPickerFolderId === null ? 'text-white' : ''}`}>{t.assets_root}</button>
+                    <div className="flex items-center gap-1.5 text-sm text-zinc-500 mb-3 pb-2 border-b border-white/5">
+                      <button type="button" onClick={() => { void loadSlotPickerData('image', null); }} className={`wb-asset-library-crumb hover:text-white transition ${slotPickerFolderId === null ? 'text-white' : ''}`}>{t.assets_root}</button>
                       {slotPickerBreadcrumb.map(f => (
                         <div key={f.id} className="flex items-center gap-1.5">
                           <span>/</span>
-                          <button onClick={() => { void loadSlotPickerData('image', f.id); }} className={`hover:text-white transition truncate max-w-[120px] ${slotPickerFolderId === f.id ? 'text-white' : ''}`}>{f.name}</button>
+                          <button type="button" onClick={() => { void loadSlotPickerData('image', f.id); }} className={`wb-asset-library-crumb hover:text-white transition truncate max-w-[120px] ${slotPickerFolderId === f.id ? 'text-white' : ''}`}>{f.name}</button>
                         </div>
                       ))}
                     </div>
@@ -2490,14 +2490,14 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
            {/* Breadcrumb */}
             <div className="flex items-center justify-between gap-4 mb-4">
-              <div className="flex items-center gap-2 text-xs text-zinc-500 min-w-0">
+              <div className="flex items-center gap-2 text-sm text-zinc-500 min-w-0">
                 <button
                   onClick={() => setCurrentFolderId(null)}
                   onDragOver={dragOverRoot}
                   onDragEnter={dragOverRoot}
                   onDragLeave={() => setIsDragOverRoot(false)}
                   onDrop={(e) => dropMoveTo(null, e)}
-                  className={`hover:text-white ${currentFolderId === null ? 'text-white' : ''} ${draggingAsset && isDragOverRoot ? 'text-white' : ''}`}
+                  className={`wb-asset-library-crumb hover:text-white ${currentFolderId === null ? 'text-white' : ''} ${draggingAsset && isDragOverRoot ? 'text-white' : ''}`}
                 >
                   {t.assets_root}
                 </button>
@@ -2510,7 +2510,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       onDragEnter={(e) => dragOverFolder(folder.id, e)}
                       onDragLeave={() => { if (dragOverFolderId === folder.id) setDragOverFolderId(null); }}
                       onDrop={(e) => dropMoveTo(folder.id, e)}
-                      className={`hover:text-white truncate ${currentFolderId === folder.id ? 'text-white' : ''} ${draggingAsset && dragOverFolderId === folder.id ? 'text-white underline decoration-orange-500/80' : ''}`}
+                      className={`wb-asset-library-crumb hover:text-white truncate ${currentFolderId === folder.id ? 'text-white' : ''} ${draggingAsset && dragOverFolderId === folder.id ? 'text-white underline decoration-orange-500/80' : ''}`}
                     >
                       {folder.name}
                     </button>
@@ -3333,14 +3333,14 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-white/10">
                 <div className="min-w-0">
                   <div className="text-sm font-bold text-zinc-100">{t.wb_dialog_choose_from_library || '选择素材'}</div>
-                  <div className="mt-1 flex items-center gap-2 text-xs text-zinc-500 min-w-0">
-                    <button type="button" onClick={() => setSubjectPickerFolderId(null)} className="hover:text-white">
+                  <div className="mt-1 flex items-center gap-2 text-sm text-zinc-500 min-w-0">
+                    <button type="button" onClick={() => setSubjectPickerFolderId(null)} className="wb-asset-library-crumb hover:text-white">
                       {t.assets_root}
                     </button>
                     {subjectPickerBreadcrumb.map((folder) => (
                       <React.Fragment key={folder.id}>
                         <span>/</span>
-                        <button type="button" onClick={() => setSubjectPickerFolderId(folder.id)} className="truncate hover:text-white">
+                        <button type="button" onClick={() => setSubjectPickerFolderId(folder.id)} className="wb-asset-library-crumb truncate hover:text-white">
                           {folder.name}
                         </button>
                       </React.Fragment>

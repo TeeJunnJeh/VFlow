@@ -292,6 +292,36 @@ body {
   background-color: #ffffff !important;
   color: #0f172a !important;
 }
+.theme-light button.wb-asset-library-crumb {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+.theme-light button.wb-asset-library-crumb:hover {
+  background-color: rgba(15, 23, 42, 0.06) !important;
+}
+html.theme-light button.wb-upload-library-btn {
+  background-color: rgba(248, 250, 252, 0.98) !important;
+  border: 1px solid rgba(15, 23, 42, 0.18) !important;
+  color: #0f172a !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08) !important;
+}
+html.theme-light button.wb-upload-library-btn:hover {
+  border-color: rgba(234, 88, 12, 0.55) !important;
+  background-color: rgba(255, 237, 213, 0.65) !important;
+  color: #c2410c !important;
+  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.14) !important;
+}
+html.theme-light .wb-emerald-upload-status-wrap,
+html.theme-light .wb-seedance-replay-added-badge {
+  border-color: rgba(5, 150, 105, 0.4) !important;
+  background-color: rgba(16, 185, 129, 0.12) !important;
+}
+html.theme-light .wb-emerald-upload-status {
+  color: #047857 !important;
+}
+html.theme-light .wb-seedance-replay-added-badge {
+  color: #047857 !important;
+}
 /* Workbench project list item should stay transparent in light mode */
 .theme-light .project-menu-item-btn {
   background-color: transparent !important;

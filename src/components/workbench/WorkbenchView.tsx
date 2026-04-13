@@ -8866,7 +8866,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           <button
                             type="button"
                             onClick={openBackgroundAudioPicker}
-                            className="flex w-full items-center rounded-md border border-transparent px-3 py-2 text-left text-xs text-zinc-200 transition hover:border-zinc-400/30 hover:bg-zinc-500/10 hover:text-orange-200"
+                            className="wb-upload-library-btn flex w-full items-center rounded-md border border-transparent px-3 py-2 text-left text-xs text-zinc-200 transition hover:border-zinc-400/30 hover:bg-zinc-500/10 hover:text-orange-200"
                           >
                             <span>{t.wb_btn_choose_from_library || '从素材库选择'}</span>
                           </button>
@@ -8979,9 +8979,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <button
                       type="button"
                       onClick={() => handleKlingGenerateModeChange('first_frame')}
-                      className={`relative overflow-visible rounded-xl border px-3 py-2 text-left transition hover:z-20 ${klingGenerateMode === 'first_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                      className={`relative flex items-center justify-center overflow-visible rounded-xl border px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'first_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
-                    <div className="flex items-center gap-1 text-xs font-bold">
+                    <div className="flex items-center justify-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_first_frame}</span>
                       <span className="relative z-10 inline-flex items-center group/info hover:z-20">
                         <Info className="h-3 w-3 text-zinc-400" />
@@ -8996,9 +8996,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <button
                       type="button"
                       onClick={() => handleKlingGenerateModeChange('subject')}
-                      className={`relative overflow-visible rounded-xl border px-3 py-2 text-left transition hover:z-20 ${klingGenerateMode === 'subject' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                      className={`relative flex items-center justify-center overflow-visible rounded-xl border px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'subject' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
-                    <div className="flex items-center gap-1 text-xs font-bold">
+                    <div className="flex items-center justify-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_subject}</span>
                       <span className="relative z-10 inline-flex items-center group/info hover:z-20">
                         <Info className="h-3 w-3 text-zinc-400" />
@@ -9014,9 +9014,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <button
                       type="button"
                       onClick={() => handleKlingGenerateModeChange('first_last_frame')}
-                      className={`relative overflow-visible rounded-xl border px-3 py-2 text-left transition hover:z-20 ${klingGenerateMode === 'first_last_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                      className={`relative flex items-center justify-center overflow-visible rounded-xl border px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'first_last_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
-                    <div className="flex items-center gap-1 text-xs font-bold">
+                    <div className="flex items-center justify-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_first_last_frame || 'First + Last Frame Mode'}</span>
                       <span className="relative z-10 inline-flex items-center group/info hover:z-20">
                         <Info className="h-3 w-3 text-zinc-400" />
@@ -9068,7 +9068,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     <button
                         type="button"
                         onClick={openAssetLibraryPicker}
-                        className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-bold text-zinc-100 transition hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-200"
+                        className="wb-upload-library-btn inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-bold text-zinc-100 transition hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-200"
                     >
                       <FolderOpen className="w-3.5 h-3.5" />
                       {t.wb_btn_choose_from_library || '从素材库选择'}
@@ -9376,7 +9376,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   e.stopPropagation();
                   openAssetLibraryPicker();
                 }}
-                className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
+                className="wb-upload-library-btn rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
             >
               {t.wb_btn_choose_from_library || '从素材库选择素材'}
             </button>
@@ -10915,11 +10915,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
                 )}
                 {assetLibraryTab !== 'subject' && (
-                <div className="flex items-center gap-2 text-xs text-zinc-500 min-w-0">
+                <div className="flex items-center gap-2 text-sm text-zinc-500 min-w-0">
                   <button
                       type="button"
                       onClick={() => setAssetLibraryCurrentFolderId(null)}
-                      className={`hover:text-white ${assetLibraryCurrentFolderId === null ? 'text-white' : ''}`}
+                      className={`wb-asset-library-crumb hover:text-white ${assetLibraryCurrentFolderId === null ? 'text-white' : ''}`}
                   >
                     {t.assets_root || '根目录'}
                   </button>
@@ -10929,7 +10929,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         <button
                             type="button"
                             onClick={() => setAssetLibraryCurrentFolderId(folder.id)}
-                            className={`hover:text-white truncate ${assetLibraryCurrentFolderId === folder.id ? 'text-white' : ''}`}
+                            className={`wb-asset-library-crumb hover:text-white truncate ${assetLibraryCurrentFolderId === folder.id ? 'text-white' : ''}`}
                         >
                           {folder.name}
                         </button>
@@ -11030,7 +11030,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                   </div>
                                 )}
                                 {alreadyAddedInSeedance && (
-                                  <div className="absolute left-1.5 top-1.5 z-10 rounded-full border border-emerald-400/70 bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold text-emerald-200">
+                                  <div className="wb-seedance-replay-added-badge absolute left-1.5 top-1.5 z-10 rounded-full border border-emerald-500/20 bg-emerald-500/5 px-1.5 py-0.5 text-[9px] font-bold text-emerald-400/85">
                                     {t.wb_seedance_replay_added_badge || '已添加'}
                                   </div>
                                 )}

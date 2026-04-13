@@ -260,8 +260,8 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
           </div>
 
           {uploadedStatusText && (
-            <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-2">
-              <p className="text-sm text-emerald-400/85">{uploadedStatusText}</p>
+            <div className="wb-emerald-upload-status-wrap mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-2 text-center">
+              <p className="wb-emerald-upload-status text-sm text-emerald-400/85">{uploadedStatusText}</p>
             </div>
           )}
         </div>

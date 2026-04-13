@@ -219,7 +219,7 @@ export function SeedanceReplayUploadPanel({
               <button
                 type="button"
                 onClick={onOpenLibrary}
-                className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/[0.04] px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:border-white/30 hover:bg-white/[0.08]"
+                className="wb-upload-library-btn mt-3 inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/[0.04] px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:border-white/30 hover:bg-white/[0.08]"
               >
                 <Library className="h-3.5 w-3.5" />
                 {t.wb_seedance_replay_open_library || '从素材库选择'}
@@ -240,7 +240,7 @@ export function SeedanceReplayUploadPanel({
               <button
                 type="button"
                 onClick={onOpenLibrary}
-                className="ml-auto inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-bold text-zinc-300 transition hover:border-white/25 hover:bg-white/[0.08] hover:text-white"
+                className="wb-upload-library-btn ml-auto inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-bold text-zinc-300 transition hover:border-white/25 hover:bg-white/[0.08] hover:text-white"
               >
                 <Library className="h-3 w-3" />
                 {t.wb_seedance_replay_open_library || '从素材库选择'}

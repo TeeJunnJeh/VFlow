@@ -86,7 +86,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
         activeView === view ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300'
       }`}
     >
-      <Icon className={`w-5 h-5 transition-all ${activeView === view ? 'stroke-[2.5px]' : ''}`} />
+      <div className={`transition-colors ${activeView === view ? 'text-orange-500' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
+        <Icon className={`w-5 h-5 transition-all ${activeView === view ? 'stroke-[2.5px]' : ''}`} />
+      </div>
       {activeView === view && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />}
       <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
         {label}
@@ -116,7 +118,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
           aria-expanded={isProductImagesPickerOpen}
           title={tx('wb_nav_product_images', tr('商品图片生成', 'Product Images'))}
         >
-          <ImageIcon className={`w-5 h-5 transition-all ${active ? 'stroke-[2.5px]' : ''}`} />
+          <div className={`transition-colors ${active ? 'text-orange-500' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
+            <ImageIcon className={`w-5 h-5 transition-all ${active ? 'stroke-[2.5px]' : ''}`} />
+          </div>
           {active && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />}
           <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
             {tx('wb_nav_product_images', tr('商品图片生成', 'Product Images'))}

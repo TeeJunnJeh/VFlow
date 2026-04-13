@@ -1,8 +1,13 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { ChevronDown, Eye, Image as ImageIcon, LayoutGrid, Minus, Plus, RotateCw, Sparkles, Upload, Wand2, X } from 'lucide-react';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import type { ViewType } from '../../../workbench/types';
 import type { LoadingTheme } from '../../../../utils/loadingTheme';
+import ResizableSplitter from '../../../common/ResizableSplitter';
+
+const GALLERY_PANEL_MIN_WIDTH = 300;
+const GALLERY_PANEL_MAX_WIDTH = 500;
+const GALLERY_PANEL_DEFAULT_WIDTH = 320;
 
 export type ImagesGalleryViewProps = {
   panelClassName: (view: ViewType) => string;
@@ -270,6 +275,72 @@ const GalleryLoadingCard: React.FC<{
 };
 
 const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
+  const [leftWidth, setLeftWidth] = useState<number>(GALLERY_PANEL_DEFAULT_WIDTH);
+  const [middleWidth, setMiddleWidth] = useState<number>(GALLERY_PANEL_DEFAULT_WIDTH);
+
+  useEffect(() => {
+    const savedLeftWidth = localStorage.getItem('gallery_left_width');
+    const savedMiddleWidth = localStorage.getItem('gallery_middle_width');
+
+    if (savedLeftWidth) {
+      const width = parseInt(savedLeftWidth, 10);
+      if (!isNaN(width) && width >= GALLERY_PANEL_MIN_WIDTH && width <= GALLERY_PANEL_MAX_WIDTH) {
+        setLeftWidth(width);
+      }
+    }
+
+    if (savedMiddleWidth) {
+      const width = parseInt(savedMiddleWidth, 10);
+      if (!isNaN(width) && width >= GALLERY_PANEL_MIN_WIDTH && width <= GALLERY_PANEL_MAX_WIDTH) {
+        setMiddleWidth(width);
+      }
+    }
+  }, []);
+
+  const handleLeftResize = (width: number) => {
+    const container = document.getElementById('gallery-container');
+    const requestedWidth = Math.min(Math.max(width, GALLERY_PANEL_MIN_WIDTH), GALLERY_PANEL_MAX_WIDTH);
+
+    if (container) {
+      const containerWidth = container.clientWidth;
+      const maxLeftWidth = containerWidth - Math.max(middleWidth, GALLERY_PANEL_MIN_WIDTH) - GALLERY_PANEL_MIN_WIDTH;
+      const limitedWidth = Math.max(GALLERY_PANEL_MIN_WIDTH, Math.min(requestedWidth, maxLeftWidth));
+
+      setLeftWidth(limitedWidth);
+      localStorage.setItem('gallery_left_width', limitedWidth.toString());
+      return;
+    }
+
+    setLeftWidth(requestedWidth);
+    localStorage.setItem('gallery_left_width', requestedWidth.toString());
+  };
+  
+  const handleMiddleResize = (width: number) => {
+    const container = document.getElementById('gallery-container');
+    const requestedWidth = Math.min(Math.max(width, GALLERY_PANEL_MIN_WIDTH), GALLERY_PANEL_MAX_WIDTH);
+
+    if (container) {
+      const containerWidth = container.clientWidth;
+      const safeLeftWidth = Math.max(leftWidth, GALLERY_PANEL_MIN_WIDTH);
+      const maxMiddleWidth = containerWidth - safeLeftWidth - GALLERY_PANEL_MIN_WIDTH;
+      const limitedWidth = Math.max(GALLERY_PANEL_MIN_WIDTH, Math.min(requestedWidth, maxMiddleWidth));
+
+      setMiddleWidth(limitedWidth);
+      localStorage.setItem('gallery_middle_width', limitedWidth.toString());
+      return;
+    }
+
+    setMiddleWidth(requestedWidth);
+    localStorage.setItem('gallery_middle_width', requestedWidth.toString());
+  };
+
+  const handleResetWidths = () => {
+    setLeftWidth(GALLERY_PANEL_DEFAULT_WIDTH);
+    setMiddleWidth(GALLERY_PANEL_DEFAULT_WIDTH);
+    localStorage.removeItem('gallery_left_width');
+    localStorage.removeItem('gallery_middle_width');
+  };
+
   const {
     panelClassName,
     t,
@@ -368,8 +439,12 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
   return (
     <div className={`${panelClassName('product_images_gallery')} h-full min-h-0 flex flex-col px-10 py-6`}>
-      <div className="flex-1 min-h-0 flex gap-6 overflow-hidden">
-        <div className="w-[24%] min-w-[320px] max-w-[420px] flex flex-col gap-4 min-h-0 overflow-y-auto custom-scroll pr-2">
+      <div className="flex-1 min-h-0 flex overflow-hidden relative" id="gallery-container">
+        <div 
+          className="flex flex-col gap-4 min-h-0 overflow-y-auto custom-scroll pr-2 shrink-0 transition-[width] duration-100 border border-transparent hover:border-orange-500/20"
+          style={{ width: `${leftWidth}px`, minWidth: `${GALLERY_PANEL_MIN_WIDTH}px` }}
+          data-testid="left-panel"
+        >
           <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
             <div className="flex items-center justify-between">
               <div className="text-sm font-bold text-zinc-200">
@@ -466,11 +541,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   <button
                     type="button"
                     onClick={() => galleryFileInputRef.current?.click()}
-                    className={`group mt-3 w-full rounded-2xl border border-dashed px-4 py-10 text-center transition ${
-                      isGalleryDragActive
+                    className={`group mt-3 w-full rounded-2xl border border-dashed px-4 py-10 text-center transition ${isGalleryDragActive
                         ? 'border-orange-500/70 bg-orange-500/10 text-orange-100'
                         : 'border-white/10 bg-black/20 text-zinc-500 hover:text-zinc-300 hover:border-white/20'
-                    }`}
+                      }`}
                   >
                     <div className="relative w-10 h-10 mx-auto mb-2">
                       <ImageIcon className="w-10 h-10 opacity-50 transition-opacity duration-150 group-hover:opacity-0" />
@@ -627,11 +701,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                         key={idx}
                         type="button"
                         onClick={() => setHotStyleSelectedIndex((prev: number | null) => (prev === idx ? null : idx))}
-                        className={`relative text-left rounded-xl border bg-black/20 p-3 transition ${
-                          isSelected
+                        className={`relative text-left rounded-xl border bg-black/20 p-3 transition ${isSelected
                             ? 'border-orange-500'
                             : 'border-white/10 hover:border-white/20'
-                        }`}
+                          }`}
                         title={isSelected ? tr('已选择，再次点击取消', 'Selected. Click again to unselect') : tr('点击选择', 'Click to select')}
                       >
                         <div className="flex items-center gap-1 mb-2">
@@ -642,11 +715,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                         <div className="text-sm font-bold text-zinc-200">{s.name}</div>
                         <div className="mt-1 text-xs text-zinc-400">{s.description}</div>
                         <div
-                          className={`absolute top-2 right-2 w-5 h-5 rounded-md border flex items-center justify-center text-[11px] font-bold ${
-                            isSelected
+                          className={`absolute top-2 right-2 w-5 h-5 rounded-md border flex items-center justify-center text-[11px] font-bold ${isSelected
                               ? 'bg-orange-500 border-orange-500 text-black'
                               : 'bg-black/40 border-white/20 text-transparent'
-                          }`}
+                            }`}
                         >
                           ✓
                         </div>
@@ -744,11 +816,23 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
           </div>
         </div>
 
-        <div className="w-[24%] min-w-[320px] max-w-[460px] flex flex-col gap-4 min-h-0 overflow-y-auto custom-scroll pr-2">
-          <div className="rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0">
+        <ResizableSplitter
+          position={leftWidth}
+          minSize={GALLERY_PANEL_MIN_WIDTH}
+          onResize={handleLeftResize}
+          orientation="vertical"
+          className="hover:bg-orange-500/20"
+        />
+
+        <div 
+          className="flex flex-col gap-4 min-h-0 overflow-y-auto custom-scroll pr-2 shrink-0 transition-[width] duration-100 border border-transparent hover:border-orange-500/20"
+          style={{ width: `${middleWidth}px`, minWidth: `${GALLERY_PANEL_MIN_WIDTH}px` }}
+          data-testid="middle-panel"
+        >
+          <div className="rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col flex-1">
             <div className="text-sm font-bold text-zinc-200 shrink-0">{t.hist_img_settings_title}</div>
 
-            <div className="mt-4 space-y-6">
+            <div className="mt-4 p-4 rounded-xl border border-white/10 bg-black/20 space-y-6 flex-1">
               <div>
                 <div className="text-xs font-bold text-zinc-200">{t.pi_gallery_settings_section_basics}</div>
                 <div className="mt-3 grid grid-cols-2 gap-4">
@@ -977,19 +1061,33 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={handleGalleryGenerate}
-              disabled={isGalleryGenerating}
-              className="mt-4 w-full rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400 disabled:opacity-60 disabled:hover:bg-orange-500 transition flex items-center justify-center gap-2 shrink-0"
-            >
-              <Wand2 className="w-4 h-4" />
-              {isGalleryGenerating ? tr('生成中...', 'Generating...') : tr('开始生成', 'Generate')}
-            </button>
+            <div className="mt-auto pt-6">
+              <button
+                type="button"
+                onClick={handleGalleryGenerate}
+                disabled={isGalleryGenerating}
+                className="w-full rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400 disabled:opacity-60 disabled:hover:bg-orange-500 transition flex items-center justify-center gap-2"
+              >
+                <Wand2 className="w-4 h-4" />
+                {isGalleryGenerating ? tr('生成中...', 'Generating...') : tr('开始生成', 'Generate')}
+              </button>
+            </div>
           </div>
         </div>
 
-        <div className="flex-1 min-w-0 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0 overflow-hidden">
+        <ResizableSplitter
+          position={middleWidth}
+          minSize={GALLERY_PANEL_MIN_WIDTH}
+          onResize={handleMiddleResize}
+          orientation="vertical"
+          className="hover:bg-orange-500/20"
+        />
+
+        <div 
+          className="flex-1 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0 overflow-hidden border border-transparent hover:border-orange-500/20"
+          style={{ minWidth: `${GALLERY_PANEL_MIN_WIDTH}px` }}
+          data-testid="right-panel"
+        >
           <div className="flex items-center justify-between">
             <div className="text-sm font-bold text-zinc-200">
               {galleryRightPanel === 'preview' ? tr('预览区', 'Preview') : tr('历史记录', 'History')}
@@ -1010,11 +1108,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   setIsGalleryHistoryManaging(false);
                   setGalleryHistorySelectedKeys([]);
                 }}
-                className={`px-3 py-2 rounded-xl text-xs font-bold transition border ${
-                  galleryRightPanel === 'preview'
+                className={`px-3 py-2 rounded-xl text-xs font-bold transition border ${galleryRightPanel === 'preview'
                     ? 'bg-orange-500/10 border-orange-500 text-orange-300'
                     : 'bg-zinc-900/70 border-white/10 text-zinc-200 hover:bg-zinc-800'
-                }`}
+                  }`}
               >
                 {tr('预览区', 'Preview')}
               </button>
@@ -1025,11 +1122,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   setIsGalleryHistoryManaging(false);
                   setGalleryHistorySelectedKeys([]);
                 }}
-                className={`px-3 py-2 rounded-xl text-xs font-bold transition border ${
-                  galleryRightPanel === 'history'
+                className={`px-3 py-2 rounded-xl text-xs font-bold transition border ${galleryRightPanel === 'history'
                     ? 'bg-orange-500/10 border-orange-500 text-orange-300'
                     : 'bg-zinc-900/70 border-white/10 text-zinc-200 hover:bg-zinc-800'
-                }`}
+                  }`}
               >
                 {tr('历史记录', 'History')}
               </button>

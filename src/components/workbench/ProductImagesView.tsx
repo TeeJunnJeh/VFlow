@@ -1052,6 +1052,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           image_url: galleryInpaint.resultUrl || galleryPreviewImageUrl,
           mask_data_url: maskDataUrl,
           prompt,
+          aspect_ratio: `${img.naturalWidth}:${img.naturalHeight}`,
         }),
       });
 
@@ -2619,8 +2620,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
                   {galleryInpaint.rect ? (
                     <>
-                      <style>{'@keyframes inpaintDash{to{stroke-dashoffset:-24;}}'}</style>
-
                       <div
                         className="absolute pointer-events-none rounded-xl"
                         style={{
@@ -2631,8 +2630,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                           boxShadow: `0 0 0 9999px rgba(0,0,0,${galleryInpaint.maskOpacity})`,
                         }}
                       />
-
-                      <style>{'@keyframes inpaintDash{from{stroke-dashoffset:0;}to{stroke-dashoffset:-28;}}'}</style>
+                      <style>{'@keyframes inpaintDash{from{stroke-dashoffset:0;}to{stroke-dashoffset:-26;}}'}</style>
 
                       {(() => {
                         const w = Math.max(1, Math.round(galleryInpaint.rect.w * (inpaintBoxSize.w || 100)));
@@ -2674,7 +2672,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                               strokeWidth={2}
                               strokeLinecap="round"
                               strokeDasharray="6 7"
-                              style={{ animation: 'inpaintDash 1.15s linear infinite' }}
+                              style={{ animation: 'inpaintDash 0.9s linear infinite' }}
                             />
                           </svg>
                         );

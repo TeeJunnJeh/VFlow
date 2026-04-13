@@ -2609,9 +2609,9 @@ export const translations = {
     profile_theme_light: "浅色",
     profile_theme_system: "跟随系统",
 
-    profile_preferences: "偏好设置",
+    profile_preferences: "项目配置偏好",
     profile_preferences_desc: "新项目默认配置",
-    profile_preferences_title: "偏好设置",
+    profile_preferences_title: "项目配置偏好",
     profile_preferences_cancel: "取消",
     profile_preferences_save: "保存",
 

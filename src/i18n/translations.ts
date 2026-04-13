@@ -1215,6 +1215,7 @@ export const translations = {
     profile_theme_dark: "Dark",
     profile_theme_dim: "Dim",
     profile_theme_light: "Light",
+    profile_theme_system: "System",
 
     profile_preferences: "Preferences",
     profile_preferences_desc: "Defaults for new projects",
@@ -2606,6 +2607,7 @@ export const translations = {
     profile_theme_dark: "深色",
     profile_theme_dim: "暗色",
     profile_theme_light: "浅色",
+    profile_theme_system: "跟随系统",
 
     profile_preferences: "项目配置偏好",
     profile_preferences_desc: "新项目默认配置",

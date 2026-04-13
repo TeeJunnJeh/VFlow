@@ -5,26 +5,50 @@ import {
   FolderOpen,
   History,
   Image as ImageIcon,
+  SunMoon,
   Sparkles,
   User as UserIcon,
   Video,
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
+import { authApi } from '../../services/auth';
 import type { ViewType } from './types';
 
 interface SidebarProps {
   activeView: ViewType;
   setActiveView: (view: ViewType) => void;
   isDebugModeEnabled: boolean;
+  theme: 'dark' | 'light' | 'dim' | 'system';
+  setTheme: (theme: 'dark' | 'light' | 'dim' | 'system') => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isDebugModeEnabled }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isDebugModeEnabled, theme, setTheme }) => {
   const { t, language } = useLanguage();
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const isZh = language === 'zh';
   const tx = (key: string, fallback: string) => ((t as any)[key] as string) || fallback;
   const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
+  const themeCycle: Array<'light' | 'dark' | 'dim' | 'system'> = ['system', 'light', 'dark', 'dim'];
+
+  const handleCycleTheme = React.useCallback(() => {
+    const currentIndex = themeCycle.indexOf(theme);
+    const nextTheme = themeCycle[(currentIndex + 1 + themeCycle.length) % themeCycle.length];
+    setTheme(nextTheme);
+    updateUser({ theme: nextTheme });
+    void authApi.updateProfile({ theme: nextTheme }).catch((err) => {
+      console.error('Failed to persist sidebar theme switch', err);
+    });
+  }, [setTheme, theme, updateUser]);
+
+  const nextTheme = themeCycle[(themeCycle.indexOf(theme) + 1 + themeCycle.length) % themeCycle.length];
+  const themeButtonLabel = nextTheme === 'light'
+    ? tr('切换到日间', 'Switch to light')
+    : nextTheme === 'dark'
+      ? tr('切换到夜间', 'Switch to dark')
+      : nextTheme === 'dim'
+        ? tr('切换到暗淡', 'Switch to dim')
+        : tr('切换到跟随系统', 'Switch to system');
 
   const isProductImagesView =
     activeView === 'product_images_clothing_swap' ||
@@ -151,6 +175,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
         </div>
 
         <div className="mt-auto pb-6 w-full px-2 flex flex-col items-center gap-4">
+          <button
+            type="button"
+            onClick={handleCycleTheme}
+            className="w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative border-white/5 bg-zinc-900/50 hover:border-white/20"
+            title={themeButtonLabel}
+          >
+            <div className="text-zinc-500 group-hover:text-zinc-300 transition-colors">
+              <SunMoon className="w-5 h-5" />
+            </div>
+            <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
+              {themeButtonLabel}
+            </div>
+          </button>
+
           <button
             type="button"
             onClick={() => {

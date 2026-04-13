@@ -12,8 +12,8 @@ import { getWorkbenchPreferences, setWorkbenchPreferences, type WorkbenchPrefere
 import { isStrongPassword } from '../../utils/passwordRules';
 
 interface ProfileViewProps {
-  theme: 'dark' | 'light' | 'dim';
-  setTheme: (t: 'dark' | 'light' | 'dim') => void;
+  theme: 'dark' | 'light' | 'dim' | 'system';
+  setTheme: (t: 'dark' | 'light' | 'dim' | 'system') => void;
   isDebugModeEnabled: boolean;
 }
 
@@ -53,6 +53,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
   });
   const requiresCurrentPassword = user?.hasPassword === true;
   const { isInfoOpen, setIsInfoOpen, infoTitle, infoMessage, openInfo } = useProfileInfo();
+  const freezeRemainingLabel = (() => {
+    const total = Math.max(0, Number(user?.frozenRemainingSeconds || 0));
+    if (!total) return '0 分钟';
+    const days = Math.floor(total / 86400);
+    const hours = Math.floor((total % 86400) / 3600);
+    const minutes = Math.max(1, Math.ceil((total % 3600) / 60));
+    if (days > 0) return `${days}天 ${hours}小时`;
+    if (hours > 0) return `${hours}小时 ${minutes}分钟`;
+    return `${minutes}分钟`;
+  })();
 
   const buildPrefsDraft = (): WorkbenchPreferences => {
     const stored = getWorkbenchPreferences(user?.id ?? null);
@@ -78,7 +88,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
       selectedModelId,
       scriptVariantCount:
         typeof stored.scriptVariantCount === 'number' && stored.scriptVariantCount > 0 ? stored.scriptVariantCount : 1,
-      theme: (stored.theme === 'light' || stored.theme === 'dim' || stored.theme === 'dark') ? stored.theme : theme,
+      theme: (stored.theme === 'light' || stored.theme === 'dim' || stored.theme === 'dark' || stored.theme === 'system') ? stored.theme : theme,
     };
   };
 
@@ -426,29 +436,40 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                      </div>
 
                      {/* Balance Section */}
-                     <div className="space-y-4 bg-white/2 rounded-2xl p-6 border border-white/5 shadow-inner">
+                     <div className={`space-y-4 rounded-2xl p-6 border shadow-inner ${user?.isFrozen ? 'bg-zinc-800/70 border-zinc-600/40' : 'bg-white/2 border-white/5'}`}>
                         <div className="flex items-end justify-between px-1">
                             <div className="space-y-1">
                                 <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest">{t.profile_balance || 'Balance'}</div>
-                                <div className="text-4xl font-black text-white italic tracking-tighter">
+                                <div className={`text-4xl font-black italic tracking-tighter ${user?.isFrozen ? 'text-zinc-300' : 'text-white'}`}>
                                     {user?.plan === 'pro' ? '∞' : (user?.credits || 0)} <span className="text-[10px] not-italic text-zinc-500 font-bold uppercase ml-1">{t.v_points || 'V-Points'}</span>
                                 </div>
                             </div>
+                                {user?.isFrozen ? (
+                                  <div className="inline-flex items-center gap-2 rounded-full border border-zinc-500/40 bg-zinc-700/70 px-3 py-1 text-[11px] font-semibold text-zinc-200">
+                                    <span>已冻结</span>
+                                    <span className="text-zinc-400">剩余 {freezeRemainingLabel}</span>
+                                  </div>
+                                ) : null}
                             <div className="flex items-center gap-3">
                               <div className="text-xs font-bold text-zinc-600 mb-1">LIMIT: {user?.plan === 'pro' ? '∞' : user?.plan === 'plus' ? 500 : 100} V</div>
                               <button
                                 onClick={() => setShowBilling(true)}
-                                className="text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full border border-yellow-400/40 text-yellow-100 bg-yellow-500/20 hover:bg-yellow-500/30 shadow-[0_0_20px_rgba(250,204,21,0.20)] hover:shadow-[0_0_24px_rgba(250,204,21,0.30)] transition"
+                                className={`text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full border transition ${user?.isFrozen ? 'border-zinc-500/40 text-zinc-200 bg-zinc-700/60 hover:bg-zinc-700/80 shadow-none' : 'border-yellow-400/40 text-yellow-100 bg-yellow-500/20 hover:bg-yellow-500/30 shadow-[0_0_20px_rgba(250,204,21,0.20)] hover:shadow-[0_0_24px_rgba(250,204,21,0.30)]'}`}
                               >
                                 {t.profile_billing_title || '账单明细'}
                               </button>
                             </div>
                         </div>
-                        <div className="h-4 w-full bg-zinc-900 rounded-full border border-white/5 p-1 overflow-hidden">
-                            <div className={`h-full rounded-full transition-all duration-1000 ease-out relative ${user?.plan === 'pro' ? 'bg-gradient-to-r from-purple-600 via-orange-500 to-yellow-400' : user?.plan === 'plus' ? 'bg-gradient-to-r from-blue-700 via-indigo-500 to-yellow-400' : 'bg-gradient-to-r from-zinc-700 via-zinc-500 to-yellow-500/70'}`} style={{ width: `${user?.plan === 'pro' ? 100 : Math.min(((user?.credits || 0) / (user?.plan === 'plus' ? 500 : 100)) * 100, 100)}%` }}>
+                        <div className={`h-4 w-full rounded-full border p-1 overflow-hidden ${user?.isFrozen ? 'bg-zinc-900 border-zinc-700/70' : 'bg-zinc-900 border-white/5'}`}>
+                            <div className={`h-full rounded-full transition-all duration-1000 ease-out relative ${user?.isFrozen ? 'bg-gradient-to-r from-zinc-600 via-zinc-500 to-zinc-400' : user?.plan === 'pro' ? 'bg-gradient-to-r from-purple-600 via-orange-500 to-yellow-400' : user?.plan === 'plus' ? 'bg-gradient-to-r from-blue-700 via-indigo-500 to-yellow-400' : 'bg-gradient-to-r from-zinc-700 via-zinc-500 to-yellow-500/70'}`} style={{ width: `${user?.plan === 'pro' ? 100 : Math.min(((user?.credits || 0) / (user?.plan === 'plus' ? 500 : 100)) * 100, 100)}%` }}>
                                 <div className="absolute inset-0 bg-white/10 animate-pulse" />
                             </div>
                         </div>
+                        {user?.isFrozen ? (
+                          <div className="text-xs text-zinc-400 leading-relaxed">
+                            账号冻结期间无法消耗 V 点进行生成或收集。冻结剩余时长：{freezeRemainingLabel}。
+                          </div>
+                        ) : null}
                      </div>
                   </div>
                </div>
@@ -584,6 +605,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
            isOpen={isPreferencesDialogOpen}
            title={t.profile_preferences_title || 'Preferences'}
            onClose={() => setIsPreferencesDialogOpen(false)}
+           widthClassName="max-w-6xl"
+           contentClassName="overflow-y-auto pr-1 min-h-[32rem]"
            footer={
              <>
                <button
@@ -610,7 +633,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
            }
          >
            <div className="space-y-4 text-sm text-zinc-300">
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                <div className="space-y-1">
                  <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_delivery_region}</div>
                  <DropdownSelect
@@ -768,6 +791,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                  <DropdownSelect
                    value={prefsDraft.theme}
                    options={([
+                     { value: 'system', label: t.profile_theme_system || 'System' },
                      { value: 'light', label: t.profile_theme_light || 'Light' },
                      { value: 'dim', label: t.profile_theme_dim || 'Dim' },
                      { value: 'dark', label: t.profile_theme_dark || 'Dark' },

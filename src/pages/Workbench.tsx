@@ -77,7 +77,7 @@ const Workbench = () => {
 
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
-  const [theme, setTheme] = useState<'dark' | 'light' | 'dim'>(user?.theme || 'light');
+  const [theme, setTheme] = useState<'dark' | 'light' | 'dim' | 'system'>(user?.theme || 'system');
   const [isInviteRewardOpen, setIsInviteRewardOpen] = useState(false);
 
   // Post-login reward popup: triggered only when the user has just logged in in this session,
@@ -142,8 +142,30 @@ const Workbench = () => {
   }, [user?.id]);
 
   useEffect(() => {
-    document.documentElement.classList.toggle('theme-light', theme === 'light');
-    document.documentElement.classList.toggle('theme-dim', theme === 'dim');
+    if (typeof window === 'undefined') return;
+
+    const root = document.documentElement;
+    const media = window.matchMedia('(prefers-color-scheme: light)');
+
+    const applyTheme = () => {
+      const effectiveTheme: 'light' | 'dark' | 'dim' =
+        theme === 'system'
+          ? (media.matches ? 'light' : 'dark')
+          : theme;
+      root.classList.toggle('theme-light', effectiveTheme === 'light');
+      root.classList.toggle('theme-dim', effectiveTheme === 'dim');
+    };
+
+    applyTheme();
+
+    if (theme !== 'system') return;
+
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', applyTheme);
+      return () => media.removeEventListener('change', applyTheme);
+    }
+    media.addListener(applyTheme);
+    return () => media.removeListener(applyTheme);
   }, [theme]);
 
   useEffect(() => {
@@ -458,11 +480,13 @@ const Workbench = () => {
     <WorkbenchModelProvider>
       <div className="flex h-screen overflow-hidden bg-[#050505] text-zinc-100 font-sans">
         {shouldShowSidebar && (
-          <Sidebar
-            activeView={activeView}
-            setActiveView={setActiveView}
-            isDebugModeEnabled={isDebugModeEnabled}
-          />
+            <Sidebar
+              activeView={activeView}
+              setActiveView={setActiveView}
+              isDebugModeEnabled={isDebugModeEnabled}
+              theme={theme}
+              setTheme={setTheme}
+            />
         )}
 
         <main className="flex-1 flex flex-col overflow-hidden relative">

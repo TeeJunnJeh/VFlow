@@ -11,9 +11,12 @@ interface User {
   avatar: string;
   plan: 'free' | 'plus' | 'pro';
   credits?: number; // remaining generation credits (v点)
-  theme?: 'light' | 'dark' | 'dim';
+  theme?: 'light' | 'dark' | 'dim' | 'system';
   hasPassword?: boolean;
-  token?: string; 
+  token?: string;
+  isFrozen?: boolean;
+  frozenUntil?: string | null;
+  frozenRemainingSeconds?: number;
 }
 
 interface AuthContextType {
@@ -84,9 +87,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 avatar: normalizeAvatar(backendUser.avatar),
                 plan: plan,
                 credits: backendUser.balance,
-                theme: (backendUser.theme as 'light' | 'dark' | 'dim') || 'light',
+                theme: (backendUser.theme as 'light' | 'dark' | 'dim' | 'system') || 'system',
                 hasPassword: backendUser.has_password === true,
-                token: undefined // We rely on Cookie Session, no JWT token needed in state
+                token: undefined, // We rely on Cookie Session, no JWT token needed in state
+                isFrozen: backendUser.is_frozen === true,
+                frozenUntil: backendUser.frozen_until || null,
+                frozenRemainingSeconds: Number(backendUser.frozen_remaining_seconds || 0),
             };
 
             debugLog('Session verified:', verifiedUser);
@@ -166,9 +172,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       avatar: normalizeAvatar(serverData?.avatar || serverData?.data?.avatar || ''),
       plan: resolvedPlan,
       credits: serverData?.credits ?? serverData?.data?.balance ?? defaultCredits,
-      theme: serverData?.theme || serverData?.data?.theme || 'light',
+      theme: serverData?.theme || serverData?.data?.theme || 'system',
       hasPassword: (serverData?.has_password ?? serverData?.data?.has_password) === true,
-      token: token
+      token: token,
+      isFrozen: (serverData?.is_frozen ?? serverData?.data?.is_frozen) === true,
+      frozenUntil: serverData?.frozen_until ?? serverData?.data?.frozen_until ?? null,
+      frozenRemainingSeconds: Number(serverData?.frozen_remaining_seconds ?? serverData?.data?.frozen_remaining_seconds ?? 0),
     };
 
     debugLog('User saved:', newUser);

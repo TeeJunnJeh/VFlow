@@ -154,16 +154,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
 
     setWorkbenchPreferences(next, user?.id ?? null);
     setIsPreferencesExpanded(false);
-
-    if (next.theme !== theme) {
-      setTheme(next.theme);
-      try {
-        const res = await authApi.updateProfile({ theme: next.theme });
-        updateUser({ theme: res.data.theme });
-      } catch (err) {
-        console.error('Failed to save theme preference', err);
-      }
-    }
   };
 
   const loadOpenClawStatus = async () => {
@@ -618,37 +608,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                {isPreferencesExpanded && (
                  <div className="mt-8 pt-8 border-t border-white/5 animate-in slide-in-from-top-4 duration-500">
                    <div className="space-y-10">
-                     {/* 界面主题 */}
-                     <section className="space-y-4">
-                       <h3 className="text-sm font-bold text-zinc-200 flex items-center gap-2 uppercase tracking-wider">
-                         <Settings2 className="w-4 h-4 text-orange-500" /> 界面主题
-                       </h3>
-                       <div className="bg-white/2 border border-white/5 rounded-2xl p-6">
-                        <div className="space-y-2">
-                           <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_theme}</div>
-                          <div className="grid grid-cols-3 gap-2">
-                            {([
-                              { value: 'light', label: t.profile_theme_light || 'Light' },
-                              { value: 'dim', label: t.profile_theme_dim || 'Dim' },
-                              { value: 'dark', label: t.profile_theme_dark || 'Dark' },
-                            ] as const).map((opt) => (
-                              <button
-                                key={opt.value}
-                                type="button"
-                                onClick={() => handleThemeSelect(opt.value)}
-                                className={`rounded-xl border px-3 py-2.5 text-xs font-black uppercase tracking-widest transition ${
-                                  prefsDraft.theme === opt.value
-                                    ? 'bg-orange-500/15 border-orange-500/35 text-orange-200 shadow-[0_0_18px_rgba(249,115,22,0.12)]'
-                                    : 'bg-black/20 border-white/10 text-zinc-300 hover:bg-white/5 hover:border-white/20'
-                                }`}
-                              >
-                                {opt.label}
-                              </button>
-                            ))}
-                          </div>
-                         </div>
-                       </div>
-                     </section>
+
 
                      {/* 商品图片生成 */}
                      <section className="space-y-4">

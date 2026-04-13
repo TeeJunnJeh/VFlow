@@ -466,11 +466,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   <button
                     type="button"
                     onClick={() => galleryFileInputRef.current?.click()}
-                    className={`group mt-3 w-full rounded-2xl border border-dashed px-4 py-10 text-center transition ${
-                      isGalleryDragActive
+                    className={`group mt-3 w-full rounded-2xl border border-dashed px-4 py-10 text-center transition ${isGalleryDragActive
                         ? 'border-orange-500/70 bg-orange-500/10 text-orange-100'
                         : 'border-white/10 bg-black/20 text-zinc-500 hover:text-zinc-300 hover:border-white/20'
-                    }`}
+                      }`}
                   >
                     <div className="relative w-10 h-10 mx-auto mb-2">
                       <ImageIcon className="w-10 h-10 opacity-50 transition-opacity duration-150 group-hover:opacity-0" />
@@ -627,11 +626,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                         key={idx}
                         type="button"
                         onClick={() => setHotStyleSelectedIndex((prev: number | null) => (prev === idx ? null : idx))}
-                        className={`relative text-left rounded-xl border bg-black/20 p-3 transition ${
-                          isSelected
+                        className={`relative text-left rounded-xl border bg-black/20 p-3 transition ${isSelected
                             ? 'border-orange-500'
                             : 'border-white/10 hover:border-white/20'
-                        }`}
+                          }`}
                         title={isSelected ? tr('已选择，再次点击取消', 'Selected. Click again to unselect') : tr('点击选择', 'Click to select')}
                       >
                         <div className="flex items-center gap-1 mb-2">
@@ -642,11 +640,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                         <div className="text-sm font-bold text-zinc-200">{s.name}</div>
                         <div className="mt-1 text-xs text-zinc-400">{s.description}</div>
                         <div
-                          className={`absolute top-2 right-2 w-5 h-5 rounded-md border flex items-center justify-center text-[11px] font-bold ${
-                            isSelected
+                          className={`absolute top-2 right-2 w-5 h-5 rounded-md border flex items-center justify-center text-[11px] font-bold ${isSelected
                               ? 'bg-orange-500 border-orange-500 text-black'
                               : 'bg-black/40 border-white/20 text-transparent'
-                          }`}
+                            }`}
                         >
                           ✓
                         </div>
@@ -745,10 +742,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
         </div>
 
         <div className="w-[24%] min-w-[320px] max-w-[460px] flex flex-col gap-4 min-h-0 overflow-y-auto custom-scroll pr-2">
-          <div className="rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0">
+          <div className="rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col flex-1">
             <div className="text-sm font-bold text-zinc-200 shrink-0">{t.hist_img_settings_title}</div>
 
-            <div className="mt-4 p-4 rounded-xl border border-white/10 bg-black/20 space-y-6">
+            <div className="mt-4 p-4 rounded-xl border border-white/10 bg-black/20 space-y-6 flex-1">
               <div>
                 <div className="text-xs font-bold text-zinc-200">{t.pi_gallery_settings_section_basics}</div>
                 <div className="mt-3 grid grid-cols-2 gap-4">
@@ -977,15 +974,17 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={handleGalleryGenerate}
-              disabled={isGalleryGenerating}
-              className="mt-4 w-full rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400 disabled:opacity-60 disabled:hover:bg-orange-500 transition flex items-center justify-center gap-2 shrink-0"
-            >
-              <Wand2 className="w-4 h-4" />
-              {isGalleryGenerating ? tr('生成中...', 'Generating...') : tr('开始生成', 'Generate')}
-            </button>
+            <div className="mt-auto pt-6">
+              <button
+                type="button"
+                onClick={handleGalleryGenerate}
+                disabled={isGalleryGenerating}
+                className="w-full rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400 disabled:opacity-60 disabled:hover:bg-orange-500 transition flex items-center justify-center gap-2"
+              >
+                <Wand2 className="w-4 h-4" />
+                {isGalleryGenerating ? tr('生成中...', 'Generating...') : tr('开始生成', 'Generate')}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1010,11 +1009,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   setIsGalleryHistoryManaging(false);
                   setGalleryHistorySelectedKeys([]);
                 }}
-                className={`px-3 py-2 rounded-xl text-xs font-bold transition border ${
-                  galleryRightPanel === 'preview'
+                className={`px-3 py-2 rounded-xl text-xs font-bold transition border ${galleryRightPanel === 'preview'
                     ? 'bg-orange-500/10 border-orange-500 text-orange-300'
                     : 'bg-zinc-900/70 border-white/10 text-zinc-200 hover:bg-zinc-800'
-                }`}
+                  }`}
               >
                 {tr('预览区', 'Preview')}
               </button>
@@ -1025,11 +1023,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   setIsGalleryHistoryManaging(false);
                   setGalleryHistorySelectedKeys([]);
                 }}
-                className={`px-3 py-2 rounded-xl text-xs font-bold transition border ${
-                  galleryRightPanel === 'history'
+                className={`px-3 py-2 rounded-xl text-xs font-bold transition border ${galleryRightPanel === 'history'
                     ? 'bg-orange-500/10 border-orange-500 text-orange-300'
                     : 'bg-zinc-900/70 border-white/10 text-zinc-200 hover:bg-zinc-800'
-                }`}
+                  }`}
               >
                 {tr('历史记录', 'History')}
               </button>

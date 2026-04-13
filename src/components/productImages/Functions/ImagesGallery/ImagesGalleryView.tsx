@@ -1,8 +1,13 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { ChevronDown, Eye, Image as ImageIcon, LayoutGrid, Minus, Plus, RotateCw, Sparkles, Upload, Wand2, X } from 'lucide-react';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import type { ViewType } from '../../../workbench/types';
 import type { LoadingTheme } from '../../../../utils/loadingTheme';
+import ResizableSplitter from '../../../common/ResizableSplitter';
+
+const GALLERY_PANEL_MIN_WIDTH = 300;
+const GALLERY_PANEL_MAX_WIDTH = 500;
+const GALLERY_PANEL_DEFAULT_WIDTH = 320;
 
 export type ImagesGalleryViewProps = {
   panelClassName: (view: ViewType) => string;
@@ -270,6 +275,72 @@ const GalleryLoadingCard: React.FC<{
 };
 
 const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
+  const [leftWidth, setLeftWidth] = useState<number>(GALLERY_PANEL_DEFAULT_WIDTH);
+  const [middleWidth, setMiddleWidth] = useState<number>(GALLERY_PANEL_DEFAULT_WIDTH);
+
+  useEffect(() => {
+    const savedLeftWidth = localStorage.getItem('gallery_left_width');
+    const savedMiddleWidth = localStorage.getItem('gallery_middle_width');
+
+    if (savedLeftWidth) {
+      const width = parseInt(savedLeftWidth, 10);
+      if (!isNaN(width) && width >= GALLERY_PANEL_MIN_WIDTH && width <= GALLERY_PANEL_MAX_WIDTH) {
+        setLeftWidth(width);
+      }
+    }
+
+    if (savedMiddleWidth) {
+      const width = parseInt(savedMiddleWidth, 10);
+      if (!isNaN(width) && width >= GALLERY_PANEL_MIN_WIDTH && width <= GALLERY_PANEL_MAX_WIDTH) {
+        setMiddleWidth(width);
+      }
+    }
+  }, []);
+
+  const handleLeftResize = (width: number) => {
+    const container = document.getElementById('gallery-container');
+    const requestedWidth = Math.min(Math.max(width, GALLERY_PANEL_MIN_WIDTH), GALLERY_PANEL_MAX_WIDTH);
+
+    if (container) {
+      const containerWidth = container.clientWidth;
+      const maxLeftWidth = containerWidth - Math.max(middleWidth, GALLERY_PANEL_MIN_WIDTH) - GALLERY_PANEL_MIN_WIDTH;
+      const limitedWidth = Math.max(GALLERY_PANEL_MIN_WIDTH, Math.min(requestedWidth, maxLeftWidth));
+
+      setLeftWidth(limitedWidth);
+      localStorage.setItem('gallery_left_width', limitedWidth.toString());
+      return;
+    }
+
+    setLeftWidth(requestedWidth);
+    localStorage.setItem('gallery_left_width', requestedWidth.toString());
+  };
+  
+  const handleMiddleResize = (width: number) => {
+    const container = document.getElementById('gallery-container');
+    const requestedWidth = Math.min(Math.max(width, GALLERY_PANEL_MIN_WIDTH), GALLERY_PANEL_MAX_WIDTH);
+
+    if (container) {
+      const containerWidth = container.clientWidth;
+      const safeLeftWidth = Math.max(leftWidth, GALLERY_PANEL_MIN_WIDTH);
+      const maxMiddleWidth = containerWidth - safeLeftWidth - GALLERY_PANEL_MIN_WIDTH;
+      const limitedWidth = Math.max(GALLERY_PANEL_MIN_WIDTH, Math.min(requestedWidth, maxMiddleWidth));
+
+      setMiddleWidth(limitedWidth);
+      localStorage.setItem('gallery_middle_width', limitedWidth.toString());
+      return;
+    }
+
+    setMiddleWidth(requestedWidth);
+    localStorage.setItem('gallery_middle_width', requestedWidth.toString());
+  };
+
+  const handleResetWidths = () => {
+    setLeftWidth(GALLERY_PANEL_DEFAULT_WIDTH);
+    setMiddleWidth(GALLERY_PANEL_DEFAULT_WIDTH);
+    localStorage.removeItem('gallery_left_width');
+    localStorage.removeItem('gallery_middle_width');
+  };
+
   const {
     panelClassName,
     t,
@@ -368,8 +439,12 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
   return (
     <div className={`${panelClassName('product_images_gallery')} h-full min-h-0 flex flex-col px-10 py-6`}>
-      <div className="flex-1 min-h-0 flex gap-6 overflow-hidden">
-        <div className="w-[24%] min-w-[320px] max-w-[420px] flex flex-col gap-4 min-h-0 overflow-y-auto custom-scroll pr-2">
+      <div className="flex-1 min-h-0 flex overflow-hidden relative" id="gallery-container">
+        <div 
+          className="flex flex-col gap-4 min-h-0 overflow-y-auto custom-scroll pr-2 shrink-0 transition-[width] duration-100 border border-transparent hover:border-orange-500/20"
+          style={{ width: `${leftWidth}px`, minWidth: `${GALLERY_PANEL_MIN_WIDTH}px` }}
+          data-testid="left-panel"
+        >
           <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
             <div className="flex items-center justify-between">
               <div className="text-sm font-bold text-zinc-200">
@@ -741,7 +816,19 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
           </div>
         </div>
 
-        <div className="w-[24%] min-w-[320px] max-w-[460px] flex flex-col gap-4 min-h-0 overflow-y-auto custom-scroll pr-2">
+        <ResizableSplitter
+          position={leftWidth}
+          minSize={GALLERY_PANEL_MIN_WIDTH}
+          onResize={handleLeftResize}
+          orientation="vertical"
+          className="hover:bg-orange-500/20"
+        />
+
+        <div 
+          className="flex flex-col gap-4 min-h-0 overflow-y-auto custom-scroll pr-2 shrink-0 transition-[width] duration-100 border border-transparent hover:border-orange-500/20"
+          style={{ width: `${middleWidth}px`, minWidth: `${GALLERY_PANEL_MIN_WIDTH}px` }}
+          data-testid="middle-panel"
+        >
           <div className="rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col flex-1">
             <div className="text-sm font-bold text-zinc-200 shrink-0">{t.hist_img_settings_title}</div>
 
@@ -988,7 +1075,19 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
           </div>
         </div>
 
-        <div className="flex-1 min-w-0 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0 overflow-hidden">
+        <ResizableSplitter
+          position={middleWidth}
+          minSize={GALLERY_PANEL_MIN_WIDTH}
+          onResize={handleMiddleResize}
+          orientation="vertical"
+          className="hover:bg-orange-500/20"
+        />
+
+        <div 
+          className="flex-1 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0 overflow-hidden border border-transparent hover:border-orange-500/20"
+          style={{ minWidth: `${GALLERY_PANEL_MIN_WIDTH}px` }}
+          data-testid="right-panel"
+        >
           <div className="flex items-center justify-between">
             <div className="text-sm font-bold text-zinc-200">
               {galleryRightPanel === 'preview' ? tr('预览区', 'Preview') : tr('历史记录', 'History')}

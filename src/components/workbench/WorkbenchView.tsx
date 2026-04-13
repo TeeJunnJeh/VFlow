@@ -2940,11 +2940,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const filteredItems = seedanceReplayLibraryIntent
       ? normalizedItems.filter((item) => {
-          const itemTab: AssetLibraryTab = item.media_kind === 'video'
-            ? 'motion'
-            : item.media_kind === 'audio'
-              ? 'audio'
+          let itemTab: AssetLibraryTab;
+          if (item.media_kind === 'video') {
+            itemTab = 'motion';
+          } else if (item.media_kind === 'audio') {
+            itemTab = 'audio';
+          } else {
+            const rawType = String((item as any).type || '').toLowerCase();
+            itemTab = (rawType === 'model' || rawType === 'scene' || rawType === 'reference')
+              ? (rawType as AssetLibraryTab)
               : 'product';
+          }
           return seedanceReplayLibraryIntent.allowedTabs.includes(itemTab);
         })
       : assetLibraryPickMode === 'background_audio'

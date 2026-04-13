@@ -549,8 +549,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                       <div className="flex items-center gap-4 w-full">
                           <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/item:text-orange-500 transition-colors"><Settings2 className="w-6 h-6" /></div>
                           <div className="text-left w-full">
-                              <div className="text-base font-bold text-white">{t.profile_preferences || 'Preferences'}</div>
-                              <div className="text-xs text-zinc-600 mt-0.5">{t.profile_preferences_desc || 'Default settings for new projects'}</div>
+                              <div className="text-base font-bold text-white">{ t.profile_preferences || '项目配置偏好' }</div>
+                              <div className="text-xs text-zinc-600 mt-0.5">{ t.profile_preferences_desc || '项目级别的默认配置设置' }</div>
                           </div>
                       </div>
                   </button>

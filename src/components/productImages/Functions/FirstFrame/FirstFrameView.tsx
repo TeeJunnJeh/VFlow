@@ -6,6 +6,7 @@ import { DropdownSelect } from '../../../common/DropdownSelect';
 import { ImageUploader } from '../../Common/ImageUploader';
 import { FirstFrameForm } from './FirstFrameForm';
 import { FirstFrameResult } from './FirstFrameResult';
+import ResizableSplitter from '../../../common/ResizableSplitter';
 import { LoadingProgress } from '../../Common/LoadingProgress';
 import { ErrorDialog, type ErrorInfo } from '../../Common/ErrorDialog';
 import { downloadBlob, productImagesApi } from '../../../../services/productImagesApi';
@@ -43,6 +44,10 @@ const FIRST_FRAME_WORKSPACE_META_KEY = 'vflow_first_frame_workspaces_v1';
 const FIRST_FRAME_ACTIVE_WORKSPACE_KEY = 'vflow_first_frame_active_workspace_v1';
 const FIRST_FRAME_COUNTDOWN_SECONDS = 120;
 const FIRST_FRAME_PROGRESS_HOLD_MAX = 95;
+const FIRST_FRAME_PANEL_MIN_WIDTH = 280;
+const FIRST_FRAME_PANEL_MAX_WIDTH = 640;
+const FIRST_FRAME_LEFT_DEFAULT_WIDTH = 500;
+const FIRST_FRAME_MIDDLE_DEFAULT_WIDTH = 600;
 
 const createDefaultWorkspaceMeta = (): FirstFrameWorkspaceMeta => ({
   id: 'ff-workspace-1',
@@ -139,6 +144,9 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   onApplyToWorkbench,
 }) => {
   const { t } = useLanguage();
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [leftWidth, setLeftWidth] = useState<number>(FIRST_FRAME_LEFT_DEFAULT_WIDTH);
+  const [middleWidth, setMiddleWidth] = useState<number>(FIRST_FRAME_MIDDLE_DEFAULT_WIDTH);
 
   const [phase, setPhase] = useState<Phase>('upload');
   const [images, setImages] = useState<File[]>([]);
@@ -411,11 +419,76 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     return date.toLocaleString();
   };
 
+  const clampPanelWidth = useCallback((requested: number, min: number, max: number) => (
+    Math.min(Math.max(requested, min), max)
+  ), []);
+
+  const handleLeftResize = useCallback((width: number) => {
+    const requestedWidth = clampPanelWidth(width, FIRST_FRAME_PANEL_MIN_WIDTH, FIRST_FRAME_PANEL_MAX_WIDTH);
+    const container = containerRef.current;
+    if (!container) {
+      setLeftWidth(requestedWidth);
+      return;
+    }
+
+    const containerWidth = container.clientWidth;
+    const safeMiddle = Math.max(middleWidth, FIRST_FRAME_PANEL_MIN_WIDTH);
+    const maxLeftByContainer = containerWidth - safeMiddle - FIRST_FRAME_PANEL_MIN_WIDTH;
+    const limitedWidth = Math.max(FIRST_FRAME_PANEL_MIN_WIDTH, Math.min(requestedWidth, maxLeftByContainer));
+    setLeftWidth(limitedWidth);
+  }, [clampPanelWidth, middleWidth]);
+
+  const handleMiddleResize = useCallback((width: number) => {
+    const requestedWidth = clampPanelWidth(width, FIRST_FRAME_PANEL_MIN_WIDTH, FIRST_FRAME_PANEL_MAX_WIDTH);
+    const container = containerRef.current;
+    if (!container) {
+      setMiddleWidth(requestedWidth);
+      return;
+    }
+
+    const containerWidth = container.clientWidth;
+    const safeLeft = Math.max(leftWidth, FIRST_FRAME_PANEL_MIN_WIDTH);
+    const maxMiddleByContainer = containerWidth - safeLeft - FIRST_FRAME_PANEL_MIN_WIDTH;
+    const limitedWidth = Math.max(FIRST_FRAME_PANEL_MIN_WIDTH, Math.min(requestedWidth, maxMiddleByContainer));
+    setMiddleWidth(limitedWidth);
+  }, [clampPanelWidth, leftWidth]);
+
+  useEffect(() => {
+    const keepWidthsValid = () => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      const containerWidth = container.clientWidth;
+      const safeLeft = clampPanelWidth(leftWidth, FIRST_FRAME_PANEL_MIN_WIDTH, FIRST_FRAME_PANEL_MAX_WIDTH);
+      const maxMiddleByContainer = containerWidth - safeLeft - FIRST_FRAME_PANEL_MIN_WIDTH;
+      const nextMiddle = Math.max(
+        FIRST_FRAME_PANEL_MIN_WIDTH,
+        Math.min(clampPanelWidth(middleWidth, FIRST_FRAME_PANEL_MIN_WIDTH, FIRST_FRAME_PANEL_MAX_WIDTH), maxMiddleByContainer)
+      );
+
+      const maxLeftByContainer = containerWidth - nextMiddle - FIRST_FRAME_PANEL_MIN_WIDTH;
+      const nextLeft = Math.max(
+        FIRST_FRAME_PANEL_MIN_WIDTH,
+        Math.min(safeLeft, maxLeftByContainer)
+      );
+
+      if (nextLeft !== leftWidth) setLeftWidth(nextLeft);
+      if (nextMiddle !== middleWidth) setMiddleWidth(nextMiddle);
+    };
+
+    keepWidthsValid();
+    window.addEventListener('resize', keepWidthsValid);
+    return () => window.removeEventListener('resize', keepWidthsValid);
+  }, [clampPanelWidth, leftWidth, middleWidth]);
+
   return (
     <>
       {phase !== 'error' && (
-        <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(240px,0.82fr)_minmax(360px,1.18fr)_minmax(360px,1.1fr)]">
-          <section className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+        <div ref={containerRef} className="flex min-h-0 overflow-hidden relative">
+          <section
+            className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5 shrink-0 transition-[width] duration-100 mr-3"
+            style={{ width: `${leftWidth}px`, minWidth: `${FIRST_FRAME_PANEL_MIN_WIDTH}px` }}
+          >
             <div className="mb-5">
               <h2 className="text-lg font-semibold text-white">
                 {t.ff_upload_materials}
@@ -443,7 +516,20 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
             />
           </section>
 
-          <section className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+          <ResizableSplitter
+            position={leftWidth}
+            minSize={FIRST_FRAME_PANEL_MIN_WIDTH}
+            onResize={handleLeftResize}
+            orientation="vertical"
+            className="hover:bg-orange-500/20"
+            hitAreaSize={8}
+            lineThickness={2}
+          />
+
+          <section
+            className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5 shrink-0 transition-[width] duration-100 mx-3"
+            style={{ width: `${middleWidth}px`, minWidth: `${FIRST_FRAME_PANEL_MIN_WIDTH}px` }}
+          >
             <div className="mb-5">
               <h2 className="text-lg font-semibold text-white">
                 {t.ff_generation_settings}
@@ -461,7 +547,20 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
             />
           </section>
 
-          <section className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+          <ResizableSplitter
+            position={middleWidth}
+            minSize={FIRST_FRAME_PANEL_MIN_WIDTH}
+            onResize={handleMiddleResize}
+            orientation="vertical"
+            className="hover:bg-orange-500/20"
+            hitAreaSize={8}
+            lineThickness={2}
+          />
+
+          <section
+            className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5 flex-1 ml-3"
+            style={{ minWidth: `${FIRST_FRAME_PANEL_MIN_WIDTH}px` }}
+          >
             <div className="mb-5 flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-white">

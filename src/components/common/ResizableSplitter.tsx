@@ -6,6 +6,8 @@ interface ResizableSplitterProps {
   onResize: (position: number) => void;
   orientation?: 'horizontal' | 'vertical';
   className?: string;
+  hitAreaSize?: number;
+  lineThickness?: number;
 }
 
 const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
@@ -14,6 +16,8 @@ const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
   onResize,
   orientation = 'vertical',
   className = '',
+  hitAreaSize = 12,
+  lineThickness = 3,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [startPosition, setStartPosition] = useState(0);
@@ -72,6 +76,9 @@ const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
   }, [isDragging, startPosition, startSize, onResize, orientation, minSize]);
 
   const isVertical = orientation === 'vertical';
+  const safeHitAreaSize = Math.max(6, Math.floor(hitAreaSize));
+  const safeLineThickness = Math.max(1, Math.min(safeHitAreaSize, Math.floor(lineThickness)));
+  const hitAreaHalf = safeHitAreaSize / 2;
 
   return (
     <div
@@ -79,9 +86,9 @@ const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
       className={`relative ${isVertical ? 'cursor-col-resize' : 'cursor-row-resize'} ${className}`}
       onMouseDown={handleMouseDown}
       style={{
-        [isVertical ? 'width' : 'height']: '12px',
-        [isVertical ? 'marginLeft' : 'marginTop']: '-6px',
-        [isVertical ? 'marginRight' : 'marginBottom']: '-6px',
+        [isVertical ? 'width' : 'height']: `${safeHitAreaSize}px`,
+        [isVertical ? 'marginLeft' : 'marginTop']: `${-hitAreaHalf}px`,
+        [isVertical ? 'marginRight' : 'marginBottom']: `${-hitAreaHalf}px`,
         zIndex: 50,
       }}
     >
@@ -92,7 +99,7 @@ const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
             : 'bg-white/20 hover:bg-orange-400'
         }`}
         style={{
-          [isVertical ? 'width' : 'height']: '3px',
+          [isVertical ? 'width' : 'height']: `${safeLineThickness}px`,
           [isVertical ? 'left' : 'top']: '50%',
           [isVertical ? 'transform' : '']: isVertical ? 'translateX(-50%)' : 'translateY(-50%)',
           borderRadius: '2px',

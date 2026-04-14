@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Download, ImagePlus, Plus, Replace, Trash2, Type, ZoomIn, ZoomOut } from 'lucide-react';
+import PptxGenJS from 'pptxgenjs';
 import { AppDialog } from '../common/AppDialog';
 import { galleryApi } from '../../services/galleryApi';
 import type { GalleryAiLayoutProposal } from '../../types/gallery';
@@ -438,6 +439,27 @@ const buildColorString = ({ hex, alpha, transparent }: PickerColorState) => {
   return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(2)})`;
 };
 
+const toPptColor = (value: string, fallback: string) => {
+  const state = parseColorToState(value, fallback);
+  return {
+    color: state.hex.replace('#', '').toUpperCase(),
+    transparency: state.transparent ? 100 : Math.round((1 - clamp(state.alpha, 0, 1)) * 100),
+  };
+};
+
+const toPptCoord = (value: number, scale: number) => Number((value * scale).toFixed(3));
+
+const toPptPoint = (value: number, scale: number) => Number((value * scale).toFixed(1));
+
+const resolvePptFontFace = (fontFamily: string) => {
+  const raw = String(fontFamily || '').trim();
+  if (!raw || raw === 'system-ui') return 'Microsoft YaHei';
+  return raw
+    .split(',')
+    .map((item) => item.replace(/["']/g, '').trim())
+    .find(Boolean) || 'Microsoft YaHei';
+};
+
 type ColorFieldProps = {
   label: string;
   value: string;
@@ -708,6 +730,12 @@ const blobToDataUrl = async (blob: Blob) => {
   });
 };
 
+const canvasToPngDataUrl = async (canvas: HTMLCanvasElement) => {
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) throw new Error('Failed to convert canvas to PNG');
+  return await blobToDataUrl(blob);
+};
+
 const inferAspectRatioId = (width: number, height: number) => {
   const matched = CANVAS_SIZE_OPTIONS.find((item) => item.width === width && item.height === height);
   if (matched) return matched.id;
@@ -742,13 +770,15 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   const layerIdSeedRef = useRef(0);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const boardRef = useRef<HTMLDivElement | null>(null);
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const pointerActionRef = useRef<PointerAction | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const localAssetUrlsRef = useRef<string[]>([]);
   const assetImageSizeCacheRef = useRef<Map<string, AssetImageSize>>(new Map());
   const shouldManageLocalAssetUrls = !onLocalAssetsChange;
   const [zoom, setZoom] = useState(() => initialDraft?.zoom ?? 1);
-  const [isExporting, setIsExporting] = useState(false);
+  const [isExportingPng, setIsExportingPng] = useState(false);
+  const [isExportingPptx, setIsExportingPptx] = useState(false);
   const [viewportSize, setViewportSize] = useState({ width: 960, height: 720 });
   const [localAssets, setLocalAssets] = useState<GalleryBoardAsset[]>(() => initialLocalAssets || []);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
@@ -759,6 +789,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   const [aiLayoutFallbackUsed, setAiLayoutFallbackUsed] = useState(false);
   const [aiLayoutMessage, setAiLayoutMessage] = useState('');
   const [templateTooltip, setTemplateTooltip] = useState<TemplateTooltipState | null>(null);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [templateMode, setTemplateMode] = useState<TemplateDefinition['imageCount']>(() =>
     initialDraft?.templateMode || resolveTemplateModeById(initialDraft?.board?.templateId || initialTemplateId)
   );
@@ -772,6 +803,20 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     templates: true,
     aiLayouts: true,
   });
+
+  useEffect(() => {
+    if (!isExportMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!exportMenuRef.current || !(event.target instanceof Node)) return;
+      if (!exportMenuRef.current.contains(event.target)) {
+        setIsExportMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, [isExportMenuOpen]);
 
   const nextLayerId = () => {
     layerIdSeedRef.current += 1;
@@ -1615,130 +1660,141 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     addImageLayer(assetLocalId, point.x - 160, point.y - 160);
   };
 
-  const exportBoardAsPng = async () => {
-    setIsExporting(true);
+  const renderBoardToCanvas = async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = board.canvasWidth;
+    canvas.height = board.canvasHeight;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error(tr('导出失败', 'Export failed'));
 
-    try {
-      const canvas = document.createElement('canvas');
-      canvas.width = board.canvasWidth;
-      canvas.height = board.canvasHeight;
-      const context = canvas.getContext('2d');
-      if (!context) throw new Error(tr('导出失败', 'Export failed'));
+    context.fillStyle = board.background || '#111111';
+    context.fillRect(0, 0, canvas.width, canvas.height);
 
-      context.fillStyle = board.background || '#111111';
-      context.fillRect(0, 0, canvas.width, canvas.height);
-
-      const imageCache = new Map<string, HTMLImageElement>();
-      if (backgroundImageUrl && !imageCache.has(backgroundImageUrl)) {
-        imageCache.set(backgroundImageUrl, await loadImageFromUrl(backgroundImageUrl));
-      }
-      for (const layer of board.layers) {
-        if (layer.type === 'image') {
-          const asset = layer.assetLocalId ? assetMap.get(layer.assetLocalId) : undefined;
-          const url = String(asset?.imageUrl || '').trim();
-          if (url && !imageCache.has(url)) {
-            imageCache.set(url, await loadImageFromUrl(url));
-          }
+    const imageCache = new Map<string, HTMLImageElement>();
+    if (backgroundImageUrl && !imageCache.has(backgroundImageUrl)) {
+      imageCache.set(backgroundImageUrl, await loadImageFromUrl(backgroundImageUrl));
+    }
+    for (const layer of board.layers) {
+      if (layer.type === 'image') {
+        const asset = layer.assetLocalId ? assetMap.get(layer.assetLocalId) : undefined;
+        const url = String(asset?.imageUrl || '').trim();
+        if (url && !imageCache.has(url)) {
+          imageCache.set(url, await loadImageFromUrl(url));
         }
       }
+    }
 
-      if (backgroundImageUrl) {
-        const image = imageCache.get(backgroundImageUrl);
+    if (backgroundImageUrl) {
+      const image = imageCache.get(backgroundImageUrl);
+      if (image) {
+        context.save();
+        context.globalAlpha = clamp(board.backgroundImageOpacity, 0, 1);
+        const rect = fitImageRect(
+          board.backgroundImageFit,
+          image.naturalWidth || image.width,
+          image.naturalHeight || image.height,
+          board.backgroundImageW,
+          board.backgroundImageH
+        );
+        context.drawImage(
+          image,
+          rect.sx,
+          rect.sy,
+          rect.sw,
+          rect.sh,
+          board.backgroundImageX + rect.dx,
+          board.backgroundImageY + rect.dy,
+          rect.dw,
+          rect.dh
+        );
+        context.restore();
+      }
+    }
+
+    for (const layer of board.layers) {
+      if (layer.type === 'image') {
+        context.save();
+        context.globalAlpha = clamp(layer.opacity, 0, 1);
+        context.beginPath();
+        context.roundRect(layer.x, layer.y, layer.w, layer.h, layer.radius);
+        context.clip();
+
+        const asset = layer.assetLocalId ? assetMap.get(layer.assetLocalId) : undefined;
+        const url = String(asset?.imageUrl || '').trim();
+        const image = url ? imageCache.get(url) : undefined;
+
         if (image) {
-          context.save();
-          context.globalAlpha = clamp(board.backgroundImageOpacity, 0, 1);
-          const rect = fitImageRect(
-            board.backgroundImageFit,
-            image.naturalWidth || image.width,
-            image.naturalHeight || image.height,
-            board.backgroundImageW,
-            board.backgroundImageH
-          );
+          const sourceWidth = image.naturalWidth || image.width;
+          const sourceHeight = image.naturalHeight || image.height;
+          const rect = getLayerImageDrawRect(layer, sourceWidth, sourceHeight);
           context.drawImage(
             image,
-            rect.sx,
-            rect.sy,
-            rect.sw,
-            rect.sh,
-            board.backgroundImageX + rect.dx,
-            board.backgroundImageY + rect.dy,
+            0,
+            0,
+            sourceWidth,
+            sourceHeight,
+            layer.x + rect.dx,
+            layer.y + rect.dy,
             rect.dw,
             rect.dh
           );
-          context.restore();
-        }
-      }
-
-      for (const layer of board.layers) {
-        if (layer.type === 'image') {
-          context.save();
-          context.globalAlpha = clamp(layer.opacity, 0, 1);
-          context.beginPath();
-          context.roundRect(layer.x, layer.y, layer.w, layer.h, layer.radius);
-          context.clip();
-
-          const asset = layer.assetLocalId ? assetMap.get(layer.assetLocalId) : undefined;
-          const url = String(asset?.imageUrl || '').trim();
-          const image = url ? imageCache.get(url) : undefined;
-
-          if (image) {
-            const sourceWidth = image.naturalWidth || image.width;
-            const sourceHeight = image.naturalHeight || image.height;
-            const rect = getLayerImageDrawRect(layer, sourceWidth, sourceHeight);
-            context.drawImage(
-              image,
-              0,
-              0,
-              sourceWidth,
-              sourceHeight,
-              layer.x + rect.dx,
-              layer.y + rect.dy,
-              rect.dw,
-              rect.dh
-            );
-          }
-
-          context.restore();
-          continue;
         }
 
-        context.save();
-        if (layer.background && layer.background !== 'transparent') {
-          context.fillStyle = layer.background;
-          context.fillRect(layer.x, layer.y, layer.w, layer.h);
-        }
-        context.fillStyle = layer.color;
-        context.textBaseline = 'top';
-        context.textAlign = layer.align;
-        context.font = `${layer.fontWeight} ${Math.max(12, Math.round(layer.fontSize))}px ${layer.fontFamily || 'system-ui'}`;
-
-        const padding = clamp(layer.padding, 0, 80);
-        const textX =
-          layer.align === 'center'
-            ? layer.x + layer.w / 2
-            : layer.align === 'right'
-              ? layer.x + layer.w - padding
-              : layer.x + padding;
-        const maxTextWidth = Math.max(layer.w - padding * 2, 20);
-        const lineHeight = Math.max(layer.fontSize * layer.lineHeight, layer.fontSize);
-        const lines = wrapTextLines(context, layer.text, maxTextWidth);
-        let offsetY = layer.y + padding;
-
-        for (const line of lines) {
-          if (offsetY + lineHeight > layer.y + layer.h) break;
-          context.fillText(line, textX, offsetY, maxTextWidth);
-          offsetY += lineHeight;
-        }
         context.restore();
+        continue;
       }
 
+      context.save();
+      if (layer.background && layer.background !== 'transparent') {
+        context.fillStyle = layer.background;
+        context.fillRect(layer.x, layer.y, layer.w, layer.h);
+      }
+      context.fillStyle = layer.color;
+      context.textBaseline = 'top';
+      context.textAlign = layer.align;
+      context.font = `${layer.fontWeight} ${Math.max(12, Math.round(layer.fontSize))}px ${layer.fontFamily || 'system-ui'}`;
+
+      const padding = clamp(layer.padding, 0, 80);
+      const textX =
+        layer.align === 'center'
+          ? layer.x + layer.w / 2
+          : layer.align === 'right'
+            ? layer.x + layer.w - padding
+            : layer.x + padding;
+      const maxTextWidth = Math.max(layer.w - padding * 2, 20);
+      const lineHeight = Math.max(layer.fontSize * layer.lineHeight, layer.fontSize);
+      const lines = wrapTextLines(context, layer.text, maxTextWidth);
+      let offsetY = layer.y + padding;
+
+      for (const line of lines) {
+        if (offsetY + lineHeight > layer.y + layer.h) break;
+        context.fillText(line, textX, offsetY, maxTextWidth);
+        offsetY += lineHeight;
+      }
+      context.restore();
+    }
+
+    return canvas;
+  };
+
+  const exportBoardAsPng = async () => {
+    setIsExportingPng(true);
+
+    try {
+      const canvas = await renderBoardToCanvas();
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
       if (!blob) throw new Error(tr('导出失败', 'Export failed'));
+
+      const safeProductName = String(productName || '')
+        .trim()
+        .replace(/[\\/:*?"<>|]+/g, '_')
+        .replace(/\s+/g, '_')
+        .replace(/^_+|_+$/g, '');
 
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `product_gallery_board_${Date.now()}.png`;
+      anchor.download = `${safeProductName || 'product_gallery_board'}_${Date.now()}.png`;
       document.body.appendChild(anchor);
       anchor.click();
       document.body.removeChild(anchor);
@@ -1747,7 +1803,222 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       const message = String(error?.message || error || tr('导出失败', 'Export failed'));
       onAlert?.(message);
     } finally {
-      setIsExporting(false);
+      setIsExportingPng(false);
+    }
+  };
+
+  const exportBoardAsPptx = async () => {
+    setIsExportingPptx(true);
+
+    try {
+      const pptx = new PptxGenJS();
+      const ratio = board.canvasWidth / Math.max(board.canvasHeight, 1);
+      const slideHeight = 7.5;
+      const slideWidth = Math.max(4, Number((slideHeight * ratio).toFixed(3)));
+      const layoutName = 'VFLOW_GALLERY_BOARD';
+      const xScale = slideWidth / Math.max(board.canvasWidth, 1);
+      const yScale = slideHeight / Math.max(board.canvasHeight, 1);
+      const pointScale = (slideHeight * 72) / Math.max(board.canvasHeight, 1);
+      const measureCanvas = document.createElement('canvas');
+      const measureContext = measureCanvas.getContext('2d');
+      const imageCache = new Map<string, HTMLImageElement>();
+      const safeProductName = String(productName || '')
+        .trim()
+        .replace(/[\\/:*?"<>|]+/g, '_')
+        .replace(/\s+/g, '_')
+        .replace(/^_+|_+$/g, '');
+
+      const getImage = async (url: string) => {
+        const cached = imageCache.get(url);
+        if (cached) return cached;
+        const image = await loadImageFromUrl(url);
+        imageCache.set(url, image);
+        return image;
+      };
+
+      const renderPlacedImageToDataUrl = async ({
+        imageUrl,
+        frameWidth,
+        frameHeight,
+        fit,
+        opacity = 1,
+        radius = 0,
+      }: {
+        imageUrl: string;
+        frameWidth: number;
+        frameHeight: number;
+        fit: 'cover' | 'contain';
+        opacity?: number;
+        radius?: number;
+      }) => {
+        const image = await getImage(imageUrl);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(frameWidth));
+        canvas.height = Math.max(1, Math.round(frameHeight));
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error(tr('导出失败', 'Export failed'));
+
+        context.save();
+        context.globalAlpha = clamp(opacity, 0, 1);
+        if (radius > 0) {
+          context.beginPath();
+          context.roundRect(0, 0, canvas.width, canvas.height, radius);
+          context.clip();
+        }
+
+        const rect = fitImageRect(fit, image.naturalWidth || image.width, image.naturalHeight || image.height, canvas.width, canvas.height);
+        context.drawImage(
+          image,
+          rect.sx,
+          rect.sy,
+          rect.sw,
+          rect.sh,
+          rect.dx,
+          rect.dy,
+          rect.dw,
+          rect.dh
+        );
+        context.restore();
+
+        return await canvasToPngDataUrl(canvas);
+      };
+
+      const renderLayerImageToDataUrl = async (layer: BoardImageLayer, imageUrl: string) => {
+        const image = await getImage(imageUrl);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(layer.w));
+        canvas.height = Math.max(1, Math.round(layer.h));
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error(tr('导出失败', 'Export failed'));
+
+        context.save();
+        context.globalAlpha = clamp(layer.opacity, 0, 1);
+        context.beginPath();
+        context.roundRect(0, 0, canvas.width, canvas.height, layer.radius);
+        context.clip();
+
+        const rect = getLayerImageDrawRect(
+          layer,
+          image.naturalWidth || image.width,
+          image.naturalHeight || image.height
+        );
+        context.drawImage(
+          image,
+          0,
+          0,
+          image.naturalWidth || image.width,
+          image.naturalHeight || image.height,
+          rect.dx,
+          rect.dy,
+          rect.dw,
+          rect.dh
+        );
+        context.restore();
+
+        return await canvasToPngDataUrl(canvas);
+      };
+
+      pptx.layout = 'LAYOUT_WIDE';
+      pptx.defineLayout({ name: layoutName, width: slideWidth, height: slideHeight });
+      pptx.layout = layoutName;
+      pptx.author = 'VFlow';
+      pptx.company = 'VFlow';
+      pptx.subject = productName || 'Product Gallery Board';
+      pptx.title = `${productName || 'Product Gallery Board'} - Board Export`;
+
+      const slide = pptx.addSlide();
+      const boardBackground = toPptColor(board.background, '#111111');
+      slide.background = {
+        color: boardBackground.color,
+        transparency: boardBackground.transparency,
+      };
+
+      if (backgroundImageUrl) {
+        const backgroundDataUrl = await renderPlacedImageToDataUrl({
+          imageUrl: backgroundImageUrl,
+          frameWidth: board.backgroundImageW,
+          frameHeight: board.backgroundImageH,
+          fit: board.backgroundImageFit,
+          opacity: board.backgroundImageOpacity,
+        });
+
+        slide.addImage({
+          data: backgroundDataUrl,
+          x: toPptCoord(board.backgroundImageX, xScale),
+          y: toPptCoord(board.backgroundImageY, yScale),
+          w: toPptCoord(board.backgroundImageW, xScale),
+          h: toPptCoord(board.backgroundImageH, yScale),
+          altText: tr('画板背景图', 'Board Background'),
+        });
+      }
+
+      for (const layer of board.layers) {
+        if (layer.type === 'image') {
+          const asset = layer.assetLocalId ? assetMap.get(layer.assetLocalId) : undefined;
+          const imageUrl = String(asset?.imageUrl || '').trim();
+          if (!imageUrl) continue;
+
+          const layerDataUrl = await renderLayerImageToDataUrl(layer, imageUrl);
+          slide.addImage({
+            data: layerDataUrl,
+            x: toPptCoord(layer.x, xScale),
+            y: toPptCoord(layer.y, yScale),
+            w: toPptCoord(layer.w, xScale),
+            h: toPptCoord(layer.h, yScale),
+            altText: layer.name,
+          });
+          continue;
+        }
+
+        const padding = clamp(layer.padding, 0, 80);
+        const fillColor = toPptColor(layer.background, '#FFFFFF');
+        const textColor = toPptColor(layer.color, '#FFFFFF');
+        const fontFace = resolvePptFontFace(layer.fontFamily);
+        let content = layer.text || ' ';
+
+        if (measureContext) {
+          measureContext.font = `${layer.fontWeight} ${Math.max(12, Math.round(layer.fontSize))}px ${layer.fontFamily || 'system-ui'}`;
+          const maxTextWidth = Math.max(layer.w - padding * 2, 20);
+          content = wrapTextLines(measureContext, layer.text || '', maxTextWidth).join('\n') || ' ';
+        }
+
+        slide.addText(content, {
+          x: toPptCoord(layer.x, xScale),
+          y: toPptCoord(layer.y, yScale),
+          w: toPptCoord(layer.w, xScale),
+          h: toPptCoord(layer.h, yScale),
+          fontFace,
+          fontSize: Math.max(6, toPptPoint(layer.fontSize, pointScale)),
+          bold: layer.fontWeight >= 600,
+          color: textColor.color,
+          transparency: textColor.transparency,
+          align: layer.align,
+          valign: 'top',
+          fit: 'none',
+          margin: [
+            toPptPoint(padding, pointScale),
+            toPptPoint(padding, pointScale),
+            toPptPoint(padding, pointScale),
+            toPptPoint(padding, pointScale),
+          ],
+          lineSpacingMultiple: Number(clamp(layer.lineHeight, 1, 2).toFixed(2)),
+          fill: {
+            color: fillColor.color,
+            transparency: fillColor.transparency,
+          },
+          line: {
+            color: fillColor.color,
+            transparency: 100,
+          },
+        });
+      }
+
+      await pptx.writeFile({ fileName: `${safeProductName || 'product_gallery_board'}_${Date.now()}.pptx` });
+    } catch (error: any) {
+      const message = String(error?.message || error || tr('导出失败', 'Export failed'));
+      onAlert?.(message);
+    } finally {
+      setIsExportingPptx(false);
     }
   };
 
@@ -1896,6 +2167,8 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   const hideTemplateTooltip = () => {
     setTemplateTooltip(null);
   };
+
+  const isExportBusy = isExportingPng || isExportingPptx;
 
   return (
     <>
@@ -2118,15 +2391,51 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
             >
               <ZoomIn className="h-4 w-4" />
             </button>
-            <button
-              type="button"
-              onClick={exportBoardAsPng}
-              disabled={isExporting}
-              className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-xs font-bold text-black transition hover:bg-orange-400 disabled:opacity-60"
-            >
-              <Download className="h-4 w-4" />
-              {isExporting ? tr('导出中...', 'Exporting...') : tr('导出 PNG', 'Export PNG')}
-            </button>
+            <div ref={exportMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  if (isExportBusy) return;
+                  setIsExportMenuOpen((prev) => !prev);
+                }}
+                disabled={isExportBusy}
+                aria-expanded={isExportMenuOpen}
+                className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-xs font-bold text-black transition hover:bg-orange-400 disabled:opacity-60"
+              >
+                <Download className="h-4 w-4" />
+                {isExportBusy ? tr('导出中...', 'Exporting...') : tr('导出', 'Export')}
+                <ChevronDown className={`h-4 w-4 transition ${isExportMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {isExportMenuOpen ? (
+                <div className="absolute right-0 top-full z-[240] mt-2 min-w-[160px] overflow-hidden rounded-xl border border-white/10 bg-zinc-950/95 shadow-[0_18px_48px_rgba(0,0,0,0.35)] backdrop-blur">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsExportMenuOpen(false);
+                      void exportBoardAsPng();
+                    }}
+                    disabled={isExportBusy}
+                    className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-xs font-semibold text-zinc-100 transition hover:bg-white/5 disabled:opacity-50"
+                  >
+                    <span>{tr('导出 PNG', 'Export PNG')}</span>
+                    <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">PNG</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsExportMenuOpen(false);
+                      void exportBoardAsPptx();
+                    }}
+                    disabled={isExportBusy}
+                    className="flex w-full items-center justify-between gap-3 border-t border-white/10 px-3 py-2.5 text-left text-xs font-semibold text-zinc-100 transition hover:bg-white/5 disabled:opacity-50"
+                  >
+                    <span>{tr('导出 PPTX', 'Export PPTX')}</span>
+                    <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">PPTX</span>
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
 

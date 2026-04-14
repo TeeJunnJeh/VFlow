@@ -77,6 +77,8 @@ type GalleryHistoryItem = {
   metadata?: Record<string, any>;
 };
 
+type GalleryOutputType = 'white_bg' | 'scene' | 'selling_point' | 'cover' | 'poster';
+type GalleryConfirmAction = 'ok' | 'cancel' | 'dismiss';
 type GalleryCopyLanguageLabelKey = 'lang_en' | 'lang_zh' | 'lang_es' | 'lang_ja' | 'lang_ko' | 'lang_ms' | 'lang_vi' | 'lang_id';
 
 const GALLERY_COPY_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: GalleryCopyLanguageLabelKey }> = [
@@ -89,6 +91,48 @@ const GALLERY_COPY_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: GalleryCop
   { value: 'vi', labelKey: 'lang_vi' },
   { value: 'id', labelKey: 'lang_id' },
 ];
+
+const GALLERY_OUTPUT_TYPE_ORDER: GalleryOutputType[] = ['white_bg', 'scene', 'selling_point', 'cover', 'poster'];
+
+const normalizeGalleryTypeSelections = (
+  selections: Record<GalleryOutputType, { enabled: boolean; count: number }>
+): Record<GalleryOutputType, { enabled: boolean; count: number }> => ({
+  white_bg: {
+    enabled: Boolean(selections.white_bg?.enabled),
+    count: Math.max(0, Math.round(Number(selections.white_bg?.count || 0))),
+  },
+  scene: {
+    enabled: Boolean(selections.scene?.enabled),
+    count: Math.max(0, Math.round(Number(selections.scene?.count || 0))),
+  },
+  selling_point: {
+    enabled: Boolean(selections.selling_point?.enabled),
+    count: Math.max(0, Math.round(Number(selections.selling_point?.count || 0))),
+  },
+  cover: {
+    enabled: Boolean(selections.cover?.enabled),
+    count: Math.max(0, Math.round(Number(selections.cover?.count || 0))),
+  },
+  poster: {
+    enabled: Boolean(selections.poster?.enabled),
+    count: Math.max(0, Math.round(Number(selections.poster?.count || 0))),
+  },
+});
+
+const buildGalleryGenerationPlan = (selections: Record<GalleryOutputType, { enabled: boolean; count: number }>) => {
+  const plan: Array<{ outputType: GalleryOutputType; order: number }> = [];
+
+  for (const outputType of GALLERY_OUTPUT_TYPE_ORDER) {
+    const config = selections[outputType];
+    if (!config?.enabled) continue;
+    const count = Math.max(0, Math.round(Number(config.count || 0)));
+    for (let index = 0; index < count; index += 1) {
+      plan.push({ outputType, order: index });
+    }
+  }
+
+  return plan;
+};
 
 const GALLERY_SCENE_PRESETS: Array<GallerySceneConfig & { id: string; name: string }> = [
   {
@@ -436,7 +480,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [gallerySceneProps, setGallerySceneProps] = useState<string>('');
   const [gallerySceneLighting, setGallerySceneLighting] = useState<string>('');
   const [gallerySceneMood, setGallerySceneMood] = useState<string>('');
-  const [galleryTypeSelections, setGalleryTypeSelections] = useState<Record<'white_bg' | 'scene' | 'selling_point' | 'cover' | 'poster', { enabled: boolean; count: number }>>({
+  const [galleryTypeSelections, setGalleryTypeSelections] = useState<Record<GalleryOutputType, { enabled: boolean; count: number }>>({
     white_bg: { enabled: true, count: 4 },
     scene: { enabled: false, count: 4 },
     selling_point: { enabled: false, count: 4 },
@@ -578,7 +622,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     setGallerySceneMood('');
   };
 
-  const galleryConfirmResolverRef = useRef<((value: boolean) => void) | null>(null);
+  const galleryConfirmResolverRef = useRef<((value: GalleryConfirmAction) => void) | null>(null);
   const [galleryConfirm, setGalleryConfirm] = useState<{
     open: boolean;
     title: string;
@@ -593,7 +637,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     cancelLabel: '',
   });
 
-  const closeGalleryConfirm = (value: boolean) => {
+  const closeGalleryConfirm = (value: GalleryConfirmAction) => {
     setGalleryConfirm((prev) => ({ ...prev, open: false }));
     const resolver = galleryConfirmResolverRef.current;
     galleryConfirmResolverRef.current = null;
@@ -1399,7 +1443,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const handleGalleryHistoryDeleteSelected = async () => {
     if (galleryHistorySelectedKeys.length === 0) return;
 
-    const ok = await openGalleryConfirm(
+    const action = await openGalleryConfirm(
       tr('确定删除选中的图片吗？', 'Delete selected images?'),
       {
         title: tr('删除确认', 'Delete confirmation'),
@@ -1408,7 +1452,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       }
     );
 
-    if (!ok) return;
+    if (action !== 'ok') return;
 
     const selected = new Set(galleryHistorySelectedKeys);
 
@@ -1424,7 +1468,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   };
 
   const openGalleryConfirm = (message: string, opts?: { title?: string; okLabel?: string; cancelLabel?: string }) =>
-    new Promise<boolean>((resolve) => {
+    new Promise<GalleryConfirmAction>((resolve) => {
       galleryConfirmResolverRef.current = resolve;
       setGalleryConfirm({
         open: true,
@@ -1871,7 +1915,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     );
 
     if (hasExisting) {
-      const ok = await openGalleryConfirm(
+      const action = await openGalleryConfirm(
         tr('是否使用新的识别结果覆盖当前内容？', 'Overwrite current fields with new AI results?'),
         {
           title: tr('覆盖确认', 'Overwrite confirmation'),
@@ -1879,7 +1923,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           cancelLabel: tr('取消', 'Cancel'),
         }
       );
-      if (!ok) return;
+      if (action !== 'ok') return;
     }
 
     setIsGalleryAnalyzing(true);
@@ -1955,7 +1999,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       return;
     }
 
-    const totalCount = Object.values(galleryTypeSelections)
+    let totalCount = Object.values(galleryTypeSelections)
       .filter((item) => item.enabled)
       .reduce((sum, item) => sum + (Number(item.count) || 0), 0);
 
@@ -1966,10 +2010,62 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
     const aspectRatio = galleryAspectRatio === 'default' ? '1:1' : galleryAspectRatio;
 
-    const sellingPoints = gallerySellingPoints
+    let effectiveSellingPoints = gallerySellingPoints
       .map((s) => String(s || '').trim())
       .filter(Boolean)
       .slice(0, 5);
+    let resolvedTypeSelections = normalizeGalleryTypeSelections(galleryTypeSelections);
+    const requestedSellingPointCount =
+      resolvedTypeSelections.selling_point.enabled ? Math.max(0, resolvedTypeSelections.selling_point.count) : 0;
+
+    if (
+      requestedSellingPointCount > 0 &&
+      effectiveSellingPoints.length > 0 &&
+      effectiveSellingPoints.length !== requestedSellingPointCount
+    ) {
+      const confirmAction = await openGalleryConfirm(
+        tr(
+          `当前卖点数和将生成的卖点图数目不一致。按当前数目继续生成时，只会根据前 ${Math.min(requestedSellingPointCount, effectiveSellingPoints.length)} 个卖点生成卖点图；保持一致则会自动把生成图片数调整为 ${effectiveSellingPoints.length}。关闭弹窗可返回重新设置数量。`,
+          `The number of selling points does not match the number of selling-point images to generate. If you keep the current image count, only the first ${Math.min(requestedSellingPointCount, effectiveSellingPoints.length)} selling point(s) will be used. If you match them, the image count will be updated to ${effectiveSellingPoints.length}. Close the dialog to adjust the count manually.`
+        ),
+        {
+          title: tr('卖点图数量提醒', 'Selling Point Count Reminder'),
+          okLabel: tr('保持一致', 'Match Count'),
+          cancelLabel: tr('按当前数目生成', 'Use Current Count'),
+        }
+      );
+
+      if (confirmAction === 'dismiss') {
+        return;
+      }
+
+      if (confirmAction === 'ok') {
+        resolvedTypeSelections = {
+          ...resolvedTypeSelections,
+          selling_point: {
+            ...resolvedTypeSelections.selling_point,
+            count: effectiveSellingPoints.length,
+          },
+        };
+        setGalleryTypeSelections((prev) => ({
+          ...prev,
+          selling_point: {
+            ...prev.selling_point,
+            count: effectiveSellingPoints.length,
+          },
+        }));
+      } else {
+        effectiveSellingPoints = effectiveSellingPoints.slice(0, requestedSellingPointCount);
+      }
+    }
+
+    const generationPlan = buildGalleryGenerationPlan(resolvedTypeSelections);
+    totalCount = generationPlan.length;
+    if (totalCount <= 0) {
+      openGalleryAlert(tr('璇疯嚦灏戦€夋嫨涓€绉嶇敓鎴愮被鍨嬨€?', 'Please select at least one generation type.'));
+      return;
+    }
+
     const sceneConfig: GallerySceneConfig = {
       sceneTheme: String(gallerySceneTheme || '').trim(),
       sceneDescription: String(gallerySceneDescription || '').trim(),
@@ -1989,8 +2085,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       copyLanguage: galleryCopyLanguage,
       productName: galleryProductName.trim(),
       productCategory: galleryCategory.trim(),
-      sellingPoints,
-      typeSelections: { ...galleryTypeSelections },
+      sellingPoints: effectiveSellingPoints,
+      typeSelections: resolvedTypeSelections,
       sceneConfig: hasSceneConfig ? sceneConfig : undefined,
       uploadedImagePaths: [] as string[],
     };
@@ -2001,10 +2097,18 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
     const runId = Date.now();
     galleryPollRunIdRef.current = runId;
+    const placeholderCreatedAt = new Date().toISOString();
+    const previewPlaceholders = generationPlan.map((planned, index) => ({
+      localId: `pg-prev-${runId}-${index}-${planned.outputType}`,
+      requestId: `pending-${runId}-${index}`,
+      status: 'created' as const,
+      outputType: planned.outputType,
+      createdAt: placeholderCreatedAt,
+    }));
 
     setIsGalleryGenerating(true);
     setGalleryRightPanel('preview');
-    setGalleryPreviewItems([]);
+    setGalleryPreviewItems(previewPlaceholders);
 
     try {
       let imagePaths: string[] = [];
@@ -2048,13 +2152,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         client_history_id: clientHistoryId,
         product_name: galleryProductName.trim(),
         product_category: galleryCategory.trim(),
-        core_selling_points: sellingPoints,
+        core_selling_points: effectiveSellingPoints,
         target_scene: galleryTargetScene,
         scene_config: hasSceneConfig ? sceneConfig : undefined,
         style: galleryStyle,
         target_language: galleryCopyLanguage,
         hot_style: hotStyleSelectedIndex !== null ? hotStyleItems[hotStyleSelectedIndex] : undefined,
-        type_selections: galleryTypeSelections as any,
+        type_selections: resolvedTypeSelections as any,
         model_image_path: modelImagePath || undefined,
         model_info: modelInfo || undefined,
       });
@@ -2064,16 +2168,17 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
       const initial = requests
         .map((r: any, idx: number) => {
+          const fallback = previewPlaceholders[idx];
           const requestId = String(r?.request_id || r?.id || '').trim();
           if (!requestId) return null;
           const outputType = String(r?.type || r?.output_type || r?.image_type || r?.kind || '').trim();
           const createdAt = String(r?.created_at || r?.createdAt || '').trim() || new Date().toISOString();
           return {
-            localId: `pg-prev-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+            localId: fallback?.localId || `pg-prev-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
             requestId,
             status: 'created' as const,
-            outputType: outputType || undefined,
-            createdAt,
+            outputType: outputType || fallback?.outputType || undefined,
+            createdAt: createdAt || fallback?.createdAt,
           };
         })
         .filter(Boolean) as Array<{ localId: string; requestId: string; status: 'created' | 'processing' | 'succeeded' | 'failed'; imageUrl?: string; error?: string; outputType?: string; createdAt?: string; layout?: any }>;
@@ -2246,7 +2351,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         notifyImageHistoryUpdated();
       }
     } catch (err: any) {
-      openGalleryAlert(String(err?.message || tr('生成失败，请重试。', 'Generation failed. Please try again.')));
+      const message = String(err?.message || tr('生成失败，请重试。', 'Generation failed. Please try again.'));
+      setGalleryPreviewItems((prev) =>
+        prev.some((item) => Boolean(String(item.imageUrl || '').trim()))
+          ? prev
+          : prev.map((item) => ({ ...item, status: 'failed' as const, error: message }))
+      );
+      openGalleryAlert(message);
     } finally {
       if (galleryPollRunIdRef.current === runId) {
         setIsGalleryGenerating(false);
@@ -2277,21 +2388,21 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       <AppDialog
         isOpen={galleryConfirm.open}
         title={galleryConfirm.title}
-        onClose={() => closeGalleryConfirm(false)}
+        onClose={() => closeGalleryConfirm('dismiss')}
         widthClassName="max-w-sm"
         overlayClassName="z-[160]"
         footer={
           <>
             <button
               type="button"
-              onClick={() => closeGalleryConfirm(false)}
+              onClick={() => closeGalleryConfirm('cancel')}
               className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
             >
               {galleryConfirm.cancelLabel}
             </button>
             <button
               type="button"
-              onClick={() => closeGalleryConfirm(true)}
+              onClick={() => closeGalleryConfirm('ok')}
               className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 text-black hover:bg-orange-400 transition"
             >
               {galleryConfirm.okLabel}

@@ -803,6 +803,19 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     templates: true,
     aiLayouts: true,
   });
+  const [themeClassSnapshot, setThemeClassSnapshot] = useState('');
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    const sync = () => setThemeClassSnapshot(root.className || '');
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(root, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+
+  const isLightTheme = themeClassSnapshot.includes('theme-light');
 
   useEffect(() => {
     if (!isExportMenuOpen) return;
@@ -2173,9 +2186,17 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   return (
     <>
       <div className="grid min-h-[72vh] grid-cols-1 gap-4 xl:grid-cols-[240px_minmax(0,1fr)_360px]">
-      <aside className="flex min-h-0 flex-col rounded-2xl border border-white/10 bg-black/20 p-3">
+      <aside
+        className={`flex min-h-0 flex-col rounded-2xl border p-3 ${
+          isLightTheme ? 'border-slate-200 bg-white/85 shadow-[0_10px_30px_rgba(15,23,42,0.06)]' : 'border-white/10 bg-black/20'
+        }`}
+      >
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
-          <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+          <div
+            className={`overflow-hidden rounded-2xl border ${
+              isLightTheme ? 'border-slate-200 bg-slate-50/90' : 'border-white/10 bg-black/20'
+            }`}
+          >
             <button
               type="button"
               onClick={() => toggleLeftPanelSection('templates')}
@@ -2207,8 +2228,12 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                         onClick={() => setTemplateMode(mode)}
                         className={`rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition ${
                           active
-                            ? 'border-orange-500/40 bg-orange-500/10 text-orange-200'
-                            : 'border-white/10 bg-zinc-900/70 text-zinc-300 hover:bg-zinc-800'
+                            ? (isLightTheme
+                                ? 'border-orange-300 bg-orange-100 text-orange-700'
+                                : 'border-orange-500/40 bg-orange-500/10 text-orange-200')
+                            : (isLightTheme
+                                ? 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                                : 'border-white/10 bg-zinc-900/70 text-zinc-300 hover:bg-zinc-800')
                         }`}
                       >
                         {tr(label.zh, label.en)}
@@ -2232,24 +2257,47 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                         onBlur={hideTemplateTooltip}
                         className={`group relative rounded-xl border p-1.5 text-left transition ${
                           active
-                            ? 'border-orange-500 bg-orange-500/10 text-orange-200 shadow-[0_0_0_1px_rgba(249,115,22,0.25)]'
-                            : 'border-white/10 bg-black/20 text-zinc-200 hover:border-white/20 hover:bg-white/5'
+                            ? (isLightTheme
+                                ? 'border-orange-300 bg-orange-50 text-orange-700 shadow-[0_0_0_1px_rgba(251,146,60,0.28)]'
+                                : 'border-orange-500 bg-orange-500/10 text-orange-200 shadow-[0_0_0_1px_rgba(249,115,22,0.25)]')
+                            : (isLightTheme
+                                ? 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                                : 'border-white/10 bg-black/20 text-zinc-200 hover:border-white/20 hover:bg-white/5')
                         }`}
                       >
-                        <div className="overflow-hidden rounded-lg border border-white/10 bg-zinc-950/70 p-1">
+                        <div
+                          className={`overflow-hidden rounded-lg border p-1 ${
+                            isLightTheme ? 'border-slate-200 bg-slate-200/70' : 'border-white/10 bg-zinc-950/70'
+                          }`}
+                        >
                           <div
-                            className="relative mx-auto w-full rounded-md border border-white/5 bg-white/5 overflow-hidden"
-                            style={{ aspectRatio: `${template.canvasWidth} / ${template.canvasHeight}` }}
+                            className="relative mx-auto w-full overflow-hidden rounded-md"
+                            style={{
+                              aspectRatio: `${template.canvasWidth} / ${template.canvasHeight}`,
+                              background: template.background,
+                              border: isLightTheme
+                                ? '1px solid rgba(15, 23, 42, 0.18)'
+                                : '1px solid rgba(255, 255, 255, 0.06)',
+                              boxShadow: isLightTheme
+                                ? 'inset 0 0 0 1px rgba(255, 255, 255, 0.16)'
+                                : 'inset 0 0 0 1px rgba(255, 255, 255, 0.03)',
+                            }}
                           >
                             {template.slots.map((slot, index) => (
                               <div
                                 key={`${template.id}-${index}`}
-                                className="absolute rounded-[3px] border border-white/30 bg-white/10"
+                                className="absolute rounded-[3px]"
                                 style={{
                                   left: `${(slot.x / template.canvasWidth) * 100}%`,
                                   top: `${(slot.y / template.canvasHeight) * 100}%`,
                                   width: `${(slot.w / template.canvasWidth) * 100}%`,
                                   height: `${(slot.h / template.canvasHeight) * 100}%`,
+                                  border: isLightTheme
+                                    ? '1px solid rgba(255, 255, 255, 0.88)'
+                                    : '1px solid rgba(255, 255, 255, 0.3)',
+                                  background: isLightTheme
+                                    ? 'rgba(255, 255, 255, 0.26)'
+                                    : 'rgba(255, 255, 255, 0.1)',
                                 }}
                               />
                             ))}
@@ -2261,7 +2309,11 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                 </div>
 
                 {filteredTemplates.length < 1 ? (
-                  <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-4 text-xs text-zinc-500">
+                  <div
+                    className={`rounded-xl border px-3 py-4 text-xs ${
+                      isLightTheme ? 'border-slate-200 bg-white text-slate-500' : 'border-white/10 bg-black/20 text-zinc-500'
+                    }`}
+                  >
                     {tr('该模式下暂无模板。', 'No templates in this mode yet.')}
                   </div>
                 ) : null}
@@ -2269,7 +2321,11 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
             ) : null}
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+          <div
+            className={`overflow-hidden rounded-2xl border ${
+              isLightTheme ? 'border-slate-200 bg-slate-50/90' : 'border-white/10 bg-black/20'
+            }`}
+          >
             <button
               type="button"
               onClick={() => toggleLeftPanelSection('aiLayouts')}
@@ -2337,7 +2393,9 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
       {templateTooltip ? (
         <div
-          className="pointer-events-none fixed z-[260] w-max max-w-[180px] -translate-y-1/2 rounded-md border border-white/10 bg-black/92 px-2 py-1.5 text-center text-[10px] leading-4 text-zinc-100 shadow-xl"
+          className={`pointer-events-none fixed z-[260] w-max max-w-[180px] -translate-y-1/2 rounded-md border px-2 py-1.5 text-center text-[10px] leading-4 shadow-xl ${
+            isLightTheme ? 'border-slate-200 bg-white/96 text-slate-700' : 'border-white/10 bg-black/92 text-zinc-100'
+          }`}
           style={{
             left: templateTooltip.left,
             top: templateTooltip.top,

@@ -160,12 +160,16 @@ const Workbench = () => {
 
     if (theme !== 'system') return;
 
+    const cleanup = () => {
+      root.classList.remove('theme-light', 'theme-dim');
+    };
+
     if (typeof media.addEventListener === 'function') {
       media.addEventListener('change', applyTheme);
-      return () => media.removeEventListener('change', applyTheme);
+      return () => { media.removeEventListener('change', applyTheme); cleanup(); };
     }
     media.addListener(applyTheme);
-    return () => media.removeListener(applyTheme);
+    return () => { media.removeListener(applyTheme); cleanup(); };
   }, [theme]);
 
   useEffect(() => {

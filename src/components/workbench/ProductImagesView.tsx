@@ -14,6 +14,7 @@ import { downloadBlob, productImagesApi } from '../../services/productImagesApi'
 import { billingApi } from '../../services/billing';
 import { notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, removeImageHistoryAssets, replaceImageHistoryAsset, subscribeImageHistory, type ImageHistoryItem } from '../../utils/imageHistory';
 import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../utils/loadingTheme';
+import { useRequireAuth } from '../../utils/useRequireAuth';
 
 interface ProductImagesViewProps {
   activeView: ViewType;
@@ -427,6 +428,7 @@ const GalleryLoadingCard: React.FC<{
 
 const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setActiveView }) => {
   const { language, t } = useLanguage();
+  const { requireAuth } = useRequireAuth();
   const isZh = language === 'zh';
   const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
   const tx = (key: string, fallback: string) => ((t as any)[key] as string) || fallback;
@@ -2340,6 +2342,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   };
 
   const handleGalleryGenerate = async () => {
+    if (!requireAuth()) return;
     if (isGalleryGenerating) return;
 
     // Determine whether we have new uploaded images or restored backend paths

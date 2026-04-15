@@ -7,6 +7,7 @@ import { billingApi } from '../../../../services/billing';
 import type { ProductImageResult, SmartRepairParams, SmartRepairSubpage, SmartRepairToolCode } from '../../../../types/productImages';
 import { notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
 import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../../../utils/loadingTheme';
+import { useRequireAuth } from '../../../../utils/useRequireAuth';
 
 type Phase = 'setup' | 'generating' | 'result' | 'error';
 
@@ -210,6 +211,7 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
 
 export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projectId, embedded = false }) => {
   const { language } = useLanguage();
+  const { requireAuth } = useRequireAuth();
   const isZh = language === 'zh';
   const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
 
@@ -348,6 +350,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   }, [referencePreviewUrl, sourcePreviewUrl]);
 
   const handleGenerate = async () => {
+    if (!requireAuth()) return;
     if (!activeSubpage || !activeToolCode) {
       setError({
         code: 'NO_FUNCTION',

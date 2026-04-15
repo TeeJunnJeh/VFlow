@@ -369,6 +369,9 @@ html.theme-light .wb-seedance-replay-added-badge {
   background-color: transparent !important;
   box-shadow: none !important;
 }
+.theme-light .ff-generate-cost {
+  color: #9a3412 !important;
+}
 .theme-light .glass-card, .theme-light .glass-panel {
   background: rgba(255,255,255,0.85) !important;
   border-color: rgba(15,23,42,0.06) !important;

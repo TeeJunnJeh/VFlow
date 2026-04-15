@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Wand2 } from 'lucide-react';
+import { Wand2 } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import { billingApi } from '../../../../services/billing';
@@ -67,7 +67,6 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
     [t]
   );
 
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [isPolishingPrompt, setIsPolishingPrompt] = useState(false);
   const [imageModelRates, setImageModelRates] = useState<Record<string, number>>({});
   const [formData, setFormData] = useState<FirstFrameParams>(() => {
@@ -188,43 +187,43 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   return (
     <form onSubmit={handleSubmit} className="w-full">
       <div className="space-y-6">
-        <div className="space-y-3">
-          <div>
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <label className="block text-sm text-zinc-300 font-medium">
-                {t.wb_ai_opt_need_prompt || '生成要求'}
-              </label>
-              <button
-                type="button"
-                onClick={() => void handlePolishPrompt()}
-                disabled={isPolishingPrompt || isSubmitting}
-                className={`text-xs px-2.5 py-1 rounded border transition ${isPolishingPrompt || isSubmitting ? 'border-orange-500/30 bg-orange-500/5 text-orange-200/70 cursor-not-allowed' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
-              >
-                {isPolishingPrompt
-                  ? (t.wb_ai_opt_prompt_generating || '润色中...')
-                  : (t.wb_ai_opt_build_prompt_btn || 'AI 润色')}
-              </button>
-            </div>
-            <textarea
-              value={formData.prompt || ''}
-              onChange={(e) => {
-                const nextPrompt = e.target.value;
-                setFormData({ ...formData, prompt: nextPrompt });
-                if (errors.prompt) {
-                  setErrors((prev) => {
-                    const next = { ...prev };
-                    delete next.prompt;
-                    return next;
-                  });
-                }
-              }}
-              rows={5}
-              placeholder={t.wb_ai_opt_prompt_placeholder || '例如：女生单人手持口红，近景半身，干净背景，电商质感，真实肤感，避免文字和水印'}
-              className={`w-full rounded-xl border bg-zinc-900/70 px-3 py-2.5 text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-orange-500/30 ${errors.prompt ? 'border-red-500' : 'border-white/10'}`}
-            />
-            {errors.prompt ? <p className="text-red-400 text-xs mt-1">{errors.prompt}</p> : null}
+        <div>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <label className="block text-sm text-zinc-300 font-medium">
+              {t.wb_ai_opt_need_prompt || '生成要求'}
+            </label>
+            <button
+              type="button"
+              onClick={() => void handlePolishPrompt()}
+              disabled={isPolishingPrompt || isSubmitting}
+              className={`text-xs px-2.5 py-1 rounded border transition ${isPolishingPrompt || isSubmitting ? 'border-orange-500/30 bg-orange-500/5 text-orange-200/70 cursor-not-allowed' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+            >
+              {isPolishingPrompt
+                ? (t.wb_ai_opt_prompt_generating || '润色中...')
+                : (t.wb_ai_opt_build_prompt_btn || 'AI 润色')}
+            </button>
           </div>
+          <textarea
+            value={formData.prompt || ''}
+            onChange={(e) => {
+              const nextPrompt = e.target.value;
+              setFormData({ ...formData, prompt: nextPrompt });
+              if (errors.prompt) {
+                setErrors((prev) => {
+                  const next = { ...prev };
+                  delete next.prompt;
+                  return next;
+                });
+              }
+            }}
+            rows={5}
+            placeholder={t.wb_ai_opt_prompt_placeholder || '例如：女生单人手持口红，近景半身，干净背景，电商质感，真实肤感，避免文字和水印'}
+            className={`w-full rounded-xl border bg-zinc-900/70 px-3 py-2.5 text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-orange-500/30 ${errors.prompt ? 'border-red-500' : 'border-white/10'}`}
+          />
+          {errors.prompt ? <p className="text-red-400 text-xs mt-1">{errors.prompt}</p> : null}
+        </div>
 
+        <div className="space-y-6">
           <div>
             <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_aspect_ratio_label}</label>
             <div className="grid grid-cols-3 gap-2">
@@ -242,7 +241,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
           </div>
 
           <div>
-            <label className="block text-base text-zinc-300 mb-2 font-medium">{t.wb_model_title || t.ff_style_label}</label>
+            <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.wb_model_title || t.ff_style_label}</label>
             <DropdownSelect
               value={formData.model || ''}
               options={models}
@@ -253,37 +252,22 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
             />
             {errors.model && <p className="text-red-400 text-xs mt-1">{errors.model}</p>}
           </div>
-        </div>
 
-        <div className="border-t border-zinc-700 pt-6">
-          <button
-            type="button"
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            className="ff-ghost-btn flex items-center gap-2 text-orange-400 hover:text-orange-300 text-sm font-medium transition"
-          >
-            <ChevronDown className={`w-4 h-4 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
-            {t.ff_advanced_settings}
-          </button>
-
-          {showAdvanced && (
-            <div className="mt-4 space-y-4 p-4 bg-zinc-900/40 rounded-lg border border-white/10">
-              <div>
-                <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_output_count_label}</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {outputCounts.map((item) => (
-                    <button
-                      key={item.value}
-                      type="button"
-                      onClick={() => setFormData({ ...formData, outputCount: item.value as any })}
-                      className={`px-3 py-2 rounded-xl text-sm font-medium border transition ${formData.outputCount === item.value ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
+          <div>
+            <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_output_count_label}</label>
+            <div className="grid grid-cols-3 gap-2">
+              {outputCounts.map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => setFormData({ ...formData, outputCount: item.value as any })}
+                  className={`px-3 py-2 rounded-xl text-sm font-medium border transition ${formData.outputCount === item.value ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
+                >
+                  {item.label}
+                </button>
+              ))}
               </div>
             </div>
-          )}
         </div>
 
         <div className="flex gap-3 pt-4 border-t border-zinc-700">
@@ -301,7 +285,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
             </span>
             <span className="justify-self-end self-center text-right">
               {estimatedCost > 0 ? (
-                <span className="whitespace-nowrap text-[10px] font-semibold tabular-nums text-orange-100/80">
+                <span className="ff-generate-cost whitespace-nowrap text-[10px] font-semibold tabular-nums text-orange-100/80">
                   {`-${estimatedCost} ${t.v_points || 'V点'}`}
                 </span>
               ) : null}

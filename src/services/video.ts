@@ -103,6 +103,7 @@ export type ScriptEstimateParams = {
   script_count: number;
   duration: number;
   has_reference_assets: boolean;
+  with_shots?: boolean;
 };
 
 type ScriptStreamEnvelope = {
@@ -208,6 +209,9 @@ export const videoApi = {
     query.set('script_count', String(params.script_count ?? ''));
     query.set('duration', String(params.duration ?? ''));
     query.set('has_reference_assets', params.has_reference_assets ? 'true' : 'false');
+    if (params.with_shots !== undefined) {
+      query.set('with_shots', params.with_shots ? 'true' : 'false');
+    }
 
     const response = await fetch(`/api/tasks/script-estimate/?${query.toString()}`, {
       method: 'GET',
@@ -642,6 +646,39 @@ export const videoApi = {
         break;
       }
     }
+  },
+
+  // 补生成分镜：跳过 Stage 1，复用已有整片方案只跑 Stage 2。
+  // 场景：用户之前关着分镜结构生成了脚本，后来打开开关想看分镜。
+  generateShots: async (
+    userId: string | number,
+    payload: unknown,
+    options?: { signal?: AbortSignal }
+  ) => {
+    const csrftoken = getCookie('csrftoken');
+    const body = JSON.stringify(payload);
+    if (!body) {
+      throw new Error('Shots generation payload is empty');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/users/${userId}/generate-shots`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json; charset=utf-8',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body,
+      signal: options?.signal,
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Shots generation failed');
+    }
+
+    return await response.json();
   },
 
   reverseScriptFromVideo: async (

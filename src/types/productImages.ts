@@ -69,6 +69,7 @@ export type FirstFrameWhitespace =
   | 'none';
 
 export interface FirstFrameParams {
+  prompt?: string;
   category?: FirstFrameCategory;
   personType?: FirstFramePersonType;
   holdingStyle?: FirstFrameHoldingStyle;

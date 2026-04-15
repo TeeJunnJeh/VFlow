@@ -136,6 +136,7 @@ export type ScriptEstimateParams = {
   script_count: number;
   duration: number;
   has_reference_assets: boolean;
+  with_shots?: boolean;
 };
 
 type ScriptStreamEnvelope = {
@@ -246,6 +247,9 @@ export const videoApi = {
     query.set('script_count', String(params.script_count ?? ''));
     query.set('duration', String(params.duration ?? ''));
     query.set('has_reference_assets', params.has_reference_assets ? 'true' : 'false');
+    if (params.with_shots !== undefined) {
+      query.set('with_shots', params.with_shots ? 'true' : 'false');
+    }
 
     const response = await fetch(`/api/tasks/script-estimate/?${query.toString()}`, {
       method: 'GET',
@@ -715,42 +719,55 @@ export const videoApi = {
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
 
-      let idx = buffer.indexOf('\n\n');
-      while (idx !== -1) {
-        const rawEvent = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 2);
+      let boundary = findSseBoundary(buffer);
+      while (boundary) {
+        const rawEvent = buffer.slice(0, boundary.index);
+        buffer = buffer.slice(boundary.index + boundary.separatorLength);
+        const parsedChunk = parseSseChunk(rawEvent);
+        if (parsedChunk) {
+          await dispatchPayload(parsedChunk.event, parsedChunk.data);
+        }
+        boundary = findSseBoundary(buffer);
+      }
 
-        let eventName = 'message';
-        const dataLines: string[] = [];
-        for (const line of rawEvent.split('\n')) {
-          if (line.startsWith('event:')) {
-            eventName = line.slice(6).trim() || 'message';
-          } else if (line.startsWith('data:')) {
-            dataLines.push(line.slice(5).trim());
+      if (done) {
+        const trailing = buffer.trim();
+        if (trailing) {
+          const parsedChunk = parseSseChunk(trailing);
+          if (parsedChunk) {
+            await dispatchPayload(parsedChunk.event, parsedChunk.data);
           }
         }
-
-        let parsedData: Record<string, unknown> = {};
-        const joined = dataLines.join('\n');
-        if (joined) {
-          try {
-            parsedData = JSON.parse(joined) as Record<string, unknown>;
-          } catch {
-            parsedData = { raw: joined };
-          }
-        }
-
-        const event: ScriptStreamEvent = {
-          message: typeof parsedData.message === 'string' ? parsedData.message : undefined,
-          data: (parsedData.data as Record<string, unknown>) || parsedData,
-        };
-
-        if (eventName === 'start') callbacks.onStart?.(event);
-        else if (eventName === 'variant') await callbacks.onVariant?.(event);
-        else if (eventName === 'done') callbacks.onDone?.(event);
-        else if (eventName === 'error') callbacks.onErrorEvent?.(event);
+        break;
       }
     }
+  },
+
+  // 补生成分镜：跳过 Stage 1，复用已有整片方案只跑 Stage 2。
+  // 场景：用户之前关着分镜结构生成了脚本，后来打开开关想看分镜。
+  generateShots: async (
+    userId: string | number,
+    payload: unknown,
+    options?: { signal?: AbortSignal },
+  ) => apiRequest<any>(`${API_BASE_URL}/users/${userId}/generate-shots`, {
+    method: 'POST',
+    body: payload as any,
+    fallbackMessage: 'Shots generation failed',
+    fetchOptions: options?.signal ? { signal: options.signal } : undefined,
+  }),
+
+  reverseScriptFromVideo: async (
+    userId: string | number,
+    payload: { video_url?: string; user_language?: string } | FormData,
+  ): Promise<ApiEnvelope<ReplayReverseScriptData>> => {
+    return apiRequest<ApiEnvelope<ReplayReverseScriptData>>(
+      `${API_BASE_URL}/users/${userId}/replay-reverse-script`,
+      {
+        method: 'POST',
+        body: payload,
+        fallbackMessage: 'Replay analysis failed',
+      }
+    );
   },
 
   // 台词翻译（直接翻译 / 创意翻译）

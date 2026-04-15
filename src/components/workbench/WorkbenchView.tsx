@@ -1347,6 +1347,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const scriptPagesRef = useRef<ScriptPage[]>([]);
   const [isShotBreakdownOpen, setIsShotBreakdownOpen] = useState(false);
   const [enableStoryboardEditor, setEnableStoryboardEditor] = useState(false);
+  const [isGeneratingShotsOnly, setIsGeneratingShotsOnly] = useState(false);
 
   const [isBatchGenerateOpen, setIsBatchGenerateOpen] = useState(false);
   const [batchGenerateCount, setBatchGenerateCount] = useState(2);
@@ -3542,8 +3543,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return Math.max(0, Math.round(rate * totalScriptSeconds * queuedRenderableAssetCount));
     }
 
-    return Math.max(0, Math.round(rate * Math.max(1, Number(genDuration) || 0)));
-  }, [genDuration, queuedRenderableAssetCount, reuseQueueEnabled, scriptQueue, selectedVideoPricing]);
+    const scriptCount = Math.max(1, Number(scriptVariantCount) || 1);
+    return Math.max(0, Math.round(rate * Math.max(1, Number(genDuration) || 0) * scriptCount));
+  }, [genDuration, queuedRenderableAssetCount, reuseQueueEnabled, scriptQueue, scriptVariantCount, selectedVideoPricing]);
 
   const estimatedImageCost = useMemo(() => {
     const rate = Number(selectedImagePricing?.rate ?? 0);
@@ -3601,6 +3603,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
   const defaultAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => ([
     { value: 'product', label: materialTypeLabelMap.product },
+    { value: 'motion', label: materialTypeLabelMap.motion },
+    { value: 'audio', label: materialTypeLabelMap.audio },
+    { value: 'model', label: materialTypeLabelMap.model },
+    { value: 'scene', label: materialTypeLabelMap.scene },
   ]), [materialTypeLabelMap]);
   const subjectAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => ([
     { value: 'subject', label: materialTypeLabelMap.subject },
@@ -6744,7 +6750,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return () => window.clearTimeout(timer);
   }, [scriptGenerationNotice]);
 
-  const buildScriptEstimateStorageKey = useCallback((params: { script_count: number; duration: number; has_reference_assets: boolean }) => {
+  const buildScriptEstimateStorageKey = useCallback((params: { script_count: number; duration: number; has_reference_assets: boolean; with_shots?: boolean }) => {
     const userPart = user?.id ?? 'guest';
     return [
       SCRIPT_ESTIMATE_STORAGE_KEY_PREFIX,
@@ -6752,6 +6758,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       params.script_count,
       params.duration,
       params.has_reference_assets ? 1 : 0,
+      params.with_shots === false ? 'noshots' : 'shots',
     ].join('_');
   }, [user?.id]);
 
@@ -7145,6 +7152,103 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setIsShotBreakdownOpen(false);
   }, [parseScriptPage]);
 
+  // 补生成分镜：基于当前页已有的整片方案，只跑 Stage 2 分镜拆分。
+  const handleGenerateShotsOnly = useCallback(async () => {
+    if (isGeneratingShotsOnly) return;
+    if (!user?.id) {
+      openInfo(popupTitles.notice, t.wb_popup_not_logged_in);
+      return;
+    }
+    const pageIdx = activeScriptPage;
+    const currentPage = scriptPagesRef.current[pageIdx];
+    if (!currentPage) return;
+
+    const rawFullScript = String(currentPage.fullScript || '').trim();
+    if (!rawFullScript) {
+      openInfo(popupTitles.notice, '当前页还没有整片方案，请先生成脚本。');
+      return;
+    }
+
+    setIsGeneratingShotsOnly(true);
+    try {
+      const category = productCategory.trim() || selectedTemplate?.product_category || "相机";
+      const style = selectedTemplate?.visual_style || "写实";
+      const rawRatio = aspectRatio || selectedTemplate?.aspect_ratio || "16:9";
+      const duration = genDuration || selectedTemplate?.duration || 10;
+      const shotsCount = selectedTemplate?.shot_number || 5;
+      const promptText = buildScriptInputText();
+
+      const creativeCardOut = currentPage.creativeCard ? {
+        style: currentPage.creativeCard.style || '',
+        environment: currentPage.creativeCard.environment || '',
+        tone_pacing: currentPage.creativeCard.tonePacing || '',
+        camera: currentPage.creativeCard.camera || '',
+        lighting: currentPage.creativeCard.lighting || '',
+        actions: currentPage.creativeCard.actions || [],
+        background_sound: currentPage.creativeCard.backgroundSound || '',
+        transition_editing: currentPage.creativeCard.transitionEditing || '',
+        call_to_action: currentPage.creativeCard.callToAction || '',
+      } : undefined;
+
+      const payload: any = {
+        product_category: category,
+        visual_style: style,
+        aspect_ratio: rawRatio,
+        user_language: language,
+        target_language: targetLanguage,
+        sound: soundSetting,
+        enable_storyboard_editor: true,
+        script_content: {
+          duration,
+          shot_number: shotsCount,
+          custom: selectedTemplate?.custom_config || "",
+          input: promptText,
+          shots: [],
+          video_master_script: rawFullScript,
+          ...(currentPage.continuityAnchor ? { continuity_anchor: currentPage.continuityAnchor } : {}),
+          ...(currentPage.scriptStructure ? { script_structure: currentPage.scriptStructure } : {}),
+          ...(creativeCardOut ? { creative_card: creativeCardOut } : {}),
+          ...(currentPage.sellingPoints?.length ? { selling_points: currentPage.sellingPoints } : {}),
+          ...(currentPage.sceneSuggestions?.length ? { scene_suggestions: currentPage.sceneSuggestions } : {}),
+          ...(currentPage.styleTags?.length ? { style_tags: currentPage.styleTags } : {}),
+        },
+      };
+
+      const resp: any = await videoApi.generateShots(user.id, payload);
+      const newScriptContent = resp?.data?.script_content;
+      if (!newScriptContent) {
+        throw new Error('分镜补生成返回为空');
+      }
+
+      // 构造更新后的页：沿用当前页的 Stage 1 字段，只替换 shots。
+      const nextPage = parseScriptPage({ script_content: newScriptContent, name: currentPage.name }, pageIdx);
+      scriptPagesRef.current = scriptPagesRef.current.map((p, i) => (i === pageIdx ? { ...nextPage, sourceLabel: currentPage.sourceLabel } : p));
+      setScriptPages((prev) => prev.map((p, i) => (i === pageIdx ? { ...nextPage, sourceLabel: currentPage.sourceLabel } : p)));
+      setScripts(nextPage.scripts);
+      setIsShotBreakdownOpen(true);
+    } catch (err) {
+      console.error('generate shots only failed', err);
+      openErrorModal(err, { category: 'script_failed', onRetry: handleGenerateShotsOnly });
+    } finally {
+      setIsGeneratingShotsOnly(false);
+    }
+  }, [
+    isGeneratingShotsOnly,
+    user?.id,
+    activeScriptPage,
+    productCategory,
+    selectedTemplate,
+    aspectRatio,
+    genDuration,
+    language,
+    targetLanguage,
+    soundSetting,
+    buildScriptInputText,
+    parseScriptPage,
+    popupTitles.notice,
+    t,
+  ]);
+
   const finishScriptGenerationProgress = useCallback(async () => {
     scriptGenerationFinishingRef.current = true;
     const from = Math.max(0, Math.min(100, scriptGenerationProgress));
@@ -7318,6 +7422,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       script_count: 1,
       duration: Math.max(1, genDuration || 10),
       has_reference_assets: uploadDisplayAssets.some((asset) => asset.mediaKind === 'image' || asset.mediaKind === 'video'),
+      with_shots: enableStoryboardEditor,
     };
     const estimateStorageKey = buildScriptEstimateStorageKey(estimateParams);
     let estimatedSeconds = 45;
@@ -7499,6 +7604,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         target_language: targetLanguage,
         sound: soundSetting,
         script_count: scriptVariantCount,
+        enable_storyboard_editor: enableStoryboardEditor,
         script_content: {
           duration,
           shot_number: shots,
@@ -7522,6 +7628,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         script_count: 1,
         duration: estimateParams.duration,
         has_reference_assets: estimateParams.has_reference_assets,
+        with_shots: enableStoryboardEditor,
       };
 
       console.log("📜 Generating Script with payload:", payload);
@@ -8115,6 +8222,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     try {
       const payload = await buildSingleGeneratePayload();
+      payload.script_count = Math.max(1, Number(scriptVariantCount) || 1);
       await submitSingleGeneration(payload);
     } catch (err: any) {
       if (err?.message === USER_CANCELLED_ADAPT) {
@@ -9475,7 +9583,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 }}
                 className="wb-upload-library-btn rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
             >
-              {t.wb_btn_choose_from_library || '从素材库选择素材'}
+              {t.wb_btn_choose_from_library || '从素材库选择'}
             </button>
             <button
                 type="button"
@@ -11014,6 +11122,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 {assetLibraryPickMode === 'background_audio' ? (
                   <div className="flex items-center justify-between gap-3 px-1">
                     <div className="text-xs text-zinc-400">{t.wb_audio_picker_hint || '仅显示音频素材'}</div>
+                    <div className="flex items-center gap-2">
+                      {assetLibraryTab !== 'subject' && (
+                        <button
+                          type="button"
+                          onClick={triggerAssetLibraryLocalUpload}
+                          disabled={isAssetLibraryUploading}
+                          className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading ? 'cursor-not-allowed border-orange-500/25 bg-orange-500/10 text-orange-200/70' : 'border-orange-500/45 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+                        >
+                          {isAssetLibraryUploading
+                            ? ((t as any).wb_uploading || '上传中...')
+                            : ((t as any).wb_btn_upload_to_library || '上传素材')}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={openSubjectCreationLibrary}
+                        className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-bold text-zinc-200 transition hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-200"
+                      >
+                        {(t as any).wb_btn_manage_assets_library || '前往素材库'}
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex items-center justify-between gap-3">
@@ -11031,6 +11160,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             {tab.label}
                           </button>
                       ))}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {assetLibraryTab !== 'subject' && (
+                        <button
+                          type="button"
+                          onClick={triggerAssetLibraryLocalUpload}
+                          disabled={isAssetLibraryUploading}
+                          className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading ? 'cursor-not-allowed border-orange-500/25 bg-orange-500/10 text-orange-200/70' : 'border-orange-500/45 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+                        >
+                          {isAssetLibraryUploading
+                            ? ((t as any).wb_uploading || '上传中...')
+                            : ((t as any).wb_btn_upload_to_library || '上传素材')}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={openSubjectCreationLibrary}
+                        className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-bold text-zinc-200 transition hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-200"
+                      >
+                        {(t as any).wb_btn_manage_assets_library || '前往素材库'}
+                      </button>
                     </div>
                   </div>
                 )}
@@ -11101,12 +11251,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       </div>
                     )
                   ) : assetLibraryItems.length === 0 && assetLibraryFolders.length === 0 ? (
-                      <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">
-                        {assetLibraryPickMode === 'background_audio'
-                          ? (t.wb_audio_picker_empty || '暂无音频素材')
-                          : assetLibraryPickMode === 'script_import'
-                            ? (t.wb_script_library_empty || '暂无脚本素材')
-                            : '暂无素材'}
+                      <div className="h-52 flex flex-col items-center justify-center gap-3 text-zinc-500 text-sm">
+                        <div>
+                          {assetLibraryPickMode === 'background_audio'
+                            ? (t.wb_audio_picker_empty || '暂无音频素材')
+                            : assetLibraryPickMode === 'script_import'
+                              ? (t.wb_script_library_empty || '暂无脚本素材')
+                              : '暂无素材'}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={triggerAssetLibraryLocalUpload}
+                          disabled={isAssetLibraryUploading}
+                          className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading ? 'cursor-not-allowed border-orange-500/25 bg-orange-500/10 text-orange-200/70' : 'border-orange-500/45 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+                        >
+                          {isAssetLibraryUploading
+                            ? ((t as any).wb_uploading || '上传中...')
+                            : ((t as any).wb_btn_upload_to_library || '上传素材')}
+                        </button>
                       </div>
                   ) : (
                       <div className="grid grid-cols-6 gap-2">
@@ -11713,10 +11875,46 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           当前默认展示完整脚本方案。点击“展开分镜”进行镜头级精修。
                         </div>
                     ) : scripts.length === 0 ? (
-                        <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
-                          <FileJson className="w-10 h-10 mb-2 opacity-50" />
-                          <p className="text-xs">No scripts yet.</p>
-                        </div>
+                        (() => {
+                          const currentPageFullScript = String(scriptPages[activeScriptPage]?.fullScript || '').trim();
+                          if (currentPageFullScript) {
+                            return (
+                              <div className="h-64 flex flex-col items-center justify-center text-zinc-500 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20 gap-3 px-6 text-center">
+                                <FileJson className="w-10 h-10 opacity-50" />
+                                <p className="text-xs text-zinc-400">
+                                  分镜尚未生成
+                                </p>
+                                <p className="text-[10px] text-zinc-600 max-w-xs">
+                                  当前脚本只有整片方案。点击下方按钮在此基础上拆分镜头。
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={handleGenerateShotsOnly}
+                                  disabled={isGeneratingShotsOnly}
+                                  className={`flex items-center gap-2 text-[11px] px-3 py-1.5 rounded border transition ${isGeneratingShotsOnly ? 'border-white/10 text-zinc-500 cursor-not-allowed' : 'border-orange-500/40 text-orange-400 hover:bg-orange-500/10'}`}
+                                >
+                                  {isGeneratingShotsOnly ? (
+                                    <>
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      <span>生成分镜中...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Plus className="w-3.5 h-3.5" />
+                                      <span>补生成分镜</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
+                              <FileJson className="w-10 h-10 mb-2 opacity-50" />
+                              <p className="text-xs">No scripts yet.</p>
+                            </div>
+                          );
+                        })()
                     ) : (
                         scripts.map((script, index) => (
                             <div key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>

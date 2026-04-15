@@ -36,6 +36,7 @@ interface FirstFrameViewProps {
   onBack?: () => void;
   projectId?: string;
   embedded?: boolean;
+  isVisible?: boolean;
   onApplyToWorkbench?: () => void;
   headerActionsContainer?: HTMLElement | null;
 }
@@ -134,6 +135,7 @@ interface FirstFrameWorkspacePaneProps {
   workspaceOrder: number;
   workspaceLabel: string;
   projectId?: string;
+  isVisible?: boolean;
   onApplyToWorkbench?: () => void;
 }
 
@@ -142,6 +144,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   workspaceOrder,
   workspaceLabel,
   projectId,
+  isVisible = true,
   onApplyToWorkbench,
 }) => {
   const { t } = useLanguage();
@@ -426,6 +429,40 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     Math.min(Math.max(requested, min), max)
   ), []);
 
+  const resetPanelWidthsForVisibleLayout = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const containerWidth = container.clientWidth;
+    if (!Number.isFinite(containerWidth) || containerWidth <= FIRST_FRAME_PANEL_MIN_WIDTH * 2) return;
+
+    let nextLeft = clampPanelWidth(
+      FIRST_FRAME_LEFT_DEFAULT_WIDTH,
+      FIRST_FRAME_PANEL_MIN_WIDTH,
+      FIRST_FRAME_PANEL_MAX_WIDTH
+    );
+    let nextMiddle = clampPanelWidth(
+      FIRST_FRAME_MIDDLE_DEFAULT_WIDTH,
+      FIRST_FRAME_PANEL_MIN_WIDTH,
+      FIRST_FRAME_PANEL_MAX_WIDTH
+    );
+
+    const maxMiddleByContainer = containerWidth - nextLeft - FIRST_FRAME_PANEL_MIN_WIDTH;
+    nextMiddle = Math.max(
+      FIRST_FRAME_PANEL_MIN_WIDTH,
+      Math.min(nextMiddle, maxMiddleByContainer)
+    );
+
+    const maxLeftByContainer = containerWidth - nextMiddle - FIRST_FRAME_PANEL_MIN_WIDTH;
+    nextLeft = Math.max(
+      FIRST_FRAME_PANEL_MIN_WIDTH,
+      Math.min(nextLeft, maxLeftByContainer)
+    );
+
+    setLeftWidth(nextLeft);
+    setMiddleWidth(nextMiddle);
+  }, [clampPanelWidth]);
+
   const handleLeftResize = useCallback((width: number) => {
     const requestedWidth = clampPanelWidth(width, FIRST_FRAME_PANEL_MIN_WIDTH, FIRST_FRAME_PANEL_MAX_WIDTH);
     const container = containerRef.current;
@@ -483,6 +520,16 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     window.addEventListener('resize', keepWidthsValid);
     return () => window.removeEventListener('resize', keepWidthsValid);
   }, [clampPanelWidth, leftWidth, middleWidth]);
+
+  useEffect(() => {
+    if (!isVisible) return;
+
+    const rafId = window.requestAnimationFrame(() => {
+      resetPanelWidthsForVisibleLayout();
+    });
+
+    return () => window.cancelAnimationFrame(rafId);
+  }, [isVisible, resetPanelWidthsForVisibleLayout]);
 
   return (
     <>
@@ -705,6 +752,7 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
   onBack,
   projectId,
   embedded = false,
+  isVisible = true,
   onApplyToWorkbench,
   headerActionsContainer,
 }) => {
@@ -939,6 +987,7 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
               workspaceOrder={workspace.order}
               workspaceLabel={workspaceLabel(workspace)}
               projectId={projectId}
+              isVisible={isVisible && workspace.id === activeWorkspaceId}
               onApplyToWorkbench={onApplyToWorkbench}
             />
           </div>

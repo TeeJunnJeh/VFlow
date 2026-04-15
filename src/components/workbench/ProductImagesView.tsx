@@ -3672,6 +3672,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         <div className={panelClassName('product_images_first_frame')}>
           <FirstFrameView
             embedded
+            isVisible={currentValue === 'product_images_first_frame'}
             headerActionsContainer={firstFrameHeaderActionsContainer}
             onApplyToWorkbench={() => setActiveView('workbench')}
           />

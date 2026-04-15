@@ -3,6 +3,7 @@ import { ChevronLeft, Download, Sparkles, ArrowLeft, Home } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { ErrorDialog, type ErrorInfo, ImageUploader, LoadingProgress } from '../../Common';
 import { downloadBlob, productImagesApi } from '../../../../services/productImagesApi';
+import { billingApi } from '../../../../services/billing';
 import type { ProductImageResult, SmartRepairParams, SmartRepairSubpage, SmartRepairToolCode } from '../../../../types/productImages';
 import { notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
 import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../../../utils/loadingTheme';
@@ -230,6 +231,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   const [historyItems, setHistoryItems] = useState<SmartRepairHistoryEntry[]>([]);
   const [loadingTheme, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
   const [loadingBackgroundSrc, setLoadingBackgroundSrc] = useState<string>('');
+  const [smartRepairModelRate, setSmartRepairModelRate] = useState<number>(0);
 
   const subpageOptions: Array<{ key: SmartRepairSubpage; zh: string; en: string }> = [
     { key: 'fashion_model', zh: '服装/模特', en: 'Fashion/Model' },
@@ -304,6 +306,27 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
       void refreshHistory();
     });
   }, [refreshHistory]);
+
+  useEffect(() => {
+    let alive = true;
+    void billingApi.getOverview()
+      .then((res) => {
+        if (!alive) return;
+        const rate = Number(res?.data?.pricing?.image?.models?.['flux-2-pro']?.rate || 0);
+        setSmartRepairModelRate(Number.isFinite(rate) && rate > 0 ? rate : 0);
+      })
+      .catch(() => {
+        if (alive) setSmartRepairModelRate(0);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const estimatedCost = useMemo(
+    () => Math.max(0, Math.round((Number.isFinite(smartRepairModelRate) ? smartRepairModelRate : 0) * Math.max(1, Number(outputCount || 1)))),
+    [outputCount, smartRepairModelRate]
+  );
 
   useEffect(() => {
     let alive = true;
@@ -774,6 +797,11 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                     >
                       <Sparkles className="w-4 h-4" />
                       {tr('步骤 5: 开始修复', 'Step 5: Start Repair')}
+                      {estimatedCost > 0 ? (
+                        <span className="ml-1 text-[10px] font-semibold text-black/75 whitespace-nowrap">
+                          {`-${estimatedCost} ${tr('V点', 'V-points')}`}
+                        </span>
+                      ) : null}
                     </button>
                     </div>
                   </>

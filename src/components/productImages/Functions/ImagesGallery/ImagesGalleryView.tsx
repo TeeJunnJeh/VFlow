@@ -86,6 +86,7 @@ export type ImagesGalleryViewProps = {
 
   handleGalleryGenerate: () => void;
   isGalleryGenerating: boolean;
+  galleryEstimatedCost: number;
 
   galleryRightPanel: 'preview' | 'history';
   setGalleryRightPanel: React.Dispatch<React.SetStateAction<'preview' | 'history'>>;
@@ -418,6 +419,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
     handleGalleryGenerate,
     isGalleryGenerating,
+    galleryEstimatedCost,
 
     galleryRightPanel,
     setGalleryRightPanel,
@@ -1066,10 +1068,20 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 type="button"
                 onClick={handleGalleryGenerate}
                 disabled={isGalleryGenerating}
-                className="w-full rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400 disabled:opacity-60 disabled:hover:bg-orange-500 transition flex items-center justify-center gap-2"
+                className="grid w-full grid-cols-[1fr_auto_1fr] items-center rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black transition hover:bg-orange-400 disabled:opacity-60 disabled:hover:bg-orange-500"
               >
-                <Wand2 className="w-4 h-4" />
-                {isGalleryGenerating ? tr('生成中...', 'Generating...') : tr('开始生成', 'Generate')}
+                <span aria-hidden="true" className="min-w-0" />
+                <span className="inline-flex min-w-0 items-center justify-center gap-2 justify-self-center text-center">
+                  <Wand2 className="h-4 w-4 shrink-0" />
+                  {isGalleryGenerating ? tr('生成中...', 'Generating...') : tr('开始生成', 'Generate')}
+                </span>
+                <span className="justify-self-end self-center pr-0.5 text-right">
+                  {!isGalleryGenerating && galleryEstimatedCost > 0 ? (
+                    <span className="whitespace-nowrap text-[10px] font-semibold tabular-nums text-black/75">
+                      {`-${galleryEstimatedCost} ${tr('V点', 'V-points')}`}
+                    </span>
+                  ) : null}
+                </span>
               </button>
             </div>
           </div>

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Wand2 } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
+import { billingApi } from '../../../../services/billing';
 import type { FirstFrameParams } from '../../../../types/productImages';
 
 interface FirstFrameFormProps {
@@ -110,6 +111,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   );
 
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [imageModelRates, setImageModelRates] = useState<Record<string, number>>({});
   const [formData, setFormData] = useState<FirstFrameParams>(() => {
     const baseDefaults: FirstFrameParams = { ...mergedDefaultParams };
     try {
@@ -141,6 +143,35 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
       // Ignore localStorage write failures.
     }
   }, [formData]);
+
+  useEffect(() => {
+    let alive = true;
+    void billingApi.getOverview()
+      .then((res) => {
+        if (!alive) return;
+        const models = (res?.data?.pricing?.image?.models || {}) as Record<string, any>;
+        const nextRates: Record<string, number> = {};
+        Object.entries(models).forEach(([key, value]) => {
+          const rate = Number((value as any)?.rate || 0);
+          if (Number.isFinite(rate) && rate > 0) nextRates[String(key)] = rate;
+        });
+        setImageModelRates(nextRates);
+      })
+      .catch(() => {
+        if (alive) setImageModelRates({});
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const estimatedCost = useMemo(() => {
+    const modelKey = String(formData.model || '').trim();
+    const rate = Number(imageModelRates[modelKey] || 0);
+    const units = Math.max(1, Number(formData.outputCount || 1));
+    if (!Number.isFinite(rate) || rate <= 0) return 0;
+    return Math.max(0, Math.round(rate * units));
+  }, [formData.model, formData.outputCount, imageModelRates]);
 
   const validateForm = (): boolean => {
     const nextErrors: Record<string, string> = {};
@@ -299,12 +330,22 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
           <button
             type="submit"
             disabled={isSubmitting || images.length === 0}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-3 rounded-lg text-sm font-bold border transition ${isSubmitting || images.length === 0
+            className={`flex-1 grid w-full grid-cols-[1fr_auto_1fr] items-center px-4 py-3 rounded-lg text-sm font-bold border transition ${isSubmitting || images.length === 0
               ? 'border-white/10 bg-black/20 text-zinc-500 cursor-not-allowed opacity-60'
               : 'border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300'}`}
           >
-            <Wand2 className="w-4 h-4" />
-            {isSubmitting ? t.ff_generating : t.ff_generate_first_frame}
+            <span aria-hidden="true" className="min-w-0" />
+            <span className="inline-flex min-w-0 items-center justify-center gap-1.5 justify-self-center text-center">
+              <Wand2 className="h-4 w-4 shrink-0" />
+              {isSubmitting ? t.ff_generating : t.ff_generate_first_frame}
+            </span>
+            <span className="justify-self-end self-center text-right">
+              {estimatedCost > 0 ? (
+                <span className="whitespace-nowrap text-[10px] font-semibold tabular-nums text-orange-100/80">
+                  {`-${estimatedCost} ${t.v_points || 'V点'}`}
+                </span>
+              ) : null}
+            </span>
           </button>
           <button
             type="button"

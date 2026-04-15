@@ -11,6 +11,7 @@ import GalleryBoardEditor, { type GalleryBoardAsset, type GalleryBoardDraft } fr
 import { assetsApi } from '../../services/assets';
 import { videoApi } from '../../services/video';
 import { downloadBlob, productImagesApi } from '../../services/productImagesApi';
+import { billingApi } from '../../services/billing';
 import { notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, removeImageHistoryAssets, replaceImageHistoryAsset, subscribeImageHistory, type ImageHistoryItem } from '../../utils/imageHistory';
 import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../utils/loadingTheme';
 
@@ -561,6 +562,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [galleryModelImagePreviewUrl, setGalleryModelImagePreviewUrl] = useState<string | null>(null);
   const [galleryModelImagePath, setGalleryModelImagePath] = useState<string>('');
   const galleryModelFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [imageModelRates, setImageModelRates] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!galleryModelImageFile) {
@@ -571,6 +573,52 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     setGalleryModelImagePreviewUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [galleryModelImageFile]);
+
+  useEffect(() => {
+    let alive = true;
+    void billingApi.getOverview()
+      .then((res) => {
+        if (!alive) return;
+        const models = (res?.data?.pricing?.image?.models || {}) as Record<string, any>;
+        const nextRates: Record<string, number> = {};
+        Object.entries(models).forEach(([key, value]) => {
+          const rate = Number((value as any)?.rate || 0);
+          if (Number.isFinite(rate) && rate > 0) nextRates[String(key)] = rate;
+        });
+        setImageModelRates(nextRates);
+      })
+      .catch(() => {
+        if (alive) setImageModelRates({});
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const textSeparationEstimatedCost = useMemo(() => {
+    const rate = Number(imageModelRates['gemini-3-pro-image-preview'] || 0);
+    if (!Number.isFinite(rate) || rate <= 0) return 0;
+    return Math.max(0, Math.round(rate));
+  }, [imageModelRates]);
+
+  const galleryPlannedImageCount = useMemo(() => {
+    const normalized = normalizeGalleryTypeSelections(
+      galleryTypeSelections as Record<GalleryOutputType, { enabled: boolean; count: number }>
+    );
+    return buildGalleryGenerationPlan(normalized).length;
+  }, [galleryTypeSelections]);
+
+  const galleryEstimatedCost = useMemo(() => {
+    const rate = Number(imageModelRates['gemini-3-pro-image-preview'] || 0);
+    if (!Number.isFinite(rate) || rate <= 0 || galleryPlannedImageCount <= 0) return 0;
+    return Math.max(0, Math.round(rate * galleryPlannedImageCount));
+  }, [imageModelRates, galleryPlannedImageCount]);
+
+  const galleryInpaintEstimatedCost = useMemo(() => {
+    const rate = Number(imageModelRates['gemini-3-pro-image-preview'] || 0);
+    if (!Number.isFinite(rate) || rate <= 0) return 0;
+    return Math.max(0, Math.round(rate));
+  }, [imageModelRates]);
 
   const galleryHistoryAllKeys = useMemo(
     () => galleryHistoryItems.flatMap((item) => item.images.map((_, idx) => `${item.id}:${idx}`)),
@@ -2942,7 +2990,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
                   <div className="shrink-0 pt-6">
                     <div className="flex items-center justify-between text-xs text-zinc-500">
-                      <div>{tr('预计消耗 2 算力', 'Estimated cost: 2 credits')}</div>
+                      <div>{tr('单张计费', 'Per image')}</div>
                       <div className="font-bold text-indigo-600">{tr('极速模式', 'Fast Mode')}</div>
                     </div>
 
@@ -2950,10 +2998,20 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                       type="button"
                       onClick={handleRunInpaint}
                       disabled={galleryInpaint.isGenerating || !galleryInpaint.rect || !String(galleryInpaint.prompt || '').trim()}
-                      className="mt-3 w-full rounded-2xl bg-indigo-600 px-4 py-4 text-base font-extrabold text-white shadow-lg shadow-indigo-600/20 hover:bg-indigo-500 disabled:opacity-60 transition inline-flex items-center justify-center gap-2"
+                      className="mt-3 grid w-full grid-cols-[1fr_auto_1fr] items-center rounded-2xl bg-indigo-600 px-4 py-4 text-base font-extrabold text-white shadow-lg shadow-indigo-600/20 transition hover:bg-indigo-500 disabled:opacity-60"
                     >
-                      <Zap className="w-4 h-4" />
-                      {galleryInpaint.isGenerating ? (t.pi_gallery_inpaint_generating || tr('生成中...', 'Generating...')) : tr('开始生成修改', 'Start Editing')}
+                      <span aria-hidden="true" className="min-w-0" />
+                      <span className="inline-flex min-w-0 items-center justify-center gap-2 justify-self-center text-center">
+                        <Zap className="h-4 w-4 shrink-0" />
+                        {galleryInpaint.isGenerating ? (t.pi_gallery_inpaint_generating || tr('生成中...', 'Generating...')) : tr('开始生成修改', 'Start Editing')}
+                      </span>
+                      <span className="justify-self-end self-center pr-0.5 text-right">
+                        {!galleryInpaint.isGenerating && galleryInpaintEstimatedCost > 0 ? (
+                          <span className="whitespace-nowrap text-[10px] font-semibold tabular-nums text-white/80">
+                            {`-${galleryInpaintEstimatedCost} ${tr('V点', 'V-points')}`}
+                          </span>
+                        ) : null}
+                      </span>
                     </button>
 
                   </div>
@@ -3211,9 +3269,19 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                           type="button"
                           onClick={handleStartTextSeparation}
                           disabled={isTextSeparationLoading || !textSeparationSelectedImagePath}
-                          className="text-separation-start-btn flex-1 rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black transition hover:bg-orange-400 disabled:opacity-60 disabled:hover:bg-orange-500"
+                          className="text-separation-start-btn grid flex-1 grid-cols-[1fr_auto_1fr] items-center rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black transition hover:bg-orange-400 disabled:opacity-60 disabled:hover:bg-orange-500"
                         >
-                          {isTextSeparationLoading ? tr('处理中...', 'Processing...') : tr('开始文本分离', 'Start Text Separation')}
+                          <span aria-hidden="true" className="min-w-0" />
+                          <span className="min-w-0 justify-self-center text-center">
+                            {isTextSeparationLoading ? tr('处理中...', 'Processing...') : tr('开始文本分离', 'Start Text Separation')}
+                          </span>
+                          <span className="justify-self-end self-center pr-0.5 text-right">
+                            {textSeparationEstimatedCost > 0 ? (
+                              <span className="whitespace-nowrap text-[10px] font-semibold tabular-nums text-black/75">
+                                {`-${textSeparationEstimatedCost} ${tr('V点', 'V-points')}`}
+                              </span>
+                            ) : null}
+                          </span>
                         </button>
                         <button
                           type="button"
@@ -3412,6 +3480,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           setGalleryResolution={setGalleryResolution}
           handleGalleryGenerate={handleGalleryGenerate}
           isGalleryGenerating={isGalleryGenerating}
+          galleryEstimatedCost={galleryEstimatedCost}
           galleryRightPanel={galleryRightPanel}
           setGalleryRightPanel={setGalleryRightPanel}
           setIsGalleryHistoryManaging={setIsGalleryHistoryManaging}

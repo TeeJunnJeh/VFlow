@@ -49,13 +49,31 @@ interface DemoLibraryItem {
 type GalleryHistorySettings = {
   targetScene: string;
   style: string;
-  aspectRatio: string;
-  resolution: string;
+  aspectRatio?: string;
+  resolution?: string;
   copyLanguage?: string;
   productName: string;
   productCategory: string;
   sellingPoints: string[];
-  typeSelections: Record<string, { enabled: boolean; count: number }>;
+  typeSelections?: Record<string, { enabled: boolean; count: number }>;
+  outputMode?: 'custom' | 'ai';
+  outputItems?: Array<{
+    id: string;
+    enabled: boolean;
+    outputType: string;
+    aspectRatio: string;
+    resolution: string;
+    count: number;
+    title?: string;
+    layout?: string;
+    copy?: {
+      headline?: string;
+      subheadline?: string;
+      body?: string;
+      bulletPoints?: string[];
+    };
+    notes?: string;
+  }>;
   sceneConfig?: GallerySceneConfig;
   uploadedImagePaths?: string[];
   modelInfo?: string;
@@ -81,6 +99,26 @@ type GalleryHistoryItem = {
 type GalleryOutputType = 'white_bg' | 'scene' | 'selling_point' | 'cover' | 'poster';
 type GalleryConfirmAction = 'ok' | 'cancel' | 'dismiss';
 type GalleryCopyLanguageLabelKey = 'lang_en' | 'lang_zh' | 'lang_es' | 'lang_ja' | 'lang_ko' | 'lang_ms' | 'lang_vi' | 'lang_id';
+
+type GalleryOutputMode = 'custom' | 'ai';
+type GalleryOutputItem = {
+  id: string;
+  enabled: boolean;
+  outputType: GalleryOutputType;
+  aspectRatio: string;
+  resolution: '1k' | '2k' | '4k';
+  count: number;
+  title?: string;
+  layout?: string;
+  copy?: {
+    headline?: string;
+    subheadline?: string;
+    body?: string;
+    bulletPoints?: string[];
+  };
+  notes?: string;
+  prompt?: string;
+};
 
 const GALLERY_COPY_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: GalleryCopyLanguageLabelKey }> = [
   { value: 'en', labelKey: 'lang_en' },
@@ -134,6 +172,17 @@ const buildGalleryGenerationPlan = (selections: Record<GalleryOutputType, { enab
 
   return plan;
 };
+
+const createGalleryOutputItemId = () => `pg-out-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const createDefaultGalleryOutputItem = (): GalleryOutputItem => ({
+  id: createGalleryOutputItemId(),
+  enabled: true,
+  outputType: 'white_bg',
+  aspectRatio: '1:1',
+  resolution: '1k',
+  count: 4,
+});
 
 const GALLERY_SCENE_PRESETS: Array<GallerySceneConfig & { id: string; name: string }> = [
   {
@@ -481,16 +530,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [gallerySceneProps, setGallerySceneProps] = useState<string>('');
   const [gallerySceneLighting, setGallerySceneLighting] = useState<string>('');
   const [gallerySceneMood, setGallerySceneMood] = useState<string>('');
-  const [galleryTypeSelections, setGalleryTypeSelections] = useState<Record<GalleryOutputType, { enabled: boolean; count: number }>>({
-    white_bg: { enabled: true, count: 4 },
-    scene: { enabled: false, count: 4 },
-    selling_point: { enabled: false, count: 4 },
-    cover: { enabled: false, count: 4 },
-    poster: { enabled: false, count: 4 },
-  });
-  const [galleryAspectRatio, setGalleryAspectRatio] = useState<string>('1:1');
-  const galleryPreviewAspectClass = useMemo(() => getGalleryPreviewAspectClass(galleryAspectRatio), [galleryAspectRatio]);
-  const [galleryResolution, setGalleryResolution] = useState<'1k' | '2k' | '4k'>('1k');
+  const [galleryOutputMode, setGalleryOutputMode] = useState<GalleryOutputMode>('custom');
+  const [galleryOutputItems, setGalleryOutputItems] = useState<GalleryOutputItem[]>(() => [createDefaultGalleryOutputItem()]);
+  const galleryPreviewAspectRatio = useMemo(() => {
+    const firstEnabled = galleryOutputItems.find((item) => item.enabled);
+    return firstEnabled?.aspectRatio || '1:1';
+  }, [galleryOutputItems]);
+  const galleryPreviewAspectClass = useMemo(() => getGalleryPreviewAspectClass(galleryPreviewAspectRatio), [galleryPreviewAspectRatio]);
   const [galleryCopyLanguage, setGalleryCopyLanguage] = useState<string>(() => {
     const defaultLang = language === 'zh' || language === 'ms' || language === 'vi' || language === 'ko' ? language : 'en';
     return GALLERY_COPY_LANGUAGE_OPTIONS.some((opt) => opt.value === defaultLang) ? defaultLang : 'en';
@@ -602,11 +648,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   }, [imageModelRates]);
 
   const galleryPlannedImageCount = useMemo(() => {
-    const normalized = normalizeGalleryTypeSelections(
-      galleryTypeSelections as Record<GalleryOutputType, { enabled: boolean; count: number }>
-    );
-    return buildGalleryGenerationPlan(normalized).length;
-  }, [galleryTypeSelections]);
+    return galleryOutputItems
+      .filter((item) => item.enabled)
+      .reduce((sum, item) => sum + Math.max(0, Math.round(Number(item.count || 0))), 0);
+  }, [galleryOutputItems]);
 
   const galleryEstimatedCost = useMemo(() => {
     const rate = Number(imageModelRates['gemini-3-pro-image-preview'] || 0);
@@ -692,6 +737,18 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     if (resolver) resolver(value);
   };
 
+  const [galleryAiOutputPlanner, setGalleryAiOutputPlanner] = useState<{
+    open: boolean;
+    prompt: string;
+    isGenerating: boolean;
+    error: string | null;
+  }>({
+    open: false,
+    prompt: '',
+    isGenerating: false,
+    error: null,
+  });
+
   type GalleryPreviewSource =
     | { kind: 'preview_item'; localId: string }
     | { kind: 'history_item'; itemId: string; index: number }
@@ -700,6 +757,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [isGalleryPreviewDownloading, setIsGalleryPreviewDownloading] = useState(false);
   const [isGalleryPreviewExportingPdf, setIsGalleryPreviewExportingPdf] = useState(false);
   const [galleryPreviewSource, setGalleryPreviewSource] = useState<GalleryPreviewSource>(null);
+  const [galleryDownloadBubbleOpen, setGalleryDownloadBubbleOpen] = useState(false);
+  const galleryDownloadBubbleRef = useRef<HTMLDivElement | null>(null);
+  const galleryDownloadButtonRef = useRef<HTMLButtonElement | null>(null);
   const [galleryToastMessage, setGalleryToastMessage] = useState<string | null>(null);
   const [galleryPreviewResolution, setGalleryPreviewResolution] = useState<{ w: number; h: number } | null>(null);
 
@@ -708,6 +768,29 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     const timer = window.setTimeout(() => setGalleryToastMessage(null), 2200);
     return () => window.clearTimeout(timer);
   }, [galleryToastMessage]);
+
+  useEffect(() => {
+    if (!galleryDownloadBubbleOpen) return;
+
+    const handleMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (galleryDownloadBubbleRef.current?.contains(target)) return;
+      if (galleryDownloadButtonRef.current?.contains(target)) return;
+      setGalleryDownloadBubbleOpen(false);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setGalleryDownloadBubbleOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [galleryDownloadBubbleOpen]);
 
   useEffect(() => {
     galleryBoardLocalAssetUrlsRef.current = galleryBoardLocalAssets
@@ -859,6 +942,14 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     return `product_gallery_${Date.now()}.${ext}`;
   };
 
+  const buildGalleryPreviewFilenameWithIndex = (url: string, index: number) => {
+    const cleaned = String(url || '').trim();
+    const match = cleaned.match(/\.(png|jpe?g|webp)(?:\?|#|$)/i);
+    const ext = (match?.[1] || 'png').toLowerCase();
+    const seq = String(Math.max(0, index) + 1).padStart(2, '0');
+    return `product_gallery_${Date.now()}_${seq}.${ext}`;
+  };
+
   const handleDownloadGalleryPreviewImage = async () => {
     if (!galleryPreviewImageUrl || isGalleryPreviewDownloading) return;
 
@@ -872,6 +963,46 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     } finally {
       setIsGalleryPreviewDownloading(false);
     }
+  };
+
+  const handleDownloadGalleryPreviewAllImages = async () => {
+    if (!galleryPreviewImageUrl || isGalleryPreviewDownloading) return;
+
+    const urls = (() => {
+      if (!galleryPreviewNav) return [galleryPreviewImageUrl];
+      if (galleryPreviewNav.kind === 'preview') return galleryPreviewNav.items.map((it) => it.imageUrl);
+      return galleryPreviewNav.urls;
+    })();
+
+    const cleaned = urls.map((u) => String(u || '').trim()).filter(Boolean);
+    if (cleaned.length === 0) return;
+
+    setIsGalleryPreviewDownloading(true);
+    try {
+      for (let index = 0; index < cleaned.length; index += 1) {
+        const url = cleaned[index];
+        const blob = await productImagesApi.downloadImageByUrl(url);
+        downloadBlob(blob, buildGalleryPreviewFilenameWithIndex(url, index));
+        if (index < cleaned.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+      }
+      setGalleryToastMessage(tr('已开始下载', 'Download started'));
+    } catch (err: any) {
+      openGalleryAlert(String(err?.message || tr('下载失败，请重试。', 'Download failed. Please try again.')));
+    } finally {
+      setIsGalleryPreviewDownloading(false);
+    }
+  };
+
+  const handleToggleGalleryDownloadBubble = () => {
+    if (!galleryPreviewImageUrl || isGalleryPreviewDownloading) return;
+    const total = galleryPreviewNav?.total || 1;
+    if (total <= 1) {
+      void handleDownloadGalleryPreviewImage();
+      return;
+    }
+    setGalleryDownloadBubbleOpen((prev) => !prev);
   };
 
   const handleExportGalleryPreviewAsPdf = async () => {
@@ -1630,13 +1761,62 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       const s = JSON.parse(raw) as Record<string, any>;
       if (s.targetScene) setGalleryTargetScene(s.targetScene);
       if (s.style) setGalleryStyle(s.style);
-      if (s.aspectRatio) setGalleryAspectRatio(s.aspectRatio);
-      if (s.resolution) setGalleryResolution(s.resolution);
       if (s.copyLanguage) setGalleryCopyLanguage(String(s.copyLanguage));
       if (s.productName) setGalleryProductName(s.productName);
       if (s.productCategory) setGalleryCategory(s.productCategory);
       if (Array.isArray(s.sellingPoints) && s.sellingPoints.length > 0) setGallerySellingPoints(s.sellingPoints);
-      if (s.typeSelections && typeof s.typeSelections === 'object') setGalleryTypeSelections(s.typeSelections);
+      if (s.outputMode === 'custom' || s.outputMode === 'ai') setGalleryOutputMode(s.outputMode);
+      if (Array.isArray(s.outputItems) && s.outputItems.length > 0) {
+        const restoredItems: GalleryOutputItem[] = s.outputItems
+          .map((row: any) => {
+            const outputType = String(row?.outputType || '').trim() as GalleryOutputType;
+            if (!GALLERY_OUTPUT_TYPE_ORDER.includes(outputType)) return null;
+            const aspectRatio = String(row?.aspectRatio || '1:1').trim() || '1:1';
+            const resolution = String(row?.resolution || '1k').trim().toLowerCase();
+            const normalizedResolution = resolution === '2k' || resolution === '4k' ? resolution : '1k';
+            const count = Math.max(0, Math.round(Number(row?.count || 0)));
+            return {
+              id: String(row?.id || createGalleryOutputItemId()),
+              enabled: Boolean(row?.enabled ?? true),
+              outputType,
+              aspectRatio,
+              resolution: normalizedResolution as any,
+              count,
+              title: typeof row?.title === 'string' ? row.title : undefined,
+              layout: typeof row?.layout === 'string' ? row.layout : undefined,
+              copy: row?.copy && typeof row.copy === 'object' ? row.copy : undefined,
+              notes: typeof row?.notes === 'string' ? row.notes : undefined,
+              prompt: typeof row?.prompt === 'string' ? row.prompt : undefined,
+            } satisfies GalleryOutputItem;
+          })
+          .filter(Boolean) as GalleryOutputItem[];
+        if (restoredItems.length > 0) {
+          setGalleryOutputItems(restoredItems);
+        }
+      } else {
+        const aspectRatio = String(s.aspectRatio || '1:1').trim() || '1:1';
+        const resolutionRaw = String(s.resolution || '1k').trim().toLowerCase();
+        const resolution = (resolutionRaw === '2k' || resolutionRaw === '4k') ? resolutionRaw : '1k';
+        const selections = s.typeSelections && typeof s.typeSelections === 'object' ? s.typeSelections : null;
+        if (selections) {
+          const items: GalleryOutputItem[] = [];
+          for (const outputType of GALLERY_OUTPUT_TYPE_ORDER) {
+            const config = selections[outputType];
+            if (!config || !config.enabled) continue;
+            const count = Math.max(0, Math.round(Number(config.count || 0)));
+            if (count <= 0) continue;
+            items.push({
+              id: createGalleryOutputItemId(),
+              enabled: true,
+              outputType,
+              aspectRatio,
+              resolution: resolution as any,
+              count,
+            });
+          }
+          if (items.length > 0) setGalleryOutputItems(items);
+        }
+      }
       if (s.sceneConfig && typeof s.sceneConfig === 'object') {
         setGalleryScenePresetId('');
         setGallerySceneTheme(String(s.sceneConfig.sceneTheme || ''));
@@ -2029,6 +2209,136 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     }
   };
 
+  const openGalleryAiOutputPlanner = () => {
+    setGalleryAiOutputPlanner({ open: true, prompt: '', isGenerating: false, error: null });
+  };
+
+  const closeGalleryAiOutputPlanner = () => {
+    setGalleryAiOutputPlanner((prev) => ({ ...prev, open: false, isGenerating: false, error: null }));
+  };
+
+  const normalizeAiOutputType = (value: any): GalleryOutputType | null => {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return null;
+    if (GALLERY_OUTPUT_TYPE_ORDER.includes(raw as any)) return raw as any;
+    if (raw.includes('白底')) return 'white_bg';
+    if (raw.includes('场景')) return 'scene';
+    if (raw.includes('卖点')) return 'selling_point';
+    if (raw.includes('封面')) return 'cover';
+    if (raw.includes('海报')) return 'poster';
+    return null;
+  };
+
+  const normalizeAiResolution = (value: any): '1k' | '2k' | '4k' => {
+    const raw = String(value || '').trim().toLowerCase();
+    if (raw === '2k') return '2k';
+    if (raw === '4k') return '4k';
+    return '1k';
+  };
+
+  const normalizeAiAspectRatio = (value: any): string => {
+    const raw = String(value || '').trim();
+    if (!raw || raw === 'default') return '1:1';
+    return raw;
+  };
+
+  const handleGenerateAiOutputPlan = async () => {
+    if (galleryAiOutputPlanner.isGenerating) return;
+
+    const userPrompt = String(galleryAiOutputPlanner.prompt || '').trim();
+    setGalleryAiOutputPlanner((prev) => ({ ...prev, isGenerating: true, error: null }));
+    try {
+      const hasNewImages = galleryImages.length > 0;
+      const hasRestoredPaths = galleryRestoredImagePaths.length > 0;
+
+      const sceneConfig: GallerySceneConfig = {
+        sceneTheme: String(gallerySceneTheme || '').trim(),
+        sceneDescription: String(gallerySceneDescription || '').trim(),
+        sceneProps: String(gallerySceneProps || '').trim(),
+        lighting: String(gallerySceneLighting || '').trim(),
+        mood: String(gallerySceneMood || '').trim(),
+      };
+      const hasSceneConfig = Object.values(sceneConfig).some((value) => Boolean(String(value || '').trim()));
+
+      let imagePaths: string[] = [];
+      if (hasRestoredPaths) {
+        imagePaths = [...galleryRestoredImagePaths];
+      } else if (hasNewImages) {
+        const target = galleryImages[0];
+        if (target && !isSupportedGalleryImageFile(target)) {
+          openGalleryAlert(gallerySupportedFormatTip);
+          setGalleryAiOutputPlanner((prev) => ({ ...prev, isGenerating: false }));
+          return;
+        }
+        if (target) {
+          const uploadResp = await assetsApi.uploadTempAsset(target);
+          const path = extractUploadedAssetPath(uploadResp);
+          if (path) imagePaths = [String(path)];
+        }
+      }
+
+      const planResp = await videoApi.generateProductGalleryPlan({
+        prompt: userPrompt,
+        image_paths: imagePaths,
+        product_name: galleryProductName.trim(),
+        product_category: galleryCategory.trim(),
+        core_selling_points: gallerySellingPoints.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 5),
+        target_scene: galleryTargetScene,
+        style: galleryStyle,
+        target_language: galleryCopyLanguage,
+        scene_config: hasSceneConfig ? sceneConfig : undefined,
+        model_image_path: String(galleryModelImagePath || '').trim() || undefined,
+        model_info: String(galleryModelInfo || '').trim() || undefined,
+      });
+      const data = (planResp as any)?.data || planResp;
+      const rawItems = Array.isArray(data?.items) ? data.items : [];
+      if (rawItems.length === 0) throw new Error(tr('AI 未返回可用方案条目', 'AI returned no usable items'));
+
+      const items: GalleryOutputItem[] = rawItems
+        .map((row: any) => {
+          const outputType = normalizeAiOutputType(row?.outputType ?? row?.output_type ?? row?.type);
+          if (!outputType) return null;
+          const count = Math.max(1, Math.min(8, Math.round(Number(row?.count ?? 1))));
+          return {
+            id: createGalleryOutputItemId(),
+            enabled: Boolean(row?.enabled ?? true),
+            outputType,
+            aspectRatio: normalizeAiAspectRatio(row?.aspectRatio ?? row?.aspect_ratio),
+            resolution: normalizeAiResolution(row?.resolution),
+            count,
+            title: typeof row?.title === 'string' ? row.title : undefined,
+            layout: typeof row?.layout === 'string' ? row.layout : undefined,
+            copy: row?.copy && typeof row.copy === 'object'
+              ? {
+                  headline: typeof row.copy.headline === 'string' ? row.copy.headline : undefined,
+                  subheadline: typeof row.copy.subheadline === 'string' ? row.copy.subheadline : undefined,
+                  body: typeof row.copy.body === 'string' ? row.copy.body : undefined,
+                  bulletPoints: Array.isArray(row.copy.bulletPoints) ? row.copy.bulletPoints.map((x: any) => String(x || '').trim()).filter(Boolean).slice(0, 6) : undefined,
+                }
+              : undefined,
+            notes: typeof row?.notes === 'string' ? row.notes : undefined,
+            prompt: typeof row?.prompt === 'string' ? row.prompt : undefined,
+          } satisfies GalleryOutputItem;
+        })
+        .filter(Boolean) as GalleryOutputItem[];
+
+      const total = items.filter((it) => it.enabled).reduce((sum, it) => sum + Math.max(0, Math.round(Number(it.count || 0))), 0);
+      if (total <= 0) {
+        throw new Error(tr('AI 方案总数量为 0', 'AI plan total count is 0'));
+      }
+      if (total > 20) {
+        throw new Error(tr('AI 方案生成数量超过 20，请减少数量', 'AI plan exceeds 20 images'));
+      }
+
+      setGalleryOutputMode('ai');
+      setGalleryOutputItems(items);
+      setGalleryAiOutputPlanner({ open: false, prompt: '', isGenerating: false, error: null });
+    } catch (err: any) {
+      const message = String(err?.message || tr('AI 生成失败，请重试。', 'AI planning failed. Please try again.'));
+      setGalleryAiOutputPlanner((prev) => ({ ...prev, isGenerating: false, error: message }));
+    }
+  };
+
   const handleGalleryGenerate = async () => {
     if (isGalleryGenerating) return;
 
@@ -2047,24 +2357,35 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       return;
     }
 
-    let totalCount = Object.values(galleryTypeSelections)
-      .filter((item) => item.enabled)
-      .reduce((sum, item) => sum + (Number(item.count) || 0), 0);
+    let normalizedOutputItems: GalleryOutputItem[] = galleryOutputItems
+      .map((item) => ({
+        ...item,
+        aspectRatio: String(item.aspectRatio || '1:1').trim() || '1:1',
+        resolution: (String(item.resolution || '1k').trim().toLowerCase() === '2k' || String(item.resolution || '1k').trim().toLowerCase() === '4k'
+          ? String(item.resolution).trim().toLowerCase()
+          : '1k') as any,
+        count: Math.max(0, Math.round(Number(item.count || 0))),
+      }))
+      .filter((item) => item.enabled && item.count > 0);
 
+    let totalCount = normalizedOutputItems.reduce((sum, item) => sum + item.count, 0);
     if (totalCount <= 0) {
-      openGalleryAlert(tr('请至少选择一种生成类型。', 'Please select at least one generation type.'));
+      openGalleryAlert(tr('请至少添加 1 个出图类型条目。', 'Please add at least one output item.'));
       return;
     }
-
-    const aspectRatio = galleryAspectRatio === 'default' ? '1:1' : galleryAspectRatio;
+    if (totalCount > 20) {
+      openGalleryAlert(tr('生成数量过多，请减少条目数量或每种数量（最多 20 张）。', 'Too many images. Please reduce counts (max 20).'));
+      return;
+    }
 
     let effectiveSellingPoints = gallerySellingPoints
       .map((s) => String(s || '').trim())
       .filter(Boolean)
       .slice(0, 5);
-    let resolvedTypeSelections = normalizeGalleryTypeSelections(galleryTypeSelections);
-    const requestedSellingPointCount =
-      resolvedTypeSelections.selling_point.enabled ? Math.max(0, resolvedTypeSelections.selling_point.count) : 0;
+
+    const requestedSellingPointCount = normalizedOutputItems
+      .filter((item) => item.outputType === 'selling_point')
+      .reduce((sum, item) => sum + item.count, 0);
 
     if (
       requestedSellingPointCount > 0 &&
@@ -2088,29 +2409,70 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       }
 
       if (confirmAction === 'ok') {
-        resolvedTypeSelections = {
-          ...resolvedTypeSelections,
-          selling_point: {
-            ...resolvedTypeSelections.selling_point,
+        const sellingPointEntries = normalizedOutputItems.filter((item) => item.outputType === 'selling_point');
+        const targetId = sellingPointEntries[0]?.id || null;
+
+        setGalleryOutputItems((prev) => {
+          const cleared = prev.map((item) => (item.outputType === 'selling_point' ? { ...item, count: 0 } : item));
+          if (targetId) {
+            return cleared.map((item) => (item.id === targetId ? { ...item, enabled: true, count: effectiveSellingPoints.length } : item));
+          }
+          return [
+            ...cleared,
+            {
+              id: createGalleryOutputItemId(),
+              enabled: true,
+              outputType: 'selling_point',
+              aspectRatio: '1:1',
+              resolution: '1k',
+              count: effectiveSellingPoints.length,
+            },
+          ];
+        });
+
+        normalizedOutputItems = [
+          ...normalizedOutputItems.filter((item) => item.outputType !== 'selling_point'),
+          {
+            id: targetId || createGalleryOutputItemId(),
+            enabled: true,
+            outputType: 'selling_point',
+            aspectRatio: sellingPointEntries[0]?.aspectRatio || '1:1',
+            resolution: sellingPointEntries[0]?.resolution || '1k',
             count: effectiveSellingPoints.length,
+            title: sellingPointEntries[0]?.title,
+            layout: sellingPointEntries[0]?.layout,
+            copy: sellingPointEntries[0]?.copy,
+            notes: sellingPointEntries[0]?.notes,
+            prompt: sellingPointEntries[0]?.prompt,
           },
-        };
-        setGalleryTypeSelections((prev) => ({
-          ...prev,
-          selling_point: {
-            ...prev.selling_point,
-            count: effectiveSellingPoints.length,
-          },
-        }));
+        ];
+
+        totalCount = normalizedOutputItems.reduce((sum, item) => sum + item.count, 0);
       } else {
         effectiveSellingPoints = effectiveSellingPoints.slice(0, requestedSellingPointCount);
       }
     }
 
-    const generationPlan = buildGalleryGenerationPlan(resolvedTypeSelections);
-    totalCount = generationPlan.length;
+    const flattenedPlan = normalizedOutputItems.flatMap((item) => {
+      const rows: Array<{ outputType: GalleryOutputType; order: number; entryId: string; aspectRatio: string; resolution: '1k' | '2k' | '4k' }> = [];
+      for (let idx = 0; idx < item.count; idx += 1) {
+        rows.push({
+          outputType: item.outputType,
+          order: idx,
+          entryId: item.id,
+          aspectRatio: item.aspectRatio,
+          resolution: item.resolution,
+        });
+      }
+      return rows;
+    });
+    totalCount = flattenedPlan.length;
     if (totalCount <= 0) {
-      openGalleryAlert(tr('璇疯嚦灏戦€夋嫨涓€绉嶇敓鎴愮被鍨嬨€?', 'Please select at least one generation type.'));
+      openGalleryAlert(tr('请至少添加 1 个出图类型条目。', 'Please add at least one output item.'));
+      return;
+    }
+    if (totalCount > 20) {
+      openGalleryAlert(tr('生成数量过多，请减少条目数量或每种数量（最多 20 张）。', 'Too many images. Please reduce counts (max 20).'));
       return;
     }
 
@@ -2125,16 +2487,41 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
     const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+    const legacyTypeSelections = GALLERY_OUTPUT_TYPE_ORDER.reduce((acc, outputType) => {
+      const sumCount = normalizedOutputItems
+        .filter((item) => item.outputType === outputType)
+        .reduce((sum, item) => sum + item.count, 0);
+      acc[outputType] = { enabled: sumCount > 0, count: sumCount };
+      return acc;
+    }, {} as Record<GalleryOutputType, { enabled: boolean; count: number }>);
+    const firstEnabled = normalizedOutputItems[0] || null;
+    const fallbackAspectRatio = firstEnabled?.aspectRatio || '1:1';
+    const fallbackResolution = firstEnabled?.resolution || '1k';
+
     const settingsSnapshot = {
       targetScene: galleryTargetScene,
       style: galleryStyle,
-      aspectRatio: aspectRatio,
-      resolution: galleryResolution,
+      aspectRatio: fallbackAspectRatio,
+      resolution: fallbackResolution,
       copyLanguage: galleryCopyLanguage,
       productName: galleryProductName.trim(),
       productCategory: galleryCategory.trim(),
       sellingPoints: effectiveSellingPoints,
-      typeSelections: resolvedTypeSelections,
+      typeSelections: legacyTypeSelections,
+      outputMode: galleryOutputMode,
+      outputItems: normalizedOutputItems.map((item) => ({
+        id: item.id,
+        enabled: item.enabled,
+        outputType: item.outputType,
+        aspectRatio: item.aspectRatio,
+        resolution: item.resolution,
+        count: item.count,
+        title: item.title,
+        layout: item.layout,
+        copy: item.copy,
+        notes: item.notes,
+        prompt: item.prompt,
+      })),
       sceneConfig: hasSceneConfig ? sceneConfig : undefined,
       uploadedImagePaths: [] as string[],
     };
@@ -2146,7 +2533,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     const runId = Date.now();
     galleryPollRunIdRef.current = runId;
     const placeholderCreatedAt = new Date().toISOString();
-    const previewPlaceholders = generationPlan.map((planned, index) => ({
+    const previewPlaceholders = flattenedPlan.map((planned, index) => ({
       localId: `pg-prev-${runId}-${index}-${planned.outputType}`,
       requestId: `pending-${runId}-${index}`,
       status: 'created' as const,
@@ -2194,8 +2581,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
       const createResp = await videoApi.generateProductGallery({
         image_paths: imagePaths,
-        aspect_ratio: aspectRatio,
-        resolution: galleryResolution,
+        aspect_ratio: fallbackAspectRatio,
+        resolution: fallbackResolution,
         count: totalCount,
         client_history_id: clientHistoryId,
         product_name: galleryProductName.trim(),
@@ -2206,7 +2593,21 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         style: galleryStyle,
         target_language: galleryCopyLanguage,
         hot_style: hotStyleSelectedIndex !== null ? hotStyleItems[hotStyleSelectedIndex] : undefined,
-        type_selections: resolvedTypeSelections as any,
+        type_selections: legacyTypeSelections as any,
+        output_mode: galleryOutputMode,
+        output_items: normalizedOutputItems.map((item) => ({
+          id: item.id,
+          enabled: item.enabled,
+          output_type: item.outputType,
+          aspect_ratio: item.aspectRatio,
+          resolution: item.resolution,
+          count: item.count,
+          title: item.title,
+          layout: item.layout,
+          copy: item.copy,
+          notes: item.notes,
+          prompt: item.prompt,
+        })),
         model_image_path: modelImagePath || undefined,
         model_info: modelInfo || undefined,
       });
@@ -2461,6 +2862,51 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         {galleryConfirm.message}
       </AppDialog>
 
+
+      <AppDialog
+        isOpen={galleryAiOutputPlanner.open}
+        title={tr('AI 智能添加出图类型', 'AI Output Planner')}
+        onClose={closeGalleryAiOutputPlanner}
+        widthClassName="max-w-lg"
+        overlayClassName="z-[160]"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={closeGalleryAiOutputPlanner}
+              disabled={galleryAiOutputPlanner.isGenerating}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition disabled:opacity-50"
+            >
+              {tr('取消', 'Cancel')}
+            </button>
+            <button
+              type="button"
+              onClick={handleGenerateAiOutputPlan}
+              disabled={galleryAiOutputPlanner.isGenerating}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 text-black hover:bg-orange-400 transition disabled:opacity-50"
+            >
+              {galleryAiOutputPlanner.isGenerating ? tr('生成中...', 'Generating...') : tr('生成方案', 'Generate')}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div className="text-xs text-zinc-400">
+            {tr('输入你想要的套图风格/构图/卖点表达等提示词，AI 会生成可选的出图条目。', 'Describe desired styles/layouts and AI will propose output items.')}
+          </div>
+          <textarea
+            value={galleryAiOutputPlanner.prompt}
+            onChange={(e) => setGalleryAiOutputPlanner((prev) => ({ ...prev, prompt: e.target.value }))}
+            rows={4}
+            className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
+            placeholder={tr('例如：白底主图 2 张 + 场景图 2 张（厨房台面，晨光），卖点图 3 张（每张一个卖点），海报 1 张偏节日氛围。', 'E.g. 2 white background + 2 kitchen scene + 3 selling-point (one per point) + 1 festive poster.')}
+          />
+          {galleryAiOutputPlanner.error ? (
+            <div className="text-xs text-red-400">{galleryAiOutputPlanner.error}</div>
+          ) : null}
+        </div>
+      </AppDialog>
+
       <AppDialog
         isOpen={Boolean(galleryPreviewImageUrl)}
         title={tr('图片详情预览', 'Image Details')}
@@ -2669,15 +3115,51 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   </button>
 
                   <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={handleDownloadGalleryPreviewImage}
-                      disabled={isGalleryPreviewDownloading}
-                      className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-zinc-200 transition-all duration-200 hover:bg-white/10 hover:border-white/20 active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
-                    >
-                      <Download className="w-4 h-4" />
-                      {isGalleryPreviewDownloading ? tr('下载中...', 'Downloading...') : (t.pi_gallery_preview_download_image || tr('下载图片', 'Download'))}
-                    </button>
+                    <div className="relative">
+                      {galleryDownloadBubbleOpen ? (
+                        <div
+                          ref={galleryDownloadBubbleRef}
+                          className="absolute bottom-full left-1/2 z-30 mb-2 w-56 -translate-x-1/2 rounded-2xl border border-white/10 bg-black/80 p-2 text-xs text-zinc-200 shadow-lg shadow-black/30 backdrop-blur"
+                        >
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              disabled={isGalleryPreviewDownloading}
+                              onClick={() => {
+                                setGalleryDownloadBubbleOpen(false);
+                                void handleDownloadGalleryPreviewImage();
+                              }}
+                              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 font-bold text-zinc-200 hover:bg-white/10 disabled:opacity-60"
+                            >
+                              {tr('单张', 'Single')}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isGalleryPreviewDownloading}
+                              onClick={() => {
+                                setGalleryDownloadBubbleOpen(false);
+                                void handleDownloadGalleryPreviewAllImages();
+                              }}
+                              className="rounded-xl bg-orange-500 px-3 py-2 font-bold text-black hover:bg-orange-400 disabled:opacity-60"
+                            >
+                              {tr('全部', 'All')}
+                            </button>
+                          </div>
+                          <div className="absolute left-1/2 top-full h-3 w-3 -translate-x-1/2 -translate-y-1.5 rotate-45 border-b border-r border-white/10 bg-black/80" />
+                        </div>
+                      ) : null}
+
+                      <button
+                        ref={galleryDownloadButtonRef}
+                        type="button"
+                        onClick={handleToggleGalleryDownloadBubble}
+                        disabled={isGalleryPreviewDownloading}
+                        className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-zinc-200 transition-all duration-200 hover:bg-white/10 hover:border-white/20 active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
+                      >
+                        <Download className="w-4 h-4" />
+                        {isGalleryPreviewDownloading ? tr('下载中...', 'Downloading...') : (t.pi_gallery_preview_download_image || tr('下载图片', 'Download'))}
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={handleExportGalleryPreviewAsPdf}
@@ -3472,12 +3954,12 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           setGallerySceneProps={setGallerySceneProps}
           gallerySceneLighting={gallerySceneLighting}
           setGallerySceneLighting={setGallerySceneLighting}
-          galleryTypeSelections={galleryTypeSelections}
-          setGalleryTypeSelections={setGalleryTypeSelections}
-          galleryAspectRatio={galleryAspectRatio}
-          setGalleryAspectRatio={setGalleryAspectRatio}
-          galleryResolution={galleryResolution}
-          setGalleryResolution={setGalleryResolution}
+          galleryOutputMode={galleryOutputMode}
+          setGalleryOutputMode={setGalleryOutputMode}
+          galleryOutputItems={galleryOutputItems}
+          setGalleryOutputItems={setGalleryOutputItems}
+          galleryPreviewAspectRatio={galleryPreviewAspectRatio}
+          openGalleryAiOutputPlanner={openGalleryAiOutputPlanner}
           handleGalleryGenerate={handleGalleryGenerate}
           isGalleryGenerating={isGalleryGenerating}
           galleryEstimatedCost={galleryEstimatedCost}

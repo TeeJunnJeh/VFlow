@@ -3543,8 +3543,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return Math.max(0, Math.round(rate * totalScriptSeconds * queuedRenderableAssetCount));
     }
 
-    return Math.max(0, Math.round(rate * Math.max(1, Number(genDuration) || 0)));
-  }, [genDuration, queuedRenderableAssetCount, reuseQueueEnabled, scriptQueue, selectedVideoPricing]);
+    const scriptCount = Math.max(1, Number(scriptVariantCount) || 1);
+    return Math.max(0, Math.round(rate * Math.max(1, Number(genDuration) || 0) * scriptCount));
+  }, [genDuration, queuedRenderableAssetCount, reuseQueueEnabled, scriptQueue, scriptVariantCount, selectedVideoPricing]);
 
   const estimatedImageCost = useMemo(() => {
     const rate = Number(selectedImagePricing?.rate ?? 0);
@@ -3602,6 +3603,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
   const defaultAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => ([
     { value: 'product', label: materialTypeLabelMap.product },
+    { value: 'motion', label: materialTypeLabelMap.motion },
+    { value: 'audio', label: materialTypeLabelMap.audio },
+    { value: 'model', label: materialTypeLabelMap.model },
+    { value: 'scene', label: materialTypeLabelMap.scene },
   ]), [materialTypeLabelMap]);
   const subjectAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => ([
     { value: 'subject', label: materialTypeLabelMap.subject },
@@ -9577,7 +9582,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 }}
                 className="wb-upload-library-btn rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
             >
-              {t.wb_btn_choose_from_library || '从素材库选择素材'}
+              {t.wb_btn_choose_from_library || '从素材库选择'}
             </button>
             <button
                 type="button"
@@ -11116,6 +11121,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 {assetLibraryPickMode === 'background_audio' ? (
                   <div className="flex items-center justify-between gap-3 px-1">
                     <div className="text-xs text-zinc-400">{t.wb_audio_picker_hint || '仅显示音频素材'}</div>
+                    <div className="flex items-center gap-2">
+                      {assetLibraryTab !== 'subject' && (
+                        <button
+                          type="button"
+                          onClick={triggerAssetLibraryLocalUpload}
+                          disabled={isAssetLibraryUploading}
+                          className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading ? 'cursor-not-allowed border-orange-500/25 bg-orange-500/10 text-orange-200/70' : 'border-orange-500/45 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+                        >
+                          {isAssetLibraryUploading
+                            ? ((t as any).wb_uploading || '上传中...')
+                            : ((t as any).wb_btn_upload_to_library || '上传素材')}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={openSubjectCreationLibrary}
+                        className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-bold text-zinc-200 transition hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-200"
+                      >
+                        {(t as any).wb_btn_manage_assets_library || '前往素材库'}
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex items-center justify-between gap-3">
@@ -11133,6 +11159,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             {tab.label}
                           </button>
                       ))}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {assetLibraryTab !== 'subject' && (
+                        <button
+                          type="button"
+                          onClick={triggerAssetLibraryLocalUpload}
+                          disabled={isAssetLibraryUploading}
+                          className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading ? 'cursor-not-allowed border-orange-500/25 bg-orange-500/10 text-orange-200/70' : 'border-orange-500/45 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+                        >
+                          {isAssetLibraryUploading
+                            ? ((t as any).wb_uploading || '上传中...')
+                            : ((t as any).wb_btn_upload_to_library || '上传素材')}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={openSubjectCreationLibrary}
+                        className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-bold text-zinc-200 transition hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-200"
+                      >
+                        {(t as any).wb_btn_manage_assets_library || '前往素材库'}
+                      </button>
                     </div>
                   </div>
                 )}
@@ -11203,12 +11250,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       </div>
                     )
                   ) : assetLibraryItems.length === 0 && assetLibraryFolders.length === 0 ? (
-                      <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">
-                        {assetLibraryPickMode === 'background_audio'
-                          ? (t.wb_audio_picker_empty || '暂无音频素材')
-                          : assetLibraryPickMode === 'script_import'
-                            ? (t.wb_script_library_empty || '暂无脚本素材')
-                            : '暂无素材'}
+                      <div className="h-52 flex flex-col items-center justify-center gap-3 text-zinc-500 text-sm">
+                        <div>
+                          {assetLibraryPickMode === 'background_audio'
+                            ? (t.wb_audio_picker_empty || '暂无音频素材')
+                            : assetLibraryPickMode === 'script_import'
+                              ? (t.wb_script_library_empty || '暂无脚本素材')
+                              : '暂无素材'}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={triggerAssetLibraryLocalUpload}
+                          disabled={isAssetLibraryUploading}
+                          className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading ? 'cursor-not-allowed border-orange-500/25 bg-orange-500/10 text-orange-200/70' : 'border-orange-500/45 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+                        >
+                          {isAssetLibraryUploading
+                            ? ((t as any).wb_uploading || '上传中...')
+                            : ((t as any).wb_btn_upload_to_library || '上传素材')}
+                        </button>
                       </div>
                   ) : (
                       <div className="grid grid-cols-6 gap-2">

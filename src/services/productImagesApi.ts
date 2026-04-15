@@ -83,6 +83,7 @@ async function generateFirstFrameOnce(options: {
   aspectRatio?: string;
   projectId?: string;
   model: string;
+  prompt?: string;
   category?: string;
   personType?: string;
   holdingStyle?: string;
@@ -96,6 +97,7 @@ async function generateFirstFrameOnce(options: {
     aspect_ratio: options.aspectRatio || '9:16',
     frame_type: 'first',
     model: options.model,
+    prompt_override: options.prompt,
     category: options.category,
     person_type: options.personType,
     holding_style: options.holdingStyle,
@@ -169,6 +171,7 @@ export const productImagesApi = {
         aspectRatio: params.aspectRatio,
         projectId: resolvedProjectId,
         model,
+        prompt: params.prompt,
         category: params.category,
         personType: params.personType,
         holdingStyle: params.holdingStyle,
@@ -198,6 +201,46 @@ export const productImagesApi = {
       outputImages,
       completedAt: new Date().toISOString(),
     };
+  },
+
+  async polishFirstFramePrompt(rawPrompt: string, outputLanguage?: string): Promise<string> {
+    const prompt = String(rawPrompt || '').trim();
+    if (!prompt) {
+      throw new Error('Please provide prompt requirements first');
+    }
+
+    const payload: Record<string, unknown> = {
+      raw_prompt: prompt,
+      sound: 'off',
+    };
+
+    const language = String(outputLanguage || '').trim();
+    if (language) {
+      payload.output_language = language;
+    }
+
+    const response = await fetch(`${PROJECTS_API_BASE}/generate_prompt_script`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCookie('csrftoken') || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Failed to polish first-frame prompt');
+    }
+
+    const data = await response.json();
+    const polished = String(data?.data?.prompt_script || '').trim();
+    if (!polished) {
+      throw new Error('Prompt polish succeeded but no prompt text was returned');
+    }
+
+    return polished;
   },
 
   async generateSmartRepair(

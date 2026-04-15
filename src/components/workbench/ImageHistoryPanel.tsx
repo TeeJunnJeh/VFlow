@@ -30,6 +30,19 @@ interface GallerySettings {
   productCategory: string;
   sellingPoints: string[];
   typeSelections: Record<string, { enabled: boolean; count: number }>;
+  outputMode?: 'custom' | 'ai';
+  outputItems?: Array<{
+    id: string;
+    enabled: boolean;
+    outputType: string;
+    aspectRatio: string;
+    resolution: string;
+    count: number;
+    title?: string;
+    layout?: string;
+    copy?: Record<string, any>;
+    notes?: string;
+  }>;
   uploadedImagePaths?: string[];
 }
 

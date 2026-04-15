@@ -1,6 +1,13 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ChevronDown, Download, MoveDiagonal2, Plus, RotateCcw, Trash2, Type } from 'lucide-react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, ChevronDown, Download, MoveDiagonal2, Plus, RotateCcw, Sparkles, Trash2, Type } from 'lucide-react';
 import PptxGenJS from 'pptxgenjs';
+import { AppDialog } from '../common/AppDialog';
+import {
+  videoApi,
+  type TextSeparationSecondaryCreatePayload,
+  type TextSeparationSecondaryResult,
+  type TextSeparationSecondaryTask,
+} from '../../services/video';
 
 export interface TextSeparationBlock {
   id: string;
@@ -30,6 +37,13 @@ interface TextElement {
   shadowBlur: number;
   shadowOffsetX: number;
   shadowOffsetY: number;
+  prompt: string;
+}
+
+interface SecondaryTaskItem extends TextSeparationSecondaryTask {
+  createdAt: string;
+  previewUrl?: string | null;
+  error?: string;
 }
 
 interface TextSeparationDemoViewProps {
@@ -165,12 +179,13 @@ const normalizeBlocks = (blocks: TextSeparationBlock[]): TextElement[] =>
       shadowBlur: shadowStyle.shadowBlur,
       shadowOffsetX: shadowStyle.shadowOffsetX,
       shadowOffsetY: shadowStyle.shadowOffsetY,
+      prompt: '',
     };
   });
 
 const createDefaultTextElement = (index: number): TextElement => ({
   id: `txt_${Date.now()}_${index}`,
-  text: '新文本',
+  text: '新增文本',
   x: 0.12,
   y: 0.12,
   w: 0.32,
@@ -185,6 +200,7 @@ const createDefaultTextElement = (index: number): TextElement => ({
   shadowBlur: 0.012,
   shadowOffsetX: 0,
   shadowOffsetY: 0.004,
+  prompt: '',
 });
 
 const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
@@ -199,6 +215,11 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
   const initialElements = useMemo(() => normalizeBlocks(textBlocks), [textBlocks]);
   const [elements, setElements] = useState<TextElement[]>(initialElements);
   const [selectedId, setSelectedId] = useState<string | null>(initialElements[0]?.id || null);
+  const [mode, setMode] = useState<'editor' | 'secondary'>('editor');
+  const [secondaryGlobalPrompt, setSecondaryGlobalPrompt] = useState('');
+  const [secondaryTasks, setSecondaryTasks] = useState<SecondaryTaskItem[]>([]);
+  const [previewTask, setPreviewTask] = useState<SecondaryTaskItem | null>(null);
+  const [isSecondarySubmitting, setIsSecondarySubmitting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isExportingPptx, setIsExportingPptx] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
@@ -261,8 +282,54 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
   }, [initialElements, imageSize.width]);
 
   useEffect(() => {
+    setMode('editor');
+    setSecondaryGlobalPrompt('');
+    setSecondaryTasks([]);
+    setPreviewTask(null);
+  }, [initialElements]);
+
+  useEffect(() => {
     setIsExportMenuOpen(false);
-  }, [elements, selectedId]);
+  }, [elements, selectedId, mode]);
+
+  useEffect(() => {
+    const pendingTasks = secondaryTasks.filter((item) => !['succeeded', 'completed', 'failed', 'error'].includes(String(item.status || '').toLowerCase()));
+    if (pendingTasks.length === 0) return;
+
+    const timer = window.setInterval(async () => {
+      for (const task of pendingTasks) {
+        try {
+          const result: TextSeparationSecondaryResult = await videoApi.textSeparationSecondaryResult(task.request_id);
+          setSecondaryTasks((prev) =>
+            prev.map((item) =>
+              item.request_id === task.request_id
+                ? {
+                    ...item,
+                    status: result.status,
+                    previewUrl: result.outputs?.[0] || item.previewUrl || null,
+                    error: result.error || item.error,
+                  }
+                : item
+            )
+          );
+        } catch (error) {
+          setSecondaryTasks((prev) =>
+            prev.map((item) =>
+              item.request_id === task.request_id
+                ? {
+                    ...item,
+                    status: 'failed',
+                    error: error instanceof Error ? error.message : tr('鏌ヨ澶辫触', 'Failed to query task'),
+                  }
+                : item
+            )
+          );
+        }
+      }
+    }, 3000);
+
+    return () => window.clearInterval(timer);
+  }, [secondaryTasks, isZh]);
 
   useEffect(() => {
     const image = new Image();
@@ -480,18 +547,17 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
     window.addEventListener('pointerup', onUp);
   };
 
-  const handleExport = async () => {
-    setIsExporting(true);
-    try {
-      const resp = await fetch(backgroundImageUrl, { method: 'GET' });
-      if (!resp.ok) throw new Error(tr('下载背景失败', 'Failed to download background'));
-      const blob = await resp.blob();
-      const blobUrl = URL.createObjectURL(blob);
+  const renderCompositeImageDataUrl = async (format: 'png' | 'jpeg' = 'png', quality = 0.92) => {
+    const resp = await fetch(backgroundImageUrl, { method: 'GET' });
+    if (!resp.ok) throw new Error(tr('涓嬭浇鑳屾櫙澶辫触', 'Failed to download background'));
+    const blob = await resp.blob();
+    const blobUrl = URL.createObjectURL(blob);
 
+    try {
       const image = new Image();
       const loaded = new Promise<void>((resolve, reject) => {
         image.onload = () => resolve();
-        image.onerror = () => reject(new Error(tr('加载背景失败', 'Failed to load background')));
+        image.onerror = () => reject(new Error(tr('鍔犺浇鑳屾櫙澶辫触', 'Failed to load background')));
       });
       image.src = blobUrl;
       await loaded;
@@ -500,7 +566,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
       canvas.width = image.naturalWidth || image.width;
       canvas.height = image.naturalHeight || image.height;
       const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error(tr('导出失败', 'Export failed'));
+      if (!ctx) throw new Error(tr('瀵煎嚭澶辫触', 'Export failed'));
 
       ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
 
@@ -550,16 +616,62 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
         ctx.shadowOffsetY = 0;
       }
 
-      const url = canvas.toDataURL('image/png');
+      if (format === 'jpeg') {
+        return canvas.toDataURL('image/jpeg', quality);
+      }
+      return canvas.toDataURL('image/png');
+    } finally {
+      URL.revokeObjectURL(blobUrl);
+    }
+  };
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const url = await renderCompositeImageDataUrl('png');
       const link = document.createElement('a');
       link.href = url;
       link.download = 'text-separation-editor.png';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(blobUrl);
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const startSecondaryCreation = async () => {
+    setIsSecondarySubmitting(true);
+    try {
+      const referenceImageDataUrl = await renderCompositeImageDataUrl('jpeg', 0.82);
+      const payload: TextSeparationSecondaryCreatePayload = {
+        sample_title: sampleTitle,
+        background_image_url: backgroundImageUrl,
+        reference_image_data_url: referenceImageDataUrl,
+        global_prompt: secondaryGlobalPrompt,
+        elements: elements.map((item) => ({
+          id: item.id,
+          text: item.text,
+          bbox: [
+            Math.round(item.y * 1000),
+            Math.round(item.x * 1000),
+            Math.round((item.y + item.h) * 1000),
+            Math.round((item.x + item.w) * 1000),
+          ],
+          prompt: item.prompt,
+        })),
+      };
+      const task = await videoApi.textSeparationSecondaryCreate(payload);
+      setSecondaryTasks((prev) => [
+        {
+          ...task,
+          createdAt: new Date().toISOString(),
+          previewUrl: null,
+        },
+        ...prev,
+      ]);
+    } finally {
+      setIsSecondarySubmitting(false);
     }
   };
 
@@ -686,78 +798,96 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
         <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"
-            onClick={onBack}
+            onClick={() => {
+              if (mode === 'secondary') {
+                setMode('editor');
+                return;
+              }
+              onBack();
+            }}
             className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs font-bold text-zinc-200 hover:bg-white/5 transition"
           >
             <ArrowLeft className="w-4 h-4" />
             {tr('返回生成记录', 'Back to Generation Records')}
           </button>
           <div className="min-w-0">
-            <div className="text-sm font-bold text-zinc-100">{tr('文本分离', 'Text Separation')}</div>
-            <div className="text-xs text-zinc-500 truncate">
-              {sampleTitle}
+            <div className="text-sm font-bold text-zinc-100">
+              {mode === 'secondary' ? tr('AI 二次创作', 'AI Secondary Creation') : tr('海报文字编辑', 'Poster Text Editor')}
             </div>
+            <div className="text-xs text-zinc-500 truncate">{sampleTitle}</div>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setElements(initialElements);
-              setSelectedId(initialElements[0]?.id || null);
-            }}
-            className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs font-bold text-zinc-200 hover:bg-white/5 transition"
-          >
-            <RotateCcw className="w-4 h-4" />
-            {tr('重置布局', 'Reset Layout')}
-          </button>
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setIsExportMenuOpen((prev) => !prev)}
-              className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-xs font-bold text-black hover:bg-orange-400 transition"
-            >
-              <Download className="w-4 h-4" />
-              {tr('导出', 'Export')}
-              <ChevronDown className={`h-4 w-4 transition ${isExportMenuOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {isExportMenuOpen ? (
-              <div className="absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/95 p-1 shadow-2xl backdrop-blur">
+          {mode === 'editor' ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setMode('secondary')}
+                className="inline-flex items-center gap-2 rounded-xl border border-orange-400/30 bg-orange-500/10 px-3 py-2 text-xs font-bold text-orange-200 hover:bg-orange-500/20 transition"
+              >
+                <Sparkles className="w-4 h-4" />
+                {tr('AI 二次创作', 'AI Secondary Creation')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setElements(initialElements);
+                  setSelectedId(initialElements[0]?.id || null);
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs font-bold text-zinc-200 hover:bg-white/5 transition"
+              >
+                <RotateCcw className="w-4 h-4" />
+                {tr('恢复初始布局', 'Reset Layout')}
+              </button>
+              <div className="relative">
                 <button
                   type="button"
-                  onClick={() => {
-                    exportTextJson();
-                    setIsExportMenuOpen(false);
-                  }}
-                  className="flex w-full items-center rounded-xl px-3 py-2 text-left text-xs font-bold text-zinc-200 hover:bg-white/5 transition"
+                  onClick={() => setIsExportMenuOpen((prev) => !prev)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-xs font-bold text-black hover:bg-orange-400 transition"
                 >
-                  {tr('导出文本 JSON', 'Export Text JSON')}
+                  <Download className="w-4 h-4" />
+                  {tr('导出', 'Export')}
+                  <ChevronDown className={`h-4 w-4 transition ${isExportMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setIsExportMenuOpen(false);
-                    await exportPptx();
-                  }}
-                  disabled={isExportingPptx}
-                  className="flex w-full items-center rounded-xl px-3 py-2 text-left text-xs font-bold text-zinc-200 hover:bg-white/5 disabled:opacity-60 transition"
-                >
-                  {isExportingPptx ? tr('导出 PPTX ...', 'Exporting PPTX...') : tr('导出 PPTX', 'Export PPTX')}
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setIsExportMenuOpen(false);
-                    await handleExport();
-                  }}
-                  disabled={isExporting}
-                  className="flex w-full items-center rounded-xl px-3 py-2 text-left text-xs font-bold text-zinc-200 hover:bg-white/5 disabled:opacity-60 transition"
-                >
-                  {isExporting ? tr('导出 PNG ...', 'Exporting PNG...') : tr('导出 PNG', 'Export PNG')}
-                </button>
+                {isExportMenuOpen ? (
+                  <div className="absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/95 p-1 shadow-2xl backdrop-blur">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        exportTextJson();
+                        setIsExportMenuOpen(false);
+                      }}
+                      className="flex w-full items-center rounded-xl px-3 py-2 text-left text-xs font-bold text-zinc-200 hover:bg-white/5 transition"
+                    >
+                      {tr('导出文本 JSON', 'Export Text JSON')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setIsExportMenuOpen(false);
+                        await exportPptx();
+                      }}
+                      disabled={isExportingPptx}
+                      className="flex w-full items-center rounded-xl px-3 py-2 text-left text-xs font-bold text-zinc-200 hover:bg-white/5 disabled:opacity-60 transition"
+                    >
+                      {isExportingPptx ? tr('导出 PPTX 中...', 'Exporting PPTX...') : tr('导出 PPTX', 'Export PPTX')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setIsExportMenuOpen(false);
+                        await handleExport();
+                      }}
+                      disabled={isExporting}
+                      className="flex w-full items-center rounded-xl px-3 py-2 text-left text-xs font-bold text-zinc-200 hover:bg-white/5 disabled:opacity-60 transition"
+                    >
+                      {isExporting ? tr('导出 PNG 中...', 'Exporting PNG...') : tr('导出 PNG', 'Export PNG')}
+                    </button>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
+            </>
+          ) : null}
         </div>
       </div>
 
@@ -765,31 +895,37 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
         <div className="min-h-0 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <div className="text-sm font-bold text-zinc-100">{tr('编辑画布', 'Editor Canvas')}</div>
+              <div className="text-sm font-bold text-zinc-100">
+                {mode === 'secondary' ? tr('创作参考画布', 'Creation Reference Canvas') : tr('编辑画布', 'Editor Canvas')}
+              </div>
               <div className="text-xs text-zinc-500">
-                {tr('拖拽文本框以移动，拖动右下角来调整大小，并在右侧面板中编辑文本或字体大小。', 'Drag text blocks to move, use the bottom-right handle to resize, and edit text or font size in the right panel.')}
+                {mode === 'secondary'
+                  ? tr('选择文本框并为整体效果或单个文本块填写创作提示词。', 'Select text blocks and describe the desired overall or per-block creative result.')
+                  : tr('拖拽文本框移动，拖动右下角缩放，并在右侧面板编辑文字与样式。', 'Drag text blocks to move, use the bottom-right handle to resize, and edit text and styles in the right panel.')}
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <div className="text-[11px] text-zinc-500">
-                {tr(`共有 ${elements.length} 个文本框`, `${elements.length} text block(s)`)}
-              </div>
-              <button
-                type="button"
-                onClick={addTextElement}
-                className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs font-bold text-zinc-200 hover:bg-white/5 transition"
-              >
-                <Plus className="h-4 w-4" />
-                {tr('添加文本框', 'Add Text Box')}
-              </button>
-              <button
-                type="button"
-                onClick={fitAllTextBoxesToSingleLine}
-                disabled={elements.length === 0}
-                className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs font-bold text-zinc-200 hover:bg-white/5 disabled:opacity-50 transition"
-              >
-                {tr('适配到一行', 'Fit to One Line')}
-              </button>
+              <div className="text-[11px] text-zinc-500">{tr(`共有 ${elements.length} 个文本框`, `${elements.length} text block(s)`)}</div>
+              {mode === 'editor' ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={addTextElement}
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs font-bold text-zinc-200 hover:bg-white/5 transition"
+                  >
+                    <Plus className="h-4 w-4" />
+                    {tr('添加文本框', 'Add Text Box')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={fitAllTextBoxesToSingleLine}
+                    disabled={elements.length === 0}
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs font-bold text-zinc-200 hover:bg-white/5 disabled:opacity-50 transition"
+                  >
+                    {tr('调整到同一行', 'Fit to One Line')}
+                  </button>
+                </>
+              ) : null}
             </div>
           </div>
 
@@ -798,11 +934,11 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
               <div
                 ref={surfaceRef}
                 className="relative shrink-0 rounded-2xl overflow-hidden border border-white/10 bg-white"
-              style={{
-                width: `${surfaceViewport.width}px`,
-                height: `${surfaceViewport.height}px`,
-              }}
-            >
+                style={{
+                  width: `${surfaceViewport.width}px`,
+                  height: `${surfaceViewport.height}px`,
+                }}
+              >
                 <img src={backgroundImageUrl} alt={sampleTitle} className="absolute inset-0 h-full w-full object-contain select-none pointer-events-none" />
                 {elements.map((item) => (
                   <div
@@ -810,17 +946,15 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
                     role="button"
                     tabIndex={0}
                     onClick={() => setSelectedId(item.id)}
-                    onPointerDown={(e) => startDrag(item.id, e)}
+                    onPointerDown={mode === 'editor' ? (e) => startDrag(item.id, e) : undefined}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
                         setSelectedId(item.id);
                       }
                     }}
-                    className={`absolute cursor-move rounded-lg border px-2 py-1 transition ${
-                      selectedId === item.id
-                        ? 'border-orange-400 ring-2 ring-orange-500/60'
-                        : 'border-white/20 hover:border-white/40'
+                    className={`absolute rounded-lg border px-2 py-1 transition ${
+                      selectedId === item.id ? 'border-orange-400 ring-2 ring-orange-500/60' : 'border-white/20 hover:border-white/40'
                     }`}
                     style={{
                       left: `${item.x * 100}%`,
@@ -851,12 +985,12 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
                         </div>
                       );
                     })()}
-                    {selectedId === item.id ? (
+                    {selectedId === item.id && mode === 'editor' ? (
                       <button
                         type="button"
                         onPointerDown={(e) => startResize(item.id, e)}
                         className="absolute -bottom-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full border border-orange-300 bg-orange-500 text-black shadow"
-                        aria-label={tr('调整文本框大小', 'Resize text box')}
+                        aria-label={tr('缩放文本框', 'Resize text box')}
                       >
                         <MoveDiagonal2 className="h-3 w-3" />
                       </button>
@@ -867,13 +1001,51 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
             </div>
           </div>
         </div>
+
         <div className="min-h-0 flex flex-col gap-5">
           <div className="rounded-2xl border border-white/5 bg-white/2 p-4">
             <div className="flex items-center gap-2 text-sm font-bold text-zinc-100">
-              <Type className="w-4 h-4 text-orange-300" />
-              {tr('文本属性', 'Text Settings')}
+              {mode === 'secondary' ? <Sparkles className="w-4 h-4 text-orange-300" /> : <Type className="w-4 h-4 text-orange-300" />}
+              {mode === 'secondary' ? tr('AI 二次创作', 'AI Secondary Creation') : tr('文本属性', 'Text Settings')}
             </div>
-            {selectedElement ? (
+            {mode === 'secondary' ? (
+              <div className="mt-4 space-y-4">
+                <div>
+                  <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">{tr('整体效果描述', 'Global Prompt')}</div>
+                  <textarea
+                    value={secondaryGlobalPrompt}
+                    onChange={(e) => setSecondaryGlobalPrompt(e.target.value)}
+                    placeholder={tr('例如：整体海报更具艺术感，文字自然融入环境光影。', 'Example: Make the poster more artistic and blend the text naturally into the scene lighting.')}
+                    className="min-h-[120px] w-full rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-sm text-zinc-100 outline-none focus:border-orange-500/60"
+                  />
+                </div>
+                {selectedElement ? (
+                  <div>
+                    <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">{tr('当前文本框期望效果', 'Selected Block Prompt')}</div>
+                    <div className="mb-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-400">{selectedElement.text || selectedElement.id}</div>
+                    <textarea
+                      value={selectedElement.prompt}
+                      onChange={(e) => updateElement(selectedElement.id, { prompt: e.target.value })}
+                      placeholder={tr('例如：金属质感、柔和发光、与背景边缘融合。', 'Example: Metallic texture, subtle glow, and soft edge blending with the background.')}
+                      className="min-h-[120px] w-full rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-sm text-zinc-100 outline-none focus:border-orange-500/60"
+                    />
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-white/10 bg-black/10 px-4 py-6 text-sm text-zinc-500">
+                    {tr('先在左侧画布中选择一个文本框，再为该文本块填写期望效果。', 'Select a text block on the left canvas before writing a per-block prompt.')}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={startSecondaryCreation}
+                  disabled={isSecondarySubmitting}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black hover:bg-orange-400 disabled:opacity-60 transition"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  {isSecondarySubmitting ? tr('开始二次创作中...', 'Starting Secondary Creation...') : tr('开始二次创作', 'Start Secondary Creation')}
+                </button>
+              </div>
+            ) : selectedElement ? (
               <div className="mt-4 space-y-4">
                 <button
                   type="button"
@@ -886,15 +1058,11 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
 
                 <div>
                   <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">ID</div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-300">
-                    {selectedElement.id}
-                  </div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-300">{selectedElement.id}</div>
                 </div>
 
                 <div>
-                  <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">
-                    {tr('文本内容', 'Text')}
-                  </div>
+                  <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">{tr('文本内容', 'Text')}</div>
                   <textarea
                     value={selectedElement.text}
                     onChange={(e) => updateElement(selectedElement.id, { text: e.target.value })}
@@ -918,9 +1086,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
                 </div>
 
                 <div>
-                  <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">
-                    {tr('字重', 'Weight')}
-                  </div>
+                  <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">{tr('字重', 'Weight')}</div>
                   <div className="grid grid-cols-2 gap-2">
                     {([
                       [400, tr('常规', 'Regular')],
@@ -931,9 +1097,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
                         type="button"
                         onClick={() => updateElement(selectedElement.id, { fontWeight: value })}
                         className={`rounded-xl border px-3 py-2 text-xs font-bold transition ${
-                          selectedElement.fontWeight === value
-                            ? 'border-orange-500 bg-orange-500/10 text-orange-300'
-                            : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'
+                          selectedElement.fontWeight === value ? 'border-orange-500 bg-orange-500/10 text-orange-300' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'
                         }`}
                       >
                         {label}
@@ -954,10 +1118,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
                       onChange={(e) => updateElement(selectedElement.id, { color: e.target.value })}
                       className="h-10 w-14 cursor-pointer rounded border border-white/10 bg-transparent"
                     />
-                    <div
-                      className="h-8 w-8 rounded-full border border-white/10"
-                      style={{ backgroundColor: selectedElement.color }}
-                    />
+                    <div className="h-8 w-8 rounded-full border border-white/10" style={{ backgroundColor: selectedElement.color }} />
                     <input
                       value={selectedElement.color}
                       onChange={(e) => updateElement(selectedElement.id, { color: e.target.value })}
@@ -978,10 +1139,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
                       onChange={(e) => updateElement(selectedElement.id, { strokeColor: e.target.value })}
                       className="h-10 w-14 cursor-pointer rounded border border-white/10 bg-transparent"
                     />
-                    <div
-                      className="h-8 w-8 rounded-full border border-white/10"
-                      style={{ backgroundColor: selectedElement.strokeColor }}
-                    />
+                    <div className="h-8 w-8 rounded-full border border-white/10" style={{ backgroundColor: selectedElement.strokeColor }} />
                     <input
                       value={selectedElement.strokeColor}
                       onChange={(e) => updateElement(selectedElement.id, { strokeColor: e.target.value })}
@@ -1017,10 +1175,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
                       onChange={(e) => updateElement(selectedElement.id, { shadowColor: e.target.value })}
                       className="h-10 w-14 cursor-pointer rounded border border-white/10 bg-transparent"
                     />
-                    <div
-                      className="h-8 w-8 rounded-full border border-white/10"
-                      style={{ backgroundColor: selectedElement.shadowColor }}
-                    />
+                    <div className="h-8 w-8 rounded-full border border-white/10" style={{ backgroundColor: selectedElement.shadowColor }} />
                     <input
                       value={selectedElement.shadowColor}
                       onChange={(e) => updateElement(selectedElement.id, { shadowColor: e.target.value })}
@@ -1076,9 +1231,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
                 </div>
 
                 <div>
-                  <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">
-                    {tr('对齐', 'Align')}
-                  </div>
+                  <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">{tr('对齐', 'Align')}</div>
                   <div className="grid grid-cols-3 gap-2">
                     {([
                       ['left', tr('左对齐', 'Left')],
@@ -1090,9 +1243,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
                         type="button"
                         onClick={() => updateElement(selectedElement.id, { align: value })}
                         className={`rounded-xl border px-3 py-2 text-xs font-bold transition ${
-                          selectedElement.align === value
-                            ? 'border-orange-500 bg-orange-500/10 text-orange-300'
-                            : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'
+                          selectedElement.align === value ? 'border-orange-500 bg-orange-500/10 text-orange-300' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'
                         }`}
                       >
                         {label}
@@ -1120,6 +1271,81 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
           </div>
         </div>
       </div>
+
+      {mode === 'secondary' ? (
+        <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
+          <div>
+            <div className="text-sm font-bold text-zinc-100">{tr('二次创作任务', 'Secondary Creation Tasks')}</div>
+            <div className="text-xs text-zinc-500">{tr('这里展示待生成与已完成的二次创作任务。', 'Queued and completed secondary creation tasks appear here.')}</div>
+          </div>
+          {secondaryTasks.length > 0 ? (
+            <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {secondaryTasks.map((task) => (
+                <button
+                  key={task.request_id}
+                  type="button"
+                  onClick={() => {
+                    if (task.previewUrl) {
+                      setPreviewTask(task);
+                    }
+                  }}
+                  disabled={!task.previewUrl}
+                  className="rounded-2xl border border-white/10 bg-black/20 p-4 text-left transition hover:border-white/20 hover:bg-black/30 disabled:cursor-default disabled:hover:border-white/10 disabled:hover:bg-black/20"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs font-bold text-zinc-200">{task.request_id}</div>
+                    <div
+                      className={`rounded-full px-2 py-1 text-[10px] font-bold ${
+                        task.status === 'succeeded'
+                          ? 'bg-emerald-500/15 text-emerald-300'
+                          : task.status === 'failed'
+                            ? 'bg-red-500/15 text-red-300'
+                            : 'bg-orange-500/15 text-orange-200'
+                      }`}
+                    >
+                      {task.status}
+                    </div>
+                  </div>
+                  <div className="mt-3 aspect-[4/3] overflow-hidden rounded-xl border border-white/10 bg-black/30">
+                    {task.previewUrl ? (
+                      <img src={task.previewUrl} alt={task.request_id} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full items-center justify-center px-4 text-center text-xs text-zinc-500">
+                        {task.status === 'failed'
+                          ? tr('生成失败，请调整提示词后重试。', 'Generation failed. Refine the prompts and try again.')
+                          : tr('等待生成结果...', 'Waiting for generated preview...')}
+                      </div>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-4 rounded-xl border border-dashed border-white/10 bg-black/10 px-4 py-6 text-sm text-zinc-500">
+              {tr('开始一次 AI 二次创作后，任务会显示在这里。', 'Tasks will appear here after you start an AI secondary creation run.')}
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      <AppDialog
+        isOpen={Boolean(previewTask?.previewUrl)}
+        onClose={() => setPreviewTask(null)}
+        title={tr('二次创作预览', 'Secondary Creation Preview')}
+        subtitle={previewTask?.request_id || ''}
+        widthClassName="max-w-5xl"
+        contentClassName="overflow-auto"
+      >
+        {previewTask?.previewUrl ? (
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+            <img
+              src={previewTask.previewUrl}
+              alt={previewTask.request_id}
+              className="block max-h-[75vh] w-full object-contain rounded-xl"
+            />
+          </div>
+        ) : null}
+      </AppDialog>
     </div>
   );
 };

@@ -199,6 +199,34 @@ export type TextSeparationResponse = {
   text_blocks: TextSeparationBlockPayload[];
 };
 
+export type TextSeparationSecondaryElementPayload = {
+  id: string;
+  text: string;
+  bbox: [number, number, number, number];
+  prompt?: string;
+};
+
+export type TextSeparationSecondaryCreatePayload = {
+  sample_title?: string;
+  background_image_url: string;
+  reference_image_data_url: string;
+  global_prompt?: string;
+  elements: TextSeparationSecondaryElementPayload[];
+};
+
+export type TextSeparationSecondaryTask = {
+  request_id: string;
+  status: string;
+  get_url?: string | null;
+};
+
+export type TextSeparationSecondaryResult = {
+  request_id: string;
+  status: string;
+  outputs: string[];
+  error?: string;
+};
+
 export type ScriptEstimateParams = {
   script_count: number;
   duration: number;
@@ -743,6 +771,69 @@ export const videoApi = {
       throw new Error('Invalid text separation response');
     }
 
+    return data;
+  },
+
+  textSeparationSecondaryCreate: async (payload: TextSeparationSecondaryCreatePayload): Promise<TextSeparationSecondaryTask> => {
+    const csrftoken = getCookie('csrftoken');
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE_URL}/text-separation-secondary-create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrftoken || '',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch';
+      throw new Error(`Secondary creation request failed: ${message}. This is usually a network error or the request body is too large.`);
+    }
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Secondary creation request failed');
+    }
+
+    const json = (await response.json()) as ApiEnvelope<TextSeparationSecondaryTask>;
+    if (json?.code !== undefined && json.code !== 0) {
+      throw new Error((json?.message || 'Secondary creation request failed') as string);
+    }
+
+    const data = json?.data;
+    if (!data?.request_id) {
+      throw new Error('Invalid secondary creation response');
+    }
+
+    return data;
+  },
+
+  textSeparationSecondaryResult: async (requestId: string): Promise<TextSeparationSecondaryResult> => {
+    const query = new URLSearchParams({ request_id: requestId });
+    const response = await fetch(`${API_BASE_URL}/text-separation-secondary-result?${query.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Secondary creation result request failed');
+    }
+
+    const json = (await response.json()) as ApiEnvelope<TextSeparationSecondaryResult>;
+    if (json?.code !== undefined && json.code !== 0) {
+      throw new Error((json?.message || 'Secondary creation result request failed') as string);
+    }
+
+    const data = json?.data;
+    if (!data?.request_id) {
+      throw new Error('Invalid secondary creation result');
+    }
     return data;
   },
 

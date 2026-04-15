@@ -3,6 +3,7 @@ import { ChevronDown, Wand2 } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import { billingApi } from '../../../../services/billing';
+import { productImagesApi } from '../../../../services/productImagesApi';
 import type { FirstFrameParams } from '../../../../types/productImages';
 
 interface FirstFrameFormProps {
@@ -16,12 +17,9 @@ interface FirstFrameFormProps {
 const STORAGE_KEY = 'firstFrameParams';
 
 const FALLBACK_PARAMS: FirstFrameParams = {
-  category: 'beauty',
-  personType: 'female',
-  holdingStyle: 'single_hand',
+  prompt: '',
   aspectRatio: '9:16',
   model: 'flux-2-pro',
-  textWhitespace: 'top',
   outputCount: 4,
 };
 
@@ -32,7 +30,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   onReset,
   defaultParams,
 }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
 
   const mergedDefaultParams = useMemo<FirstFrameParams>(
     () => ({
@@ -40,37 +38,6 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
       ...(defaultParams || {}),
     }),
     [defaultParams]
-  );
-
-  const categories = useMemo(
-    () => [
-      { label: t.ff_category_beauty, value: 'beauty' },
-      { label: t.ff_category_personal_care, value: 'skincare' },
-      { label: t.ff_category_food, value: 'food' },
-      { label: t.ff_category_appliance, value: 'appliance' },
-      { label: t.ff_category_other, value: 'other' },
-    ],
-    [t]
-  );
-
-  const personTypes = useMemo(
-    () => [
-      { label: t.ff_person_type_female, value: 'female' },
-      { label: t.ff_person_type_male, value: 'male' },
-      { label: t.ff_person_type_neutral, value: 'neutral' },
-      { label: t.ff_person_type_no_preference, value: 'no_limit' },
-    ],
-    [t]
-  );
-
-  const holdingStyles = useMemo(
-    () => [
-      { label: t.ff_holding_style_single_hand, value: 'single_hand' },
-      { label: t.ff_holding_style_both_hands, value: 'both_hands' },
-      { label: t.ff_holding_style_front_chest, value: 'chest' },
-      { label: t.ff_holding_style_side_hold, value: 'side' },
-    ],
-    [t]
   );
 
   const aspectRatios = useMemo(
@@ -91,16 +58,6 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
     []
   );
 
-  const whitespaceOptions = useMemo(
-    () => [
-      { label: t.ff_text_whitespace_top, value: 'top' },
-      { label: t.ff_text_whitespace_bottom, value: 'bottom' },
-      { label: t.ff_text_whitespace_right, value: 'right' },
-      { label: t.ff_text_whitespace_none, value: 'none' },
-    ],
-    [t]
-  );
-
   const outputCounts = useMemo(
     () => [
       { label: t.ff_output_count_1, value: 1 as const },
@@ -111,6 +68,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   );
 
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [isPolishingPrompt, setIsPolishingPrompt] = useState(false);
   const [imageModelRates, setImageModelRates] = useState<Record<string, number>>({});
   const [formData, setFormData] = useState<FirstFrameParams>(() => {
     const baseDefaults: FirstFrameParams = { ...mergedDefaultParams };
@@ -176,9 +134,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   const validateForm = (): boolean => {
     const nextErrors: Record<string, string> = {};
 
-    if (!formData.category) nextErrors.category = t.ff_validation_choose_category;
-    if (!formData.personType) nextErrors.personType = t.ff_validation_choose_person_type;
-    if (!formData.holdingStyle) nextErrors.holdingStyle = t.ff_validation_choose_holding_style;
+    if (!String(formData.prompt || '').trim()) nextErrors.prompt = '请先填写生成要求';
     if (!formData.aspectRatio) nextErrors.aspectRatio = t.ff_validation_choose_aspect_ratio;
     if (!formData.model) nextErrors.model = t.ff_validation_choose_style;
 
@@ -189,7 +145,38 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) return;
-    await onSubmit(formData);
+    await onSubmit({
+      ...formData,
+      prompt: String(formData.prompt || '').trim(),
+    });
+  };
+
+  const handlePolishPrompt = async () => {
+    const rawPrompt = String(formData.prompt || '').trim();
+    if (!rawPrompt) {
+      setErrors((prev) => ({ ...prev, prompt: '请先填写生成要求' }));
+      return;
+    }
+
+    setIsPolishingPrompt(true);
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.prompt;
+      return next;
+    });
+
+    try {
+      const polished = await productImagesApi.polishFirstFramePrompt(rawPrompt, language);
+      setFormData((prev) => ({
+        ...prev,
+        prompt: polished,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '提示词润色失败，请稍后重试';
+      setErrors((prev) => ({ ...prev, prompt: message }));
+    } finally {
+      setIsPolishingPrompt(false);
+    }
   };
 
   const handleReset = () => {
@@ -203,50 +190,39 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
       <div className="space-y-6">
         <div className="space-y-3">
           <div>
-            <label className="block text-sm text-zinc-300 mb-2 font-medium">
-              {t.ff_category_label}
-            </label>
-            <DropdownSelect
-              value={formData.category || ''}
-              options={categories}
-              onChange={(value) => setFormData({ ...formData, category: value as any })}
-              buttonClassName={`w-full bg-zinc-900/70 border rounded-xl px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 ${errors.category ? 'border-red-500' : 'border-white/10'}`}
-              iconClassName="w-4 h-4 text-zinc-500"
-              optionClassName="text-sm"
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <label className="block text-sm text-zinc-300 font-medium">
+                {t.wb_ai_opt_need_prompt || '生成要求'}
+              </label>
+              <button
+                type="button"
+                onClick={() => void handlePolishPrompt()}
+                disabled={isPolishingPrompt || isSubmitting}
+                className={`text-xs px-2.5 py-1 rounded border transition ${isPolishingPrompt || isSubmitting ? 'border-orange-500/30 bg-orange-500/5 text-orange-200/70 cursor-not-allowed' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+              >
+                {isPolishingPrompt
+                  ? (t.wb_ai_opt_prompt_generating || '润色中...')
+                  : (t.wb_ai_opt_build_prompt_btn || 'AI 润色')}
+              </button>
+            </div>
+            <textarea
+              value={formData.prompt || ''}
+              onChange={(e) => {
+                const nextPrompt = e.target.value;
+                setFormData({ ...formData, prompt: nextPrompt });
+                if (errors.prompt) {
+                  setErrors((prev) => {
+                    const next = { ...prev };
+                    delete next.prompt;
+                    return next;
+                  });
+                }
+              }}
+              rows={5}
+              placeholder={t.wb_ai_opt_prompt_placeholder || '例如：女生单人手持口红，近景半身，干净背景，电商质感，真实肤感，避免文字和水印'}
+              className={`w-full rounded-xl border bg-zinc-900/70 px-3 py-2.5 text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-orange-500/30 ${errors.prompt ? 'border-red-500' : 'border-white/10'}`}
             />
-            {errors.category && <p className="text-red-400 text-xs mt-1">{errors.category}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_person_type_label}</label>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              {personTypes.map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  onClick={() => setFormData({ ...formData, personType: item.value as any })}
-                  className={`px-3 py-2 rounded-xl text-sm font-medium border transition ${formData.personType === item.value ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_holding_style_label}</label>
-            <div className="grid grid-cols-2 gap-2">
-              {holdingStyles.map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  onClick={() => setFormData({ ...formData, holdingStyle: item.value as any })}
-                  className={`px-3 py-2 rounded-xl text-sm font-medium border transition ${formData.holdingStyle === item.value ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
+            {errors.prompt ? <p className="text-red-400 text-xs mt-1">{errors.prompt}</p> : null}
           </div>
 
           <div>
@@ -291,22 +267,6 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
 
           {showAdvanced && (
             <div className="mt-4 space-y-4 p-4 bg-zinc-900/40 rounded-lg border border-white/10">
-              <div>
-                <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_text_whitespace_label}</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {whitespaceOptions.map((item) => (
-                    <button
-                      key={item.value}
-                      type="button"
-                      onClick={() => setFormData({ ...formData, textWhitespace: item.value as any })}
-                      className={`px-3 py-2 rounded-xl text-xs font-medium border transition ${formData.textWhitespace === item.value ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               <div>
                 <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_output_count_label}</label>
                 <div className="grid grid-cols-3 gap-2">

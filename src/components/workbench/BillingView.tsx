@@ -2,10 +2,14 @@ import React, { useEffect, useState, useRef } from 'react';
 import { billingApi } from '../../services/billing';
 import { AppDialog } from '../common/AppDialog';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 
 export const BillingView: React.FC = () => {
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [overview, setOverview] = useState<any | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
@@ -44,11 +48,11 @@ export const BillingView: React.FC = () => {
   };
 
   useEffect(() => {
-    loadData();
+    if (user) loadData();
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
-  }, []);
+  }, [user]);
 
   const startPolling = (outTradeNo: string) => {
     if (pollingRef.current) clearInterval(pollingRef.current);
@@ -182,6 +186,21 @@ export const BillingView: React.FC = () => {
     ].filter(Boolean);
     return detailParts.join(' | ');
   };
+
+  if (!user) {
+    return (
+      <div className="flex flex-col h-full items-center justify-center gap-4 z-10 animate-in fade-in duration-300">
+        <div className="text-zinc-500 text-4xl">💳</div>
+        <p className="text-zinc-400 text-sm">{t.guest_billing_login_required || 'Log in to view billing and credits.'}</p>
+        <button
+          onClick={() => navigate('/login?returnUrl=/app')}
+          className="px-5 py-2 rounded-lg bg-orange-600 text-white text-sm font-bold hover:bg-orange-500 transition"
+        >
+          {t.guest_login_button || 'Log In'}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">

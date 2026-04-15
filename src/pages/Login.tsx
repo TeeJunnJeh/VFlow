@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Loader2, X, CheckCircle2, AlertCircle } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { authApi, type InviterPreview } from '../services/auth';
@@ -22,8 +22,13 @@ const readPendingInviteCode = (): string => {
 
 const LoginPage = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { login, user, isLoading } = useAuth();
   const { t } = useLanguage();
+
+  // Safe returnUrl: must be a relative path starting with '/' to prevent open redirect
+  const rawReturnUrl = searchParams.get('returnUrl') || '';
+  const safeReturnUrl = rawReturnUrl.startsWith('/') && !rawReturnUrl.startsWith('//') ? rawReturnUrl : '/app';
 
   // --- 业务状态 ---
   const [phone, setPhone] = useState('');
@@ -140,9 +145,9 @@ const LoginPage = () => {
   useEffect(() => {
     // 只有当不是正在手动提交、且没有播放成功动画时，才执行自动跳转
     if (!isLoading && user && !isSubmitting && !isLoginSuccess) {
-      navigate('/app', { replace: true });
+      navigate(safeReturnUrl, { replace: true });
     }
-  }, [isLoading, user, isSubmitting, isLoginSuccess, navigate]);
+  }, [isLoading, user, isSubmitting, isLoginSuccess, navigate, safeReturnUrl]);
 
   // --- 验证码倒计时逻辑 ---
   useEffect(() => {
@@ -218,7 +223,7 @@ const LoginPage = () => {
       
       // 4. 等待动画播放完毕后跳转
       setTimeout(() => {
-        navigate('/app');
+        navigate(safeReturnUrl);
       }, 1200);
 
     } catch (err: any) {

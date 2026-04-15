@@ -124,9 +124,10 @@ const GuestRoute = ({ children }: { children: React.ReactNode }) => {
 /**
  * 受保护路由封装
  * 确保只有登录用户可以访问工作台
+ * 游客模式：允许未登录用户进入工作台，具体功能由各组件自行拦截
  */
-const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-    const { user, isLoading } = useAuth();
+const OptionalAuthRoute = ({ children }: { children: React.ReactNode }) => {
+    const { isLoading } = useAuth();
 
     if (isLoading) {
         return (
@@ -134,10 +135,6 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
                 LOADING...
             </div>
         );
-    }
-
-    if (!user) {
-        return <Navigate to="/login" replace />;
     }
 
     return <>{children}</>;
@@ -386,22 +383,18 @@ const AnimatedRoutes = () => {
                 <Routes location={location} key={location.pathname}>
                     <Route
                         path="/"
-                        element={
-                            <GuestRoute>
-                                <LandingPage />
-                            </GuestRoute>
-                        }
+                        element={<Navigate to="/app" replace />}
                     />
                     <Route path="/login" element={<LoginPage />} />
                     <Route
                         path="/app/*"
                         element={
-                            <ProtectedRoute>
+                            <OptionalAuthRoute>
                                 <Workbench />
-                            </ProtectedRoute>
+                            </OptionalAuthRoute>
                         }
                     />
-                    <Route path="*" element={<Navigate to="/" replace />} />
+                    <Route path="*" element={<Navigate to="/app" replace />} />
                 </Routes>
             </AnimatePresence>
 

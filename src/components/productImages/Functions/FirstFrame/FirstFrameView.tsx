@@ -13,6 +13,7 @@ import { downloadBlob, productImagesApi } from '../../../../services/productImag
 import type { FirstFrameParams, ProductImageResult } from '../../../../types/productImages';
 import { deleteImageHistoryItem, notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
 import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../../../utils/loadingTheme';
+import { useRequireAuth } from '../../../../utils/useRequireAuth';
 
 type Phase = 'upload' | 'form' | 'generating' | 'result' | 'error';
 
@@ -144,6 +145,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   onApplyToWorkbench,
 }) => {
   const { t } = useLanguage();
+  const { requireAuth } = useRequireAuth();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [leftWidth, setLeftWidth] = useState<number>(FIRST_FRAME_LEFT_DEFAULT_WIDTH);
   const [middleWidth, setMiddleWidth] = useState<number>(FIRST_FRAME_MIDDLE_DEFAULT_WIDTH);
@@ -243,6 +245,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   }, []);
 
   const handleGenerateFormSubmit = async (params: FirstFrameParams) => {
+    if (!requireAuth()) return;
     if (images.length === 0) {
       setError({
         code: 'NO_IMAGES',

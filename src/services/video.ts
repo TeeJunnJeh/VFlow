@@ -1,4 +1,4 @@
-﻿// src/services/video.ts
+// src/services/video.ts
 
 import { traceApiRequest } from './opsTrace';
 import { apiRequest, getCookie } from './apiClient';
@@ -338,6 +338,25 @@ export const videoApi = {
     target_language?: string;
     hot_style?: { name: string; tones: string[]; description: string };
     type_selections?: Record<string, { enabled?: boolean; count?: number }>;
+    output_mode?: 'custom' | 'ai';
+    output_items?: Array<{
+      id?: string;
+      enabled?: boolean;
+      output_type?: string;
+      aspect_ratio?: string;
+      resolution?: '1k' | '2k' | '4k';
+      count?: number;
+      title?: string;
+      layout?: string;
+      copy?: {
+        headline?: string;
+        subheadline?: string;
+        body?: string;
+        bulletPoints?: string[];
+      };
+      notes?: string;
+      prompt?: string;
+    }>;
     model_image_path?: string;
     model_info?: string;
   }) => {
@@ -356,6 +375,46 @@ export const videoApi = {
 
     if (!response.ok) {
       const fallback = `商品套图生成失败: ${response.status} ${response.statusText || ''}`.trim();
+      throw await parseApiError(response, fallback);
+    }
+
+    return await response.json();
+  },
+
+  generateProductGalleryPlan: async (payload: {
+    prompt?: string;
+    image_paths?: string[];
+    product_name?: string;
+    product_category?: string;
+    core_selling_points?: string[];
+    target_scene?: string;
+    scene_config?: {
+      sceneTheme?: string;
+      sceneDescription?: string;
+      sceneProps?: string;
+      lighting?: string;
+      mood?: string;
+    };
+    style?: string;
+    target_language?: string;
+    model_image_path?: string;
+    model_info?: string;
+  }) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/generate_product_gallery_plan`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const fallback = `商品套图方案生成失败: ${response.status} ${response.statusText || ''}`.trim();
       throw await parseApiError(response, fallback);
     }
 

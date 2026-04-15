@@ -9,6 +9,24 @@ const GALLERY_PANEL_MIN_WIDTH = 300;
 const GALLERY_PANEL_MAX_WIDTH = 500;
 const GALLERY_PANEL_DEFAULT_WIDTH = 320;
 
+type GalleryOutputItemConfig = {
+  id: string;
+  enabled: boolean;
+  outputType: 'white_bg' | 'scene' | 'selling_point' | 'cover' | 'poster';
+  aspectRatio: string;
+  resolution: '1k' | '2k' | '4k';
+  count: number;
+  title?: string;
+  layout?: string;
+  copy?: {
+    headline?: string;
+    subheadline?: string;
+    body?: string;
+    bulletPoints?: string[];
+  };
+  notes?: string;
+};
+
 export type ImagesGalleryViewProps = {
   panelClassName: (view: ViewType) => string;
   t: any;
@@ -76,13 +94,12 @@ export type ImagesGalleryViewProps = {
   gallerySceneLighting: string;
   setGallerySceneLighting: (v: string) => void;
 
-  galleryTypeSelections: Record<string, { enabled: boolean; count: number }>;
-  setGalleryTypeSelections: React.Dispatch<React.SetStateAction<Record<string, { enabled: boolean; count: number }>>>;
-
-  galleryAspectRatio: string;
-  setGalleryAspectRatio: (v: string) => void;
-  galleryResolution: '1k' | '2k' | '4k';
-  setGalleryResolution: React.Dispatch<React.SetStateAction<'1k' | '2k' | '4k'>>;
+  galleryOutputMode: 'custom' | 'ai';
+  setGalleryOutputMode: React.Dispatch<React.SetStateAction<'custom' | 'ai'>>;
+  galleryOutputItems: GalleryOutputItemConfig[];
+  setGalleryOutputItems: React.Dispatch<React.SetStateAction<GalleryOutputItemConfig[]>>;
+  galleryPreviewAspectRatio: string;
+  openGalleryAiOutputPlanner: () => void;
 
   handleGalleryGenerate: () => void;
   isGalleryGenerating: boolean;
@@ -315,7 +332,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     setLeftWidth(requestedWidth);
     localStorage.setItem('gallery_left_width', requestedWidth.toString());
   };
-  
+
   const handleMiddleResize = (width: number) => {
     const container = document.getElementById('gallery-container');
     const requestedWidth = Math.min(Math.max(width, GALLERY_PANEL_MIN_WIDTH), GALLERY_PANEL_MAX_WIDTH);
@@ -409,13 +426,12 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     gallerySceneLighting,
     setGallerySceneLighting,
 
-    galleryTypeSelections,
-    setGalleryTypeSelections,
-
-    galleryAspectRatio,
-    setGalleryAspectRatio,
-    galleryResolution,
-    setGalleryResolution,
+    galleryOutputMode,
+    setGalleryOutputMode,
+    galleryOutputItems,
+    setGalleryOutputItems,
+    galleryPreviewAspectRatio,
+    openGalleryAiOutputPlanner,
 
     handleGalleryGenerate,
     isGalleryGenerating,
@@ -437,12 +453,12 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     preventDragDefaults,
   } = props;
 
-  const galleryPreviewAspectClass = React.useMemo(() => getGalleryPreviewAspectClass(galleryAspectRatio), [galleryAspectRatio]);
+  const galleryPreviewAspectClass = React.useMemo(() => getGalleryPreviewAspectClass(galleryPreviewAspectRatio), [galleryPreviewAspectRatio]);
 
   return (
     <div className={`${panelClassName('product_images_gallery')} h-full min-h-0 flex flex-col px-10 py-6`}>
       <div className="flex-1 min-h-0 flex overflow-hidden relative" id="gallery-container">
-        <div 
+        <div
           className="flex flex-col gap-4 min-h-0 overflow-y-auto custom-scroll pr-2 shrink-0 transition-[width] duration-100 border border-transparent hover:border-orange-500/20"
           style={{ width: `${leftWidth}px`, minWidth: `${GALLERY_PANEL_MIN_WIDTH}px` }}
           data-testid="left-panel"
@@ -544,8 +560,8 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                     type="button"
                     onClick={() => galleryFileInputRef.current?.click()}
                     className={`group mt-3 w-full rounded-2xl border border-dashed px-4 py-10 text-center transition ${isGalleryDragActive
-                        ? 'border-orange-500/70 bg-orange-500/10 text-orange-100'
-                        : 'border-white/10 bg-black/20 text-zinc-500 hover:text-zinc-300 hover:border-white/20'
+                      ? 'border-orange-500/70 bg-orange-500/10 text-orange-100'
+                      : 'border-white/10 bg-black/20 text-zinc-500 hover:text-zinc-300 hover:border-white/20'
                       }`}
                   >
                     <div className="relative w-10 h-10 mx-auto mb-2">
@@ -704,8 +720,8 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                         type="button"
                         onClick={() => setHotStyleSelectedIndex((prev: number | null) => (prev === idx ? null : idx))}
                         className={`relative text-left rounded-xl border bg-black/20 p-3 transition ${isSelected
-                            ? 'border-orange-500'
-                            : 'border-white/10 hover:border-white/20'
+                          ? 'border-orange-500'
+                          : 'border-white/10 hover:border-white/20'
                           }`}
                         title={isSelected ? tr('已选择，再次点击取消', 'Selected. Click again to unselect') : tr('点击选择', 'Click to select')}
                       >
@@ -718,8 +734,8 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                         <div className="mt-1 text-xs text-zinc-400">{s.description}</div>
                         <div
                           className={`absolute top-2 right-2 w-5 h-5 rounded-md border flex items-center justify-center text-[11px] font-bold ${isSelected
-                              ? 'bg-orange-500 border-orange-500 text-black'
-                              : 'bg-black/40 border-white/20 text-transparent'
+                            ? 'bg-orange-500 border-orange-500 text-black'
+                            : 'bg-black/40 border-white/20 text-transparent'
                             }`}
                         >
                           ✓
@@ -826,7 +842,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
           className="hover:bg-orange-500/20"
         />
 
-        <div 
+        <div
           className="flex flex-col gap-4 min-h-0 overflow-y-auto custom-scroll pr-2 shrink-0 transition-[width] duration-100 border border-transparent hover:border-orange-500/20"
           style={{ width: `${middleWidth}px`, minWidth: `${GALLERY_PANEL_MIN_WIDTH}px` }}
           data-testid="middle-panel"
@@ -972,95 +988,211 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
               </div>
 
               <div>
-                <div className="text-xs font-bold text-zinc-200">{t.hist_img_setting_types}</div>
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-bold text-zinc-200">{tr('出图类型', 'Output Plan')}</div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setGalleryOutputMode('custom')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition border ${
+                        galleryOutputMode === 'custom'
+                          ? 'bg-orange-500/10 border-orange-500/40 text-orange-300'
+                          : 'bg-white/5 border-white/10 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      {tr('自定义类型', 'Custom')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGalleryOutputMode('ai');
+                        openGalleryAiOutputPlanner();
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition border ${
+                        galleryOutputMode === 'ai'
+                          ? 'bg-orange-500/10 border-orange-500/40 text-orange-300'
+                          : 'bg-white/5 border-white/10 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      {tr('AI智能添加', 'AI Add')}
+                    </button>
+                  </div>
+                </div>
+
                 <div className="mt-3 space-y-3">
-                  {([
-                    ['white_bg', t.pi_gallery_output_white_bg],
-                    ['scene', t.pi_gallery_output_scene],
-                    ['selling_point', t.pi_gallery_output_selling_point],
-                    ['cover', t.pi_gallery_output_cover],
-                    ['poster', t.pi_gallery_output_poster],
-                  ] as Array<[string, string]>).map(([key, label]) => (
-                    <div key={key} className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                      <label className="flex items-center gap-2 text-xs text-zinc-200">
-                        <input
-                          type="checkbox"
-                          checked={galleryTypeSelections[key].enabled}
-                          onChange={(e) => setGalleryTypeSelections((prev: any) => ({ ...prev, [key]: { ...prev[key], enabled: e.target.checked } }))}
-                          className="accent-orange-500"
-                        />
-                        <span>{label}</span>
-                      </label>
-                      <div className="flex items-center">
+                  {galleryOutputItems.map((item) => (
+                    <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="flex items-center gap-2 text-xs text-zinc-200">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(item.enabled)}
+                            onChange={(e) => setGalleryOutputItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, enabled: e.target.checked } : it)))}
+                            className="accent-orange-500"
+                          />
+                          <span className="font-bold">{tr('启用', 'Enabled')}</span>
+                        </label>
+
                         <button
                           type="button"
-                          onClick={() => setGalleryTypeSelections((prev: any) => ({ ...prev, [key]: { ...prev[key], count: Math.max(1, prev[key].count - 1) } }))}
-                          disabled={!galleryTypeSelections[key].enabled || galleryTypeSelections[key].count <= 1}
-                          className="w-8 h-8 rounded-l-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-50 flex items-center justify-center"
+                          onClick={() => setGalleryOutputItems((prev) => prev.filter((it) => it.id !== item.id))}
+                          className="w-8 h-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 flex items-center justify-center"
                         >
-                          <Minus className="w-4 h-4" />
-                        </button>
-                        <div className="w-10 h-8 flex items-center justify-center border-t border-b border-white/10 bg-black/30 text-xs text-zinc-200">
-                          {galleryTypeSelections[key].count}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setGalleryTypeSelections((prev: any) => ({ ...prev, [key]: { ...prev[key], count: Math.min(8, prev[key].count + 1) } }))}
-                          disabled={!galleryTypeSelections[key].enabled || galleryTypeSelections[key].count >= 8}
-                          className="w-8 h-8 rounded-r-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-50 flex items-center justify-center"
-                        >
-                          <Plus className="w-4 h-4" />
+                          <X className="w-4 h-4" />
                         </button>
                       </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <DropdownSelect
+                          value={String(item.outputType || 'white_bg')}
+                          options={[
+                            { value: 'white_bg', label: t.pi_gallery_output_white_bg },
+                            { value: 'scene', label: t.pi_gallery_output_scene },
+                            { value: 'selling_point', label: t.pi_gallery_output_selling_point },
+                            { value: 'cover', label: t.pi_gallery_output_cover },
+                            { value: 'poster', label: t.pi_gallery_output_poster },
+                          ]}
+                          onChange={(v) =>
+                            setGalleryOutputItems((prev) =>
+                              prev.map((it) => {
+                                if (it.id !== item.id) return it;
+                                const raw = String(v || 'white_bg');
+                                const next =
+                                  raw === 'scene' || raw === 'selling_point' || raw === 'cover' || raw === 'poster'
+                                    ? raw
+                                    : 'white_bg';
+                                return { ...it, outputType: next as any };
+                              })
+                            )
+                          }
+                          buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                          iconClassName="w-4 h-4 text-zinc-500"
+                          optionClassName="text-xs"
+                        />
+                        <DropdownSelect
+                          value={String(item.aspectRatio || '1:1')}
+                          options={[
+                            { value: '21:9', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_21_9}` },
+                            { value: '16:9', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_16_9}` },
+                            { value: '4:3', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_4_3}` },
+                            { value: '3:2', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_3_2}` },
+                            { value: '1:1', label: `${t.pi_gallery_ratio_group_square} · ${t.pi_gallery_ratio_1_1}` },
+                            { value: '9:16', label: `${t.pi_gallery_ratio_group_vertical} · ${t.pi_gallery_ratio_9_16}` },
+                            { value: '3:4', label: `${t.pi_gallery_ratio_group_vertical} · ${t.pi_gallery_ratio_3_4}` },
+                            { value: '2:3', label: `${t.pi_gallery_ratio_group_vertical} · ${t.pi_gallery_ratio_2_3}` },
+                            { value: '5:4', label: `${t.pi_gallery_ratio_group_flexible} · ${t.pi_gallery_ratio_5_4}` },
+                            { value: '4:5', label: `${t.pi_gallery_ratio_group_flexible} · ${t.pi_gallery_ratio_4_5}` },
+                          ]}
+                          onChange={(v) => setGalleryOutputItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, aspectRatio: String(v || '1:1') } : it)))}
+                          buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                          iconClassName="w-4 h-4 text-zinc-500"
+                          optionClassName="text-xs"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <DropdownSelect
+                          value={String(item.resolution || '1k')}
+                          options={[
+                            { value: '1k', label: '1K' },
+                            { value: '2k', label: '2K' },
+                            { value: '4k', label: '4K' },
+                          ]}
+                          onChange={(v) =>
+                            setGalleryOutputItems((prev) =>
+                              prev.map((it) => {
+                                if (it.id !== item.id) return it;
+                                const raw = String(v || '1k').toLowerCase();
+                                const resolution = raw === '2k' || raw === '4k' ? raw : '1k';
+                                return { ...it, resolution: resolution as any };
+                              })
+                            )
+                          }
+                          buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                          iconClassName="w-4 h-4 text-zinc-500"
+                          optionClassName="text-xs"
+                        />
+
+                        <div className="flex items-center justify-end">
+                          <div className="flex items-center">
+                            <button
+                              type="button"
+                              onClick={() => setGalleryOutputItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, count: Math.max(1, Number(it.count || 1) - 1) } : it)))}
+                              disabled={!item.enabled || Number(item.count || 1) <= 1}
+                              className="w-8 h-8 rounded-l-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-50 flex items-center justify-center"
+                            >
+                              <Minus className="w-4 h-4" />
+                            </button>
+                            <div className="w-10 h-8 flex items-center justify-center border-t border-b border-white/10 bg-black/30 text-xs text-zinc-200">
+                              {Number(item.count || 1)}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setGalleryOutputItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, count: Math.min(8, Number(it.count || 1) + 1) } : it)))}
+                              disabled={!item.enabled || Number(item.count || 1) >= 8}
+                              className="w-8 h-8 rounded-r-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-50 flex items-center justify-center"
+                            >
+                              <Plus className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">
+                          {tr('构图描述', 'Layout')}
+                        </div>
+                        <textarea
+                          value={String(item.layout || '')}
+                          onChange={(e) =>
+                            setGalleryOutputItems((prev) =>
+                              prev.map((it) => (it.id === item.id ? { ...it, layout: e.target.value } : it))
+                            )
+                          }
+                          rows={3}
+                          className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
+                          placeholder={tr(
+                            '例如：商品居中偏下，顶部留白放主标题；右侧留白放 3 条卖点 bullet；底部留白放品牌/规格信息（不要生成可读文字）。',
+                            'E.g. Product centered lower; top whitespace for headline; right whitespace for bullet points; bottom whitespace for brand/specs (no readable text).'
+                          )}
+                        />
+                      </div>
+
+                      {item.title || item.layout || item.copy || item.notes ? (
+                        <div className="text-[11px] text-zinc-500 space-y-1">
+                          {item.title ? <div>{`${tr('方案', 'Title')}: ${String(item.title)}`}</div> : null}
+                          {item.copy?.headline ? <div>{`${tr('文案', 'Copy')}: ${String(item.copy.headline)}`}</div> : null}
+                          {item.notes ? <div>{`${tr('备注', 'Notes')}: ${String(item.notes)}`}</div> : null}
+                        </div>
+                      ) : null}
                     </div>
                   ))}
+
+                  {galleryOutputMode === 'custom' ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setGalleryOutputItems((prev) => [
+                          ...prev,
+                          { id: `pg-out-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, enabled: true, outputType: 'white_bg', aspectRatio: '1:1', resolution: '1k', count: 1, layout: '' },
+                        ])
+                      }
+                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-zinc-200 hover:bg-white/10 transition"
+                    >
+                      {tr('添加条目', 'Add Item')}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={openGalleryAiOutputPlanner}
+                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-zinc-200 hover:bg-white/10 transition"
+                    >
+                      {tr('重新 AI 生成', 'Regenerate with AI')}
+                    </button>
+                  )}
                 </div>
               </div>
 
-              <div>
-                <div className="text-xs font-bold text-zinc-200">{t.pi_gallery_settings_section_specs}</div>
-                <div className="mt-3 grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.hist_img_setting_ratio}</div>
-                    <DropdownSelect
-                      value={galleryAspectRatio}
-                      options={[
-                        { value: '21:9', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_21_9}` },
-                        { value: '16:9', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_16_9}` },
-                        { value: '4:3', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_4_3}` },
-                        { value: '3:2', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_3_2}` },
-                        { value: '1:1', label: `${t.pi_gallery_ratio_group_square} · ${t.pi_gallery_ratio_1_1}` },
-                        { value: 'default', label: `${t.pi_gallery_ratio_group_square} · ${t.pi_gallery_ratio_default}` },
-                        { value: '9:16', label: `${t.pi_gallery_ratio_group_vertical} · ${t.pi_gallery_ratio_9_16}` },
-                        { value: '3:4', label: `${t.pi_gallery_ratio_group_vertical} · ${t.pi_gallery_ratio_3_4}` },
-                        { value: '2:3', label: `${t.pi_gallery_ratio_group_vertical} · ${t.pi_gallery_ratio_2_3}` },
-                        { value: '5:4', label: `${t.pi_gallery_ratio_group_flexible} · ${t.pi_gallery_ratio_5_4}` },
-                        { value: '4:5', label: `${t.pi_gallery_ratio_group_flexible} · ${t.pi_gallery_ratio_4_5}` },
-                      ]}
-                      onChange={(v) => setGalleryAspectRatio(String(v))}
-                      buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                      iconClassName="w-4 h-4 text-zinc-500"
-                      optionClassName="text-xs"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pi_gallery_resolution_label}</div>
-                    <DropdownSelect
-                      value={galleryResolution}
-                      options={[
-                        { value: '1k', label: '1K' },
-                        { value: '2k', label: '2K' },
-                        { value: '4k', label: '4K' },
-                      ]}
-                      onChange={(v) => setGalleryResolution(v as any)}
-                      buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                      iconClassName="w-4 h-4 text-zinc-500"
-                      optionClassName="text-xs"
-                    />
-                  </div>
-                </div>
-              </div>
             </div>
 
             <div className="mt-auto pt-6">
@@ -1095,7 +1227,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
           className="hover:bg-orange-500/20"
         />
 
-        <div 
+        <div
           className="flex-1 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0 overflow-hidden border border-transparent hover:border-orange-500/20"
           style={{ minWidth: `${GALLERY_PANEL_MIN_WIDTH}px` }}
           data-testid="right-panel"
@@ -1121,8 +1253,8 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   setGalleryHistorySelectedKeys([]);
                 }}
                 className={`px-3 py-2 rounded-xl text-xs font-bold transition border ${galleryRightPanel === 'preview'
-                    ? 'bg-orange-500/10 border-orange-500 text-orange-300'
-                    : 'bg-zinc-900/70 border-white/10 text-zinc-200 hover:bg-zinc-800'
+                  ? 'bg-orange-500/10 border-orange-500 text-orange-300'
+                  : 'bg-zinc-900/70 border-white/10 text-zinc-200 hover:bg-zinc-800'
                   }`}
               >
                 {tr('预览区', 'Preview')}
@@ -1135,8 +1267,8 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   setGalleryHistorySelectedKeys([]);
                 }}
                 className={`px-3 py-2 rounded-xl text-xs font-bold transition border ${galleryRightPanel === 'history'
-                    ? 'bg-orange-500/10 border-orange-500 text-orange-300'
-                    : 'bg-zinc-900/70 border-white/10 text-zinc-200 hover:bg-zinc-800'
+                  ? 'bg-orange-500/10 border-orange-500 text-orange-300'
+                  : 'bg-zinc-900/70 border-white/10 text-zinc-200 hover:bg-zinc-800'
                   }`}
               >
                 {tr('历史记录', 'History')}

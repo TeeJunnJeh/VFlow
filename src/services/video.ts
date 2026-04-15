@@ -653,33 +653,13 @@ export const videoApi = {
   generateShots: async (
     userId: string | number,
     payload: unknown,
-    options?: { signal?: AbortSignal }
-  ) => {
-    const csrftoken = getCookie('csrftoken');
-    const body = JSON.stringify(payload);
-    if (!body) {
-      throw new Error('Shots generation payload is empty');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/users/${userId}/generate-shots`, {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json; charset=utf-8',
-        'X-CSRFToken': csrftoken || '',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      credentials: 'include',
-      body,
-      signal: options?.signal,
-    });
-
-    if (!response.ok) {
-      throw await parseApiError(response, 'Shots generation failed');
-    }
-
-    return await response.json();
-  },
+    options?: { signal?: AbortSignal },
+  ) => apiRequest<any>(`${API_BASE_URL}/users/${userId}/generate-shots`, {
+    method: 'POST',
+    body: payload as any,
+    fallbackMessage: 'Shots generation failed',
+    fetchOptions: options?.signal ? { signal: options.signal } : undefined,
+  }),
 
   reverseScriptFromVideo: async (
     userId: string | number,

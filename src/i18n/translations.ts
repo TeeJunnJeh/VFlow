@@ -1486,9 +1486,9 @@ export const translations = {
 
     login_apply_beta_entry: "申请内测",
     invite_apply_title: "申请内测",
-    invite_apply_desc: "告诉我们你的使用场景，我们会尽快为你开通账号。",
+    invite_apply_desc: "内测中，告诉我们你的使用场景，提交后会有运营同学添加您的微信，为您准备免费账号～",
     invite_apply_phone_label: "手机号",
-    invite_apply_phone_placeholder: "用于登录的手机号",
+    invite_apply_phone_placeholder: "我们会通过这个手机号联系您～",
     invite_apply_invite_code_label: "邀请码（选填）",
     invite_apply_invite_code_placeholder: "填写好友分享的邀请码",
     invite_apply_scenario_label: "你准备用 VFlow 做什么？",

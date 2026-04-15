@@ -688,7 +688,17 @@ export const videoApi = {
     return await response.json();
   },
 
-  recognizeProductInfo: async (payload: { image_paths: string[]; output_language?: string; mode?: 'product' | 'subject' }) => {
+  recognizeProductInfo: async (payload: {
+    image_paths: string[];
+    output_language?: string;
+    mode?: 'product' | 'subject';
+    existing_info?: {
+      product_name?: string;
+      product_category?: string;
+      core_selling_points?: string;
+      target_audience?: string;
+    };
+  }) => {
     const csrftoken = getCookie('csrftoken');
 
     const response = await fetch(`${API_BASE_URL}/recognize-product/`, {

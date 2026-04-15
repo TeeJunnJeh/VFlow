@@ -3,12 +3,23 @@ import { Clapperboard, Link2, UploadCloud, Wand2, Loader2, Sparkles } from 'luci
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
+import { AppDialog } from '../common/AppDialog';
 import { videoApi, type ReplayReverseScriptData } from '../../services/video';
+import { addTransferStationItems } from '../../utils/workbenchTransferStation';
+import {
+  loadWorkbenchProjectStore,
+  WORKBENCH_NEW_PROJECT_TARGET,
+  type WorkbenchProjectMeta,
+} from '../../utils/workbenchProjectStore';
 
 export type ReplayReusePayload = {
   prompt: string;
+  referenceScript: string;
   productCategory: string;
   coreSellingPoints: string;
+  targetProjectId?: string | null;
+  createNewProject?: boolean;
+  newProjectName?: string;
 };
 
 type ReplayParseResult = {
@@ -34,12 +45,183 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadedName, setUploadedName] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [feedbackMessage, setFeedbackMessage] = useState('');
   const [isParsing, setIsParsing] = useState(false);
   const [result, setResult] = useState<ReplayParseResult | null>(null);
+  const [isApplyDialogOpen, setIsApplyDialogOpen] = useState(false);
+  const [applyProjectOptions, setApplyProjectOptions] = useState<WorkbenchProjectMeta[]>([]);
+  const [applyCurrentProjectId, setApplyCurrentProjectId] = useState('');
+  const [applyTargetProjectId, setApplyTargetProjectId] = useState('');
+  const [applyProjectName, setApplyProjectName] = useState('');
 
   const canParse = useMemo(() => videoUrl.trim().length > 0 || Boolean(uploadedFile), [videoUrl, uploadedFile]);
 
+  const scriptSectionLabels = useMemo(() => {
+    const lang = String(language || '').trim().toLowerCase();
+    if (lang.startsWith('en')) {
+      return {
+        fullScript: 'Complete Script',
+        style: 'Style',
+        environment: 'Environment',
+        tonePacing: 'Tone & Pacing',
+        camera: 'Camera',
+        lighting: 'Lighting',
+        action: 'Action',
+        backgroundSound: 'Background Audio',
+        transitionEditing: 'Transition / Editing',
+        callToAction: 'Call To Action',
+      };
+    }
+    if (lang.startsWith('ms')) {
+      return {
+        fullScript: 'Skrip Penuh',
+        style: 'Gaya',
+        environment: 'Persekitaran',
+        tonePacing: 'Nada & Rentak',
+        camera: 'Kamera',
+        lighting: 'Pencahayaan',
+        action: 'Aksi',
+        backgroundSound: 'Audio Latar',
+        transitionEditing: 'Transisi / Suntingan',
+        callToAction: 'Seruan Tindakan',
+      };
+    }
+    if (lang.startsWith('vi')) {
+      return {
+        fullScript: 'Kich Ban Day Du',
+        style: 'Phong Cach',
+        environment: 'Moi Truong',
+        tonePacing: 'Giong Dieu & Nhip Do',
+        camera: 'May Quay',
+        lighting: 'Anh Sang',
+        action: 'Hanh Dong',
+        backgroundSound: 'Am Thanh Nen',
+        transitionEditing: 'Chuyen Canh / Dung',
+        callToAction: 'Loi Keu Goi Hanh Dong',
+      };
+    }
+    if (lang.startsWith('ko')) {
+      return {
+        fullScript: '전체 스크립트',
+        style: '스타일',
+        environment: '환경',
+        tonePacing: '톤과 리듬',
+        camera: '카메라',
+        lighting: '조명',
+        action: '동작',
+        backgroundSound: '배경음',
+        transitionEditing: '전환 / 편집',
+        callToAction: '행동 유도',
+      };
+    }
+
+    return {
+      fullScript: '完整脚本',
+      style: '风格',
+      environment: '环境',
+      tonePacing: '语调与节奏',
+      camera: '镜头',
+      lighting: '光线',
+      action: '动作',
+      backgroundSound: '背景音',
+      transitionEditing: '转场 / 剪辑',
+      callToAction: '行动号召',
+    };
+  }, [language]);
+
+  const buildStructuredReferenceScript = (parseResult: ReplayParseResult) => {
+    const sellingPointLines = String(parseResult.suggestedSellingPoints || '')
+      .split('\n')
+      .map((line) => line.replace(/^\s*\d+[\.、]\s*/, '').trim())
+      .filter(Boolean);
+
+    const styleText = parseResult.styleTags.length > 0
+      ? parseResult.styleTags.join(' / ')
+      : (parseResult.styleReferenceText || parseResult.summary || '').trim();
+
+    const ctaText = sellingPointLines[sellingPointLines.length - 1]
+      || (parseResult.suggestedPrompt || '').trim();
+
+    const blocks = [
+      [scriptSectionLabels.fullScript, (parseResult.suggestedPrompt || '').trim()],
+      [scriptSectionLabels.style, styleText],
+      [scriptSectionLabels.environment, (parseResult.suggestedCategory || parseResult.summary || '').trim()],
+      [scriptSectionLabels.tonePacing, (parseResult.styleReferenceText || styleText || '').trim()],
+      [scriptSectionLabels.camera, (parseResult.styleReferenceText || styleText || '').trim()],
+      [scriptSectionLabels.lighting, styleText],
+      [scriptSectionLabels.action, sellingPointLines.slice(0, 2).join(' / ') || styleText],
+      [scriptSectionLabels.backgroundSound, sellingPointLines[1] || styleText],
+      [scriptSectionLabels.transitionEditing, (parseResult.styleReferenceText || styleText || '').trim()],
+      [scriptSectionLabels.callToAction, ctaText],
+    ];
+
+    return blocks
+      .map(([label, value]) => `[${label}]\n${String(value || '').trim() || '-'}`)
+      .join('\n\n');
+  };
+
+  const buildReuseReferenceScript = (parseResult: ReplayParseResult) => buildStructuredReferenceScript(parseResult);
+
   const mimicPromptPrefix = t.replay_mimic_prompt_prefix || '模仿下面的语言风格，为xx产品生成相近风格的提示词：';
+
+  const buildReusePayload = (parseResult: ReplayParseResult): ReplayReusePayload => ({
+    prompt: parseResult.suggestedPrompt,
+    referenceScript: buildReuseReferenceScript(parseResult),
+    productCategory: parseResult.suggestedCategory,
+    coreSellingPoints: parseResult.suggestedSellingPoints,
+  });
+
+  const handleAddToTransferStation = () => {
+    if (!result) return;
+    const scriptContent = buildStructuredReferenceScript(result);
+    const resultLabel = t.replay_result_title || 'Analysis Result';
+
+    const added = addTransferStationItems([
+      {
+        name: `${resultLabel} ${new Date().toLocaleString()}`,
+        fileUrl: '',
+        mediaKind: 'script',
+        type: 'script',
+        source: 'replay',
+        scriptContent,
+        scriptLanguage: language,
+      },
+    ], user?.id ?? null);
+
+    if (added.addedCount > 0) {
+      setFeedbackMessage(t.wb_transfer_station_add_success || 'Added to transfer station.');
+      return;
+    }
+
+    setFeedbackMessage(t.wb_transfer_station_add_duplicate || 'Already exists in transfer station.');
+  };
+
+  const openReuseToWorkbenchDialog = () => {
+    if (!result) return;
+    const store = loadWorkbenchProjectStore(user?.id ?? null);
+    const sortedProjects = [...store.projects].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+
+    setApplyProjectOptions(sortedProjects);
+    setApplyCurrentProjectId(store.currentProjectId || sortedProjects[0]?.id || '');
+    setApplyTargetProjectId(store.currentProjectId || sortedProjects[0]?.id || '');
+    setApplyProjectName('');
+    setIsApplyDialogOpen(true);
+  };
+
+  const confirmReuseToWorkbench = () => {
+    if (!result) return;
+
+    const createNewProject = applyTargetProjectId === WORKBENCH_NEW_PROJECT_TARGET;
+    const targetProjectId = createNewProject ? null : (String(applyTargetProjectId || '').trim() || null);
+
+    onReuseToWorkbench({
+      ...buildReusePayload(result),
+      targetProjectId,
+      createNewProject,
+      newProjectName: createNewProject ? (String(applyProjectName || '').trim() || undefined) : undefined,
+    });
+    setIsApplyDialogOpen(false);
+  };
 
   const normalizeReplayResult = (data: ReplayReverseScriptData, source: string): ReplayParseResult => {
     const fallbackTags = [
@@ -82,6 +264,7 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
     setIsParsing(true);
     setResult(null);
     setErrorMessage('');
+    setFeedbackMessage('');
 
     const source = videoUrl.trim() || uploadedName;
     try {
@@ -96,10 +279,6 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
         formData.append('video_file', uploadedFile as File);
         formData.append('user_language', language);
         response = await videoApi.reverseScriptFromVideo(user.id, formData);
-      }
-
-      if (response?.code !== undefined && response.code !== 0) {
-        throw new Error(response?.message || (t.replay_error_failed || 'Replay analysis failed.'));
       }
 
       const payload = response?.data;
@@ -205,6 +384,12 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
           </div>
         )}
 
+        {feedbackMessage && (
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+            {feedbackMessage}
+          </div>
+        )}
+
         {result && (
           <div className="rounded-2xl border border-white/10 bg-black/20 p-5 space-y-4">
             <div className="text-xs uppercase tracking-widest text-zinc-500 font-bold">{t.replay_result_title || '解析结果'}</div>
@@ -230,17 +415,23 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
               <div className="text-sm text-zinc-200 whitespace-pre-line">{result.suggestedPrompt}</div>
             </div>
 
+            <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+              <div className="text-xs text-zinc-500 mb-2">{t.wb_reference_script_label || 'Reference Script'}</div>
+              <div className="text-sm text-zinc-200 whitespace-pre-line">{buildStructuredReferenceScript(result)}</div>
+            </div>
+
             <div className="flex items-center justify-end">
               <button
                 type="button"
+                className="mr-2 px-4 py-2 rounded-xl text-sm font-bold border border-sky-500/40 text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 transition"
+                onClick={handleAddToTransferStation}
+              >
+                {t.wb_transfer_station_add_btn || 'Add to Transfer Station'}
+              </button>
+              <button
+                type="button"
                 className="px-4 py-2 rounded-xl text-sm font-bold border border-emerald-500/40 text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 transition flex items-center gap-2"
-                onClick={() =>
-                  onReuseToWorkbench({
-                    prompt: result.suggestedPrompt,
-                    productCategory: result.suggestedCategory,
-                    coreSellingPoints: result.suggestedSellingPoints,
-                  })
-                }
+                onClick={openReuseToWorkbenchDialog}
               >
                 <Sparkles className="w-4 h-4" />
                 {t.replay_btn_reuse_to_workbench || '复用到工作台'}
@@ -249,6 +440,61 @@ export const ReplayScriptView: React.FC<ReplayScriptViewProps> = ({ onReuseToWor
           </div>
         )}
       </div>
+
+      <AppDialog
+        isOpen={isApplyDialogOpen}
+        title={t.replay_btn_reuse_to_workbench || '复用到工作台'}
+        onClose={() => setIsApplyDialogOpen(false)}
+        widthClassName="max-w-md"
+        footer={(
+          <>
+            <button
+              type="button"
+              className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+              onClick={() => setIsApplyDialogOpen(false)}
+            >
+              {t.wb_confirm_cancel || 'Cancel'}
+            </button>
+            <button
+              type="button"
+              className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-500"
+              onClick={confirmReuseToWorkbench}
+            >
+              {t.hist_img_apply_confirm || 'Apply'}
+            </button>
+          </>
+        )}
+      >
+        <div className="space-y-4">
+          <div>
+            <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_img_apply_select_workspace || '选择工作台'}</div>
+            <select
+              value={applyTargetProjectId}
+              onChange={(e) => setApplyTargetProjectId(e.target.value)}
+              className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
+            >
+              {applyProjectOptions.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}{project.id === applyCurrentProjectId ? ` (${t.hist_img_apply_current_workspace || '当前'})` : ''}
+                </option>
+              ))}
+              <option value={WORKBENCH_NEW_PROJECT_TARGET}>{t.hist_img_apply_create_new_workspace || '新建工作台'}</option>
+            </select>
+          </div>
+
+          {applyTargetProjectId === WORKBENCH_NEW_PROJECT_TARGET && (
+            <div>
+              <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_img_apply_project_name || '工程名称'}</div>
+              <input
+                value={applyProjectName}
+                onChange={(e) => setApplyProjectName(e.target.value)}
+                className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
+                maxLength={30}
+              />
+            </div>
+          )}
+        </div>
+      </AppDialog>
     </div>
   );
 };

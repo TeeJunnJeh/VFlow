@@ -1,14 +1,23 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
+import { ApiError } from '../services/errors';
 
 export type TaskStatus = 'pending' | 'processing' | 'success' | 'failed';
 
+export type TaskType = 'video_generation' | 'script_generation' | 'image_generation';
+
+export type TaskNavigateTo = {
+  view?: string;
+  focus?: string;
+};
+
 export interface Task {
   id: string | number;       // backend GenerationTask.id
-  projectId: string;         // projects.Project UUID
+  projectId?: string;        // projects.Project UUID
   workbenchProjectId?: string; // Workbench local project id
   estimatedSeconds?: number; // from /api/tasks/estimate/
-  type: 'video_generation';
+  type: TaskType;
+  navigateTo?: TaskNavigateTo;
   status: TaskStatus;
   name?: string;
   thumbnail?: string;
@@ -20,6 +29,8 @@ export interface Task {
 interface TaskContextType {
   tasks: Task[];
   addTask: (task: Task) => void;
+  updateTask: (taskId: Task['id'], patch: Partial<Task>) => void;
+  upsertTask: (task: Task) => void;
   removeTask: (taskId: Task['id']) => void;
   clearTasks: () => void;
   getTaskByProjectId: (projectId: string) => Task | undefined;
@@ -28,6 +39,48 @@ interface TaskContextType {
 const TaskContext = createContext<TaskContextType | undefined>(undefined);
 
 const STORAGE_KEY_PREFIX = 'vflow_tasks_v1';
+
+const normalizeStoredTask = (raw: any): Task | null => {
+  if (!raw || typeof raw !== 'object') return null;
+
+  const id = raw.id;
+  if (id === null || id === undefined || id === '') return null;
+
+  const status = raw.status === 'pending' || raw.status === 'processing' || raw.status === 'success' || raw.status === 'failed'
+    ? raw.status
+    : 'pending';
+
+  const type: TaskType = raw.type === 'script_generation'
+    ? 'script_generation'
+    : raw.type === 'image_generation'
+      ? 'image_generation'
+      : 'video_generation';
+
+  const createdAtRaw = Number(raw.createdAt);
+  const updatedAtRaw = Number(raw.updatedAt);
+
+  const navigateTo = raw.navigateTo && typeof raw.navigateTo === 'object'
+    ? {
+      view: typeof raw.navigateTo.view === 'string' ? raw.navigateTo.view : undefined,
+      focus: typeof raw.navigateTo.focus === 'string' ? raw.navigateTo.focus : undefined,
+    }
+    : undefined;
+
+  return {
+    id,
+    projectId: typeof raw.projectId === 'string' ? raw.projectId : undefined,
+    workbenchProjectId: typeof raw.workbenchProjectId === 'string' ? raw.workbenchProjectId : undefined,
+    estimatedSeconds: Number.isFinite(Number(raw.estimatedSeconds)) ? Number(raw.estimatedSeconds) : undefined,
+    type,
+    navigateTo,
+    status,
+    name: typeof raw.name === 'string' ? raw.name : undefined,
+    thumbnail: typeof raw.thumbnail === 'string' ? raw.thumbnail : undefined,
+    result: raw.result,
+    createdAt: Number.isFinite(createdAtRaw) && createdAtRaw > 0 ? createdAtRaw : Date.now(),
+    updatedAt: Number.isFinite(updatedAtRaw) && updatedAtRaw > 0 ? updatedAtRaw : undefined,
+  };
+};
 
 export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
@@ -51,7 +104,12 @@ export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
       const raw = localStorage.getItem(`${STORAGE_KEY_PREFIX}_${user.id}`);
       if (!raw) return;
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) setTasks(parsed);
+      if (Array.isArray(parsed)) {
+        const normalized = parsed
+          .map((item) => normalizeStoredTask(item))
+          .filter(Boolean) as Task[];
+        setTasks(normalized);
+      }
     } catch (e) {
       console.warn('Failed to load tasks from localStorage', e);
     }
@@ -69,6 +127,21 @@ export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
 
   const addTask = (task: Task) => {
     setTasks(prev => [task, ...prev]);
+  };
+
+  const updateTask = (taskId: Task['id'], patch: Partial<Task>) => {
+    setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, ...patch, updatedAt: Date.now() } : task)));
+  };
+
+  const upsertTask = (task: Task) => {
+    setTasks((prev) => {
+      const index = prev.findIndex((item) => item.id === task.id);
+      if (index < 0) return [task, ...prev];
+
+      const next = [...prev];
+      next[index] = { ...next[index], ...task, updatedAt: Date.now() };
+      return next;
+    });
   };
 
   const removeTask = (taskId: Task['id']) => {
@@ -94,7 +167,10 @@ export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
       return status === 'pending' ? 'processing' : status;
     };
 
-    const activeTasks = tasksRef.current.filter(t => t.status === 'pending' || t.status === 'processing');
+    const activeTasks = tasksRef.current.filter((t) => (
+      (t.status === 'pending' || t.status === 'processing')
+      && t.type === 'video_generation'
+    ));
     if (activeTasks.length === 0) {
       stopPolling();
       return;
@@ -114,7 +190,22 @@ export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
         if (!response.ok) return null;
         const json = await response.json();
 
-        if (json?.code !== 0 || !json?.data) return null;
+        // ── 后端返回 build_simple_error 格式（code !== 0）──
+        // 这不是 "轮询无更新"，而是真正的错误，需要通知用户
+        if (json?.code !== 0) {
+          const apiErr = new ApiError(
+            json?.message || '任务状态查询失败',
+            {
+              status: response.status,
+              errorCode: json?.error_code,
+              trackingId: json?.tracking_id,
+              data: json?.data || null,
+            },
+          );
+          return { id: task.id, status: 'failed' as TaskStatus, result: null, apiError: apiErr };
+        }
+
+        if (!json?.data) return null;
 
         const remoteStatusRaw = (json.data.status ?? '').toString().toLowerCase() as TaskStatus;
         if (!remoteStatusRaw) return null;
@@ -130,20 +221,36 @@ export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
       return null;
     }));
 
-    const validUpdates = updates.filter(Boolean) as Array<{ id: Task['id']; status: TaskStatus; result?: any }>;
+    const validUpdates = updates.filter(Boolean) as Array<{ id: Task['id']; status: TaskStatus; result?: any; apiError?: ApiError }>;
     if (validUpdates.length === 0) return;
 
     validUpdates.forEach((update) => {
       if (update.status !== 'failed') return;
+
+      // 优先使用已解析的 ApiError（来自 code !== 0 的响应）
+      if (update.apiError) {
+        window.dispatchEvent(new CustomEvent('vflow-app-error', {
+          detail: { apiError: update.apiError },
+        }));
+        return;
+      }
+
+      // 兜底：任务本身 status === failed（来自 data.result 里的信息）
       const result = update.result || {};
       const baseError = result?.error || '后台任务执行失败';
       const trackingId = result?.tracking_id;
-      const message = trackingId ? `${baseError}\nTracking ID: ${trackingId}` : String(baseError);
-      window.dispatchEvent(new CustomEvent('vflow-app-error', {
-        detail: {
-          title: '任务失败',
-          message,
+      const errorCode = result?.error_code;
+      const apiErr = new ApiError(
+        baseError,
+        {
+          status: 500,
+          errorCode: errorCode || 'VIDEO_GENERATION_FAILED',
+          trackingId: trackingId || undefined,
+          data: result,
         },
+      );
+      window.dispatchEvent(new CustomEvent('vflow-app-error', {
+        detail: { apiError: apiErr },
       }));
     });
 
@@ -183,6 +290,8 @@ export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
   const value = useMemo(() => ({
     tasks,
     addTask,
+    updateTask,
+    upsertTask,
     removeTask,
     clearTasks,
     getTaskByProjectId,

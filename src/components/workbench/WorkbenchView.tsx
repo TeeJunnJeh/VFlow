@@ -1,19 +1,20 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder,
-  Wand2, Loader2, Clapperboard, FileDown, FileUp, ArrowLeft, ArrowRight, PlayCircle,
+  Wand2, Loader2, Clapperboard, ArrowRight, PlayCircle, BookmarkPlus, FolderOpen,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift, ImagePlus,
   SlidersHorizontal,Palette, MapPin, Activity, Camera, Lightbulb, Music, Scissors, Megaphone, AlignLeft,
-  Languages, HelpCircle, AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight
+  Languages, HelpCircle, AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ChevronsDown
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { useTasks } from '../../context/TaskContext';
 import { useWorkbenchModel } from '../../context/WorkbenchModelContext';
 import { videoApi, VideoApiError, type GeneratePreviewData } from '../../services/video';
-import { assetsApi, type Asset as LibraryAsset, type AssetFolder } from '../../services/assets';
+import { assetsApi, subjectGroupApi, type Asset as LibraryAsset, type AssetFolder, type SubjectGroup } from '../../services/assets';
 import { tiktokApi } from '../../services/tiktok';
+import { billingApi } from '../../services/billing';
 import { getDebugModeEnabled } from '../../services/debugMode';
 import {
   PromptLabWindow,
@@ -27,11 +28,41 @@ import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { type Template } from '../../services/templates';
 import { AppDialog } from '../common/AppDialog';
+import { AiOverwriteDialog, type AiOverwriteField } from './AiOverwriteDialog';
 import { ErrorModal } from './workflow/ErrorModal';
 import type { ErrorModalProps } from './workflow/ErrorModal';
 import { buildErrorModalData, type ErrorCategory, type ErrorI18n } from '../../utils/errorModalHelper';
 import { getWorkbenchPreferences, setWorkbenchPreferences } from '../../utils/preferences';
+import {
+  clearTransferStationItems,
+  loadTransferStationItems,
+  removeTransferStationItem,
+  type TransferStationItem,
+} from '../../utils/workbenchTransferStation';
 import { type ReplayReusePayload } from './ReplayScriptView';
+import {
+  SeedanceReplayUploadPanel,
+  type SeedanceReplayUploadAsset,
+} from './Seedance/SeedanceReplayUploadPanel';
+import {
+  SEEDANCE_REPLAY_AUDIO_EXTS,
+  buildSeedanceReplayValidationSummary,
+  parseSeedanceReplayLocalFile,
+  SEEDANCE_REPLAY_IMAGE_EXTS,
+  SEEDANCE_REPLAY_AUDIO_LIMIT,
+  SEEDANCE_REPLAY_IMAGE_LIMIT,
+  SEEDANCE_REPLAY_UPLOAD_ACCEPT,
+  SEEDANCE_REPLAY_VIDEO_EXTS,
+  SEEDANCE_REPLAY_VIDEO_LIMIT,
+  type SeedanceReplayMediaKind,
+  type SeedanceReplayParsedAsset,
+  validateSeedanceReplayParsedAsset,
+} from './Seedance/seedanceReplayUploadRules';
+import {
+  closeTikTokAuthPopup,
+  navigateTikTokAuthPopup,
+  openTikTokAuthPopup,
+} from '../../utils/tiktokAuthPopup';
 
 const ENABLE_PROMPT_LAB = true;
 const ENABLE_STORYBOARD_PROMPT = false;
@@ -43,6 +74,107 @@ const SCRIPT_PROGRESS_MAX_BEFORE_HOLD = 88;
 const SCRIPT_PROGRESS_HOLD_MAX = 96;
 const SCRIPT_ESTIMATE_STORAGE_KEY_PREFIX = 'vflow_script_eta_v1';
 const WAITING_PREVIEW_VIDEO_SRC = (import.meta.env.VITE_WAITING_PREVIEW_VIDEO_URL || 'https://vflow.genviewtech.com/media/vedio.mp4').toString();
+const ASSET_PLACEHOLDER_DATA_URL = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiB2aWV3Qm94PSIwIDAgMzAwIDQwMCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzFmMjkzNyIvPjx0ZXh0IHg9IjE1MCIgeT0iMjAwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiBmaWxsPSIjOWNhM2FmIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiPk5vIFByZXZpZXc8L3RleHQ+PC9zdmc+';
+const TRANSFER_STATION_DRAG_MIME = 'application/x-vflow-transfer-station-item';
+const revokeBlobUrl = (url: string | null | undefined) => {
+  if (url && url.startsWith('blob:')) {
+    URL.revokeObjectURL(url);
+  }
+};
+
+const renderAudioArtwork = (isLightTheme = false) => (
+  <div className="absolute inset-0 overflow-hidden rounded-lg">
+    <div className={`absolute inset-0 ${isLightTheme ? 'bg-[radial-gradient(circle_at_top,_rgba(251,146,60,0.18),_transparent_46%),linear-gradient(180deg,_rgba(255,247,237,0.98),_rgba(255,255,255,1))]' : 'bg-[radial-gradient(circle_at_top,_rgba(251,146,60,0.30),_transparent_45%),linear-gradient(180deg,_rgba(39,39,42,0.95),_rgba(9,9,11,0.98))]'}`} />
+    <div className={`absolute inset-x-0 top-0 h-24 ${isLightTheme ? 'bg-gradient-to-b from-orange-300/15 to-transparent' : 'bg-gradient-to-b from-orange-400/10 to-transparent'}`} />
+    <div className="absolute inset-0 flex items-center justify-center">
+      <div className={`relative flex h-24 w-24 items-center justify-center rounded-full ${isLightTheme ? 'border border-orange-200/70 bg-white/95 shadow-[0_10px_30px_rgba(251,146,60,0.12)]' : 'border border-orange-300/25 bg-black/30 shadow-[0_0_30px_rgba(251,146,60,0.18)]'}`}>
+        <div className={`absolute h-28 w-28 rounded-full ${isLightTheme ? 'border border-slate-200/70' : 'border border-white/5'}`} />
+        <div className={`text-4xl font-semibold ${isLightTheme ? 'text-orange-300' : 'text-orange-200/95'}`}>{'\u266A'}</div>
+      </div>
+    </div>
+  </div>
+);
+
+const formatAssetSize = (sizeBytes?: number | null) => {
+  if (typeof sizeBytes !== 'number' || !Number.isFinite(sizeBytes) || sizeBytes < 0) return '';
+  if (sizeBytes >= 1024 * 1024) return `${(sizeBytes / (1024 * 1024)).toFixed(sizeBytes >= 10 * 1024 * 1024 ? 1 : 2)}MB`;
+  if (sizeBytes >= 1024) return `${Math.round(sizeBytes / 1024)}KB`;
+  return `${sizeBytes}B`;
+};
+
+type BillingPricingModelEntry = {
+  display_name?: string;
+  rate?: number;
+  rate_label?: string;
+  unit?: string;
+};
+
+type BillingPricingModeEntry = {
+  default_duration_seconds?: number;
+  default_model?: string;
+  models?: Record<string, BillingPricingModelEntry>;
+};
+
+type BillingPricingCatalog = {
+  video?: {
+    default_mode?: string;
+    models?: Record<string, BillingPricingModelEntry>;
+    modes?: Record<string, BillingPricingModeEntry>;
+  };
+  image?: {
+    default_model?: string;
+    models?: Record<string, BillingPricingModelEntry>;
+  };
+};
+
+const VIDEO_MODEL_PRICING_ALIASES: Record<string, string> = {
+  kling: 'kling',
+  sora2: 'sora-2',
+  sora2pro: 'sora-2-pro',
+  'seedance2.0': 'seedance-2.0',
+};
+
+const IMAGE_MODEL_PRICING_ALIASES: Record<string, string> = {
+  'gpt-image-1.5': 'gpt-image-1.5',
+  'flux-2-pro': 'flux-2-pro',
+  'flux-2-flex': 'flux-2-flex',
+};
+
+const getVideoPricingMode = (pricing: BillingPricingCatalog | null | undefined, creationMode: 'fast' | 'replay') => {
+  const requestedMode = creationMode === 'replay' ? 'replay' : 'fast';
+  const modes = pricing?.video?.modes;
+  if (!modes) return requestedMode;
+  if (modes[requestedMode]) return requestedMode;
+  const defaultMode = pricing?.video?.default_mode;
+  if (defaultMode && modes[defaultMode]) return defaultMode;
+  const firstMode = Object.keys(modes)[0];
+  return firstMode || requestedMode;
+};
+
+const getVideoModelPricingEntry = (
+  pricing: BillingPricingCatalog | null | undefined,
+  modelId: string,
+  creationMode: 'fast' | 'replay' = 'fast',
+) => {
+  const modelKey = VIDEO_MODEL_PRICING_ALIASES[modelId] || modelId;
+  const modeKey = getVideoPricingMode(pricing, creationMode);
+  return pricing?.video?.modes?.[modeKey]?.models?.[modelKey] || pricing?.video?.models?.[modelKey] || null;
+};
+
+const getImageModelPricingEntry = (
+  pricing: BillingPricingCatalog | null | undefined,
+  modelId: string,
+) => {
+  const modelKey = IMAGE_MODEL_PRICING_ALIASES[modelId] || modelId;
+  return pricing?.image?.models?.[modelKey] || null;
+};
+
+const getSeedanceReplayLocalAccept = (mediaKind?: SeedanceReplayMediaKind | null) => {
+  if (mediaKind === 'image') return SEEDANCE_REPLAY_IMAGE_EXTS.map((ext) => `.${ext}`).join(',');
+  if (mediaKind === 'video') return SEEDANCE_REPLAY_VIDEO_EXTS.map((ext) => `.${ext}`).join(',');
+  if (mediaKind === 'audio') return SEEDANCE_REPLAY_AUDIO_EXTS.map((ext) => `.${ext}`).join(',');
+  return SEEDANCE_REPLAY_UPLOAD_ACCEPT;
+};
 // Storyboard editor is now a user-toggleable runtime setting (no longer a compile-time constant).
 // The state `enableStoryboardEditor` replaces the old `enableStoryboardEditor` const.
 
@@ -56,6 +188,39 @@ type ScriptItem = {
   audio: string;
   audioTranslation: string;
 };
+
+type WorkbenchAspectRatio = '9:16' | '16:9' | '1:1' | '4:3' | '3:4' | '21:9';
+
+const DEFAULT_WORKBENCH_ASPECT_RATIO: WorkbenchAspectRatio = '9:16';
+
+const normalizeWorkbenchAspectRatio = (value: string | null | undefined): WorkbenchAspectRatio => {
+  if (
+    value === '9:16' ||
+    value === '16:9' ||
+    value === '1:1' ||
+    value === '4:3' ||
+    value === '3:4' ||
+    value === '21:9'
+  ) {
+    return value;
+  }
+
+  return DEFAULT_WORKBENCH_ASPECT_RATIO;
+};
+
+/** Default script-tab titles saved under any locale; re-render with current `wb_script_page_prefix` when the pattern matches. */
+const WB_SCRIPT_PAGE_DEFAULT_PREFIXES = new Set(['脚本', 'Script', 'Skrip', 'Kịch bản', '스크립트']);
+
+function formatScriptPageDisplayName(name: string | undefined, zeroBasedIndex: number, prefix: string): string {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return `${prefix} ${zeroBasedIndex + 1}`;
+  const m = trimmed.match(/^(.+?)\s+(\d+)\s*$/);
+  if (!m) return trimmed;
+  const n = parseInt(m[2], 10);
+  if (n !== zeroBasedIndex + 1) return trimmed;
+  if (!WB_SCRIPT_PAGE_DEFAULT_PREFIXES.has(m[1])) return trimmed;
+  return `${prefix} ${n}`;
+}
 
 type ScriptCreativeCard = {
   style?: string;
@@ -74,6 +239,7 @@ type ScriptPage = {
   name: string;
   scripts: ScriptItem[];
   fullScript?: string;
+  sourceLabel?: string;
   continuityAnchor?: {
     subject?: string;
     scene?: string;
@@ -102,8 +268,17 @@ type QueuedAsset = {
   materialType?: AssetLibraryTab;
   isPrimaryFrame?: boolean;
   mediaKind?: 'image' | 'video' | 'audio' | 'file';
+  durationSeconds?: number | null;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  width?: number | null;
+  height?: number | null;
+  fps?: number | null;
+  validationMessages?: string[];
   uploadedPath?: string | null;
   hasSubjectOtherViews?: boolean;
+  frameRole?: '首帧' | '尾帧' | null;
+  seedanceAssetId?: string | null;
 };
 
 type QueuedScript = {
@@ -116,8 +291,18 @@ type QueuedScript = {
   creativeCardText?: string;
 };
 
-type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion' | 'audio';
-type AssetLibraryPickMode = 'default' | 'background_audio';
+type SeedanceReplayUploadIntent = {
+  targetMediaKind: SeedanceReplayMediaKind | null;
+};
+
+type SeedanceReplayLibraryIntent = {
+  targetMediaKind: SeedanceReplayMediaKind | null;
+  allowedTabs: AssetLibraryTab[];
+  preferredTab: AssetLibraryTab;
+};
+
+type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion' | 'audio' | 'script' | 'subject';
+type AssetLibraryPickMode = 'default' | 'background_audio' | 'script_import';
 type AiOptimizeResolution = 'sd' | 'hd' | 'uhd';
 type WaitProgressPhase = 'idle' | 'simulating' | 'holding' | 'finishing' | 'done';
 
@@ -138,7 +323,7 @@ type GeneratePayload = {
   kling_mode?: 'first_frame' | 'subject' | 'first_last_frame';
   omni_assets?: Array<{ role: 'first_frame' | 'last_frame' | 'reference' | 'subject'; image_url: string; asset_id?: string | null; name?: string }>;
   subject_description_hint?: string;
-  aspect_ratio?: '9:16' | '16:9' | '1:1';
+  aspect_ratio?: WorkbenchAspectRatio;
   mode?: 'pro' | 'std';
   user_language: string;
   target_language: string;
@@ -184,9 +369,13 @@ type ProjectWorkspaceState = {
   targetAudience: string;
   deliveryRegion: string;
   videoType: string;
-  aspectRatio: '9:16' | '16:9' | '1:1';
+  aspectRatio: WorkbenchAspectRatio;
   hasAiRecognized: boolean;
+  recognizedProductSourceSignature: string;
+  needsAiReRecognize: boolean;
   genPrompt: string;
+  referenceScript: string;
+  referenceScriptProductSignature: string;
   genDuration: number;
   soundSetting: 'on' | 'off';
   selectedBackgroundAudio: SelectedBackgroundAudio | null;
@@ -321,10 +510,14 @@ const createWorkspaceState = (params?: {
     coreSellingPoints: '',
     targetAudience: '',
     deliveryRegion: prefs.deliveryRegion || '中国',
-  videoType: prefs.videoType || '',
-  aspectRatio: prefs.aspectRatio === '16:9' ? '16:9' : (prefs.aspectRatio === '1:1' ? '1:1' : '9:16'),
+    videoType: prefs.videoType || '',
+    aspectRatio: normalizeWorkbenchAspectRatio(prefs.aspectRatio),
     hasAiRecognized: false,
+    recognizedProductSourceSignature: '',
+    needsAiReRecognize: false,
     genPrompt: '',
+    referenceScript: '',
+    referenceScriptProductSignature: '',
     genDuration: prefs.genDuration || 10,
     soundSetting: prefs.soundSetting === 'off' ? 'off' : 'on',
     selectedBackgroundAudio: null,
@@ -428,6 +621,8 @@ const RATIO_TO_RES: Record<string, string> = {
   '9:16': '720*1280',
   '1:1': '1080*1080',
   '4:3': '1024*768',
+  '3:4': '768*1024',
+  '21:9': '1680*720',
 };
 
 const USER_CANCELLED_ADAPT = '__USER_CANCELLED_IMAGE_ADAPT__';
@@ -444,6 +639,50 @@ const inferMediaKind = (value: { name?: string | null; url?: string | null; type
   if (/\.(mp4|mov|mkv|webm|avi)$/.test(raw)) return 'video';
   if (/\.(mp3|wav|flac)$/.test(raw)) return 'audio';
   return 'file';
+};
+const normalizeUiLanguageCode = (value: string | null | undefined): string => {
+  const normalized = String(value || '').trim().toLowerCase().replace('_', '-');
+  if (!normalized) return 'en';
+  if (normalized.startsWith('zh')) return 'zh';
+  if (normalized.startsWith('en')) return 'en';
+  if (normalized.startsWith('ms')) return 'ms';
+  if (normalized.startsWith('vi')) return 'vi';
+  if (normalized.startsWith('ko')) return 'ko';
+  if (normalized.startsWith('ja')) return 'ja';
+  if (normalized.startsWith('es')) return 'es';
+  return normalized.split('-', 1)[0] || 'en';
+};
+
+const buildProductRecognitionSourceSignature = (assets: QueuedAsset[]): string => {
+  const entries = assets
+    .filter((asset) => asset.materialType === 'product' && asset.mediaKind === 'image')
+    .slice(0, 4)
+    .map((asset) => {
+      const fileName = String(asset.fileObj?.name || '').trim();
+      const fileSize = Number(asset.fileObj?.size || 0);
+      const fileLastModified = Number(asset.fileObj?.lastModified || 0);
+      if (fileName && fileSize > 0) return `local::${fileName}::${fileSize}::${fileLastModified}`;
+
+      const path = String(asset.uploadedPath || asset.assetUrl || '').trim();
+      if (path) return path;
+      return '';
+    })
+    .filter(Boolean)
+    .sort();
+
+  return entries.join('|');
+};
+
+const buildProductInfoSignature = (params: {
+  productName?: string;
+  productCategory?: string;
+  coreSellingPoints?: string;
+}): string => {
+  return [
+    String(params.productName || '').trim(),
+    String(params.productCategory || '').trim(),
+    String(params.coreSellingPoints || '').trim().replace(/\s+/g, ' '),
+  ].join('||').toLowerCase();
 };
 
 // 增加前端图片压缩函数
@@ -545,8 +784,14 @@ interface WorkbenchViewProps {
   initialAssetSource?: 'product' | 'preference' | null;
   initialLibraryAsset?: LibraryAsset | null;
   initialLibraryAssetToken?: string | null;
-  initialLibraryAssetMode?: 'library_asset' | 'background_audio';
+  initialLibraryAssetMode?: 'library_asset' | 'background_audio' | 'script_import';
+  initialLibraryAssetTargetProjectId?: string | null;
+  initialLibraryAssetForceFirstFrame?: boolean;
   onInitialLibraryAssetHandled?: () => void;
+  initialTransferRole?: 'first_frame' | 'asset_apply' | 'replay_apply' | null;
+  initialTransferProjectName?: string | null;
+  initialTransferModel?: 'sora2' | 'sora2pro' | 'seedance2.0' | null;
+  onTransferRoleHandled?: () => void;
   templateList: Template[];
   onSelectTemplate: (t: Template | null) => void;
   selectedTemplate: Template | null;
@@ -565,7 +810,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                                               initialLibraryAsset,
                                                               initialLibraryAssetToken,
                                                               initialLibraryAssetMode,
+                                                              initialLibraryAssetTargetProjectId,
+                                                              initialLibraryAssetForceFirstFrame,
                                                               onInitialLibraryAssetHandled,
+                                                              initialTransferRole,
+                                                              initialTransferProjectName,
+                                                              initialTransferModel,
+                                                              onTransferRoleHandled,
                                                               templateList,
                                                               onSelectTemplate,
                                                               selectedTemplate,
@@ -577,12 +828,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                                               onReplayReusePayloadHandled
                                                             }) => {
   const { t, language } = useLanguage();
+    const uiLanguageCode = useMemo(() => normalizeUiLanguageCode(language), [language]);
   const { user } = useAuth();
-  const { tasks, addTask } = useTasks();
+  const { tasks, addTask, updateTask, upsertTask } = useTasks();
   const { model: selectedModel, setModel: setSelectedModel } = useWorkbenchModel();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const seedanceReplayFileInputRef = useRef<HTMLInputElement>(null);
   const backgroundAudioInputRef = useRef<HTMLInputElement>(null);
   const scriptFileInputRef = useRef<HTMLInputElement>(null);
+  const assetLibraryUploadInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const modeSectionRef = useRef<HTMLDivElement | null>(null);
   const uploadSectionRef = useRef<HTMLDivElement | null>(null);
@@ -666,9 +920,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null);
   const [selectedAssetSource, setSelectedAssetSource] = useState<'product' | 'preference' | 'subject' | 'tail' | null>(initialAssetSource || null);
   const [klingGenerateMode, setKlingGenerateMode] = useState<'first_frame' | 'subject' | 'first_last_frame'>('first_frame');
+
   const [isGeneratingKlingBoundaryFrames, setIsGeneratingKlingBoundaryFrames] = useState(false);
-  const [imageGenModel, setImageGenModel] = useState<string>('flux-2-max');
+  const [imageGenModel, setImageGenModel] = useState<'flux-2-pro' | 'flux-2-flex' | 'gpt-image-1.5'>('flux-2-pro');
   const [isDragUploadActive, setIsDragUploadActive] = useState(false);
+  const [isScriptDropActive, setIsScriptDropActive] = useState(false);
   const [selectedAssetUrl, setSelectedAssetUrl] = useState<string | null>(initialFileUrl || null);
   const [lastUploadedUrl, setLastUploadedUrl] = useState<string | null>(initialFileUrl || null);
   const [lastGeneratedProjectId, setLastGeneratedProjectId] = useState<string | null>(null);
@@ -681,8 +937,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [assetLibraryBreadcrumb, setAssetLibraryBreadcrumb] = useState<AssetFolder[]>([]);
   const [assetLibraryCurrentFolderId, setAssetLibraryCurrentFolderId] = useState<string | null>(null);
   const [assetLibraryLoading, setAssetLibraryLoading] = useState(false);
+  const [isAssetLibraryUploading, setIsAssetLibraryUploading] = useState(false);
   const [assetLibraryError, setAssetLibraryError] = useState<string | null>(null);
+  const [assetLibrarySubjects, setAssetLibrarySubjects] = useState<SubjectGroup[]>([]);
+  const [seedanceReplayLibraryIntent, setSeedanceReplayLibraryIntent] = useState<SeedanceReplayLibraryIntent | null>(null);
   const [draggingWorkbenchAssetId, setDraggingWorkbenchAssetId] = useState<string | null>(null);
+  const [transferStationItems, setTransferStationItems] = useState<TransferStationItem[]>([]);
+  const [isTransferStationOpen, setIsTransferStationOpen] = useState(false);
   const [isKlingSubjectGuideOpen, setIsKlingSubjectGuideOpen] = useState(false);
   const [isKlingSubjectModeHintDismissed, setIsKlingSubjectModeHintDismissed] = useState(false);
 
@@ -713,7 +974,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       ), allowed[1]);
     }
 
-    return numeric === 5 || numeric === 10 || numeric === 15 ? numeric : 10;
+    return Math.min(15, Math.max(4, Math.round(numeric)));
   }, []);
 
   const [productName, setProductName] = useState('');
@@ -728,8 +989,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   });
   const [deliveryRegion, setDeliveryRegion] = useState(() => initialPrefs.deliveryRegion || '中国');
   const [videoType, setVideoType] = useState(() => initialPrefs.videoType || '');
-  const [aspectRatio, setAspectRatio] = useState<'9:16' | '16:9' | '1:1'>(() => (
-    initialPrefs.aspectRatio === '16:9' ? '16:9' : (initialPrefs.aspectRatio === '1:1' ? '1:1' : '9:16')
+  const [aspectRatio, setAspectRatio] = useState<WorkbenchAspectRatio>(() => (
+    normalizeWorkbenchAspectRatio(initialPrefs.aspectRatio)
   ));
   const [requiredErrors, setRequiredErrors] = useState<{
     productName?: string;
@@ -748,29 +1009,132 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const scriptGenerationEstimateKeyRef = useRef<string | null>(null);
   const scriptGenerationFinishingRef = useRef(false);
   const scriptGenerationAbortRef = useRef<AbortController | null>(null);
+  const scriptGenerationLockRef = useRef(false);
   const activeScriptGenerationSeqRef = useRef(0);
+  const scriptGenerationProjectIdRef = useRef<string | null>(null);
+  const currentScriptQueueTaskIdRef = useRef<string | null>(null);
+  const currentImageQueueTaskIdRef = useRef<string | null>(null);
+  const transferStationOwnerId = user?.id ?? null;
+  const refreshTransferStationItems = useCallback(() => {
+    setTransferStationItems(loadTransferStationItems(transferStationOwnerId));
+  }, [transferStationOwnerId]);
+
+  useEffect(() => {
+    refreshTransferStationItems();
+  }, [refreshTransferStationItems]);
+
+  useEffect(() => {
+    const handleTransferStationUpdated = () => {
+      refreshTransferStationItems();
+    };
+
+    if (typeof window === 'undefined') return undefined;
+    window.addEventListener('vflow-transfer-station-updated', handleTransferStationUpdated);
+    return () => window.removeEventListener('vflow-transfer-station-updated', handleTransferStationUpdated);
+  }, [refreshTransferStationItems]);
+
+  useEffect(() => {
+    if (transferStationItems.length === 0) {
+      setIsTransferStationOpen(false);
+    }
+  }, [transferStationItems.length]);
 
   useEffect(() => {
     if (!replayReusePayload) return;
-    const nextCategory = String(replayReusePayload.productCategory || '').trim();
-    const nextSellingPoints = String(replayReusePayload.coreSellingPoints || '').trim();
-    const nextPrompt = String(replayReusePayload.prompt || '').trim();
+    if (initialTransferRole === 'replay_apply') return;
 
-    if (nextCategory) setProductCategory(nextCategory);
-    if (nextSellingPoints) setCoreSellingPoints(nextSellingPoints);
-    if (nextPrompt) setGenPrompt(nextPrompt);
-    setCreationMode('replay');
-    setSelectedModel('seedance2.0');
+    const applyReplayPayload = () => {
+      const nextCategory = String(replayReusePayload.productCategory || '').trim();
+      const nextSellingPoints = String(replayReusePayload.coreSellingPoints || '').trim();
+      const nextPrompt = String(replayReusePayload.prompt || '').trim();
+      const nextReferenceScript = String(replayReusePayload.referenceScript || replayReusePayload.prompt || '').trim();
+      const nextReferenceScriptSignature = buildProductInfoSignature({
+        productName: latestProductInfoRef.current.productName,
+        productCategory: nextCategory,
+        coreSellingPoints: nextSellingPoints,
+      });
 
-    setToastMessage(t.wb_replay_applied_to_workbench || '复刻结果已带入工作台，可继续上传图片并生成新脚本。');
-    onReplayReusePayloadHandled?.();
-  }, [onReplayReusePayloadHandled, replayReusePayload, setSelectedModel, t.wb_replay_applied_to_workbench]);
+      if (nextCategory) setProductCategory(nextCategory);
+      if (nextSellingPoints) setCoreSellingPoints(nextSellingPoints);
+      if (nextPrompt) setGenPrompt(nextPrompt);
+      if (nextReferenceScript) setReferenceScript(nextReferenceScript);
+      if (nextReferenceScript) setReferenceScriptProductSignature(nextReferenceScriptSignature);
+      setCreationMode('replay');
+      setSelectedModel('seedance2.0');
+
+      setToastMessage(t.wb_replay_applied_to_workbench || '复刻结果已带入工作台，可继续上传图片并生成新脚本。');
+      onReplayReusePayloadHandled?.();
+    };
+
+    const targetProjectId = String(replayReusePayload.targetProjectId || '').trim();
+    if (targetProjectId && targetProjectId !== projectStore.currentProjectId) {
+      setProjectStore((prev) => {
+        const now = Date.now();
+        const hasProject = prev.projects.some((project) => project.id === targetProjectId);
+        const hasWorkspace = !!prev.workspaces[targetProjectId];
+
+        const projects = hasProject
+          ? prev.projects
+          : [{
+            id: targetProjectId,
+            name: ensureUniqueProjectName(`Project ${targetProjectId.slice(0, 6)}`, prev.projects),
+            updatedAt: now,
+            createdAt: now,
+          }, ...prev.projects];
+
+        const workspaces = hasWorkspace
+          ? prev.workspaces
+          : {
+            ...prev.workspaces,
+            [targetProjectId]: createWorkspaceState({
+              scriptPagePrefix: t.wb_script_page_prefix,
+              userId: user?.id ?? null,
+            }),
+          };
+
+        return {
+          ...prev,
+          currentProjectId: targetProjectId,
+          projects,
+          workspaces,
+        };
+      });
+
+      let elapsed = 0;
+      const MIN_WAIT_MS = 180;
+      const MAX_WAIT_MS = 5000;
+      const POLL_INTERVAL_MS = 50;
+
+      const timer = window.setInterval(() => {
+        elapsed += POLL_INTERVAL_MS;
+
+        const shouldWaitForWorkspaceRestore = elapsed < MIN_WAIT_MS || isApplyingProjectWorkspaceRef.current;
+        if (shouldWaitForWorkspaceRestore && elapsed < MAX_WAIT_MS) return;
+
+        window.clearInterval(timer);
+        applyReplayPayload();
+      }, POLL_INTERVAL_MS);
+
+      return () => window.clearInterval(timer);
+    }
+
+    applyReplayPayload();
+  }, [
+    initialTransferRole,
+    onReplayReusePayloadHandled,
+    replayReusePayload,
+    setSelectedModel,
+    t.wb_replay_applied_to_workbench,
+    t.wb_script_page_prefix,
+    user?.id,
+  ]);
 
   const productNameFieldRef = useRef<HTMLInputElement | null>(null);
   const productCategoryFieldRef = useRef<HTMLDivElement | null>(null);
   const coreSellingPointsFieldRef = useRef<HTMLTextAreaElement | null>(null);
   const videoTypeFieldRef = useRef<HTMLDivElement | null>(null);
   const [genPrompt, setGenPrompt] = useState('');
+  const [referenceScript, setReferenceScript] = useState('');
   const [genDuration, setGenDuration] = useState<number>(() => normalizeDurationForModel(initialPrefs.genDuration ?? selectedTemplate?.duration ?? 10, selectedModel));
   const [soundSetting, setSoundSetting] = useState<'on' | 'off'>(() => (initialPrefs.soundSetting === 'off' ? 'off' : 'on'));
   const [selectedBackgroundAudio, setSelectedBackgroundAudio] = useState<SelectedBackgroundAudio | null>(null);
@@ -781,18 +1145,58 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [targetLanguage, setTargetLanguage] = useState<string>(() => initialPrefs.targetLanguage || 'en');
   const [translatingShots, setTranslatingShots] = useState<Record<number, boolean>>({});
   const [creationMode, setCreationMode] = useState<'fast' | 'replay'>(() => (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
+  const [seedanceReplayUploadIntent, setSeedanceReplayUploadIntent] = useState<SeedanceReplayUploadIntent>({ targetMediaKind: null });
+  const [seedanceReplayFocusTarget, setSeedanceReplayFocusTarget] = useState<'top' | SeedanceReplayMediaKind | null>(null);
   const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
+  const [billingPricing, setBillingPricing] = useState<BillingPricingCatalog | null>(null);
   const [isModelSectionCollapsed, setIsModelSectionCollapsed] = useState(false);
   const [isAiRecognizing, setIsAiRecognizing] = useState(false);
   const [hasAiRecognized, setHasAiRecognized] = useState(false);
-  const lastRecognizedSignatureRef = useRef<string>('');
-  const isAutoRecognizePromptingRef = useRef(false);
+  const [recognizedProductSourceSignature, setRecognizedProductSourceSignature] = useState('');
+  const [needsAiReRecognize, setNeedsAiReRecognize] = useState(false);
+  const [aiOverwriteFields, setAiOverwriteFields] = useState<AiOverwriteField[]>([]);
+  const [isAiOverwriteOpen, setIsAiOverwriteOpen] = useState(false);
+  const aiOverwriteResolveRef = useRef<((selected: Set<string> | null) => void) | null>(null);
+  const [referenceScriptProductSignature, setReferenceScriptProductSignature] = useState('');
+  useEffect(() => {
+    let active = true;
+
+    billingApi.getOverview()
+      .then((res) => {
+        if (!active) return;
+        setBillingPricing((res?.data?.pricing as BillingPricingCatalog | null) || null);
+      })
+      .catch(() => {
+        if (!active) return;
+        setBillingPricing(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const latestProductInfoRef = useRef({
+    productName: '',
+    productCategory: '',
+    coreSellingPoints: '',
+    targetAudience: '',
+  });
 
   useEffect(() => {
     if (soundSetting !== 'off') {
       setIsBackgroundAudioSourceOpen(false);
     }
   }, [soundSetting]);
+
+  useEffect(() => {
+    latestProductInfoRef.current = {
+      productName,
+      productCategory,
+      coreSellingPoints,
+      targetAudience,
+    };
+  }, [coreSellingPoints, productCategory, productName, targetAudience]);
 
   const LEFT_COLUMN_MIN_WIDTH = 260;
   const SCRIPT_COLUMN_MIN_WIDTH = 320;
@@ -872,7 +1276,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [waitProgressPhase, setWaitProgressPhase] = useState<WaitProgressPhase>('idle');
   const [waitingVideoFailed, setWaitingVideoFailed] = useState(false);
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
+  const [isSavingScriptAsset, setIsSavingScriptAsset] = useState(false);
   const [isPreparingDebug, setIsPreparingDebug] = useState(false);
   const [isSendingDebug, setIsSendingDebug] = useState(false);
   const [debugPayloadText, setDebugPayloadText] = useState('');
@@ -936,15 +1340,37 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [scripts, setScripts] = useState<ScriptItem[]>(buildDemoScripts);
   const [scriptPages, setScriptPages] = useState<ScriptPage[]>(() => ([{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: buildDemoScripts() }]));
   const [activeScriptPage, setActiveScriptPage] = useState(0);
+  const [scriptGridPageStart, setScriptGridPageStart] = useState(0);
+  const [isScriptGridDialogOpen, setIsScriptGridDialogOpen] = useState(false);
+  const [isScriptSaveDialogOpen, setIsScriptSaveDialogOpen] = useState(false);
+  const [scriptSaveNameDraft, setScriptSaveNameDraft] = useState('');
   const scriptPagesRef = useRef<ScriptPage[]>([]);
   const [isShotBreakdownOpen, setIsShotBreakdownOpen] = useState(false);
   const [enableStoryboardEditor, setEnableStoryboardEditor] = useState(false);
 
+  const [isBatchGenerateOpen, setIsBatchGenerateOpen] = useState(false);
+  const [batchGenerateCount, setBatchGenerateCount] = useState(2);
+  const [batchGenerateSlots, setBatchGenerateSlots] = useState<Array<{ slotId: string; scriptPageId: string | null }>>(() =>
+    Array.from({ length: 2 }, (_, idx) => ({ slotId: `slot-${idx + 1}`, scriptPageId: null }))
+  );
+  const batchGenerateDragRef = useRef<{ kind: 'script' | 'slot'; scriptPageId: string; slotId?: string } | null>(null);
+
+  useEffect(() => {
+    setBatchGenerateSlots((prev) => {
+      const nextCount = Math.max(1, Math.min(5, Math.floor(Number(batchGenerateCount) || 1)));
+      const existing = prev.slice(0, nextCount);
+      while (existing.length < nextCount) {
+        existing.push({ slotId: `slot-${existing.length + 1}`, scriptPageId: null });
+      }
+      return existing;
+    });
+  }, [batchGenerateCount]);
+
   const [assetQueue, setAssetQueue] = useState<QueuedAsset[]>([]);
   const [scriptQueue, setScriptQueue] = useState<QueuedScript[]>([]);
   const [currentMaterialType, setCurrentMaterialType] = useState<AssetLibraryTab | null>(null);
-  const [generatedBatch, setGeneratedBatch] = useState<Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }>>([]);
   const [selectedQueueAssetId, setSelectedQueueAssetId] = useState<string | null>(null);
+  const [seedanceReplayPreviewAsset, setSeedanceReplayPreviewAsset] = useState<QueuedAsset | null>(null);
   const [isAiOptimizeOpen, setIsAiOptimizeOpen] = useState(false);
   const [aiOptimizeReferenceId, setAiOptimizeReferenceId] = useState<string | null>(null);
   const [aiOptimizeCategory, setAiOptimizeCategory] = useState('');
@@ -955,7 +1381,40 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [aiOptimizeStyleStrength, setAiOptimizeStyleStrength] = useState(60);
   const [aiOptimizeCount, setAiOptimizeCount] = useState(2);
   const [isAiOptimizeGenerating, setIsAiOptimizeGenerating] = useState(false);
+  const [isAiOptimizePromptGenerating, setIsAiOptimizePromptGenerating] = useState(false);
+  const [isAiOptimizePromptSaving, setIsAiOptimizePromptSaving] = useState(false);
   const [aiOptimizeResults, setAiOptimizeResults] = useState<Array<{ id: string; url: string }>>([]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const handleQueueFocus = (event: Event) => {
+      const detail = (event as CustomEvent<{ focus?: string }>).detail;
+      const focus = String(detail?.focus || '').trim();
+      if (!focus) return;
+
+      if (focus === 'scripts') {
+        scriptsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        return;
+      }
+
+      if (focus === 'preview') {
+        previewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        return;
+      }
+
+      if (focus === 'image') {
+        uploadSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        if (!isAiOptimizeOpen && aiOptimizeResults.length > 0) {
+          setIsAiOptimizeOpen(true);
+        }
+      }
+    };
+
+    window.addEventListener('vflow:queue-focus', handleQueueFocus as EventListener);
+    return () => window.removeEventListener('vflow:queue-focus', handleQueueFocus as EventListener);
+  }, [aiOptimizeResults.length, isAiOptimizeOpen]);
+
   const [projectStore, setProjectStore] = useState<LocalProjectStore>(() => loadLocalProjectStore(user?.id ?? null));
   const [projectStoreOwner, setProjectStoreOwner] = useState<string>(() => getLocalProjectStoreOwner(user?.id ?? null));
   const [projectStoreLoadVersion, setProjectStoreLoadVersion] = useState(0);
@@ -963,6 +1422,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isTaskQueueOpen, setIsTaskQueueOpen] = useState(false);
   const taskQueueButtonRef = useRef<HTMLButtonElement | null>(null);
   const taskQueuePanelRef = useRef<HTMLDivElement | null>(null);
+  const currentProjectVideoQueue = useMemo(() => {
+    const currentId = String(projectStore.currentProjectId || '').trim();
+    if (!currentId) return [];
+    return tasks
+      .filter((task) => String(task.workbenchProjectId || '').trim() === currentId && task.type === 'video_generation')
+      .slice()
+      .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+  }, [projectStore.currentProjectId, tasks]);
   const [taskQueueNowTs, setTaskQueueNowTs] = useState<number>(Date.now());
   const taskQueueTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isCompletedCollapsed, setIsCompletedCollapsed] = useState(true);
@@ -1368,15 +1835,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setTargetAudience(workspace.targetAudience || '');
     setDeliveryRegion(workspace.deliveryRegion || initialPrefs.deliveryRegion || '中国');
     setVideoType(workspace.videoType || initialPrefs.videoType || '');
-    setAspectRatio(
-      workspace.aspectRatio === '16:9'
-        ? '16:9'
-        : (workspace.aspectRatio === '1:1'
-          ? '1:1'
-          : (initialPrefs.aspectRatio === '16:9' ? '16:9' : (initialPrefs.aspectRatio === '1:1' ? '1:1' : '9:16')))
-    );
+    setAspectRatio(normalizeWorkbenchAspectRatio(workspace.aspectRatio || initialPrefs.aspectRatio));
     setHasAiRecognized(!!workspace.hasAiRecognized);
+    setRecognizedProductSourceSignature(String(workspace.recognizedProductSourceSignature || ''));
+    setNeedsAiReRecognize(!!workspace.needsAiReRecognize);
     setGenPrompt(workspace.genPrompt || '');
+    setReferenceScript(workspace.referenceScript || '');
+    setReferenceScriptProductSignature(
+      String(workspace.referenceScriptProductSignature || '')
+    );
     setGenDuration(normalizeDurationForModel(
       workspace.genDuration ?? initialPrefs.genDuration ?? 10,
       restoredModelId
@@ -1391,9 +1858,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setTargetLanguage(workspace.targetLanguage || initialPrefs.targetLanguage || 'en');
     setCreationMode(workspace.creationMode || (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
     setReuseQueueEnabled(!!workspace.reuseQueueEnabled);
-    setScripts(Array.isArray(workspace.scripts) ? workspace.scripts : []);
-    setScriptPages(Array.isArray(workspace.scriptPages) && workspace.scriptPages.length > 0 ? workspace.scriptPages : [{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: [] }]);
-    setActiveScriptPage(typeof workspace.activeScriptPage === 'number' ? workspace.activeScriptPage : 0);
+    const restoredScriptPages = (Array.isArray(workspace.scriptPages) && workspace.scriptPages.length > 0)
+      ? workspace.scriptPages
+      : [{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: [] }];
+    const restoredActivePage = (
+      typeof workspace.activeScriptPage === 'number'
+      && workspace.activeScriptPage >= 0
+      && workspace.activeScriptPage < restoredScriptPages.length
+    ) ? workspace.activeScriptPage : 0;
+    setScriptPages(restoredScriptPages);
+    setActiveScriptPage(restoredActivePage);
+    setScripts(restoredScriptPages[restoredActivePage]?.scripts || (Array.isArray(workspace.scripts) ? workspace.scripts : []));
     setAssetQueue(restoredAssetQueue);
     setScriptQueue(Array.isArray(workspace.scriptQueue) ? workspace.scriptQueue : []);
     setGeneratedVideoUrl(workspace.generatedVideoUrl || null);
@@ -1722,6 +2197,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     });
   };
   const injectedAssetSignaturesRef = useRef<Set<string>>(new Set());
+  const transferExecutionKeyRef = useRef<string>('');
+
+  useEffect(() => {
+    if (!initialTransferRole && !initialTransferModel) {
+      transferExecutionKeyRef.current = '';
+    }
+  }, [initialTransferModel, initialTransferRole]);
 
   useEffect(() => {
     if (!initialLibraryAsset || !initialLibraryAssetToken) return;
@@ -1744,12 +2226,138 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   useEffect(() => {
     if (!initialLibraryAsset || !initialLibraryAssetToken) return;
     if (isRestoring) return;
-    if (initialLibraryAssetMode === 'background_audio') return;
+    if (initialLibraryAssetMode === 'background_audio' || initialLibraryAssetMode === 'script_import') return;
+    // Skip if a transfer operation is in progress — the transfer effect handles injection after workspace reset
+    if (initialTransferRole || initialTransferModel) return;
     if (injectedAssetSignaturesRef.current.has(initialLibraryAssetToken)) return;
     injectedAssetSignaturesRef.current.add(initialLibraryAssetToken);
-    queueLibraryAssetIntoWorkbench(initialLibraryAsset, { preferLastModeRouting: true });
-    onInitialLibraryAssetHandled?.();
-  }, [initialLibraryAsset, initialLibraryAssetMode, initialLibraryAssetToken, isRestoring, onInitialLibraryAssetHandled, queueLibraryAssetIntoWorkbench]);
+
+    const injectAssetIntoCurrentProject = () => {
+      queueLibraryAssetIntoWorkbench(initialLibraryAsset, {
+        preferLastModeRouting: true,
+        forceFirstFrame: initialLibraryAssetForceFirstFrame === true,
+      });
+      onInitialLibraryAssetHandled?.();
+    };
+
+    const targetProjectId = String(initialLibraryAssetTargetProjectId || '').trim();
+    if (targetProjectId && targetProjectId !== projectStore.currentProjectId) {
+      ensureProjectInStore(targetProjectId);
+      goToProject(targetProjectId, injectAssetIntoCurrentProject);
+      return;
+    }
+
+    injectAssetIntoCurrentProject();
+  }, [
+    ensureProjectInStore,
+    goToProject,
+    initialLibraryAsset,
+    initialLibraryAssetForceFirstFrame,
+    initialLibraryAssetMode,
+    initialLibraryAssetTargetProjectId,
+    initialLibraryAssetToken,
+    initialTransferModel,
+    initialTransferRole,
+    isRestoring,
+    onInitialLibraryAssetHandled,
+    projectStore.currentProjectId,
+    queueLibraryAssetIntoWorkbench,
+  ]);
+
+  // Switch model and create a new project when a transfer comes from ImageHistoryPanel "apply to workbench"
+  //
+  // IMPORTANT timing note:
+  //   createNewProject() changes projectStore.currentProjectId, which triggers the
+  //   workspace-restore effect (applyWorkspaceState).  That effect resets ALL state
+  //   — including asset/upload state — to a blank workspace.  It sets
+  //   `isApplyingProjectWorkspaceRef = true` and resets it when done.
+  //
+  //   Instead of a fragile fixed-delay setTimeout, we poll the ref at 50ms intervals
+  //   and inject the transferred asset as soon as the restore completes.  A 5-second
+  //   safety cap prevents infinite polling.
+  useEffect(() => {
+    if (!initialTransferRole && !initialTransferModel) return;
+
+    const transferKey = [
+      String(initialTransferRole || ''),
+      String(initialTransferModel || ''),
+      String(initialLibraryAssetToken || ''),
+      String(initialLibraryAssetTargetProjectId || ''),
+      String(initialTransferProjectName || ''),
+    ].join('::');
+
+    if (transferExecutionKeyRef.current === transferKey) return;
+    transferExecutionKeyRef.current = transferKey;
+
+    // 1. Create a new project first (this triggers applyWorkspaceState which blanks everything)
+    if (initialTransferRole) {
+      createNewProject(initialTransferProjectName || projectUiText.defaultProjectName);
+    }
+
+    // 2. Poll until applyWorkspaceState finishes (isApplyingProjectWorkspaceRef becomes false)
+    let elapsed = 0;
+    const POLL_INTERVAL = 50;
+    const MAX_WAIT = 5000;
+    const poller = window.setInterval(() => {
+      elapsed += POLL_INTERVAL;
+      // Still applying — keep waiting (unless we've exceeded the safety cap)
+      if (isApplyingProjectWorkspaceRef.current && elapsed < MAX_WAIT) return;
+      window.clearInterval(poller);
+
+      // 2a. Switch model (only Sora-family models are supported for transfer)
+      if (initialTransferModel) {
+        setSelectedModel(initialTransferModel);
+      }
+
+      const finalizeTransfer = () => {
+        onTransferRoleHandled?.();
+      };
+
+      const injectTransferredAsset = () => {
+        // 2b. Inject the asset that was set in selectedAssetForWorkbench by Workbench.tsx
+        if (initialLibraryAsset && initialLibraryAssetToken) {
+          // Reset the dedup set so this token can be consumed after the workspace reset
+          injectedAssetSignaturesRef.current.delete(initialLibraryAssetToken);
+          queueLibraryAssetIntoWorkbench(initialLibraryAsset, {
+            preferLastModeRouting: true,
+            forceFirstFrame: initialLibraryAssetForceFirstFrame === true,
+          });
+          // Also mark the asset as handled so the normal injection effect doesn't fire again
+          onInitialLibraryAssetHandled?.();
+        }
+        // 2c. Clear the transfer signals
+        finalizeTransfer();
+      };
+
+      const targetProjectId = String(initialLibraryAssetTargetProjectId || '').trim();
+      if (targetProjectId && targetProjectId !== projectStore.currentProjectId) {
+        ensureProjectInStore(targetProjectId);
+        goToProject(targetProjectId, injectTransferredAsset);
+        return;
+      }
+
+      injectTransferredAsset();
+    }, POLL_INTERVAL);
+
+    return () => window.clearInterval(poller);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    ensureProjectInStore,
+    goToProject,
+    initialLibraryAsset,
+    initialLibraryAssetForceFirstFrame,
+    initialLibraryAssetTargetProjectId,
+    initialLibraryAssetToken,
+    initialTransferModel,
+    initialTransferProjectName,
+    initialTransferRole,
+    projectUiText.defaultProjectName,
+    onInitialLibraryAssetHandled,
+    onTransferRoleHandled,
+    projectStore.currentProjectId,
+    queueLibraryAssetIntoWorkbench,
+    setSelectedModel,
+  ]);
 
   useEffect(() => {
     if (initialLibraryAsset) return;
@@ -1828,6 +2436,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   useEffect(() => {
     const currentProjectId = projectStore.currentProjectId;
+
+    if (
+      isGeneratingScript
+      && scriptGenerationProjectIdRef.current
+      && scriptGenerationProjectIdRef.current !== currentProjectId
+    ) {
+      // Keep the remote generation running, but detach UI from the previous project.
+      activeScriptGenerationSeqRef.current += 1;
+      scriptGenerationAbortRef.current = null;
+      scriptGenerationStartedAtRef.current = null;
+      scriptGenerationEstimateKeyRef.current = null;
+      scriptGenerationFinishingRef.current = false;
+      scriptGenerationProjectIdRef.current = null;
+      setIsGeneratingScript(false);
+      setIsScriptGenerationProgressVisible(false);
+      setScriptGenerationProgress(0);
+      setScriptGenerationCompletedCount(0);
+      setScriptGenerationTotalCount(0);
+    }
+
     const workspace = projectStore.workspaces[currentProjectId];
     if (workspace) {
       applyWorkspaceState(workspace);
@@ -1838,7 +2466,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       scriptPagePrefix: t.wb_script_page_prefix,
       userId: user?.id ?? null,
     }));
-  }, [projectStore.currentProjectId, projectStoreLoadVersion, applyWorkspaceState, buildDemoScripts, t.wb_script_page_prefix, user?.id]);
+  }, [
+    applyWorkspaceState,
+    buildDemoScripts,
+    projectStore.currentProjectId,
+    projectStoreLoadVersion,
+    t.wb_script_page_prefix,
+    user?.id,
+  ]);
 
   useEffect(() => {
     if (projectStoreOwner !== getLocalProjectStoreOwner(user?.id ?? null)) return;
@@ -1895,7 +2530,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       videoType,
       aspectRatio,
       hasAiRecognized,
+      recognizedProductSourceSignature,
+      needsAiReRecognize,
       genPrompt,
+      referenceScript,
+      referenceScriptProductSignature,
       genDuration,
       soundSetting,
       selectedBackgroundAudio,
@@ -1944,7 +2583,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     videoType,
     aspectRatio,
     hasAiRecognized,
+    recognizedProductSourceSignature,
+    needsAiReRecognize,
     genPrompt,
+    referenceScript,
+    referenceScriptProductSignature,
     genDuration,
     soundSetting,
     selectedBackgroundAudio,
@@ -2094,22 +2737,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   useEffect(() => {
     setIsPlaying(false);
   }, [generatedVideoUrl]);
-
-  useEffect(() => {
-    if (generatedBatch.length > 0) {
-      console.log('[WorkbenchView] generatedBatch updated:', generatedBatch);
-      generatedBatch.forEach(item => {
-        const task = tasks.find(t => t.id === item.taskId);
-        console.log(`[WorkbenchView] Batch item ${item.id} (taskId=${item.taskId}):`, {
-          found: !!task,
-          status: task?.status,
-          result: task?.result,
-          hasUrl: !!(task?.result?.video_url || task?.result?.url),
-          url: task?.result?.video_url || task?.result?.url
-        });
-      });
-    }
-  }, [generatedBatch, tasks]);
 
   useEffect(() => {
     canAutoSaveRef.current = !!user?.id && !isRestoring;
@@ -2294,64 +2921,217 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     autoPreviewedTaskIdsRef.current[String(picked.task.id)] = true;
     setGeneratedVideoUrl(picked.url);
-    setPreviewProjectId(picked.task.projectId);
+    setPreviewProjectId(picked.task.projectId || null);
   }, [tasks, lastGeneratedProjectId, projectStore.currentProjectId, setGeneratedVideoUrl]);
 
-  useEffect(() => {
-    if (!isAssetLibraryOpen) return;
-    let cancelled = false;
+  const sortByCreatedAtDesc = useCallback(
+    function <T extends { created_at?: string }>(items: T[]): T[] {
+      return [...items].sort((a, b) => {
+        const at = Date.parse(String(a.created_at || ''));
+        const bt = Date.parse(String(b.created_at || ''));
+        return (Number.isFinite(bt) ? bt : 0) - (Number.isFinite(at) ? at : 0);
+      });
+    },
+    []
+  );
 
-    const loadAssetLibraryItems = async () => {
-      setAssetLibraryLoading(true);
-      setAssetLibraryError(null);
-      try {
+  const filterAssetLibraryItems = useCallback((items: LibraryAsset[]): LibraryAsset[] => {
+    const normalizedItems = Array.isArray(items) ? items : [];
+
+    if (assetLibraryPickMode === 'script_import') {
+      return sortByCreatedAtDesc(
+        normalizedItems.filter((item) => item.type === 'script' || item.media_kind === 'document')
+      );
+    }
+
+    const filteredItems = seedanceReplayLibraryIntent
+      ? normalizedItems.filter((item) => {
+          let itemTab: AssetLibraryTab;
+          if (item.media_kind === 'video') {
+            itemTab = 'motion';
+          } else if (item.media_kind === 'audio') {
+            itemTab = 'audio';
+          } else {
+            const rawType = String((item as any).type || '').toLowerCase();
+            itemTab = (rawType === 'model' || rawType === 'scene' || rawType === 'reference')
+              ? (rawType as AssetLibraryTab)
+              : 'product';
+          }
+          return seedanceReplayLibraryIntent.allowedTabs.includes(itemTab);
+        })
+      : assetLibraryPickMode === 'background_audio'
+        ? normalizedItems.filter((item) => item.media_kind === 'audio')
+        : normalizedItems.filter((item) => item.media_kind !== 'audio');
+
+    return sortByCreatedAtDesc(filteredItems);
+  }, [assetLibraryPickMode, seedanceReplayLibraryIntent, sortByCreatedAtDesc]);
+
+  const reloadAssetLibraryItems = useCallback(async () => {
+    setAssetLibraryLoading(true);
+    setAssetLibraryError(null);
+    try {
+      if (assetLibraryTab === 'subject') {
+        const subjects = await subjectGroupApi.list();
+        setAssetLibrarySubjects(subjects);
+        setAssetLibraryItems([]);
+        setAssetLibraryFolders([]);
+        setAssetLibraryBreadcrumb([]);
+      } else {
         const [items, folderData] = await Promise.all([
           assetsApi.getAssets({ type: assetLibraryTab, folderId: assetLibraryCurrentFolderId }),
           assetsApi.getFolders({ type: assetLibraryTab, parentId: assetLibraryCurrentFolderId }),
         ]);
-        if (!cancelled) {
-          const normalizedItems = Array.isArray(items) ? items : [];
-          setAssetLibraryItems(
-            assetLibraryPickMode === 'background_audio'
-              ? normalizedItems.filter((item) => item.media_kind === 'audio')
-              : normalizedItems.filter((item) => item.media_kind !== 'audio')
-          );
-          setAssetLibraryFolders(Array.isArray(folderData.folders) ? folderData.folders : []);
-          setAssetLibraryBreadcrumb(Array.isArray(folderData.breadcrumb) ? folderData.breadcrumb : []);
-        }
-      } catch (err: any) {
-        console.error('Failed to load asset library items:', err);
-        if (!cancelled) {
-          setAssetLibraryItems([]);
-          setAssetLibraryFolders([]);
-          setAssetLibraryBreadcrumb([]);
-          setAssetLibraryError(String(err?.message || '加载素材失败'));
-        }
-      } finally {
-        if (!cancelled) setAssetLibraryLoading(false);
-      }
-    };
 
-    void loadAssetLibraryItems();
-    return () => {
-      cancelled = true;
-    };
-  }, [assetLibraryCurrentFolderId, assetLibraryPickMode, assetLibraryTab, isAssetLibraryOpen]);
+        setAssetLibraryItems(filterAssetLibraryItems(items));
+        setAssetLibraryFolders(sortByCreatedAtDesc(Array.isArray(folderData.folders) ? folderData.folders : []));
+        setAssetLibraryBreadcrumb(Array.isArray(folderData.breadcrumb) ? folderData.breadcrumb : []);
+        setAssetLibrarySubjects([]);
+      }
+    } catch (err: any) {
+      console.error('Failed to load asset library items:', err);
+      setAssetLibraryItems([]);
+      setAssetLibraryFolders([]);
+      setAssetLibraryBreadcrumb([]);
+      setAssetLibraryError(String(err?.message || '加载素材失败'));
+    } finally {
+      setAssetLibraryLoading(false);
+    }
+  }, [assetLibraryCurrentFolderId, assetLibraryTab, filterAssetLibraryItems, sortByCreatedAtDesc]);
+
+  useEffect(() => {
+    if (!isAssetLibraryOpen) return;
+    void reloadAssetLibraryItems();
+  }, [isAssetLibraryOpen, reloadAssetLibraryItems]);
 
   const openAssetLibraryPicker = () => {
+    setSeedanceReplayLibraryIntent(null);
+    // Kling subject mode: show subject tab only
+    if (selectedModel === 'kling' && klingGenerateMode === 'subject') {
+      setAssetLibraryPickMode('default');
+      setAssetLibraryTab('subject');
+      setAssetLibraryCurrentFolderId(null);
+      setIsAssetLibraryOpen(true);
+      return;
+    }
     setAssetLibraryPickMode('default');
-    setAssetLibraryTab(currentAssetMediaKind === 'video' ? 'motion' : currentAssetMediaKind === 'audio' ? 'audio' : 'product');
+    setAssetLibraryTab('product');
     setAssetLibraryCurrentFolderId(null);
     setIsAssetLibraryOpen(true);
   };
 
   const openBackgroundAudioPicker = () => {
+    setSeedanceReplayLibraryIntent(null);
     setAssetLibraryPickMode('background_audio');
     setAssetLibraryTab('audio');
     setAssetLibraryCurrentFolderId(null);
     setIsAssetLibraryOpen(true);
     setIsBackgroundAudioSourceOpen(false);
   };
+
+  const openScriptLibraryPicker = useCallback(() => {
+    setSeedanceReplayLibraryIntent(null);
+    setAssetLibraryPickMode('script_import');
+    setAssetLibraryTab('script');
+    setAssetLibraryCurrentFolderId(null);
+    setIsAssetLibraryOpen(true);
+  }, []);
+
+  const getAssetLibraryUploadAccept = useCallback((tab: AssetLibraryTab) => {
+    if (tab === 'motion') return '.mp4,.mov,.mkv,.webm,.avi';
+    if (tab === 'audio') return '.mp3,.wav,.flac';
+    if (tab === 'script') return '.txt,.md,.json';
+    return '.jpg,.jpeg,.png,.webp';
+  }, []);
+
+  const triggerAssetLibraryLocalUpload = useCallback(() => {
+    const input = assetLibraryUploadInputRef.current;
+    if (!input || isAssetLibraryUploading) return;
+
+    input.value = '';
+    input.multiple = true;
+    input.accept = getAssetLibraryUploadAccept(assetLibraryTab);
+    input.click();
+  }, [assetLibraryTab, getAssetLibraryUploadAccept, isAssetLibraryUploading]);
+
+  const handleAssetLibraryLocalUploadChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    setIsAssetLibraryUploading(true);
+    const failedMessages: string[] = [];
+    let successCount = 0;
+
+    try {
+      for (const file of files) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await assetsApi.uploadAsset(file, assetLibraryTab, assetLibraryCurrentFolderId);
+          successCount += 1;
+        } catch (err: any) {
+          failedMessages.push(`${file.name}: ${String(err?.message || '上传失败')}`);
+        }
+      }
+
+      await reloadAssetLibraryItems();
+
+      if (successCount > 0 && failedMessages.length === 0) {
+        openInfo(popupTitles.success, formatMessage((t as any).assets_upload_success_count || '已上传 {count} 个文件', { count: successCount }));
+      } else if (successCount > 0) {
+        openInfo(
+          popupTitles.notice,
+          [
+            formatMessage((t as any).assets_upload_success_count || '已上传 {count} 个文件', { count: successCount }),
+            ...failedMessages,
+          ].join('\n')
+        );
+      } else if (failedMessages.length > 0) {
+        openInfo(popupTitles.notice, failedMessages.join('\n'));
+      }
+    } finally {
+      setIsAssetLibraryUploading(false);
+      if (assetLibraryUploadInputRef.current) {
+        assetLibraryUploadInputRef.current.value = '';
+      }
+    }
+  }, [
+    assetLibraryCurrentFolderId,
+    assetLibraryTab,
+    formatMessage,
+    openInfo,
+    popupTitles.notice,
+    popupTitles.success,
+    reloadAssetLibraryItems,
+    (t as any).assets_upload_success_count,
+  ]);
+
+  const getSeedanceReplayLibraryIntent = useCallback((targetMediaKind?: SeedanceReplayMediaKind | null): SeedanceReplayLibraryIntent => {
+    if (targetMediaKind === 'image') {
+      return {
+        targetMediaKind: 'image',
+        allowedTabs: ['product'],
+        preferredTab: 'product',
+      };
+    }
+    if (targetMediaKind === 'video') {
+      return {
+        targetMediaKind: 'video',
+        allowedTabs: ['motion'],
+        preferredTab: 'motion',
+      };
+    }
+    if (targetMediaKind === 'audio') {
+      return {
+        targetMediaKind: 'audio',
+        allowedTabs: ['audio'],
+        preferredTab: 'audio',
+      };
+    }
+    return {
+      targetMediaKind: null,
+      allowedTabs: ['product', 'model', 'motion', 'audio'],
+      preferredTab: 'product',
+    };
+  }, []);
   const openSubjectCreationLibrary = useCallback(() => {
     onNavigateToAssetsLibrary?.();
   }, [onNavigateToAssetsLibrary]);
@@ -2366,23 +3146,29 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, []);
 
   const isKlingOmniMode = selectedModel === 'kling';
+  const isSeedanceMultiAssetMode = selectedModel === 'seedance2.0';
 
   const hasSubjectOtherViews = useCallback((asset: LibraryAsset | QueuedAsset | null | undefined) => {
     if (!asset) return false;
     if (typeof (asset as QueuedAsset).hasSubjectOtherViews === 'boolean') {
       return Boolean((asset as QueuedAsset).hasSubjectOtherViews);
     }
-    const raw = (asset as LibraryAsset).meta_data?.kling_subject;
+    const metaData = (asset as LibraryAsset).meta_data;
+    // Check subject_other_assets (from SubjectGroup picker)
+    const subjectOthers = metaData?.subject_other_assets;
+    if (Array.isArray(subjectOthers) && subjectOthers.length > 0) return true;
+    // Check kling_subject.other_view_asset_ids (from asset library)
+    const raw = metaData?.kling_subject;
     const meta = raw && typeof raw === 'object' ? raw as Record<string, unknown> : null;
     const otherViews = meta?.other_view_asset_ids;
     return Array.isArray(otherViews) && otherViews.some((item) => String(item || '').trim());
   }, []);
 
-  const buildQueuedAssetFromLibrary = useCallback((asset: LibraryAsset, options?: { preferLastModeRouting?: boolean }): QueuedAsset | null => {
+  const buildQueuedAssetFromLibrary = useCallback((asset: LibraryAsset, options?: { preferLastModeRouting?: boolean; forceFirstFrame?: boolean }): QueuedAsset | null => {
     const assetUrl = asset.file_url || null;
     if (!assetUrl) return null;
 
-    const materialType: AssetLibraryTab = asset.media_kind === 'video'
+    const rawMaterialType: AssetLibraryTab = asset.media_kind === 'video'
       ? 'motion'
       : (asset.type === 'model' || asset.type === 'product' || asset.type === 'scene' || asset.type === 'motion' || asset.type === 'audio'
         ? asset.type
@@ -2394,8 +3180,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           ? 'audio'
           : (asset.media_kind === 'image' ? 'image' : inferMediaKind({ name: asset.name || '', url: assetUrl }));
 
+    const forceFirstFrame = options?.forceFirstFrame === true && mediaKind === 'image';
+    const materialType: AssetLibraryTab = forceFirstFrame ? 'product' : rawMaterialType;
+
     let source: QueuedAsset['source'] = mediaKind === 'video' ? 'preference' : 'product';
-    if (options?.preferLastModeRouting) {
+    if (forceFirstFrame) {
+      source = 'product';
+    } else if (options?.preferLastModeRouting) {
       if (selectedModel === 'kling') {
         if (klingGenerateMode === 'subject') {
           source = mediaKind === 'image' && (materialType === 'product' || materialType === 'model') && hasSubjectOtherViews(asset)
@@ -2426,13 +3217,111 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       mediaKind,
       uploadedPath: assetUrl,
       hasSubjectOtherViews: hasSubjectOtherViews(asset),
+      seedanceAssetId: materialType === 'model' && asset.meta_data?.seedance_asset_id
+        ? String(asset.meta_data.seedance_asset_id)
+        : null,
     };
   }, [hasSubjectOtherViews, isKlingOmniMode, klingGenerateMode, selectedModel]);
 
-  function queueLibraryAssetIntoWorkbench(asset: LibraryAsset, options?: { preferLastModeRouting?: boolean }) {
+  const extractSeedanceReplayLibraryNumber = useCallback((meta: Record<string, unknown> | null | undefined, keys: string[]) => {
+    if (!meta) return null;
+    for (const key of keys) {
+      const raw = meta[key];
+      if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+      if (typeof raw === 'string') {
+        const parsed = Number(raw);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+    }
+    return null;
+  }, []);
+
+  const parseSeedanceReplayLibrarySizeLabel = useCallback((value: string | null | undefined) => {
+    const raw = String(value || '').trim();
+    const match = raw.match(/^([0-9]+(?:\.[0-9]+)?)\s*(B|KB|MB|GB)$/i);
+    if (!match) return null;
+    const amount = Number(match[1]);
+    if (!Number.isFinite(amount)) return null;
+    const unit = match[2].toUpperCase();
+    if (unit === 'GB') return amount * 1024 * 1024 * 1024;
+    if (unit === 'MB') return amount * 1024 * 1024;
+    if (unit === 'KB') return amount * 1024;
+    return amount;
+  }, []);
+
+  const normalizeSeedanceAssetUrl = useCallback((value: string | null | undefined) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const withoutQuery = raw.split('#', 1)[0].split('?', 1)[0];
+    if (!withoutQuery) return '';
+    return withoutQuery.startsWith('/') ? withoutQuery : `/${withoutQuery.replace(/^\/+/, '')}`;
+  }, []);
+
+  const buildSeedanceReplayLibraryCandidate = useCallback((asset: LibraryAsset) => {
+    const assetUrl = asset.file_url || null;
+    if (!assetUrl) return null;
+    const mediaKind = asset.media_kind === 'video'
+      ? 'video'
+      : asset.media_kind === 'audio'
+        ? 'audio'
+        : asset.media_kind === 'image'
+          ? 'image'
+          : inferMediaKind({ name: asset.name || '', url: assetUrl });
+
+    if (mediaKind !== 'image' && mediaKind !== 'video' && mediaKind !== 'audio') {
+      return null;
+    }
+
+    const meta = asset.meta_data && typeof asset.meta_data === 'object'
+      ? asset.meta_data as Record<string, unknown>
+      : null;
+
+    return {
+      name: asset.name || '未命名素材',
+      mediaKind,
+      format: typeof meta?.format === 'string' ? String(meta.format) : null,
+      mimeType: typeof meta?.format === 'string' ? String(meta.format) : null,
+      sourceUrl: assetUrl,
+      sizeBytes: extractSeedanceReplayLibraryNumber(meta, ['size_bytes']) ?? parseSeedanceReplayLibrarySizeLabel(asset.size) ?? 0,
+      width: extractSeedanceReplayLibraryNumber(meta, ['width', 'video_width']),
+      height: extractSeedanceReplayLibraryNumber(meta, ['height', 'video_height']),
+      durationSeconds: extractSeedanceReplayLibraryNumber(meta, ['duration_seconds', 'duration', 'durationSeconds', 'length_seconds']),
+      fps: extractSeedanceReplayLibraryNumber(meta, ['fps', 'frame_rate', 'frameRate']),
+    };
+  }, [extractSeedanceReplayLibraryNumber, parseSeedanceReplayLibrarySizeLabel]);
+
+  const buildSeedanceReplayQueuedAssetFromLibrary = useCallback((asset: LibraryAsset): QueuedAsset | null => {
+    const baseAsset = buildQueuedAssetFromLibrary(asset);
+    const candidate = buildSeedanceReplayLibraryCandidate(asset);
+    if (!baseAsset || !candidate) return null;
+
+    return {
+      ...baseAsset,
+      source: candidate.mediaKind === 'image' ? 'product' : 'preference',
+      materialType: candidate.mediaKind === 'video' ? 'motion'
+        : candidate.mediaKind === 'audio' ? 'audio'
+        : (baseAsset.materialType === 'model' ? 'model' : 'product'),
+      isPrimaryFrame: candidate.mediaKind === 'image',
+      mediaKind: candidate.mediaKind,
+      durationSeconds: candidate.durationSeconds ?? null,
+      mimeType: candidate.mimeType,
+      sizeBytes: candidate.sizeBytes,
+      width: candidate.width,
+      height: candidate.height,
+      fps: candidate.fps,
+      validationMessages: [],
+      uploadedPath: baseAsset.assetUrl,
+    };
+  }, [buildQueuedAssetFromLibrary, buildSeedanceReplayLibraryCandidate]);
+
+  function queueLibraryAssetIntoWorkbench(asset: LibraryAsset, options?: { preferLastModeRouting?: boolean; forceFirstFrame?: boolean }) {
     const queuedAsset = buildQueuedAssetFromLibrary(asset, options);
     const assetUrl = queuedAsset?.assetUrl || null;
     if (!queuedAsset || !assetUrl) return null;
+
+    if (options?.forceFirstFrame && selectedModel === 'kling' && klingGenerateMode !== 'first_frame') {
+      setKlingGenerateMode('first_frame');
+    }
 
     setAssetQueue(prev => {
       const adjustedQueuedAsset: QueuedAsset = (
@@ -2444,7 +3333,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         : queuedAsset;
       const next = isKlingOmniMode
         ? [...prev, adjustedQueuedAsset]
-        : prev.filter(item => item.materialType !== adjustedQueuedAsset.materialType).concat(adjustedQueuedAsset);
+        : isSeedanceMultiAssetMode
+          ? [...prev, adjustedQueuedAsset]
+          : prev.filter(item => item.materialType !== adjustedQueuedAsset.materialType).concat(adjustedQueuedAsset);
       return isKlingOmniMode ? normalizeQueueSourcesForKlingMode(next, klingGenerateMode) : next;
     });
 
@@ -2461,6 +3352,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }
 
   const selectAssetFromLibraryPopup = (asset: LibraryAsset) => {
+    if (assetLibraryPickMode === 'script_import') {
+      void handleImportScriptFromLibraryAsset(asset);
+      return;
+    }
+
     if (assetLibraryPickMode === 'background_audio') {
       if (asset.media_kind !== 'audio') {
         openInfo(popupTitles.notice, t.wb_audio_picker_only_audio || '请选择音频素材');
@@ -2477,7 +3373,143 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setIsBackgroundAudioSourceOpen(false);
       return;
     }
+    if (isSeedanceReplayMode && seedanceReplayLibraryIntent) {
+      const queuedAsset = buildSeedanceReplayQueuedAssetFromLibrary(asset);
+      const candidate = buildSeedanceReplayLibraryCandidate(asset);
+      if (!queuedAsset || !candidate) {
+        openInfo(
+          popupTitles.notice,
+          t.wb_seedance_replay_notice_unsupported_library_asset || 'The selected asset is not supported as a Seedance reference asset.',
+        );
+        return;
+      }
+      if (!seedanceReplayLibraryIntent.allowedTabs.includes(queuedAsset.materialType || 'product')) {
+        openInfo(
+          popupTitles.notice,
+          t.wb_seedance_replay_notice_unsupported_library_category || 'This entry does not support the selected asset category.',
+        );
+        return;
+      }
+      if (seedanceReplayLibraryIntent.targetMediaKind && queuedAsset.mediaKind !== seedanceReplayLibraryIntent.targetMediaKind) {
+        const kindLabel = seedanceReplayLibraryIntent.targetMediaKind === 'image'
+          ? (t.wb_seedance_replay_media_image || 'Image')
+          : seedanceReplayLibraryIntent.targetMediaKind === 'video'
+            ? (t.wb_seedance_replay_media_video || 'Video')
+            : (t.wb_seedance_replay_media_audio || 'Audio');
+        openInfo(
+          popupTitles.notice,
+          formatMessage(
+            t.wb_seedance_replay_notice_library_kind_only || 'This entry only supports selecting {kind} assets.',
+            { kind: kindLabel },
+          ),
+        );
+        return;
+      }
+      const validationMessage = validateSeedanceReplayParsedAsset(candidate, t);
+      if (validationMessage) {
+        openInfo(popupTitles.notice, validationMessage);
+        return;
+      }
+
+      const normalizedQueuedUrl = normalizeSeedanceAssetUrl(
+        queuedAsset.assetUrl || queuedAsset.uploadedPath || queuedAsset.previewUrl || '',
+      );
+      const duplicateExists = uploadDisplayAssets.some((item) => {
+        const sameAssetId = !!queuedAsset.assetId && !!item.assetId && String(item.assetId).trim() === String(queuedAsset.assetId).trim();
+        if (sameAssetId) return true;
+
+        const normalizedItemUrl = normalizeSeedanceAssetUrl(item.assetUrl || item.uploadedPath || item.previewUrl || '');
+        return !!normalizedQueuedUrl && normalizedQueuedUrl === normalizedItemUrl;
+      });
+      if (duplicateExists) {
+        openInfo(
+          popupTitles.notice,
+          t.wb_seedance_replay_notice_duplicate_asset || 'This asset has already been added. Please choose another one.',
+        );
+        return;
+      }
+
+      const currentCount = uploadDisplayAssets.filter((item) => item.mediaKind === queuedAsset.mediaKind).length;
+      const limit = queuedAsset.mediaKind === 'image'
+        ? SEEDANCE_REPLAY_IMAGE_LIMIT
+        : queuedAsset.mediaKind === 'video'
+          ? SEEDANCE_REPLAY_VIDEO_LIMIT
+          : SEEDANCE_REPLAY_AUDIO_LIMIT;
+      if (currentCount >= limit) {
+        const kindLabel = queuedAsset.mediaKind === 'image'
+          ? (t.wb_seedance_replay_media_image || 'Image')
+          : queuedAsset.mediaKind === 'video'
+            ? (t.wb_seedance_replay_media_video || 'Video')
+            : (t.wb_seedance_replay_media_audio || 'Audio');
+        openInfo(
+          popupTitles.notice,
+          formatMessage(
+            t.wb_seedance_replay_notice_kind_limit || 'Up to {limit} {kind} assets can be added.',
+            { limit, kind: kindLabel },
+          ),
+        );
+        return;
+      }
+
+      setAssetQueue((prev) => [...prev, queuedAsset]);
+      applyWorkbenchAssetSelection(queuedAsset);
+      setLastUploadedUrl(queuedAsset.assetUrl || null);
+      return;
+    }
     queueLibraryAssetIntoWorkbench(asset);
+  };
+
+  const selectSubjectFromLibraryPopup = (subject: SubjectGroup) => {
+    if (!subject.primary_asset) {
+      openInfo(popupTitles.notice, '该主体没有主图片，请先在素材库中设置主体图片。');
+      return;
+    }
+    // Clear existing queue before populating subject assets
+    setAssetQueue([]);
+
+    // Build primary asset (→ subject slot)
+    const pseudoPrimary: LibraryAsset = {
+      id: subject.primary_asset.id,
+      name: subject.name,
+      file_url: subject.primary_asset.file_url,
+      thumbnail: subject.primary_asset.thumbnail || subject.primary_asset.file_url,
+      type: 'product',
+      media_kind: 'image',
+      size: '0',
+      status: 'ready',
+      is_favorited: false,
+      created_at: subject.created_at,
+      meta_data: { subject_group_id: subject.id, subject_other_assets: subject.other_assets },
+      folder_id: null,
+    } as LibraryAsset;
+    const primaryResult = queueLibraryAssetIntoWorkbench(pseudoPrimary, { preferLastModeRouting: true });
+
+    // Build other assets (→ reference/preference slots)
+    if (subject.other_assets && subject.other_assets.length > 0) {
+      for (const otherAsset of subject.other_assets) {
+        const pseudoRef: LibraryAsset = {
+          id: otherAsset.id,
+          name: otherAsset.name || subject.name,
+          file_url: otherAsset.file_url,
+          thumbnail: otherAsset.thumbnail || otherAsset.file_url,
+          type: 'product',
+          media_kind: 'image',
+          size: '0',
+          status: 'ready',
+          is_favorited: false,
+          created_at: subject.created_at,
+          meta_data: { subject_group_id: subject.id },
+          folder_id: null,
+        } as LibraryAsset;
+        queueLibraryAssetIntoWorkbench(pseudoRef, { preferLastModeRouting: true });
+      }
+    }
+
+    // Re-select primary asset in UI
+    if (primaryResult) {
+      applyWorkbenchAssetSelection(primaryResult);
+      setSelectedQueueAssetId(primaryResult.id);
+    }
   };
 
   const currentScriptDuration = enableStoryboardEditor
@@ -2487,6 +3519,61 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const hasAnyReuseQueue = assetQueue.length > 0 || scriptQueue.length > 0;
   const isReuseReady = assetQueue.length > 0 && scriptQueue.length > 0;
   const expectedBatchCount = isReuseReady ? assetQueue.length * scriptQueue.length : 0;
+  const selectedVideoPricing = getVideoModelPricingEntry(billingPricing, selectedModel, creationMode);
+  const selectedImagePricing = getImageModelPricingEntry(billingPricing, imageGenModel);
+  const formatVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined) => {
+    const rate = Number(entry?.rate ?? 0);
+    if (!Number.isFinite(rate) || rate <= 0) return '-';
+    return `${rate}${t.wb_vpoints_per_sec || ''}`;
+  };
+  const queuedRenderableAssetCount = assetQueue.length === 0
+    ? 0
+    : Math.max(1, assetQueue.filter((asset) => asset.mediaKind !== 'audio').length);
+  const estimatedVideoCost = useMemo(() => {
+    const rate = Number(selectedVideoPricing?.rate ?? 0);
+    if (!Number.isFinite(rate) || rate <= 0) return 0;
+
+    if (reuseQueueEnabled) {
+      if (queuedRenderableAssetCount <= 0 || scriptQueue.length <= 0) return 0;
+      const totalScriptSeconds = scriptQueue.reduce((sum, item) => {
+        const duration = Number(item.duration || 0);
+        return sum + (Number.isFinite(duration) && duration > 0 ? duration : genDuration);
+      }, 0);
+      return Math.max(0, Math.round(rate * totalScriptSeconds * queuedRenderableAssetCount));
+    }
+
+    return Math.max(0, Math.round(rate * Math.max(1, Number(genDuration) || 0)));
+  }, [genDuration, queuedRenderableAssetCount, reuseQueueEnabled, scriptQueue, selectedVideoPricing]);
+
+  const estimatedImageCost = useMemo(() => {
+    const rate = Number(selectedImagePricing?.rate ?? 0);
+    if (!Number.isFinite(rate) || rate <= 0) return 0;
+    return Math.max(0, Math.round(rate * Math.max(1, Math.min(4, Number(aiOptimizeCount) || 1))));
+  }, [aiOptimizeCount, selectedImagePricing]);
+
+  const estimatedBatchVideoCost = useMemo(() => {
+    const rate = Number(selectedVideoPricing?.rate ?? 0);
+    if (!Number.isFinite(rate) || rate <= 0) return 0;
+
+    const selectedIds = batchGenerateSlots
+      .map((slot) => String(slot.scriptPageId || '').trim())
+      .filter(Boolean);
+    if (selectedIds.length === 0) return 0;
+
+    const totalSeconds = selectedIds.reduce((sum, id) => {
+      const page = scriptPages.find((p) => p.id === id);
+      if (!page) return sum;
+      if (!enableStoryboardEditor) return sum + Math.max(1, Number(genDuration) || 0);
+      const s = (page.scripts || []).reduce((total, it) => total + (parseFloat(String(it.dur || '').replace('s', '')) || 0), 0);
+      return sum + (Number.isFinite(s) && s > 0 ? s : Math.max(1, Number(genDuration) || 0));
+    }, 0);
+
+    return Math.max(0, Math.round(rate * totalSeconds));
+  }, [batchGenerateSlots, enableStoryboardEditor, genDuration, scriptPages, selectedVideoPricing]);
+
+  const estimatedVideoCostLabel = estimatedVideoCost > 0 ? `-${estimatedVideoCost} ${t.v_points || 'V点'}` : '';
+  const estimatedImageCostLabel = estimatedImageCost > 0 ? `-${estimatedImageCost} ${t.v_points || 'V点'}` : '';
+  const estimatedBatchVideoCostLabel = estimatedBatchVideoCost > 0 ? `-${estimatedBatchVideoCost} ${t.v_points || 'V点'}` : '';
   const hasCurrentAsset = Boolean(uploadedFile || selectedAssetUrl || selectedFileObj);
   const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
   const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
@@ -2495,13 +3582,43 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const videoFormats = VIDEO_EXTS.join('/');
   const formatHint = `图片(${imageFormats}) 视频(${videoFormats}) · ≤1GB`;
   const isBatchDebugMode = reuseQueueEnabled && hasAnyReuseQueue;
+  const visibleScriptPages = useMemo(
+    () => scriptPages.slice(scriptGridPageStart, scriptGridPageStart + 4),
+    [scriptGridPageStart, scriptPages]
+  );
+  const canSlideScriptGridPrev = scriptGridPageStart > 0;
+  const canSlideScriptGridNext = scriptGridPageStart + 4 < scriptPages.length;
+  const scriptPlanCardClass = 'w-[calc((100%-36px)/4)] min-w-[220px] flex-shrink-0 rounded-2xl border p-4 text-left transition h-[360px] flex flex-col gap-3';
+  const scriptPlanCardBodyClass = 'min-h-0 rounded-xl border px-3 py-3 text-[11px] leading-6 whitespace-pre-wrap break-words flex-1 overflow-y-auto';
   const materialTypeLabelMap: Record<AssetLibraryTab, string> = {
-    product: t.assets_tab_products || '商品',
-    model: t.assets_tab_models || '模特',
+    product: t.assets_tab_images || '图片',
+    model: t.assets_tab_virtual_models || '虚拟模特',
     scene: t.assets_tab_scenes || '场景',
-    motion: t.assets_tab_motion || '动作',
+    motion: t.assets_tab_videos || '视频',
     audio: t.assets_tab_audio || '音频',
+    script: t.assets_tab_scripts || '脚本',
+    subject: t.assets_tab_subjects || 'Subjects',
   };
+  const defaultAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => ([
+    { value: 'product', label: materialTypeLabelMap.product },
+  ]), [materialTypeLabelMap]);
+  const subjectAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => ([
+    { value: 'subject', label: materialTypeLabelMap.subject },
+  ]), [materialTypeLabelMap]);
+  const seedanceReplayAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => (
+    seedanceReplayLibraryIntent
+      ? seedanceReplayLibraryIntent.allowedTabs.map((tab) => ({ value: tab, label: materialTypeLabelMap[tab] }))
+      : []
+  ), [materialTypeLabelMap, seedanceReplayLibraryIntent]);
+  const scriptImportAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => ([
+    { value: 'script', label: materialTypeLabelMap.script },
+  ]), [materialTypeLabelMap.script]);
+  const assetLibraryVisibleTabs = assetLibraryPickMode === 'script_import'
+    ? scriptImportAssetLibraryTabs
+    : assetLibraryTab === 'subject'
+    ? subjectAssetLibraryTabs
+    : (seedanceReplayLibraryIntent ? seedanceReplayAssetLibraryTabs : defaultAssetLibraryTabs);
+  const isSeedanceReplayMode = creationMode === 'replay' && selectedModel === 'seedance2.0';
   const uploadDisplayAssets: QueuedAsset[] = useMemo(() => {
     if (assetQueue.length > 0) return assetQueue;
     if (!uploadedFile) return [];
@@ -2529,6 +3646,201 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     selectedFileObj,
     uploadedFile,
   ]);
+  const currentProductRecognitionSourceSignature = useMemo(
+    () => buildProductRecognitionSourceSignature(uploadDisplayAssets),
+    [uploadDisplayAssets]
+  );
+  const currentProductInfoSignature = useMemo(
+    () => buildProductInfoSignature({
+      productName,
+      productCategory,
+      coreSellingPoints,
+    }),
+    [coreSellingPoints, productCategory, productName]
+  );
+  const seedanceReplayUploadAssets = useMemo<SeedanceReplayUploadAsset[]>(() => {
+    return uploadDisplayAssets.flatMap((asset) => {
+      if (asset.mediaKind !== 'image' && asset.mediaKind !== 'video' && asset.mediaKind !== 'audio') {
+        return [];
+      }
+
+      // Assets from the model tab become 'model' mediaKind in the panel
+      const panelMediaKind = asset.materialType === 'model' ? 'model' as const : asset.mediaKind;
+
+      return [{
+        id: asset.id,
+        name: asset.name,
+        mediaKind: panelMediaKind,
+        source: asset.fileObj ? 'local' : 'library',
+        previewUrl: asset.previewUrl || asset.assetUrl || asset.uploadedPath || null,
+        durationSeconds: asset.durationSeconds ?? null,
+        frameRole: asset.frameRole ?? null,
+      }];
+    });
+  }, [uploadDisplayAssets]);
+
+  const seedanceReplaySelectedAssetSignatures = useMemo(() => {
+    const signatures = new Set<string>();
+    uploadDisplayAssets.forEach((asset) => {
+      const assetId = String(asset.assetId || asset.id || '').trim();
+      if (assetId) signatures.add(`id:${assetId}`);
+
+      const normalizedUrl = normalizeSeedanceAssetUrl(asset.assetUrl || asset.uploadedPath || asset.previewUrl || '');
+      if (normalizedUrl) signatures.add(`url:${normalizedUrl}`);
+    });
+    return signatures;
+  }, [normalizeSeedanceAssetUrl, uploadDisplayAssets]);
+
+  const isSeedanceReplayAssetAlreadyAdded = useCallback((asset: LibraryAsset) => {
+    const assetId = String(asset.id || '').trim();
+    if (assetId && seedanceReplaySelectedAssetSignatures.has(`id:${assetId}`)) return true;
+
+    const normalizedUrl = normalizeSeedanceAssetUrl(asset.file_url);
+    if (normalizedUrl && seedanceReplaySelectedAssetSignatures.has(`url:${normalizedUrl}`)) return true;
+
+    return false;
+  }, [normalizeSeedanceAssetUrl, seedanceReplaySelectedAssetSignatures]);
+
+  const seedanceReplayValidation = useMemo(
+    () => buildSeedanceReplayValidationSummary(uploadDisplayAssets, t),
+    [t, uploadDisplayAssets]
+  );
+
+  const focusSeedanceReplayValidationTarget = useCallback((target: 'top' | SeedanceReplayMediaKind) => {
+    setSeedanceReplayFocusTarget(null);
+    window.requestAnimationFrame(() => {
+      setSeedanceReplayFocusTarget(target);
+    });
+  }, []);
+
+  const toLibraryAssetFromTransferStationItem = (item: TransferStationItem): LibraryAsset | null => {
+    if (item.mediaKind === 'script') return null;
+
+    const fileUrl = toDisplayUrl(item.fileUrl);
+    if (!fileUrl) return null;
+
+    const mediaKind = item.mediaKind === 'file'
+      ? inferMediaKind({ name: item.name, url: fileUrl })
+      : item.mediaKind;
+    const type: LibraryAsset['type'] =
+      item.type === 'model' || item.type === 'product' || item.type === 'scene' || item.type === 'motion' || item.type === 'audio'
+        ? item.type
+        : (mediaKind === 'video' ? 'motion' : mediaKind === 'audio' ? 'audio' : 'product');
+
+    return {
+      id: String(item.assetId || `transfer-${item.id}`),
+      name: item.name || 'Untitled Asset',
+      type,
+      file_url: fileUrl,
+      media_kind: mediaKind,
+      size: '',
+      status: 'ready',
+      created_at: item.createdAt || new Date().toISOString(),
+    };
+  };
+
+  const applyTransferStationItemToWorkbench = (item: TransferStationItem): boolean => {
+    if (item.mediaKind === 'script') {
+      const scriptContent = String(item.scriptContent || '').trim();
+      if (!scriptContent) {
+        openInfo(popupTitles.notice, t.wb_transfer_station_apply_failed || 'Unable to read this transfer-station asset.');
+        return false;
+      }
+
+      setReferenceScript(scriptContent);
+      setReferenceScriptProductSignature(currentProductInfoSignature);
+      setToastMessage(t.wb_transfer_station_apply_script_success || t.wb_transfer_station_apply_success || 'Script applied to workbench.');
+
+      window.setTimeout(() => {
+        configSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+      }, 80);
+      return true;
+    }
+
+    const libraryAsset = toLibraryAssetFromTransferStationItem(item);
+    if (!libraryAsset) {
+      openInfo(popupTitles.notice, t.wb_transfer_station_apply_failed || 'Unable to read this transfer-station asset.');
+      return false;
+    }
+
+    if (isSeedanceReplayMode && isSeedanceReplayAssetAlreadyAdded(libraryAsset)) {
+      openInfo(
+        popupTitles.notice,
+        t.wb_seedance_replay_notice_duplicate_asset || 'This asset has already been added. Please choose another one.',
+      );
+      return false;
+    }
+
+    // Seedance replay mode: append (not replace) — same as selectAssetFromLibraryPopup replay branch
+    if (isSeedanceReplayMode) {
+      const replayQueued = buildSeedanceReplayQueuedAssetFromLibrary(libraryAsset);
+      const replayCandidate = buildSeedanceReplayLibraryCandidate(libraryAsset);
+      if (!replayQueued || !replayCandidate) {
+        openInfo(popupTitles.notice, t.wb_transfer_station_apply_failed || 'Unable to read this transfer-station asset.');
+        return false;
+      }
+      const validationMessage = validateSeedanceReplayParsedAsset(replayCandidate, t);
+      if (validationMessage) {
+        openInfo(popupTitles.notice, validationMessage);
+        return false;
+      }
+      const currentCount = uploadDisplayAssets.filter((a) => a.mediaKind === replayQueued.mediaKind).length;
+      const limit = replayQueued.mediaKind === 'image'
+        ? SEEDANCE_REPLAY_IMAGE_LIMIT
+        : replayQueued.mediaKind === 'video'
+          ? SEEDANCE_REPLAY_VIDEO_LIMIT
+          : SEEDANCE_REPLAY_AUDIO_LIMIT;
+      if (currentCount >= limit) {
+        const kindLabel = replayQueued.mediaKind === 'image'
+          ? (t.wb_seedance_replay_media_image || 'Image')
+          : replayQueued.mediaKind === 'video'
+            ? (t.wb_seedance_replay_media_video || 'Video')
+            : (t.wb_seedance_replay_media_audio || 'Audio');
+        openInfo(
+          popupTitles.notice,
+          formatMessage(
+            t.wb_seedance_replay_notice_kind_limit || 'Up to {limit} {kind} assets can be added.',
+            { limit, kind: kindLabel },
+          ),
+        );
+        return false;
+      }
+      setAssetQueue((prev) => [...prev, replayQueued]);
+      applyWorkbenchAssetSelection(replayQueued);
+      setLastUploadedUrl(replayQueued.assetUrl || null);
+      setToastMessage(t.wb_transfer_station_apply_success || 'Asset applied to workbench.');
+      return true;
+    }
+
+    const queuedAsset = queueLibraryAssetIntoWorkbench(libraryAsset, { preferLastModeRouting: true });
+    if (!queuedAsset) {
+      openInfo(popupTitles.notice, t.wb_transfer_station_apply_failed || 'Unable to read this transfer-station asset.');
+      return false;
+    }
+
+    setToastMessage(t.wb_transfer_station_apply_success || 'Asset applied to workbench.');
+    return true;
+  };
+
+  const handleUseTransferStationItem = (item: TransferStationItem) => {
+    applyTransferStationItemToWorkbench(item);
+  };
+
+  const handleRemoveTransferStationEntry = (itemId: string) => {
+    removeTransferStationItem(itemId, transferStationOwnerId);
+    refreshTransferStationItems();
+  };
+
+  const handleClearTransferStationEntries = () => {
+    clearTransferStationItems(transferStationOwnerId);
+    setIsTransferStationOpen(false);
+    refreshTransferStationItems();
+  };
+
+  const handleTransferStationItemDragStart = (item: TransferStationItem, event: React.DragEvent<HTMLButtonElement>) => {
+    event.dataTransfer.setData(TRANSFER_STATION_DRAG_MIME, JSON.stringify(item));
+    event.dataTransfer.effectAllowed = 'copy';
+  };
   const aiOptimizeImageCandidates = useMemo(
     () => uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image'),
     [uploadDisplayAssets]
@@ -2564,6 +3876,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (aiOptimizeKeywords.length > 0) {
       lines.push(`${t.wb_ai_opt_keywords_label || '关键词'}: ${aiOptimizeKeywords.join('、')}`);
     }
+    const outputLanguageOption = TARGET_LANGUAGE_OPTIONS.find((option) => option.value === uiLanguageCode);
+    const outputLanguageLabel = outputLanguageOption
+      ? t[outputLanguageOption.labelKey]
+      : uiLanguageCode.toUpperCase();
+    lines.push(`${t.wb_ai_opt_prompt_output_language || 'Output Language'}: ${outputLanguageLabel}`);
+    lines.push(t.wb_ai_opt_prompt_language_rule || `Use ${outputLanguageLabel} for the final prompt output.`);
     lines.push(`${t.wb_ai_opt_prompt_goal || '目标'}: ${t.wb_ai_opt_prompt_goal_default || '保留主体形态与核心卖点，提升电商展示质感和清晰度。'}`);
     lines.push(`${t.wb_ai_opt_prompt_constraints || '约束'}: ${t.wb_ai_opt_prompt_constraints_default || '仅输出商品图，不添加文字水印，不改变商品结构。'}`);
     return lines.join('\n');
@@ -2573,6 +3891,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     coreSellingPoints,
     productCategory,
     productName,
+    uiLanguageCode,
     t,
   ]);
   const openAiOptimizeDialog = useCallback(() => {
@@ -2588,7 +3907,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setAiOptimizeReferenceId(nextReferenceId);
     setAiOptimizeCategory(productCategory || '');
     setAiOptimizeKeywords([]);
-    setAiOptimizeAspectRatio(aspectRatio);
+    setAiOptimizeAspectRatio(aspectRatio === '16:9' || aspectRatio === '1:1' ? aspectRatio : '9:16');
     setAiOptimizeResolution('hd');
     setAiOptimizeStyleStrength(60);
     setAiOptimizeCount(2);
@@ -2606,6 +3925,143 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     t.wb_ai_opt_need_image,
     uploadedFile,
   ]);
+  const handleBuildAiOptimizePromptScript = useCallback(async () => {
+    const selected = aiOptimizeImageCandidates.find((item) => item.id === aiOptimizeReferenceId) || null;
+    const fallbackPrompt = buildAiOptimizePromptScript(selected);
+
+    setIsAiOptimizePromptGenerating(true);
+    try {
+      const resp = await videoApi.generateOptimizedPromptScript({
+        raw_prompt: fallbackPrompt,
+        reference_name: String(selected?.name || '').trim() || undefined,
+        product_name: String(productName || '').trim() || undefined,
+        product_category: String(aiOptimizeCategory || productCategory || '').trim() || undefined,
+        core_selling_points: String(coreSellingPoints || '').trim() || undefined,
+        keyword_tags: aiOptimizeKeywords,
+        output_language: uiLanguageCode,
+        sound: soundSetting,
+      });
+
+      const body = resp?.data || resp?.result || resp;
+      const promptScript = String(body?.prompt_script || body?.prompt || body?.kling_prompt || '').trim();
+      if (!promptScript) {
+        setAiOptimizePrompt(fallbackPrompt);
+        openInfo(popupTitles.notice, t.wb_ai_opt_prompt_empty || '后端未返回提示词脚本，已使用默认草稿。');
+        return;
+      }
+
+      setAiOptimizePrompt(promptScript);
+    } catch (err) {
+      const message = err instanceof Error && err.message.trim()
+        ? err.message.trim()
+        : (t.wb_ai_opt_prompt_empty || '提示词脚本生成失败，请稍后重试。');
+      openInfo(popupTitles.notice, message);
+    } finally {
+      setIsAiOptimizePromptGenerating(false);
+    }
+  }, [
+    aiOptimizeCategory,
+    aiOptimizeImageCandidates,
+    aiOptimizeKeywords,
+    aiOptimizeReferenceId,
+    buildAiOptimizePromptScript,
+    coreSellingPoints,
+    openInfo,
+    popupTitles.notice,
+    productCategory,
+    productName,
+    soundSetting,
+    t.wb_ai_opt_prompt_empty,
+    uiLanguageCode,
+  ]);
+  const handleSaveAiOptimizePromptToLibrary = useCallback(async () => {
+    const promptContent = String(aiOptimizePrompt || '').trim();
+    if (!promptContent) {
+      openInfo(popupTitles.notice, t.wb_ai_opt_prompt_save_need_text || '请先生成或填写提示词脚本后再保存。');
+      return;
+    }
+
+    const baseCandidate = String(productName || aiOptimizeCategory || 'prompt').trim();
+    const safeBase = baseCandidate
+      .replace(/[\\/:*?"<>|\s]+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'prompt';
+    const timeSuffix = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileName = `${safeBase}_${timeSuffix}.txt`;
+    const promptFile = new File([promptContent], fileName, { type: 'text/plain;charset=utf-8' });
+
+    setIsAiOptimizePromptSaving(true);
+    try {
+      await assetsApi.uploadAsset(promptFile, 'script');
+      openInfo(popupTitles.success, t.wb_ai_opt_prompt_saved || '优质 Prompt 已保存到素材库。');
+    } catch (err) {
+      const message = err instanceof Error && err.message.trim()
+        ? err.message.trim()
+        : (t.wb_ai_opt_prompt_save_failed || '保存失败，请稍后重试。');
+      openInfo(popupTitles.notice, message);
+    } finally {
+      setIsAiOptimizePromptSaving(false);
+    }
+  }, [
+    aiOptimizeCategory,
+    aiOptimizePrompt,
+    openInfo,
+    popupTitles.notice,
+    popupTitles.success,
+    productName,
+    t.wb_ai_opt_prompt_save_failed,
+    t.wb_ai_opt_prompt_save_need_text,
+    t.wb_ai_opt_prompt_saved,
+  ]);
+  const openSeedanceReplayLibraryPicker = useCallback((targetMediaKind?: SeedanceReplayMediaKind | null) => {
+    const nextIntent = getSeedanceReplayLibraryIntent(targetMediaKind);
+    setSeedanceReplayLibraryIntent(nextIntent);
+    setAssetLibraryPickMode('default');
+    setAssetLibraryTab(nextIntent.preferredTab);
+    setAssetLibraryCurrentFolderId(null);
+    setIsAssetLibraryOpen(true);
+  }, [getSeedanceReplayLibraryIntent]);
+
+  const handleSeedanceReplayAddFromLibrary = useCallback((targetMediaKind?: SeedanceReplayMediaKind) => {
+    openSeedanceReplayLibraryPicker(targetMediaKind || null);
+  }, [openSeedanceReplayLibraryPicker]);
+
+  const handleSeedanceReplaySetFrameRole = useCallback((assetId: string, role: 'firstFrame' | 'lastFrame' | null) => {
+    setAssetQueue((prev) => {
+      // Clear the role from any other asset that holds it, then set on target
+      const roleLabel = role === 'firstFrame' ? '首帧' as const : role === 'lastFrame' ? '尾帧' as const : null;
+      return prev.map((item) => {
+        if (item.id === assetId) {
+          return { ...item, frameRole: roleLabel };
+        }
+        // If another asset already has this role, clear it
+        if (roleLabel && item.frameRole === roleLabel) {
+          return { ...item, frameRole: null };
+        }
+        // If we're clearing a first frame, also clear any last frame (can't have last without first)
+        if (role === null) {
+          const targetAsset = prev.find((a) => a.id === assetId);
+          if (targetAsset?.frameRole === '首帧' && item.frameRole === '尾帧') {
+            return { ...item, frameRole: null };
+          }
+        }
+        return item;
+      });
+    });
+  }, []);
+
+  const handleSeedanceReplayAddVirtualModel = useCallback(() => {
+    const intent: SeedanceReplayLibraryIntent = {
+      targetMediaKind: 'image',
+      allowedTabs: ['model'],
+      preferredTab: 'model',
+    };
+    setSeedanceReplayLibraryIntent(intent);
+    setAssetLibraryPickMode('default');
+    setAssetLibraryTab('model');
+    setAssetLibraryCurrentFolderId(null);
+    setIsAssetLibraryOpen(true);
+  }, []);
   const resolveAiOptimizeReferencePath = useCallback(async (asset: QueuedAsset) => {
     let referencePath = asset.uploadedPath || asset.assetUrl || null;
     if (!referencePath && asset.fileObj) {
@@ -2638,6 +4094,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
+    const imageQueueTaskId = `image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const imageEstimatedSeconds = Math.max(15, Math.min(180, Math.round(aiOptimizeCount) * 30));
+    currentImageQueueTaskIdRef.current = imageQueueTaskId;
+    upsertTask({
+      id: imageQueueTaskId,
+      workbenchProjectId: projectStore.currentProjectId,
+      estimatedSeconds: imageEstimatedSeconds,
+      type: 'image_generation',
+      status: 'processing',
+      navigateTo: { view: 'workbench', focus: 'image' },
+      name: `${selectedAsset.name || (productName || '').trim() || 'AI Image Optimize'}`,
+      thumbnail: selectedAsset.previewUrl || uploadedFile || undefined,
+      createdAt: Date.now(),
+    });
+
     setIsAiOptimizeGenerating(true);
     try {
       const referencePath = await resolveAiOptimizeReferencePath(selectedAsset);
@@ -2651,7 +4122,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         keyword_tags: aiOptimizeKeywords,
         reference_image_url: referencePath || undefined,
         reference_image_path: referencePath || undefined,
-        output_language: language,
+        output_language: uiLanguageCode,
       });
 
       const body = resp?.data || resp?.result || resp;
@@ -2673,18 +4144,44 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         .filter(Boolean) as Array<{ id: string; url: string }>;
 
       if (nextImages.length === 0) {
+        updateTask(imageQueueTaskId, {
+          status: 'failed',
+          result: { error: 'NO_RESULT' },
+          navigateTo: { view: 'workbench', focus: 'image' },
+        });
         openInfo(popupTitles.notice, t.wb_ai_opt_no_result || '后端未返回可用图片，请稍后重试。');
         return;
       }
       setAiOptimizeResults(nextImages);
+      updateTask(imageQueueTaskId, {
+        status: 'success',
+        result: { images: nextImages },
+        navigateTo: { view: 'workbench', focus: 'image' },
+      });
     } catch (err: any) {
       if (err instanceof VideoApiError && err.status === 404) {
+        updateTask(imageQueueTaskId, {
+          status: 'failed',
+          result: { error: 'BACKEND_NOT_READY' },
+          navigateTo: { view: 'workbench', focus: 'image' },
+        });
         openInfo(popupTitles.notice, t.wb_ai_opt_backend_not_ready || '后端暂未接入图生图接口。');
       } else {
+        const message = err instanceof Error && err.message.trim()
+          ? err.message.trim()
+          : (t.wb_ai_opt_generate_failed || 'Image optimization failed. Please try again.');
+        updateTask(imageQueueTaskId, {
+          status: 'failed',
+          result: { error: message },
+          navigateTo: { view: 'workbench', focus: 'image' },
+        });
         openErrorModal(err, { category: 'generation_failed', onRetry: handleGenerateOptimizedImages });
       }
     } finally {
       setIsAiOptimizeGenerating(false);
+      if (currentImageQueueTaskIdRef.current === imageQueueTaskId) {
+        currentImageQueueTaskIdRef.current = null;
+      }
     }
   }, [
     aiOptimizeAspectRatio,
@@ -2696,7 +4193,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     aiOptimizeReferenceId,
     aiOptimizeResolution,
     aiOptimizeStyleStrength,
-    language,
     openInfo,
     popupTitles.error,
     popupTitles.notice,
@@ -2706,6 +4202,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     t.wb_ai_opt_need_image,
     t.wb_ai_opt_need_prompt,
     t.wb_ai_opt_no_result,
+    productName,
+    projectStore.currentProjectId,
+    uiLanguageCode,
+    updateTask,
+    uploadedFile,
+    upsertTask,
   ]);
   const handleReplaceWithOptimizedImage = useCallback((imageUrl: string) => {
     const finalUrl = toDisplayUrl(imageUrl);
@@ -2803,7 +4305,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       return { ...item, source: 'preference', isPrimaryFrame: false };
     });
-      return sortKlingQueueAssets(normalized);
+    const sorted = sortKlingQueueAssets(normalized);
+    if (mode === 'first_frame' || mode === 'first_last_frame') {
+      return sorted.map((item) => (item.mediaKind === 'image' ? { ...item, materialType: 'product' as const } : item));
+    }
+    return sorted;
   }, [canBeKlingSubject, sortKlingQueueAssets]);
 
   const suggestKlingImageSourceForMode = useCallback((existing: QueuedAsset[]): QueuedAsset['source'] => {
@@ -3069,12 +4575,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       || Boolean((activeCreativeCardText || '').trim())
       || hasCreativeCardContent(activeCreativeCard);
 
-  const buildCombinedScriptPrompt = (
+  useEffect(() => {
+    console.log('[ScriptDebug] render-state', {
+      activeScriptPage,
+      scriptPagesLength: scriptPages.length,
+      hasActiveScriptPlan: Boolean(activeScriptPlan),
+      activeCreativeCardTextLength: (activeScriptPlan?.creativeCardText || '').length,
+      activeFullScriptLength: (activeScriptPlan?.fullScript || '').length,
+    });
+  }, [activeScriptPage, scriptPages.length, activeScriptPlan?.creativeCardText, activeScriptPlan?.fullScript]);
+
+  function buildCombinedScriptPrompt(
       fullScript: string,
       card?: ScriptCreativeCard,
       inputScripts: ScriptItem[] = [],
       cardText?: string
-  ) => {
+  ) {
     const creativeCardPrompt = (cardText || '').trim() || buildCreativeCardPrompt(card);
     const masterScriptPrompt = (fullScript || '').trim() ? `[完整脚本]: ${(fullScript || '').trim()}` : '';
     const shotPrompt = inputScripts.map((script) => {
@@ -3091,7 +4607,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return `[分镜指引]: ${shotPrompt}\n${storyboardSupplement}${firstLastFrameAudioSupplement ? `\n${firstLastFrameAudioSupplement}` : ''}`;
     }
     return [basePrompt || shotPrompt, storyboardSupplement, firstLastFrameAudioSupplement].filter(Boolean).join('\n\n');
-  };
+  }
 
   const resolveCurrentSingleAssetPath = async () => {
     let apiPath = lastUploadedUrl;
@@ -3111,6 +4627,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const buildScriptInputText = () => {
     const parts: string[] = [];
+    const normalizedAdditionalRequirements = (genPrompt || '').trim();
+    const normalizedReferenceScript = isReferenceScriptFresh ? (referenceScript || '').trim() : '';
 
     const pushLine = (label: string, value: string) => {
       const trimmed = (value || '').trim();
@@ -3125,7 +4643,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     pushLine(t.wb_field_delivery_region_label, deliveryRegion);
     pushLine(t.wb_field_video_language_label, targetLanguage);
     pushLine(t.wb_field_video_type_label, videoType);
-    pushLine(t.wb_field_additional_requirements_label, genPrompt);
+    if (normalizedAdditionalRequirements && normalizedAdditionalRequirements !== normalizedReferenceScript) {
+      pushLine(t.wb_field_additional_requirements_label, normalizedAdditionalRequirements);
+    }
+    if (normalizedReferenceScript) {
+      parts.push(`${t.wb_reference_script_label || 'Reference Script'}:\n${normalizedReferenceScript}`);
+    }
 
     return parts.length > 0 ? parts.join('\n') : t.wb_script_prompt_fallback;
   };
@@ -3167,6 +4690,35 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     return paths;
   }, [extractUploadedAssetPath, getProductRecognitionSources]);
+
+  useEffect(() => {
+    if (!hasAiRecognized) {
+      if (needsAiReRecognize) setNeedsAiReRecognize(false);
+      return;
+    }
+
+    if (!recognizedProductSourceSignature) {
+      if (needsAiReRecognize) setNeedsAiReRecognize(false);
+      return;
+    }
+
+    if (!currentProductRecognitionSourceSignature) {
+      if (needsAiReRecognize) setNeedsAiReRecognize(false);
+      return;
+    }
+
+    const nextDirty = currentProductRecognitionSourceSignature !== recognizedProductSourceSignature;
+    if (nextDirty !== needsAiReRecognize) {
+      setNeedsAiReRecognize(nextDirty);
+    }
+  }, [
+    currentProductRecognitionSourceSignature,
+    hasAiRecognized,
+    needsAiReRecognize,
+    recognizedProductSourceSignature,
+  ]);
+
+  const isReferenceScriptFresh = !referenceScript || referenceScriptProductSignature === currentProductInfoSignature;
 
   const handleResizeMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -3266,22 +4818,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     window.addEventListener('mouseup', onUp);
   }, [scriptPreviewRatio, SCRIPT_COLUMN_MIN_WIDTH, PREVIEW_COLUMN_MIN_WIDTH, SCRIPT_PREVIEW_RATIO_KEY]);
 
-  const productImageSignature = useMemo(() => {
-    const sources = getProductRecognitionSources();
-    return sources
-        .map((asset) => {
-          if (asset.id) return String(asset.id);
-          if (asset.fileObj) {
-            return `${asset.fileObj.name}:${asset.fileObj.size}:${asset.fileObj.lastModified}`;
-          }
-          return String(asset.assetUrl || asset.previewUrl || '');
-        })
-        .filter(Boolean)
-        .join('|');
-  }, [getProductRecognitionSources]);
-
   const handleAiRecognize = useCallback(
-      async (opts?: { skipOverwriteConfirm?: boolean }) => {
+      async () => {
         if (!user?.id) {
           openInfo(popupTitles.notice, t.wb_popup_not_logged_in);
           return;
@@ -3293,25 +4831,36 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           return;
         }
 
-        const signature = imagePaths.join('|');
+        // Determine if user has manually edited any product info field
+        const hasUserEdited = Boolean(
+          (productInfoTouched.name && productName.trim()) ||
+          (productInfoTouched.category && productCategory.trim()) ||
+          (productInfoTouched.sellingPoints && coreSellingPoints.trim()) ||
+          (productInfoTouched.audience && targetAudience.trim())
+        );
 
-        const hasManualInput =
-            (productInfoTouched.name && productName.trim()) ||
-            (productInfoTouched.category && productCategory.trim()) ||
-            (productInfoTouched.sellingPoints && coreSellingPoints.trim()) ||
-            (productInfoTouched.audience && targetAudience.trim());
+        // Always send existing content as context for the AI (whether user-typed or AI-filled)
+        const hasAnyContent = Boolean(
+          productName.trim() || productCategory.trim() || coreSellingPoints.trim() || targetAudience.trim()
+        );
 
-        if (!opts?.skipOverwriteConfirm && hasManualInput) {
-          const ok = await openConfirm(t.wb_ai_overwrite_title, t.wb_ai_overwrite_message, {
-            okLabel: t.wb_ai_overwrite_confirm_ok,
-            cancelLabel: t.wb_ai_overwrite_confirm_cancel,
-          });
-          if (!ok) return;
-        }
+        // Build existing_info payload when fields have content
+        const existingInfo = hasAnyContent
+          ? {
+              ...(productName.trim() ? { product_name: productName.trim() } : {}),
+              ...(productCategory.trim() ? { product_category: productCategory.trim() } : {}),
+              ...(coreSellingPoints.trim() ? { core_selling_points: coreSellingPoints.trim() } : {}),
+              ...(targetAudience.trim() ? { target_audience: targetAudience.trim() } : {}),
+            }
+          : undefined;
 
         setIsAiRecognizing(true);
         try {
-          const resp = await videoApi.recognizeProductInfo({ image_paths: imagePaths, output_language: language });
+          const resp = await videoApi.recognizeProductInfo({
+            image_paths: imagePaths,
+            output_language: language,
+            ...(existingInfo ? { existing_info: existingInfo } : {}),
+          });
           const data = resp?.data || resp?.result || resp?.payload || resp;
 
           const nextName = String(data?.product_name || '').trim();
@@ -3321,14 +4870,54 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               : String(data?.core_selling_points || '').trim();
           const nextAudience = String(data?.target_audience || '').trim();
 
-          setProductName(nextName);
-          setProductCategory(nextCategory);
-          setCoreSellingPoints(nextSelling);
-          setTargetAudience(nextAudience);
+          // If user has manually edited fields, show per-field overwrite dialog
+          if (hasUserEdited) {
+            const fields: AiOverwriteField[] = [
+              { key: 'product_name', label: t.wb_field_product_name_label, currentValue: productName.trim(), newValue: nextName },
+              { key: 'product_category', label: t.wb_field_product_category_label, currentValue: productCategory.trim(), newValue: nextCategory },
+              { key: 'core_selling_points', label: t.wb_field_core_selling_points_label, currentValue: coreSellingPoints.trim(), newValue: nextSelling },
+              { key: 'target_audience', label: t.wb_field_target_audience_label, currentValue: targetAudience.trim(), newValue: nextAudience },
+            ];
+
+            // Only show fields that actually differ
+            const changedFields = fields.filter((f) => f.currentValue !== f.newValue);
+
+            if (changedFields.length === 0) {
+              openInfo(popupTitles.notice, t.wb_ai_overwrite_no_change);
+            } else {
+              // Open the overwrite dialog and wait for user selection
+              const selectedKeys = await new Promise<Set<string> | null>((resolve) => {
+                aiOverwriteResolveRef.current = resolve;
+                setAiOverwriteFields(fields);
+                setIsAiOverwriteOpen(true);
+              });
+
+              if (!selectedKeys) {
+                // User cancelled
+                return;
+              }
+
+              // Apply only selected fields
+              if (selectedKeys.has('product_name')) setProductName(nextName);
+              if (selectedKeys.has('product_category')) setProductCategory(nextCategory);
+              if (selectedKeys.has('core_selling_points')) setCoreSellingPoints(nextSelling);
+              if (selectedKeys.has('target_audience')) setTargetAudience(nextAudience);
+            }
+          } else {
+            // No existing content — apply all directly (original behavior)
+            setProductName(nextName);
+            setProductCategory(nextCategory);
+            setCoreSellingPoints(nextSelling);
+            setTargetAudience(nextAudience);
+          }
+
           setProductInfoTouched({ name: false, category: false, sellingPoints: false, audience: false });
 
+          const recognizedSignature = buildProductRecognitionSourceSignature(getProductRecognitionSources());
+
           setHasAiRecognized(true);
-          lastRecognizedSignatureRef.current = productImageSignature || signature;
+          setRecognizedProductSourceSignature(recognizedSignature);
+          setNeedsAiReRecognize(false);
         } catch (err: any) {
           openErrorModal(err, { category: 'recognize_failed' });
         } finally {
@@ -3337,12 +4926,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       },
       [
         coreSellingPoints,
-        openConfirm,
         openInfo,
         productCategory,
-        productImageSignature,
         productInfoTouched,
         productName,
+        getProductRecognitionSources,
         resolveProductRecognitionImagePaths,
         targetAudience,
         user?.id,
@@ -3350,48 +4938,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         language
       ]
   );
-
-  useEffect(() => {
-    if (isAiRecognizing) return;
-
-    if (!productImageSignature) {
-      lastRecognizedSignatureRef.current = '';
-      return;
-    }
-
-    // Skip auto re-prompt during project workspace application or explicit project switching
-    if (isApplyingProjectWorkspaceRef.current || isSwitchingProjectRef.current) {
-      lastRecognizedSignatureRef.current = productImageSignature;
-      return;
-    }
-
-    const prevSignature = lastRecognizedSignatureRef.current;
-
-    if (!prevSignature) {
-      lastRecognizedSignatureRef.current = productImageSignature;
-      return;
-    }
-
-    if (prevSignature === productImageSignature) return;
-    if (isAutoRecognizePromptingRef.current) return;
-
-    isAutoRecognizePromptingRef.current = true;
-    void (async () => {
-      const ok = await openConfirm(t.wb_ai_reprompt_title, t.wb_ai_reprompt_message, {
-        okLabel: t.wb_ai_reprompt_confirm_ok,
-        cancelLabel: t.wb_ai_reprompt_confirm_cancel,
-      });
-      isAutoRecognizePromptingRef.current = false;
-
-      if (!ok) {
-        lastRecognizedSignatureRef.current = productImageSignature;
-        return;
-      }
-
-      await handleAiRecognize({ skipOverwriteConfirm: true });
-      lastRecognizedSignatureRef.current = productImageSignature;
-    })();
-  }, [handleAiRecognize, isAiRecognizing, openConfirm, productImageSignature, t]);
 
   const handleGenerateKlingBoundaryFrames = async () => {
     if (selectedModel !== 'kling') return;
@@ -3406,10 +4952,30 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setIsGeneratingKlingBoundaryFrames(true);
     try {
       const projectId = await ensureSingleProjectId();
-      const firstImage = imageAssets[0];
-      let referencePath = firstImage.uploadedPath || firstImage.assetUrl || null;
-      if (!referencePath && firstImage.fileObj) {
-        const uploadResp = await assetsApi.uploadTempAsset(firstImage.fileObj);
+      const selectedImageAsset = selectedQueueAssetId
+        ? imageAssets.find((asset) => asset.id === selectedQueueAssetId) || null
+        : null;
+      const selectedImagePath = String(selectedImageAsset?.uploadedPath || selectedImageAsset?.assetUrl || '').trim();
+      const selectedIsUsable = !!selectedImageAsset && (
+        !!selectedImageAsset.fileObj ||
+        (!!selectedImagePath && !selectedImagePath.includes('/media/generated/'))
+      );
+      const uploadableImageAsset = imageAssets.find((asset) => !!asset.fileObj) || null;
+      const nonGeneratedImageAsset = imageAssets.find((asset) => {
+        const path = String(asset.uploadedPath || asset.assetUrl || '').trim();
+        return !!path && !path.includes('/media/generated/');
+      }) || null;
+
+      const referenceAsset =
+        (selectedIsUsable ? selectedImageAsset : null)
+        || uploadableImageAsset
+        || nonGeneratedImageAsset
+        || imageAssets[0];
+
+      let referencePath = referenceAsset.uploadedPath || referenceAsset.assetUrl || null;
+      const needUpload = !referencePath || String(referencePath).includes('/media/generated/');
+      if (needUpload && referenceAsset.fileObj) {
+        const uploadResp = await assetsApi.uploadTempAsset(referenceAsset.fileObj);
         referencePath = extractUploadedAssetPath(uploadResp);
       }
 
@@ -3563,18 +5129,86 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         motion_asset_id: null,
         ...(klingGenerateMode === 'subject' ? { aspect_ratio: aspectRatio } : {}),
         mode: 'pro',
+        pricing_mode: creationMode,
         subject_description_hint: coreSellingPoints.trim() || undefined,
         asset_source: (normalizedAssets[0]?.source ?? null) as GeneratePayload['asset_source'],
         ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
       };
     }
 
-    const apiPath = await resolveCurrentSingleAssetPath();
+    // ── Seedance Replay 多素材：从队列中按类型收集所有素材 ──
+    const resolveQueueAssetPath = async (asset: QueuedAsset): Promise<string | null> => {
+      let p = asset.uploadedPath || asset.assetUrl || null;
+      if (!p && asset.fileObj) {
+        const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
+        p = extractUploadedAssetPath(uploadResp);
+      }
+      return p;
+    };
+
+    const imageAssetsInQueue = uploadDisplayAssets.filter((a) => a.mediaKind === 'image');
+    const videoAssetsInQueue = uploadDisplayAssets.filter((a) => a.mediaKind === 'video');
+    const audioAssetsInQueue = uploadDisplayAssets.filter((a) => a.mediaKind === 'audio');
+
+    // 首帧图片：取队列中第一张图片（Kling 兼容）+ 收集所有图片路径（Seedance 多图参考）
+    let resolvedImagePath: string | null = null;
+    const allImagePaths: string[] = [];
+    const imageAssetsMeta: Array<{ path: string; material_type: string; seedance_asset_id?: string }> = [];
+    for (const imgAsset of imageAssetsInQueue) {
+      const p = await resolveQueueAssetPath(imgAsset);
+      if (p) {
+        allImagePaths.push(p);
+        if (!resolvedImagePath) resolvedImagePath = p;
+        // Collect metadata for Seedance model-type assets (virtual human)
+        const metaEntry: { path: string; material_type: string; seedance_asset_id?: string } = {
+          path: p,
+          material_type: imgAsset.materialType || 'product',
+        };
+        if (imgAsset.materialType === 'model') {
+          const seedanceId = imgAsset.seedanceAssetId;
+          if (seedanceId) {
+            metaEntry.seedance_asset_id = seedanceId;
+          }
+        }
+        imageAssetsMeta.push(metaEntry);
+      }
+    }
+
+    // 参考视频：取第一个（Kling/Sora 兼容）+ 收集所有视频路径（Seedance 多视频参考）
+    let resolvedVideoPath: string | null = null;
+    const allVideoPaths: string[] = [];
+    for (const vidAsset of videoAssetsInQueue) {
+      const p = await resolveQueueAssetPath(vidAsset);
+      if (p) {
+        allVideoPaths.push(p);
+        if (!resolvedVideoPath) resolvedVideoPath = p;
+      }
+    }
+
+    // 参考音频：收集所有音频路径
+    const singleAudioPaths: string[] = [];
+    for (const audioAsset of audioAssetsInQueue) {
+      const aPath = await resolveQueueAssetPath(audioAsset);
+      if (aPath) singleAudioPaths.push(aPath);
+    }
+
+    // 如果队列为空，回退到当前选中素材（兼容非 Replay 模式）
+    if (!resolvedImagePath && !resolvedVideoPath && imageAssetsInQueue.length === 0 && videoAssetsInQueue.length === 0) {
+      const fallbackPath = currentAssetMediaKind !== 'audio' ? await resolveCurrentSingleAssetPath() : null;
+      if (fallbackPath) {
+        if (currentAssetMediaKind === 'video') resolvedVideoPath = fallbackPath;
+        else resolvedImagePath = fallbackPath;
+      }
+    }
+
+    const hasVisualAsset = !!resolvedImagePath || !!resolvedVideoPath;
+
     const payload: GeneratePayload = {
       model: backendModel,
       prompt: buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts, activeCreativeCardText),
       product_name: productName,
       duration: genDuration,
+      aspect_ratio: aspectRatio,
       sound: soundSetting,
       ...(selectedBackgroundAudio && soundSetting === 'off'
         ? {
@@ -3584,17 +5218,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         }
         : {}),
       asset_source: selectedAssetSource,
+      pricing_mode: creationMode,
       user_language: language,
       target_language: targetLanguage,
       model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
-      motion_asset_id: currentAssetMediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
+      motion_asset_id: hasVisualAsset ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
+      ...(resolvedImagePath ? { image_path: resolvedImagePath } : {}),
+      ...(allImagePaths.length > 1 ? { image_paths: allImagePaths } : {}),
+      ...(imageAssetsMeta.length > 0 ? { image_assets_meta: imageAssetsMeta } : {}),
+      ...(resolvedVideoPath ? { motion_video_path: resolvedVideoPath } : {}),
+      ...(allVideoPaths.length > 1 ? { video_paths: allVideoPaths } : {}),
+      ...(singleAudioPaths.length > 0 ? { audio_paths: singleAudioPaths } : {}),
+      ...(selectedModel === 'seedance2.0' ? { aspect_ratio: aspectRatio } : {}),
       ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
     };
-
-    if (apiPath) {
-      if (currentAssetMediaKind === 'video') payload.motion_video_path = apiPath;
-      else payload.image_path = apiPath;
-    }
 
     if (selectedModel === 'sora2' || selectedModel === 'sora2pro') {
       payload.size = aspectRatio === '9:16' ? '720x1280' : '1280x720';
@@ -3647,6 +5284,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         model: backendModel,
         duration: Number(requestPayload.duration ?? genDuration),
         sound: String(requestPayload.sound || '') === 'off' ? 'off' : 'on',
+        aspect_ratio: String(requestPayload.aspect_ratio || ''),
+        resolution: String((requestPayload as any).resolution || (requestPayload as any).size || ''),
       });
       console.log('[Estimate] submitSingleGeneration', { taskId, projectId, estimatedSeconds });
 
@@ -3949,6 +5588,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const uploadResp = await assetsApi.uploadTempAsset(file);
       const rawPath = extractUploadedAssetPath(uploadResp);
       if (!rawPath) return;
+      const uploadedFps = typeof uploadResp?.data?.fps === 'number' ? uploadResp.data.fps : null;
 
       const displayUrl = toDisplayUrl(rawPath) || rawPath;
       if (localPreviewUrl.startsWith('blob:')) {
@@ -3963,6 +5603,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             assetUrl: rawPath,
             uploadedPath: rawPath,
             fileObj: null,
+            fps: uploadedFps ?? item.fps ?? null,
           }
           : item
       )));
@@ -3980,6 +5621,30 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       console.warn('Failed to persist local upload for preview:', err);
     }
   }, [extractUploadedAssetPath, toDisplayUrl]);
+
+  const buildSeedanceReplayQueuedAsset = useCallback((asset: SeedanceReplayParsedAsset, index: number): QueuedAsset => {
+    const mediaKind = asset.mediaKind;
+    return {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${index}`,
+      name: asset.name,
+      previewUrl: URL.createObjectURL(asset.file),
+      fileObj: asset.file,
+      assetUrl: null,
+      assetId: null,
+      source: mediaKind === 'image' ? 'product' : 'preference',
+      materialType: mediaKind === 'video' ? 'motion' : mediaKind === 'audio' ? 'audio' : 'product',
+      isPrimaryFrame: mediaKind === 'image',
+      mediaKind,
+      durationSeconds: asset.durationSeconds,
+      mimeType: asset.mimeType,
+      sizeBytes: asset.sizeBytes,
+      width: asset.width,
+      height: asset.height,
+      fps: asset.fps,
+      validationMessages: [],
+      uploadedPath: null,
+    };
+  }, []);
 
   const applySelectedUploadType = (files: File[], selectedType: AssetLibraryTab) => {
     if (files.length === 0) return;
@@ -4196,24 +5861,82 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const resolveTransferStationItemFromDrag = (e: React.DragEvent): TransferStationItem | null => {
+    const supportsTransferStation = e.dataTransfer.types?.includes(TRANSFER_STATION_DRAG_MIME);
+    if (!supportsTransferStation) return null;
+
+    const raw = e.dataTransfer.getData(TRANSFER_STATION_DRAG_MIME);
+    if (!raw) return null;
+
+    try {
+      const parsed = JSON.parse(raw) as Partial<TransferStationItem>;
+      const droppedItemId = String(parsed?.id || '').trim();
+      if (!droppedItemId) return null;
+      return transferStationItems.find((item) => item.id === droppedItemId) || null;
+    } catch {
+      return null;
+    }
+  };
+
   const handleUploadDragOver = (e: React.DragEvent) => {
-    if (!e.dataTransfer.types?.includes('Files')) return;
+    const supportsFiles = e.dataTransfer.types?.includes('Files');
+    const supportsTransferStation = e.dataTransfer.types?.includes(TRANSFER_STATION_DRAG_MIME);
+    if (!supportsFiles && !supportsTransferStation) return;
     e.preventDefault();
     setIsDragUploadActive(true);
   };
 
   const handleUploadDragLeave = (e: React.DragEvent) => {
-    if (!e.dataTransfer.types?.includes('Files')) return;
+    const supportsFiles = e.dataTransfer.types?.includes('Files');
+    const supportsTransferStation = e.dataTransfer.types?.includes(TRANSFER_STATION_DRAG_MIME);
+    if (!supportsFiles && !supportsTransferStation) return;
     e.preventDefault();
     setIsDragUploadActive(false);
   };
 
   const handleUploadDrop = (e: React.DragEvent) => {
-    if (!e.dataTransfer.types?.includes('Files')) return;
+    const supportsFiles = e.dataTransfer.types?.includes('Files');
+    const supportsTransferStation = e.dataTransfer.types?.includes(TRANSFER_STATION_DRAG_MIME);
+    if (!supportsFiles && !supportsTransferStation) return;
     e.preventDefault();
     setIsDragUploadActive(false);
+
+    if (supportsTransferStation) {
+      const droppedItem = resolveTransferStationItemFromDrag(e);
+      if (droppedItem) {
+        applyTransferStationItemToWorkbench(droppedItem);
+        return;
+      }
+    }
+
+    if (!supportsFiles) return;
     const files = Array.from(e.dataTransfer.files || []);
     handleLocalFiles(files);
+  };
+
+  const handleScriptDragOver = (e: React.DragEvent) => {
+    const supportsTransferStation = e.dataTransfer.types?.includes(TRANSFER_STATION_DRAG_MIME);
+    if (!supportsTransferStation) return;
+    e.preventDefault();
+    setIsScriptDropActive(true);
+  };
+
+  const handleScriptDragLeave = (e: React.DragEvent) => {
+    const supportsTransferStation = e.dataTransfer.types?.includes(TRANSFER_STATION_DRAG_MIME);
+    if (!supportsTransferStation) return;
+    e.preventDefault();
+    setIsScriptDropActive(false);
+  };
+
+  const handleScriptDrop = (e: React.DragEvent) => {
+    const supportsTransferStation = e.dataTransfer.types?.includes(TRANSFER_STATION_DRAG_MIME);
+    if (!supportsTransferStation) return;
+    e.preventDefault();
+    setIsScriptDropActive(false);
+
+    const droppedItem = resolveTransferStationItemFromDrag(e);
+    if (!droppedItem || droppedItem.mediaKind !== 'script') return;
+    applyTransferStationItemToWorkbench(droppedItem);
   };
 
   const removeUpload = (e: React.MouseEvent, assetId?: string) => {
@@ -4221,45 +5944,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const removeTargetId = assetId || selectedQueueAssetId;
     if (removeTargetId) {
-      const nextQueue = assetQueue.filter((item) => item.id !== removeTargetId);
-      setAssetQueue(nextQueue);
-
-      const fallback = nextQueue[0] || null;
-      if (fallback) {
-        setSelectedQueueAssetId(fallback.id);
-        setUploadedFile(fallback.previewUrl || null);
-        setSelectedFileObj(fallback.fileObj || null);
-        setFileName(fallback.name || '');
-        setSelectedAssetUrl(fallback.assetUrl || null);
-        setSelectedAssetSource(fallback.source || null);
-        setCurrentMaterialType(fallback.materialType || null);
-      } else {
-        setSelectedQueueAssetId(null);
-        setUploadedFile(null);
-        setSelectedFileObj(null);
-        setFileName('');
-        setSelectedAssetUrl(null);
-        setLastUploadedUrl(null);
-        setSelectedAssetSource(null);
-        setCurrentMaterialType(null);
-      }
-
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      removeQueuedAssetById(removeTargetId);
       return;
     }
 
-    if (uploadedFile) {
-      URL.revokeObjectURL(uploadedFile);
-    }
-    setUploadedFile(null);
-    setSelectedFileObj(null);
-    setFileName('');
-    setSelectedAssetUrl(null);
-    setLastUploadedUrl(null);
-    setSelectedAssetSource(null);
-    setCurrentMaterialType(null);
+    revokeBlobUrl(uploadedFile);
+    clearWorkbenchAssetSelection();
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -4318,6 +6008,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setScriptPages(prev => {
       const next = [...prev];
       next[activeScriptPage] = { ...next[activeScriptPage], scripts: newScripts };
+      return next;
+    });
+  };
+
+  const removeScriptPage = (index: number) => {
+    if (scriptPages.length <= 1) return;
+    setScriptPages(prev => {
+      const next = prev.filter((_, i) => i !== index);
+      const newActive = index < activeScriptPage
+        ? activeScriptPage - 1
+        : index === activeScriptPage
+          ? Math.min(activeScriptPage, next.length - 1)
+          : activeScriptPage;
+      setActiveScriptPage(newActive);
+      setScripts(next[newActive]?.scripts || []);
       return next;
     });
   };
@@ -4545,21 +6250,234 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
   };
 
-  const removeAssetFromQueue = (id: string) => {
-    setAssetQueue(prev => prev.filter(a => a.id !== id));
-    setSelectedQueueAssetId(prev => (prev === id ? null : prev));
-  };
+  const clearWorkbenchAssetSelection = useCallback(() => {
+    setSelectedQueueAssetId(null);
+    setUploadedFile(null);
+    setSelectedFileObj(null);
+    setFileName('');
+    setSelectedAssetUrl(null);
+    setLastUploadedUrl(null);
+    setSelectedAssetSource(null);
+    setCurrentMaterialType(null);
+    setGeneratedVideoUrl(null);
+  }, []);
 
-  const selectAssetFromQueue = (asset: QueuedAsset) => {
+  const applyWorkbenchAssetSelection = useCallback((asset: QueuedAsset | null) => {
+    if (!asset) {
+      clearWorkbenchAssetSelection();
+      return;
+    }
+
     setSelectedQueueAssetId(asset.id);
     setUploadedFile(asset.previewUrl || null);
     setFileName(asset.name || '');
     setSelectedFileObj(asset.fileObj || null);
     setSelectedAssetUrl(asset.assetUrl || null);
+    setLastUploadedUrl(asset.uploadedPath || asset.assetUrl || null);
     setSelectedAssetSource(asset.source || null);
     setCurrentMaterialType(asset.materialType || null);
     setGeneratedVideoUrl(null);
+  }, [clearWorkbenchAssetSelection]);
+
+  const removeQueuedAssetById = useCallback((id: string) => {
+    const removedAsset = assetQueue.find((asset) => asset.id === id) || null;
+    const nextQueue = assetQueue.filter((asset) => asset.id !== id);
+    setAssetQueue(nextQueue);
+
+    const preservedSelection = selectedQueueAssetId && selectedQueueAssetId !== id
+      ? nextQueue.find((asset) => asset.id === selectedQueueAssetId) || null
+      : null;
+    applyWorkbenchAssetSelection(preservedSelection || nextQueue[0] || null);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    if (seedanceReplayFileInputRef.current) {
+      seedanceReplayFileInputRef.current.value = '';
+    }
+    revokeBlobUrl(removedAsset?.previewUrl);
+  }, [applyWorkbenchAssetSelection, assetQueue, selectedQueueAssetId]);
+
+  const removeAssetFromQueue = (id: string) => {
+    removeQueuedAssetById(id);
   };
+
+  const selectAssetFromQueue = (asset: QueuedAsset) => {
+    applyWorkbenchAssetSelection(asset);
+  };
+
+  const openSeedanceReplayLocalPicker = useCallback((intent: SeedanceReplayUploadIntent) => {
+    setSeedanceReplayUploadIntent(intent);
+    if (!seedanceReplayFileInputRef.current) return;
+    seedanceReplayFileInputRef.current.value = '';
+    seedanceReplayFileInputRef.current.multiple = true;
+    seedanceReplayFileInputRef.current.accept = getSeedanceReplayLocalAccept(intent.targetMediaKind);
+    seedanceReplayFileInputRef.current.click();
+  }, []);
+
+  const handleSeedanceReplayOpenLibrary = useCallback(() => {
+    const intent = getSeedanceReplayLibraryIntent(null);
+    setSeedanceReplayLibraryIntent(intent);
+    setAssetLibraryPickMode('default');
+    setAssetLibraryTab(intent.preferredTab);
+    setAssetLibraryCurrentFolderId(null);
+    setIsAssetLibraryOpen(true);
+  }, [getSeedanceReplayLibraryIntent]);
+
+  const handleSeedanceReplayPreview = useCallback((assetId: string) => {
+    const target = uploadDisplayAssets.find((asset) => asset.id === assetId);
+    if (!target) return;
+    setSeedanceReplayPreviewAsset(target);
+  }, [uploadDisplayAssets]);
+
+  const handleSeedanceReplayRemove = useCallback((assetId: string) => {
+    removeQueuedAssetById(assetId);
+  }, [removeQueuedAssetById]);
+
+  const seedanceReplayPreviewSrc = seedanceReplayPreviewAsset
+    ? (
+      seedanceReplayPreviewAsset.previewUrl
+      || toDisplayUrl(seedanceReplayPreviewAsset.assetUrl || seedanceReplayPreviewAsset.uploadedPath)
+      || seedanceReplayPreviewAsset.assetUrl
+      || seedanceReplayPreviewAsset.uploadedPath
+      || null
+    )
+    : null;
+
+  const handleSeedanceReplayLocalFiles = useCallback(async (files: File[], intent: SeedanceReplayUploadIntent) => {
+    if (files.length === 0) return;
+
+    const errors: string[] = [];
+    const parsedAssets: SeedanceReplayParsedAsset[] = [];
+    for (const file of files) {
+      try {
+        const parsedAsset = await parseSeedanceReplayLocalFile(file, {
+          inferMediaKind,
+          compressImage,
+        }, t);
+        if (intent.targetMediaKind && parsedAsset.mediaKind !== intent.targetMediaKind) {
+          const kindLabel = intent.targetMediaKind === 'image'
+            ? (t.wb_seedance_replay_media_image || 'Image')
+            : intent.targetMediaKind === 'video'
+              ? (t.wb_seedance_replay_media_video || 'Video')
+              : (t.wb_seedance_replay_media_audio || 'Audio');
+          errors.push(formatMessage(
+            t.wb_seedance_replay_notice_upload_kind_only || 'This entry only supports uploading {kind}: {name}',
+            { kind: kindLabel, name: file.name },
+          ));
+          continue;
+        }
+        const validationMessage = validateSeedanceReplayParsedAsset(parsedAsset, t);
+        if (validationMessage) {
+          errors.push(validationMessage);
+          continue;
+        }
+        parsedAssets.push(parsedAsset);
+      } catch (error: any) {
+        errors.push(error?.message || formatMessage(
+          t.wb_seedance_replay_notice_file_process_failed || 'Unable to process file: {name}',
+          { name: file.name },
+        ));
+      }
+    }
+
+    const existingCounts = assetQueue.reduce(
+      (acc, asset) => {
+        if (asset.mediaKind === 'image') acc.image += 1;
+        if (asset.mediaKind === 'video') acc.video += 1;
+        if (asset.mediaKind === 'audio') acc.audio += 1;
+        return acc;
+      },
+      { image: 0, video: 0, audio: 0 }
+    );
+    const acceptedAssets: SeedanceReplayParsedAsset[] = [];
+    const overflow = { image: 0, video: 0, audio: 0 };
+
+    parsedAssets.forEach((asset) => {
+      const limit = asset.mediaKind === 'image'
+        ? SEEDANCE_REPLAY_IMAGE_LIMIT
+        : asset.mediaKind === 'video'
+          ? SEEDANCE_REPLAY_VIDEO_LIMIT
+          : SEEDANCE_REPLAY_AUDIO_LIMIT;
+
+      if (existingCounts[asset.mediaKind] + acceptedAssets.filter((item) => item.mediaKind === asset.mediaKind).length >= limit) {
+        overflow[asset.mediaKind] += 1;
+        return;
+      }
+      acceptedAssets.push(asset);
+    });
+
+    if (acceptedAssets.length === 0) {
+      const summaryLines = [...errors];
+      if (overflow.image > 0) summaryLines.push(formatMessage(
+        t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
+        { limit: SEEDANCE_REPLAY_IMAGE_LIMIT, kind: t.wb_seedance_replay_media_image || 'Image', count: overflow.image },
+      ));
+      if (overflow.video > 0) summaryLines.push(formatMessage(
+        t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
+        { limit: SEEDANCE_REPLAY_VIDEO_LIMIT, kind: t.wb_seedance_replay_media_video || 'Video', count: overflow.video },
+      ));
+      if (overflow.audio > 0) summaryLines.push(formatMessage(
+        t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
+        { limit: SEEDANCE_REPLAY_AUDIO_LIMIT, kind: t.wb_seedance_replay_media_audio || 'Audio', count: overflow.audio },
+      ));
+      if (summaryLines.length > 0) {
+        openInfo(popupTitles.notice, summaryLines.join('\n'));
+      }
+      return;
+    }
+
+    const nextItems = acceptedAssets.map((asset, index) => buildSeedanceReplayQueuedAsset(asset, index));
+    const selectedItem = nextItems[nextItems.length - 1];
+    setAssetQueue((prev) => [...prev, ...nextItems]);
+    applyWorkbenchAssetSelection(selectedItem);
+    setLastUploadedUrl(null);
+
+    nextItems.forEach((item) => {
+      if (!item.fileObj) return;
+      void persistLocalQueuedAsset(item.id, item.fileObj, item.previewUrl || '', item.id === selectedItem.id);
+    });
+
+    const summaryLines = [
+      ...errors,
+      ...(overflow.image > 0 ? [formatMessage(
+        t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
+        { limit: SEEDANCE_REPLAY_IMAGE_LIMIT, kind: t.wb_seedance_replay_media_image || 'Image', count: overflow.image },
+      )] : []),
+      ...(overflow.video > 0 ? [formatMessage(
+        t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
+        { limit: SEEDANCE_REPLAY_VIDEO_LIMIT, kind: t.wb_seedance_replay_media_video || 'Video', count: overflow.video },
+      )] : []),
+      ...(overflow.audio > 0 ? [formatMessage(
+        t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
+        { limit: SEEDANCE_REPLAY_AUDIO_LIMIT, kind: t.wb_seedance_replay_media_audio || 'Audio', count: overflow.audio },
+      )] : []),
+    ];
+    if (summaryLines.length > 0) {
+      openInfo(popupTitles.notice, summaryLines.join('\n'));
+    }
+  }, [
+    applyWorkbenchAssetSelection,
+    assetQueue,
+    buildSeedanceReplayQueuedAsset,
+    compressImage,
+    inferMediaKind,
+    openInfo,
+    persistLocalQueuedAsset,
+    popupTitles.notice,
+    t,
+  ]);
+
+  const handleSeedanceReplayFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const intent = seedanceReplayUploadIntent;
+    await handleSeedanceReplayLocalFiles(files, intent);
+    setSeedanceReplayUploadIntent({ targetMediaKind: null });
+    if (seedanceReplayFileInputRef.current) {
+      seedanceReplayFileInputRef.current.value = '';
+      seedanceReplayFileInputRef.current.accept = SEEDANCE_REPLAY_UPLOAD_ACCEPT;
+    }
+  }, [handleSeedanceReplayLocalFiles, seedanceReplayUploadIntent]);
 
   const klingPrimarySlotAsset = useMemo(
       () => uploadDisplayAssets.find((asset) => klingGenerateMode === 'subject' ? asset.source === 'subject' : asset.source === 'product') || null,
@@ -4668,34 +6586,55 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           )) : (
             <div className="w-full h-24 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
           )}
-          <div className="absolute top-1 left-1 z-10 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-            {isKlingOmniMode && klingGenerateMode === 'subject' && hasSubjectOtherViews(asset) && (asset.materialType === 'product' || asset.materialType === 'model') && (
-                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm">
-                  <Layers3 className="h-3 w-3" />
-                </span>
-            )}
-            <select
-                className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
-                value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product')}
-                onChange={(e) => {
-                  const newType = e.target.value as AssetLibraryTab;
-                  setAssetQueue(prev => {
-                    const next = prev.map((item): QueuedAsset => item.id === asset.id ? { ...item, materialType: newType } : item);
-                    return isKlingOmniMode ? normalizeQueueSourcesForKlingMode(next, klingGenerateMode) : next;
-                  });
-                  if (selectedQueueAssetId === asset.id || uploadedFile === asset.previewUrl) {
-                    setCurrentMaterialType(newType);
-                  }
-                }}
-                style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
-            >
-              <option value="product">{materialTypeLabelMap['product']}</option>
-              <option value="model">{materialTypeLabelMap['model']}</option>
-              <option value="scene">{materialTypeLabelMap['scene']}</option>
-              <option value="motion">{materialTypeLabelMap['motion']}</option>
-              <option value="audio">{materialTypeLabelMap['audio']}</option>
-            </select>
-          </div>
+          {(() => {
+            const hideMaterialTypeSelect =
+              isKlingOmniMode && (klingGenerateMode === 'first_frame' || klingGenerateMode === 'first_last_frame');
+            const showSubjectBadge =
+              isKlingOmniMode &&
+              klingGenerateMode === 'subject' &&
+              hasSubjectOtherViews(asset) &&
+              (asset.materialType === 'product' || asset.materialType === 'model');
+            if (!showSubjectBadge && hideMaterialTypeSelect) return null;
+            return (
+              <div className="absolute top-1 left-1 z-10 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                {showSubjectBadge ? (
+                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm">
+                    <Layers3 className="h-3 w-3" />
+                  </span>
+                ) : null}
+                {!hideMaterialTypeSelect ? (
+                  <select
+                    className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
+                    value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product')}
+                    onChange={(e) => {
+                      const newType = e.target.value as AssetLibraryTab;
+                      setAssetQueue((prev) => {
+                        const next = prev.map((item): QueuedAsset =>
+                          item.id === asset.id ? { ...item, materialType: newType } : item
+                        );
+                        return isKlingOmniMode ? normalizeQueueSourcesForKlingMode(next, klingGenerateMode) : next;
+                      });
+                      if (selectedQueueAssetId === asset.id || uploadedFile === asset.previewUrl) {
+                        setCurrentMaterialType(newType);
+                      }
+                    }}
+                    style={{
+                      backgroundImage:
+                        'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")',
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 6px center',
+                    }}
+                  >
+                    <option value="product">{materialTypeLabelMap['product']}</option>
+                    <option value="model">{materialTypeLabelMap['model']}</option>
+                    <option value="scene">{materialTypeLabelMap['scene']}</option>
+                    <option value="motion">{materialTypeLabelMap['motion']}</option>
+                    <option value="audio">{materialTypeLabelMap['audio']}</option>
+                  </select>
+                ) : null}
+              </div>
+            );
+          })()}
           <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
             {!isKlingOmniMode && asset.mediaKind === 'image' && (
                 <button
@@ -4883,6 +6822,251 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       .join(' ')
   ), [normalizeScriptText]);
 
+  const applyImportedScriptText = useCallback((rawText: string, sourceName?: string, sourceLabel?: string) => {
+    const content = String(rawText || '').trim();
+    if (!content) {
+      openInfo(popupTitles.notice, t.wb_script_import_empty || '素材库中的脚本内容为空。');
+      return;
+    }
+
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      parsed = null;
+    }
+
+    const importedName = String(sourceName || parsed?.name || '').trim();
+    const importedSourceLabel = String(sourceLabel || t.wb_script_imported_from_library_badge || '从素材库导入').trim();
+    const scriptContent = parsed?.script_content || parsed || {};
+
+    const rawScripts = Array.isArray(parsed)
+      ? parsed
+      : (Array.isArray(scriptContent?.scripts)
+        ? scriptContent.scripts
+        : (Array.isArray(scriptContent?.shots) ? scriptContent.shots : null));
+
+    const hasStructuredShots = Array.isArray(rawScripts) && rawScripts.length > 0 && typeof rawScripts[0] === 'object';
+    const nextPageIndex = scriptPagesRef.current.length;
+
+    if (hasStructuredShots) {
+      const importedScripts: ScriptItem[] = rawScripts.map((item: any, idx: number) => ({
+        id: Number(item?.id) || Date.now() + idx,
+        shot: String(item?.shot || idx + 1),
+        type: String(item?.type || 'Medium'),
+        dur: String(item?.dur || '2s'),
+        visual: String(item?.visual || item?.image_description || ''),
+        audio: String(item?.audio || item?.voiceover || ''),
+        audioTranslation: String(item?.audioTranslation || ''),
+      }));
+
+      const normalizedCreativeCard: ScriptCreativeCard = {
+        style: normalizeScriptText(scriptContent?.creative_card?.style || parsed?.creative_card?.style),
+        environment: normalizeScriptText(scriptContent?.creative_card?.environment || parsed?.creative_card?.environment),
+        tonePacing: normalizeScriptText(scriptContent?.creative_card?.tone_pacing || parsed?.creative_card?.tone_pacing),
+        camera: normalizeScriptText(scriptContent?.creative_card?.camera || parsed?.creative_card?.camera),
+        lighting: normalizeScriptText(scriptContent?.creative_card?.lighting || parsed?.creative_card?.lighting),
+        actions: parseScriptStringList(scriptContent?.creative_card?.actions || parsed?.creative_card?.actions, 8),
+        backgroundSound: normalizeScriptText(scriptContent?.creative_card?.background_sound || parsed?.creative_card?.background_sound),
+        transitionEditing: normalizeScriptText(scriptContent?.creative_card?.transition_editing || parsed?.creative_card?.transition_editing),
+        callToAction: normalizeScriptText(scriptContent?.creative_card?.call_to_action || parsed?.creative_card?.call_to_action),
+      };
+
+      const importedFullScript = normalizeScriptText(
+        scriptContent?.video_master_script || parsed?.video_master_script || parsed?.fullScript || parsed?.full_script
+      ) || buildFullScriptFallback(importedScripts);
+      const importedCreativeCardText = normalizeScriptText(
+        scriptContent?.creative_card_text || parsed?.creative_card_text || parsed?.creativeCardText
+      ) || buildCreativeCardEditorText(normalizedCreativeCard) || importedFullScript;
+
+      const appendedPage: ScriptPage = {
+        id: `page-${nextPageIndex + 1}`,
+        name: importedName || `${t.wb_script_page_prefix} ${nextPageIndex + 1}`,
+        scripts: importedScripts,
+        fullScript: importedFullScript,
+        continuityAnchor: scriptContent?.continuity_anchor || parsed?.continuity_anchor || undefined,
+        scriptStructure: scriptContent?.script_structure || parsed?.script_structure || undefined,
+        sellingPoints: parseScriptStringList(scriptContent?.selling_points || parsed?.selling_points),
+        sceneSuggestions: parseScriptStringList(scriptContent?.scene_suggestions || parsed?.scene_suggestions),
+        styleTags: parseScriptStringList(scriptContent?.style_tags || parsed?.style_tags),
+        creativeCard: normalizedCreativeCard,
+        creativeCardText: importedCreativeCardText,
+        sourceLabel: importedSourceLabel,
+      };
+
+      scriptPagesRef.current = [...scriptPagesRef.current, appendedPage];
+      setScriptPages((prev) => [...prev, appendedPage]);
+      setActiveScriptPage(nextPageIndex);
+      setScripts(importedScripts);
+    } else {
+      const appendedPage: ScriptPage = {
+        id: `page-${nextPageIndex + 1}`,
+        name: importedName || `${t.wb_script_page_prefix} ${nextPageIndex + 1}`,
+        scripts: [],
+        fullScript: content,
+        creativeCardText: content,
+        sourceLabel: importedSourceLabel,
+      };
+
+      scriptPagesRef.current = [...scriptPagesRef.current, appendedPage];
+      setScriptPages((prev) => [...prev, appendedPage]);
+      setActiveScriptPage(nextPageIndex);
+      setScripts([]);
+    }
+
+    setIsShotBreakdownOpen(false);
+    openInfo(
+      popupTitles.success,
+      formatMessage(t.wb_script_imported_from_library || '已从素材库导入脚本：{name}', {
+        name: importedName || sourceName || 'script',
+      })
+    );
+  }, [buildCreativeCardEditorText, buildFullScriptFallback, formatMessage, normalizeScriptText, openInfo, parseScriptStringList, popupTitles.notice, popupTitles.success, t]);
+
+  const handleImportScriptFromLibraryAsset = useCallback(async (asset: LibraryAsset) => {
+    const assetUrl = toDisplayUrl(asset.file_url) || asset.file_url;
+    if (!assetUrl) {
+      openInfo(popupTitles.notice, t.wb_script_import_failed || '脚本地址无效，无法导入。');
+      return;
+    }
+
+    try {
+      const response = await fetch(assetUrl, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error(t.wb_script_import_failed || '脚本读取失败，请稍后重试。');
+      }
+
+      const text = await response.text();
+      applyImportedScriptText(text, asset.name || 'script', t.wb_script_imported_from_library_badge || '从素材库导入');
+      setIsAssetLibraryOpen(false);
+      setAssetLibraryPickMode('default');
+    } catch (err: any) {
+      openInfo(
+        popupTitles.notice,
+        String(err?.message || t.wb_script_import_failed || '脚本读取失败，请稍后重试。')
+      );
+    }
+  }, [applyImportedScriptText, openInfo, popupTitles.notice, t]);
+
+  // Script import from asset library — fetch script content and apply as new ScriptPage
+  useEffect(() => {
+    if (!initialLibraryAsset || !initialLibraryAssetToken) return;
+    if (isRestoring) return;
+    if (initialLibraryAssetMode !== 'script_import') return;
+    if (injectedAssetSignaturesRef.current.has(initialLibraryAssetToken)) return;
+    injectedAssetSignaturesRef.current.add(initialLibraryAssetToken);
+
+    const importScriptIntoProject = () => {
+      void handleImportScriptFromLibraryAsset(initialLibraryAsset);
+      onInitialLibraryAssetHandled?.();
+    };
+
+    const targetProjectId = String(initialLibraryAssetTargetProjectId || '').trim();
+    if (targetProjectId && targetProjectId !== projectStore.currentProjectId) {
+      ensureProjectInStore(targetProjectId);
+      goToProject(targetProjectId, importScriptIntoProject);
+      return;
+    }
+
+    importScriptIntoProject();
+  }, [
+    ensureProjectInStore,
+    goToProject,
+    handleImportScriptFromLibraryAsset,
+    initialLibraryAsset,
+    initialLibraryAssetMode,
+    initialLibraryAssetTargetProjectId,
+    initialLibraryAssetToken,
+    isRestoring,
+    onInitialLibraryAssetHandled,
+    projectStore.currentProjectId,
+  ]);
+
+  const openScriptSaveDialog = useCallback(() => {
+    const fallbackName = scriptPages[activeScriptPage]?.name || `${t.wb_script_page_prefix} ${activeScriptPage + 1}`;
+    setScriptSaveNameDraft(fallbackName);
+    setIsScriptSaveDialogOpen(true);
+  }, [activeScriptPage, scriptPages, t.wb_script_page_prefix]);
+
+  const normalizeScriptAssetName = useCallback((rawName: string) => {
+    return String(rawName || '')
+      .trim()
+      .replace(/\.(json|txt|md)$/i, '')
+      .replace(/[\\/:*?"<>|]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }, []);
+
+  const confirmScriptSaveToLibrary = useCallback(async () => {
+    const displayName = normalizeScriptAssetName(scriptSaveNameDraft);
+    if (!displayName) {
+      openInfo(popupTitles.notice, t.wb_script_save_name_required || '请输入脚本名称后再保存。');
+      return;
+    }
+
+    const combinedScript = buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts, activeCreativeCardText).trim();
+    if (!combinedScript) {
+      openInfo(popupTitles.notice, t.wb_script_save_need_content || '请先生成或编辑脚本后再保存。');
+      return;
+    }
+
+    const payload = {
+      name: displayName,
+      video_master_script: activeFullScript?.trim() || combinedScript,
+      creative_card: activeCreativeCard || null,
+      creative_card_text: activeCreativeCardText || '',
+      scripts,
+      shots: scripts,
+      continuity_anchor: activeScriptPlan?.continuityAnchor || null,
+      script_structure: activeScriptPlan?.scriptStructure || null,
+      selling_points: activeScriptPlan?.sellingPoints || [],
+      scene_suggestions: activeScriptPlan?.sceneSuggestions || [],
+      style_tags: activeScriptPlan?.styleTags || [],
+      saved_at: new Date().toISOString(),
+    };
+    const fileName = `${displayName}.json`;
+    const scriptFile = new File([JSON.stringify(payload, null, 2)], fileName, { type: 'application/json' });
+
+    setIsSavingScriptAsset(true);
+    try {
+      const uploadResult = await assetsApi.uploadAsset(scriptFile, 'script');
+      const uploadedAsset = uploadResult?.data || uploadResult?.asset || uploadResult?.data?.asset || null;
+      const uploadedAssetId = uploadedAsset?.id ? String(uploadedAsset.id) : '';
+
+      if (uploadedAssetId) {
+        try {
+          await assetsApi.renameAsset(uploadedAssetId, displayName);
+        } catch (renameErr) {
+          console.warn('Rename saved script asset failed:', renameErr);
+        }
+      }
+
+      setScriptPages((prev) => {
+        if (activeScriptPage < 0 || activeScriptPage >= prev.length) return prev;
+        const next = [...prev];
+        next[activeScriptPage] = {
+          ...next[activeScriptPage],
+          name: displayName,
+          sourceLabel: undefined,
+        };
+        return next;
+      });
+
+      setIsScriptSaveDialogOpen(false);
+      openInfo(popupTitles.success, t.wb_script_saved_to_library || '已保存到素材库。');
+    } catch (err: any) {
+      openInfo(
+        popupTitles.notice,
+        String(err?.message || t.wb_script_save_failed || '保存失败，请稍后重试。')
+      );
+    } finally {
+      setIsSavingScriptAsset(false);
+    }
+  }, [activeCreativeCard, activeCreativeCardText, activeFullScript, activeScriptPage, activeScriptPlan?.continuityAnchor, activeScriptPlan?.sceneSuggestions, activeScriptPlan?.scriptStructure, activeScriptPlan?.sellingPoints, activeScriptPlan?.styleTags, buildCombinedScriptPrompt, normalizeScriptAssetName, openInfo, popupTitles.notice, popupTitles.success, scriptSaveNameDraft, scripts, t.wb_script_save_need_content, t.wb_script_save_failed, t.wb_script_saved_to_library, t.wb_script_save_name_required]);
+
   const parseScriptPage = useCallback((raw: any, idx: number): ScriptPage => {
     const shots = buildScriptsFromShots(raw?.shots || raw?.script_content?.shots || []);
     const scriptContent = raw?.script_content || raw || {};
@@ -4900,10 +7084,25 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       transitionEditing: normalizeScriptText(creativeCard?.transition_editing),
       callToAction: normalizeScriptText(creativeCard?.call_to_action),
     };
-    const fullScript = normalizeScriptText(scriptContent?.video_master_script) || buildFullScriptFallback(shots);
+    const fullScriptBase = normalizeScriptText(scriptContent?.video_master_script) || buildFullScriptFallback(shots);
+    const materialUsageTextRaw = String(scriptContent?.material_usage_text || '').trim();
+    const fullScript = materialUsageTextRaw
+      ? `${fullScriptBase}\n\n${materialUsageTextRaw}`.trim()
+      : fullScriptBase;
+    const creativeCardText = String(scriptContent?.creative_card_text || '').trim()
+      || buildCreativeCardEditorText(normalizedCreativeCard)
+      || fullScript;
+    console.log('[ScriptDebug] parseScriptPage', {
+      idx,
+      shotCount: shots.length,
+      hasVideoMasterScript: Boolean(normalizeScriptText(scriptContent?.video_master_script)),
+      hasCreativeCard: Boolean(scriptContent?.creative_card && typeof scriptContent.creative_card === 'object'),
+      fullScriptLength: fullScript.length,
+      creativeCardTextLength: creativeCardText.length,
+    });
     return {
       id: `page-${idx + 1}`,
-      name: `${t.wb_script_page_prefix} ${idx + 1}`,
+      name: String(raw?.name || '').trim() || `${t.wb_script_page_prefix} ${idx + 1}`,
       scripts: shots,
       fullScript,
       continuityAnchor: {
@@ -4920,11 +7119,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       sceneSuggestions: parseScriptStringList(scriptContent?.scene_suggestions),
       styleTags: parseScriptStringList(scriptContent?.style_tags),
       creativeCard: normalizedCreativeCard,
-      creativeCardText: buildCreativeCardEditorText(normalizedCreativeCard),
+      creativeCardText,
+      sourceLabel: String(raw?.sourceLabel || '').trim() || undefined,
     };
   }, [buildCreativeCardEditorText, buildFullScriptFallback, buildScriptsFromShots, normalizeScriptText, parseScriptStringList, t.wb_script_page_prefix]);
 
-  const appendGeneratedScriptPage = useCallback((raw: any) => {
+  const appendGeneratedScriptPage = useCallback((raw: any, options?: { replaceExisting?: boolean }) => {
+    const replaceExisting = !!options?.replaceExisting;
+    if (replaceExisting) {
+      const nextPage = parseScriptPage(raw, 0);
+      scriptPagesRef.current = [nextPage];
+      setScriptPages([nextPage]);
+      setActiveScriptPage(0);
+      setScripts(nextPage.scripts);
+      setIsShotBreakdownOpen(false);
+      return;
+    }
+
     const appendedIndex = scriptPagesRef.current.length;
     const appendedPage = parseScriptPage(raw, appendedIndex);
     scriptPagesRef.current = [...scriptPagesRef.current, appendedPage];
@@ -4997,6 +7208,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     scriptGenerationStartedAtRef.current = null;
     scriptGenerationEstimateKeyRef.current = null;
     scriptGenerationFinishingRef.current = false;
+    scriptGenerationProjectIdRef.current = null;
+    const scriptTaskId = currentScriptQueueTaskIdRef.current;
+    if (scriptTaskId) {
+      updateTask(scriptTaskId, {
+        status: 'failed',
+        result: { error: 'CANCELLED' },
+        navigateTo: { view: 'workbench', focus: 'scripts' },
+      });
+      currentScriptQueueTaskIdRef.current = null;
+    }
     controller.abort();
     setIsGeneratingScript(false);
     setIsScriptGenerationProgressVisible(false);
@@ -5005,7 +7226,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setScriptGenerationTotalCount(0);
     recordScriptGenerationCancelTimestamp(user?.id ?? null);
     setScriptGenerationNotice(t.wb_popup_script_generation_cancelled || '已成功取消脚本');
-  }, [t.wb_popup_script_generation_cancelled, user?.id]);
+  }, [t.wb_popup_script_generation_cancelled, updateTask, user?.id]);
 
   useEffect(() => {
     return () => {
@@ -5014,17 +7235,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       scriptGenerationStartedAtRef.current = null;
       scriptGenerationEstimateKeyRef.current = null;
       scriptGenerationFinishingRef.current = false;
+      scriptGenerationProjectIdRef.current = null;
     };
   }, []);
 
   const handleGenerateScripts = async () => {
+    if (scriptGenerationLockRef.current) return;
+    scriptGenerationLockRef.current = true;
     if (!user?.id) {
+      scriptGenerationLockRef.current = false;
       openInfo(popupTitles.notice, t.wb_popup_not_logged_in);
       return;
     }
 
     const cooldownRemainingMs = getScriptGenerationCooldownRemainingMs(user.id);
     if (cooldownRemainingMs > 0) {
+      scriptGenerationLockRef.current = false;
       openInfo(popupTitles.warning, t.wb_popup_script_generation_too_frequent || '操作过于频繁，请稍后再试。');
       return;
     }
@@ -5066,16 +7292,32 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         focusDropdownButton(videoTypeFieldRef.current);
       }
 
+      scriptGenerationLockRef.current = false;
       return;
     }
 
     if (Object.keys(requiredErrors).length > 0) setRequiredErrors({});
 
+    if (isSeedanceReplayMode && seedanceReplayValidation.hasBlockingIssues) {
+      const focusTarget: 'top' | SeedanceReplayMediaKind = seedanceReplayValidation.globalErrors.length > 0
+        ? 'top'
+        : seedanceReplayValidation.imageErrors.length > 0
+          ? 'image'
+          : seedanceReplayValidation.videoErrors.length > 0
+            ? 'video'
+            : seedanceReplayValidation.audioErrors.length > 0
+              ? 'audio'
+              : 'top';
+      focusSeedanceReplayValidationTarget(focusTarget);
+      scriptGenerationLockRef.current = false;
+      return;
+    }
+
     const totalScriptCount = Math.max(1, scriptVariantCount || 1);
     const estimateParams = {
       script_count: 1,
       duration: Math.max(1, genDuration || 10),
-      has_reference_assets: uploadDisplayAssets.some((asset) => asset.mediaKind === 'image'),
+      has_reference_assets: uploadDisplayAssets.some((asset) => asset.mediaKind === 'image' || asset.mediaKind === 'video'),
     };
     const estimateStorageKey = buildScriptEstimateStorageKey(estimateParams);
     let estimatedSeconds = 45;
@@ -5098,6 +7340,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
     }
 
+    const scriptQueueTaskId = `script-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    currentScriptQueueTaskIdRef.current = scriptQueueTaskId;
+    upsertTask({
+      id: scriptQueueTaskId,
+      workbenchProjectId: projectStore.currentProjectId,
+      estimatedSeconds,
+      type: 'script_generation',
+      status: 'processing',
+      navigateTo: { view: 'workbench', focus: 'scripts' },
+      name: `${(productName || '').trim() || fileName || scriptPages[activeScriptPage]?.name || selectedTemplate?.name || 'Script'}`,
+      thumbnail: uploadDisplayAssets.find((asset) => asset.mediaKind === 'image')?.previewUrl || uploadedFile || undefined,
+      createdAt: Date.now(),
+    });
+
     setIsGeneratingScript(true);
     setIsScriptGenerationProgressVisible(true);
     setScriptGenerationEstimatedSeconds(estimatedSeconds);
@@ -5107,6 +7363,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     scriptGenerationStartedAtRef.current = Date.now();
     scriptGenerationEstimateKeyRef.current = estimateStorageKey;
     scriptGenerationFinishingRef.current = false;
+    scriptGenerationProjectIdRef.current = projectStore.currentProjectId;
     const generationSeq = activeScriptGenerationSeqRef.current + 1;
     activeScriptGenerationSeqRef.current = generationSeq;
     const abortController = new AbortController();
@@ -5115,8 +7372,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     try {
       type ScriptReferenceAsset = {
-        type: 'model' | 'product' | 'scene';
+        type: 'model' | 'product' | 'scene' | 'motion';
         name: string;
+        media_type: 'image' | 'video';
+        transfer_kind: 'url' | 'path' | 'data_url';
+        media_uri: string;
         image_path: string;
       };
 
@@ -5138,42 +7398,42 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         }
         return resolvedPath;
       };
-      const imageReferenceSources = referenceSources.filter((asset) => asset.mediaKind === 'image');
-      const resolvedImagePaths = new Map<string, string>();
-      for (const asset of imageReferenceSources) {
+      const scriptReferenceSources = referenceSources.filter((asset) => asset.mediaKind === 'image' || asset.mediaKind === 'video');
+      const resolvedReferencePaths = new Map<string, string>();
+      for (const asset of scriptReferenceSources) {
         const resolvedPath = await resolveQueuedAssetPath(asset);
         if (resolvedPath) {
-          resolvedImagePaths.set(asset.id, resolvedPath);
+          resolvedReferencePaths.set(asset.id, resolvedPath);
         }
       }
       const normalizedImageAssets = selectedModel === 'kling'
-        ? normalizeQueueSourcesForKlingMode(imageReferenceSources, klingGenerateMode)
-        : imageReferenceSources;
-      const latestByType = new Map<'model' | 'product' | 'scene', QueuedAsset>();
-      for (const asset of normalizedImageAssets) {
-        if (asset.mediaKind !== 'image') continue;
-        if (asset.materialType !== 'model' && asset.materialType !== 'product' && asset.materialType !== 'scene') continue;
-        if (selectedModel === 'kling' && asset.source !== 'preference') continue;
-        latestByType.set(asset.materialType, asset);
-      }
+        ? normalizeQueueSourcesForKlingMode(scriptReferenceSources.filter((asset) => asset.mediaKind === 'image'), klingGenerateMode)
+        : scriptReferenceSources;
 
       const referenceAssets: ScriptReferenceAsset[] = [];
-      const orderedTypes: Array<'model' | 'product' | 'scene'> = ['model', 'product', 'scene'];
+      const orderedTypes: Array<'model' | 'product' | 'scene' | 'motion'> = ['model', 'product', 'scene', 'motion'];
       for (const type of orderedTypes) {
-        const asset = latestByType.get(type);
-        if (!asset) continue;
+        const sameTypeAssets = normalizedImageAssets.filter((asset) => asset.materialType === type);
+        for (const asset of sameTypeAssets) {
+          let resolvedPath = resolvedReferencePaths.get(asset.id) || null;
+          if (!resolvedPath) {
+            resolvedPath = await resolveQueuedAssetPath(asset);
+          }
+          if (!resolvedPath) continue;
 
-        let resolvedPath = resolvedImagePaths.get(asset.id) || null;
-        if (!resolvedPath) {
-          resolvedPath = await resolveQueuedAssetPath(asset);
+          const transferKind: 'url' | 'path' | 'data_url' = resolvedPath.startsWith('http://') || resolvedPath.startsWith('https://')
+            ? 'url'
+            : (resolvedPath.startsWith('data:') ? 'data_url' : 'path');
+
+          referenceAssets.push({
+            type,
+            name: asset.name || '',
+            media_type: asset.mediaKind === 'video' ? 'video' : 'image',
+            transfer_kind: transferKind,
+            media_uri: resolvedPath,
+            image_path: resolvedPath,
+          });
         }
-        if (!resolvedPath) continue;
-
-        referenceAssets.push({
-          type,
-          name: asset.name || '',
-          image_path: resolvedPath,
-        });
       }
       if (Object.keys(queuedPathUpdates).length > 0) {
         setAssetQueue(prev => prev.map(item => (
@@ -5183,7 +7443,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       let imagePath = selectedModel === 'kling'
         ? ''
-        : (referenceAssets.find((item) => item.type === 'product')?.image_path || referenceAssets[0]?.image_path || '');
+        : (referenceAssets.find((item) => item.type === 'product' && item.media_type === 'image')?.image_path || referenceAssets.find((item) => item.media_type === 'image')?.image_path || '');
 
       const promptText = buildScriptInputText();
       const klingContext = (() => {
@@ -5213,7 +7473,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         ? (() => {
             const primaryAsset = normalizedImageAssets.find((asset) => asset.source === (klingGenerateMode === 'subject' ? 'subject' : 'product')) || null;
             if (!primaryAsset) return null;
-            const primaryPath = resolvedImagePaths.get(primaryAsset.id) || '';
+            const primaryPath = resolvedReferencePaths.get(primaryAsset.id) || '';
             if (!primaryPath) return null;
             return {
               path: primaryPath,
@@ -5229,6 +7489,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const rawRatio = aspectRatio || selectedTemplate?.aspect_ratio || "16:9";
       const duration = genDuration || selectedTemplate?.duration || 10;
       const shots = selectedTemplate?.shot_number || 5;
+      const normalizedReferenceScript = isReferenceScriptFresh ? referenceScript.trim() : '';
 
       const payload = {
         product_category: category,
@@ -5244,7 +7505,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           custom: selectedTemplate?.custom_config || "",
           input: promptText,
           shots: [],
+          ...(normalizedReferenceScript ? { reference_script: normalizedReferenceScript } : {}),
         },
+        ...(normalizedReferenceScript ? { reference_script: normalizedReferenceScript } : {}),
         ...(klingContext ? { generation_context: klingContext } : {}),
         ...(selectedModel === 'kling' && klingGenerateMode === 'first_frame' && klingPrimaryImage
           ? { first_frame_image_path: klingPrimaryImage.path, first_frame_image_type: klingPrimaryImage.type }
@@ -5254,7 +7517,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           : {}),
         ...(referenceAssets.length > 0 ? { reference_assets: referenceAssets } : {}),
         ...(imagePath ? { product_image_path: imagePath } : {}),
-        ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
       };
       const reportPayload = {
         script_count: 1,
@@ -5278,16 +7540,30 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           },
           onVariant: async (event) => {
             if (generationSeq !== activeScriptGenerationSeqRef.current) return;
-            const data = event?.data || {};
-            const scriptContent = data.script_content;
-            if (!scriptContent) return;
+            const data: any = event?.data || {};
+            const scriptContent: any = data.script_content;
+            if (!scriptContent) {
+              console.warn('[ScriptDebug] onVariant missing script_content', data);
+              return;
+            }
 
+            console.log('[ScriptDebug] onVariant payload', {
+              index: data?.index,
+              completed: data?.completed,
+              total: data?.total,
+              scriptContentKeys: Object.keys(scriptContent || {}),
+              shotCount: Array.isArray(scriptContent?.shots) ? scriptContent.shots.length : 0,
+              hasVideoMasterScript: Boolean(String(scriptContent?.video_master_script || '').trim()),
+              hasCreativeCard: Boolean(scriptContent?.creative_card && typeof scriptContent.creative_card === 'object'),
+            });
+
+            const isFirstVariant = !sawVariant;
             sawVariant = true;
             const startedAt = scriptGenerationStartedAtRef.current;
             const elapsedSeconds = startedAt ? Math.max(1, Math.round((Date.now() - startedAt) / 1000)) : null;
             shouldHideProgressImmediately = false;
             await finishScriptGenerationProgress();
-            appendGeneratedScriptPage({ script_content: scriptContent });
+            appendGeneratedScriptPage({ script_content: scriptContent }, { replaceExisting: isFirstVariant });
 
             const completed = Number(data.completed);
             const total = Number(data.total);
@@ -5327,6 +7603,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             if (Number.isFinite(total) && total > 0) {
               setScriptGenerationTotalCount(Math.max(1, Math.round(total)));
             }
+            updateTask(scriptQueueTaskId, {
+              status: sawVariant ? 'success' : 'failed',
+              result: sawVariant
+                ? {
+                  completed: Number.isFinite(completed) ? Math.round(completed) : undefined,
+                  total: Number.isFinite(total) ? Math.round(total) : undefined,
+                }
+                : { error: 'NO_SCRIPT_VARIANT' },
+              navigateTo: { view: 'workbench', focus: 'scripts' },
+            });
             setIsScriptGenerationProgressVisible(false);
           },
           onErrorEvent: (event) => {
@@ -5340,6 +7626,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         throw new Error(streamFailedMessage);
       }
       if (!sawVariant) {
+        updateTask(scriptQueueTaskId, {
+          status: 'failed',
+          result: { error: 'NO_SCRIPT_VARIANT' },
+          navigateTo: { view: 'workbench', focus: 'scripts' },
+        });
         openInfo(popupTitles.notice, t.wb_popup_script_unexpected);
       }
 
@@ -5351,6 +7642,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         return;
       }
       console.error("Script Gen Error:", err);
+      const message = err instanceof Error && err.message.trim()
+        ? err.message.trim()
+        : (t.wb_popup_script_unexpected || '生成失败');
+      updateTask(scriptQueueTaskId, {
+        status: 'failed',
+        result: { error: message },
+        navigateTo: { view: 'workbench', focus: 'scripts' },
+      });
       openErrorModal(err, { category: 'script_failed', onRetry: handleGenerateScripts });
     } finally {
       if (scriptGenerationAbortRef.current === abortController) {
@@ -5359,6 +7658,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       scriptGenerationStartedAtRef.current = null;
       scriptGenerationEstimateKeyRef.current = null;
       if (generationSeq === activeScriptGenerationSeqRef.current) {
+        scriptGenerationProjectIdRef.current = null;
         setIsGeneratingScript(false);
         if (shouldHideProgressImmediately) {
           setIsScriptGenerationProgressVisible(false);
@@ -5367,79 +7667,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         setScriptGenerationCompletedCount(0);
         setScriptGenerationTotalCount(0);
       }
+      if (currentScriptQueueTaskIdRef.current === scriptQueueTaskId) {
+        currentScriptQueueTaskIdRef.current = null;
+      }
       scriptGenerationFinishingRef.current = false;
+      scriptGenerationLockRef.current = false;
     }
-  };
-
-  const handleExportScripts = async () => {
-    if (scripts.length === 0) { openInfo(popupTitles.notice, t.wb_popup_no_scripts); return; }
-
-    setIsExporting(true);
-
-    try {
-      const dataStr = JSON.stringify(scripts, null, 2);
-      const blob = new Blob([dataStr], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `scripts_${new Date().toISOString().slice(0,10)}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
-      const enableSupabase = false;
-      if (onExportToServer && enableSupabase) {
-        await onExportToServer(scripts);
-      }
-    } catch (error) {
-      console.error('Export error:', error);
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
-  const handleUploadScripts = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const parsed = JSON.parse(event.target?.result as string);
-
-        if (Array.isArray(parsed) && parsed.length > 0 && ('visual' in parsed[0] || 'shot' in parsed[0])) {
-          const validScripts = parsed.map((item: any, idx: number) => ({
-            id: item.id || Date.now() + idx,
-            shot: item.shot || (idx + 1).toString(),
-            type: item.type || 'Medium',
-            dur: item.dur || '2s',
-            visual: item.visual || '',
-            audio: item.audio || '',
-            audioTranslation: item.audioTranslation || ''
-          }));
-          setScripts(validScripts);
-          setScriptPages(prev => {
-            const next = [...prev];
-            next[activeScriptPage] = { ...next[activeScriptPage], scripts: validScripts };
-            return next;
-          });
-
-          const newTotal = validScripts.reduce((acc: number, s: any) => acc + (parseFloat(s.dur.replace('s','')) || 0), 0);
-          if (Math.abs(newTotal - genDuration) > 0.5) {
-            setGenDuration(normalizeDurationForModel(Math.ceil(newTotal), selectedModel));
-          }
-        } else {
-          openInfo('Invalid file', 'Invalid script format. Please upload a valid JSON file.');
-        }
-      } catch (err) {
-        console.error(err);
-        openErrorModal(err, { category: 'parse_failed' });
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
   };
 
   const handleScriptPageChange = (nextIndex: number) => {
@@ -5455,6 +7688,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     setScripts(scriptPages[nextIndex]?.scripts || []);
     setIsShotBreakdownOpen(false);
+  };
+
+  useEffect(() => {
+    setScriptGridPageStart((prev) => Math.min(prev, Math.max(0, scriptPages.length - 4)));
+  }, [scriptPages.length]);
+
+  useEffect(() => {
+    if (activeScriptPage < scriptGridPageStart || activeScriptPage >= scriptGridPageStart + 4) {
+      setScriptGridPageStart(Math.max(0, Math.floor(activeScriptPage / 4) * 4));
+    }
+  }, [activeScriptPage, scriptGridPageStart]);
+
+  const handleScriptGridSlidePrev = () => {
+    setScriptGridPageStart((prev) => Math.max(0, prev - 4));
+  };
+
+  const handleScriptGridSlideNext = () => {
+    setScriptGridPageStart((prev) => Math.min(Math.max(0, scriptPages.length - 4), prev + 4));
   };
 
   useEffect(() => {
@@ -5562,6 +7813,148 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     openInfo(title, `${intro}\n${details}`);
   };
 
+  const computeDurationFromScripts = (items: ScriptItem[]) =>
+    items.reduce((total, s) => total + (parseFloat(String(s.dur || '').replace('s', '')) || 0), 0);
+
+  const buildQueuedScriptFromPage = (page: ScriptPage): QueuedScript => {
+    const duration = enableStoryboardEditor ? computeDurationFromScripts(page.scripts || []) : genDuration;
+    const idx = Math.max(0, scriptPages.findIndex((p) => p.id === page.id));
+    return {
+      id: page.id,
+      name: formatScriptPageDisplayName(page.name, idx, t.wb_script_page_prefix),
+      scripts: page.scripts || [],
+      duration,
+      fullScript: page.fullScript,
+      creativeCard: page.creativeCard,
+      creativeCardText: page.creativeCardText,
+    };
+  };
+
+  const handleBatchGenerateSubmit = async () => {
+    const selectedScriptPages: ScriptPage[] = batchGenerateSlots
+      .map((slot) => (slot.scriptPageId ? scriptPages.find((p) => p.id === slot.scriptPageId) : null))
+      .filter(Boolean) as ScriptPage[];
+
+    if (selectedScriptPages.length === 0) {
+      openInfo(popupTitles.notice, language === 'zh' ? '请选择至少一个脚本。' : 'Select at least one script.');
+      return;
+    }
+
+    if (selectedModel === 'kling') {
+      openInfo(popupTitles.notice, 'Kling 当前版本暂不支持一次生成多条视频。');
+      return;
+    }
+
+    const issues: string[] = [];
+    if (!selectedTemplate?.id && !selectedFileObj && !selectedAssetUrl && !uploadedFile && uploadDisplayAssets.length === 0) {
+      issues.push(t.wb_gen_req_issue_asset_or_template || 'Assets: upload an asset or select a template first.');
+    }
+    if (!selectedTemplate?.id && !user?.id) {
+      issues.push(t.wb_gen_req_issue_login || 'Account: please sign in.');
+    }
+    if (enableStoryboardEditor) {
+      const invalid = selectedScriptPages
+        .map((p) => ({ page: p, duration: computeDurationFromScripts(p.scripts || []) }))
+        .filter((row) => Math.abs(row.duration - genDuration) >= 0.1);
+      if (invalid.length > 0) {
+        issues.push(t.wb_gen_req_issue_duration_mismatch || 'Storyboard duration must match configured duration.');
+      }
+    }
+    if (issues.length > 0) {
+      showGenerateValidationIssues(issues);
+      return;
+    }
+
+    setIsGenerating(true);
+    setGeneratedVideoUrl(null);
+
+    try {
+      const basePayload = await buildSingleGeneratePayload();
+      let createdCount = 0;
+
+      for (let i = 0; i < selectedScriptPages.length; i += 1) {
+        const page = selectedScriptPages[i];
+        const scriptPack = buildQueuedScriptFromPage(page);
+
+        let newProjectId: string | undefined;
+        if (selectedTemplate?.id) {
+          const cloneResp = await videoApi.cloneProject(selectedTemplate.id);
+          newProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
+          if (!newProjectId) throw new Error('Failed to clone project');
+        } else {
+          if (!user?.id) throw new Error('请先登录');
+          const createResp = await videoApi.createProject(user.id, {
+            title: (productName || '').trim() || `${fileName || 'Video'} × ${scriptPack.name}`,
+            aspect_ratio: aspectRatio || selectedTemplate?.aspect_ratio || '9:16',
+            script_content: {
+              duration: scriptPack.duration,
+              shots: enableStoryboardEditor ? scriptPack.scripts : [],
+            },
+          });
+          newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
+          if (!newProjectId) throw new Error('Failed to create project');
+        }
+
+        const combinedScriptPrompt = buildCombinedScriptPrompt(
+          scriptPack.fullScript || '',
+          scriptPack.creativeCard,
+          scriptPack.scripts,
+          scriptPack.creativeCardText || ''
+        );
+
+        const requestPayload: GeneratePayload = {
+          ...basePayload,
+          prompt: combinedScriptPrompt,
+          duration: scriptPack.duration,
+          project_id: String(newProjectId),
+        };
+
+        const genResp = await generateWithAdaptiveImageConfirm(requestPayload);
+        const taskId = genResp?.data?.task_id || genResp?.task_id;
+        const projectId = genResp?.data?.project_id || newProjectId;
+
+        if (genResp?.code === 0 && taskId) {
+          const estimatedSeconds = await fetchEstimatedSeconds({
+            model: backendModel,
+            duration: Number(requestPayload.duration ?? genDuration),
+            sound: String(requestPayload.sound || '') === 'off' ? 'off' : 'on',
+            aspect_ratio: String(requestPayload.aspect_ratio || ''),
+            resolution: String((requestPayload as any).resolution || (requestPayload as any).size || ''),
+          });
+
+          addTask({
+            id: taskId,
+            projectId: String(projectId),
+            workbenchProjectId: projectStore.currentProjectId,
+            estimatedSeconds,
+            type: 'video_generation',
+            status: 'processing',
+            name: `${(productName || '').trim() || fileName || 'Video'} · ${scriptPack.name}`,
+            thumbnail: uploadedFile || undefined,
+            createdAt: Date.now(),
+          });
+
+          createdCount += 1;
+        }
+      }
+
+      if (createdCount > 0) {
+        openInfo(popupTitles.success, formatMessage(t.wb_popup_batch_success, { count: createdCount }));
+        setIsBatchGenerateOpen(false);
+      } else {
+        openInfo(popupTitles.notice, t.wb_popup_batch_no_task_id);
+      }
+    } catch (err: any) {
+      if (err?.message === USER_CANCELLED_ADAPT) {
+        openInfo(popupTitles.notice, t.wb_popup_batch_cancelled);
+      } else {
+        openErrorModal(err, { category: 'generation_failed', onRetry: handleBatchGenerateSubmit });
+      }
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   const handleGenerateVideo = async () => {
     const issues = validateGenerateRequirements();
     if (issues.length > 0) {
@@ -5574,7 +7967,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setGeneratedVideoUrl(null);
 
       try {
-        const batchItems: Array<{ id: string; assetName: string; scriptName: string; taskId: string | number }> = [];
+        let batchCount = 0;
 
         const preparedAssets = await Promise.all(assetQueue.map(async (asset) => {
           let apiPath = asset.uploadedPath || asset.assetUrl || null;
@@ -5598,7 +7991,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           return { ...asset, apiPath };
         }));
 
-        for (const asset of preparedAssets) {
+        // 收集所有音频素材的路径，用于 Seedance reference_audio
+        const audioPaths = preparedAssets
+            .filter((a) => a.mediaKind === 'audio')
+            .map((a) => (a as any).apiPath as string);
+
+        // 非音频素材才参与 asset × script 矩阵生成
+        const nonAudioAssets = preparedAssets.filter((a) => a.mediaKind !== 'audio');
+
+        // 如果全部是音频（无图片/视频），仍走 text-to-video，用空数组兜底
+        const effectiveAssets = nonAudioAssets.length > 0 ? nonAudioAssets : [null];
+
+        for (const asset of effectiveAssets) {
           for (const scriptPack of scriptQueue) {
             const combinedScriptPrompt = buildCombinedScriptPrompt(
                 scriptPack.fullScript || '',
@@ -5615,7 +8019,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             } else {
               if (!user?.id) throw new Error('请先登录');
               const createResp = await videoApi.createProject(user.id, {
-                title: (productName || '').trim() || `${asset.name} × ${scriptPack.name}`,
+                title: (productName || '').trim() || `${asset?.name || 'Text'} × ${scriptPack.name}`,
                 aspect_ratio: '9:16',
                 script_content: {
                   duration: scriptPack.duration,
@@ -5632,10 +8036,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               product_name: productName,
               project_id: newProjectId,
               duration: scriptPack.duration,
-              ...(asset.mediaKind === 'video'
-                  ? { motion_video_path: (asset as any).apiPath }
-                  : { image_path: (asset as any).apiPath }),
+              aspect_ratio: aspectRatio,
+              ...(asset
+                  ? (asset.mediaKind === 'video'
+                      ? { motion_video_path: (asset as any).apiPath }
+                      : { image_path: (asset as any).apiPath })
+                  : {}),
               sound: soundSetting,
+              ...(audioPaths.length > 0 ? { audio_paths: audioPaths } : {}),
               ...(selectedBackgroundAudio && soundSetting === 'off'
                 ? {
                   background_audio_asset_id: selectedBackgroundAudio.id,
@@ -5643,11 +8051,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   background_audio_name: selectedBackgroundAudio.name,
                 }
                 : {}),
-              asset_source: asset.source,
+              asset_source: asset?.source ?? null,
               user_language: language,
               target_language: targetLanguage,
               model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
-              motion_asset_id: asset.mediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
+              motion_asset_id: asset?.mediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
               ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
             };
 
@@ -5660,6 +8068,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 model: backendModel,
                 duration: scriptPack.duration,
                 sound: soundSetting,
+                aspect_ratio: String(payload.aspect_ratio || ''),
+                resolution: String((payload as any).resolution || (payload as any).size || ''),
               });
               console.log('[Estimate] batchGeneration', { taskId, projectId: String(projectId), estimatedSeconds });
 
@@ -5670,26 +8080,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 estimatedSeconds,
                 type: 'video_generation',
                 status: 'processing',
-                name: `${(productName || '').trim() || asset.name || `${asset.name} × ${scriptPack.name}`}`,
-                thumbnail: asset.previewUrl || undefined,
+                name: `${(productName || '').trim() || asset?.name || 'Text-to-Video'}`,
+                thumbnail: asset?.previewUrl || undefined,
                 createdAt: Date.now(),
               });
 
-              batchItems.push({
-                id: `${asset.id}-${scriptPack.id}-${taskId}`,
-                assetName: asset.name,
-                scriptName: scriptPack.name,
-                taskId,
-              });
+              batchCount += 1;
             } else {
               console.warn('Batch generation response invalid', genResp);
             }
           }
         }
 
-        if (batchItems.length > 0) {
-          setGeneratedBatch(prev => [...batchItems, ...prev]);
-          openInfo(popupTitles.success, formatMessage(t.wb_popup_batch_success, { count: batchItems.length }));
+        if (batchCount > 0) {
+          openInfo(popupTitles.success, formatMessage(t.wb_popup_batch_success, { count: batchCount }));
         } else {
           openInfo(popupTitles.notice, t.wb_popup_batch_no_task_id);
         }
@@ -5735,6 +8139,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
+    const authPopup = openTikTokAuthPopup({
+      loadingTitle: t.app_tiktok_popup_loading_title,
+      loadingDescription: t.app_tiktok_popup_loading_desc,
+    });
+
     setIsPostingTikTok(true);
     try {
       let isAuthorized = false;
@@ -5750,7 +8159,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       if (!isAuthorized) {
         const authUrl = await tiktokApi.getAuthUrl(targetProjectId);
-        window.location.href = authUrl;
+        const popupWindow = navigateTikTokAuthPopup(authPopup, authUrl);
+        if (!popupWindow) {
+          openInfo(popupTitles.notice, t.app_tiktok_popup_blocked);
+        }
         return;
       }
 
@@ -5772,14 +8184,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (switchAccount) {
           try {
             await tiktokApi.revokeAuth();
-            openInfo(popupTitles.notice, t.wb_popup_tiktok_switch_cancelled);
             const authUrl = await tiktokApi.getAuthUrl(targetProjectId);
-            window.location.href = authUrl;
+            const popupWindow = navigateTikTokAuthPopup(authPopup, authUrl);
+            if (!popupWindow) {
+              openInfo(popupTitles.notice, t.app_tiktok_popup_blocked);
+              return;
+            }
+            openInfo(popupTitles.notice, t.wb_popup_tiktok_switch_cancelled);
             return;
           } catch (err: any) {
+            closeTikTokAuthPopup(authPopup);
             openErrorModal(err, { category: 'upload_failed' });
           }
         }
+        closeTikTokAuthPopup(authPopup);
         setIsPostingTikTok(false);
         return;
       }
@@ -5787,12 +8205,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const result = await tiktokApi.publishDraft(targetProjectId);
       if (result.requiresAuth) {
         const authUrl = result.authUrl || await tiktokApi.getAuthUrl(targetProjectId);
-        window.location.href = authUrl;
+        const popupWindow = navigateTikTokAuthPopup(authPopup, authUrl);
+        if (!popupWindow) {
+          openInfo(popupTitles.notice, t.app_tiktok_popup_blocked);
+        }
         return;
       }
 
+      closeTikTokAuthPopup(authPopup);
       openInfo(popupTitles.success, t.wb_popup_tiktok_upload_success);
     } catch (err: any) {
+      closeTikTokAuthPopup(authPopup);
       openErrorModal(err, { category: 'upload_failed', onRetry: handlePublishToTikTok });
     } finally {
       setIsPostingTikTok(false);
@@ -5841,6 +8264,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [creationMode, selectedModel, setSelectedModel]);
 
   useEffect(() => {
+    if (!isSeedanceReplayMode || !seedanceReplayValidation.hasBlockingIssues) {
+      setSeedanceReplayFocusTarget(null);
+    }
+  }, [isSeedanceReplayMode, seedanceReplayValidation.hasBlockingIssues]);
+
+  useEffect(() => {
     setGenDuration((prev) => normalizeDurationForModel(prev, selectedModel));
   }, [normalizeDurationForModel, selectedModel]);
 
@@ -5853,37 +8282,50 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   ? 'kling'
                   : 'seedance-2.0';
 
-  const fetchEstimatedSeconds = useCallback(async (params: { model: string; duration: number; sound: 'on' | 'off' }) => {
+  const fetchEstimatedSeconds = useCallback(async (params: { model: string; duration: number; sound: 'on' | 'off'; aspect_ratio?: string; resolution?: string }) => {
     const model = String(params.model || '').trim();
     const duration = Number(params.duration);
     const sound = params.sound;
+    const aspectRatioHint = String(params.aspect_ratio || '').trim();
+    const resolutionHint = String(params.resolution || '').trim();
 
     const timeoutMs = 1200;
 
     try {
       const resp: any = await Promise.race([
-        videoApi.estimateVideoTime({ model, duration, sound }),
+        videoApi.estimateVideoTime({ model, duration, sound, aspect_ratio: aspectRatioHint || undefined, resolution: resolutionHint || undefined }),
         new Promise((resolve) => window.setTimeout(() => resolve(null), timeoutMs)),
       ]);
 
       const estimated = Number(resp?.data?.estimated_seconds);
       if (Number.isFinite(estimated) && estimated > 0) {
         const val = Math.round(estimated);
-        console.log('[Estimate] from api', { model, duration, sound, estimated_seconds: val, sample_count: resp?.data?.sample_count });
+        console.log('[Estimate] from api', { model, duration, sound, aspect_ratio: aspectRatioHint, resolution: resolutionHint, estimated_seconds: val, sample_count: resp?.data?.sample_count });
         return val;
       }
 
-      console.log('[Estimate] fallback default (invalid response)', { model, duration, sound, resp });
+      console.log('[Estimate] fallback default (invalid response)', { model, duration, sound, aspect_ratio: aspectRatioHint, resolution: resolutionHint, resp });
     } catch (err) {
-      console.log('[Estimate] fallback default (error)', { model, duration, sound, err });
+      console.log('[Estimate] fallback default (error)', { model, duration, sound, aspect_ratio: aspectRatioHint, resolution: resolutionHint, err });
     }
 
     return 120;
   }, []);
 
+  const isScriptGenerationForCurrentProject = (
+    isGeneratingScript
+    && !!scriptGenerationProjectIdRef.current
+    && scriptGenerationProjectIdRef.current === projectStore.currentProjectId
+  );
+  const showScriptGenerationProgressForCurrentProject = (
+    isScriptGenerationProgressVisible
+    && !!scriptGenerationProjectIdRef.current
+    && scriptGenerationProjectIdRef.current === projectStore.currentProjectId
+  );
+
   const renderLeftColumn = () => {
     const segmentBase =
-        'group/seg relative flex-1 py-2.5 rounded-lg text-[10px] tracking-tight font-bold transition select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60';
+      'group/seg relative flex-1 py-2.5 rounded-lg text-[11px] tracking-tight font-bold transition select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60';
     const activeSegment = 'bg-gradient-to-r from-purple-600 to-orange-500 text-white shadow-lg shadow-orange-500/15';
     const inactiveSegment = 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5';
 
@@ -5974,42 +8416,33 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       id: 'kling' | 'sora2' | 'sora2pro' | 'seedance2.0';
       title: string;
       desc: string;
-      rate: number;
       Icon: React.ComponentType<{ className?: string }>;
     }> = [
       {
         id: 'kling',
         title: t.wb_model_kling_title || (language === 'zh' ? '可灵 o1' : 'Kling o1'),
         desc: t.wb_model_kling_desc,
-        rate: 20,
         Icon: Zap,
       },
       {
         id: 'sora2',
         title: 'Sora 2',
         desc: t.wb_model_sora2_desc,
-        rate: 100,
         Icon: SoraStarIcon,
       },
       {
         id: 'sora2pro',
         title: 'Sora 2 Pro',
         desc: t.wb_model_sora2pro_desc,
-        rate: 300,
         Icon: Sparkles,
       },
-      {
-        id: 'seedance2.0',
-        title: 'Seedance 2.0',
-        desc: t.wb_model_seedance_desc,
-        rate: 50,
-        Icon: Video,
-      },
+
     ];
 
     const renderModelCard = (opt: typeof modelOptions[number]) => {
       const active = selectedModel === opt.id;
-      const locked = creationMode === 'fast' && opt.id === 'seedance2.0';
+      const locked = false;  // Seedance 2.0 backend ready — unlock fast mode
+      const rateLabel = formatVideoRateLabel(getVideoModelPricingEntry(billingPricing, opt.id, 'fast'));
       return (
           <button
               key={opt.id}
@@ -6041,15 +8474,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
 
             <div className="flex-1 min-w-0">
-              <div className="text-[12px] font-black tracking-wide text-zinc-200 truncate">{opt.title}</div>
-              <div
-                  className={
-                    language === 'zh'
-                        ? 'mt-1 text-[9px] font-medium text-zinc-400 truncate'
-                        : 'mt-1 text-[8px] font-medium text-zinc-400 whitespace-normal break-words leading-snug'
-                  }
-              >
-                {opt.desc}
+              <div className="flex items-center gap-1.5">
+                <div className="text-[14px] font-black tracking-wide text-zinc-200 truncate">{opt.title}</div>
+                <span className="relative inline-flex items-center group/model-tip shrink-0">
+                  <Info className="h-3.5 w-3.5 text-zinc-500" />
+                  <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 w-52 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[11px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/model-tip:opacity-100">
+                    {opt.desc}
+                  </span>
+                </span>
               </div>
             </div>
             {locked ? (
@@ -6071,7 +8503,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         active ? 'font-bold text-orange-500' : 'font-medium text-zinc-500',
                       ].join(' ')}
                   >
-                    {opt.rate}{t.wb_vpoints_per_sec}
+                    {rateLabel}
                   </div>
                 </div>
             )}
@@ -6091,14 +8523,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               className="p-1.5 text-zinc-600 hover:text-zinc-300 transition rounded"
               title={isModelSectionCollapsed ? t.wb_expand : t.wb_collapse}
             >
-              <svg className={`w-4 h-4 transition-transform duration-200 ${isModelSectionCollapsed ? 'rotate-0' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-              </svg>
+              <ChevronsDown className={`w-4 h-4 transition-transform duration-200 ${isModelSectionCollapsed ? 'rotate-0' : 'rotate-180'}`} />
             </button>
           </div>
 
-          {!isModelSectionCollapsed && (
-            <div className="flex flex-col gap-6">
+          <div
+            className={[
+              'grid overflow-hidden transition-[grid-template-rows,opacity] duration-300',
+              'ease-[cubic-bezier(0.22,1,0.36,1)]',
+              isModelSectionCollapsed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
+            ].join(' ')}
+            aria-hidden={isModelSectionCollapsed}
+          >
+            <div className="min-h-0 overflow-hidden">
+              <div
+                className={[
+                  'flex flex-col gap-6 transition-[transform,opacity] duration-300',
+                  'ease-[cubic-bezier(0.22,1,0.36,1)]',
+                  isModelSectionCollapsed ? '-translate-y-3 opacity-0' : 'translate-y-0 opacity-100',
+                ].join(' ')}
+              >
               <div>
                 <div className="creation-mode-toggle mx-3 rounded-2xl bg-white/5 border border-white/10 p-1 flex items-center gap-1">
                   <button
@@ -6148,7 +8592,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
                 <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-2">
                   <ArrowRight className="w-3 h-3 text-zinc-500" />
-                  {t.wb_recommend_engine_title}
+                  {t.wb_render_power_title}
                 </h2>
                 <div className="w-full text-left rounded-2xl border border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10 p-4 flex items-center gap-4">
                   <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-orange-500/20 border border-orange-500/30">
@@ -6156,7 +8600,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className={language === 'vi' ? 'flex items-center gap-1.5' : 'flex items-center gap-2'}>
-                      <div className="text-[12px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div>
+                      <div className="text-[14px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div>
+                      <span className="relative inline-flex items-center group/replay-tip shrink-0">
+                        <Info className="h-3.5 w-3.5 text-zinc-500" />
+                        <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 w-60 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[11px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/replay-tip:opacity-100">
+                          <span className="block">{t.wb_recommend_engine_desc}</span>
+                          <span className="mt-1 block text-zinc-300">{t.wb_replay_seedance_only}</span>
+                        </span>
+                      </span>
                       <span
                           className={[
                             'rounded-full font-black bg-emerald-500 text-black whitespace-nowrap shrink-0',
@@ -6166,29 +8617,25 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     {t.wb_engine_dedicated}
                   </span>
                     </div>
+                  </div>
+                  <div className="flex flex-col items-center gap-2 shrink-0">
                     <div
-                        className={
-                          language === 'zh'
-                              ? 'mt-1 text-[9px] font-medium text-zinc-400 truncate'
-                              : 'mt-1 text-[8px] font-medium text-zinc-400 whitespace-normal break-words leading-snug'
-                        }
+                        className="model-check w-4 h-4 rounded-full border border-orange-500 bg-orange-500 flex items-center justify-center"
+                        aria-hidden="true"
                     >
-                      {t.wb_recommend_engine_desc}
+                      <Check className="w-2.5 h-2.5 text-white" />
+                    </div>
+                    <div className="text-[8px] whitespace-nowrap font-bold text-orange-500">
+                      {formatVideoRateLabel(getVideoModelPricingEntry(billingPricing, 'seedance2.0', 'replay'))}
                     </div>
                   </div>
-                  <Lock className="w-4 h-4 text-zinc-500 shrink-0" aria-hidden="true" />
                 </div>
 
-                <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 flex items-start gap-2">
-                  <Info className="w-3 h-3 text-zinc-400 mt-0.5 shrink-0" />
-                  <div className="text-[10px] font-normal text-zinc-400 leading-relaxed">
-                    {t.wb_replay_seedance_only}
-                  </div>
-                </div>
               </div>
-            )}
+              )}
+              </div>
             </div>
-          )}
+          </div>
         </div>
     );
 
@@ -6196,7 +8643,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         <div ref={configSectionRef} className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${getGuideFocusClass('config')}`}>
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-              <Gift className="w-3 h-3" /> 商品信息
+              <Gift className="w-3 h-3 shrink-0" /> {t.wb_product_info_title || 'Product Info'}
             </h2>
             <button
                 type="button"
@@ -6211,12 +8658,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   }
                   void handleAiRecognize();
                 }}
-                className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border ${isAiRecognizing || getProductRecognitionSources().length === 0 ? 'border-white/10 bg-black/30 text-zinc-600 opacity-70 hover:bg-black/30' : 'border-orange-500/40 bg-orange-500/10 text-orange-300 hover:bg-orange-500/20'}`}
+                className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border ${isAiRecognizing || getProductRecognitionSources().length === 0 ? 'border-white/10 bg-black/30 text-zinc-600 opacity-70 hover:bg-black/30' : needsAiReRecognize ? 'border-amber-500/50 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20' : 'border-orange-500/40 bg-orange-500/10 text-orange-300 hover:bg-orange-500/20'}`}
             >
               {isAiRecognizing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
               {isAiRecognizing ? t.wb_ai_recognizing_btn : t.wb_ai_recognize_btn}
+              {needsAiReRecognize && !isAiRecognizing && <AlertCircle className="w-3.5 h-3.5 text-amber-300" />}
             </button>
           </div>
+
+          {needsAiReRecognize && (
+            <div className="-mt-1 text-[10px] text-amber-300 font-medium">
+              {t.wb_ai_recognize_dirty_hint || '素材已变更，请重新执行 AI 识别。'}
+            </div>
+          )}
 
           <div className="flex flex-col gap-4">
             <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
@@ -6349,7 +8803,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </div>
               </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-4">
               <div>
                 <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
                   {t.wb_field_video_type_label}
@@ -6388,14 +8842,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.aspect_ratio}</label>
                   <DropdownSelect
                     value={aspectRatio}
-                    options={[
-                      { value: '9:16', label: t.mobile },
-                      { value: '16:9', label: t.landscape },
-                      ...(selectedModel === 'kling' && klingGenerateMode === 'subject'
-                        ? [{ value: '1:1', label: t.square }]
-                        : []),
-                    ]}
-                    onChange={(v) => setAspectRatio(v === '16:9' ? '16:9' : (v === '1:1' ? '1:1' : '9:16'))}
+                    options={selectedModel === 'seedance2.0'
+                      ? [
+                        { value: '16:9', label: '16:9' },
+                        { value: '4:3', label: '4:3' },
+                        { value: '1:1', label: '1:1' },
+                        { value: '3:4', label: '3:4' },
+                        { value: '9:16', label: '9:16' },
+                        { value: '21:9', label: '21:9' },
+                      ]
+                      : [
+                        { value: '9:16', label: t.mobile },
+                        { value: '16:9', label: t.landscape },
+                        ...(selectedModel === 'kling' && klingGenerateMode === 'subject'
+                          ? [{ value: '1:1', label: t.square }]
+                          : []),
+                      ]}
+                    onChange={(v) => setAspectRatio(normalizeWorkbenchAspectRatio(v))}
                     buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
                     labelClassName=""
                     iconClassName="w-3 h-3 text-zinc-500"
@@ -6425,9 +8888,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-4">
               <div>
-                {selectedModel === 'kling' ? (
+                {selectedModel === 'kling' || selectedModel === 'seedance2.0' ? (
                   <div className="flex flex-col gap-3">
                     <div className="flex justify-between items-center">
                       <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_config_duration}</label>
@@ -6435,11 +8898,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </div>
                     <input
                       type="range"
-                      min={3}
-                      max={10}
+                      min={selectedModel === 'kling' ? 3 : 4}
+                      max={selectedModel === 'kling' ? 10 : 15}
                       step={1}
                       value={genDuration}
-                      onChange={(e) => setGenDuration(Number(e.target.value))}
+                      onChange={(e) => setGenDuration(normalizeDurationForModel(Number(e.target.value), selectedModel))}
                       className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
                     />
                   </div>
@@ -6477,13 +8940,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
                   {soundSetting === 'off' && (
                     <div className="mt-2 space-y-2">
-                      <input
-                        type="file"
-                        ref={backgroundAudioInputRef}
-                        className="hidden"
-                        accept=".mp3,.wav,.flac,audio/mpeg,audio/wav,audio/x-wav,audio/flac"
-                        onChange={handleBackgroundAudioFileChange}
-                      />
                       <button
                         type="button"
                         onClick={() => setIsBackgroundAudioSourceOpen((prev) => !prev)}
@@ -6507,20 +8963,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           <button
                             type="button"
                             onClick={openBackgroundAudioPicker}
-                            className="flex w-full items-center rounded-md border border-transparent px-3 py-2 text-left text-xs text-zinc-200 transition hover:border-zinc-400/30 hover:bg-zinc-500/10 hover:text-orange-200"
+                            className="wb-upload-library-btn flex w-full items-center rounded-md border border-transparent px-3 py-2 text-left text-xs text-zinc-200 transition hover:border-zinc-400/30 hover:bg-zinc-500/10 hover:text-orange-200"
                           >
                             <span>{t.wb_btn_choose_from_library || '从素材库选择'}</span>
                           </button>
-                          <div className="mx-3 h-px scale-y-50 bg-zinc-500/18" />
-                          <button
-                            type="button"
-                            onClick={() => backgroundAudioInputRef.current?.click()}
-                            className="mt-1 flex w-full items-center rounded-md border border-transparent px-3 py-2 text-left text-xs text-zinc-200 transition hover:border-zinc-400/30 hover:bg-zinc-500/10 hover:text-orange-200"
-                          >
-                            <span>{(t as any).wb_background_audio_upload || '上传本地音频'}</span>
-                          </button>
                           <div className="px-3 pb-1 pt-2 text-[10px] text-zinc-500">
-                            {(t as any).wb_background_audio_hint || 'mp3 / wav / flac · ≤ 1GB'}
+                            {(t as any).wb_background_audio_hint_library || '可在素材库弹窗中本地上传音频并保存'}
                           </div>
                         </div>
                       )}
@@ -6554,6 +9002,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </div>
               </div>
 
+              <div className="space-y-2">
+                <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_reference_script_label || '参考脚本（来自视频解析）'}</label>
+                <textarea
+                  value={referenceScript}
+                  onChange={(e) => {
+                    setReferenceScript(e.target.value);
+                    setReferenceScriptProductSignature(currentProductInfoSignature);
+                  }}
+                  rows={4}
+                  placeholder={t.wb_reference_script_placeholder || '粘贴或使用“视频解析反向生成脚本”应用到工作台后的参考脚本'}
+                  className="w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-y min-h-[86px] text-zinc-300 focus:border-orange-500 focus:outline-none"
+                />
+                <div className="text-[10px] text-zinc-500">{t.wb_reference_script_hint || '该内容将作为风格参考一并输入脚本模型，帮助生成更接近参考风格的新脚本。'}</div>
+                {!isReferenceScriptFresh && referenceScript.trim() && (
+                  <div className="text-[10px] text-amber-300 font-medium">
+                    当前参考脚本对应的是旧商品信息，生成脚本时将自动忽略它。
+                  </div>
+                )}
+              </div>
+
               <div className="border-t border-white/5 my-1" />
 
               <div className="flex flex-col gap-3">
@@ -6584,32 +9052,50 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           {false && legacyModelSelector}
           {/* Upload Section */}
           <div ref={uploadSectionRef} className={`flex flex-col gap-3 ${getGuideFocusClass('upload')}`}>
-            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
+            </div>
+            {isSeedanceReplayMode ? (
+              <>
+                <SeedanceReplayUploadPanel
+                  assets={seedanceReplayUploadAssets}
+                  validationSummary={seedanceReplayValidation}
+                  focusTarget={seedanceReplayFocusTarget}
+                  onAddVirtualModel={handleSeedanceReplayAddVirtualModel}
+                  onOpenLibraryForKind={handleSeedanceReplayAddFromLibrary}
+                  onPreview={handleSeedanceReplayPreview}
+                  onRemove={handleSeedanceReplayRemove}
+                  onSetFrameRole={handleSeedanceReplaySetFrameRole}
+                  onOpenLibrary={handleSeedanceReplayOpenLibrary}
+                />
+              </>
+            ) : (
+            <div className="flex flex-col gap-3">
             {isKlingOmniMode && (
                 <div className="grid grid-cols-3 gap-2">
                   <button
                       type="button"
                       onClick={() => handleKlingGenerateModeChange('first_frame')}
-                      className={`relative overflow-visible rounded-xl border px-3 py-2 text-left transition hover:z-20 ${klingGenerateMode === 'first_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                      className={`relative flex items-center justify-center overflow-visible rounded-xl border px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'first_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
-                    <div className="flex items-center gap-1 text-[11px] font-bold">
+                    <div className="flex items-center justify-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_first_frame}</span>
                       <span className="relative z-10 inline-flex items-center group/info hover:z-20">
                         <Info className="h-3 w-3 text-zinc-400" />
                         <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 ml-6 w-40 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
                           <span className="block">{t.wb_material_requirement_title}</span>
                           <span className="block">{t.wb_kling_first_frame_requirement}</span>
+                          <span className="mt-1 block text-zinc-300">{t.wb_kling_first_frame_desc}</span>
                         </span>
                       </span>
                     </div>
-                    <div className="mt-1 text-[10px] text-zinc-400">{t.wb_kling_first_frame_desc}</div>
                   </button>
                   <button
                       type="button"
                       onClick={() => handleKlingGenerateModeChange('subject')}
-                      className={`relative overflow-visible rounded-xl border px-3 py-2 text-left transition hover:z-20 ${klingGenerateMode === 'subject' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                      className={`relative flex items-center justify-center overflow-visible rounded-xl border px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'subject' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
-                    <div className="flex items-center gap-1 text-[11px] font-bold">
+                    <div className="flex items-center justify-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_subject}</span>
                       <span className="relative z-10 inline-flex items-center group/info hover:z-20">
                         <Info className="h-3 w-3 text-zinc-400" />
@@ -6617,27 +9103,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           <span className="block">{t.wb_material_requirement_title}</span>
                           <span className="block">{t.wb_kling_subject_requirement}</span>
                           <span className="mt-1 block text-zinc-300">{t.wb_kling_subject_requirement_note}</span>
+                          <span className="mt-1 block text-zinc-300">{t.wb_kling_subject_desc}</span>
                         </span>
                       </span>
                     </div>
-                    <div className="mt-1 text-[10px] text-zinc-400">{t.wb_kling_subject_desc}</div>
                   </button>
                   <button
                       type="button"
                       onClick={() => handleKlingGenerateModeChange('first_last_frame')}
-                      className={`relative overflow-visible rounded-xl border px-3 py-2 text-left transition hover:z-20 ${klingGenerateMode === 'first_last_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                      className={`relative flex items-center justify-center overflow-visible rounded-xl border px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'first_last_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
-                    <div className="flex items-center gap-1 text-[11px] font-bold">
+                    <div className="flex items-center justify-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_first_last_frame || 'First + Last Frame Mode'}</span>
                       <span className="relative z-10 inline-flex items-center group/info hover:z-20">
                         <Info className="h-3 w-3 text-zinc-400" />
                         <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 ml-6 w-44 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
                           <span className="block">{t.wb_material_requirement_title}</span>
                           <span className="block">{t.wb_kling_first_last_frame_requirement || '1 first-frame image + 1 tail-frame image + 0-6 reference images'}</span>
+                          <span className="mt-1 block text-zinc-300">{t.wb_kling_first_last_frame_desc || 'Constrain the beginning and ending of the video with first and last keyframes'}</span>
                         </span>
                       </span>
                     </div>
-                    <div className="mt-1 text-[10px] text-zinc-400">{t.wb_kling_first_last_frame_desc || 'Constrain the beginning and ending of the video with first and last keyframes'}</div>
                   </button>
                 </div>
             )}
@@ -6664,10 +9150,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </div>
             )}
             <div
-                onDragOver={isKlingOmniMode ? undefined : handleUploadDragOver}
-                onDragEnter={isKlingOmniMode ? undefined : handleUploadDragOver}
-                onDragLeave={isKlingOmniMode ? undefined : handleUploadDragLeave}
-                onDrop={isKlingOmniMode ? undefined : handleUploadDrop}
+                onDragOver={undefined}
+                onDragEnter={undefined}
+                onDragLeave={undefined}
+                onDrop={undefined}
                 className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors min-h-32 relative group ${uploadDisplayAssets.length > 0 ? 'border-none' : ''} ${isKlingOmniMode ? 'border-none' : (isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50')}`}
             >
               {!isKlingOmniMode && isDragUploadActive && (
@@ -6675,25 +9161,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               )}
               <input type="file" ref={fileInputRef} className="hidden" accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.mkv,.webm,.avi" multiple onChange={handleWorkbenchUpload} />
               {!isKlingOmniMode && uploadDisplayAssets.length === 0 ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center z-10 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-                    <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition duration-300"><Plus className="w-4 h-4 text-zinc-500 group-hover:text-orange-500" /></div>
-                    <p className="text-[10px] font-medium text-zinc-400">{t.wb_upload_click}</p>
-                    <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[10px] text-zinc-300">
-                      <span className="text-zinc-500">{t.wb_upload_support}</span>
-                      <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
-                  {t.wb_upload_image}
-                        <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
-                    {imageFormats}
-                  </span>
-                </span>
-                      <span className="relative group/item rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
-                  {t.wb_upload_video}
-                        <span className="absolute left-1/2 top-7 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[9px] text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/item:opacity-100 hover:opacity-100">
-                    {videoFormats}
-                  </span>
-                </span>
-                      <span className="text-zinc-400">{t.wb_upload_max_size}</span>
-                    </div>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
+                    <button
+                        type="button"
+                        onClick={openAssetLibraryPicker}
+                        className="wb-upload-library-btn inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-bold text-zinc-100 transition hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-200"
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      {t.wb_btn_choose_from_library || '从素材库选择'}
+                    </button>
+                    <p className="mt-2 text-[10px] text-zinc-500">
+                      {t.wb_upload_library_hint || '可在素材库弹窗中本地上传并自动保存到素材库'}
+                    </p>
                   </div>
               ) : (
                   <div className="rounded-lg bg-zinc-900/80 p-2">
@@ -6702,11 +9181,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           klingPrimarySlotAsset && klingTailSlotAsset ? (
                             <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scroll pr-1">
                               <div className="rounded-xl border border-white/10 bg-black/25 p-2">
-                                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">{t.wb_label_first_frame_short || t.wb_label_first_frame || 'First'}</div>
+                                <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">{t.wb_label_first_frame_short || t.wb_label_first_frame || 'First'}</div>
                                 {renderUploadAssetCard(klingPrimarySlotAsset)}
                               </div>
                               <div className="rounded-xl border border-white/10 bg-black/25 p-2">
-                                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">{t.wb_label_tail_frame || 'Tail Frame'}</div>
+                                <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">{t.wb_label_tail_frame || 'Tail Frame'}</div>
                                 {renderUploadAssetCard(klingTailSlotAsset)}
                               </div>
                             </div>
@@ -6714,8 +9193,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             <div className="flex flex-col gap-2">
                               <div className="flex gap-1.5 flex-wrap">
                                 {([
-                                  { id: 'flux-2-max', label: 'Flux 2 Max' },
                                   { id: 'flux-2-pro', label: 'Flux 2 Pro' },
+                                  { id: 'flux-2-flex', label: 'Flux 2 Flex' },
                                   { id: 'gpt-image-1.5', label: 'GPT Image 1.5' },
                                 ] as const).map((m) => (
                                   <button
@@ -6730,9 +9209,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               </div>
                               <div
                                   className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
-                                  onClick={() => fileInputRef.current?.click()}
+                                  onClick={openAssetLibraryPicker}
                               >
-                                <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                                <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
                                   <span>{t.wb_label_reference_image || '参考图'}</span>
                                   <UploadCloud className="w-3.5 h-3.5 text-zinc-500" />
                                 </div>
@@ -6753,7 +9232,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scroll pr-1">
                           <div
                               className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
-                              onClick={() => fileInputRef.current?.click()}
+                              onClick={openAssetLibraryPicker}
                               onDragOver={(e) => {
                                 if (!draggingWorkbenchAssetId) return;
                                 e.preventDefault();
@@ -6767,7 +9246,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 clearWorkbenchDragState();
                               }}
                           >
-                            <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                            <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
                               <span>{klingGenerateMode === 'subject' ? (t.wb_label_subject_image || 'Subject') : (t.wb_label_first_frame || 'First Frame')}</span>
                               {klingPrimarySlotHint}
                             </div>
@@ -6777,7 +9256,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           </div>
                           <div
                               className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
-                              onClick={() => fileInputRef.current?.click()}
+                              onClick={openAssetLibraryPicker}
                               onDragOver={(e) => {
                                 if (!draggingWorkbenchAssetId) return;
                                 e.preventDefault();
@@ -6791,7 +9270,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 clearWorkbenchDragState();
                               }}
                           >
-                            <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                            <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
                               <span>{t.wb_label_reference_image || 'Reference'}</span>
                               {klingReferenceSlotHint}
                             </div>
@@ -6870,29 +9349,38 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               )) : (
                                   <div className="w-full h-24 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
                               )}
-                              <div className="absolute top-1 left-1 z-10" onClick={(e) => e.stopPropagation()}>
-                                <select
+                              {!(isKlingOmniMode && (klingGenerateMode === 'first_frame' || klingGenerateMode === 'first_last_frame')) ? (
+                                <div className="absolute top-1 left-1 z-10" onClick={(e) => e.stopPropagation()}>
+                                  <select
                                     className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
                                     value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product')}
                                     onChange={(e) => {
                                       const newType = e.target.value as AssetLibraryTab;
-                                      setAssetQueue(prev => {
-                                        const next = prev.map((item): QueuedAsset => item.id === asset.id ? { ...item, materialType: newType } : item);
+                                      setAssetQueue((prev) => {
+                                        const next = prev.map((item): QueuedAsset =>
+                                          item.id === asset.id ? { ...item, materialType: newType } : item
+                                        );
                                         return isKlingOmniMode ? normalizeQueueSourcesForKlingMode(next, klingGenerateMode) : next;
                                       });
                                       if (selectedQueueAssetId === asset.id || uploadedFile === asset.previewUrl) {
                                         setCurrentMaterialType(newType);
                                       }
                                     }}
-                                    style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
-                                >
-                                  <option value="product">{materialTypeLabelMap['product']}</option>
-                                  <option value="model">{materialTypeLabelMap['model']}</option>
-                                  <option value="scene">{materialTypeLabelMap['scene']}</option>
-                                  <option value="motion">{materialTypeLabelMap['motion']}</option>
-                                  <option value="audio">{materialTypeLabelMap['audio']}</option>
-                                </select>
-                              </div>
+                                    style={{
+                                      backgroundImage:
+                                        'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")',
+                                      backgroundRepeat: 'no-repeat',
+                                      backgroundPosition: 'right 6px center',
+                                    }}
+                                  >
+                                    <option value="product">{materialTypeLabelMap['product']}</option>
+                                    <option value="model">{materialTypeLabelMap['model']}</option>
+                                    <option value="scene">{materialTypeLabelMap['scene']}</option>
+                                    <option value="motion">{materialTypeLabelMap['motion']}</option>
+                                    <option value="audio">{materialTypeLabelMap['audio']}</option>
+                                  </select>
+                                </div>
+                              ) : null}
                               <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
                                 {asset.mediaKind === 'image' && (
                                     <button
@@ -6925,7 +9413,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                             setSelectedAssetSource(nextSource);
                                           }
                                         }}
-                                        className={`rounded border px-1.5 py-0.5 text-[9px] font-bold transition ${
+                                        className={`rounded border px-1.5 py-0.5 text-[10px] font-bold transition ${
                                             selectedModel === 'sora2' || selectedModel === 'sora2pro'
                                                 ? ((
                                                     isKlingOmniMode
@@ -6978,32 +9466,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
               )}
             </div>
-          </div>
-          <div className={`grid gap-2 ${isKlingOmniMode ? 'grid-cols-3' : 'grid-cols-2'}`}>
-            <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  fileInputRef.current?.click();
-                }}
-                className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
-            >
-              {t.wb_btn_upload_local_asset || '从本地上传素材'}
-            </button>
+          <div className={`grid gap-2 grid-cols-1`}>
             <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   openAssetLibraryPicker();
                 }}
-                className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
+                className="wb-upload-library-btn rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
             >
               {t.wb_btn_choose_from_library || '从素材库选择素材'}
             </button>
             <button
                 type="button"
                 onClick={openAiOptimizeDialog}
-                className="col-span-2 rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-[10px] font-bold text-orange-200 hover:bg-orange-500/20"
+                className={`${isKlingOmniMode ? 'col-span-2' : 'col-span-2'} w-full rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-[10px] font-bold text-orange-200 hover:bg-orange-500/20`}
             >
               <span className="inline-flex items-center justify-center gap-1.5">
                 <ImagePlus className="w-3.5 h-3.5" />
@@ -7133,7 +9610,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               </div>
                             </div>
                             <label
-                                className={`shrink-0 flex items-center gap-1 text-[9px] px-1.5 py-1 rounded border transition ${item.mediaKind === 'image' ? 'border-white/10 text-zinc-300 hover:bg-white/5 cursor-pointer' : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}
+                              className={`shrink-0 flex items-center gap-1 text-[10px] px-1.5 py-1 rounded border transition ${item.mediaKind === 'image' ? 'border-white/10 text-zinc-300 hover:bg-white/5 cursor-pointer' : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}
                                 onClick={(e) => e.stopPropagation()}
                                 title={item.mediaKind === 'image'
                                     ? (isKlingOmniMode
@@ -7191,18 +9668,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </>
               )}
             </div>
-          </div>
+            </div>
           )}
+            </div>
+          )}
+          </div>
 
           {renderLeftColumnSettings()}
 
           <div className="pt-1">
-            {scriptGenerationNotice && !isGeneratingScript && (
+            {scriptGenerationNotice && !isScriptGenerationForCurrentProject && (
               <div className="mb-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-medium text-emerald-200 shadow-[0_8px_24px_rgba(16,185,129,0.12)]">
                 {scriptGenerationNotice}
               </div>
             )}
-            {isScriptGenerationProgressVisible && (
+            {showScriptGenerationProgressForCurrentProject && (
               <div className="mb-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                 <div className="mb-1 flex items-center justify-between gap-3 text-[10px] text-zinc-400">
                   <span>{t.wb_waiting_progress || '进度'}</span>
@@ -7219,7 +9699,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </div>
               </div>
             )}
-            {isGeneratingScript ? (
+            {isScriptGenerationForCurrentProject ? (
               <div className="flex w-full gap-2">
                 <button
                   type="button"
@@ -7237,7 +9717,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <button
                   type="button"
                   onClick={() => {
-                    if (isGeneratingScript) {
+                    if (isScriptGenerationForCurrentProject) {
                       openInfo(popupTitles.notice, t.wb_generate_in_progress);
                       return;
                     }
@@ -7247,10 +9727,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     }
                     void handleGenerateScripts();
                   }}
-                  className={`w-full py-3 rounded-xl font-bold text-xs transition flex items-center justify-center gap-2 group border border-white/10 bg-black/30 text-zinc-200 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 ${!hasCurrentAsset ? 'opacity-40 hover:bg-black/30' : ''}`}
+                  className={`w-full py-3 rounded-xl font-bold text-xs transition group border border-white/10 bg-black/30 text-zinc-200 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 ${!hasCurrentAsset ? 'opacity-40 hover:bg-black/30' : ''}`}
               >
-                <Wand2 className="w-4 h-4 group-hover:rotate-12 transition" />
-                {t.wb_btn_gen_scripts}
+                <span className="flex w-full items-center justify-center gap-2 px-3">
+                  <Wand2 className="w-4 h-4 shrink-0 group-hover:rotate-12 transition" />
+                  <span className="whitespace-nowrap">{t.wb_btn_gen_scripts}</span>
+                </span>
               </button>
             )}
           </div>
@@ -7829,6 +10311,127 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
         )}
 
+        <div className="fixed right-6 bottom-6 z-[132] flex flex-col items-end gap-2">
+          {isTransferStationOpen && (
+            <div className="w-[320px] max-h-[52vh] overflow-hidden rounded-2xl border border-orange-500/25 bg-zinc-950/92 shadow-2xl shadow-black/50 backdrop-blur-xl">
+              <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+                <div className="text-xs font-bold text-zinc-100">
+                  {t.wb_transfer_station_title || 'Transfer Station'}
+                </div>
+                <div className="flex items-center gap-2">
+                  {transferStationItems.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleClearTransferStationEntries}
+                      className="rounded-md border border-white/10 px-2 py-1 text-[10px] text-zinc-300 transition hover:bg-white/10 hover:text-white"
+                    >
+                      {t.wb_transfer_station_clear_btn || 'Clear'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsTransferStationOpen(false)}
+                    className="text-zinc-400 transition hover:text-white"
+                    title={t.wb_queue_close || 'Close'}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {transferStationItems.length === 0 ? (
+                <div className="px-4 py-6 text-center text-xs text-zinc-500">
+                  {t.wb_transfer_station_empty || 'No assets yet. Add assets or history items into the transfer station first.'}
+                </div>
+              ) : (
+                <div className="max-h-[42vh] space-y-2 overflow-y-auto p-3 custom-scroll">
+                  {transferStationItems.map((item) => {
+                    const mediaLabel = item.mediaKind === 'script'
+                      ? (t.wb_transfer_station_media_script || 'Script')
+                      : item.mediaKind === 'video'
+                      ? (t.wb_upload_video || 'Video')
+                      : item.mediaKind === 'audio'
+                        ? (t.wb_upload_audio || 'Audio')
+                        : (t.wb_upload_image || 'Image');
+                    const sourceLabel = item.source === 'history'
+                      ? (t.wb_transfer_station_source_history || 'History')
+                      : item.source === 'replay'
+                        ? (t.wb_transfer_station_source_replay || 'Replay')
+                      : (t.wb_transfer_station_source_assets || 'Assets');
+
+                    return (
+                      <div key={item.id} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-2">
+                        <button
+                          type="button"
+                          draggable
+                          onDragStart={(event) => handleTransferStationItemDragStart(item, event)}
+                          onClick={() => handleUseTransferStationItem(item)}
+                          className="group flex min-w-0 flex-1 items-center gap-2 text-left"
+                          title={item.mediaKind === 'script'
+                            ? (t.wb_transfer_station_drag_hint_script || 'Drag to scripts area, or click to apply')
+                            : (t.wb_transfer_station_drag_hint || 'Drag to upload area, or click to apply')}
+                        >
+                          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-black/40">
+                            {item.mediaKind === 'video' ? (
+                              <video src={item.fileUrl} className="h-full w-full object-cover" muted playsInline />
+                            ) : item.mediaKind === 'audio' ? (
+                              <div className="flex h-full w-full items-center justify-center text-zinc-300">
+                                <Music className="h-4 w-4" />
+                              </div>
+                            ) : item.mediaKind === 'script' ? (
+                              <div className="flex h-full w-full items-center justify-center text-zinc-300">
+                                <FileJson className="h-4 w-4" />
+                              </div>
+                            ) : (
+                              <img src={item.fileUrl} alt={item.name} className="h-full w-full object-cover" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-xs font-semibold text-zinc-100">{item.name}</div>
+                            {item.mediaKind === 'script' && item.scriptContent ? (
+                              <div className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-zinc-400">
+                                {item.scriptContent}
+                              </div>
+                            ) : (
+                              <div className="mt-1 flex items-center gap-1 text-[10px] text-zinc-400">
+                                <span className="rounded border border-white/10 px-1.5 py-0.5">{mediaLabel}</span>
+                                <span className="rounded border border-white/10 px-1.5 py-0.5">{sourceLabel}</span>
+                              </div>
+                            )}
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveTransferStationEntry(item.id)}
+                          className="rounded-md border border-white/10 p-1.5 text-zinc-400 transition hover:border-red-400/60 hover:text-red-300"
+                          title={t.wb_transfer_station_remove_btn || 'Remove'}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setIsTransferStationOpen((prev) => !prev)}
+            className="group relative flex h-14 w-14 items-center justify-center rounded-full border border-orange-400/50 bg-gradient-to-br from-orange-500/90 to-amber-500/80 text-white shadow-[0_16px_35px_rgba(251,146,60,0.35)] transition hover:scale-[1.04]"
+            title={t.wb_transfer_station_title || 'Transfer Station'}
+          >
+            <FolderPlus className="h-6 w-6" />
+            <span className="pointer-events-none absolute -right-1 -top-1 min-w-[20px] rounded-full border border-black/20 bg-black/75 px-1.5 py-0.5 text-[10px] font-black leading-none text-orange-200">
+              {transferStationItems.length}
+            </span>
+            <span className="pointer-events-none absolute right-full mr-2 whitespace-nowrap rounded-md border border-white/10 bg-black/80 px-2 py-1 text-[10px] font-semibold text-zinc-100 opacity-0 transition group-hover:opacity-100">
+              {t.wb_transfer_station_title || 'Transfer Station'}
+            </span>
+          </button>
+        </div>
+
         {/* 结构化错误弹窗 —— 替代原有的 openInfo(error) 纯文本展示 */}
         {errorModalData && (
           <ErrorModal
@@ -7864,6 +10467,29 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <div className="whitespace-pre-line text-sm text-zinc-300">{confirmMessage}</div>
             </AppDialog>
         )}
+        <AiOverwriteDialog
+          isOpen={isAiOverwriteOpen}
+          fields={aiOverwriteFields}
+          title={t.wb_ai_overwrite_dialog_title}
+          applyLabel={t.wb_ai_overwrite_apply}
+          cancelLabel={t.wb_ai_overwrite_confirm_cancel}
+          currentLabel={t.wb_ai_overwrite_field_current}
+          newLabel={t.wb_ai_overwrite_field_new}
+          onConfirm={(selectedKeys) => {
+            setIsAiOverwriteOpen(false);
+            if (aiOverwriteResolveRef.current) {
+              aiOverwriteResolveRef.current(selectedKeys);
+              aiOverwriteResolveRef.current = null;
+            }
+          }}
+          onCancel={() => {
+            setIsAiOverwriteOpen(false);
+            if (aiOverwriteResolveRef.current) {
+              aiOverwriteResolveRef.current(null);
+              aiOverwriteResolveRef.current = null;
+            }
+          }}
+        />
         {isKlingSubjectGuideOpen && (
             <AppDialog
                 isOpen={isKlingSubjectGuideOpen}
@@ -8008,6 +10634,114 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </AppDialog>
         )}
 
+        {isScriptGridDialogOpen && (
+            <AppDialog
+                isOpen={isScriptGridDialogOpen}
+                title={t.wb_script_grid_title || 'Script Variants'}
+                onClose={() => setIsScriptGridDialogOpen(false)}
+                widthClassName="max-w-[min(96vw,1320px)]"
+            >
+              <div className="max-h-[72vh] overflow-x-auto overflow-y-hidden custom-scroll pr-1 pb-2">
+                <div className="flex flex-nowrap gap-3">
+                  {scriptPages.map((page, index) => {
+                    const active = index === activeScriptPage;
+                    const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim()
+                      || (t.wb_script_grid_card_empty || 'No script content yet');
+                    return (
+                      <div key={page.id} className="relative group/scriptcard">
+                      <button
+                          type="button"
+                          onClick={() => {
+                            handleScriptPageChange(index);
+                            setIsScriptGridDialogOpen(false);
+                          }}
+                          className={`${scriptPlanCardClass} ${active ? 'border-orange-500/70 bg-orange-500/10 ring-1 ring-orange-500/35' : 'border-white/10 bg-black/25 hover:border-orange-500/35 hover:bg-white/5'}`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold ${active ? 'border-orange-400/70 bg-orange-500/20 text-orange-100' : 'border-white/10 bg-white/5 text-zinc-300'}`}>
+                                {t.wb_script_plan_card_badge || 'Kling prompt'}
+                              </span>
+                              {page.sourceLabel && (
+                                <span className="rounded border border-sky-400/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-200">
+                                  {page.sourceLabel}
+                                </span>
+                              )}
+                            </div>
+                            <div className={`mt-2 text-[12px] font-bold leading-5 ${active ? 'text-orange-100' : 'text-zinc-100'}`}>
+                              {formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix)}
+                            </div>
+                          </div>
+                          <span className={`shrink-0 text-[10px] ${active ? 'text-orange-300' : 'text-zinc-500'}`}>
+                            {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
+                          </span>
+                        </div>
+                        <div className={`${scriptPlanCardBodyClass} mt-1 ${active ? 'border-orange-400/30 bg-black/15 text-orange-100/90' : 'border-white/10 bg-black/20 text-zinc-300'}`}>
+                          {previewText}
+                        </div>
+                      </button>
+                      {scriptPages.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); removeScriptPage(index); }}
+                          className="absolute -top-1.5 -right-1.5 z-10 hidden group-hover/scriptcard:flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-zinc-900 text-zinc-400 transition hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-300"
+                          title={t.wb_delete || 'Delete'}
+                        >
+                          <Trash2 className="h-2.5 w-2.5" />
+                        </button>
+                      )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </AppDialog>
+        )}
+
+        {isScriptSaveDialogOpen && (
+            <AppDialog
+                isOpen={isScriptSaveDialogOpen}
+                title={t.wb_script_save_dialog_title || '保存到素材库'}
+                onClose={() => setIsScriptSaveDialogOpen(false)}
+                footer={
+                  <>
+                    <button
+                        className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                        onClick={() => setIsScriptSaveDialogOpen(false)}
+                    >
+                      {t.wb_confirm_cancel}
+                    </button>
+                    <button
+                        className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
+                        onClick={() => void confirmScriptSaveToLibrary()}
+                        disabled={isSavingScriptAsset}
+                    >
+                      {isSavingScriptAsset ? (t.assets_saving_description || '保存中...') : (t.wb_script_save_to_library || '保存到素材库')}
+                    </button>
+                  </>
+                }
+            >
+              <div className="space-y-2">
+                <div className="text-sm text-zinc-300">{t.wb_script_save_name_label || '脚本名称'}</div>
+                <input
+                    autoFocus
+                    value={scriptSaveNameDraft}
+                    onChange={(e) => setScriptSaveNameDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void confirmScriptSaveToLibrary();
+                      }
+                    }}
+                    placeholder={t.wb_script_save_name_placeholder || '请输入脚本名称'}
+                    className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-orange-500"
+                />
+                <div className="text-xs text-zinc-500">{t.wb_script_save_name_hint || '保存后会以这个名称显示在素材库中。'}</div>
+              </div>
+            </AppDialog>
+        )}
+
         {isAiOptimizeOpen && (
             <AppDialog
                 isOpen={isAiOptimizeOpen}
@@ -8022,15 +10756,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     >
                       {t.wb_confirm_cancel}
                     </button>
-                    <button
-                        title={t.wb_ai_opt_coming_soon || '敬请期待。'}
-                        className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-orange-500 hover:bg-orange-600 cursor-help"
-                        // onClick={() => void handleGenerateOptimizedImages()}
-                    >
-                      {isAiOptimizeGenerating
-                        ? (t.wb_ai_opt_generating || '生成中...')
-                        : (t.wb_ai_opt_generate_btn || '生成优化图')}
-                    </button>
+                    <div className="relative group/cost-image">
+                      <button
+                          type="button"
+                          onClick={() => void handleGenerateOptimizedImages()}
+                          disabled={isAiOptimizeGenerating}
+                          className={`px-4 py-2 rounded-lg text-sm font-bold text-white transition ${isAiOptimizeGenerating ? 'bg-orange-500/70 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600'}`}
+                      >
+                        <span className="flex items-center gap-3 whitespace-nowrap">
+                          <span>
+                            {isAiOptimizeGenerating
+                              ? (t.wb_ai_opt_generating || '生成中...')
+                              : (t.wb_ai_opt_generate_btn || '生成优化图')}
+                          </span>
+                          {estimatedImageCostLabel ? (
+                            <span className="text-[11px] font-semibold text-white/90">{estimatedImageCostLabel}</span>
+                          ) : null}
+                        </span>
+                      </button>
+                      <span className="pointer-events-none absolute bottom-full right-0 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/cost-image:opacity-100">
+                        {t.wb_cost_tip_generate_image || '生成图片会消耗点数，具体以实际扣费为准。'}
+                      </span>
+                    </div>
                   </>
                 }
             >
@@ -8096,16 +10843,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_prompt_label || '提示词脚本'}</label>
-                    <button
-                        type="button"
-                        onClick={() => {
-                          const selected = aiOptimizeImageCandidates.find((item) => item.id === aiOptimizeReferenceId) || null;
-                          setAiOptimizePrompt(buildAiOptimizePromptScript(selected));
-                        }}
-                        className="text-[11px] px-2 py-1 rounded border border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20"
-                    >
-                      {t.wb_ai_opt_build_prompt_btn || '生成提示词脚本'}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                          type="button"
+                          onClick={() => void handleBuildAiOptimizePromptScript()}
+                          disabled={isAiOptimizePromptGenerating}
+                          className={`text-[11px] px-2 py-1 rounded border transition ${isAiOptimizePromptGenerating ? 'border-orange-500/30 bg-orange-500/5 text-orange-200/70 cursor-not-allowed' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+                      >
+                        {isAiOptimizePromptGenerating
+                          ? (t.wb_ai_opt_prompt_generating || '生成中...')
+                          : (t.wb_ai_opt_build_prompt_btn || '生成提示词脚本')}
+                      </button>
+                      <button
+                          type="button"
+                          onClick={() => void handleSaveAiOptimizePromptToLibrary()}
+                          disabled={isAiOptimizePromptSaving}
+                          className={`text-[11px] px-2 py-1 rounded border transition ${isAiOptimizePromptSaving ? 'border-sky-500/25 bg-sky-500/5 text-sky-200/70 cursor-not-allowed' : 'border-sky-500/55 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20'}`}
+                      >
+                        {isAiOptimizePromptSaving
+                          ? (t.assets_saving_description || '保存中...')
+                          : (t.wb_ai_opt_save_prompt_btn || '保存进素材库')}
+                      </button>
+                    </div>
                   </div>
                   <textarea
                       value={aiOptimizePrompt}
@@ -8216,10 +10975,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             <AppDialog
                 isOpen={isAssetLibraryOpen}
                 titleClassName="text-lg"
-                title={assetLibraryPickMode === 'background_audio' ? (t.wb_audio_picker_title || '选择音频素材') : (t.wb_dialog_choose_from_library || '从素材库选择')}
+                title={
+                  assetLibraryPickMode === 'background_audio'
+                    ? (t.wb_audio_picker_title || '选择音频素材')
+                    : assetLibraryPickMode === 'script_import'
+                      ? (t.wb_script_import_from_library || '从素材库导入脚本')
+                      : (t.wb_dialog_choose_from_library || '从素材库选择')
+                }
                 onClose={() => {
                   setIsAssetLibraryOpen(false);
                   setAssetLibraryPickMode('default');
+                  setSeedanceReplayLibraryIntent(null);
                 }}
                 widthClassName="max-w-[min(92vw,980px)]"
                 footer={
@@ -8229,6 +10995,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         onClick={() => {
                           setIsAssetLibraryOpen(false);
                           setAssetLibraryPickMode('default');
+                          setSeedanceReplayLibraryIntent(null);
                         }}
                     >
                       关闭
@@ -8237,35 +11004,42 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 }
             >
               <div className="w-full h-[62vh] max-h-[600px] min-h-[440px] flex flex-col gap-2.5">
+                <input
+                  ref={assetLibraryUploadInputRef}
+                  type="file"
+                  className="hidden"
+                  multiple
+                  onChange={handleAssetLibraryLocalUploadChange}
+                />
                 {assetLibraryPickMode === 'background_audio' ? (
-                  <div className="text-xs text-zinc-400 px-1">{t.wb_audio_picker_hint || '仅显示音频素材'}</div>
+                  <div className="flex items-center justify-between gap-3 px-1">
+                    <div className="text-xs text-zinc-400">{t.wb_audio_picker_hint || '仅显示音频素材'}</div>
+                  </div>
                 ) : (
-                  <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                    {([
-                      { value: 'product', label: t.assets_tab_products || '商品' },
-                      { value: 'model', label: t.assets_tab_models || '模特' },
-                      { value: 'scene', label: t.assets_tab_scenes || '场景' },
-                      { value: 'motion', label: t.assets_tab_motion || '动作' },
-                    ] as Array<{ value: AssetLibraryTab; label: string }>).map((tab) => (
-                        <button
-                            key={tab.value}
-                            type="button"
-                            onClick={() => {
-                              setAssetLibraryTab(tab.value);
-                              setAssetLibraryCurrentFolderId(null);
-                            }}
-                            className={`shrink-0 rounded-full border px-5 py-2 text-[14px] font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
-                        >
-                          {tab.label}
-                        </button>
-                    ))}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                      {assetLibraryVisibleTabs.map((tab) => (
+                          <button
+                              key={tab.value}
+                              type="button"
+                              onClick={() => {
+                                setAssetLibraryTab(tab.value);
+                                setAssetLibraryCurrentFolderId(null);
+                              }}
+                              className={`shrink-0 rounded-full border px-5 py-2 text-[14px] font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
+                          >
+                            {tab.label}
+                          </button>
+                      ))}
+                    </div>
                   </div>
                 )}
-                <div className="flex items-center gap-2 text-xs text-zinc-500 min-w-0">
+                {assetLibraryTab !== 'subject' && (
+                <div className="flex items-center gap-2 text-sm text-zinc-500 min-w-0">
                   <button
                       type="button"
                       onClick={() => setAssetLibraryCurrentFolderId(null)}
-                      className={`hover:text-white ${assetLibraryCurrentFolderId === null ? 'text-white' : ''}`}
+                      className={`wb-asset-library-crumb hover:text-white ${assetLibraryCurrentFolderId === null ? 'text-white' : ''}`}
                   >
                     {t.assets_root || '根目录'}
                   </button>
@@ -8275,13 +11049,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         <button
                             type="button"
                             onClick={() => setAssetLibraryCurrentFolderId(folder.id)}
-                            className={`hover:text-white truncate ${assetLibraryCurrentFolderId === folder.id ? 'text-white' : ''}`}
+                            className={`wb-asset-library-crumb hover:text-white truncate ${assetLibraryCurrentFolderId === folder.id ? 'text-white' : ''}`}
                         >
                           {folder.name}
                         </button>
                       </div>
                   ))}
                 </div>
+                )}
 
                 <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-1">
                   {assetLibraryLoading ? (
@@ -8292,9 +11067,46 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       <div className="h-52 flex items-center justify-center text-red-300 text-sm">
                         {assetLibraryError}
                       </div>
+                  ) : assetLibraryTab === 'subject' ? (
+                    assetLibrarySubjects.length === 0 ? (
+                      <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">
+                        暂无主体，请先在素材库中创建主体
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-6 gap-2">
+                        {assetLibrarySubjects.map((subject) => (
+                          <button
+                            key={subject.id}
+                            type="button"
+                            onClick={() => selectSubjectFromLibraryPopup(subject)}
+                            className="text-left rounded-lg border bg-black/30 p-1 transition border-white/10 hover:border-orange-500/50 hover:bg-white/5"
+                          >
+                            <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
+                              {subject.primary_asset ? (
+                                <img src={subject.primary_asset.file_url} className="w-full h-full object-cover" alt={subject.name} />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-zinc-500">
+                                  <Layers3 className="w-6 h-6" />
+                                </div>
+                              )}
+                              {subject.other_assets.length > 0 && (
+                                <div className="absolute top-1.5 right-1.5 z-10 rounded-full bg-black/55 border border-white/15 p-1 text-white shadow-lg">
+                                  <Layers3 className="w-3.5 h-3.5" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{subject.name}</div>
+                          </button>
+                        ))}
+                      </div>
+                    )
                   ) : assetLibraryItems.length === 0 && assetLibraryFolders.length === 0 ? (
                       <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">
-                        {assetLibraryPickMode === 'background_audio' ? (t.wb_audio_picker_empty || '暂无音频素材') : '暂无素材'}
+                        {assetLibraryPickMode === 'background_audio'
+                          ? (t.wb_audio_picker_empty || '暂无音频素材')
+                          : assetLibraryPickMode === 'script_import'
+                            ? (t.wb_script_library_empty || '暂无脚本素材')
+                            : '暂无素材'}
                       </div>
                   ) : (
                       <div className="grid grid-cols-6 gap-2">
@@ -8313,17 +11125,33 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{folder.name}</div>
                             </button>
                         ))}
-                        {assetLibraryItems.map((asset) => (
+                        {assetLibraryItems.map((asset) => {
+                          const alreadyAddedInSeedance = (
+                            isSeedanceReplayMode
+                            && assetLibraryPickMode === 'default'
+                            && isSeedanceReplayAssetAlreadyAdded(asset)
+                          );
+
+                          return (
                             <button
                                 key={asset.id}
                                 type="button"
-                                onClick={() => selectAssetFromLibraryPopup(asset)}
-                                className="text-left rounded-lg border border-white/10 bg-black/30 p-1 hover:border-orange-500/50 hover:bg-white/5 transition"
+                                onClick={() => {
+                                  if (alreadyAddedInSeedance) return;
+                                  selectAssetFromLibraryPopup(asset);
+                                }}
+                                className={`text-left rounded-lg border bg-black/30 p-1 transition ${alreadyAddedInSeedance ? 'border-emerald-400/70 ring-1 ring-emerald-400/35' : 'border-white/10 hover:border-orange-500/50 hover:bg-white/5'}`}
+                                title={alreadyAddedInSeedance ? (t.wb_seedance_replay_notice_duplicate_asset || 'This asset has already been added.') : undefined}
                             >
                               <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
                                 {isKlingOmniMode && hasSubjectOtherViews(asset) && (
                                   <div className="absolute top-1.5 right-1.5 z-10 rounded-full bg-black/55 border border-white/15 p-1 text-white shadow-lg">
                                     <Layers3 className="w-3.5 h-3.5" />
+                                  </div>
+                                )}
+                                {alreadyAddedInSeedance && (
+                                  <div className="wb-seedance-replay-added-badge absolute left-1.5 top-1.5 z-10 rounded-full border border-emerald-500/20 bg-emerald-500/5 px-1.5 py-0.5 text-[9px] font-bold text-emerald-400/85">
+                                    {t.wb_seedance_replay_added_badge || '已添加'}
                                   </div>
                                 )}
                                 {asset.media_kind === 'video' ? (
@@ -8332,19 +11160,293 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                   <div className="w-full h-full flex items-center justify-center bg-zinc-900 text-zinc-200">
                                     <Music className="w-5 h-5" />
                                   </div>
+                                ) : asset.media_kind === 'document' || asset.type === 'script' ? (
+                                  <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-zinc-900 text-zinc-200">
+                                    <FileJson className="w-5 h-5" />
+                                    <span className="text-[10px] text-zinc-400">{t.assets_tab_scripts || 'Script'}</span>
+                                  </div>
                                 ) : (
                                     <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} />
                                 )}
                               </div>
                               <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{asset.name}</div>
                             </button>
-                        ))}
+                          );
+                        })}
                       </div>
                   )}
                 </div>
               </div>
             </AppDialog>
         )}
+
+        <AppDialog
+          isOpen={!!seedanceReplayPreviewAsset}
+          title={(
+            <span className="inline-flex max-w-full items-center gap-3">
+              <span className="truncate">{seedanceReplayPreviewAsset?.name || (t.wb_seedance_replay_preview_asset || 'Preview Asset')}</span>
+              {seedanceReplayPreviewAsset?.sizeBytes ? (
+                <span className="shrink-0 text-xs font-normal text-zinc-500">
+                  {formatAssetSize(seedanceReplayPreviewAsset.sizeBytes)}
+                </span>
+              ) : null}
+            </span>
+          )}
+          onClose={() => setSeedanceReplayPreviewAsset(null)}
+          widthClassName="max-w-[min(92vw,980px)]"
+          titleClassName="text-base"
+        >
+          <div className="flex min-h-[320px] items-center justify-center">
+            {seedanceReplayPreviewAsset?.mediaKind === 'audio' ? (
+              <div className="w-full max-w-xl space-y-4">
+                <div className="relative mx-auto aspect-[4/3] w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-black/30">
+                  {renderAudioArtwork(isLightTheme)}
+                </div>
+                <audio
+                  src={seedanceReplayPreviewSrc || undefined}
+                  className="w-full"
+                  controls
+                  autoPlay
+                  preload="metadata"
+                />
+              </div>
+            ) : seedanceReplayPreviewAsset?.mediaKind === 'video' ? (
+              <video
+                src={seedanceReplayPreviewSrc || undefined}
+                className="block max-h-[calc(100vh-12rem)] max-w-full rounded-lg object-contain"
+                controls
+                autoPlay
+                loop
+                playsInline
+              />
+            ) : (
+              <img
+                src={seedanceReplayPreviewSrc || ASSET_PLACEHOLDER_DATA_URL}
+                alt={seedanceReplayPreviewAsset?.name || 'preview asset'}
+                className="block max-h-[calc(100vh-12rem)] max-w-full rounded-lg object-contain"
+                onError={(event) => {
+                  (event.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL;
+                }}
+              />
+            )}
+          </div>
+        </AppDialog>
+
+        <AppDialog
+          isOpen={isBatchGenerateOpen}
+          title={language === 'zh' ? '批量生成视频' : 'Batch Generate Videos'}
+          subtitle={language === 'zh' ? '选择一次性生成几条视频（最多 5 条），并拖拽指定每条视频对应的脚本。' : 'Choose up to 5 videos and drag scripts to map each video.'}
+          onClose={() => setIsBatchGenerateOpen(false)}
+          widthClassName="max-w-none w-[min(92vw,1080px)]"
+          contentClassName="overflow-hidden"
+        >
+          <div className="h-[min(72vh,720px)] flex gap-6">
+            <div className="w-[360px] shrink-0 rounded-2xl border border-white/10 bg-black/20 overflow-hidden flex flex-col">
+              <div className="px-5 py-4 border-b border-white/10 bg-black/30 flex items-center justify-between gap-3">
+                <div className="text-sm font-extrabold text-zinc-200">{language === 'zh' ? '脚本列表' : 'Scripts'}</div>
+                <div className="text-[11px] font-bold text-zinc-500">{scriptPages.length}</div>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scroll p-4 space-y-2">
+                {scriptPages.map((page, idx) => {
+                  const displayName = formatScriptPageDisplayName(page.name, idx, t.wb_script_page_prefix);
+                  const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim();
+                  return (
+                    <div
+                      key={page.id}
+                      draggable
+                      onDragStart={(e) => {
+                        batchGenerateDragRef.current = { kind: 'script', scriptPageId: page.id };
+                        e.dataTransfer.effectAllowed = 'copyMove';
+                      }}
+                      className="rounded-xl border border-white/10 bg-black/30 px-3 py-3 hover:border-white/20 transition cursor-grab active:cursor-grabbing"
+                      title={language === 'zh' ? '拖拽到右侧槽位' : 'Drag into a slot on the right'}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-xs font-extrabold text-zinc-200 truncate">{displayName}</div>
+                          <div className="mt-1 text-[11px] text-zinc-500 line-clamp-2">{previewText || (t.wb_script_grid_card_empty || 'No script content yet')}</div>
+                        </div>
+                        <div className="shrink-0 mt-0.5 text-[10px] font-bold text-zinc-500">#{idx + 1}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex-1 min-w-0 rounded-2xl border border-white/10 bg-black/20 overflow-hidden flex flex-col">
+              <div className="px-5 py-4 border-b border-white/10 bg-black/30 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="text-sm font-extrabold text-zinc-200">{language === 'zh' ? '生成映射' : 'Mapping'}</div>
+                  <div className="text-[11px] text-zinc-500">{language === 'zh' ? '把左侧脚本拖到下方每个视频槽位' : 'Drag a script into each slot'}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={batchGenerateCount}
+                    onChange={(e) => setBatchGenerateCount(Math.max(1, Math.min(5, Number(e.target.value) || 1)))}
+                    className="h-8 rounded-lg border border-white/10 bg-black/40 px-2 text-xs text-zinc-200 outline-none hover:border-white/20"
+                  >
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <option key={n} value={n}>
+                        {language === 'zh' ? `${n} 条` : `${n} videos`}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const ordered = scriptPages.map((p) => p.id);
+                      setBatchGenerateSlots((prev) =>
+                        prev.map((slot, idx) => ({ ...slot, scriptPageId: ordered[idx] || null }))
+                      );
+                    }}
+                    className="h-8 px-3 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition"
+                  >
+                    {language === 'zh' ? '自动填充' : 'Auto fill'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBatchGenerateSlots((prev) => prev.map((s) => ({ ...s, scriptPageId: null })))}
+                    className="h-8 px-3 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition"
+                  >
+                    {language === 'zh' ? '清空' : 'Clear'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scroll p-5">
+                <div className="grid grid-cols-1 gap-3">
+                  {batchGenerateSlots.map((slot, idx) => {
+                    const page = slot.scriptPageId ? scriptPages.find((p) => p.id === slot.scriptPageId) : null;
+                    const pageIndex = page ? scriptPages.findIndex((p) => p.id === page.id) : -1;
+                    const displayName = page ? formatScriptPageDisplayName(page.name, Math.max(0, pageIndex), t.wb_script_page_prefix) : '';
+                    const previewText = page ? String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim() : '';
+                    const hasValue = Boolean(page);
+
+                    return (
+                      <div
+                        key={slot.slotId}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const drag = batchGenerateDragRef.current;
+                          if (!drag) return;
+                          setBatchGenerateSlots((prev) => {
+                            const next = prev.map((x) => ({ ...x }));
+                            const targetIndex = next.findIndex((x) => x.slotId === slot.slotId);
+                            if (targetIndex < 0) return prev;
+
+                            if (drag.kind === 'script') {
+                              next[targetIndex].scriptPageId = drag.scriptPageId;
+                              return next;
+                            }
+
+                            if (drag.kind === 'slot' && drag.slotId) {
+                              const sourceIndex = next.findIndex((x) => x.slotId === drag.slotId);
+                              if (sourceIndex < 0 || sourceIndex === targetIndex) return prev;
+                              const tmp = next[targetIndex].scriptPageId;
+                              next[targetIndex].scriptPageId = drag.scriptPageId;
+                              next[sourceIndex].scriptPageId = tmp ?? null;
+                              return next;
+                            }
+
+                            return prev;
+                          });
+                        }}
+                        className={`rounded-2xl border p-4 transition ${
+                          hasValue ? 'border-white/15 bg-black/30' : 'border-dashed border-white/10 bg-black/20'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <div className="text-[11px] font-bold text-zinc-500">
+                              {language === 'zh' ? `视频 ${idx + 1}` : `Video ${idx + 1}`}
+                            </div>
+                            {hasValue ? (
+                              <>
+                                <div
+                                  draggable
+                                  onDragStart={(e) => {
+                                    if (!slot.scriptPageId) return;
+                                    batchGenerateDragRef.current = { kind: 'slot', scriptPageId: slot.scriptPageId, slotId: slot.slotId };
+                                    e.dataTransfer.effectAllowed = 'move';
+                                  }}
+                                  className="mt-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 cursor-grab active:cursor-grabbing"
+                                  title={language === 'zh' ? '拖拽到其它槽位以交换' : 'Drag to another slot to swap'}
+                                >
+                                  <div className="text-xs font-extrabold text-zinc-200 truncate">{displayName}</div>
+                                  <div className="mt-1 text-[11px] text-zinc-500 line-clamp-2">{previewText || (t.wb_script_grid_card_empty || 'No script content yet')}</div>
+                                </div>
+                              </>
+                            ) : (
+                              <div className="mt-2 text-xs text-zinc-500">{language === 'zh' ? '拖拽脚本到此处' : 'Drop a script here'}</div>
+                            )}
+                          </div>
+                          <div className="shrink-0 flex items-center gap-2">
+                            {hasValue ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setBatchGenerateSlots((prev) =>
+                                    prev.map((s) => (s.slotId === slot.slotId ? { ...s, scriptPageId: null } : s))
+                                  )
+                                }
+                                className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20 transition flex items-center justify-center"
+                                aria-label="Remove"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            ) : (
+                              <div className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-500 flex items-center justify-center">
+                                <Layers className="w-4 h-4" />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="px-5 py-4 border-t border-white/10 bg-black/30 flex items-center justify-between gap-3">
+                <div className="text-[11px] text-zinc-500">
+                  {language === 'zh' ? '提示：可以重复使用同一个脚本生成多条视频。' : 'Tip: you can reuse the same script for multiple videos.'}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsBatchGenerateOpen(false)}
+                    className="h-9 px-4 rounded-xl border border-white/10 bg-white/5 text-sm font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition"
+                  >
+                    {t.wb_confirm_cancel || '取消'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBatchGenerateSubmit}
+                    disabled={isGenerating}
+                    className={`relative overflow-hidden rounded-xl px-4 py-2 text-xs font-extrabold text-white shadow-lg transition active:scale-[0.98] ${
+                      isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : 'hover:brightness-110'
+                    }`}
+                  >
+                    <span className="absolute inset-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-600" />
+                    <span className="absolute inset-0 opacity-0 transition-opacity duration-200 hover:opacity-100 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.22),transparent_55%)]" />
+                    <span className="relative flex items-center gap-2">
+                      {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clapperboard className="w-4 h-4" />}
+                      <span>{language === 'zh' ? '开始批量生成' : 'Start Batch'}</span>
+                      {estimatedBatchVideoCostLabel ? (
+                        <span className="ml-2 text-[9px] font-semibold text-white/80 whitespace-nowrap">{estimatedBatchVideoCostLabel}</span>
+                      ) : null}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </AppDialog>
 
         <div ref={workspaceRowRef} className="flex-1 flex overflow-hidden p-6 gap-6" style={rowStyle}>
           <div style={{ width: leftColumnWidth }} className="shrink-0 h-full min-w-[260px] max-w-[640px]">
@@ -8365,68 +11467,168 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           <div
             ref={scriptsSectionRef}
             style={{ flex: scriptPreviewRatio }}
-            className={`flex-auto flex flex-col gap-3 h-full min-w-[300px] ${getGuideFocusClass('scripts')}`}
+            onDragOver={handleScriptDragOver}
+            onDragLeave={handleScriptDragLeave}
+            onDrop={handleScriptDrop}
+            className={`relative flex-auto flex flex-col gap-3 h-full min-w-[300px] ${getGuideFocusClass('scripts')}`}
           >
-            <div className="flex justify-between items-center shrink-0 h-[32px]">
+            {isScriptDropActive && (
+              <div className="pointer-events-none absolute inset-0 z-[12] rounded-xl border-2 border-dashed border-sky-400/70 bg-sky-500/10" />
+            )}
+            <div className="flex justify-between items-center shrink-0 min-h-[32px] gap-3">
               <div className="flex items-center gap-3">
                 <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
-                <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{currentScriptDuration.toFixed(1)}s / {genDuration}s</div>
+                <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{genDuration}s</div>
                 <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
-                  <button
-                      onClick={handleExportScripts}
-                      disabled={isExporting}
-                      className={`flex items-center gap-1.5 px-2 py-1 rounded transition ${isExporting ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
-                      title={t.wb_export_scripts}
+                    <button
+                      onClick={openScriptSaveDialog}
+                      disabled={isSavingScriptAsset}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded transition ${isSavingScriptAsset ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
+                      title={t.wb_script_save_to_library || '保存到素材库'}
                   >
-                    {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
-                    <span className="text-[10px] font-medium">{t.wb_export_scripts}</span>
+                    {isSavingScriptAsset ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BookmarkPlus className="w-3.5 h-3.5" />}
+                    <span className="text-[10px] font-medium">{t.wb_script_save_to_library || '保存到素材库'}</span>
                   </button>
 
                   <button
-                      onClick={() => scriptFileInputRef.current?.click()}
+                      onClick={openScriptLibraryPicker}
                       className="flex items-center gap-1.5 px-2 py-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition"
-                      title={t.wb_import_scripts}
+                      title={t.wb_script_import_from_library || '从素材库导入'}
                   >
-                    <FileUp className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-medium">{t.wb_import_scripts}</span>
+                    <FolderOpen className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-medium">{t.wb_script_import_from_library || '从素材库导入'}</span>
                   </button>
-
-                  <input
-                      type="file"
-                      ref={scriptFileInputRef}
-                      className="hidden"
-                      accept=".json"
-                      onChange={handleUploadScripts}
-                  />
                 </div>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                    onClick={() => handleScriptPageChange(activeScriptPage - 1)}
-                    disabled={scriptPages.length <= 1 || activeScriptPage === 0}
-                    className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
-                >
-                  <ArrowLeft className="w-3 h-3" />
-                </button>
-
-                <div className="text-[10px] text-zinc-400 border border-white/10 px-2 py-0.5 rounded">
-                  {t.wb_script_page_prefix} {activeScriptPage + 1} / {Math.max(scriptPages.length, 1)}
-                </div>
-
-                <button
-                    onClick={() => handleScriptPageChange(activeScriptPage + 1)}
-                    disabled={scriptPages.length <= 1 || activeScriptPage === scriptPages.length - 1}
-                    className={`p-1 rounded border border-white/10 text-zinc-400 hover:text-white hover:border-white/30 transition ${scriptPages.length <= 1 || activeScriptPage === scriptPages.length - 1 ? 'opacity-40 cursor-not-allowed' : ''}`}
-                >
-                  <ArrowRight className="w-3 h-3" />
-                </button>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={handleGenerateVideo} disabled={isGenerating} className={`bg-gradient-to-r from-purple-600 to-orange-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs hover:brightness-110 active:scale-95 transition flex items-center gap-2 shadow-lg shadow-orange-500/20 ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
-                  {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 fill-current" />}{isGenerating ? t.wb_generating : t.wb_btn_gen_video}
+                <button
+                  type="button"
+                  onClick={() => setIsBatchGenerateOpen(true)}
+                  disabled={isGenerating}
+                  className={`h-9 px-3 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition inline-flex items-center gap-2 ${isGenerating ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title={language === 'zh' ? '批量生成视频' : 'Batch Generate Videos'}
+                >
+                  <Layers className="w-4 h-4" />
+                  {language === 'zh' ? '批量生成' : 'Batch'}
                 </button>
+                <div className="relative group/cost-video">
+                  <button
+                    onClick={handleGenerateVideo}
+                    disabled={isGenerating}
+                    className={`relative overflow-hidden rounded-xl px-4 py-2 text-xs font-extrabold text-white shadow-lg transition active:scale-[0.98] ${
+                      isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : 'hover:brightness-110'
+                    }`}
+                  >
+                    <span className="absolute inset-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-600" />
+                    <span className="absolute inset-0 opacity-0 transition-opacity duration-200 group-hover/cost-video:opacity-100 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.22),transparent_55%)]" />
+                    <span className="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="flex items-center gap-2 whitespace-nowrap">
+                        {isGenerating ? (
+                          <Loader2 className="relative w-4 h-4 animate-spin" />
+                        ) : (
+                          <Clapperboard className="relative w-4 h-4" />
+                        )}
+                        <span className="relative">{isGenerating ? (language === 'zh' ? '生成中' : 'Generating') : (language === 'zh' ? '生成视频' : 'Generate')}</span>
+                      </span>
+                      {estimatedVideoCostLabel ? (
+                        <span className="relative ml-auto text-[9px] font-semibold text-white/80 whitespace-nowrap">{estimatedVideoCostLabel}</span>
+                      ) : null}
+                    </span>
+                  </button>
+                  <span className="pointer-events-none absolute bottom-full right-0 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/cost-video:opacity-100">
+                    {t.wb_cost_tip_generate_video || '生成视频会消耗点数，具体以实际扣费为准。'}
+                  </span>
+                </div>
               </div>
             </div>
+
+            {scriptPages.length > 0 && (
+              <div className="shrink-0 rounded-xl border border-white/10 bg-black/20 p-2.5">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                    {t.wb_script_grid_title || 'Script Variants'}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                        type="button"
+                        onClick={handleScriptGridSlidePrev}
+                        disabled={!canSlideScriptGridPrev}
+                        className={`h-6 w-6 rounded border transition flex items-center justify-center ${canSlideScriptGridPrev ? 'border-white/15 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5' : 'border-white/10 text-zinc-600 cursor-not-allowed'}`}
+                        aria-label={(t as any).wb_previous || 'Previous'}
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleScriptGridSlideNext}
+                        disabled={!canSlideScriptGridNext}
+                        className={`h-6 w-6 rounded border transition flex items-center justify-center ${canSlideScriptGridNext ? 'border-white/15 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5' : 'border-white/10 text-zinc-600 cursor-not-allowed'}`}
+                        aria-label={(t as any).wb_next || 'Next'}
+                    >
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setIsScriptGridDialogOpen(true)}
+                        className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5 transition"
+                    >
+                      {(t.wb_script_grid_open_more || 'View More')} ({scriptPages.length})
+                    </button>
+                  </div>
+                </div>
+                <div className="flex gap-3 overflow-x-auto overflow-y-hidden custom-scroll pb-1">
+                  {visibleScriptPages.map((page, offset) => {
+                    const index = scriptGridPageStart + offset;
+                    const active = index === activeScriptPage;
+                    const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim()
+                      || (t.wb_script_grid_card_empty || 'No script content yet');
+                    return (
+                      <div key={page.id} className="relative group/scriptcard">
+                      <button
+                          type="button"
+                          onClick={() => handleScriptPageChange(index)}
+                          className={`${scriptPlanCardClass} ${active ? 'border-orange-500/70 bg-orange-500/10 ring-1 ring-orange-500/35' : 'border-white/10 bg-black/30 hover:border-white/25 hover:bg-white/5'}`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold ${active ? 'border-orange-400/70 bg-orange-500/20 text-orange-100' : 'border-white/10 bg-white/5 text-zinc-300'}`}>
+                                {t.wb_script_plan_card_badge || 'Kling prompt'}
+                              </span>
+                              {page.sourceLabel && (
+                                <span className="rounded border border-sky-400/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-200">
+                                  {page.sourceLabel}
+                                </span>
+                              )}
+                            </div>
+                            <div className={`mt-2 text-[12px] font-bold leading-5 ${active ? 'text-orange-100' : 'text-zinc-100'}`}>
+                              {formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix)}
+                            </div>
+                          </div>
+                          <span className={`shrink-0 text-[9px] ${active ? 'text-orange-300 font-bold' : 'text-zinc-500'}`}>
+                            {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
+                          </span>
+                        </div>
+                        <div className={`${scriptPlanCardBodyClass} ${active ? 'border-orange-400/30 bg-black/15 text-orange-100/90' : 'border-white/10 bg-black/20 text-zinc-300'}`}>
+                          {previewText}
+                        </div>
+                      </button>
+                      {scriptPages.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); removeScriptPage(index); }}
+                          className="absolute -top-1.5 -right-1.5 z-10 hidden group-hover/scriptcard:flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-zinc-900 text-zinc-400 transition hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-300"
+                          title={t.wb_delete || 'Delete'}
+                        >
+                          <Trash2 className="h-2.5 w-2.5" />
+                        </button>
+                      )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
               {activeScriptPlan && (
@@ -8441,16 +11643,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           <Sparkles className="w-4 h-4 text-purple-400" />
                         </div>
                         <div>
-                          <div className={`text-[13px] font-black tracking-wider flex items-center gap-2 ${isLightTheme ? 'text-slate-900' : 'text-zinc-100'}`}>
-                            {String(language || '').toLowerCase().startsWith('zh') ? '脚本方案卡' : 'Script Plan Card'}
+                          <div className={`flex flex-wrap items-center gap-2 text-[13px] font-black tracking-wider ${isLightTheme ? 'text-slate-900' : 'text-zinc-100'}`}>
+                            <span>{t.wb_script_plan_card_title || 'Script plan'}</span>
                             <span className={`text-[9px] px-1.5 py-0.5 rounded font-normal tracking-normal ${isLightTheme
                               ? 'border border-purple-300 bg-purple-100 text-purple-800'
                               : 'border border-purple-500/30 bg-purple-500/20 text-purple-200'
                             }`}>
-                              {String(language || '').toLowerCase().startsWith('zh') ? '可灵提示词' : 'Kling Prompt'}
+                              {t.wb_script_plan_card_badge || 'Kling prompt'}
                             </span>
+                            {activeScriptPlan?.sourceLabel && (
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-normal tracking-normal ${isLightTheme
+                                ? 'border border-sky-300 bg-sky-100 text-sky-700'
+                                : 'border border-sky-400/30 bg-sky-500/20 text-sky-200'
+                              }`}>
+                                {activeScriptPlan.sourceLabel}
+                              </span>
+                            )}
                           </div>
-                          <div className={`text-[10px] mt-0.5 font-medium ${isLightTheme ? 'text-slate-600' : 'text-zinc-500'}`}>{t.wb_script_page_prefix} {activeScriptPage + 1}</div>
+                          <div className={`text-[10px] mt-0.5 font-medium ${isLightTheme ? 'text-slate-600' : 'text-zinc-500'}`}>
+                            {formatScriptPageDisplayName(activeScriptPlan?.name, activeScriptPage, t.wb_script_page_prefix)}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -8461,10 +11673,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           <textarea
                               rows={1}
                               data-card-autosize="true"
-                              value={activeScriptPlan?.creativeCardText ?? buildCreativeCardEditorText(activeCreativeCard)}
+                              value={(activeScriptPlan?.creativeCardText ?? buildCreativeCardEditorText(activeCreativeCard)) || activeFullScript}
                               onChange={(e) => updateActiveCreativeCardText(e.target.value)}
                               onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
                               className={`${cardThemeClass.textarea} w-full min-h-[220px]`}
+                              style={{
+                                color: isLightTheme ? '#1f2937' : '#f4f4f5',
+                                WebkitTextFillColor: isLightTheme ? '#1f2937' : '#f4f4f5',
+                              }}
                           />
                         </div>
                       </div>
@@ -8810,13 +12026,43 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
 
             <div className="glass-panel rounded-2xl p-4 border border-white/5 max-h-56 overflow-y-auto custom-scroll">
-              <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3">{t.wb_batch_results}</div>
-              {generatedBatch.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_batch_no_results}</div> : <div className="space-y-2">{generatedBatch.map(item => {
-                const task = tasks.find(t => t.id === item.taskId);
-                const status = task?.status;
-                const url = task?.result?.video_url || task?.result?.url;
-                return (<div key={item.id} className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate text-zinc-300">{item.assetName} × {item.scriptName}</span>{status === 'success' && url ? (<button onClick={() => setGeneratedVideoUrl(url)} className="text-orange-400 hover:text-orange-300 transition">预览</button>) : status === 'failed' ? (<span className="text-red-400">失败</span>) : (<span className="text-zinc-500">生成中…</span>)}</div>);
-              })}</div>}
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest">
+                  {language === 'zh' ? '本项目视频队列' : 'Project Video Queue'}
+                </div>
+                <div className="text-[10px] font-bold text-zinc-600">{currentProjectVideoQueue.length}</div>
+              </div>
+              {currentProjectVideoQueue.length === 0 ? (
+                <div className="text-[10px] text-zinc-600">{language === 'zh' ? '暂无队列任务' : 'No queued tasks'}</div>
+              ) : (
+                <div className="space-y-2">
+                  {currentProjectVideoQueue.map((task) => {
+                    const status = task?.status;
+                    const url = task?.result?.video_url || task?.result?.url;
+                    return (
+                      <div key={String(task.id)} className="flex items-center justify-between gap-2 text-[10px]">
+                        <span className="truncate text-zinc-300">{String(task.name || '').trim() || `#${String(task.id).slice(0, 8)}`}</span>
+                        {status === 'success' && url ? (
+                          <button
+                            onClick={() => {
+                              setPreviewProjectId(task.projectId || null);
+                              setLastGeneratedProjectId(task.projectId || null);
+                              setGeneratedVideoUrl(url);
+                            }}
+                            className="text-orange-400 hover:text-orange-300 transition whitespace-nowrap"
+                          >
+                            {language === 'zh' ? '预览' : 'Preview'}
+                          </button>
+                        ) : status === 'failed' ? (
+                          <span className="text-red-400 whitespace-nowrap">{language === 'zh' ? '失败' : 'Failed'}</span>
+                        ) : (
+                          <span className="text-zinc-500 whitespace-nowrap">{language === 'zh' ? '生成中…' : 'Processing…'}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>

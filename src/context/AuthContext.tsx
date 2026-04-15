@@ -11,9 +11,12 @@ interface User {
   avatar: string;
   plan: 'free' | 'plus' | 'pro';
   credits?: number; // remaining generation credits (v点)
-  theme?: 'light' | 'dark' | 'dim';
+  theme?: 'light' | 'dark' | 'dim' | 'system';
   hasPassword?: boolean;
-  token?: string; 
+  token?: string;
+  isFrozen?: boolean;
+  frozenUntil?: string | null;
+  frozenRemainingSeconds?: number;
 }
 
 interface AuthContextType {
@@ -23,6 +26,8 @@ interface AuthContextType {
   updateCredits: (delta: number) => void;
   logout: () => void;
   isLoading: boolean;
+  justLoggedIn: boolean;
+  consumeJustLoggedIn: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -36,6 +41,9 @@ const getWorkbenchProjectStoreKey = (userId?: string | number | null) => {
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  // Distinguishes an explicit in-session login (true) from a session restore via /api/auth/me/ (false).
+  // Consumers read this once to trigger post-login UX like the invite reward popup.
+  const [justLoggedIn, setJustLoggedIn] = useState(false);
 
   const toDisplayUrl = (pathOrUrl: string | null | undefined): string => {
     if (!pathOrUrl) return '';
@@ -79,9 +87,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 avatar: normalizeAvatar(backendUser.avatar),
                 plan: plan,
                 credits: backendUser.balance,
-                theme: (backendUser.theme as 'light' | 'dark' | 'dim') || 'light',
+                theme: (backendUser.theme as 'light' | 'dark' | 'dim' | 'system') || 'system',
                 hasPassword: backendUser.has_password === true,
-                token: undefined // We rely on Cookie Session, no JWT token needed in state
+                token: undefined, // We rely on Cookie Session, no JWT token needed in state
+                isFrozen: backendUser.is_frozen === true,
+                frozenUntil: backendUser.frozen_until || null,
+                frozenRemainingSeconds: Number(backendUser.frozen_remaining_seconds || 0),
             };
 
             debugLog('Session verified:', verifiedUser);
@@ -161,20 +172,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       avatar: normalizeAvatar(serverData?.avatar || serverData?.data?.avatar || ''),
       plan: resolvedPlan,
       credits: serverData?.credits ?? serverData?.data?.balance ?? defaultCredits,
-      theme: serverData?.theme || serverData?.data?.theme || 'light',
+      theme: serverData?.theme || serverData?.data?.theme || 'system',
       hasPassword: (serverData?.has_password ?? serverData?.data?.has_password) === true,
-      token: token
+      token: token,
+      isFrozen: (serverData?.is_frozen ?? serverData?.data?.is_frozen) === true,
+      frozenUntil: serverData?.frozen_until ?? serverData?.data?.frozen_until ?? null,
+      frozenRemainingSeconds: Number(serverData?.frozen_remaining_seconds ?? serverData?.data?.frozen_remaining_seconds ?? 0),
     };
 
     debugLog('User saved:', newUser);
 
     // Save
     setUser(newUser);
+    setJustLoggedIn(true);
     localStorage.setItem('vflow_ai_user', JSON.stringify(newUser));
-    
+
     await new Promise(resolve => setTimeout(resolve, 500));
     setIsLoading(false);
   };
+
+  const consumeJustLoggedIn = () => setJustLoggedIn(false);
 
   const logout = () => {
     const currentUserId = user?.id ?? null;
@@ -194,6 +211,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }).catch(console.error);
 
     setUser(null);
+    setJustLoggedIn(false);
     localStorage.removeItem('vflow_ai_user');
     clearDebugModeEnabled();
     // Clear cookies explicitly if needed (though backend logout should handle it)
@@ -231,7 +249,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, updateUser, updateCredits, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, login, updateUser, updateCredits, logout, isLoading, justLoggedIn, consumeJustLoggedIn }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,44 +1,95 @@
 import React from 'react';
-import { Video, Image as ImageIcon, History, Sparkles, User as UserIcon, CreditCard, Flame, FolderOpen, LayoutGrid, Shirt, ImagePlus, WandSparkles } from 'lucide-react';
+import {
+  CreditCard,
+  Flame,
+  FolderOpen,
+  History,
+  Image as ImageIcon,
+  SunMoon,
+  Sparkles,
+  User as UserIcon,
+  Video,
+} from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
-import type { ViewType } from './types'; 
+import { authApi } from '../../services/auth';
+import type { ViewType } from './types';
 
 interface SidebarProps {
   activeView: ViewType;
   setActiveView: (view: ViewType) => void;
   isDebugModeEnabled: boolean;
+  theme: 'dark' | 'light' | 'dim' | 'system';
+  setTheme: (theme: 'dark' | 'light' | 'dim' | 'system') => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isDebugModeEnabled }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isDebugModeEnabled, theme, setTheme }) => {
   const { t, language } = useLanguage();
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const isZh = language === 'zh';
   const tx = (key: string, fallback: string) => ((t as any)[key] as string) || fallback;
   const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
+  const themeCycle: Array<'light' | 'dark' | 'dim' | 'system'> = ['system', 'light', 'dark', 'dim'];
+
+  const handleCycleTheme = React.useCallback(() => {
+    const currentIndex = themeCycle.indexOf(theme);
+    const nextTheme = themeCycle[(currentIndex + 1 + themeCycle.length) % themeCycle.length];
+    setTheme(nextTheme);
+    updateUser({ theme: nextTheme });
+    void authApi.updateProfile({ theme: nextTheme }).catch((err) => {
+      console.error('Failed to persist sidebar theme switch', err);
+    });
+  }, [setTheme, theme, updateUser]);
+
+  const nextTheme = themeCycle[(themeCycle.indexOf(theme) + 1 + themeCycle.length) % themeCycle.length];
+  const themeButtonLabel = nextTheme === 'light'
+    ? tr('切换到日间', 'Switch to light')
+    : nextTheme === 'dark'
+      ? tr('切换到夜间', 'Switch to dark')
+      : nextTheme === 'dim'
+        ? tr('切换到暗淡', 'Switch to dim')
+        : tr('切换到跟随系统', 'Switch to system');
 
   const isProductImagesView =
-    activeView === 'product_images_clothing_swap'
-    || activeView === 'product_images_first_frame'
-    || activeView === 'product_images_smart_repair'
-    || activeView === 'product_images_gallery';
+    activeView === 'product_images_clothing_swap' ||
+    activeView === 'product_images_first_frame' ||
+    activeView === 'product_images_smart_repair' ||
+    activeView === 'product_images_gallery' ||
+    activeView === 'product_images_text_separation';
 
-  const [isProductImagesMenuOpen, setIsProductImagesMenuOpen] = React.useState(false);
+  const [isProductImagesPickerOpen, setIsProductImagesPickerOpen] = React.useState(false);
+  const productImagesPickerRef = React.useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
-    if (isProductImagesView) setIsProductImagesMenuOpen(true);
-  }, [isProductImagesView]);
+    if (!isProductImagesPickerOpen) return;
 
-  const InternalNav = ({ icon: Icon, view, label }: { icon: any, view: ViewType, label: string }) => (
+    const handleClickOutside = (event: MouseEvent) => {
+      if (productImagesPickerRef.current && !productImagesPickerRef.current.contains(event.target as Node)) {
+        setIsProductImagesPickerOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isProductImagesPickerOpen]);
+
+  React.useEffect(() => {
+    setIsProductImagesPickerOpen(false);
+  }, [activeView]);
+
+  const InternalNav = ({ icon: Icon, view, label }: { icon: any; view: ViewType; label: string }) => (
     <div
       onClick={() => {
         setActiveView(view);
-        setIsProductImagesMenuOpen(false);
       }}
-      className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${activeView === view ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300'}`} 
+      className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${
+        activeView === view ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300'
+      }`}
     >
-      <Icon className={`w-5 h-5 transition-all ${activeView === view ? 'stroke-[2.5px]' : ''}`} />
-      {activeView === view && (<div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />)}
+      <div className={`transition-colors ${activeView === view ? 'text-orange-500' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
+        <Icon className={`w-5 h-5 transition-all ${activeView === view ? 'stroke-[2.5px]' : ''}`} />
+      </div>
+      {activeView === view && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />}
       <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
         {label}
       </div>
@@ -47,39 +98,69 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
 
   const ProductImagesNav = () => {
     const active = isProductImagesView;
+    const options: Array<{ view: ViewType; label: string }> = [
+      { view: 'product_images_clothing_swap', label: tx('wb_nav_product_clothing_swap', tr('AI 换装', 'AI Clothing Swap')) },
+      { view: 'product_images_first_frame', label: tx('wb_nav_product_first_frame', tr('AI 首帧图', 'AI First Frame')) },
+      { view: 'product_images_smart_repair', label: tx('wb_nav_product_smart_repair', tr('AI 智能修复', 'AI Smart Repair')) },
+      { view: 'product_images_gallery', label: tx('wb_nav_product_gallery', tr('AI 商品套图', 'AI Product Gallery')) },
+      { view: 'product_images_text_separation', label: tx('wb_nav_product_text_separation', tr('文本分离', 'Text Separation')) },
+    ];
+
     return (
-      <div
-        onClick={() => {
-          if (!isProductImagesMenuOpen) {
-            setIsProductImagesMenuOpen(true);
-          }
-          if (!isProductImagesView) {
-            setActiveView('product_images_first_frame');
-          }
-        }}
-        className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${active ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300'}`}
-      >
-        <ImageIcon className={`w-5 h-5 transition-all ${active ? 'stroke-[2.5px]' : ''}`} />
-        {active && (<div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />)}
-        <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
-          {tx('wb_nav_product_images', tr('商品图片生成', 'Product Images'))}
-        </div>
+      <div ref={productImagesPickerRef} className="relative">
+        <button
+          type="button"
+          onClick={() => setIsProductImagesPickerOpen((prev) => !prev)}
+          className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${
+            active ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300'
+          }`}
+          aria-haspopup="menu"
+          aria-expanded={isProductImagesPickerOpen}
+          title={tx('wb_nav_product_images', tr('商品图片生成', 'Product Images'))}
+        >
+          <div className={`transition-colors ${active ? 'text-orange-500' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
+            <ImageIcon className={`w-5 h-5 transition-all ${active ? 'stroke-[2.5px]' : ''}`} />
+          </div>
+          {active && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />}
+          <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
+            {tx('wb_nav_product_images', tr('商品图片生成', 'Product Images'))}
+          </div>
+        </button>
+
+        {isProductImagesPickerOpen ? (
+          <div
+            className="absolute left-full top-0 ml-3 w-56 rounded-xl border border-white/10 bg-zinc-950/95 backdrop-blur-sm shadow-xl z-50 overflow-hidden"
+            role="menu"
+          >
+            <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-zinc-500">
+              {tx('wb_nav_product_images', tr('商品图片生成', 'Product Images'))}
+            </div>
+            <div className="px-2 pb-2 flex flex-col gap-1">
+              {options.map((opt) => (
+                <button
+                  key={opt.view}
+                  type="button"
+                  onClick={() => {
+                    setActiveView(opt.view);
+                    setIsProductImagesPickerOpen(false);
+                  }}
+                  className={`w-full rounded-lg px-3 py-2 text-left text-sm transition ${
+                    activeView === opt.view
+                      ? 'bg-indigo-500/15 text-indigo-200'
+                      : 'text-zinc-200 hover:bg-white/5'
+                  }`}
+                  role="menuitem"
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   };
 
-  const ProductSubNav = ({ icon: Icon, view, label }: { icon: any; view: ViewType; label: string }) => (
-    <button
-      type="button"
-      onClick={() => setActiveView(view)}
-      className={`w-full rounded-xl border px-3 py-2 text-left text-xs transition ${activeView === view ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
-    >
-      <span className="flex items-center gap-2">
-        <Icon className="h-4 w-4" />
-        <span>{label}</span>
-      </span>
-    </button>
-  );
 
   return (
     <aside className="bg-zinc-950 border-r border-white/5 flex z-30 shrink-0">
@@ -100,27 +181,47 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
         <div className="mt-auto pb-6 w-full px-2 flex flex-col items-center gap-4">
           <button
             type="button"
+            onClick={handleCycleTheme}
+            className="w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative border-white/5 bg-zinc-900/50 hover:border-white/20"
+            title={themeButtonLabel}
+          >
+            <div className="text-zinc-500 group-hover:text-zinc-300 transition-colors">
+              <SunMoon className="w-5 h-5" />
+            </div>
+            <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
+              {themeButtonLabel}
+            </div>
+          </button>
+
+          <button
+            type="button"
             onClick={() => {
               setActiveView('replay_lab');
-              setIsProductImagesMenuOpen(false);
             }}
-            className={`w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative ${activeView === 'replay_lab' ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_15px_rgba(249,115,22,0.2)]' : 'border-white/5 bg-zinc-900/50 hover:border-white/20'}`}
-            title={t.wb_replay_dev_entry || '正在开发'}
+            className={`w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative ${
+              activeView === 'replay_lab'
+                ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_15px_rgba(249,115,22,0.2)]'
+                : 'border-white/5 bg-zinc-900/50 hover:border-white/20'
+            }`}
+            title={t.wb_replay_dev_entry || 'Replay Lab'}
           >
             <div className={`transition-colors ${activeView === 'replay_lab' ? 'text-orange-500' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
               <Flame className="w-5 h-5" />
             </div>
             <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
-              {t.wb_replay_dev_entry || '正在开发'}
+              {t.wb_replay_dev_entry || 'Replay Lab'}
             </div>
           </button>
 
           <div
             onClick={() => {
               setActiveView('profile');
-              setIsProductImagesMenuOpen(false);
             }}
-            className={`w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative ${activeView === 'profile' ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_15px_rgba(249,115,22,0.2)]' : 'border-white/5 bg-zinc-900/50 hover:border-white/20'}`}
+            className={`w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative ${
+              activeView === 'profile'
+                ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_15px_rgba(249,115,22,0.2)]'
+                : 'border-white/5 bg-zinc-900/50 hover:border-white/20'
+            }`}
           >
             {user?.avatar ? (
               <img src={user.avatar} className="w-full h-full object-cover" alt="Profile" />
@@ -136,37 +237,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
           </div>
         </div>
       </div>
-
-      {isProductImagesMenuOpen && (
-        <div className="w-52 border-l border-white/5 bg-zinc-950/95 backdrop-blur-sm px-3 py-6">
-          <div className="px-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-            {tx('wb_nav_product_images', tr('商品图片生成', 'Product Images'))}
-          </div>
-          <div className="mt-3 flex flex-col gap-2">
-            <ProductSubNav
-              icon={Shirt}
-              view="product_images_clothing_swap"
-              label={tx('wb_nav_product_clothing_swap', tr('AI 换装', 'AI Clothing Swap'))}
-            />
-            <ProductSubNav
-              icon={ImagePlus}
-              view="product_images_first_frame"
-              label={tx('wb_nav_product_first_frame', tr('AI 首帧图', 'AI First Frame'))}
-            />
-            <ProductSubNav
-              icon={WandSparkles}
-              view="product_images_smart_repair"
-              label={tx('wb_nav_product_smart_repair', tr('智能修复', 'Smart Repair'))}
-            />
-            <ProductSubNav
-              icon={LayoutGrid}
-              view="product_images_gallery"
-              label={tx('wb_nav_product_gallery', tr('AI 商品套图', 'AI Product Gallery'))}
-            />
-          </div>
-        </div>
-      )}
-
 
     </aside>
   );

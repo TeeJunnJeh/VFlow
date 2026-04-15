@@ -781,11 +781,11 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
             <div className="text-xs text-zinc-400">
               {assetPickerMode === 'model' ? (t.editor_label_model || '默认模特') : (t.editor_label_motion || '默认动作视频')}
             </div>
-            <div className="flex items-center gap-2 text-xs text-zinc-500 min-w-0">
+            <div className="flex items-center gap-2 text-sm text-zinc-500 min-w-0">
               <button
                 type="button"
                 onClick={() => setAssetPickerCurrentFolderId(null)}
-                className={`hover:text-white ${assetPickerCurrentFolderId === null ? 'text-white' : ''}`}
+                className={`wb-asset-library-crumb hover:text-white ${assetPickerCurrentFolderId === null ? 'text-white' : ''}`}
               >
                                 {t.assets_root || 'Root'}
               </button>
@@ -795,7 +795,7 @@ export const EditorView: React.FC<EditorViewProps> = ({ initialData, onClose, on
                   <button
                     type="button"
                     onClick={() => setAssetPickerCurrentFolderId(folder.id)}
-                    className={`hover:text-white truncate ${assetPickerCurrentFolderId === folder.id ? 'text-white' : ''}`}
+                    className={`wb-asset-library-crumb hover:text-white truncate ${assetPickerCurrentFolderId === folder.id ? 'text-white' : ''}`}
                   >
                     {folder.name}
                   </button>

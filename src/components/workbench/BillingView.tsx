@@ -102,7 +102,7 @@ export const BillingView: React.FC = () => {
 
   const balance = overview?.balance ?? 0;
   const planMeta = overview?.plan_meta || {};
-  const rechargeAmounts = [0.01, 9, 29, 99, 199];
+  const rechargeAmounts = [0.1, 9, 29, 99, 199];
 
   const getTxTypeLabel = (tx: any) => {
     const byType: Record<string, string> = {
@@ -127,6 +127,14 @@ export const BillingView: React.FC = () => {
   };
 
   const getTxDescriptionLabel = (tx: any) => {
+    const meta = tx?.metadata && typeof tx.metadata === 'object' ? tx.metadata : null;
+    const normalizedType = String(tx?.type || '').trim().toUpperCase();
+    const mediaType = String((meta as any)?.media_type || '').trim().toLowerCase();
+    if (normalizedType === 'GENERATION_COST') {
+      if (mediaType === 'video') return '视频生成';
+      if (mediaType === 'image') return '图片生成';
+    }
+
     const raw = String(tx?.description || '').trim();
     if (!raw) return '-';
 
@@ -143,6 +151,32 @@ export const BillingView: React.FC = () => {
     };
 
     return map[normalized] || raw;
+  };
+
+  const getTxMetaSummary = (tx: any) => {
+    const meta = tx?.metadata && typeof tx.metadata === 'object' ? tx.metadata : null;
+    if (!meta) return '';
+    const mediaType = String((meta as any).media_type || '').trim().toLowerCase();
+    const rawMode = String((meta as any).pricing_mode || '').trim();
+    const mode = mediaType === 'video'
+      ? (rawMode === 'replay' ? '爆款复刻' : rawMode === 'fast' ? '极速出片' : rawMode)
+      : rawMode;
+    const model = String((meta as any).model_display_name || (meta as any).model || '').trim();
+    const rateLabel = String((meta as any).rate_label || '').trim();
+    const billedUnits = Number((meta as any).billed_units || 0);
+    const rateUnit = String((meta as any).rate_unit || '').trim().toLowerCase();
+    const billedUnitsLabel = billedUnits > 0
+      ? `${billedUnits}${rateUnit === 'second' ? '秒' : rateUnit === 'image' ? '张' : ''}`
+      : '';
+    const cost = Number((meta as any).cost || 0);
+    const detailParts = [
+      mode ? `模式: ${mode}` : '',
+      model ? `模型: ${model}` : '',
+      rateLabel ? `单价: ${rateLabel}` : '',
+      billedUnitsLabel ? `计费单位: ${billedUnitsLabel}` : '',
+      cost > 0 ? `扣费: ${cost} V点` : '',
+    ].filter(Boolean);
+    return detailParts.join(' | ');
   };
 
   return (
@@ -197,10 +231,10 @@ export const BillingView: React.FC = () => {
             <table className="w-full text-left text-xs">
               <thead className="bg-zinc-900/80 text-zinc-400">
                 <tr>
-                  <th className="px-4 py-2">{t.billing_col_time || 'Time'}</th>
                   <th className="px-4 py-2">{t.billing_col_type || 'Type'}</th>
                   <th className="px-4 py-2">{t.billing_col_amount || 'Amount'}</th>
                   <th className="px-4 py-2">{t.billing_col_description || 'Description'}</th>
+                  <th className="px-4 py-2">{t.billing_col_time || 'Time'}</th>
                 </tr>
               </thead>
               <tbody>
@@ -216,9 +250,6 @@ export const BillingView: React.FC = () => {
                 )}
                 {transactions.map((tx) => (
                   <tr key={tx.id} className="border-t border-white/5">
-                    <td className="px-4 py-2 text-zinc-400">
-                      {tx.created_at?.replace('T', ' ').slice(0, 19)}
-                    </td>
                     <td className="px-4 py-2 text-zinc-300">{getTxTypeLabel(tx)}</td>
                     <td
                       className={`px-4 py-2 font-medium ${
@@ -228,7 +259,13 @@ export const BillingView: React.FC = () => {
                       {tx.amount > 0 ? `+${tx.amount}` : tx.amount}
                     </td>
                     <td className="px-4 py-2 text-zinc-400">
-                      {getTxDescriptionLabel(tx)}
+                      <div>{getTxDescriptionLabel(tx)}</div>
+                      {getTxMetaSummary(tx) ? (
+                        <div className="mt-1 text-[10px] text-zinc-500">{getTxMetaSummary(tx)}</div>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-2 text-zinc-400">
+                      {tx.created_at?.replace('T', ' ').slice(0, 19)}
                     </td>
                   </tr>
                 ))}

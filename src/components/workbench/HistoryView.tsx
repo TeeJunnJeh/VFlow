@@ -1,11 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Download, Loader2, Play, Trash2, Video, FileJson, X, Star, LayoutGrid, List, Send, RefreshCw } from 'lucide-react';
+import { AlertCircle, Download, Loader2, Play, Trash2, Video, FileJson, X, Star, LayoutGrid, List, Send, RefreshCw, Image as ImageIcon } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { videoApi, type HistoryProject, type HistorySort } from '../../services/video';
 import { tiktokApi } from '../../services/tiktok';
 import { AppDialog } from '../common/AppDialog';
+import { ImageHistoryPanel } from './ImageHistoryPanel';
+import {
+  TIKTOK_AUTH_COMPLETE_EVENT,
+  closeTikTokAuthPopup,
+  navigateTikTokAuthPopup,
+  openTikTokAuthPopup,
+  type TikTokAuthResult,
+} from '../../utils/tiktokAuthPopup';
+
+type HistoryTab = 'video' | 'image';
 
 const toDisplayUrl = (path: string | null | undefined): string | null => {
   if (!path) return null;
@@ -117,9 +127,9 @@ export const HistoryView = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [postingTikTokProjectId, setPostingTikTokProjectId] = useState<string | null>(null);
   const [retryingProjectId, setRetryingProjectId] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalResults, setTotalResults] = useState(0);
+  const [historyTab, setHistoryTab] = useState<HistoryTab>('video');
+  const [loadingPromptId, setLoadingPromptId] = useState<string | null>(null);
+  const [promptTab, setPromptTab] = useState<'final' | 'original'>('final');
 
   const statusLabels: Record<string, string> = useMemo(() => ({
     SUCCESS: t.hist_status_success,
@@ -182,6 +192,17 @@ export const HistoryView = () => {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    const onTikTokAuthComplete = (event: Event) => {
+      const detail = (event as CustomEvent<TikTokAuthResult>).detail;
+      if (detail?.status !== 'success') return;
+      void loadHistory();
+    };
+
+    window.addEventListener(TIKTOK_AUTH_COMPLETE_EVENT, onTikTokAuthComplete);
+    return () => window.removeEventListener(TIKTOK_AUTH_COMPLETE_EVENT, onTikTokAuthComplete);
+  }, [loadHistory]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -547,30 +568,42 @@ export const HistoryView = () => {
   };
 
   const handleOpenPrompt = async (proj: HistoryProject) => {
-    if (loadingPromptProjectId === proj.id) return;
+    // Prevent duplicate clicks
+    if (loadingPromptId) return;
 
+    // 如果本地已有数据（缓存），直接展示
     if (proj.model_request || proj.request_payload) {
+      setPromptTab('final');
       setPromptProject(proj);
       return;
     }
 
-    setLoadingPromptProjectId(proj.id);
+    // 异步从后端按需加载 request_payload / model_request
+    setLoadingPromptId(proj.id);
     try {
       const detail = await videoApi.getHistoryDetail(proj.id);
+      const enriched: HistoryProject = {
+        ...proj,
+        request_payload: detail.request_payload,
+        model_request: detail.model_request,
+      };
+
+      // 回写到列表缓存，下次无需再请求
+      setProjects((prev) =>
+        prev.map((item) => (item.id === proj.id ? enriched : item)),
+      );
+
       if (!detail.model_request && !detail.request_payload) {
         setFeedbackMessage(t.hist_prompt_empty);
         return;
       }
 
-      setPromptProject({
-        ...proj,
-        model_request: detail.model_request,
-        request_payload: detail.request_payload,
-      });
-    } catch (err: unknown) {
-      setFeedbackMessage(getErrorMessage(err, t.hist_prompt_empty));
+      setPromptTab('final');
+      setPromptProject(enriched);
+    } catch {
+      setFeedbackMessage(t.hist_prompt_empty);
     } finally {
-      setLoadingPromptProjectId((prev) => (prev === proj.id ? null : prev));
+      setLoadingPromptId(null);
     }
   };
 
@@ -611,14 +644,24 @@ export const HistoryView = () => {
       return;
     }
 
+    const authPopup = openTikTokAuthPopup({
+      loadingTitle: t.app_tiktok_popup_loading_title,
+      loadingDescription: t.app_tiktok_popup_loading_desc,
+    });
+
     setPostingTikTokProjectId(proj.id);
     try {
       const result = await tiktokApi.publishDraft(proj.id);
       if (result.requiresAuth) {
         const authUrl = result.authUrl || await tiktokApi.getAuthUrl(proj.id);
-        window.location.href = authUrl;
+        const popupWindow = navigateTikTokAuthPopup(authPopup, authUrl);
+        if (!popupWindow) {
+          setFeedbackMessage(t.app_tiktok_popup_blocked);
+        }
         return;
       }
+
+      closeTikTokAuthPopup(authPopup);
 
       setProjects((prev) => prev.map((item) => {
         if (item.id !== proj.id) return item;
@@ -634,6 +677,7 @@ export const HistoryView = () => {
 
       setFeedbackMessage(result.message || '已上传到TikTok草稿箱，请在App中查看并发布');
     } catch (err: unknown) {
+      closeTikTokAuthPopup(authPopup);
       setFeedbackMessage(getErrorMessage(err, '上传 TikTok 草稿失败'));
     } finally {
       setPostingTikTokProjectId((prev) => (prev === proj.id ? null : prev));
@@ -642,7 +686,29 @@ export const HistoryView = () => {
 
   const handleRetryGenerate = async (proj: HistoryProject) => {
     if (proj.status !== 'FAILED') return;
-    if (!proj.request_payload || typeof proj.request_payload !== 'object') {
+
+    // 如果本地没有 request_payload，先从后端按需加载
+    let payload = proj.request_payload;
+    if (!payload || typeof payload !== 'object') {
+      try {
+        const detail = await videoApi.getHistoryDetail(proj.id);
+        payload = detail.request_payload;
+        if (payload) {
+          // 回写缓存
+          setProjects((prev) =>
+            prev.map((item) =>
+              item.id === proj.id
+                ? { ...item, request_payload: detail.request_payload, model_request: detail.model_request }
+                : item,
+            ),
+          );
+        }
+      } catch {
+        // ignore fetch error, will show empty prompt message below
+      }
+    }
+
+    if (!payload || typeof payload !== 'object') {
       setFeedbackMessage(t.hist_prompt_empty);
       return;
     }
@@ -650,7 +716,7 @@ export const HistoryView = () => {
     setRetryingProjectId(proj.id);
     try {
       const retryPayload = {
-        ...(proj.request_payload as Record<string, unknown>),
+        ...(payload as Record<string, unknown>),
         project_id: proj.id,
       };
 
@@ -679,14 +745,61 @@ export const HistoryView = () => {
 
   return (
     <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300 relative">
-      <header className="hist-header flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
-        <div>
-          <h1 className="hist-title text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.hist_title}</h1>
-          <p className="text-zinc-500 text-xs mt-1">{t.hist_subtitle}</p>
+      <header className="hist-header flex flex-col px-10 pt-6 pb-0 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="hist-title text-2xl font-bold tracking-tighter flex items-center gap-3 text-zinc-200">{t.hist_title}</h1>
+            <p className="text-zinc-500 text-xs mt-1">{t.hist_subtitle}</p>
+          </div>
+          <LanguageSwitcher />
         </div>
-        <LanguageSwitcher />
+        {/* Horizontal Tabs */}
+        <div className="flex items-center gap-1 mt-4 -mb-px">
+          <button
+            type="button"
+            onClick={() => setHistoryTab('video')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-t-lg border border-b-0 transition ${
+              historyTab === 'video'
+                ? 'bg-white/5 border-white/10 text-zinc-100'
+                : 'bg-transparent border-transparent text-zinc-500 hover:text-zinc-300'
+            }`}
+          >
+            <Video className="w-4 h-4" />
+            {t.hist_tab_video}
+          </button>
+          <button
+            type="button"
+            onClick={() => setHistoryTab('image')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-t-lg border border-b-0 transition ${
+              historyTab === 'image'
+                ? 'bg-white/5 border-white/10 text-zinc-100'
+                : 'bg-transparent border-transparent text-zinc-500 hover:text-zinc-300'
+            }`}
+          >
+            <ImageIcon className="w-4 h-4" />
+            {t.hist_tab_image}
+          </button>
+        </div>
       </header>
 
+      {/* Image Tab */}
+      {historyTab === 'image' && (
+        <div className="flex-1 overflow-y-auto p-10 custom-scroll">
+          <div className="max-w-7xl mx-auto">
+            <ImageHistoryPanel
+              onNavigateToWorkbench={() => {
+                window.dispatchEvent(new CustomEvent('vflow:navigate', { detail: { view: 'workbench' } }));
+              }}
+              onNavigateToProductImages={(view) => {
+                window.dispatchEvent(new CustomEvent('vflow:navigate', { detail: { view } }));
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Video Tab */}
+      {historyTab === 'video' && (
       <div className="flex-1 overflow-y-auto p-10 custom-scroll">
         <div className="max-w-7xl mx-auto">
           {!user?.id ? (
@@ -1101,17 +1214,13 @@ export const HistoryView = () => {
                             </button>
 
                             <button
-                              onClick={() => void handleOpenPrompt(proj)}
-                              disabled={loadingPromptProjectId === proj.id}
-                              className="h-7 px-2 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-white/5 rounded transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 text-[11px]"
+                              onClick={() => handleOpenPrompt(proj)}
+                              disabled={!!loadingPromptId}
+                              className="h-7 px-2 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-white/5 rounded transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 text-[11px] disabled:opacity-50 disabled:cursor-not-allowed"
                               title={t.hist_action_view_prompt}
                             >
-                              {loadingPromptProjectId === proj.id ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <FileJson className="w-3.5 h-3.5" />
-                              )}
-                              <span className="hidden sm:inline">{t.hist_action_view_prompt}</span>
+                              {loadingPromptId === proj.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileJson className="w-3.5 h-3.5" />}
+                              <span className="hidden sm:inline">{loadingPromptId === proj.id ? t.hist_prompt_loading : t.hist_action_view_prompt}</span>
                             </button>
                           </div>
 
@@ -1262,17 +1371,13 @@ export const HistoryView = () => {
                         <div className="w-full max-w-[180px] h-px bg-white/25" />
 
                         <button
-                          onClick={() => void handleOpenPrompt(proj)}
-                          disabled={loadingPromptProjectId === proj.id}
-                          className="w-full max-w-[180px] h-8 text-zinc-100 hover:text-orange-400 transition-all duration-200 hover:translate-y-0.5 hover:scale-[1.02] flex items-center justify-center gap-1.5"
+                          onClick={() => handleOpenPrompt(proj)}
+                          disabled={!!loadingPromptId}
+                          className="w-full max-w-[180px] h-8 text-zinc-100 hover:text-orange-400 transition-all duration-200 hover:translate-y-0.5 hover:scale-[1.02] flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                           title={t.hist_action_view_prompt}
                         >
-                          {loadingPromptProjectId === proj.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <FileJson className="w-3.5 h-3.5" />
-                          )}
-                          <span className="text-xs font-medium">{t.hist_action_view_prompt}</span>
+                          {loadingPromptId === proj.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileJson className="w-3.5 h-3.5" />}
+                          <span className="text-xs font-medium">{loadingPromptId === proj.id ? t.hist_prompt_loading : t.hist_action_view_prompt}</span>
                         </button>
                       </div>
                     </div>
@@ -1359,6 +1464,7 @@ export const HistoryView = () => {
           )}
         </div>
       </div>
+      )}
 
       <AppDialog
         isOpen={isBulkDeleteOpen}
@@ -1449,12 +1555,82 @@ export const HistoryView = () => {
           </button>
         }
       >
-        <div className="space-y-3">
-          <div className="text-xs text-zinc-500">{promptProject?.title || t.hist_untitled_project}</div>
-          <pre className="max-h-[60vh] overflow-auto rounded-xl border border-white/10 bg-black/40 p-4 text-xs leading-6 text-zinc-200 whitespace-pre-wrap break-all custom-scroll">
-            {JSON.stringify(promptProject?.model_request ?? promptProject?.request_payload ?? {}, null, 2)}
-          </pre>
-        </div>
+        {(() => {
+          const mr = promptProject?.model_request;
+          const rp = promptProject?.request_payload;
+          const hasBoth = !!(mr && rp);
+          const active = promptTab === 'final' ? (mr ?? rp ?? {}) : (rp ?? {});
+          const data = active as Record<string, unknown>;
+
+          const fieldDefs: { key: string; label: string }[] = [
+            { key: 'prompt', label: t.hist_prompt_field_prompt },
+            { key: 'model_name', label: t.hist_prompt_field_model },
+            { key: 'duration', label: t.hist_prompt_field_duration },
+            { key: 'aspect_ratio', label: t.hist_prompt_field_ratio },
+            { key: 'mode', label: t.hist_prompt_field_mode },
+            { key: 'professional_mode', label: t.hist_prompt_field_kling_mode },
+            { key: 'cfg_scale', label: 'CFG Scale' },
+            { key: 'with_audio', label: t.hist_prompt_field_sound },
+            { key: 'negative_prompt', label: t.hist_prompt_field_negative },
+            { key: 'image_path', label: t.hist_prompt_field_assets },
+            { key: 'image_url', label: t.hist_prompt_field_assets },
+          ];
+
+          return (
+            <div className="space-y-3">
+              <div className="text-xs text-zinc-500">{promptProject?.title || t.hist_untitled_project}</div>
+
+              {hasBoth && (
+                <div className="flex gap-1 p-0.5 rounded-lg bg-white/5 w-fit">
+                  <button
+                    type="button"
+                    onClick={() => setPromptTab('final')}
+                    className={`px-3 py-1 text-xs font-bold rounded-md transition ${
+                      promptTab === 'final' ? 'bg-white/10 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    {t.hist_prompt_tab_final}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPromptTab('original')}
+                    className={`px-3 py-1 text-xs font-bold rounded-md transition ${
+                      promptTab === 'original' ? 'bg-white/10 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    {t.hist_prompt_tab_original}
+                  </button>
+                </div>
+              )}
+
+              <div className="max-h-[60vh] overflow-auto rounded-xl border border-white/10 bg-black/40 p-4 custom-scroll space-y-2">
+                {fieldDefs.map(({ key, label }) => {
+                  const val = data[key];
+                  if (val === undefined || val === null || val === '') return null;
+                  const display = typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val);
+                  return (
+                    <div key={key} className="flex flex-col gap-0.5">
+                      <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">{label}</span>
+                      <span className="text-xs text-zinc-200 whitespace-pre-wrap break-all leading-5 bg-white/5 rounded-lg px-3 py-2">{display}</span>
+                    </div>
+                  );
+                })}
+                {/* Show any remaining keys not in fieldDefs */}
+                {Object.entries(data).filter(([k, v]) => !fieldDefs.some(f => f.key === k) && v !== undefined && v !== null && v !== '').map(([k, v]) => (
+                  <div key={k} className="flex flex-col gap-0.5">
+                    <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">{k}</span>
+                    <span className="text-xs text-zinc-200 whitespace-pre-wrap break-all leading-5 bg-white/5 rounded-lg px-3 py-2">
+                      {typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v)}
+                    </span>
+                  </div>
+                ))}
+                {Object.keys(data).length === 0 && (
+                  <div className="text-xs text-zinc-500 text-center py-4">{t.hist_prompt_empty}</div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </AppDialog>
 
       {playingVideo ? (
@@ -1480,4 +1656,3 @@ export const HistoryView = () => {
     </div>
   );
 };
-

@@ -15,6 +15,9 @@ const API_BASE_URL = '/api/assets';
 // In development, keep it empty so Vite's `/media` proxy works.
 const MEDIA_BASE_URL = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
 
+export type LibraryAssetType = 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script' | 'multimodal' | 'subject';
+export type LibraryMediaKind = 'image' | 'video' | 'audio' | 'document' | 'file';
+
 function toDisplayUrl(pathOrUrl: string | null | undefined): string {
   if (!pathOrUrl) return '';
   const raw = String(pathOrUrl).trim();
@@ -35,15 +38,16 @@ function toDisplayUrl(pathOrUrl: string | null | undefined): string {
 export interface Asset {
   id: string;
   name: string;
-  type: 'model' | 'product' | 'scene' | 'motion' | 'audio';
+  type: LibraryAssetType;
   file_url: string;
   thumbnail?: string;
-  media_kind?: 'image' | 'video' | 'audio' | 'file';
+  media_kind?: LibraryMediaKind;
   size: string;
   status: 'ready' | 'processing' | 'failed';
   created_at: string;
   folder_id?: string | null;
   meta_data?: Record<string, unknown>;
+  is_favorited?: boolean;
 }
 
 // Backend Interface (Internal use)
@@ -68,8 +72,11 @@ export interface AssetFolder {
   id: string;
   name: string;
   parent_id: string | null;
-  asset_type: 'model' | 'product' | 'scene' | 'motion' | 'audio';
+  asset_type: LibraryAssetType;
+  cover_url?: string | null;
+  is_favorited?: boolean;
   created_at?: string;
+  bundle_count?: number;
 }
 
 export interface PlazaAssetItem {
@@ -100,7 +107,7 @@ export interface PlazaCollectPolicy {
 
 export const assetsApi = {
   // 1. GET List
-  getAssets: async (params?: { type?: 'model' | 'product' | 'scene' | 'motion' | 'audio'; folderId?: string | null }): Promise<Asset[]> => {
+  getAssets: async (params?: { type?: LibraryAssetType; folderId?: string | null }): Promise<Asset[]> => {
     try {
       return traceApiRequest({
         metricName: 'assets_list',
@@ -124,10 +131,10 @@ export const assetsApi = {
 
           if (response.status === 401 || response.status === 403) {
             console.error("Auth Failed: Cookies invalid or expired");
-            throw new Error('Unauthorized');
+            throw await parseApiError(response, 'Unauthorized');
           }
 
-          if (!response.ok) throw new Error('Failed to fetch assets');
+          if (!response.ok) throw await parseApiError(response, 'Failed to fetch assets');
 
           const json = await response.json();
           // Be robust across backend variants (some deployments wrap in `data`, some may return `assets`).
@@ -160,12 +167,13 @@ export const assetsApi = {
             let mediaKind: Asset['media_kind'] = 'file';
             if (lowerType === 'motion' || /\.(mp4|mov|mkv|webm|avi)$/.test(rawPathLower)) mediaKind = 'video';
             else if (lowerType === 'audio' || /\.(mp3|wav|flac)$/.test(rawPathLower)) mediaKind = 'audio';
+            else if (lowerType === 'script' || /\.(txt|md|json|csv)$/.test(rawPathLower)) mediaKind = 'document';
             else if (/\.(jpg|jpeg|png|webp|gif)$/.test(rawPathLower)) mediaKind = 'image';
 
             return {
               id: item.id.toString(),
               name: item.display_name,
-              type: item.type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion' | 'audio',
+              type: item.type.toLowerCase() as LibraryAssetType,
               file_url: fullUrl,
               thumbnail: thumbnailUrl || undefined,
               media_kind: mediaKind,
@@ -174,6 +182,7 @@ export const assetsApi = {
               created_at: item.created_at,
               folder_id: item.folder_id?.toString() ?? null,
               meta_data: item.meta_data || {},
+              is_favorited: !!(item as any).is_favorited,
             };
           });
         },
@@ -186,7 +195,7 @@ export const assetsApi = {
   },
 
   // 2. CREATE (Upload) - 双重上传逻辑
-  uploadAsset: async (file: File, type: string, folderId?: string | null) => {
+  uploadAsset: async (file: File, type: string, folderId?: string | null, options?: { bundleOnly?: boolean }) => {
     // --- 动作 1：可选地静默上传到 Supabase Storage ---
     // const ENABLE_SUPABASE = String((import.meta as any).env?.VITE_ENABLE_SUPABASE || '').toLowerCase();
     // const useSupabase = ENABLE_SUPABASE === '1' || ENABLE_SUPABASE === 'true' || ENABLE_SUPABASE === 'yes';
@@ -223,6 +232,7 @@ export const assetsApi = {
     formData.append('type', type.toUpperCase());
     formData.append('display_name', file.name);
     if (folderId !== undefined) formData.append('folder_id', folderId ?? '');
+    if (options?.bundleOnly) formData.append('bundle_only', '1');
 
     const csrftoken = getCookie('csrftoken');
 
@@ -237,7 +247,7 @@ export const assetsApi = {
         body: formData,
       });
 
-      if (!response.ok) throw new Error('Upload failed');
+      if (!response.ok) throw await parseApiError(response, 'Upload failed');
       const json = await response.json();
 
       // Normalize common backend shapes so callers can reliably use `resp.data`.
@@ -286,12 +296,61 @@ export const assetsApi = {
         credentials: 'include',
       });
 
-      if (!response.ok) throw new Error('Delete failed');
+      if (!response.ok) throw await parseApiError(response, 'Delete failed');
       return true;
     } catch (error) {
       console.error("Delete Error:", error);
       throw error;
     }
+  },
+
+  toggleFavorite: async (assetId: string): Promise<boolean> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/${assetId}/toggle-favorite/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+    if (!response.ok) throw await parseApiError(response, 'Toggle favorite failed');
+    const data = await response.json();
+    return data.is_favorited;
+  },
+
+  toggleFolderFavorite: async (folderId: string): Promise<boolean> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/folders/${folderId}/toggle-favorite/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+    if (!response.ok) throw await parseApiError(response, 'Toggle folder favorite failed');
+    const data = await response.json();
+    return data.is_favorited;
+  },
+
+  setFolderCover: async (folderId: string, assetId: string | null): Promise<string | null> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/folders/${folderId}/set-cover/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ asset_id: assetId }),
+    });
+    if (!response.ok) throw await parseApiError(response, 'Set cover failed');
+    const data = await response.json();
+    return data.cover_url || null;
   },
 
   // 4. RENAME (Asset)
@@ -333,7 +392,7 @@ export const assetsApi = {
   },
 
   // 5. FOLDERS
-  getFolders: async (params: { type: 'model' | 'product' | 'scene' | 'motion' | 'audio'; parentId: string | null }) => {
+  getFolders: async (params: { type: LibraryAssetType; parentId: string | null }) => {
     const search = new URLSearchParams();
     search.set('type', params.type.toUpperCase());
     search.set('parent_id', params.parentId ?? '');
@@ -348,7 +407,7 @@ export const assetsApi = {
 
     if (!response.ok) throw await parseApiError(response, 'Request failed');
     const json = await response.json();
-    const data = (json.data || []) as Array<{ id: number; name: string; parent_id: number | null; asset_type: string; created_at?: string }>;
+    const data = (json.data || []) as Array<{ id: number; name: string; parent_id: number | null; asset_type: string; cover_url?: string | null; created_at?: string; bundle_count?: number }>;
     const breadcrumb = (json.breadcrumb || []) as Array<{ id: number; name: string; parent_id: number | null; asset_type: string }>;
 
     return {
@@ -356,19 +415,21 @@ export const assetsApi = {
         id: item.id.toString(),
         name: item.name,
         parent_id: item.parent_id ? item.parent_id.toString() : null,
-        asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion' | 'audio',
-        created_at: item.created_at
+        asset_type: item.asset_type.toLowerCase() as LibraryAssetType,
+        cover_url: item.cover_url ? toDisplayUrl(item.cover_url) : null,
+        created_at: item.created_at,
+        bundle_count: item.bundle_count,
       })),
       breadcrumb: breadcrumb.map(item => ({
         id: item.id.toString(),
         name: item.name,
         parent_id: item.parent_id ? item.parent_id.toString() : null,
-        asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion' | 'audio'
+        asset_type: item.asset_type.toLowerCase() as LibraryAssetType
       }))
     };
   },
 
-  getAllFolders: async (type: 'model' | 'product' | 'scene' | 'motion' | 'audio') => {
+  getAllFolders: async (type: LibraryAssetType) => {
     const search = new URLSearchParams();
     search.set('type', type.toUpperCase());
     search.set('all', '1');
@@ -389,12 +450,12 @@ export const assetsApi = {
       id: item.id.toString(),
       name: item.name,
       parent_id: item.parent_id ? item.parent_id.toString() : null,
-      asset_type: item.asset_type.toLowerCase() as 'model' | 'product' | 'scene' | 'motion' | 'audio',
+      asset_type: item.asset_type.toLowerCase() as LibraryAssetType,
       created_at: item.created_at
     })) as AssetFolder[];
   },
 
-  createFolder: async (name: string, type: 'model' | 'product' | 'scene' | 'motion' | 'audio', parentId: string | null) => {
+  createFolder: async (name: string, type: LibraryAssetType, parentId: string | null) => {
     const csrftoken = getCookie('csrftoken');
     const response = await fetch(`${API_BASE_URL}/folders/`, {
       method: 'POST',
@@ -672,5 +733,426 @@ export const assetsApi = {
 
     if (!response.ok) throw await parseApiError(response, 'Request failed');
     return await response.json();
+  },
+};
+
+// ================================================================
+// Seedance Characters (虚拟模特库)
+// ================================================================
+
+export interface SeedanceCharacter {
+  id: string;
+  sid: string;
+  asset_id: string;
+  gender: 'Male' | 'Female';
+  age: number;
+  country: string;
+  occupation: string;
+  temperament: string;
+  score: number;
+  title: string;
+  description: string;
+  image_url: string;
+  image_variant_url?: string;
+}
+
+export interface SeedanceCharacterListResponse {
+  code: number;
+  data: {
+    count: number;
+    page: number;
+    page_size: number;
+    countries: string[];
+    results: SeedanceCharacter[];
+  };
+}
+
+export interface SeedanceCharacterFilters {
+  gender?: 'Male' | 'Female';
+  age_min?: number;
+  age_max?: number;
+  country?: string;
+  search?: string;
+  ordering?: string;
+  page?: number;
+  page_size?: number;
+}
+
+export const seedanceApi = {
+  getCharacters: async (filters?: SeedanceCharacterFilters): Promise<SeedanceCharacterListResponse> => {
+    const params = new URLSearchParams();
+    if (filters?.gender) params.set('gender', filters.gender);
+    if (filters?.age_min !== undefined) params.set('age_min', String(filters.age_min));
+    if (filters?.age_max !== undefined) params.set('age_max', String(filters.age_max));
+    if (filters?.country) params.set('country', filters.country);
+    if (filters?.search) params.set('search', filters.search);
+    if (filters?.ordering) params.set('ordering', filters.ordering);
+    if (filters?.page) params.set('page', String(filters.page));
+    if (filters?.page_size) params.set('page_size', String(filters.page_size));
+
+    const url = `${API_BASE_URL}/seedance-characters/?${params.toString()}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+    });
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
+    const json = await response.json();
+    // Normalize image URLs
+    if (json?.data?.results) {
+      json.data.results = json.data.results.map((c: any) => ({
+        ...c,
+        id: String(c.id),
+        image_url: toDisplayUrl(c.image_url),
+        image_variant_url: c.image_variant_url ? toDisplayUrl(c.image_variant_url) : '',
+      }));
+    }
+    return json;
+  },
+
+  collectCharacter: async (characterId: string, folderId?: string | null): Promise<any> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/seedance-characters/collect/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ character_id: Number(characterId), folder_id: folderId ? Number(folderId) : null }),
+    });
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
+    return await response.json();
+  },
+};
+
+
+// ================================================================
+// Multimodal Projects (多模态项目)
+// ================================================================
+
+export interface MultimodalProject {
+  id: string;
+  name: string;
+  folder_id: string | null;
+  model_used: string;
+  aspect_ratio: string;
+  duration: number | null;
+  preview_url: string;
+  created_at: string;
+  updated_at: string;
+  workspace_snapshot?: Record<string, any>;
+}
+
+export const multimodalApi = {
+  list: async (folderId?: string | null): Promise<MultimodalProject[]> => {
+    const params = new URLSearchParams();
+    if (folderId) params.set('folder_id', folderId);
+    const url = `${API_BASE_URL}/multimodal-projects/?${params.toString()}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+    });
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
+    const json = await response.json();
+    return (json?.data || []).map((p: any) => ({
+      ...p,
+      id: String(p.id),
+      preview_url: toDisplayUrl(p.preview_url),
+    }));
+  },
+
+  create: async (payload: {
+    name: string;
+    folder_id?: string | null;
+    workspace_snapshot: Record<string, any>;
+    model_used?: string;
+    aspect_ratio?: string;
+    duration?: number;
+  }): Promise<any> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/multimodal-projects/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
+    return await response.json();
+  },
+
+  getDetail: async (projectId: string): Promise<MultimodalProject> => {
+    const response = await fetch(`${API_BASE_URL}/multimodal-projects/${projectId}/`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+    });
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
+    const json = await response.json();
+    const p = json?.data || {};
+    return { ...p, id: String(p.id), preview_url: toDisplayUrl(p.preview_url) };
+  },
+
+  update: async (projectId: string, payload: { name?: string; folder_id?: string | null }): Promise<any> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/multimodal-projects/${projectId}/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
+    return await response.json();
+  },
+
+  delete: async (projectId: string): Promise<any> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/multimodal-projects/${projectId}/`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
+    return await response.json();
+  },
+};
+
+
+// ============================
+// Multimodal Bundle (结构体) API
+// ============================
+
+export interface BundleAssetSlot {
+  id: string;
+  name: string;
+  file_url: string;
+  thumbnail?: string;
+  media_kind: 'image' | 'video' | 'audio' | 'document';
+  size: string;
+}
+
+export interface MultimodalBundle {
+  id: string;
+  name: string;
+  folder_id: string | null;
+  image_assets: BundleAssetSlot[];
+  video_assets: BundleAssetSlot[];
+  audio_assets: BundleAssetSlot[];
+  text_assets: BundleAssetSlot[];
+  model_assets: BundleAssetSlot[];
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+const _mapSlotArray = (arr: any[] | null | undefined): BundleAssetSlot[] =>
+  (arr || []).map((a: any) => ({
+    ...a,
+    id: String(a.id),
+    file_url: toDisplayUrl(a.file_url),
+    thumbnail: toDisplayUrl(a.thumbnail),
+  }));
+
+export const multimodalBundleApi = {
+  list: async (folderId?: string | null): Promise<MultimodalBundle[]> => {
+    const params = new URLSearchParams();
+    if (folderId) params.set('folder_id', folderId);
+    const url = `${API_BASE_URL}/multimodal-bundles/?${params.toString()}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+    });
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
+    const json = await response.json();
+    return (json?.data || []).map((b: any) => ({
+      ...b,
+      id: String(b.id),
+      image_assets: _mapSlotArray(b.image_assets),
+      video_assets: _mapSlotArray(b.video_assets),
+      audio_assets: _mapSlotArray(b.audio_assets),
+      text_assets: _mapSlotArray(b.text_assets),
+      model_assets: _mapSlotArray(b.model_assets),
+    }));
+  },
+
+  create: async (payload: {
+    name: string;
+    folder_id?: string | null;
+    notes?: string;
+    image_asset_ids?: string[];
+    video_asset_ids?: string[];
+    audio_asset_ids?: string[];
+    text_asset_ids?: string[];
+    model_asset_ids?: string[];
+  }): Promise<MultimodalBundle> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/multimodal-bundles/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken || '', 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
+    const json = await response.json();
+    return json.data;
+  },
+
+  update: async (bundleId: string, payload: {
+    name?: string;
+    folder_id?: string | null;
+    notes?: string;
+    image_asset_ids?: string[];
+    video_asset_ids?: string[];
+    audio_asset_ids?: string[];
+    text_asset_ids?: string[];
+    model_asset_ids?: string[];
+    add_image_asset_ids?: string[];
+    add_video_asset_ids?: string[];
+    add_audio_asset_ids?: string[];
+    add_text_asset_ids?: string[];
+    add_model_asset_ids?: string[];
+    remove_image_asset_id?: string;
+    remove_video_asset_id?: string;
+    remove_audio_asset_id?: string;
+    remove_text_asset_id?: string;
+    remove_model_asset_id?: string;
+  }): Promise<MultimodalBundle> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/multimodal-bundles/${bundleId}/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken || '', 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
+    const json = await response.json();
+    return json.data;
+  },
+
+  delete: async (bundleId: string): Promise<void> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/multimodal-bundles/${bundleId}/`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken || '', 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+    });
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
+  },
+};
+
+
+// ============================
+// Subject Group (主体组) API
+// ============================
+
+export interface SubjectGroupAsset {
+  id: string;
+  name: string;
+  file_url: string;
+  thumbnail?: string;
+}
+
+export interface SubjectGroup {
+  id: string;
+  name: string;
+  primary_asset: SubjectGroupAsset | null;
+  other_assets: SubjectGroupAsset[];
+  description: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+const _mapSubjectAsset = (a: any): SubjectGroupAsset | null => {
+  if (!a) return null;
+  return {
+    id: String(a.id),
+    name: a.name || '',
+    file_url: toDisplayUrl(a.file_url),
+    thumbnail: toDisplayUrl(a.thumbnail),
+  };
+};
+
+export const subjectGroupApi = {
+  list: async (): Promise<SubjectGroup[]> => {
+    const url = `${API_BASE_URL}/subjects/`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+    });
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
+    const json = await response.json();
+    return (json?.data || []).map((sg: any) => ({
+      ...sg,
+      id: String(sg.id),
+      primary_asset: _mapSubjectAsset(sg.primary_asset),
+      other_assets: (sg.other_assets || []).map((a: any) => _mapSubjectAsset(a)).filter(Boolean),
+    }));
+  },
+
+  create: async (payload: {
+    name: string;
+    primary_asset_id?: string;
+    other_asset_ids?: string[];
+    description?: string;
+    notes?: string;
+  }): Promise<SubjectGroup> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/subjects/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken || '', 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
+    const json = await response.json();
+    return json.data;
+  },
+
+  update: async (subjectId: string, payload: {
+    name?: string;
+    description?: string;
+    notes?: string;
+    primary_asset_id?: string;
+    other_asset_ids?: string[];
+    add_other_asset_ids?: string[];
+    remove_other_asset_id?: string;
+  }): Promise<SubjectGroup> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/subjects/${subjectId}/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken || '', 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
+    const json = await response.json();
+    return json.data;
+  },
+
+  delete: async (subjectId: string): Promise<void> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/subjects/${subjectId}/`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken || '', 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+    });
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
   },
 };

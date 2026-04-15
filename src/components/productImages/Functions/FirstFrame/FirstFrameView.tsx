@@ -1,14 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, Plus } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ChevronLeft, Minus, Plus } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import { ImageUploader } from '../../Common/ImageUploader';
 import { FirstFrameForm } from './FirstFrameForm';
 import { FirstFrameResult } from './FirstFrameResult';
+import ResizableSplitter from '../../../common/ResizableSplitter';
 import { LoadingProgress } from '../../Common/LoadingProgress';
 import { ErrorDialog, type ErrorInfo } from '../../Common/ErrorDialog';
 import { downloadBlob, productImagesApi } from '../../../../services/productImagesApi';
 import type { FirstFrameParams, ProductImageResult } from '../../../../types/productImages';
+import { deleteImageHistoryItem, notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
+import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../../../utils/loadingTheme';
 
 type Phase = 'upload' | 'form' | 'generating' | 'result' | 'error';
 
@@ -32,14 +36,18 @@ interface FirstFrameViewProps {
   projectId?: string;
   embedded?: boolean;
   onApplyToWorkbench?: () => void;
+  headerActionsContainer?: HTMLElement | null;
 }
 
 const FIRST_FRAME_TRANSFER_KEY = 'vflow_apply_first_frame';
-const FIRST_FRAME_HISTORY_KEY = 'vflow_first_frame_history_v1';
 const FIRST_FRAME_WORKSPACE_META_KEY = 'vflow_first_frame_workspaces_v1';
 const FIRST_FRAME_ACTIVE_WORKSPACE_KEY = 'vflow_first_frame_active_workspace_v1';
 const FIRST_FRAME_COUNTDOWN_SECONDS = 120;
 const FIRST_FRAME_PROGRESS_HOLD_MAX = 95;
+const FIRST_FRAME_PANEL_MIN_WIDTH = 280;
+const FIRST_FRAME_PANEL_MAX_WIDTH = 640;
+const FIRST_FRAME_LEFT_DEFAULT_WIDTH = 500;
+const FIRST_FRAME_MIDDLE_DEFAULT_WIDTH = 600;
 
 const createDefaultWorkspaceMeta = (): FirstFrameWorkspaceMeta => ({
   id: 'ff-workspace-1',
@@ -63,56 +71,26 @@ const sanitizeHistoryImage = (item: any, index: number): ProductImageResult | nu
   };
 };
 
-const readFirstFrameHistory = (): FirstFrameHistoryItem[] => {
-  if (typeof window === 'undefined') return [];
+const mapImageHistoryToFirstFrameItem = (item: ImageHistoryItem): FirstFrameHistoryItem | null => {
+  if (item.featureType !== 'first_frame') return null;
 
-  try {
-    const raw = window.localStorage.getItem(FIRST_FRAME_HISTORY_KEY);
-    if (!raw) return [];
+  const outputImages = (Array.isArray(item.metadata?.outputImages)
+    ? item.metadata.outputImages
+        .map((img: any, index: number) => sanitizeHistoryImage(img, index))
+        .filter(Boolean)
+    : item.images
+        .map((imageUrl, index) => sanitizeHistoryImage({ imageUrl, downloadUrl: imageUrl }, index))
+        .filter(Boolean)) as ProductImageResult[];
 
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
+  if (outputImages.length === 0) return null;
 
-    return parsed
-      .map((item: any) => {
-        const id = String(item?.id || '').trim();
-        const workspaceId = String(item?.workspaceId || '').trim();
-        const createdAt = String(item?.createdAt || '').trim();
-        const workspaceOrderRaw = Number(item?.workspaceOrder);
-        const workspaceOrder = Number.isFinite(workspaceOrderRaw) && workspaceOrderRaw > 0
-          ? Math.floor(workspaceOrderRaw)
-          : 1;
-
-        const outputImages = Array.isArray(item?.outputImages)
-          ? item.outputImages
-              .map((img: any, index: number) => sanitizeHistoryImage(img, index))
-              .filter(Boolean) as ProductImageResult[]
-          : [];
-
-        if (!id || !workspaceId || !createdAt || outputImages.length === 0) return null;
-
-        return {
-          id,
-          workspaceId,
-          workspaceOrder,
-          createdAt,
-          outputImages,
-        } satisfies FirstFrameHistoryItem;
-      })
-      .filter(Boolean) as FirstFrameHistoryItem[];
-  } catch {
-    return [];
-  }
-};
-
-const writeFirstFrameHistory = (items: FirstFrameHistoryItem[]) => {
-  if (typeof window === 'undefined') return;
-
-  try {
-    window.localStorage.setItem(FIRST_FRAME_HISTORY_KEY, JSON.stringify(items));
-  } catch {
-    // Ignore localStorage write failures.
-  }
+  return {
+    id: item.id,
+    workspaceId: item.workspaceId || 'ff-workspace-1',
+    workspaceOrder: item.workspaceOrder || 1,
+    createdAt: item.createdAt,
+    outputImages,
+  } satisfies FirstFrameHistoryItem;
 };
 
 const readWorkspaceMetas = (): FirstFrameWorkspaceMeta[] => {
@@ -165,9 +143,10 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   projectId,
   onApplyToWorkbench,
 }) => {
-  const { language } = useLanguage();
-  const isZh = language === 'zh';
-  const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
+  const { t } = useLanguage();
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [leftWidth, setLeftWidth] = useState<number>(FIRST_FRAME_LEFT_DEFAULT_WIDTH);
+  const [middleWidth, setMiddleWidth] = useState<number>(FIRST_FRAME_MIDDLE_DEFAULT_WIDTH);
 
   const [phase, setPhase] = useState<Phase>('upload');
   const [images, setImages] = useState<File[]>([]);
@@ -177,6 +156,9 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const [uploaderResetKey, setUploaderResetKey] = useState(0);
   const [rightPanel, setRightPanel] = useState<'preview' | 'history'>('preview');
   const [historyItems, setHistoryItems] = useState<FirstFrameHistoryItem[]>([]);
+  const [lastElapsedSeconds, setLastElapsedSeconds] = useState<number | null>(null);
+  const [loadingTheme, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
+  const [loadingBackgroundSrc, setLoadingBackgroundSrc] = useState<string>('');
 
   const generationSeqRef = useRef(0);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -185,17 +167,42 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const isGenerating = phase === 'generating';
   const hasResults = results.length > 0;
 
-  const refreshWorkspaceHistory = useCallback(() => {
-    const all = readFirstFrameHistory();
-    const filtered = all
+  const refreshWorkspaceHistory = useCallback(async () => {
+    await refreshImageHistory();
+    const filtered = (readImageHistoryByFeature('first_frame')
+      .map((item) => mapImageHistoryToFirstFrameItem(item))
+      .filter(Boolean) as FirstFrameHistoryItem[])
       .filter((item) => item.workspaceId === workspaceId)
       .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
     setHistoryItems(filtered);
   }, [workspaceId]);
 
   useEffect(() => {
-    refreshWorkspaceHistory();
+    void refreshWorkspaceHistory();
+    return subscribeImageHistory(() => {
+      void refreshWorkspaceHistory();
+    });
   }, [refreshWorkspaceHistory]);
+
+  useEffect(() => {
+    let alive = true;
+    if (images.length === 0) {
+      setLoadingTheme(getDefaultLoadingTheme());
+      setLoadingBackgroundSrc('');
+      return;
+    }
+
+    const objectUrls = images.map((file) => URL.createObjectURL(file));
+    setLoadingBackgroundSrc(objectUrls[0] || '');
+    void extractLoadingThemeFromSources(objectUrls).then((theme) => {
+      if (alive) setLoadingTheme(theme);
+    });
+
+    return () => {
+      alive = false;
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [images]);
 
   const clearProgressTimer = useCallback(() => {
     if (progressTimerRef.current) {
@@ -226,35 +233,12 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     clearProgressTimer();
   }, [clearProgressTimer]);
 
-  const appendHistory = useCallback((generated: ProductImageResult[]) => {
-    const outputImages = generated
-      .map((item, index) => sanitizeHistoryImage(item, index))
-      .filter(Boolean) as ProductImageResult[];
-
-    if (outputImages.length === 0) return;
-
-    const nextItem: FirstFrameHistoryItem = {
-      id: `ff-history-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      workspaceId,
-      workspaceOrder,
-      createdAt: new Date().toISOString(),
-      outputImages,
-    };
-
-    const all = [nextItem, ...readFirstFrameHistory()].slice(0, 200);
-    writeFirstFrameHistory(all);
-
-    const filtered = all
-      .filter((item) => item.workspaceId === workspaceId)
-      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-    setHistoryItems(filtered);
-  }, [workspaceId, workspaceOrder]);
-
   const handleImagesSelected = useCallback((files: File[]) => {
     setImages(files);
     setError(null);
     setProgress(0);
     setResults([]);
+    setLastElapsedSeconds(null);
     setPhase(files.length > 0 ? 'form' : 'upload');
   }, []);
 
@@ -262,7 +246,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     if (images.length === 0) {
       setError({
         code: 'NO_IMAGES',
-        message: tr('请先上传商品图片', 'Please upload a product image first'),
+        message: t.ff_error_upload_product_image_first,
         severity: 'warning',
       });
       return;
@@ -278,36 +262,45 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       setProgress(2);
       startProgressSimulation();
 
-      const response = await productImagesApi.generateFirstFrame(images, params, projectId);
+      const response = await productImagesApi.generateFirstFrame(images, params, projectId, {
+        workspaceId,
+        workspaceOrder,
+      });
       if (generationSeqRef.current !== runSeq) return;
 
       clearProgressTimer();
       setProgress(100);
+      const completedElapsedSeconds = progressStartedAtRef.current
+        ? Math.max(1, Math.floor((Date.now() - progressStartedAtRef.current) / 1000))
+        : null;
+      setLastElapsedSeconds(completedElapsedSeconds);
+      progressStartedAtRef.current = null;
 
       if (response.status === 'completed' && response.outputImages && response.outputImages.length > 0) {
         setResults(response.outputImages);
-        appendHistory(response.outputImages);
+        await refreshWorkspaceHistory();
+        notifyImageHistoryUpdated();
         setPhase('result');
         return;
       }
 
       setError({
         code: 'GENERATION_FAILED',
-        message: tr('生成失败，请检查输入并重试', 'Generation failed. Please check your input and try again.'),
+        message: t.ff_error_generation_failed,
         severity: 'error',
-        suggestion: tr('确保上传的是清晰、正面展示的商品图片', 'Use a clear front-facing product image.'),
+        suggestion: t.ff_error_suggestion_clear_front_image,
       });
       setPhase('error');
     } catch (err) {
       if (generationSeqRef.current !== runSeq) return;
 
       clearProgressTimer();
-      const message = err instanceof Error ? err.message : tr('未知错误', 'Unknown error');
+      const message = err instanceof Error ? err.message : t.ff_unknown_error;
       setError({
         code: 'GENERATION_ERROR',
         message,
         severity: 'error',
-        suggestion: tr('请检查网络连接并稍后重试', 'Please check your network and try again later.'),
+        suggestion: t.ff_error_suggestion_check_network,
       });
       setPhase('error');
     }
@@ -317,12 +310,14 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     generationSeqRef.current += 1;
     clearProgressTimer();
     progressStartedAtRef.current = null;
+    setLastElapsedSeconds(null);
     setPhase(images.length > 0 ? 'form' : 'upload');
     setProgress(0);
   };
 
   const handleRegenerate = () => {
     setResults([]);
+    setLastElapsedSeconds(null);
     setPhase('form');
     setProgress(0);
     setError(null);
@@ -336,6 +331,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
     setImages([]);
     setResults([]);
+    setLastElapsedSeconds(null);
     setProgress(0);
     setError(null);
     setPhase('upload');
@@ -360,7 +356,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     } catch {
       setError({
         code: 'DOWNLOAD_FAILED',
-        message: tr('下载失败，请重试', 'Download failed. Please retry.'),
+        message: t.ff_error_download_failed,
         severity: 'error',
       });
     }
@@ -378,7 +374,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const applyToWorkbench = (image: ProductImageResult) => {
     const payload = {
       imageUrl: image.imageUrl,
-      imageName: tr('AI首帧图', 'AI First Frame'),
+      imageName: t.ff_ai_first_frame_name,
       timestamp: new Date().toISOString(),
       firstFrameWorkspaceId: workspaceId,
       firstFrameWorkspaceOrder: workspaceOrder,
@@ -410,6 +406,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const activateHistoryItem = (item: FirstFrameHistoryItem) => {
     if (!item.outputImages || item.outputImages.length === 0) return;
     setResults(item.outputImages);
+    setLastElapsedSeconds(null);
     setPhase('result');
     setProgress(100);
     setRightPanel('preview');
@@ -422,22 +419,92 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     return date.toLocaleString();
   };
 
+  const clampPanelWidth = useCallback((requested: number, min: number, max: number) => (
+    Math.min(Math.max(requested, min), max)
+  ), []);
+
+  const handleLeftResize = useCallback((width: number) => {
+    const requestedWidth = clampPanelWidth(width, FIRST_FRAME_PANEL_MIN_WIDTH, FIRST_FRAME_PANEL_MAX_WIDTH);
+    const container = containerRef.current;
+    if (!container) {
+      setLeftWidth(requestedWidth);
+      return;
+    }
+
+    const containerWidth = container.clientWidth;
+    const safeMiddle = Math.max(middleWidth, FIRST_FRAME_PANEL_MIN_WIDTH);
+    const maxLeftByContainer = containerWidth - safeMiddle - FIRST_FRAME_PANEL_MIN_WIDTH;
+    const limitedWidth = Math.max(FIRST_FRAME_PANEL_MIN_WIDTH, Math.min(requestedWidth, maxLeftByContainer));
+    setLeftWidth(limitedWidth);
+  }, [clampPanelWidth, middleWidth]);
+
+  const handleMiddleResize = useCallback((width: number) => {
+    const requestedWidth = clampPanelWidth(width, FIRST_FRAME_PANEL_MIN_WIDTH, FIRST_FRAME_PANEL_MAX_WIDTH);
+    const container = containerRef.current;
+    if (!container) {
+      setMiddleWidth(requestedWidth);
+      return;
+    }
+
+    const containerWidth = container.clientWidth;
+    const safeLeft = Math.max(leftWidth, FIRST_FRAME_PANEL_MIN_WIDTH);
+    const maxMiddleByContainer = containerWidth - safeLeft - FIRST_FRAME_PANEL_MIN_WIDTH;
+    const limitedWidth = Math.max(FIRST_FRAME_PANEL_MIN_WIDTH, Math.min(requestedWidth, maxMiddleByContainer));
+    setMiddleWidth(limitedWidth);
+  }, [clampPanelWidth, leftWidth]);
+
+  useEffect(() => {
+    const keepWidthsValid = () => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      const containerWidth = container.clientWidth;
+      const safeLeft = clampPanelWidth(leftWidth, FIRST_FRAME_PANEL_MIN_WIDTH, FIRST_FRAME_PANEL_MAX_WIDTH);
+      const maxMiddleByContainer = containerWidth - safeLeft - FIRST_FRAME_PANEL_MIN_WIDTH;
+      const nextMiddle = Math.max(
+        FIRST_FRAME_PANEL_MIN_WIDTH,
+        Math.min(clampPanelWidth(middleWidth, FIRST_FRAME_PANEL_MIN_WIDTH, FIRST_FRAME_PANEL_MAX_WIDTH), maxMiddleByContainer)
+      );
+
+      const maxLeftByContainer = containerWidth - nextMiddle - FIRST_FRAME_PANEL_MIN_WIDTH;
+      const nextLeft = Math.max(
+        FIRST_FRAME_PANEL_MIN_WIDTH,
+        Math.min(safeLeft, maxLeftByContainer)
+      );
+
+      if (nextLeft !== leftWidth) setLeftWidth(nextLeft);
+      if (nextMiddle !== middleWidth) setMiddleWidth(nextMiddle);
+    };
+
+    keepWidthsValid();
+    window.addEventListener('resize', keepWidthsValid);
+    return () => window.removeEventListener('resize', keepWidthsValid);
+  }, [clampPanelWidth, leftWidth, middleWidth]);
+
   return (
     <>
       {phase !== 'error' && (
-        <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(280px,1fr)_minmax(380px,1.2fr)_minmax(320px,1fr)]">
-          <section className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+        <div ref={containerRef} className="flex min-h-0 overflow-hidden relative">
+          <section
+            className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5 shrink-0 transition-[width] duration-100 mr-3"
+            style={{ width: `${leftWidth}px`, minWidth: `${FIRST_FRAME_PANEL_MIN_WIDTH}px` }}
+          >
             <div className="mb-5">
               <h2 className="text-lg font-semibold text-white">
-                {tr('素材上传', 'Upload Materials')}
+                {t.ff_upload_materials}
               </h2>
               <p className="mt-1 text-xs text-zinc-500">
-                {tr('上传 1 张商品图，用于首帧图生成', 'Upload one product image for first-frame generation')}
+                {t.ff_upload_one_product_image_for_first_frame}
               </p>
             </div>
             <ImageUploader
               key={`${workspaceId}-${uploaderResetKey}`}
               maxFiles={1}
+              uploadedStatusText={
+                images.length > 0
+                  ? `${t.ff_uploaded_status_prefix} ${images.length} ${t.ff_uploaded_status_suffix}`
+                  : undefined
+              }
               onFilesSelected={handleImagesSelected}
               onError={(err) =>
                 setError({
@@ -449,13 +516,26 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
             />
           </section>
 
-          <section className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+          <ResizableSplitter
+            position={leftWidth}
+            minSize={FIRST_FRAME_PANEL_MIN_WIDTH}
+            onResize={handleLeftResize}
+            orientation="vertical"
+            className="hover:bg-orange-500/20"
+            hitAreaSize={8}
+            lineThickness={2}
+          />
+
+          <section
+            className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5 shrink-0 transition-[width] duration-100 mx-3"
+            style={{ width: `${middleWidth}px`, minWidth: `${FIRST_FRAME_PANEL_MIN_WIDTH}px` }}
+          >
             <div className="mb-5">
               <h2 className="text-lg font-semibold text-white">
-                {tr('生成配置', 'Generation Settings')}
+                {t.ff_generation_settings}
               </h2>
               <p className="mt-1 text-xs text-zinc-500">
-                {tr('保留原有功能选项，只调整为连续配置视图', 'Keep the existing options and configure them in a single view')}
+                {t.ff_generation_settings_desc}
               </p>
             </div>
 
@@ -467,38 +547,51 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
             />
           </section>
 
-          <section className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+          <ResizableSplitter
+            position={middleWidth}
+            minSize={FIRST_FRAME_PANEL_MIN_WIDTH}
+            onResize={handleMiddleResize}
+            orientation="vertical"
+            className="hover:bg-orange-500/20"
+            hitAreaSize={8}
+            lineThickness={2}
+          />
+
+          <section
+            className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5 flex-1 ml-3"
+            style={{ minWidth: `${FIRST_FRAME_PANEL_MIN_WIDTH}px` }}
+          >
             <div className="mb-5 flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-white">
-                  {tr('结果预览', 'Result Preview')}
+                  {t.ff_result_preview}
                 </h2>
                 <p className="mt-1 text-xs text-zinc-500">
-                  {tr('在这里查看生成结果并进行下载或应用', 'Preview results here and continue with download or apply')}
+                  {t.ff_result_preview_desc}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center rounded-xl border border-white/10 bg-black/20 p-1">
                 <button
                   type="button"
                   onClick={() => setRightPanel('preview')}
-                  className={`px-3 py-2 rounded-lg text-xs font-semibold transition border ${
+                  className={`px-4 py-2 rounded-lg text-xs font-semibold border transition ${
                     rightPanel === 'preview'
-                      ? 'bg-orange-500/10 border-orange-500 text-orange-300'
-                      : 'bg-zinc-900/70 border-white/10 text-zinc-300 hover:bg-zinc-800'
+                      ? 'border-orange-500/40 bg-orange-500/10 text-orange-300'
+                      : 'border-transparent bg-transparent text-zinc-300 hover:bg-zinc-800/70'
                   }`}
                 >
-                  {tr('预览区', 'Preview')}
+                  {t.ff_preview_tab}
                 </button>
                 <button
                   type="button"
                   onClick={() => setRightPanel('history')}
-                  className={`px-3 py-2 rounded-lg text-xs font-semibold transition border ${
+                  className={`px-4 py-2 rounded-lg text-xs font-semibold border transition ${
                     rightPanel === 'history'
-                      ? 'bg-orange-500/10 border-orange-500 text-orange-300'
-                      : 'bg-zinc-900/70 border-white/10 text-zinc-300 hover:bg-zinc-800'
+                      ? 'border-orange-500/40 bg-orange-500/10 text-orange-300'
+                      : 'border-transparent bg-transparent text-zinc-300 hover:bg-zinc-800/70'
                   }`}
                 >
-                  {tr('历史记录', 'History')}
+                  {t.ff_history_tab}
                 </button>
               </div>
             </div>
@@ -510,14 +603,17 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                     progress={progress}
                     countdownStartSeconds={FIRST_FRAME_COUNTDOWN_SECONDS}
                     startedAtMs={progressStartedAtRef.current || undefined}
-                    currentStep={tr('生成首帧图中', 'Generating first-frame images')}
+                    currentStep={t.ff_generating_first_frame_images}
                     totalSteps={3}
+                    theme={loadingTheme}
+                    backgroundImageSrc={loadingBackgroundSrc}
                     onCancel={handleCancelGeneration}
                   />
                 </div>
               ) : hasResults ? (
                 <FirstFrameResult
                   results={results}
+                  elapsedSeconds={lastElapsedSeconds}
                   onRegenerate={handleRegenerate}
                   onDownload={handleDownload}
                   onDownloadAll={handleDownloadAll}
@@ -528,10 +624,10 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                 <div className="flex min-h-[420px] items-center justify-center rounded-2xl border border-dashed border-white/10 bg-black/20 p-6 text-center">
                   <div>
                     <p className="text-sm font-medium text-zinc-300">
-                      {tr('完成配置后点击生成', 'Generate after finishing the settings')}
+                      {t.ff_generate_after_finishing_settings}
                     </p>
                     <p className="mt-2 text-xs text-zinc-500">
-                      {tr('生成结果将在这里展示', 'Generated images will appear here')}
+                      {t.ff_generated_images_will_appear_here}
                     </p>
                   </div>
                 </div>
@@ -540,14 +636,14 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
               <div className="min-h-[420px] rounded-2xl border border-dashed border-white/10 bg-black/20 p-4">
                 {historyItems.length === 0 ? (
                   <div className="h-full min-h-[380px] flex items-center justify-center text-zinc-500 text-sm">
-                    {tr('暂无历史记录', 'No history yet')}
+                    {t.ff_no_history_yet}
                   </div>
                 ) : (
                   <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
                     {historyItems.map((item) => (
                       <div key={item.id} className="rounded-xl border border-white/10 bg-black/30 overflow-hidden">
                         <div className="px-3 py-2 border-b border-white/10 bg-black/40 flex items-center justify-between text-xs text-zinc-400">
-                          <span>{tr('工作区', 'Workspace')} {item.workspaceOrder}</span>
+                          <span>{t.ff_workspace} {item.workspaceOrder}</span>
                           <span>{formatHistoryTime(item.createdAt)}</span>
                         </div>
                         <div className="p-3 grid grid-cols-4 gap-2">
@@ -566,7 +662,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                             onClick={() => activateHistoryItem(item)}
                             className="w-full px-3 py-2 rounded-lg text-xs font-semibold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
                           >
-                            {tr('恢复此记录', 'Restore This Record')}
+                            {t.ff_restore_this_record}
                           </button>
                         </div>
                       </div>
@@ -607,10 +703,9 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
   projectId,
   embedded = false,
   onApplyToWorkbench,
+  headerActionsContainer,
 }) => {
-  const { language } = useLanguage();
-  const isZh = language === 'zh';
-  const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
+  const { t } = useLanguage();
 
   const initialWorkspaceMetas = useMemo(() => readWorkspaceMetas(), []);
   const [workspaceMetas, setWorkspaceMetas] = useState<FirstFrameWorkspaceMeta[]>(initialWorkspaceMetas);
@@ -624,10 +719,6 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
 
     return initialWorkspaceMetas[0]?.id || createDefaultWorkspaceMeta().id;
   });
-
-  const nextWorkspaceOrderRef = useRef(
-    Math.max(...initialWorkspaceMetas.map((ws) => ws.order), 0) + 1
-  );
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -661,8 +752,8 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
   }, [activeWorkspaceId, workspaceMetas]);
 
   const workspaceLabel = useCallback((workspace: FirstFrameWorkspaceMeta) => (
-    tr(`工作区 ${workspace.order}`, `Workspace ${workspace.order}`)
-  ), [isZh]);
+    `${t.ff_workspace} ${workspace.order}`
+  ), [t]);
 
   const workspaceOptions = useMemo(
     () => workspaceMetas.map((workspace) => ({
@@ -673,8 +764,15 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
   );
 
   const createWorkspace = () => {
-    const order = nextWorkspaceOrderRef.current;
-    nextWorkspaceOrderRef.current += 1;
+    const occupiedOrders = new Set(
+      workspaceMetas
+        .map((workspace) => workspace.order)
+        .filter((order) => Number.isFinite(order) && order > 0)
+    );
+    let order = 1;
+    while (occupiedOrders.has(order)) {
+      order += 1;
+    }
 
     const now = Date.now();
     const newWorkspace: FirstFrameWorkspaceMeta = {
@@ -700,6 +798,25 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
     )));
   };
 
+  const deleteWorkspace = useCallback((workspaceId: string) => {
+    const id = String(workspaceId || '').trim();
+    if (!id || workspaceMetas.length <= 1) return;
+
+    const nextWorkspaces = workspaceMetas.filter((workspace) => workspace.id !== id);
+    if (nextWorkspaces.length === workspaceMetas.length) return;
+
+    setWorkspaceMetas(nextWorkspaces);
+    if (activeWorkspaceId === id && nextWorkspaces[0]) {
+      setActiveWorkspaceId(nextWorkspaces[0].id);
+    }
+
+    readImageHistoryByFeature('first_frame')
+      .filter((item) => (item.workspaceId || 'ff-workspace-1') === id)
+      .forEach((item) => {
+        deleteImageHistoryItem(item.id);
+      });
+  }, [activeWorkspaceId, workspaceMetas]);
+
   const shellClassName = useMemo(
     () => (embedded
       ? 'h-full'
@@ -708,54 +825,103 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
   );
 
   const contentWrapClassName = embedded ? 'w-full' : 'max-w-[1600px] mx-auto';
+  const workspaceActions = (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="w-48">
+        <DropdownSelect
+          value={activeWorkspaceId}
+          options={workspaceOptions}
+          onChange={(value) => switchWorkspace(String(value || ''))}
+          buttonClassName="w-full bg-zinc-900/70 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800"
+          iconClassName="w-4 h-4 text-zinc-500"
+          optionClassName="text-xs"
+          renderOption={({ option, isSelected, onSelect }) => {
+            const canDelete = workspaceMetas.length > 1;
+            const targetWorkspace = workspaceMetas.find((workspace) => workspace.id === option.value);
+            const optionTitle = targetWorkspace ? workspaceLabel(targetWorkspace) : String(option.value || '');
+
+            return (
+              <div
+                className={`group flex items-center gap-2 px-3 py-2 text-xs transition ${
+                  isSelected ? 'bg-white/5 text-white' : 'text-zinc-200 hover:bg-white/5'
+                }`}
+              >
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 text-left"
+                  onClick={onSelect}
+                >
+                  <span className="block truncate">{option.label}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    deleteWorkspace(option.value);
+                  }}
+                  disabled={!canDelete}
+                  className={`shrink-0 rounded-full p-0.5 transition ${
+                    canDelete
+                      ? 'opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300'
+                      : 'opacity-0 pointer-events-none'
+                  }`}
+                  aria-label={`Delete ${optionTitle}`}
+                  title={canDelete ? `Delete ${optionTitle}` : undefined}
+                >
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full border border-current">
+                    <Minus className="h-2.5 w-2.5" strokeWidth={2.5} />
+                  </span>
+                </button>
+              </div>
+            );
+          }}
+        />
+      </div>
+      <button
+        type="button"
+        onClick={createWorkspace}
+        className="px-3 py-2 rounded-xl text-xs font-semibold bg-orange-500/10 border border-orange-500/40 text-orange-300 hover:bg-orange-500/20 transition inline-flex items-center gap-1.5"
+      >
+        <Plus className="w-3.5 h-3.5" />
+        {t.ff_new_workspace}
+      </button>
+    </div>
+  );
 
   return (
     <div className={shellClassName}>
       <div className={`${contentWrapClassName} pb-10`}>
-        <div className={`flex items-center gap-4 ${embedded ? 'mb-4' : 'mb-8'}`}>
-          {!embedded && onBack && (
-            <button
-              onClick={onBack}
-              className="p-2 hover:bg-zinc-800 rounded-lg transition"
-              title={tr('返回', 'Back')}
-            >
-              <ChevronLeft className="w-6 h-6 text-zinc-400" />
-            </button>
-          )}
-          <div>
-            <h1 className="text-2xl font-bold text-white mb-1">
-              {tr('AI首帧图生成', 'AI First-Frame Generator')}
-            </h1>
-            <p className="text-zinc-400 text-sm">
-              {tr('为视频生成提供起始视觉素材', 'Generate hand-held product key frames for video workflow')}
-            </p>
-          </div>
-
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <div className="w-48">
-              <DropdownSelect
-                value={activeWorkspaceId}
-                options={workspaceOptions}
-                onChange={(value) => switchWorkspace(String(value || ''))}
-                buttonClassName="w-full bg-zinc-900/70 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800"
-                iconClassName="w-4 h-4 text-zinc-500"
-                optionClassName="text-xs"
-              />
+        {!embedded && (
+          <div className="flex items-center gap-4 mb-8">
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="p-2 hover:bg-zinc-800 rounded-lg transition"
+                title={t.ff_back}
+              >
+                <ChevronLeft className="w-6 h-6 text-zinc-400" />
+              </button>
+            )}
+            <div>
+              <h1 className="text-2xl font-bold text-white mb-1">
+                {t.ff_page_title}
+              </h1>
+              <p className="text-zinc-400 text-sm">
+                {t.ff_page_subtitle}
+              </p>
             </div>
-            <button
-              type="button"
-              onClick={createWorkspace}
-              className="px-3 py-2 rounded-xl text-xs font-semibold bg-orange-500/10 border border-orange-500/40 text-orange-300 hover:bg-orange-500/20 transition inline-flex items-center gap-1.5"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              {tr('新建工作区', 'New Workspace')}
-            </button>
+
+            <div className="ml-auto">
+              {workspaceActions}
+            </div>
           </div>
-        </div>
+        )}
+
+        {embedded && headerActionsContainer ? createPortal(workspaceActions, headerActionsContainer) : null}
 
         <div className="mb-4 rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3">
           <p className="text-xs text-blue-300">
-            {tr('提示：可创建多个首帧图工作区并行生成，切换后会保留各自记录。', 'Tip: You can create multiple first-frame workspaces and run generation in parallel. Switching keeps each workspace record.')}
+            {t.ff_workspace_tip}
           </p>
         </div>
 

@@ -6,6 +6,7 @@ export type ViewType =
   | 'product_images_first_frame'
   | 'product_images_smart_repair'
   | 'product_images_gallery'
+  | 'product_images_text_separation'
   | 'replay_lab'
   | 'templates'
   | 'history'

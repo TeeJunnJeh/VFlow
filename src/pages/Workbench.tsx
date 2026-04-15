@@ -1,12 +1,39 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { templatesApi, type Template } from '../services/templates';
 import { assetsApi, type Asset as LibraryAsset } from '../services/assets';
 import { authApi } from '../services/auth';
 import { getDebugModeEnabled, setDebugModeEnabled, clearDebugModeEnabled, debugLog, debugWarn } from '../services/debugMode';
 
+/** ErrorBoundary – catches render errors in child tree and shows a fallback */
+class ViewErrorBoundary extends React.Component<
+  { children: React.ReactNode; label?: string },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error(`[ViewErrorBoundary${this.props.label ? ` ${this.props.label}` : ''}]`, error, info.componentStack);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 p-10 text-zinc-300">
+          <div className="text-lg font-bold text-red-400">页面渲染出错 {this.props.label ? `(${this.props.label})` : ''}</div>
+          <pre className="max-w-2xl overflow-auto rounded-xl bg-zinc-900 p-4 text-xs text-red-300 border border-red-500/30 whitespace-pre-wrap">
+            {this.state.error.message}{'\n'}{this.state.error.stack}
+          </pre>
+          <button onClick={() => this.setState({ error: null })} className="rounded-lg bg-zinc-800 px-4 py-2 text-sm hover:bg-zinc-700">重试</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 import { TaskQueueWidget } from '../components/workbench/TaskQueueWidget';
 import { AppDialog } from '../components/common/AppDialog';
+import { InviteRewardDialog } from '../components/common/InviteRewardDialog';
 import { WorkbenchView } from '../components/workbench/WorkbenchView';
 import { AssetsView } from '../components/workbench/AssetsView';
 import { TemplatesView } from '../components/workbench/TemplatesView';
@@ -27,7 +54,12 @@ type AssetsNavigationIntent =
   | 'open_assets_for_subject_creation_first_time'
   | null;
 
-type WorkbenchAssetSelectionMode = 'library_asset' | 'background_audio';
+type WorkbenchAssetSelectionMode = 'library_asset' | 'background_audio' | 'script_import';
+type WorkbenchApplyOptions = {
+  targetProjectId?: string | null;
+  createNewProject?: boolean;
+  newProjectName?: string;
+};
 const FIRST_FRAME_TRANSFER_KEY = 'vflow_apply_first_frame';
 
 // Helper to get display URL for asset passing
@@ -41,17 +73,28 @@ const getDisplayUrl = (path: string | null): string | null => {
 };
 
 const Workbench = () => {
-  const { user } = useAuth();
+  const { user, justLoggedIn, consumeJustLoggedIn } = useAuth();
 
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
-  const [theme, setTheme] = useState<'dark' | 'light' | 'dim'>(user?.theme || 'light');
+  const [theme, setTheme] = useState<'dark' | 'light' | 'dim' | 'system'>(user?.theme || 'system');
+  const [isInviteRewardOpen, setIsInviteRewardOpen] = useState(false);
+
+  // Post-login reward popup: triggered only when the user has just logged in in this session,
+  // NOT when the session is restored via /api/auth/me/ on page reload.
+  useEffect(() => {
+    if (!justLoggedIn || !user) return;
+    setIsInviteRewardOpen(true);
+    consumeJustLoggedIn();
+  }, [justLoggedIn, user, consumeJustLoggedIn]);
 
   // --- Data Passing State ---
   const [selectedAssetForWorkbench, setSelectedAssetForWorkbench] = useState<{
     asset: LibraryAsset;
     token: string;
     mode: WorkbenchAssetSelectionMode;
+    targetProjectId?: string | null;
+    forceFirstFrame?: boolean;
   } | null>(null);
 
   // --- Template State ---
@@ -99,8 +142,30 @@ const Workbench = () => {
   }, [user?.id]);
 
   useEffect(() => {
-    document.documentElement.classList.toggle('theme-light', theme === 'light');
-    document.documentElement.classList.toggle('theme-dim', theme === 'dim');
+    if (typeof window === 'undefined') return;
+
+    const root = document.documentElement;
+    const media = window.matchMedia('(prefers-color-scheme: light)');
+
+    const applyTheme = () => {
+      const effectiveTheme: 'light' | 'dark' | 'dim' =
+        theme === 'system'
+          ? (media.matches ? 'light' : 'dark')
+          : theme;
+      root.classList.toggle('theme-light', effectiveTheme === 'light');
+      root.classList.toggle('theme-dim', effectiveTheme === 'dim');
+    };
+
+    applyTheme();
+
+    if (theme !== 'system') return;
+
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', applyTheme);
+      return () => media.removeEventListener('change', applyTheme);
+    }
+    media.addListener(applyTheme);
+    return () => media.removeListener(applyTheme);
   }, [theme]);
 
   useEffect(() => {
@@ -168,14 +233,31 @@ const Workbench = () => {
   };
 
   // --- Event Handlers ---
-  const handleAssetSelect = (asset: LibraryAsset) => {
+  const handleAssetSelect = (asset: LibraryAsset, options?: WorkbenchApplyOptions) => {
+    const createNewProject = options?.createNewProject === true;
+    const normalizedTargetProjectId = String(options?.targetProjectId || '').trim() || null;
+    const normalizedNewProjectName = String(options?.newProjectName || '').trim();
+    const forceFirstFrame = !createNewProject && asset.media_kind !== 'audio';
+
+    if (createNewProject) {
+      setTransferRole('asset_apply');
+      setTransferProjectName(normalizedNewProjectName || null);
+      setTransferModel(null);
+    } else {
+      setTransferRole(null);
+      setTransferProjectName(null);
+      setTransferModel(null);
+    }
+
     setSelectedAssetForWorkbench({
       asset: {
         ...asset,
         file_url: getDisplayUrl(asset.file_url) || asset.file_url || '',
       },
       token: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      mode: asset.media_kind === 'audio' ? 'background_audio' : 'library_asset',
+      mode: asset.media_kind === 'audio' ? 'background_audio' : asset.type === 'script' ? 'script_import' : 'library_asset',
+      targetProjectId: createNewProject ? null : normalizedTargetProjectId,
+      forceFirstFrame,
     });
     setGeneratedVideoUrl(null);
     setActiveView('workbench');
@@ -225,6 +307,16 @@ const Workbench = () => {
     }
   }, [location.pathname, location.search]);
 
+  // Listen for custom navigation events from child components (e.g. ImageHistoryPanel)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ view: ViewType }>).detail;
+      if (detail?.view) setActiveView(detail.view);
+    };
+    window.addEventListener('vflow:navigate', handler);
+    return () => window.removeEventListener('vflow:navigate', handler);
+  }, []);
+
   useEffect(() => {
     if (activeView !== 'workbench') return;
 
@@ -232,18 +324,40 @@ const Workbench = () => {
       const raw = window.localStorage.getItem(FIRST_FRAME_TRANSFER_KEY);
       if (!raw) return;
 
-      const parsed = JSON.parse(raw) as { imageUrl?: string; imageName?: string };
-      const imageUrl = String(parsed?.imageUrl || '').trim();
-      if (!imageUrl) {
+      const parsed = JSON.parse(raw) as {
+        // New format (multi-image + model selection)
+        imageUrls?: string[];
+        model?: string;
+        newProjectName?: string;
+        targetProjectId?: string;
+        createNewProject?: boolean;
+        // Legacy format (single image)
+        imageUrl?: string;
+        imageName?: string;
+      };
+
+      // Support both new array format and legacy single-url format
+      const urls = Array.isArray(parsed.imageUrls) && parsed.imageUrls.length > 0
+        ? parsed.imageUrls.map((u) => String(u || '').trim()).filter(Boolean)
+        : [String(parsed?.imageUrl || '').trim()].filter(Boolean);
+
+      if (urls.length === 0) {
         window.localStorage.removeItem(FIRST_FRAME_TRANSFER_KEY);
         return;
       }
 
-      const displayUrl = getDisplayUrl(imageUrl) || imageUrl;
+      // Use the first image as the workbench asset
+      const primaryUrl = urls[0];
+      const displayUrl = getDisplayUrl(primaryUrl) || primaryUrl;
+      const requestedTargetProjectId = String(parsed.targetProjectId || '').trim() || null;
+      const shouldCreateProject =
+        parsed.createNewProject === true
+        || (!requestedTargetProjectId && !!String(parsed.newProjectName || '').trim());
+
       setSelectedAssetForWorkbench({
         asset: {
           id: `first-frame-${Date.now()}`,
-          name: parsed.imageName || 'AI首帧图',
+          name: parsed.newProjectName || parsed.imageName || 'AI首帧图',
           type: 'product',
           file_url: displayUrl,
           media_kind: 'image',
@@ -253,7 +367,26 @@ const Workbench = () => {
         },
         token: `first-frame-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         mode: 'library_asset',
+        targetProjectId: shouldCreateProject ? null : requestedTargetProjectId,
+        forceFirstFrame: !shouldCreateProject,
       });
+
+      // Transfer signal: create new project only when explicitly requested (or legacy payload with newProjectName only).
+      if (shouldCreateProject) {
+        setTransferRole('first_frame');
+        setTransferProjectName(String(parsed.newProjectName || '').trim() || null);
+      } else {
+        setTransferRole(null);
+        setTransferProjectName(null);
+      }
+
+      // Transfer model selection (Sora-family only)
+      if (parsed.model && ['sora2', 'sora2pro', 'seedance2.0'].includes(parsed.model)) {
+        setTransferModel(parsed.model as 'sora2' | 'sora2pro' | 'seedance2.0');
+      } else {
+        setTransferModel(null);
+      }
+
       setGeneratedVideoUrl(null);
       window.localStorage.removeItem(FIRST_FRAME_TRANSFER_KEY);
     } catch {
@@ -265,11 +398,28 @@ const Workbench = () => {
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [infoTitle, setInfoTitle] = useState('');
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [transferRole, setTransferRole] = useState<'first_frame' | 'asset_apply' | 'replay_apply' | null>(null);
+  const [transferProjectName, setTransferProjectName] = useState<string | null>(null);
+  const [transferModel, setTransferModel] = useState<'sora2' | 'sora2pro' | 'seedance2.0' | null>(null);
 
   const handleTaskPreview = (url: string) => {
     setGeneratedVideoUrl(url);
     setActiveView('workbench');
   };
+
+  const handleTaskNavigate = useCallback((target: { view?: string; focus?: string }) => {
+    const targetViewRaw = String(target?.view || '').trim();
+    const targetFocusRaw = String(target?.focus || '').trim();
+
+    const targetView = (targetViewRaw || 'workbench') as ViewType;
+    setActiveView(targetView);
+
+    if (targetFocusRaw) {
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('vflow:queue-focus', { detail: { focus: targetFocusRaw } }));
+      }, 50);
+    }
+  }, []);
 
   const getSubjectGuideSeenKey = useCallback(() => `vflow_subject_guide_seen_${user?.id ?? 'guest'}`, [user?.id]);
 
@@ -323,17 +473,20 @@ const Workbench = () => {
     activeView === 'product_images_clothing_swap'
     || activeView === 'product_images_first_frame'
     || activeView === 'product_images_smart_repair'
-    || activeView === 'product_images_gallery';
+    || activeView === 'product_images_gallery'
+    || activeView === 'product_images_text_separation';
 
   return (
     <WorkbenchModelProvider>
       <div className="flex h-screen overflow-hidden bg-[#050505] text-zinc-100 font-sans">
         {shouldShowSidebar && (
-          <Sidebar
-            activeView={activeView}
-            setActiveView={setActiveView}
-            isDebugModeEnabled={isDebugModeEnabled}
-          />
+            <Sidebar
+              activeView={activeView}
+              setActiveView={setActiveView}
+              isDebugModeEnabled={isDebugModeEnabled}
+              theme={theme}
+              setTheme={setTheme}
+            />
         )}
 
         <main className="flex-1 flex flex-col overflow-hidden relative">
@@ -356,13 +509,20 @@ const Workbench = () => {
 
           {activeView === 'workbench' && (
             <div className="flex-1 h-full min-h-0">
+              <ViewErrorBoundary label="WorkbenchView">
               <WorkbenchView
                 initialFileUrl={selectedAssetForWorkbench?.mode === 'background_audio' ? null : (selectedAssetForWorkbench?.asset?.file_url || null)}
                 initialFileName={selectedAssetForWorkbench?.mode === 'background_audio' ? '' : selectedAssetForWorkbench?.asset?.name}
                 initialLibraryAsset={selectedAssetForWorkbench?.asset || null}
                 initialLibraryAssetToken={selectedAssetForWorkbench?.token || null}
                 initialLibraryAssetMode={selectedAssetForWorkbench?.mode || 'library_asset'}
+                initialLibraryAssetTargetProjectId={selectedAssetForWorkbench?.targetProjectId || null}
+                initialLibraryAssetForceFirstFrame={selectedAssetForWorkbench?.forceFirstFrame === true}
                 onInitialLibraryAssetHandled={() => setSelectedAssetForWorkbench(null)}
+                initialTransferRole={transferRole}
+                initialTransferProjectName={transferProjectName}
+                initialTransferModel={transferModel}
+                onTransferRoleHandled={() => { setTransferRole(null); setTransferProjectName(null); setTransferModel(null); }}
                 templateList={templateList}
                 selectedTemplate={selectedTemplate}
                 onSelectTemplate={setSelectedTemplate}
@@ -373,27 +533,38 @@ const Workbench = () => {
                 replayReusePayload={replayReusePayload}
                 onReplayReusePayloadHandled={() => setReplayReusePayload(null)}
               />
+              </ViewErrorBoundary>
             </div>
           )}
 
-          {activeView === 'replay_lab' && (
+          <div className={activeView === 'replay_lab' ? 'flex-1 h-full min-h-0' : 'hidden'}>
             <ReplayScriptView
               onReuseToWorkbench={(payload) => {
+                if (payload.createNewProject) {
+                  setTransferRole('replay_apply');
+                  setTransferProjectName(String(payload.newProjectName || '').trim() || null);
+                  setTransferModel(null);
+                } else {
+                  setTransferRole(null);
+                  setTransferProjectName(null);
+                  setTransferModel(null);
+                }
                 setReplayReusePayload(payload);
                 setActiveView('workbench');
               }}
             />
-          )}
+          </div>
 
           {activeView === 'assets' && (
+            <ViewErrorBoundary label="AssetsView">
             <AssetsView
-              onSelectAsset={handleAssetSelect}
               currentFolderId={currentFolderId}
               setCurrentFolderId={setCurrentFolderId}
               navigationIntent={assetsNavigationIntent}
               onNavigationIntentHandled={() => setAssetsNavigationIntent(null)}
               onSubjectGuideCompleted={markSubjectGuideSeen}
             />
+            </ViewErrorBoundary>
           )}
 
           <div className={isProductImagesActive ? 'flex-1 min-h-0' : 'hidden'}>
@@ -432,7 +603,12 @@ const Workbench = () => {
             />
           )}
 
-          <TaskQueueWidget onPreview={handleTaskPreview} />
+          <TaskQueueWidget onPreview={handleTaskPreview} onNavigate={handleTaskNavigate} />
+
+          <InviteRewardDialog
+            isOpen={isInviteRewardOpen}
+            onClose={() => setIsInviteRewardOpen(false)}
+          />
 
           {isInfoOpen && (
             <AppDialog

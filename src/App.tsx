@@ -9,12 +9,22 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { TaskProvider } from './context/TaskContext';
 import { LanguageProvider } from './context/LanguageContext';
 import { useLanguage } from './context/LanguageContext';
+import { ErrorModal } from './components/workbench/workflow/ErrorModal';
+import { buildErrorModalData, type ErrorI18n, type ErrorModalData } from './utils/errorModalHelper';
 import LoginPage from './pages/Login';
 import LandingPage from './pages/Landing';
 import Workbench from './pages/Workbench';
 import TermsOfServicePage from './pages/TermsOfService';
 import PrivacyPolicyPage from './pages/PrivacyPolicy';
 import { debugLog, debugError } from './services/debugMode';
+import {
+    TIKTOK_AUTH_RESULT_STORAGE_KEY,
+    broadcastTikTokAuthResult,
+    emitTikTokAuthComplete,
+    isTikTokAuthPopupWindow,
+    parseTikTokAuthResult,
+    type TikTokAuthResult,
+} from './utils/tiktokAuthPopup';
 
 const MobileBlockedApp = () => {
     const { t } = useLanguage();
@@ -146,24 +156,65 @@ const AnimatedRoutes = () => {
     const [infoTitle, setInfoTitle] = React.useState('');
     const [infoMessage, setInfoMessage] = React.useState<string | null>(null);
 
-    React.useEffect(() => {
-        const parseErrorMessage = (value: unknown) => {
-            if (value instanceof ApiError) {
-                const parts: string[] = [value.message || '未知错误'];
-                if (value.errorCode) parts.push(`[${value.errorCode}]`);
-                if (value.trackingId) parts.push(`Tracking ID: ${value.trackingId}`);
-                return parts.join('\n');
-            }
-            if (value instanceof Error) return value.message || '未知错误';
-            if (typeof value === 'string') return value;
-            if (value && typeof value === 'object' && 'message' in (value as any)) {
-                return String((value as any).message || '未知错误');
-            }
-            return '未知错误';
-        };
+    // ── ErrorModal 状态（统一异常处理） ──
+    const [errorModalData, setErrorModalData] = React.useState<ErrorModalData | null>(null);
+    const closeErrorModal = () => setErrorModalData(null);
 
+    const errorI18n: ErrorI18n = {
+      err_title_generation: t.err_title_generation,
+      err_title_script: t.err_title_script,
+      err_title_parse: t.err_title_parse,
+      err_title_recognize: t.err_title_recognize,
+      err_title_upload: t.err_title_upload,
+      err_title_network: t.err_title_network,
+      err_title_auth: t.err_title_auth,
+      err_title_unknown: t.err_title_unknown,
+      err_msg_generation: t.err_msg_generation,
+      err_msg_script: t.err_msg_script,
+      err_msg_parse: t.err_msg_parse,
+      err_msg_recognize: t.err_msg_recognize,
+      err_msg_upload: t.err_msg_upload,
+      err_msg_network: t.err_msg_network,
+      err_msg_auth: t.err_msg_auth,
+      err_msg_unknown: t.err_msg_unknown,
+      err_sug_retry: t.err_sug_retry,
+      err_sug_check_network: t.err_sug_check_network,
+      err_sug_check_params: t.err_sug_check_params,
+      err_sug_relogin: t.err_sug_relogin,
+      err_sug_contact_support: t.err_sug_contact_support,
+      err_sug_try_later: t.err_sug_try_later,
+      err_sug_manual_fill: t.err_sug_manual_fill,
+      err_btn_retry: t.err_btn_retry,
+      err_btn_feedback: t.err_btn_feedback,
+    };
+
+    /** 将 ApiError 或普通 Error 转为 ErrorModal 弹窗 */
+    const openErrorModalFromError = React.useCallback((err: unknown) => {
+      const data = buildErrorModalData({ error: err, i18n: errorI18n });
+      setErrorModalData(data);
+    }, [t]);
+
+    const showTikTokAuthResult = React.useCallback((result: TikTokAuthResult) => {
+        setInfoTitle(result.status === 'success' ? t.ui_dialog_success : t.ui_dialog_error);
+        setInfoMessage(result.message || (result.status === 'success' ? t.app_tiktok_auth_success_default : t.app_tiktok_auth_failed));
+        setIsInfoOpen(true);
+        emitTikTokAuthComplete(result);
+    }, [
+        t.app_tiktok_auth_failed,
+        t.app_tiktok_auth_success_default,
+        t.ui_dialog_error,
+        t.ui_dialog_success,
+    ]);
+
+    React.useEffect(() => {
         const onUnhandledRejection = (event: PromiseRejectionEvent) => {
-            const msg = parseErrorMessage(event.reason);
+            if (event.reason instanceof ApiError) {
+                openErrorModalFromError(event.reason);
+                event.preventDefault();
+                return;
+            }
+            // 非 ApiError 仍走旧的 AppDialog
+            const msg = event.reason instanceof Error ? event.reason.message : String(event.reason || '未知错误');
             if (!msg) return;
             setInfoTitle(t.ui_dialog_error);
             setInfoMessage(`${t.app_error_unhandled}：${msg}`);
@@ -171,7 +222,13 @@ const AnimatedRoutes = () => {
         };
 
         const onWindowError = (event: ErrorEvent) => {
-            const msg = parseErrorMessage(event.error || event.message);
+            const raw = event.error || event.message;
+            if (raw instanceof ApiError) {
+                openErrorModalFromError(raw);
+                event.preventDefault();
+                return;
+            }
+            const msg = raw instanceof Error ? raw.message : String(raw || '未知错误');
             if (!msg) return;
             setInfoTitle(t.ui_dialog_error);
             setInfoMessage(`${t.app_error_runtime}：${msg}`);
@@ -179,9 +236,18 @@ const AnimatedRoutes = () => {
         };
 
         const onAppError = (event: Event) => {
-            const custom = event as CustomEvent<{ title?: string; message?: string }>;
-            const title = custom?.detail?.title || t.ui_dialog_error;
-            const message = custom?.detail?.message || '发生未知错误';
+            const custom = event as CustomEvent<{ apiError?: ApiError; title?: string; message?: string }>;
+            const detail = custom?.detail;
+
+            // ── 新路径：TaskContext 派发的 ApiError ──
+            if (detail?.apiError instanceof ApiError) {
+                openErrorModalFromError(detail.apiError);
+                return;
+            }
+
+            // ── 旧路径兼容：纯文本 title + message ──
+            const title = detail?.title || t.ui_dialog_error;
+            const message = detail?.message || '发生未知错误';
             setInfoTitle(title);
             setInfoMessage(message);
             setIsInfoOpen(true);
@@ -195,7 +261,38 @@ const AnimatedRoutes = () => {
             window.removeEventListener('error', onWindowError);
             window.removeEventListener('vflow-app-error', onAppError as EventListener);
         };
-    }, []);
+    }, [openErrorModalFromError]);
+
+    React.useEffect(() => {
+        const onStorage = (event: StorageEvent) => {
+            if (event.key !== TIKTOK_AUTH_RESULT_STORAGE_KEY) return;
+            const result = parseTikTokAuthResult(event.newValue);
+            if (!result) return;
+            showTikTokAuthResult(result);
+        };
+
+        window.addEventListener('storage', onStorage);
+        return () => window.removeEventListener('storage', onStorage);
+    }, [showTikTokAuthResult]);
+
+    // 裂变：把 ?invite_code=XXXX 捕获到 sessionStorage，随后清掉 URL，
+    // 避免刷新/分享时把邀请码暴露出去。登录/注册路径会从 sessionStorage 回读。
+    React.useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const inviteCode = params.get('invite_code');
+        if (!inviteCode) return;
+        try {
+            sessionStorage.setItem('vflow_pending_invite_code', inviteCode.trim());
+        } catch (err) {
+            debugError('[invite] failed to persist invite code:', err);
+        }
+        params.delete('invite_code');
+        const nextSearch = params.toString();
+        const nextUrl = nextSearch
+            ? `${location.pathname}?${nextSearch}`
+            : location.pathname;
+        window.history.replaceState({}, document.title, nextUrl);
+    }, [location.pathname, location.search]);
 
     React.useEffect(() => {
         const params = new URLSearchParams(location.search);
@@ -203,6 +300,7 @@ const AnimatedRoutes = () => {
         const state = params.get('state');
         const error = params.get('error');
         const errorDescription = params.get('error_description');
+        const isPopupWindow = isTikTokAuthPopupWindow();
 
         // Only process if we have an OAuth callback (code or error present)
         if (!code && !error) return;
@@ -239,26 +337,47 @@ const AnimatedRoutes = () => {
                 });
                 debugLog('[TikTok OAuth] completeAuth success:', result);
 
-                // 显示成功消息，告知用户视频已上传到哪个账号
-                if (result?.message) {
-                    setInfoTitle(t.ui_dialog_success);
-                    setInfoMessage(String(result.message));
-                    setIsInfoOpen(true);
-                } else {
-                    setInfoTitle(t.ui_dialog_success);
-                    setInfoMessage(t.app_tiktok_auth_success_default);
-                    setIsInfoOpen(true);
+                const payload: TikTokAuthResult = {
+                    status: 'success',
+                    message: result?.message ? String(result.message) : t.app_tiktok_auth_success_default,
+                    ts: Date.now(),
+                };
+
+                if (isPopupWindow) {
+                    broadcastTikTokAuthResult(payload);
+                    window.setTimeout(() => window.close(), 80);
+                    return;
                 }
+
+                showTikTokAuthResult(payload);
             } catch (err: any) {
                 debugError('[TikTok OAuth] Error:', err);
-                setInfoTitle(t.ui_dialog_error);
-                setInfoMessage(`${t.app_tiktok_auth_failed}：${err?.message || '未知错误'}`);
-                setIsInfoOpen(true);
+                const payload: TikTokAuthResult = {
+                    status: 'error',
+                    message: `${t.app_tiktok_auth_failed}：${err?.message || '未知错误'}`,
+                    ts: Date.now(),
+                };
+
+                if (isPopupWindow) {
+                    broadcastTikTokAuthResult(payload);
+                    window.setTimeout(() => window.close(), 80);
+                    return;
+                }
+
+                showTikTokAuthResult(payload);
             } finally {
                 (window as any).__tiktok_callback_processing = false;
             }
         })();
-    }, [location.pathname, location.search]);
+    }, [
+        location.pathname,
+        location.search,
+        showTikTokAuthResult,
+        t.app_tiktok_auth_failed,
+        t.app_tiktok_auth_incomplete,
+        t.app_tiktok_auth_rejected,
+        t.app_tiktok_auth_success_default,
+    ]);
 
     return (
         // 2. 修复：将 AppDialog 移出 AnimatePresence，并根据你的注释将 mode 改为 wait 以实现无缝光影穿梭动画
@@ -305,6 +424,20 @@ const AnimatedRoutes = () => {
                 >
                     <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
                 </AppDialog>
+            )}
+
+            {/* 统一异常处理 ErrorModal（来自全局错误事件） */}
+            {errorModalData && (
+                <ErrorModal
+                    isOpen={true}
+                    onClose={closeErrorModal}
+                    title={errorModalData.title}
+                    code={errorModalData.code}
+                    message={errorModalData.message}
+                    details={errorModalData.details}
+                    suggestions={errorModalData.suggestions}
+                    actions={errorModalData.actions}
+                />
             )}
         </>
     );

@@ -6,6 +6,7 @@ import { useLanguage } from '../../context/LanguageContext';
 
 interface TaskQueueWidgetProps {
   onPreview: (url: string) => void;
+  onNavigate?: (target: { view?: string; focus?: string }) => void;
 }
 
 type LocalProjectMeta = {
@@ -23,7 +24,7 @@ type LocalProjectStore = {
 
 const LOCAL_PROJECT_STORE_KEY_PREFIX = 'vflow_workbench_projects_v1';
 
-export const TaskQueueWidget: React.FC<TaskQueueWidgetProps> = ({ onPreview }) => {
+export const TaskQueueWidget: React.FC<TaskQueueWidgetProps> = ({ onPreview, onNavigate }) => {
   const { t: i18n } = useLanguage();
   const { user } = useAuth();
   const { tasks, removeTask } = useTasks();
@@ -182,15 +183,38 @@ export const TaskQueueWidget: React.FC<TaskQueueWidgetProps> = ({ onPreview }) =
         style={hasOverflow ? { scrollbarGutter: 'stable' } : undefined}
       >
         {recentTasks.map((task) => {
+          const normalizedTaskType = (task as any)?.type === 'script_generation'
+            ? 'script_generation'
+            : (task as any)?.type === 'image_generation'
+              ? 'image_generation'
+              : 'video_generation';
           const url = task.result?.video_url || task.result?.url;
           const isActive = task.status === 'pending' || task.status === 'processing';
           const workbenchProjectId = String((task as any)?.workbenchProjectId || '').trim();
           const backendProjectId = String((task as any)?.projectId || '').trim();
           const displayProjectId = workbenchProjectId || backendProjectId;
+          const typeLabel = normalizedTaskType === 'script_generation'
+            ? (i18n.wb_queue_task_script_generation || 'Script')
+            : normalizedTaskType === 'image_generation'
+              ? (i18n.wb_queue_task_image_generation || 'Image')
+              : (i18n.wb_queue_task_video_generation || 'Video');
           const projectName = projectNameMap[displayProjectId] || (displayProjectId ? `Project ${displayProjectId.slice(0, 6)}` : 'Project');
           const rawName = task.name || `Task ${task.id}`;
           const taskName = rawName.includes(' / ') ? rawName.split(' / ').slice(1).join(' / ').trim() : rawName;
-          const displayName = `${projectName} / ${taskName}`;
+          const displayName = displayProjectId ? `${projectName} / ${taskName}` : `${typeLabel} / ${taskName}`;
+          const navigationTarget = (() => {
+            const raw = (task as any)?.navigateTo;
+            if (raw && typeof raw === 'object') {
+              return {
+                view: typeof raw.view === 'string' ? raw.view : undefined,
+                focus: typeof raw.focus === 'string' ? raw.focus : undefined,
+              };
+            }
+
+            if (normalizedTaskType === 'script_generation') return { view: 'workbench', focus: 'scripts' };
+            if (normalizedTaskType === 'image_generation') return { view: 'workbench', focus: 'image' };
+            return { view: 'workbench', focus: 'preview' };
+          })();
 
           return (
             <div key={task.id} className="flex items-center gap-2 text-[11px]">
@@ -205,7 +229,12 @@ export const TaskQueueWidget: React.FC<TaskQueueWidgetProps> = ({ onPreview }) =
               <button
                 className="flex-1 text-left truncate text-zinc-200 hover:text-orange-400 transition"
                 onClick={() => {
-                  if (url) onPreview(url);
+                  if (normalizedTaskType === 'video_generation' && url) {
+                    onPreview(url);
+                    return;
+                  }
+
+                  onNavigate?.(navigationTarget);
                 }}
                 title={displayName}
               >

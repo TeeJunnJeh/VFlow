@@ -3,7 +3,7 @@
  */
 
 import React, { useCallback, useState, useRef } from 'react';
-import { Upload, X, Check } from 'lucide-react';
+import { Upload, X } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
 
 interface ImageUploaderProps {
@@ -14,6 +14,7 @@ interface ImageUploaderProps {
   onError: (error: string) => void;
   disabled?: boolean;
   multiple?: boolean;
+  uploadedStatusText?: string;
 }
 
 const DEFAULT_ACCEPTED_FORMATS = ['image/jpeg', 'image/png', 'image/webp'];
@@ -27,10 +28,9 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   onError,
   disabled = false,
   multiple = true,
+  uploadedStatusText,
 }) => {
-  const { language } = useLanguage();
-  const isZh = language === 'zh';
-  const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
+  const { t } = useLanguage();
   const [dragActive, setDragActive] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
@@ -47,7 +47,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       // 检查格式
       if (!acceptedFormats.includes(file.type)) {
         errors.push(
-          `${file.name}: ${tr('不支持的格式，仅支持 JPG/PNG/WebP', 'Unsupported format. Only JPG/PNG/WebP are allowed')}`
+          `${file.name}: ${t.ff_upload_error_format}`
         );
         continue;
       }
@@ -55,7 +55,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       // 检查大小
       if (file.size > maxFileSize) {
         errors.push(
-          `${file.name}: ${tr('文件过大，最大', 'File is too large, max')} ${Math.ceil(maxFileSize / 1024 / 1024)}MB`
+          `${file.name}: ${t.ff_upload_error_too_large} ${Math.ceil(maxFileSize / 1024 / 1024)}MB`
         );
         continue;
       }
@@ -66,7 +66,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
     // 检查文件数量
     if (valid.length + selectedFiles.length > maxFiles) {
       errors.push(
-        `${tr('最多只能上传', 'Maximum upload count is')} ${maxFiles} ${tr('张图片', 'image(s)')}`
+        `${t.ff_upload_error_max_count} ${maxFiles} ${t.ff_upload_image_unit}`
       );
       return { valid: [], errors };
     }
@@ -206,14 +206,14 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
           <div className="flex flex-col items-center justify-center">
             <Upload className="w-8 h-8 text-orange-500 mb-3" />
             <p className="text-zinc-100 font-medium mb-1">
-              {tr('上传图片', 'Upload Image')}
+              {t.ff_upload_title}
               {maxFiles > 1 && ` (${selectedFiles.length}/${maxFiles})`}
             </p>
             <p className="text-zinc-400 text-sm">
-              {tr('拖拽图片或点击选择', 'Drag files here or click to select')}
+              {t.ff_upload_drag_or_click}
             </p>
             <p className="text-zinc-500 text-xs mt-3">
-              {tr('支持 JPG, PNG, WebP • 最大', 'Supports JPG, PNG, WebP • Max')} {Math.ceil(maxFileSize / 1024 / 1024)}MB
+              {t.ff_upload_supports} {Math.ceil(maxFileSize / 1024 / 1024)}MB
             </p>
           </div>
         </div>
@@ -222,14 +222,14 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       {/* 预览列表 */}
       {selectedFiles.length > 0 && (
         <div className="mt-6">
-          <p className="text-zinc-300 text-sm font-medium mb-3">{tr('已上传图片', 'Uploaded Images')}</p>
-          <div className="grid grid-cols-3 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <p className="text-zinc-300 text-sm font-medium mb-3">{t.ff_uploaded_images}</p>
+          <div className={maxFiles === 1 ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"}>
             {previews.map((preview, index) => (
               <div
                 key={index}
                 className="relative group"
               >
-                <div className="relative w-full aspect-square rounded-lg overflow-hidden bg-zinc-900 border border-zinc-700">
+                <div className="relative w-full max-w-[200px] aspect-square rounded-lg overflow-hidden bg-zinc-900 border border-zinc-700">
                   <img
                     src={preview}
                     alt={`Preview ${index + 1}`}
@@ -241,7 +241,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
                     <button
                       onClick={() => handleRemoveFile(index)}
                       className="p-2 bg-red-500 text-white rounded hover:bg-red-600 transition"
-                      title={tr('删除', 'Delete')}
+                      title={t.ff_delete}
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -259,27 +259,9 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
             ))}
           </div>
 
-          {/* 确认/继续按钮 */}
-          {selectedFiles.length > 0 && (
-            <div className="mt-4 flex gap-3">
-              <button
-                onClick={() => {
-                  if (inputRef.current) {
-                    inputRef.current.click();
-                  }
-                }}
-                disabled={disabled || selectedFiles.length >= maxFiles}
-                className="px-4 py-2 rounded-lg border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed transition"
-              >
-                {selectedFiles.length < maxFiles ? tr('+ 添加更多', '+ Add more') : tr('已达到上限', 'Max reached')}
-              </button>
-              <button
-                disabled={disabled || selectedFiles.length === 0}
-                className="px-4 py-2 rounded-lg text-sm font-bold border border-emerald-500/40 text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-2 shadow-[0_8px_24px_rgba(16,185,129,0.12)]"
-              >
-                <Check className="w-4 h-4" />
-                {tr('确认上传', 'Confirm Upload')}
-              </button>
+          {uploadedStatusText && (
+            <div className="wb-emerald-upload-status-wrap mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-2 text-center">
+              <p className="wb-emerald-upload-status text-sm text-emerald-400/85">{uploadedStatusText}</p>
             </div>
           )}
         </div>

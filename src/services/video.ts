@@ -1,4 +1,4 @@
-﻿// src/services/video.ts
+// src/services/video.ts
 
 import { traceApiRequest } from './opsTrace';
 import { apiRequest, getCookie } from './apiClient';
@@ -113,46 +113,64 @@ const asRecord = (value: unknown): Record<string, unknown> | null => {
   return value as Record<string, unknown>;
 };
 
-const toPositiveInt = (value: unknown, fallback: number) => {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return fallback;
-  const i = Math.floor(n);
-  return i > 0 ? i : fallback;
+export type TextSeparationBlockPayload = {
+  id: string;
+  text: string;
+  bbox: [number, number, number, number];
+  font_size?: number;
+  color?: [number, number, number];
+  bold?: boolean;
+  outline?: boolean | { color?: [number, number, number]; width?: number };
+  shadow?: boolean | { color?: [number, number, number]; blur?: number; offsetX?: number; offsetY?: number };
 };
 
-const toNonNegativeInt = (value: unknown, fallback: number) => {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return fallback;
-  const i = Math.floor(n);
-  return i >= 0 ? i : fallback;
+export type TextSeparationResponse = {
+  sample_id?: string;
+  history_record_id?: string;
+  original_image_url: string;
+  clean_image_url: string;
+  text_blocks: TextSeparationBlockPayload[];
 };
 
-const parseHistoryListResponse = (data: unknown): HistoryListResponse => {
-  if (Array.isArray(data)) {
-    const count = data.length;
-    return {
-      items: data as HistoryProject[],
-      pagination: {
-        page: 1,
-        page_size: count || 1,
-        total: count,
-        total_pages: 1,
-      },
-    };
+export type ScriptEstimateParams = {
+  script_count: number;
+  duration: number;
+  has_reference_assets: boolean;
+};
+
+type ScriptStreamEnvelope = {
+  code?: number;
+  message?: string;
+  data?: Record<string, unknown>;
+} & Record<string, unknown>;
+
+type ScriptStreamHandlers = {
+  onStart?: (payload: ScriptStreamEnvelope) => void;
+  onVariant?: (payload: ScriptStreamEnvelope) => void;
+  onDone?: (payload: ScriptStreamEnvelope) => void;
+  onErrorEvent?: (payload: ScriptStreamEnvelope) => void;
+  onCancelled?: (payload: ScriptStreamEnvelope) => void;
+};
+
+const parseSseChunk = (chunk: string): { event: string; data: string } | null => {
+  const lines = chunk
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
+
+  if (lines.length === 0) return null;
+
+  let event = 'message';
+  const dataLines: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith('event:')) {
+      event = line.slice(6).trim() || 'message';
+      continue;
+    }
+    if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).trim());
+    }
   }
-
-  const rec = asRecord(data);
-  const itemsRaw = rec ? rec.items : undefined;
-  const items = Array.isArray(itemsRaw) ? (itemsRaw as HistoryProject[]) : [];
-
-  const paginationRaw = rec ? asRecord(rec.pagination) : null;
-  const total = toNonNegativeInt(paginationRaw?.total ?? items.length, items.length);
-  const pageSize = toPositiveInt(paginationRaw?.page_size ?? items.length ?? 1, items.length || 1);
-  const totalPages = toPositiveInt(
-    paginationRaw?.total_pages ?? Math.max(1, Math.ceil(total / Math.max(1, pageSize))),
-    1,
-  );
-  const page = Math.min(toPositiveInt(paginationRaw?.page ?? 1, 1), totalPages);
 
   return {
     items,
@@ -165,79 +183,107 @@ const parseHistoryListResponse = (data: unknown): HistoryListResponse => {
   };
 };
 
-async function readApiErrorDetail(response: Response, fallbackMessage: string): Promise<ApiError> {
-  let message = fallbackMessage;
-  let errorCode: string | undefined;
-  let trackingId: string | undefined;
-  let data: Record<string, unknown> | null = null;
-  let actionRequired: ApiActionRequired = null;
-
-  const contentType = response.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) {
-    try {
-      const json: unknown = await response.json();
-      const rec = asRecord(json);
-      if (rec) {
-        const msg = rec.message ?? rec.error;
-        if (typeof msg === 'string' && msg.trim()) message = msg.trim();
-          if (typeof rec.error_code === 'string' && rec.error_code.trim()) errorCode = rec.error_code.trim();
-          if (!errorCode && typeof rec.error_type === 'string' && rec.error_type.trim()) errorCode = rec.error_type.trim();
-        if (typeof rec.tracking_id === 'string' && rec.tracking_id.trim()) trackingId = rec.tracking_id.trim();
-        data = asRecord(rec.data);
-        const action = data ? asRecord(data.action_required) : null;
-        actionRequired = action as ApiActionRequired;
-      }
-    } catch {
-      // fall back to plain text below
-    }
+const findSseBoundary = (buffer: string): { index: number; separatorLength: number } | null => {
+  const crlfIndex = buffer.indexOf('\r\n\r\n');
+  const lfIndex = buffer.indexOf('\n\n');
+  if (crlfIndex >= 0 && (lfIndex < 0 || crlfIndex < lfIndex)) {
+    return { index: crlfIndex, separatorLength: 4 };
   }
-
-  if (message === fallbackMessage) {
-    try {
-      const text = await response.text();
-      const compact = text.replace(/\s+/g, ' ').trim();
-      if (compact) message = compact.slice(0, 300);
-    } catch {
-      // ignore
-    }
+  if (lfIndex >= 0) {
+    return { index: lfIndex, separatorLength: 2 };
   }
-
-  return new ApiError(message, {
-    status: response.status,
-    errorCode,
-    trackingId,
-    data,
-    actionRequired,
-  });
-}
-
-async function readApiError(response: Response): Promise<string> {
-  const contentType = response.headers.get('content-type') || '';
-
-  if (contentType.includes('application/json')) {
-    try {
-      const json: unknown = await response.json();
-      const rec = asRecord(json);
-      const msg = rec ? (rec.message ?? rec.error) : null;
-      if (typeof msg === 'string' && msg.trim()) return msg;
-      return 'Request failed';
-    } catch (err) {
-      void err;
-    }
-  }
-
-  try {
-    const text = await response.text();
-    const compact = text.replace(/\s+/g, ' ').trim();
-    return compact ? compact.slice(0, 200) : 'Request failed';
-  } catch (err) {
-    void err;
-  }
-
-  return response.statusText || 'Request failed';
-}
+  return null;
+};
 
 export const videoApi = {
+  estimateVideoTime: async (params: { model: string; duration: number; sound?: string; aspect_ratio?: string; resolution?: string }) => {
+    const query = new URLSearchParams();
+    query.set('model', String(params.model || ''));
+    query.set('duration', String(params.duration ?? ''));
+    if (params.sound) query.set('sound', String(params.sound));
+    if (params.aspect_ratio) query.set('aspect_ratio', String(params.aspect_ratio));
+    if (params.resolution) query.set('resolution', String(params.resolution));
+
+    const response = await fetch(`/api/tasks/estimate/?${query.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Request failed');
+    }
+
+    return await response.json();
+  },
+
+  resetVideoTimeEstimates: async () => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch('/api/tasks/estimate/reset/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ confirm: true }),
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Request failed');
+    }
+
+    return await response.json();
+  },
+
+  estimateScriptTime: async (params: ScriptEstimateParams) => {
+    const query = new URLSearchParams();
+    query.set('script_count', String(params.script_count ?? ''));
+    query.set('duration', String(params.duration ?? ''));
+    query.set('has_reference_assets', params.has_reference_assets ? 'true' : 'false');
+
+    const response = await fetch(`/api/tasks/script-estimate/?${query.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Request failed');
+    }
+
+    return await response.json();
+  },
+
+  reportScriptTime: async (payload: ScriptEstimateParams & { elapsed_seconds: number }) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch('/api/tasks/script-estimate/report/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Request failed');
+    }
+
+    return await response.json();
+  },
+
   // Debug: fetch backend prompt templates (for prompt tuning UI)
   getPromptTemplates: async (params?: { category?: string }) => {
     const category = typeof params?.category === 'string' ? params.category.trim() : '';
@@ -296,11 +342,196 @@ export const videoApi = {
     });
 
     if (!response.ok) {
-      const fallback = `首尾帧图生成失败: ${response.status} ${response.statusText || ''}`.trim();
+      const fallback = `首帧生成失败: ${response.status} ${response.statusText || ''}`.trim();
       throw await parseApiError(response, fallback);
     }
 
     return await response.json();
+  },
+
+  generateProductGallery: async (payload: {
+    client_history_id?: string;
+    prompt?: string;
+    image_paths: string[];
+    aspect_ratio?: string;
+    count?: number;
+    resolution?: '1k' | '2k' | '4k';
+    product_name?: string;
+    product_category?: string;
+    core_selling_points?: string[];
+    target_scene?: string;
+    scene_config?: {
+      sceneTheme?: string;
+      sceneDescription?: string;
+      sceneProps?: string;
+      lighting?: string;
+      mood?: string;
+    };
+    style?: string;
+    target_language?: string;
+    hot_style?: { name: string; tones: string[]; description: string };
+    type_selections?: Record<string, { enabled?: boolean; count?: number }>;
+    output_mode?: 'custom' | 'ai';
+    output_items?: Array<{
+      id?: string;
+      enabled?: boolean;
+      output_type?: string;
+      aspect_ratio?: string;
+      resolution?: '1k' | '2k' | '4k';
+      count?: number;
+      title?: string;
+      layout?: string;
+      copy?: {
+        headline?: string;
+        subheadline?: string;
+        body?: string;
+        bulletPoints?: string[];
+      };
+      notes?: string;
+      prompt?: string;
+    }>;
+    model_image_path?: string;
+    model_info?: string;
+  }) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/generate_product_gallery`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const fallback = `商品套图生成失败: ${response.status} ${response.statusText || ''}`.trim();
+      throw await parseApiError(response, fallback);
+    }
+
+    return await response.json();
+  },
+
+  generateProductGalleryPlan: async (payload: {
+    prompt?: string;
+    image_paths?: string[];
+    product_name?: string;
+    product_category?: string;
+    core_selling_points?: string[];
+    target_scene?: string;
+    scene_config?: {
+      sceneTheme?: string;
+      sceneDescription?: string;
+      sceneProps?: string;
+      lighting?: string;
+      mood?: string;
+    };
+    style?: string;
+    target_language?: string;
+    model_image_path?: string;
+    model_info?: string;
+  }) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/generate_product_gallery_plan`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const fallback = `商品套图方案生成失败: ${response.status} ${response.statusText || ''}`.trim();
+      throw await parseApiError(response, fallback);
+    }
+
+    return await response.json();
+  },
+
+  getProductGalleryResult: async (requestId: string) => {
+    const id = String(requestId || '').trim();
+    if (!id) throw new Error('requestId is required');
+
+    const response = await fetch(`${API_BASE_URL}/generate_product_gallery_result?request_id=${encodeURIComponent(id)}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const fallback = `查询商品套图状态失败: ${response.status} ${response.statusText || ''}`.trim();
+      throw await parseApiError(response, fallback);
+    }
+
+    return await response.json();
+  },
+
+  hotStyleAnalysis: async (payload: {
+    image_paths: string[];
+    product_name?: string;
+    product_category?: string;
+    selling_points: string[];
+    output_language?: 'zh' | 'en';
+  }) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/hot_style_analysis`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const fallback = `Hot style analysis failed: ${response.status} ${response.statusText || ''}`.trim();
+      throw await parseApiError(response, fallback);
+    }
+
+    return await response.json();
+  },
+
+  textSeparation: async (payload?: { sample_id?: string; sample_title?: string; image_path?: string }): Promise<TextSeparationResponse> => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/text-separation`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload || {}),
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Text separation request failed');
+    }
+
+    const json = (await response.json()) as ApiEnvelope<TextSeparationResponse>;
+    if (json?.code !== undefined && json.code !== 0) {
+      throw new Error((json?.message || 'Text separation request failed') as string);
+    }
+
+    const data = json?.data;
+    if (!data?.clean_image_url || !data?.original_image_url || !Array.isArray(data?.text_blocks)) {
+      throw new Error('Invalid text separation response');
+    }
+
+    return data;
   },
 
   // 0. Create Project (non-template)
@@ -552,7 +783,17 @@ export const videoApi = {
     return await response.json();
   },
 
-  recognizeProductInfo: async (payload: { image_paths: string[]; output_language?: string; mode?: 'product' | 'subject' }) => {
+  recognizeProductInfo: async (payload: {
+    image_paths: string[];
+    output_language?: string;
+    mode?: 'product' | 'subject';
+    existing_info?: {
+      product_name?: string;
+      product_category?: string;
+      core_selling_points?: string;
+      target_audience?: string;
+    };
+  }) => {
     const csrftoken = getCookie('csrftoken');
 
     const response = await fetch(`${API_BASE_URL}/recognize-product/`, {
@@ -610,7 +851,7 @@ export const videoApi = {
   }) => {
     const csrftoken = getCookie('csrftoken');
 
-    const response = await fetch(`${API_BASE_URL}/generate-image/`, {
+    const response = await fetch(`${API_BASE_URL}/generate_optimized_image`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -623,6 +864,37 @@ export const videoApi = {
 
     if (!response.ok) {
       const fallback = `Image optimization failed: ${response.status} ${response.statusText || ''}`.trim();
+      throw await parseApiError(response, fallback);
+    }
+
+    return await response.json();
+  },
+
+  generateOptimizedPromptScript: async (payload: {
+    raw_prompt?: string;
+    reference_name?: string;
+    product_name?: string;
+    product_category?: string;
+    core_selling_points?: string;
+    keyword_tags?: string[];
+    output_language?: string;
+    sound?: 'on' | 'off';
+  }) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/generate_prompt_script`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload || {}),
+    });
+
+    if (!response.ok) {
+      const fallback = `Prompt script generation failed: ${response.status} ${response.statusText || ''}`.trim();
       throw await parseApiError(response, fallback);
     }
 
@@ -738,6 +1010,49 @@ export const videoApi = {
         }
         return parseHistoryListResponse(json?.data);
       }
+    });
+  },
+
+  // 4.1 History detail (lazy-load heavy fields: request_payload, model_request)
+  getHistoryDetail: async (projectId: string): Promise<{
+    id: string;
+    request_payload: Record<string, unknown> | null;
+    model_request: Record<string, unknown> | null;
+  }> => {
+    return traceApiRequest({
+      metricName: 'history_detail',
+      apiPath: `/api/projects/${projectId}/history-detail/`,
+      method: 'GET',
+      fn: async () => {
+        const response = await fetch(`${API_BASE_URL}/${projectId}/history-detail/`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          throw await parseApiError(response, 'Failed to fetch project detail');
+        }
+
+        const json = (await response.json()) as ApiEnvelope<{
+          id: string;
+          request_payload: Record<string, unknown> | null;
+          model_request: Record<string, unknown> | null;
+        }>;
+
+        if (json?.code !== undefined && json.code !== 0) {
+          throw new Error((json?.message || 'Failed to fetch project detail') as string);
+        }
+
+        return {
+          id: String(json?.data?.id ?? projectId),
+          request_payload: json?.data?.request_payload ?? null,
+          model_request: json?.data?.model_request ?? null,
+        };
+      },
     });
   },
 

@@ -1,6 +1,8 @@
 import { getCookie } from './apiClient';
+import { parseApiError } from './errors';
 import type {
   FirstFrameParams,
+  FirstFrameModel,
   GenerationStatusResponse,
   ProductImageResult,
   SmartRepairParams,
@@ -22,24 +24,21 @@ function toDisplayUrl(pathOrUrl: string): string {
   return normalized;
 }
 
-async function parseError(response: Response, fallback: string): Promise<Error> {
-  try {
-    const data = await response.json();
-    const message =
-      String(data?.message || '').trim() ||
-      String(data?.error || '').trim() ||
-      String(data?.detail || '').trim() ||
-      fallback;
-    return new Error(message);
-  } catch {
-    return new Error(fallback);
-  }
-}
-
 function styleToModel(style?: FirstFrameParams['style']): string {
   if (style === 'studio') return 'gpt-image-1.5';
-  if (style === 'clean') return 'flux-2-pro';
-  return 'flux-2-max';
+  if (style === 'clean') return 'flux-2-flex';
+  return 'flux-2-pro';
+}
+
+const FIRST_FRAME_MODELS: FirstFrameModel[] = ['flux-2-pro', 'flux-2-flex', 'gpt-image-1.5'];
+
+function resolveFirstFrameModel(params: FirstFrameParams): FirstFrameModel {
+  const selected = String(params.model || '').trim() as FirstFrameModel;
+  if (FIRST_FRAME_MODELS.includes(selected)) {
+    return selected;
+  }
+
+  return styleToModel(params.style) as FirstFrameModel;
 }
 
 function smartRepairStrengthToHint(strength?: SmartRepairParams['strength']): string {
@@ -63,7 +62,7 @@ async function uploadTempImage(file: File): Promise<string> {
   });
 
   if (!response.ok) {
-    throw await parseError(response, 'Failed to upload reference image');
+    throw await parseApiError(response, 'Failed to upload reference image');
   }
 
   const data = await response.json();
@@ -84,16 +83,36 @@ async function generateFirstFrameOnce(options: {
   aspectRatio?: string;
   projectId?: string;
   model: string;
+  category?: string;
+  personType?: string;
+  holdingStyle?: string;
+  textWhitespace?: string;
+  workspaceId?: string;
+  workspaceOrder?: number;
+  clientHistoryId?: string;
 }): Promise<{ imagePath: string; projectId?: string }> {
   const payload: Record<string, unknown> = {
     reference_image_path: options.referenceImagePath,
     aspect_ratio: options.aspectRatio || '9:16',
     frame_type: 'first',
     model: options.model,
+    category: options.category,
+    person_type: options.personType,
+    holding_style: options.holdingStyle,
+    text_whitespace: options.textWhitespace,
   };
 
   if (options.projectId) {
     payload.project_id = options.projectId;
+  }
+  if (options.workspaceId) {
+    payload.workspace_id = options.workspaceId;
+  }
+  if (Number.isFinite(options.workspaceOrder)) {
+    payload.workspace_order = options.workspaceOrder;
+  }
+  if (options.clientHistoryId) {
+    payload.client_history_id = options.clientHistoryId;
   }
 
   const response = await fetch(`${PROJECTS_API_BASE}/generate_first_frame`, {
@@ -108,7 +127,7 @@ async function generateFirstFrameOnce(options: {
   });
 
   if (!response.ok) {
-    throw await parseError(response, 'Failed to generate first-frame image');
+    throw await parseApiError(response, 'Failed to generate first-frame image');
   }
 
   const data = await response.json();
@@ -126,15 +145,20 @@ export const productImagesApi = {
   async generateFirstFrame(
     images: File[],
     params: FirstFrameParams,
-    projectId?: string
+    projectId?: string,
+    workspaceMeta?: { workspaceId?: string; workspaceOrder?: number }
   ): Promise<GenerationStatusResponse> {
     if (!images || images.length === 0) {
       throw new Error('Please upload at least one product image');
     }
 
     const outputCount = params.outputCount || 1;
-    const model = styleToModel(params.style);
+    const model = resolveFirstFrameModel(params);
     const referenceImagePath = await uploadTempImage(images[0]);
+    const clientHistoryId =
+      (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `first-frame-batch-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
 
     let resolvedProjectId = projectId;
     const outputImages: ProductImageResult[] = [];
@@ -145,6 +169,13 @@ export const productImagesApi = {
         aspectRatio: params.aspectRatio,
         projectId: resolvedProjectId,
         model,
+        category: params.category,
+        personType: params.personType,
+        holdingStyle: params.holdingStyle,
+        textWhitespace: params.textWhitespace,
+        workspaceId: workspaceMeta?.workspaceId,
+        workspaceOrder: workspaceMeta?.workspaceOrder,
+        clientHistoryId,
       });
 
       if (!resolvedProjectId && generated.projectId) {
@@ -217,7 +248,7 @@ export const productImagesApi = {
     });
 
     if (!response.ok) {
-      throw await parseError(response, 'Failed to generate smart-repair image');
+      throw await parseApiError(response, 'Failed to generate smart-repair image');
     }
 
     const data = await response.json();
@@ -252,13 +283,27 @@ export const productImagesApi = {
   },
 
   async downloadImageByUrl(imageUrl: string): Promise<Blob> {
-    const response = await fetch(toDisplayUrl(imageUrl), {
+    const displayUrl = toDisplayUrl(imageUrl);
+
+    let shouldProxy = false;
+    try {
+      const resolved = new URL(displayUrl, window.location.href);
+      shouldProxy = resolved.origin !== window.location.origin;
+    } catch {
+      shouldProxy = false;
+    }
+
+    const fetchUrl = shouldProxy
+      ? `${PROJECTS_API_BASE}/proxy_download?url=${encodeURIComponent(displayUrl)}`
+      : displayUrl;
+
+    const response = await fetch(fetchUrl, {
       method: 'GET',
       credentials: 'include',
     });
 
     if (!response.ok) {
-      throw await parseError(response, 'Failed to download image');
+      throw await parseApiError(response, 'Failed to download image');
     }
 
     return response.blob();

@@ -8,6 +8,14 @@
   .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
 }
 
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+.animate-fade-in-up {
+  animation: fade-in-up 0.25s ease-out forwards;
+}
+
 body {
   /* Deep dark blue background with a subtle gradient mesh */
   background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #020617 60%);
@@ -68,15 +76,32 @@ body {
 }
 
 /* Custom Scrollbars */
-.custom-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.22) transparent; }
-.custom-scroll::-webkit-scrollbar { width: 4px; }
-.custom-scroll::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); }
-.custom-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
-.custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
-.theme-light .custom-scroll { scrollbar-color: rgba(71,85,105,0.55) rgba(15,23,42,0.06); }
-.theme-light .custom-scroll::-webkit-scrollbar-track { background: rgba(15,23,42,0.06); }
-.theme-light .custom-scroll::-webkit-scrollbar-thumb { background: rgba(71,85,105,0.55); }
-.theme-light .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(51,65,85,0.72); }
+.custom-scroll { scrollbar-width: thin; scrollbar-color: transparent transparent; transition: scrollbar-color 0.3s ease; }
+.custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; opacity: 0; transition: opacity 0.3s ease; }
+.custom-scroll::-webkit-scrollbar-track { background: transparent; }
+.custom-scroll::-webkit-scrollbar-thumb { background-color: transparent; border-radius: 9999px; border: 2px solid transparent; background-clip: content-box; transition: background-color 0.3s ease; }
+.custom-scroll::-webkit-scrollbar-thumb:hover { background-color: transparent; }
+.custom-scroll::-webkit-scrollbar-thumb:active { background-color: transparent; }
+.custom-scroll::-webkit-scrollbar-button { display: none; }
+.custom-scroll::-webkit-scrollbar-corner { display: none; }
+.theme-light .custom-scroll { scrollbar-color: transparent transparent; transition: scrollbar-color 0.3s ease; }
+.theme-light .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+.theme-light .custom-scroll::-webkit-scrollbar-thumb { background-color: transparent; transition: background-color 0.3s ease; }
+.theme-light .custom-scroll::-webkit-scrollbar-thumb:hover { background-color: transparent; }
+.theme-light .custom-scroll::-webkit-scrollbar-thumb:active { background-color: transparent; }
+.theme-light .custom-scroll::-webkit-scrollbar-button { display: none; }
+.theme-light .custom-scroll::-webkit-scrollbar-corner { display: none; }
+
+/* Show scrollbar on hover */
+.custom-scroll:hover { scrollbar-color: rgba(255,255,255,0.18) transparent; }
+.custom-scroll:hover::-webkit-scrollbar { opacity: 1; }
+.custom-scroll:hover::-webkit-scrollbar-thumb { background-color: rgba(255,255,255,0.18); }
+.custom-scroll:hover::-webkit-scrollbar-thumb:hover { background-color: rgba(255,255,255,0.28); }
+.custom-scroll:hover::-webkit-scrollbar-thumb:active { background-color: rgba(255,255,255,0.38); }
+.theme-light .custom-scroll:hover { scrollbar-color: rgba(71,85,105,0.45) transparent; }
+.theme-light .custom-scroll:hover::-webkit-scrollbar-thumb { background-color: rgba(71,85,105,0.55); }
+.theme-light .custom-scroll:hover::-webkit-scrollbar-thumb:hover { background-color: rgba(51,65,85,0.72); }
+.theme-light .custom-scroll:hover::-webkit-scrollbar-thumb:active { background-color: rgba(30,41,59,0.78); }
 
 /* Hide Scrollbar */
 .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -282,6 +307,36 @@ body {
   background-color: #ffffff !important;
   color: #0f172a !important;
 }
+.theme-light button.wb-asset-library-crumb {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+.theme-light button.wb-asset-library-crumb:hover {
+  background-color: rgba(15, 23, 42, 0.06) !important;
+}
+html.theme-light button.wb-upload-library-btn {
+  background-color: rgba(248, 250, 252, 0.98) !important;
+  border: 1px solid rgba(15, 23, 42, 0.18) !important;
+  color: #0f172a !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08) !important;
+}
+html.theme-light button.wb-upload-library-btn:hover {
+  border-color: rgba(234, 88, 12, 0.55) !important;
+  background-color: rgba(255, 237, 213, 0.65) !important;
+  color: #c2410c !important;
+  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.14) !important;
+}
+html.theme-light .wb-emerald-upload-status-wrap,
+html.theme-light .wb-seedance-replay-added-badge {
+  border-color: rgba(5, 150, 105, 0.4) !important;
+  background-color: rgba(16, 185, 129, 0.12) !important;
+}
+html.theme-light .wb-emerald-upload-status {
+  color: #047857 !important;
+}
+html.theme-light .wb-seedance-replay-added-badge {
+  color: #047857 !important;
+}
 /* Workbench project list item should stay transparent in light mode */
 .theme-light .project-menu-item-btn {
   background-color: transparent !important;
@@ -296,6 +351,18 @@ body {
 .theme-light button.subject-guide-confirm-btn:hover {
   background-color: #ea580c !important;
   color: #ffffff !important;
+}
+.theme-light button.text-separation-start-btn {
+  background-color: #ff852e !important;
+  color: #111111 !important;
+}
+.theme-light button.text-separation-start-btn:hover:not(:disabled) {
+  background-color: #ffab66 !important;
+  color: #111111 !important;
+}
+.theme-light button.text-separation-start-btn:disabled {
+  background-color: #ffb17a !important;
+  color: #111111 !important;
 }
 .theme-light .ff-ghost-btn,
 .theme-light .ff-ghost-btn:hover {
@@ -326,17 +393,17 @@ body {
 
 .theme-light button[class*="border-orange-500/40"][class*="bg-orange-500/10"],
 .theme-light button[class*="border-orange-500/60"][class*="bg-orange-500/10"] {
-  background-color: rgba(249, 115, 22, 0.22) !important;
-  color: #9a3412 !important;
-  box-shadow: 0 8px 20px rgba(249, 115, 22, 0.18) !important;
+  background-color: rgba(251, 146, 60, 0.28) !important;
+  color: #d9480f !important;
+  box-shadow: 0 8px 20px rgba(251, 146, 60, 0.18) !important;
 }
 
 .theme-light button[class*="border-orange-500/40"][class*="bg-orange-500/10"]:hover,
 .theme-light button[class*="border-orange-500/60"][class*="bg-orange-500/10"]:hover,
 .theme-light button[class*="border-orange-500/40"][class*="hover:bg-orange-500/20"]:hover,
 .theme-light button[class*="border-orange-500/60"][class*="hover:bg-orange-500/20"]:hover {
-  background-color: rgba(249, 115, 22, 0.28) !important;
-  color: #7c2d12 !important;
+  background-color: rgba(251, 146, 60, 0.36) !important;
+  color: #c2410c !important;
 }
 
 .theme-light button[class*="border-emerald-500/40"][class*="bg-emerald-500/10"] {

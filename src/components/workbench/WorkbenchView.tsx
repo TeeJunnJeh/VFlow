@@ -28,6 +28,7 @@ import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { type Template } from '../../services/templates';
 import { AppDialog } from '../common/AppDialog';
+import { AiOverwriteDialog, type AiOverwriteField } from './AiOverwriteDialog';
 import { ErrorModal } from './workflow/ErrorModal';
 import type { ErrorModalProps } from './workflow/ErrorModal';
 import { buildErrorModalData, type ErrorCategory, type ErrorI18n } from '../../utils/errorModalHelper';
@@ -277,6 +278,7 @@ type QueuedAsset = {
   uploadedPath?: string | null;
   hasSubjectOtherViews?: boolean;
   frameRole?: '首帧' | '尾帧' | null;
+  seedanceAssetId?: string | null;
 };
 
 type QueuedScript = {
@@ -1007,6 +1009,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const scriptGenerationEstimateKeyRef = useRef<string | null>(null);
   const scriptGenerationFinishingRef = useRef(false);
   const scriptGenerationAbortRef = useRef<AbortController | null>(null);
+  const scriptGenerationLockRef = useRef(false);
   const activeScriptGenerationSeqRef = useRef(0);
   const scriptGenerationProjectIdRef = useRef<string | null>(null);
   const currentScriptQueueTaskIdRef = useRef<string | null>(null);
@@ -1151,6 +1154,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [hasAiRecognized, setHasAiRecognized] = useState(false);
   const [recognizedProductSourceSignature, setRecognizedProductSourceSignature] = useState('');
   const [needsAiReRecognize, setNeedsAiReRecognize] = useState(false);
+  const [aiOverwriteFields, setAiOverwriteFields] = useState<AiOverwriteField[]>([]);
+  const [isAiOverwriteOpen, setIsAiOverwriteOpen] = useState(false);
+  const aiOverwriteResolveRef = useRef<((selected: Set<string> | null) => void) | null>(null);
   const [referenceScriptProductSignature, setReferenceScriptProductSignature] = useState('');
   useEffect(() => {
     let active = true;
@@ -3140,6 +3146,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, []);
 
   const isKlingOmniMode = selectedModel === 'kling';
+  const isSeedanceMultiAssetMode = selectedModel === 'seedance2.0';
 
   const hasSubjectOtherViews = useCallback((asset: LibraryAsset | QueuedAsset | null | undefined) => {
     if (!asset) return false;
@@ -3210,6 +3217,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       mediaKind,
       uploadedPath: assetUrl,
       hasSubjectOtherViews: hasSubjectOtherViews(asset),
+      seedanceAssetId: materialType === 'model' && asset.meta_data?.seedance_asset_id
+        ? String(asset.meta_data.seedance_asset_id)
+        : null,
     };
   }, [hasSubjectOtherViews, isKlingOmniMode, klingGenerateMode, selectedModel]);
 
@@ -3323,7 +3333,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         : queuedAsset;
       const next = isKlingOmniMode
         ? [...prev, adjustedQueuedAsset]
-        : prev.filter(item => item.materialType !== adjustedQueuedAsset.materialType).concat(adjustedQueuedAsset);
+        : isSeedanceMultiAssetMode
+          ? [...prev, adjustedQueuedAsset]
+          : prev.filter(item => item.materialType !== adjustedQueuedAsset.materialType).concat(adjustedQueuedAsset);
       return isKlingOmniMode ? normalizeQueueSourcesForKlingMode(next, klingGenerateMode) : next;
     });
 
@@ -4819,23 +4831,36 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           return;
         }
 
-        const hasManualInput =
-            (productInfoTouched.name && productName.trim()) ||
-            (productInfoTouched.category && productCategory.trim()) ||
-            (productInfoTouched.sellingPoints && coreSellingPoints.trim()) ||
-            (productInfoTouched.audience && targetAudience.trim());
+        // Determine if user has manually edited any product info field
+        const hasUserEdited = Boolean(
+          (productInfoTouched.name && productName.trim()) ||
+          (productInfoTouched.category && productCategory.trim()) ||
+          (productInfoTouched.sellingPoints && coreSellingPoints.trim()) ||
+          (productInfoTouched.audience && targetAudience.trim())
+        );
 
-        if (hasManualInput) {
-          const ok = await openConfirm(t.wb_ai_overwrite_title, t.wb_ai_overwrite_message, {
-            okLabel: t.wb_ai_overwrite_confirm_ok,
-            cancelLabel: t.wb_ai_overwrite_confirm_cancel,
-          });
-          if (!ok) return;
-        }
+        // Always send existing content as context for the AI (whether user-typed or AI-filled)
+        const hasAnyContent = Boolean(
+          productName.trim() || productCategory.trim() || coreSellingPoints.trim() || targetAudience.trim()
+        );
+
+        // Build existing_info payload when fields have content
+        const existingInfo = hasAnyContent
+          ? {
+              ...(productName.trim() ? { product_name: productName.trim() } : {}),
+              ...(productCategory.trim() ? { product_category: productCategory.trim() } : {}),
+              ...(coreSellingPoints.trim() ? { core_selling_points: coreSellingPoints.trim() } : {}),
+              ...(targetAudience.trim() ? { target_audience: targetAudience.trim() } : {}),
+            }
+          : undefined;
 
         setIsAiRecognizing(true);
         try {
-          const resp = await videoApi.recognizeProductInfo({ image_paths: imagePaths, output_language: language });
+          const resp = await videoApi.recognizeProductInfo({
+            image_paths: imagePaths,
+            output_language: language,
+            ...(existingInfo ? { existing_info: existingInfo } : {}),
+          });
           const data = resp?.data || resp?.result || resp?.payload || resp;
 
           const nextName = String(data?.product_name || '').trim();
@@ -4845,10 +4870,47 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               : String(data?.core_selling_points || '').trim();
           const nextAudience = String(data?.target_audience || '').trim();
 
-          setProductName(nextName);
-          setProductCategory(nextCategory);
-          setCoreSellingPoints(nextSelling);
-          setTargetAudience(nextAudience);
+          // If user has manually edited fields, show per-field overwrite dialog
+          if (hasUserEdited) {
+            const fields: AiOverwriteField[] = [
+              { key: 'product_name', label: t.wb_field_product_name_label, currentValue: productName.trim(), newValue: nextName },
+              { key: 'product_category', label: t.wb_field_product_category_label, currentValue: productCategory.trim(), newValue: nextCategory },
+              { key: 'core_selling_points', label: t.wb_field_core_selling_points_label, currentValue: coreSellingPoints.trim(), newValue: nextSelling },
+              { key: 'target_audience', label: t.wb_field_target_audience_label, currentValue: targetAudience.trim(), newValue: nextAudience },
+            ];
+
+            // Only show fields that actually differ
+            const changedFields = fields.filter((f) => f.currentValue !== f.newValue);
+
+            if (changedFields.length === 0) {
+              openInfo(popupTitles.notice, t.wb_ai_overwrite_no_change);
+            } else {
+              // Open the overwrite dialog and wait for user selection
+              const selectedKeys = await new Promise<Set<string> | null>((resolve) => {
+                aiOverwriteResolveRef.current = resolve;
+                setAiOverwriteFields(fields);
+                setIsAiOverwriteOpen(true);
+              });
+
+              if (!selectedKeys) {
+                // User cancelled
+                return;
+              }
+
+              // Apply only selected fields
+              if (selectedKeys.has('product_name')) setProductName(nextName);
+              if (selectedKeys.has('product_category')) setProductCategory(nextCategory);
+              if (selectedKeys.has('core_selling_points')) setCoreSellingPoints(nextSelling);
+              if (selectedKeys.has('target_audience')) setTargetAudience(nextAudience);
+            }
+          } else {
+            // No existing content — apply all directly (original behavior)
+            setProductName(nextName);
+            setProductCategory(nextCategory);
+            setCoreSellingPoints(nextSelling);
+            setTargetAudience(nextAudience);
+          }
+
           setProductInfoTouched({ name: false, category: false, sellingPoints: false, audience: false });
 
           const recognizedSignature = buildProductRecognitionSourceSignature(getProductRecognitionSources());
@@ -4864,7 +4926,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       },
       [
         coreSellingPoints,
-        openConfirm,
         openInfo,
         productCategory,
         productInfoTouched,
@@ -5092,11 +5153,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     // 首帧图片：取队列中第一张图片（Kling 兼容）+ 收集所有图片路径（Seedance 多图参考）
     let resolvedImagePath: string | null = null;
     const allImagePaths: string[] = [];
+    const imageAssetsMeta: Array<{ path: string; material_type: string; seedance_asset_id?: string }> = [];
     for (const imgAsset of imageAssetsInQueue) {
       const p = await resolveQueueAssetPath(imgAsset);
       if (p) {
         allImagePaths.push(p);
         if (!resolvedImagePath) resolvedImagePath = p;
+        // Collect metadata for Seedance model-type assets (virtual human)
+        const metaEntry: { path: string; material_type: string; seedance_asset_id?: string } = {
+          path: p,
+          material_type: imgAsset.materialType || 'product',
+        };
+        if (imgAsset.materialType === 'model') {
+          const seedanceId = imgAsset.seedanceAssetId;
+          if (seedanceId) {
+            metaEntry.seedance_asset_id = seedanceId;
+          }
+        }
+        imageAssetsMeta.push(metaEntry);
       }
     }
 
@@ -5151,6 +5225,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       motion_asset_id: hasVisualAsset ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
       ...(resolvedImagePath ? { image_path: resolvedImagePath } : {}),
       ...(allImagePaths.length > 1 ? { image_paths: allImagePaths } : {}),
+      ...(imageAssetsMeta.length > 0 ? { image_assets_meta: imageAssetsMeta } : {}),
       ...(resolvedVideoPath ? { motion_video_path: resolvedVideoPath } : {}),
       ...(allVideoPaths.length > 1 ? { video_paths: allVideoPaths } : {}),
       ...(singleAudioPaths.length > 0 ? { audio_paths: singleAudioPaths } : {}),
@@ -7009,8 +7084,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       transitionEditing: normalizeScriptText(creativeCard?.transition_editing),
       callToAction: normalizeScriptText(creativeCard?.call_to_action),
     };
-    const fullScript = normalizeScriptText(scriptContent?.video_master_script) || buildFullScriptFallback(shots);
-    const creativeCardText = buildCreativeCardEditorText(normalizedCreativeCard) || fullScript;
+    const fullScriptBase = normalizeScriptText(scriptContent?.video_master_script) || buildFullScriptFallback(shots);
+    const materialUsageTextRaw = String(scriptContent?.material_usage_text || '').trim();
+    const fullScript = materialUsageTextRaw
+      ? `${fullScriptBase}\n\n${materialUsageTextRaw}`.trim()
+      : fullScriptBase;
+    const creativeCardText = String(scriptContent?.creative_card_text || '').trim()
+      || buildCreativeCardEditorText(normalizedCreativeCard)
+      || fullScript;
     console.log('[ScriptDebug] parseScriptPage', {
       idx,
       shotCount: shots.length,
@@ -7159,13 +7240,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, []);
 
   const handleGenerateScripts = async () => {
+    if (scriptGenerationLockRef.current) return;
+    scriptGenerationLockRef.current = true;
     if (!user?.id) {
+      scriptGenerationLockRef.current = false;
       openInfo(popupTitles.notice, t.wb_popup_not_logged_in);
       return;
     }
 
     const cooldownRemainingMs = getScriptGenerationCooldownRemainingMs(user.id);
     if (cooldownRemainingMs > 0) {
+      scriptGenerationLockRef.current = false;
       openInfo(popupTitles.warning, t.wb_popup_script_generation_too_frequent || '操作过于频繁，请稍后再试。');
       return;
     }
@@ -7207,6 +7292,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         focusDropdownButton(videoTypeFieldRef.current);
       }
 
+      scriptGenerationLockRef.current = false;
       return;
     }
 
@@ -7223,6 +7309,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               ? 'audio'
               : 'top';
       focusSeedanceReplayValidationTarget(focusTarget);
+      scriptGenerationLockRef.current = false;
       return;
     }
 
@@ -7230,7 +7317,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const estimateParams = {
       script_count: 1,
       duration: Math.max(1, genDuration || 10),
-      has_reference_assets: uploadDisplayAssets.some((asset) => asset.mediaKind === 'image'),
+      has_reference_assets: uploadDisplayAssets.some((asset) => asset.mediaKind === 'image' || asset.mediaKind === 'video'),
     };
     const estimateStorageKey = buildScriptEstimateStorageKey(estimateParams);
     let estimatedSeconds = 45;
@@ -7285,8 +7372,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     try {
       type ScriptReferenceAsset = {
-        type: 'model' | 'product' | 'scene';
+        type: 'model' | 'product' | 'scene' | 'motion';
         name: string;
+        media_type: 'image' | 'video';
+        transfer_kind: 'url' | 'path' | 'data_url';
+        media_uri: string;
         image_path: string;
       };
 
@@ -7308,42 +7398,42 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         }
         return resolvedPath;
       };
-      const imageReferenceSources = referenceSources.filter((asset) => asset.mediaKind === 'image');
-      const resolvedImagePaths = new Map<string, string>();
-      for (const asset of imageReferenceSources) {
+      const scriptReferenceSources = referenceSources.filter((asset) => asset.mediaKind === 'image' || asset.mediaKind === 'video');
+      const resolvedReferencePaths = new Map<string, string>();
+      for (const asset of scriptReferenceSources) {
         const resolvedPath = await resolveQueuedAssetPath(asset);
         if (resolvedPath) {
-          resolvedImagePaths.set(asset.id, resolvedPath);
+          resolvedReferencePaths.set(asset.id, resolvedPath);
         }
       }
       const normalizedImageAssets = selectedModel === 'kling'
-        ? normalizeQueueSourcesForKlingMode(imageReferenceSources, klingGenerateMode)
-        : imageReferenceSources;
-      const latestByType = new Map<'model' | 'product' | 'scene', QueuedAsset>();
-      for (const asset of normalizedImageAssets) {
-        if (asset.mediaKind !== 'image') continue;
-        if (asset.materialType !== 'model' && asset.materialType !== 'product' && asset.materialType !== 'scene') continue;
-        if (selectedModel === 'kling' && asset.source !== 'preference') continue;
-        latestByType.set(asset.materialType, asset);
-      }
+        ? normalizeQueueSourcesForKlingMode(scriptReferenceSources.filter((asset) => asset.mediaKind === 'image'), klingGenerateMode)
+        : scriptReferenceSources;
 
       const referenceAssets: ScriptReferenceAsset[] = [];
-      const orderedTypes: Array<'model' | 'product' | 'scene'> = ['model', 'product', 'scene'];
+      const orderedTypes: Array<'model' | 'product' | 'scene' | 'motion'> = ['model', 'product', 'scene', 'motion'];
       for (const type of orderedTypes) {
-        const asset = latestByType.get(type);
-        if (!asset) continue;
+        const sameTypeAssets = normalizedImageAssets.filter((asset) => asset.materialType === type);
+        for (const asset of sameTypeAssets) {
+          let resolvedPath = resolvedReferencePaths.get(asset.id) || null;
+          if (!resolvedPath) {
+            resolvedPath = await resolveQueuedAssetPath(asset);
+          }
+          if (!resolvedPath) continue;
 
-        let resolvedPath = resolvedImagePaths.get(asset.id) || null;
-        if (!resolvedPath) {
-          resolvedPath = await resolveQueuedAssetPath(asset);
+          const transferKind: 'url' | 'path' | 'data_url' = resolvedPath.startsWith('http://') || resolvedPath.startsWith('https://')
+            ? 'url'
+            : (resolvedPath.startsWith('data:') ? 'data_url' : 'path');
+
+          referenceAssets.push({
+            type,
+            name: asset.name || '',
+            media_type: asset.mediaKind === 'video' ? 'video' : 'image',
+            transfer_kind: transferKind,
+            media_uri: resolvedPath,
+            image_path: resolvedPath,
+          });
         }
-        if (!resolvedPath) continue;
-
-        referenceAssets.push({
-          type,
-          name: asset.name || '',
-          image_path: resolvedPath,
-        });
       }
       if (Object.keys(queuedPathUpdates).length > 0) {
         setAssetQueue(prev => prev.map(item => (
@@ -7353,7 +7443,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       let imagePath = selectedModel === 'kling'
         ? ''
-        : (referenceAssets.find((item) => item.type === 'product')?.image_path || referenceAssets[0]?.image_path || '');
+        : (referenceAssets.find((item) => item.type === 'product' && item.media_type === 'image')?.image_path || referenceAssets.find((item) => item.media_type === 'image')?.image_path || '');
 
       const promptText = buildScriptInputText();
       const klingContext = (() => {
@@ -7383,7 +7473,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         ? (() => {
             const primaryAsset = normalizedImageAssets.find((asset) => asset.source === (klingGenerateMode === 'subject' ? 'subject' : 'product')) || null;
             if (!primaryAsset) return null;
-            const primaryPath = resolvedImagePaths.get(primaryAsset.id) || '';
+            const primaryPath = resolvedReferencePaths.get(primaryAsset.id) || '';
             if (!primaryPath) return null;
             return {
               path: primaryPath,
@@ -7581,6 +7671,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         currentScriptQueueTaskIdRef.current = null;
       }
       scriptGenerationFinishingRef.current = false;
+      scriptGenerationLockRef.current = false;
     }
   };
 
@@ -10376,6 +10467,29 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <div className="whitespace-pre-line text-sm text-zinc-300">{confirmMessage}</div>
             </AppDialog>
         )}
+        <AiOverwriteDialog
+          isOpen={isAiOverwriteOpen}
+          fields={aiOverwriteFields}
+          title={t.wb_ai_overwrite_dialog_title}
+          applyLabel={t.wb_ai_overwrite_apply}
+          cancelLabel={t.wb_ai_overwrite_confirm_cancel}
+          currentLabel={t.wb_ai_overwrite_field_current}
+          newLabel={t.wb_ai_overwrite_field_new}
+          onConfirm={(selectedKeys) => {
+            setIsAiOverwriteOpen(false);
+            if (aiOverwriteResolveRef.current) {
+              aiOverwriteResolveRef.current(selectedKeys);
+              aiOverwriteResolveRef.current = null;
+            }
+          }}
+          onCancel={() => {
+            setIsAiOverwriteOpen(false);
+            if (aiOverwriteResolveRef.current) {
+              aiOverwriteResolveRef.current(null);
+              aiOverwriteResolveRef.current = null;
+            }
+          }}
+        />
         {isKlingSubjectGuideOpen && (
             <AppDialog
                 isOpen={isKlingSubjectGuideOpen}

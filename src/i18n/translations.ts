@@ -508,6 +508,11 @@ export const translations = {
     wb_ai_overwrite_message: "Use the new recognition result to overwrite the current content?",
     wb_ai_overwrite_confirm_ok: "Overwrite",
     wb_ai_overwrite_confirm_cancel: "Cancel",
+    wb_ai_overwrite_dialog_title: "AI Recognition Results",
+    wb_ai_overwrite_field_current: "Current",
+    wb_ai_overwrite_field_new: "AI Result",
+    wb_ai_overwrite_apply: "Apply Selected",
+    wb_ai_overwrite_no_change: "AI recognition returned the same results. No changes needed.",
 
 
     wb_ai_opt_open_btn: "AI Smart Optimize",
@@ -1917,6 +1922,11 @@ export const translations = {
     wb_ai_overwrite_message: "是否使用新的识别结果覆盖当前内容？",
     wb_ai_overwrite_confirm_ok: "覆盖当前内容",
     wb_ai_overwrite_confirm_cancel: "取消",
+    wb_ai_overwrite_dialog_title: "AI 识别结果确认",
+    wb_ai_overwrite_field_current: "当前内容",
+    wb_ai_overwrite_field_new: "AI 识别结果",
+    wb_ai_overwrite_apply: "应用选中项",
+    wb_ai_overwrite_no_change: "AI 识别结果与当前内容一致，无需更改。",
 
 
     wb_ai_opt_open_btn: "AI智能优化",
@@ -3066,6 +3076,11 @@ export const translations = {
     wb_ai_overwrite_message: "Guna hasil pengecaman baharu untuk menggantikan kandungan semasa?",
     wb_ai_overwrite_confirm_ok: "Ganti",
     wb_ai_overwrite_confirm_cancel: "Batal",
+    wb_ai_overwrite_dialog_title: "Keputusan Pengecaman AI",
+    wb_ai_overwrite_field_current: "Semasa",
+    wb_ai_overwrite_field_new: "Hasil AI",
+    wb_ai_overwrite_apply: "Gunakan Terpilih",
+    wb_ai_overwrite_no_change: "Pengecaman AI memberikan hasil yang sama. Tiada perubahan diperlukan.",
 
     wb_ai_recognize_failed: "Pengecaman gagal. Sila cuba lagi atau isi maklumat produk secara manual.",
     wb_ai_recognize_dirty_hint: "Bahan telah berubah. Sila jalankan AI Recognize sekali lagi.",
@@ -4335,6 +4350,11 @@ export const translations = {
     wb_ai_overwrite_message: "Dùng kết quả nhận diện mới để ghi đè nội dung hiện tại?",
     wb_ai_overwrite_confirm_ok: "Ghi đè",
     wb_ai_overwrite_confirm_cancel: "Hủy",
+    wb_ai_overwrite_dialog_title: "Kết quả nhận diện AI",
+    wb_ai_overwrite_field_current: "Hiện tại",
+    wb_ai_overwrite_field_new: "Kết quả AI",
+    wb_ai_overwrite_apply: "Áp dụng mục đã chọn",
+    wb_ai_overwrite_no_change: "Nhận diện AI trả về kết quả giống nhau. Không cần thay đổi.",
 
     wb_ai_recognize_failed: "Nhận diện thất bại. Vui lòng thử lại hoặc điền thông tin sản phẩm thủ công.",
     wb_ai_recognize_dirty_hint: "Tư liệu đã thay đổi. Vui lòng chạy lại AI Recognize.",
@@ -5569,6 +5589,11 @@ export const translations = {
     wb_ai_overwrite_message: "새 인식 결과로 현재 내용을 덮어쓸까요?",
     wb_ai_overwrite_confirm_ok: "덮어쓰기",
     wb_ai_overwrite_confirm_cancel: "취소",
+    wb_ai_overwrite_dialog_title: "AI 인식 결과 확인",
+    wb_ai_overwrite_field_current: "현재 내용",
+    wb_ai_overwrite_field_new: "AI 결과",
+    wb_ai_overwrite_apply: "선택 항목 적용",
+    wb_ai_overwrite_no_change: "AI 인식 결과가 동일합니다. 변경이 필요하지 않습니다.",
 
     wb_ai_recognize_failed: "인식에 실패했습니다. 다시 시도하거나 상품 정보를 수동으로 입력해 주세요.",
     wb_ai_recognize_dirty_hint: "소재가 변경되었습니다. AI 인식을 다시 실행해 주세요.",

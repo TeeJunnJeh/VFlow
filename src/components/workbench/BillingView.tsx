@@ -168,11 +168,15 @@ export const BillingView: React.FC = () => {
     const billedUnitsLabel = billedUnits > 0
       ? `${billedUnits}${rateUnit === 'second' ? '秒' : rateUnit === 'image' ? '张' : ''}`
       : '';
+    const videoCountRaw = Number((meta as any).video_count || (meta as any).task_count || 0);
+    const videoCount = Number.isFinite(videoCountRaw) ? Math.max(0, Math.round(videoCountRaw)) : 0;
+    const videoCountLabel = mediaType === 'video' && videoCount > 0 ? `${videoCount}个视频` : '';
     const cost = Number((meta as any).cost || 0);
     const detailParts = [
       mode ? `模式: ${mode}` : '',
       model ? `模型: ${model}` : '',
       rateLabel ? `单价: ${rateLabel}` : '',
+      videoCountLabel ? `数量: ${videoCountLabel}` : '',
       billedUnitsLabel ? `计费单位: ${billedUnitsLabel}` : '',
       cost > 0 ? `扣费: ${cost} V点` : '',
     ].filter(Boolean);

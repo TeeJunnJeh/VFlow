@@ -8222,6 +8222,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     try {
       const payload = await buildSingleGeneratePayload();
+      payload.script_count = Math.max(1, Number(scriptVariantCount) || 1);
       await submitSingleGeneration(payload);
     } catch (err: any) {
       if (err?.message === USER_CANCELLED_ADAPT) {

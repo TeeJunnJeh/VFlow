@@ -1,8 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Edit3, User as UserIcon, Settings2, LogOut, Flame, Gem, Zap, KeyRound } from 'lucide-react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { Edit3, User as UserIcon, Settings2, LogOut, Flame, Gem, Zap, KeyRound, Gift, Copy, Check } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
-import { authApi } from '../../services/auth';
+import { authApi, type InviteSummary } from '../../services/auth';
 import { billingApi } from '../../services/billing';
 import { videoApi } from '../../services/video';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
@@ -94,6 +94,64 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
 
   const [isPreferencesExpanded, setIsPreferencesExpanded] = useState(false);
   const [prefsDraft, setPrefsDraft] = useState<WorkbenchPreferences>(() => buildPrefsDraft());
+
+  // Invite code block shown at the bottom of the preferences panel.
+  // Loaded lazily the first time the panel is expanded.
+  const [inviteSummary, setInviteSummary] = useState<InviteSummary | null>(null);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteError, setInviteError] = useState('');
+  const [inviteCodeCopied, setInviteCodeCopied] = useState(false);
+  const [inviteLinkCopied, setInviteLinkCopied] = useState(false);
+
+  useEffect(() => {
+    if (!isPreferencesExpanded) return;
+    let mounted = true;
+    setInviteLoading(true);
+    setInviteError('');
+    setInviteCodeCopied(false);
+    setInviteLinkCopied(false);
+    authApi
+      .getInviteSummary()
+      .then((data) => { if (mounted) setInviteSummary(data); })
+      .catch((err: any) => { if (mounted) setInviteError(err?.message || 'Failed to load invite summary'); })
+      .finally(() => { if (mounted) setInviteLoading(false); });
+    return () => { mounted = false; };
+  }, [isPreferencesExpanded]);
+
+  const inviteShareLink = useMemo(() => {
+    if (!inviteSummary) return '';
+    if (typeof window === 'undefined') return inviteSummary.invite_code;
+    try {
+      const url = new URL(window.location.origin);
+      url.searchParams.set('invite_code', inviteSummary.invite_code);
+      return url.toString();
+    } catch {
+      return `${window.location.origin}/?invite_code=${encodeURIComponent(inviteSummary.invite_code)}`;
+    }
+  }, [inviteSummary]);
+
+  const copyInvite = async (value: string, target: 'code' | 'link') => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try { document.execCommand('copy'); } catch {}
+      document.body.removeChild(textarea);
+    }
+    if (target === 'code') {
+      setInviteCodeCopied(true);
+      setTimeout(() => setInviteCodeCopied(false), 1800);
+    } else {
+      setInviteLinkCopied(true);
+      setTimeout(() => setInviteLinkCopied(false), 1800);
+    }
+  };
 
   const togglePreferences = () => {
     if (!isPreferencesExpanded) {
@@ -794,6 +852,72 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                              {isResettingVideoEstimate ? (t.profile_reset_video_estimate_submitting || '重置中...') : (t.profile_reset_video_estimate_btn || '重置视频耗时预估')}
                            </button>
                          </div>
+                       </div>
+                     </section>
+
+                     {/* 邀请码 */}
+                     <section className="space-y-4">
+                       <h3 className="text-sm font-bold text-zinc-200 flex items-center gap-2 uppercase tracking-wider">
+                         <Gift className="w-4 h-4 text-orange-500" /> {t.profile_pref_invite_section_title || '邀请码'}
+                       </h3>
+                       <div className="bg-white/2 border border-white/5 rounded-2xl p-6 space-y-4">
+                         {inviteLoading ? (
+                           <div className="py-4 text-center text-xs text-zinc-500">{t.profile_pref_invite_loading || 'Loading...'}</div>
+                         ) : inviteError ? (
+                           <div className="py-4 text-center text-xs text-red-400">{inviteError}</div>
+                         ) : inviteSummary ? (
+                           <>
+                             <div className="flex items-center gap-3 rounded-xl border border-violet-500/30 bg-violet-500/10 p-3">
+                               <div className="w-10 h-10 rounded-lg bg-violet-500/25 flex items-center justify-center shrink-0">
+                                 <Gift className="w-5 h-5 text-violet-200" />
+                               </div>
+                               <div className="text-xs text-zinc-200 leading-relaxed">
+                                 {t.invite_reward_progress
+                                   .replace('{invited}', String(inviteSummary.invited_count ?? 0))
+                                   .replace('{cap}', String(inviteSummary.cap ?? 10))
+                                   .replace('{earned}', String(inviteSummary.total_reward_earned ?? 0))}
+                               </div>
+                             </div>
+
+                             <div className="space-y-1.5">
+                               <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
+                                 {t.invite_reward_code_label}
+                               </div>
+                               <div className="flex items-stretch rounded-lg border border-white/10 bg-zinc-950 overflow-hidden">
+                                 <div className="flex-1 px-3 py-2.5 text-sm font-mono tracking-widest text-white truncate">
+                                   {inviteSummary.invite_code}
+                                 </div>
+                                 <button
+                                   type="button"
+                                   onClick={() => copyInvite(inviteSummary.invite_code, 'code')}
+                                   className="px-3 border-l border-white/10 text-xs font-bold text-violet-200 hover:bg-violet-500/15 transition flex items-center gap-1.5"
+                                 >
+                                   {inviteCodeCopied ? <Check size={14} /> : <Copy size={14} />}
+                                   {inviteCodeCopied ? t.invite_reward_copied : t.invite_reward_copy}
+                                 </button>
+                               </div>
+                             </div>
+
+                             <div className="space-y-1.5">
+                               <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
+                                 {t.invite_reward_link_label}
+                               </div>
+                               <div className="flex items-stretch rounded-lg border border-white/10 bg-zinc-950 overflow-hidden">
+                                 <div className="flex-1 px-3 py-2.5 text-xs text-zinc-300 truncate">{inviteShareLink}</div>
+                                 <button
+                                   type="button"
+                                   onClick={() => copyInvite(inviteShareLink, 'link')}
+                                   className="px-3 border-l border-white/10 text-xs font-bold text-violet-200 hover:bg-violet-500/15 transition flex items-center gap-1.5"
+                                 >
+                                   {inviteLinkCopied ? <Check size={14} /> : <Copy size={14} />}
+                                   {inviteLinkCopied ? t.invite_reward_copied : t.invite_reward_copy}
+                                 </button>
+                               </div>
+                             </div>
+                           </>
+                         ) : (
+                           <div className="py-4 text-center text-xs text-zinc-500">{t.profile_pref_invite_empty || 'No invite info available'}</div>
+                         )}
                        </div>
                      </section>
 

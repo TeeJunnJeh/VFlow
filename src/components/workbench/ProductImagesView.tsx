@@ -66,6 +66,8 @@ type GalleryHistorySettings = {
     resolution: string;
     count: number;
     title?: string;
+    modelCardId?: string;
+    sceneCardId?: string;
     layout?: string;
     copy?: {
       headline?: string;
@@ -74,7 +76,11 @@ type GalleryHistorySettings = {
       bulletPoints?: string[];
     };
     notes?: string;
+    prompt?: string;
+    cardConfig?: GalleryOutputCardConfig;
   }>;
+  modelCards?: GalleryModelCardSnapshot[];
+  sceneCards?: GallerySceneCard[];
   sceneConfig?: GallerySceneConfig;
   uploadedImagePaths?: string[];
   modelInfo?: string;
@@ -87,6 +93,43 @@ type GallerySceneConfig = {
   sceneProps: string;
   lighting: string;
   mood: string;
+};
+
+type GallerySceneCardSourceMode = 'preset' | 'custom';
+
+type GalleryOutputCardConfig = {
+  visualFocus?: string;
+  compositionHint?: string;
+  copyTone?: string;
+  negativeHints?: string;
+  sellingPointText?: string;
+  headlineFocus?: string;
+  heroStyle?: string;
+  campaignAngle?: string;
+  promotionTone?: string;
+  copyBlockDensity?: string;
+  backgroundStyle?: string;
+  displayAngle?: string;
+};
+
+type GalleryModelCardSnapshot = {
+  id: string;
+  name: string;
+  imagePath?: string;
+  modelInfo?: string;
+};
+
+type GalleryModelCard = GalleryModelCardSnapshot & {
+  imageFile?: File | null;
+  imagePreviewUrl?: string | null;
+};
+
+type GallerySceneCard = {
+  id: string;
+  name: string;
+  sourceMode: GallerySceneCardSourceMode;
+  presetId?: string;
+  sceneConfig: GallerySceneConfig;
 };
 
 type GalleryHistoryItem = {
@@ -110,6 +153,8 @@ type GalleryOutputItem = {
   resolution: '1k' | '2k' | '4k';
   count: number;
   title?: string;
+  modelCardId?: string;
+  sceneCardId?: string;
   layout?: string;
   copy?: {
     headline?: string;
@@ -119,6 +164,7 @@ type GalleryOutputItem = {
   };
   notes?: string;
   prompt?: string;
+  cardConfig?: GalleryOutputCardConfig;
 };
 
 const GALLERY_COPY_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: GalleryCopyLanguageLabelKey }> = [
@@ -175,6 +221,8 @@ const buildGalleryGenerationPlan = (selections: Record<GalleryOutputType, { enab
 };
 
 const createGalleryOutputItemId = () => `pg-out-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const createGalleryModelCardId = () => `pg-model-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const createGallerySceneCardId = () => `pg-scene-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 const createDefaultGalleryOutputItem = (): GalleryOutputItem => ({
   id: createGalleryOutputItemId(),
@@ -182,8 +230,145 @@ const createDefaultGalleryOutputItem = (): GalleryOutputItem => ({
   outputType: 'white_bg',
   aspectRatio: '1:1',
   resolution: '1k',
-  count: 4,
+  count: 1,
 });
+
+const createGalleryEmptySceneConfig = (): GallerySceneConfig => ({
+  sceneTheme: '',
+  sceneDescription: '',
+  sceneProps: '',
+  lighting: '',
+  mood: '',
+});
+
+const sanitizeGallerySceneConfig = (value: any): GallerySceneConfig => ({
+  sceneTheme: String(value?.sceneTheme || '').trim(),
+  sceneDescription: String(value?.sceneDescription || '').trim(),
+  sceneProps: String(value?.sceneProps || '').trim(),
+  lighting: String(value?.lighting || '').trim(),
+  mood: String(value?.mood || '').trim(),
+});
+
+const sanitizeGalleryOutputCardConfig = (value: any): GalleryOutputCardConfig | undefined => {
+  if (!value || typeof value !== 'object') return undefined;
+  const next: GalleryOutputCardConfig = {};
+  const keys: Array<keyof GalleryOutputCardConfig> = [
+    'visualFocus',
+    'compositionHint',
+    'copyTone',
+    'negativeHints',
+    'sellingPointText',
+    'headlineFocus',
+    'heroStyle',
+    'campaignAngle',
+    'promotionTone',
+    'copyBlockDensity',
+    'backgroundStyle',
+    'displayAngle',
+  ];
+  keys.forEach((key) => {
+    const raw = String((value as any)?.[key] || '').trim();
+    if (raw) next[key] = raw;
+  });
+  return Object.keys(next).length > 0 ? next : undefined;
+};
+
+const sanitizeGalleryCopy = (value: any) => {
+  if (!value || typeof value !== 'object') return undefined;
+  const headline = typeof value.headline === 'string' ? value.headline.trim() : '';
+  const subheadline = typeof value.subheadline === 'string' ? value.subheadline.trim() : '';
+  const body = typeof value.body === 'string' ? value.body.trim() : '';
+  const bulletPoints = Array.isArray(value.bulletPoints)
+    ? value.bulletPoints.map((item: any) => String(item || '').trim()).filter(Boolean).slice(0, 8)
+    : [];
+  if (!headline && !subheadline && !body && bulletPoints.length === 0) return undefined;
+  return {
+    headline: headline || undefined,
+    subheadline: subheadline || undefined,
+    body: body || undefined,
+    bulletPoints: bulletPoints.length > 0 ? bulletPoints : undefined,
+  };
+};
+
+const createGalleryModelCard = (name: string): GalleryModelCard => ({
+  id: createGalleryModelCardId(),
+  name,
+  imagePath: '',
+  modelInfo: '',
+  imageFile: null,
+  imagePreviewUrl: null,
+});
+
+const createGallerySceneCard = (name: string): GallerySceneCard => ({
+  id: createGallerySceneCardId(),
+  name,
+  sourceMode: 'custom',
+  presetId: '',
+  sceneConfig: createGalleryEmptySceneConfig(),
+});
+
+const toGalleryModelCardSnapshot = (card: GalleryModelCard): GalleryModelCardSnapshot => ({
+  id: card.id,
+  name: String(card.name || '').trim(),
+  imagePath: String(card.imagePath || '').trim() || undefined,
+  modelInfo: String(card.modelInfo || '').trim() || undefined,
+});
+
+const normalizeGalleryModelCard = (row: any): GalleryModelCard | null => {
+  if (!row || typeof row !== 'object') return null;
+  const id = String(row.id || createGalleryModelCardId()).trim();
+  const name = String(row.name || '').trim();
+  if (!id || !name) return null;
+  return {
+    id,
+    name,
+    imagePath: String(row.imagePath || row.image_path || '').trim(),
+    modelInfo: String(row.modelInfo || row.model_info || '').trim(),
+    imageFile: null,
+    imagePreviewUrl: String(row.imagePreviewUrl || '').trim() || null,
+  };
+};
+
+const normalizeGallerySceneCard = (row: any): GallerySceneCard | null => {
+  if (!row || typeof row !== 'object') return null;
+  const id = String(row.id || createGallerySceneCardId()).trim();
+  const name = String(row.name || '').trim();
+  if (!id || !name) return null;
+  const sourceMode = String(row.sourceMode || row.source_mode || '').trim() === 'preset' ? 'preset' : 'custom';
+  return {
+    id,
+    name,
+    sourceMode,
+    presetId: String(row.presetId || row.preset_id || '').trim(),
+    sceneConfig: sanitizeGallerySceneConfig(row.sceneConfig || row.scene_config || row),
+  };
+};
+
+const normalizeGalleryOutputItem = (row: any): GalleryOutputItem | null => {
+  const outputType = String(row?.outputType || row?.output_type || '').trim() as GalleryOutputType;
+  if (!GALLERY_OUTPUT_TYPE_ORDER.includes(outputType)) return null;
+  const supportsResourceBinding = outputType !== 'white_bg';
+  const aspectRatio = String(row?.aspectRatio || row?.aspect_ratio || '1:1').trim() || '1:1';
+  const resolutionRaw = String(row?.resolution || '1k').trim().toLowerCase();
+  const resolution = resolutionRaw === '2k' || resolutionRaw === '4k' ? resolutionRaw : '1k';
+  const count = Math.max(0, Math.round(Number(row?.count || 0)));
+  return {
+    id: String(row?.id || createGalleryOutputItemId()),
+    enabled: Boolean(row?.enabled ?? true),
+    outputType,
+    aspectRatio,
+    resolution: resolution as '1k' | '2k' | '4k',
+    count,
+    title: typeof row?.title === 'string' ? row.title : undefined,
+    modelCardId: supportsResourceBinding
+      ? (typeof row?.modelCardId === 'string' ? row.modelCardId : (typeof row?.model_card_id === 'string' ? row.model_card_id : undefined))
+      : undefined,
+    sceneCardId: supportsResourceBinding
+      ? (typeof row?.sceneCardId === 'string' ? row.sceneCardId : (typeof row?.scene_card_id === 'string' ? row.scene_card_id : undefined))
+      : undefined,
+    layout: typeof row?.layout === 'string' ? row.layout : undefined,
+  };
+};
 
 const GALLERY_SCENE_PRESETS: Array<GallerySceneConfig & { id: string; name: string }> = [
   {
@@ -526,12 +711,12 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [gallerySellingPoints, setGallerySellingPoints] = useState<string[]>([]);
   const [galleryTargetScene, setGalleryTargetScene] = useState<'detail' | 'xiaohongshu' | 'douyin' | 'poster' | 'ads'>('detail');
   const [galleryStyle, setGalleryStyle] = useState<'ecom_clean' | 'lifestyle' | 'premium' | 'festival'>('ecom_clean');
-  const [galleryScenePresetId, setGalleryScenePresetId] = useState<string>('');
-  const [gallerySceneTheme, setGallerySceneTheme] = useState<string>('');
-  const [gallerySceneDescription, setGallerySceneDescription] = useState<string>('');
-  const [gallerySceneProps, setGallerySceneProps] = useState<string>('');
-  const [gallerySceneLighting, setGallerySceneLighting] = useState<string>('');
-  const [gallerySceneMood, setGallerySceneMood] = useState<string>('');
+  const [galleryModelCards, setGalleryModelCards] = useState<GalleryModelCard[]>([]);
+  const [gallerySceneCards, setGallerySceneCards] = useState<GallerySceneCard[]>([]);
+  const [galleryResourceGuide, setGalleryResourceGuide] = useState<{ target: 'model' | 'scene' | null; token: number }>({
+    target: null,
+    token: 0,
+  });
   const [galleryOutputMode, setGalleryOutputMode] = useState<GalleryOutputMode>('custom');
   const [galleryOutputItems, setGalleryOutputItems] = useState<GalleryOutputItem[]>(() => [createDefaultGalleryOutputItem()]);
   const galleryPreviewAspectRatio = useMemo(() => {
@@ -603,24 +788,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [hotStyleError, setHotStyleError] = useState<string | null>(null);
   const [galleryLoadingTheme, setGalleryLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
   const [galleryLoadingBackgroundSrc, setGalleryLoadingBackgroundSrc] = useState<string>('');
-
-  const [isGalleryModelInfoOpen, setIsGalleryModelInfoOpen] = useState(false);
-  const [galleryModelInfo, setGalleryModelInfo] = useState('');
-  const [galleryModelImageFile, setGalleryModelImageFile] = useState<File | null>(null);
-  const [galleryModelImagePreviewUrl, setGalleryModelImagePreviewUrl] = useState<string | null>(null);
-  const [galleryModelImagePath, setGalleryModelImagePath] = useState<string>('');
-  const galleryModelFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [galleryOptimizingItemIds, setGalleryOptimizingItemIds] = useState<Record<string, boolean>>({});
   const [imageModelRates, setImageModelRates] = useState<Record<string, number>>({});
-
-  useEffect(() => {
-    if (!galleryModelImageFile) {
-      setGalleryModelImagePreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(galleryModelImageFile);
-    setGalleryModelImagePreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [galleryModelImageFile]);
+  const galleryModelPreviewUrlsRef = useRef<string[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -697,24 +867,103 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       message,
     });
 
-  const applyGalleryScenePreset = (presetId: string) => {
-    setGalleryScenePresetId(presetId);
-    const preset = GALLERY_SCENE_PRESETS.find((item) => item.id === presetId);
-    if (!preset) return;
-    setGallerySceneTheme(preset.sceneTheme);
-    setGallerySceneDescription(preset.sceneDescription);
-    setGallerySceneProps(preset.sceneProps);
-    setGallerySceneLighting(preset.lighting);
-    setGallerySceneMood(preset.mood);
+  const guideGalleryResourceSection = (target: 'model' | 'scene') => {
+    setGalleryResourceGuide({
+      target,
+      token: Date.now(),
+    });
   };
 
-  const clearGallerySceneConfig = () => {
-    setGalleryScenePresetId('');
-    setGallerySceneTheme('');
-    setGallerySceneDescription('');
-    setGallerySceneProps('');
-    setGallerySceneLighting('');
-    setGallerySceneMood('');
+  const buildNextGalleryResourceName = (prefix: string, items: Array<{ name?: string }>) => {
+    let next = items.length + 1;
+    const taken = new Set(items.map((item) => String(item.name || '').trim()).filter(Boolean));
+    while (taken.has(`${prefix}${next}`)) {
+      next += 1;
+    }
+    return `${prefix}${next}`;
+  };
+
+  const addGalleryModelCard = () => {
+    setGalleryModelCards((prev) => [...prev, createGalleryModelCard(buildNextGalleryResourceName('模特', prev))]);
+    guideGalleryResourceSection('model');
+  };
+
+  const addGallerySceneCard = () => {
+    setGallerySceneCards((prev) => [...prev, createGallerySceneCard(buildNextGalleryResourceName('场景', prev))]);
+    guideGalleryResourceSection('scene');
+  };
+
+  const revokeGalleryModelPreviewUrl = (value?: string | null) => {
+    const url = String(value || '').trim();
+    if (url.startsWith('blob:')) {
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  const applyGalleryScenePresetToCard = (presetId: string): GallerySceneConfig => {
+    const preset = GALLERY_SCENE_PRESETS.find((item) => item.id === presetId);
+    return preset ? sanitizeGallerySceneConfig(preset) : createGalleryEmptySceneConfig();
+  };
+
+  const removeGalleryModelCard = (cardId: string) => {
+    setGalleryModelCards((prev) => {
+      const target = prev.find((card) => card.id === cardId);
+      if (target) revokeGalleryModelPreviewUrl(target.imagePreviewUrl);
+      return prev.filter((card) => card.id !== cardId);
+    });
+  };
+
+  const clearGalleryModelCardImage = (cardId: string) => {
+    setGalleryModelCards((prev) =>
+      prev.map((card) => {
+        if (card.id !== cardId) return card;
+        revokeGalleryModelPreviewUrl(card.imagePreviewUrl);
+        return {
+          ...card,
+          imageFile: null,
+          imagePath: '',
+          imagePreviewUrl: null,
+        };
+      })
+    );
+  };
+
+  const removeGallerySceneCard = (cardId: string) => {
+    setGallerySceneCards((prev) => prev.filter((card) => card.id !== cardId));
+  };
+
+  const ensureGalleryModelCardAssetPaths = async (cardIds?: string[]) => {
+    const limitedIds = Array.isArray(cardIds) && cardIds.length > 0 ? new Set(cardIds) : null;
+    const nextCards: GalleryModelCard[] = [];
+    let changed = false;
+
+    for (const card of galleryModelCards) {
+      if (limitedIds && !limitedIds.has(card.id)) {
+        nextCards.push(card);
+        continue;
+      }
+      if (!card.imageFile) {
+        nextCards.push(card);
+        continue;
+      }
+      const uploadResp = await assetsApi.uploadTempAsset(card.imageFile);
+      const path = extractUploadedAssetPath(uploadResp);
+      if (!path) {
+        throw new Error(tr(`模特卡片「${card.name || card.id}」图片上传失败，请重试。`, `Failed to upload model image for "${card.name || card.id}".`));
+      }
+      nextCards.push({
+        ...card,
+        imagePath: String(path).trim(),
+        imageFile: null,
+      });
+      changed = true;
+    }
+
+    if (changed) {
+      setGalleryModelCards(nextCards);
+      return nextCards;
+    }
+    return galleryModelCards;
   };
 
   const galleryConfirmResolverRef = useRef<((value: GalleryConfirmAction) => void) | null>(null);
@@ -1670,6 +1919,18 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   }, [galleryImages]);
 
   useEffect(() => {
+    galleryModelPreviewUrlsRef.current = galleryModelCards
+      .map((card) => String(card.imagePreviewUrl || '').trim())
+      .filter((url) => url.startsWith('blob:'));
+  }, [galleryModelCards]);
+
+  useEffect(() => {
+    return () => {
+      galleryModelPreviewUrlsRef.current.forEach((url) => revokeGalleryModelPreviewUrl(url));
+    };
+  }, []);
+
+  useEffect(() => {
     let alive = true;
     const sources = [...galleryPreviewUrls, ...galleryRestoredImagePaths]
       .map((value) => String(value || '').trim())
@@ -1761,6 +2022,42 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       if (!raw) return;
       localStorage.removeItem(GALLERY_RESTORE_KEY);
       const s = JSON.parse(raw) as Record<string, any>;
+      const sceneSensitiveTypes = new Set<GalleryOutputType>(['scene', 'selling_point', 'cover', 'poster']);
+      const restoredModelCards = Array.isArray(s.modelCards)
+        ? s.modelCards.map((row: any) => normalizeGalleryModelCard(row)).filter(Boolean) as GalleryModelCard[]
+        : [];
+      const restoredSceneCards = Array.isArray(s.sceneCards)
+        ? s.sceneCards.map((row: any) => normalizeGallerySceneCard(row)).filter(Boolean) as GallerySceneCard[]
+        : [];
+      let fallbackModelCardId = restoredModelCards[0]?.id || '';
+      let fallbackSceneCardId = restoredSceneCards[0]?.id || '';
+
+      if (!fallbackModelCardId) {
+        const restoredModelInfo = String(s.modelInfo || '').trim();
+        const restoredModelImagePath = String(s.modelImagePath || '').trim();
+        if (restoredModelInfo || restoredModelImagePath) {
+          const legacyModelCard: GalleryModelCard = {
+            ...createGalleryModelCard('模特1'),
+            imagePath: restoredModelImagePath,
+            modelInfo: restoredModelInfo,
+          };
+          restoredModelCards.push(legacyModelCard);
+          fallbackModelCardId = legacyModelCard.id;
+        }
+      }
+
+      if (!fallbackSceneCardId && s.sceneConfig && typeof s.sceneConfig === 'object') {
+        const legacySceneConfig = sanitizeGallerySceneConfig(s.sceneConfig);
+        if (Object.values(legacySceneConfig).some((value) => Boolean(String(value || '').trim()))) {
+          const legacySceneCard: GallerySceneCard = {
+            ...createGallerySceneCard('场景1'),
+            sceneConfig: legacySceneConfig,
+          };
+          restoredSceneCards.push(legacySceneCard);
+          fallbackSceneCardId = legacySceneCard.id;
+        }
+      }
+
       if (s.targetScene) setGalleryTargetScene(s.targetScene);
       if (s.style) setGalleryStyle(s.style);
       if (s.copyLanguage) setGalleryCopyLanguage(String(s.copyLanguage));
@@ -1768,27 +2065,17 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       if (s.productCategory) setGalleryCategory(s.productCategory);
       if (Array.isArray(s.sellingPoints) && s.sellingPoints.length > 0) setGallerySellingPoints(s.sellingPoints);
       if (s.outputMode === 'custom' || s.outputMode === 'ai') setGalleryOutputMode(s.outputMode);
+      setGalleryModelCards(restoredModelCards);
+      setGallerySceneCards(restoredSceneCards);
       if (Array.isArray(s.outputItems) && s.outputItems.length > 0) {
         const restoredItems: GalleryOutputItem[] = s.outputItems
-          .map((row: any) => {
-            const outputType = String(row?.outputType || '').trim() as GalleryOutputType;
-            if (!GALLERY_OUTPUT_TYPE_ORDER.includes(outputType)) return null;
-            const aspectRatio = String(row?.aspectRatio || '1:1').trim() || '1:1';
-            const resolution = String(row?.resolution || '1k').trim().toLowerCase();
-            const normalizedResolution = resolution === '2k' || resolution === '4k' ? resolution : '1k';
-            const count = Math.max(0, Math.round(Number(row?.count || 0)));
+          .map((row: any) => normalizeGalleryOutputItem(row))
+          .map((item) => {
+            if (!item) return null;
             return {
-              id: String(row?.id || createGalleryOutputItemId()),
-              enabled: Boolean(row?.enabled ?? true),
-              outputType,
-              aspectRatio,
-              resolution: normalizedResolution as any,
-              count,
-              title: typeof row?.title === 'string' ? row.title : undefined,
-              layout: typeof row?.layout === 'string' ? row.layout : undefined,
-              copy: row?.copy && typeof row.copy === 'object' ? row.copy : undefined,
-              notes: typeof row?.notes === 'string' ? row.notes : undefined,
-              prompt: typeof row?.prompt === 'string' ? row.prompt : undefined,
+              ...item,
+              modelCardId: item.modelCardId || (sceneSensitiveTypes.has(item.outputType) ? fallbackModelCardId || undefined : undefined),
+              sceneCardId: item.sceneCardId || (sceneSensitiveTypes.has(item.outputType) ? fallbackSceneCardId || undefined : undefined),
             } satisfies GalleryOutputItem;
           })
           .filter(Boolean) as GalleryOutputItem[];
@@ -1814,31 +2101,18 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               aspectRatio,
               resolution: resolution as any,
               count,
+              modelCardId: sceneSensitiveTypes.has(outputType) ? fallbackModelCardId || undefined : undefined,
+              sceneCardId: sceneSensitiveTypes.has(outputType) ? fallbackSceneCardId || undefined : undefined,
             });
           }
           if (items.length > 0) setGalleryOutputItems(items);
         }
-      }
-      if (s.sceneConfig && typeof s.sceneConfig === 'object') {
-        setGalleryScenePresetId('');
-        setGallerySceneTheme(String(s.sceneConfig.sceneTheme || ''));
-        setGallerySceneDescription(String(s.sceneConfig.sceneDescription || ''));
-        setGallerySceneProps(String(s.sceneConfig.sceneProps || ''));
-        setGallerySceneLighting(String(s.sceneConfig.lighting || ''));
-        setGallerySceneMood(String(s.sceneConfig.mood || ''));
       }
       // Restore backend image paths so generation can skip the upload step
       if (Array.isArray(s.uploadedImagePaths) && s.uploadedImagePaths.length > 0) {
         const paths = s.uploadedImagePaths.map((p: any) => String(p || '').trim()).filter(Boolean);
         setGalleryRestoredImagePaths(paths);
       }
-
-      const restoredModelInfo = String(s.modelInfo || '').trim();
-      const restoredModelImagePath = String(s.modelImagePath || '').trim();
-      if (restoredModelInfo) setGalleryModelInfo(restoredModelInfo);
-      if (restoredModelImagePath) setGalleryModelImagePath(restoredModelImagePath);
-      if (restoredModelInfo || restoredModelImagePath) setIsGalleryModelInfoOpen(true);
-      setGalleryModelImageFile(null);
 
       // Switch right-panel to preview so user sees the form ready to generate
       setGalleryRightPanel('preview');
@@ -1886,15 +2160,26 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     void handleTextSeparationUpload(file);
   };
 
-  const handleGalleryModelFileSelection = (picked: File[]) => {
+  const handleGalleryModelCardFileSelection = (cardId: string, picked: File[]) => {
     const file = picked[0];
     if (!file) return;
     if (!isSupportedGalleryImageFile(file)) {
       openGalleryAlert(gallerySupportedFormatTip);
       return;
     }
-    setGalleryModelImageFile(file);
-    setGalleryModelImagePath('');
+    const previewUrl = URL.createObjectURL(file);
+    setGalleryModelCards((prev) =>
+      prev.map((card) => {
+        if (card.id !== cardId) return card;
+        revokeGalleryModelPreviewUrl(card.imagePreviewUrl);
+        return {
+          ...card,
+          imageFile: file,
+          imagePath: '',
+          imagePreviewUrl: previewUrl,
+        };
+      })
+    );
   };
 
   const preventDragDefaults = (e: React.DragEvent) => {
@@ -2244,6 +2529,104 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     return raw;
   };
 
+  const buildGalleryResolvedSceneBinding = (card?: GallerySceneCard | null) => {
+    if (!card) return undefined;
+    const sceneConfig = sanitizeGallerySceneConfig(card.sceneConfig);
+    return {
+      id: card.id,
+      name: String(card.name || '').trim(),
+      source_mode: card.sourceMode,
+      preset_id: String(card.presetId || '').trim() || undefined,
+      scene_config: Object.values(sceneConfig).some((value) => Boolean(String(value || '').trim())) ? sceneConfig : undefined,
+    };
+  };
+
+  const buildGalleryResolvedModelBinding = (card?: GalleryModelCard | null) => {
+    if (!card) return undefined;
+    return {
+      id: card.id,
+      name: String(card.name || '').trim(),
+      image_path: String(card.imagePath || '').trim() || undefined,
+      model_info: String(card.modelInfo || '').trim() || undefined,
+    };
+  };
+
+  const getGalleryPrimaryModelCard = (cards: GalleryModelCard[]) =>
+    cards.find((card) => Boolean(String(card.imagePath || '').trim()) || Boolean(card.imageFile) || Boolean(String(card.modelInfo || '').trim()))
+    || cards[0]
+    || null;
+
+  const getGalleryPrimarySceneCard = (cards: GallerySceneCard[]) =>
+    cards.find((card) => Object.values(sanitizeGallerySceneConfig(card.sceneConfig)).some((value) => Boolean(String(value || '').trim())))
+    || cards[0]
+    || null;
+
+  const normalizeGalleryOutputPayloadItem = (
+    item: GalleryOutputItem,
+    modelCardsById: Map<string, GalleryModelCard>,
+    sceneCardsById: Map<string, GallerySceneCard>
+  ) => {
+    const supportsResourceBinding = item.outputType !== 'white_bg';
+    const modelCard = supportsResourceBinding && item.modelCardId ? (modelCardsById.get(item.modelCardId) || null) : null;
+    const sceneCard = supportsResourceBinding && item.sceneCardId ? (sceneCardsById.get(item.sceneCardId) || null) : null;
+    return {
+      id: item.id,
+      enabled: item.enabled,
+      output_type: item.outputType,
+      aspect_ratio: item.aspectRatio,
+      resolution: item.resolution,
+      count: item.count,
+      model_card_id: supportsResourceBinding ? (item.modelCardId || undefined) : undefined,
+      scene_card_id: supportsResourceBinding ? (item.sceneCardId || undefined) : undefined,
+      model_binding: buildGalleryResolvedModelBinding(modelCard),
+      scene_binding: buildGalleryResolvedSceneBinding(sceneCard),
+      layout: item.layout,
+    };
+  };
+
+  const validateGalleryOutputBindings = (
+    items: GalleryOutputItem[],
+    modelCardsById: Map<string, GalleryModelCard>,
+    sceneCardsById: Map<string, GallerySceneCard>
+  ) => {
+    for (const item of items) {
+      if (item.modelCardId) {
+        const modelCard = modelCardsById.get(item.modelCardId);
+        if (!modelCard) {
+          return {
+            ok: false as const,
+            target: 'model' as const,
+            message: tr(
+              `出图卡片缺少已绑定的模特资源，请先重新选择或创建模特卡片后再生成。`,
+              'A bound model resource is missing. Re-select or create a model card before generating.'
+            ),
+          };
+        }
+        if (!String(modelCard.imagePath || '').trim() && !modelCard.imageFile) {
+          return {
+            ok: false as const,
+            target: 'model' as const,
+            message: tr(
+              `模特卡片「${modelCard.name || item.modelCardId}」缺少照片，请补充后再生成。`,
+              `Model card "${modelCard.name || item.modelCardId}" needs a photo before generating.`
+            ),
+          };
+        }
+      }
+      if (item.sceneCardId && !sceneCardsById.has(item.sceneCardId)) {
+        return {
+          ok: false as const,
+          target: 'scene' as const,
+          message: tr(
+            `出图卡片缺少已绑定的场景资源，请先重新选择或创建场景卡片后再生成。`,
+            'A bound scene resource is missing. Re-select or create a scene card before generating.'
+          ),
+        };
+      }
+    }
+    return { ok: true as const };
+  };
+
   const handleGenerateAiOutputPlan = async () => {
     if (galleryAiOutputPlanner.isGenerating) return;
 
@@ -2252,14 +2635,14 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     try {
       const hasNewImages = galleryImages.length > 0;
       const hasRestoredPaths = galleryRestoredImagePaths.length > 0;
-
-      const sceneConfig: GallerySceneConfig = {
-        sceneTheme: String(gallerySceneTheme || '').trim(),
-        sceneDescription: String(gallerySceneDescription || '').trim(),
-        sceneProps: String(gallerySceneProps || '').trim(),
-        lighting: String(gallerySceneLighting || '').trim(),
-        mood: String(gallerySceneMood || '').trim(),
-      };
+      let workingModelCards = galleryModelCards;
+      const primaryModelCard = getGalleryPrimaryModelCard(workingModelCards);
+      if (primaryModelCard?.imageFile) {
+        workingModelCards = await ensureGalleryModelCardAssetPaths([primaryModelCard.id]);
+      }
+      const resolvedPrimaryModelCard = getGalleryPrimaryModelCard(workingModelCards);
+      const primarySceneCard = getGalleryPrimarySceneCard(gallerySceneCards);
+      const sceneConfig = sanitizeGallerySceneConfig(primarySceneCard?.sceneConfig);
       const hasSceneConfig = Object.values(sceneConfig).some((value) => Boolean(String(value || '').trim()));
 
       let imagePaths: string[] = [];
@@ -2289,8 +2672,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         style: galleryStyle,
         target_language: galleryCopyLanguage,
         scene_config: hasSceneConfig ? sceneConfig : undefined,
-        model_image_path: String(galleryModelImagePath || '').trim() || undefined,
-        model_info: String(galleryModelInfo || '').trim() || undefined,
+        model_image_path: String(resolvedPrimaryModelCard?.imagePath || '').trim() || undefined,
+        model_info: String(resolvedPrimaryModelCard?.modelInfo || '').trim() || undefined,
       });
       const data = (planResp as any)?.data || planResp;
       const rawItems = Array.isArray(data?.items) ? data.items : [];
@@ -2300,26 +2683,17 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         .map((row: any) => {
           const outputType = normalizeAiOutputType(row?.outputType ?? row?.output_type ?? row?.type);
           if (!outputType) return null;
-          const count = Math.max(1, Math.min(8, Math.round(Number(row?.count ?? 1))));
+          const shouldBindPrimaryResources = outputType === 'scene' || outputType === 'selling_point' || outputType === 'cover' || outputType === 'poster';
           return {
             id: createGalleryOutputItemId(),
             enabled: Boolean(row?.enabled ?? true),
             outputType,
             aspectRatio: normalizeAiAspectRatio(row?.aspectRatio ?? row?.aspect_ratio),
             resolution: normalizeAiResolution(row?.resolution),
-            count,
-            title: typeof row?.title === 'string' ? row.title : undefined,
+            count: 1,
+            modelCardId: shouldBindPrimaryResources ? (resolvedPrimaryModelCard?.id || undefined) : undefined,
+            sceneCardId: shouldBindPrimaryResources ? (primarySceneCard?.id || undefined) : undefined,
             layout: typeof row?.layout === 'string' ? row.layout : undefined,
-            copy: row?.copy && typeof row.copy === 'object'
-              ? {
-                  headline: typeof row.copy.headline === 'string' ? row.copy.headline : undefined,
-                  subheadline: typeof row.copy.subheadline === 'string' ? row.copy.subheadline : undefined,
-                  body: typeof row.copy.body === 'string' ? row.copy.body : undefined,
-                  bulletPoints: Array.isArray(row.copy.bulletPoints) ? row.copy.bulletPoints.map((x: any) => String(x || '').trim()).filter(Boolean).slice(0, 6) : undefined,
-                }
-              : undefined,
-            notes: typeof row?.notes === 'string' ? row.notes : undefined,
-            prompt: typeof row?.prompt === 'string' ? row.prompt : undefined,
           } satisfies GalleryOutputItem;
         })
         .filter(Boolean) as GalleryOutputItem[];
@@ -2338,6 +2712,97 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     } catch (err: any) {
       const message = String(err?.message || tr('AI 生成失败，请重试。', 'AI planning failed. Please try again.'));
       setGalleryAiOutputPlanner((prev) => ({ ...prev, isGenerating: false, error: message }));
+    }
+  };
+
+  const handleGalleryOptimizeOutputItem = async (itemId: string) => {
+    const targetId = String(itemId || '').trim();
+    if (!targetId || galleryOptimizingItemIds[targetId]) return;
+
+    const targetItem = galleryOutputItems.find((item) => item.id === targetId) || null;
+    if (!targetItem) return;
+
+    const hasNewImages = galleryImages.length > 0;
+    const hasRestoredPaths = galleryRestoredImagePaths.length > 0;
+    if (!hasNewImages && !hasRestoredPaths) {
+      openGalleryAlert(tr('请先上传至少 1 张商品图片。', 'Please upload at least 1 product image.'));
+      return;
+    }
+
+    const normalizedItem = normalizeGalleryOutputItem(targetItem);
+    if (!normalizedItem) return;
+
+    const modelCardsById = new Map(galleryModelCards.map((card) => [card.id, card] as const));
+    const sceneCardsById = new Map(gallerySceneCards.map((card) => [card.id, card] as const));
+    const bindingValidation = validateGalleryOutputBindings([normalizedItem], modelCardsById, sceneCardsById);
+    if (!bindingValidation.ok) {
+      guideGalleryResourceSection(bindingValidation.target);
+      openGalleryAlert(bindingValidation.message);
+      return;
+    }
+
+    setGalleryOptimizingItemIds((prev) => ({ ...prev, [targetId]: true }));
+    try {
+      let imagePaths: string[] = [];
+      if (hasRestoredPaths) {
+        imagePaths = [...galleryRestoredImagePaths];
+      } else {
+        const uploadTargets = galleryImages.slice(0, 3);
+        if (uploadTargets.some((file) => !isSupportedGalleryImageFile(file))) {
+          openGalleryAlert(gallerySupportedFormatTip);
+          setGalleryOptimizingItemIds((prev) => ({ ...prev, [targetId]: false }));
+          return;
+        }
+        for (const file of uploadTargets) {
+          const uploadResp = await assetsApi.uploadTempAsset(file);
+          const path = extractUploadedAssetPath(uploadResp);
+          if (path) imagePaths.push(String(path));
+        }
+      }
+      if (imagePaths.length === 0) {
+        throw new Error(tr('图片上传失败，请重试。', 'Image upload failed. Please try again.'));
+      }
+
+      const requiredModelCardIds = normalizedItem.modelCardId ? [normalizedItem.modelCardId] : [];
+      const workingModelCards = requiredModelCardIds.length > 0
+        ? await ensureGalleryModelCardAssetPaths(requiredModelCardIds)
+        : galleryModelCards;
+      const workingModelCardsById = new Map(workingModelCards.map((card) => [card.id, card] as const));
+      const workingSceneCardsById = new Map(gallerySceneCards.map((card) => [card.id, card] as const));
+      const payloadItem = normalizeGalleryOutputPayloadItem(normalizedItem, workingModelCardsById, workingSceneCardsById);
+
+      const optimizeResp = await videoApi.optimizeProductGalleryItem({
+        image_paths: imagePaths,
+        product_name: galleryProductName.trim(),
+        product_category: galleryCategory.trim(),
+        core_selling_points: gallerySellingPoints.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 5),
+        target_scene: galleryTargetScene,
+        style: galleryStyle,
+        target_language: galleryCopyLanguage,
+        hot_style: hotStyleSelectedIndex !== null ? hotStyleItems[hotStyleSelectedIndex] : undefined,
+        output_item: payloadItem,
+      });
+      const optimized = (optimizeResp as any)?.data?.item || (optimizeResp as any)?.item || (optimizeResp as any)?.data || optimizeResp;
+      const nextCopy = sanitizeGalleryCopy(optimized?.copy);
+      const nextCardConfig = sanitizeGalleryOutputCardConfig(optimized?.card_config || optimized?.cardConfig);
+
+      setGalleryOutputItems((prev) =>
+        prev.map((item) => {
+          if (item.id !== targetId) return item;
+          return {
+            ...item,
+            layout: typeof optimized?.layout === 'string' ? optimized.layout : item.layout,
+            copy: nextCopy || item.copy,
+            notes: typeof optimized?.notes === 'string' ? optimized.notes : item.notes,
+            prompt: typeof optimized?.prompt === 'string' ? optimized.prompt : item.prompt,
+            cardConfig: nextCardConfig || item.cardConfig || {},
+          };
+        })
+      );
+    } catch (err: any) {
+      openGalleryAlert(String(err?.message || tr('单卡优化失败，请重试。', 'Failed to optimize this card. Please try again.')));
+    } finally {
+      setGalleryOptimizingItemIds((prev) => ({ ...prev, [targetId]: false }));
     }
   };
 
@@ -2368,6 +2833,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           ? String(item.resolution).trim().toLowerCase()
           : '1k') as any,
         count: Math.max(0, Math.round(Number(item.count || 0))),
+        modelCardId: item.outputType !== 'white_bg' ? (String(item.modelCardId || '').trim() || undefined) : undefined,
+        sceneCardId: item.outputType !== 'white_bg' ? (String(item.sceneCardId || '').trim() || undefined) : undefined,
+        title: undefined,
+        copy: undefined,
+        notes: undefined,
+        prompt: undefined,
+        cardConfig: undefined,
       }))
       .filter((item) => item.enabled && item.count > 0);
 
@@ -2442,11 +2914,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             aspectRatio: sellingPointEntries[0]?.aspectRatio || '1:1',
             resolution: sellingPointEntries[0]?.resolution || '1k',
             count: effectiveSellingPoints.length,
-            title: sellingPointEntries[0]?.title,
+            modelCardId: sellingPointEntries[0]?.modelCardId,
+            sceneCardId: sellingPointEntries[0]?.sceneCardId,
             layout: sellingPointEntries[0]?.layout,
-            copy: sellingPointEntries[0]?.copy,
-            notes: sellingPointEntries[0]?.notes,
-            prompt: sellingPointEntries[0]?.prompt,
           },
         ];
 
@@ -2479,14 +2949,27 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       return;
     }
 
-    const sceneConfig: GallerySceneConfig = {
-      sceneTheme: String(gallerySceneTheme || '').trim(),
-      sceneDescription: String(gallerySceneDescription || '').trim(),
-      sceneProps: String(gallerySceneProps || '').trim(),
-      lighting: String(gallerySceneLighting || '').trim(),
-      mood: String(gallerySceneMood || '').trim(),
-    };
+    const currentModelCardsById = new Map(galleryModelCards.map((card) => [card.id, card] as const));
+    const currentSceneCardsById = new Map(gallerySceneCards.map((card) => [card.id, card] as const));
+    const bindingValidation = validateGalleryOutputBindings(normalizedOutputItems, currentModelCardsById, currentSceneCardsById);
+    if (!bindingValidation.ok) {
+      guideGalleryResourceSection(bindingValidation.target);
+      openGalleryAlert(bindingValidation.message);
+      return;
+    }
+
+    const requiredModelCardIds = Array.from(new Set(normalizedOutputItems.map((item) => String(item.modelCardId || '').trim()).filter(Boolean)));
+    const workingModelCards = requiredModelCardIds.length > 0
+      ? await ensureGalleryModelCardAssetPaths(requiredModelCardIds)
+      : galleryModelCards;
+    const modelCardsById = new Map(workingModelCards.map((card) => [card.id, card] as const));
+    const sceneCardsById = new Map(gallerySceneCards.map((card) => [card.id, card] as const));
+    const resolvedPrimaryModelCard = getGalleryPrimaryModelCard(workingModelCards);
+    const resolvedPrimarySceneCard = getGalleryPrimarySceneCard(gallerySceneCards);
+    const sceneConfig = sanitizeGallerySceneConfig(resolvedPrimarySceneCard?.sceneConfig);
     const hasSceneConfig = Object.values(sceneConfig).some((value) => Boolean(String(value || '').trim()));
+    const primaryModelBinding = buildGalleryResolvedModelBinding(resolvedPrimaryModelCard);
+    const primarySceneBinding = buildGalleryResolvedSceneBinding(resolvedPrimarySceneCard);
 
     const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -2501,7 +2984,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     const fallbackAspectRatio = firstEnabled?.aspectRatio || '1:1';
     const fallbackResolution = firstEnabled?.resolution || '1k';
 
-    const settingsSnapshot = {
+    const settingsSnapshot: GalleryHistorySettings = {
       targetScene: galleryTargetScene,
       style: galleryStyle,
       aspectRatio: fallbackAspectRatio,
@@ -2519,13 +3002,21 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         aspectRatio: item.aspectRatio,
         resolution: item.resolution,
         count: item.count,
-        title: item.title,
+        modelCardId: item.modelCardId,
+        sceneCardId: item.sceneCardId,
         layout: item.layout,
-        copy: item.copy,
-        notes: item.notes,
-        prompt: item.prompt,
+      })),
+      modelCards: workingModelCards.map((card) => toGalleryModelCardSnapshot(card)),
+      sceneCards: gallerySceneCards.map((card) => ({
+        id: card.id,
+        name: String(card.name || '').trim(),
+        sourceMode: card.sourceMode,
+        presetId: String(card.presetId || '').trim() || undefined,
+        sceneConfig: sanitizeGallerySceneConfig(card.sceneConfig),
       })),
       sceneConfig: hasSceneConfig ? sceneConfig : undefined,
+      modelInfo: primaryModelBinding?.model_info,
+      modelImagePath: primaryModelBinding?.image_path,
       uploadedImagePaths: [] as string[],
     };
 
@@ -2572,15 +3063,15 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       // Clear restored paths once consumed
       setGalleryRestoredImagePaths([]);
 
-      const modelInfo = String(galleryModelInfo || '').trim();
-      let modelImagePath: string | null = String(galleryModelImagePath || '').trim() || null;
-      if (galleryModelImageFile) {
-        const uploadResp = await assetsApi.uploadTempAsset(galleryModelImageFile);
-        const path = extractUploadedAssetPath(uploadResp);
+      const modelInfo = String(primaryModelBinding?.model_info || '').trim();
+      const modelImagePath: string | null = String(primaryModelBinding?.image_path || '').trim() || null;
+      /*
+        void modelImagePath;
+        void 0;
         if (!path) throw new Error(tr('模特图片上传失败，请重试。', 'Model image upload failed. Please try again.'));
         modelImagePath = String(path);
         setGalleryModelImagePath(modelImagePath);
-      }
+      */
 
       const createResp = await videoApi.generateProductGallery({
         image_paths: imagePaths,
@@ -2596,21 +3087,17 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         style: galleryStyle,
         target_language: galleryCopyLanguage,
         hot_style: hotStyleSelectedIndex !== null ? hotStyleItems[hotStyleSelectedIndex] : undefined,
+        model_cards: workingModelCards.map((card) => toGalleryModelCardSnapshot(card)),
+        scene_cards: gallerySceneCards.map((card) => ({
+          id: card.id,
+          name: String(card.name || '').trim(),
+          source_mode: card.sourceMode,
+          preset_id: String(card.presetId || '').trim() || undefined,
+          scene_config: sanitizeGallerySceneConfig(card.sceneConfig),
+        })),
         type_selections: legacyTypeSelections as any,
         output_mode: galleryOutputMode,
-        output_items: normalizedOutputItems.map((item) => ({
-          id: item.id,
-          enabled: item.enabled,
-          output_type: item.outputType,
-          aspect_ratio: item.aspectRatio,
-          resolution: item.resolution,
-          count: item.count,
-          title: item.title,
-          layout: item.layout,
-          copy: item.copy,
-          notes: item.notes,
-          prompt: item.prompt,
-        })),
+        output_items: normalizedOutputItems.map((item) => normalizeGalleryOutputPayloadItem(item, modelCardsById, sceneCardsById)),
         model_image_path: modelImagePath || undefined,
         model_info: modelInfo || undefined,
       });
@@ -3584,6 +4071,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         {isGalleryBoardEditorOpen ? (
           <GalleryBoardEditor
             assets={galleryBoardAssets}
+            historyItems={galleryHistoryItems}
             productName={galleryProductName}
             sellingPoints={gallerySellingPoints}
             tr={tr}
@@ -3927,16 +4415,12 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           setHotStyleSelectedIndex={setHotStyleSelectedIndex}
           hotStyleError={hotStyleError}
           handleHotStyleAnalyze={handleHotStyleAnalyze}
-          isGalleryModelInfoOpen={isGalleryModelInfoOpen}
-          setIsGalleryModelInfoOpen={setIsGalleryModelInfoOpen}
-          galleryModelImagePreviewUrl={galleryModelImagePreviewUrl}
-          galleryModelImagePath={galleryModelImagePath}
-          galleryModelFileInputRef={galleryModelFileInputRef}
-          setGalleryModelImageFile={setGalleryModelImageFile}
-          setGalleryModelImagePath={setGalleryModelImagePath}
-          galleryModelInfo={galleryModelInfo}
-          setGalleryModelInfo={setGalleryModelInfo}
-          handleGalleryModelFileSelection={handleGalleryModelFileSelection}
+          galleryModelCards={galleryModelCards}
+          setGalleryModelCards={setGalleryModelCards}
+          addGalleryModelCard={addGalleryModelCard}
+          removeGalleryModelCard={removeGalleryModelCard}
+          clearGalleryModelCardImage={clearGalleryModelCardImage}
+          handleGalleryModelCardFileSelection={handleGalleryModelCardFileSelection}
           galleryTargetScene={galleryTargetScene}
           setGalleryTargetScene={setGalleryTargetScene}
           galleryStyle={galleryStyle}
@@ -3944,20 +4428,14 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           galleryCopyLanguage={galleryCopyLanguage}
           setGalleryCopyLanguage={setGalleryCopyLanguage}
           GALLERY_COPY_LANGUAGE_OPTIONS={GALLERY_COPY_LANGUAGE_OPTIONS}
-          galleryScenePresetId={galleryScenePresetId}
           GALLERY_SCENE_PRESETS={GALLERY_SCENE_PRESETS}
-          clearGallerySceneConfig={clearGallerySceneConfig}
-          applyGalleryScenePreset={applyGalleryScenePreset}
-          gallerySceneTheme={gallerySceneTheme}
-          setGallerySceneTheme={setGallerySceneTheme}
-          gallerySceneMood={gallerySceneMood}
-          setGallerySceneMood={setGallerySceneMood}
-          gallerySceneDescription={gallerySceneDescription}
-          setGallerySceneDescription={setGallerySceneDescription}
-          gallerySceneProps={gallerySceneProps}
-          setGallerySceneProps={setGallerySceneProps}
-          gallerySceneLighting={gallerySceneLighting}
-          setGallerySceneLighting={setGallerySceneLighting}
+          gallerySceneCards={gallerySceneCards}
+          setGallerySceneCards={setGallerySceneCards}
+          addGallerySceneCard={addGallerySceneCard}
+          removeGallerySceneCard={removeGallerySceneCard}
+          applyGalleryScenePresetToCard={applyGalleryScenePresetToCard}
+          galleryResourceGuide={galleryResourceGuide}
+          guideGalleryResourceSection={guideGalleryResourceSection}
           galleryOutputMode={galleryOutputMode}
           setGalleryOutputMode={setGalleryOutputMode}
           galleryOutputItems={galleryOutputItems}

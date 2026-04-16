@@ -341,6 +341,36 @@ export const videoApi = {
     style?: string;
     target_language?: string;
     hot_style?: { name: string; tones: string[]; description: string };
+    model_cards?: Array<{
+      id?: string;
+      name?: string;
+      imagePath?: string;
+      image_path?: string;
+      modelInfo?: string;
+      model_info?: string;
+    }>;
+    scene_cards?: Array<{
+      id?: string;
+      name?: string;
+      sourceMode?: 'preset' | 'custom';
+      source_mode?: 'preset' | 'custom';
+      presetId?: string;
+      preset_id?: string;
+      sceneConfig?: {
+        sceneTheme?: string;
+        sceneDescription?: string;
+        sceneProps?: string;
+        lighting?: string;
+        mood?: string;
+      };
+      scene_config?: {
+        sceneTheme?: string;
+        sceneDescription?: string;
+        sceneProps?: string;
+        lighting?: string;
+        mood?: string;
+      };
+    }>;
     type_selections?: Record<string, { enabled?: boolean; count?: number }>;
     output_mode?: 'custom' | 'ai';
     output_items?: Array<{
@@ -351,6 +381,27 @@ export const videoApi = {
       resolution?: '1k' | '2k' | '4k';
       count?: number;
       title?: string;
+      model_card_id?: string;
+      scene_card_id?: string;
+      model_binding?: {
+        id?: string;
+        name?: string;
+        image_path?: string;
+        model_info?: string;
+      };
+      scene_binding?: {
+        id?: string;
+        name?: string;
+        source_mode?: 'preset' | 'custom';
+        preset_id?: string;
+        scene_config?: {
+          sceneTheme?: string;
+          sceneDescription?: string;
+          sceneProps?: string;
+          lighting?: string;
+          mood?: string;
+        };
+      };
       layout?: string;
       copy?: {
         headline?: string;
@@ -360,6 +411,20 @@ export const videoApi = {
       };
       notes?: string;
       prompt?: string;
+      card_config?: {
+        visualFocus?: string;
+        compositionHint?: string;
+        copyTone?: string;
+        negativeHints?: string;
+        sellingPointText?: string;
+        headlineFocus?: string;
+        heroStyle?: string;
+        campaignAngle?: string;
+        promotionTone?: string;
+        copyBlockDensity?: string;
+        backgroundStyle?: string;
+        displayAngle?: string;
+      };
     }>;
     model_image_path?: string;
     model_info?: string;
@@ -379,6 +444,90 @@ export const videoApi = {
 
     if (!response.ok) {
       const fallback = `商品套图生成失败: ${response.status} ${response.statusText || ''}`.trim();
+      throw await parseApiError(response, fallback);
+    }
+
+    return await response.json();
+  },
+
+  optimizeProductGalleryItem: async (payload: {
+    image_paths: string[];
+    product_name?: string;
+    product_category?: string;
+    core_selling_points?: string[];
+    target_scene?: string;
+    style?: string;
+    target_language?: string;
+    hot_style?: { name: string; tones: string[]; description: string };
+    output_item: {
+      id?: string;
+      enabled?: boolean;
+      output_type?: string;
+      aspect_ratio?: string;
+      resolution?: '1k' | '2k' | '4k';
+      count?: number;
+      title?: string;
+      model_card_id?: string;
+      scene_card_id?: string;
+      model_binding?: {
+        id?: string;
+        name?: string;
+        image_path?: string;
+        model_info?: string;
+      };
+      scene_binding?: {
+        id?: string;
+        name?: string;
+        source_mode?: 'preset' | 'custom';
+        preset_id?: string;
+        scene_config?: {
+          sceneTheme?: string;
+          sceneDescription?: string;
+          sceneProps?: string;
+          lighting?: string;
+          mood?: string;
+        };
+      };
+      layout?: string;
+      copy?: {
+        headline?: string;
+        subheadline?: string;
+        body?: string;
+        bulletPoints?: string[];
+      };
+      notes?: string;
+      prompt?: string;
+      card_config?: {
+        visualFocus?: string;
+        compositionHint?: string;
+        copyTone?: string;
+        negativeHints?: string;
+        sellingPointText?: string;
+        headlineFocus?: string;
+        heroStyle?: string;
+        campaignAngle?: string;
+        promotionTone?: string;
+        copyBlockDensity?: string;
+        backgroundStyle?: string;
+        displayAngle?: string;
+      };
+    };
+  }) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/gallery/optimize-item`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const fallback = `套图单卡优化失败: ${response.status} ${response.statusText || ''}`.trim();
       throw await parseApiError(response, fallback);
     }
 

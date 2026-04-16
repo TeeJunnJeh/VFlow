@@ -1,15 +1,24 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Download, ImagePlus, Plus, Replace, Trash2, Type, ZoomIn, ZoomOut } from 'lucide-react';
+import { ChevronDown, Download, Folder, ImagePlus, Loader2, Plus, Replace, Trash2, Type, ZoomIn, ZoomOut } from 'lucide-react';
 import PptxGenJS from 'pptxgenjs';
 import { AppDialog } from '../common/AppDialog';
-import { galleryApi } from '../../services/galleryApi';
-import type { GalleryAiLayoutProposal } from '../../types/gallery';
+import { assetsApi, type Asset as LibraryAsset, type AssetFolder } from '../../services/assets';
 
 export type GalleryBoardAsset = {
   localId: string;
   requestId: string;
   imageUrl?: string;
   layout?: unknown;
+};
+
+export type GalleryBoardHistoryItem = {
+  id: string;
+  createdAt: string;
+  images: string[];
+  settings?: {
+    typeSelections?: Record<string, { enabled?: boolean; count?: number }>;
+  };
+  metadata?: Record<string, unknown>;
 };
 
 type TrFn = (zhText: string, enText: string) => string;
@@ -118,6 +127,7 @@ type PointerAction =
 
 export interface GalleryBoardEditorProps {
   assets: GalleryBoardAsset[];
+  historyItems?: GalleryBoardHistoryItem[];
   productName: string;
   sellingPoints: string[];
   tr: TrFn;
@@ -151,7 +161,7 @@ export type GalleryBoardDraft = {
 };
 
 type RightPanelSectionKey = 'board' | 'inspector' | 'assets';
-type LeftPanelSectionKey = 'templates' | 'aiLayouts';
+type LeftPanelSectionKey = 'templates';
 type TemplateTooltipState = {
   text: string;
   top: number;
@@ -174,6 +184,11 @@ const TEMPLATE_MODE_LABELS: Record<TemplateDefinition['imageCount'], { zh: strin
   3: { zh: '3图', en: '3 Images' },
   4: { zh: '4图', en: '4 Images' },
 };
+const TEMPLATE_PREVIEW_BACKGROUND = '#111827';
+const LIBRARY_PICKER_TYPE_OPTIONS = [
+  { value: 'product', zh: '商品', en: 'Product' },
+  { value: 'scene', zh: '场景', en: 'Scene' },
+] as const;
 
 const TEMPLATE_DEFINITIONS: TemplateDefinition[] = [
   {
@@ -214,6 +229,19 @@ const TEMPLATE_DEFINITIONS: TemplateDefinition[] = [
     slots: [{ x: 0, y: 0, w: 1200, h: 1500, fit: 'cover' }],
     titleBox: { x: 68, y: 1080, w: 900, h: 140 },
     subtitleBox: { x: 68, y: 1226, w: 980, h: 96 },
+  },
+  {
+    id: 'single_bottom_stage',
+    imageCount: 1,
+    name: 'Single Bottom Stage',
+    description: '底部陈列单图，上方保留更大标题空间，适合封面和促销海报。',
+    previewAssetPath: '/templates/gallery-board/single-bottom-stage-preview.png',
+    canvasWidth: 1200,
+    canvasHeight: 1500,
+    background: '#132034',
+    slots: [{ x: 120, y: 420, w: 960, h: 940, fit: 'contain' }],
+    titleBox: { x: 84, y: 84, w: 760, h: 110 },
+    subtitleBox: { x: 84, y: 208, w: 940, h: 76 },
   },
   {
     id: 'dual_split',
@@ -264,6 +292,22 @@ const TEMPLATE_DEFINITIONS: TemplateDefinition[] = [
     subtitleBox: { x: 86, y: 330, w: 340, h: 260 },
   },
   {
+    id: 'dual_offset_cards',
+    imageCount: 2,
+    name: 'Dual Offset Cards',
+    description: '两张错位主图，更适合商品对比和前后场景的节奏展示。',
+    previewAssetPath: '/templates/gallery-board/dual-offset-cards-preview.png',
+    canvasWidth: 1200,
+    canvasHeight: 1500,
+    background: '#131722',
+    slots: [
+      { x: 84, y: 360, w: 438, h: 920, fit: 'cover' },
+      { x: 582, y: 240, w: 534, h: 1040, fit: 'cover' },
+    ],
+    titleBox: { x: 84, y: 84, w: 760, h: 102 },
+    subtitleBox: { x: 84, y: 196, w: 940, h: 76 },
+  },
+  {
     id: 'story_triptych',
     imageCount: 3,
     name: 'Story Triptych',
@@ -310,6 +354,23 @@ const TEMPLATE_DEFINITIONS: TemplateDefinition[] = [
       { x: 72, y: 280, w: 518, h: 470, fit: 'cover' },
       { x: 610, y: 280, w: 518, h: 470, fit: 'cover' },
       { x: 72, y: 800, w: 1056, h: 600, fit: 'cover' },
+    ],
+    titleBox: { x: 72, y: 80, w: 760, h: 100 },
+    subtitleBox: { x: 72, y: 188, w: 960, h: 72 },
+  },
+  {
+    id: 'tri_top_one_bottom_two',
+    imageCount: 3,
+    name: 'Tri Top One + Bottom Two',
+    description: '上方一张主图，下方两张补充图，适合主视觉加细节场景组合。',
+    previewAssetPath: '/templates/gallery-board/tri-top-one-bottom-two-preview.png',
+    canvasWidth: 1200,
+    canvasHeight: 1500,
+    background: '#161927',
+    slots: [
+      { x: 72, y: 280, w: 1056, h: 560, fit: 'cover' },
+      { x: 72, y: 900, w: 510, h: 500, fit: 'cover' },
+      { x: 618, y: 900, w: 510, h: 500, fit: 'cover' },
     ],
     titleBox: { x: 72, y: 80, w: 760, h: 100 },
     subtitleBox: { x: 72, y: 188, w: 960, h: 72 },
@@ -367,6 +428,24 @@ const TEMPLATE_DEFINITIONS: TemplateDefinition[] = [
     ],
     titleBox: { x: 72, y: 84, w: 760, h: 100 },
     subtitleBox: { x: 72, y: 188, w: 940, h: 72 },
+  },
+  {
+    id: 'quad_top_banner',
+    imageCount: 4,
+    name: 'Quad Top Banner',
+    description: '上方横幅主图，下方三图并列，适合一张主卖点带三张辅助图。',
+    previewAssetPath: '/templates/gallery-board/quad-top-banner-preview.png',
+    canvasWidth: 1200,
+    canvasHeight: 1500,
+    background: '#151923',
+    slots: [
+      { x: 72, y: 240, w: 1056, h: 380, fit: 'cover' },
+      { x: 72, y: 700, w: 320, h: 700, fit: 'cover' },
+      { x: 440, y: 700, w: 320, h: 700, fit: 'cover' },
+      { x: 808, y: 700, w: 320, h: 700, fit: 'cover' },
+    ],
+    titleBox: { x: 72, y: 84, w: 760, h: 96 },
+    subtitleBox: { x: 72, y: 188, w: 940, h: 68 },
   },
 ];
 
@@ -754,6 +833,7 @@ const inferAspectRatioId = (width: number, height: number) => {
 
 const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   assets,
+  historyItems = [],
   productName,
   sellingPoints,
   tr,
@@ -784,12 +864,17 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [textFontSizeDraft, setTextFontSizeDraft] = useState('');
   const [selectedAssetLocalIds, setSelectedAssetLocalIds] = useState<string[]>(() => initialDraft?.selectedAssetLocalIds || []);
-  const [isGeneratingAiLayouts, setIsGeneratingAiLayouts] = useState(false);
-  const [aiLayoutProposals, setAiLayoutProposals] = useState<GalleryAiLayoutProposal[]>([]);
-  const [aiLayoutFallbackUsed, setAiLayoutFallbackUsed] = useState(false);
-  const [aiLayoutMessage, setAiLayoutMessage] = useState('');
   const [templateTooltip, setTemplateTooltip] = useState<TemplateTooltipState | null>(null);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [isLibraryPickerOpen, setIsLibraryPickerOpen] = useState(false);
+  const [isHistoryPickerOpen, setIsHistoryPickerOpen] = useState(false);
+  const [libraryAssetType, setLibraryAssetType] = useState<'product' | 'scene'>('product');
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [libraryItems, setLibraryItems] = useState<LibraryAsset[]>([]);
+  const [libraryFolders, setLibraryFolders] = useState<AssetFolder[]>([]);
+  const [libraryBreadcrumb, setLibraryBreadcrumb] = useState<AssetFolder[]>([]);
+  const [libraryCurrentFolderId, setLibraryCurrentFolderId] = useState<string | null>(null);
   const [templateMode, setTemplateMode] = useState<TemplateDefinition['imageCount']>(() =>
     initialDraft?.templateMode || resolveTemplateModeById(initialDraft?.board?.templateId || initialTemplateId)
   );
@@ -801,7 +886,6 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   });
   const [leftPanelSections, setLeftPanelSections] = useState<Record<LeftPanelSectionKey, boolean>>({
     templates: true,
-    aiLayouts: true,
   });
   const [themeClassSnapshot, setThemeClassSnapshot] = useState('');
 
@@ -837,9 +921,22 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   };
 
   const mergedAssets = useMemo(() => [...localAssets, ...assets], [assets, localAssets]);
-  const selectedAssets = useMemo(
-    () => selectedAssetLocalIds.map((localId) => mergedAssets.find((item) => item.localId === localId)).filter(Boolean) as GalleryBoardAsset[],
-    [mergedAssets, selectedAssetLocalIds]
+  const historyImageEntries = useMemo(
+    () =>
+      historyItems
+        .slice()
+        .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+        .flatMap((item) =>
+          item.images.map((imageUrl, index) => ({
+            historyId: item.id,
+            createdAt: item.createdAt,
+            imageUrl: String(imageUrl || '').trim(),
+            imageIndex: index,
+            item,
+          }))
+        )
+        .filter((item) => Boolean(item.imageUrl)),
+    [historyItems]
   );
 
   useEffect(() => {
@@ -859,6 +956,42 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   useEffect(() => {
     onLocalAssetsChange?.(localAssets);
   }, [localAssets, onLocalAssetsChange]);
+
+  useEffect(() => {
+    if (!isLibraryPickerOpen) return;
+    let cancelled = false;
+
+    const loadLibraryItems = async () => {
+      setLibraryLoading(true);
+      setLibraryError(null);
+      try {
+        const [items, folderData] = await Promise.all([
+          assetsApi.getAssets({ type: libraryAssetType, folderId: libraryCurrentFolderId }),
+          assetsApi.getFolders({ type: libraryAssetType, parentId: libraryCurrentFolderId }),
+        ]);
+
+        if (cancelled) return;
+        setLibraryItems(
+          (Array.isArray(items) ? items : []).filter((item) => item.media_kind !== 'video' && item.media_kind !== 'audio' && item.media_kind !== 'document')
+        );
+        setLibraryFolders(Array.isArray(folderData.folders) ? folderData.folders : []);
+        setLibraryBreadcrumb(Array.isArray(folderData.breadcrumb) ? folderData.breadcrumb : []);
+      } catch (error: any) {
+        if (cancelled) return;
+        setLibraryItems([]);
+        setLibraryFolders([]);
+        setLibraryBreadcrumb([]);
+        setLibraryError(String(error?.message || tr('加载素材库失败。', 'Failed to load library assets.')));
+      } finally {
+        if (!cancelled) setLibraryLoading(false);
+      }
+    };
+
+    void loadLibraryItems();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLibraryPickerOpen, libraryAssetType, libraryCurrentFolderId, tr]);
 
   useEffect(() => {
     const availableIds = new Set(mergedAssets.map((item) => item.localId));
@@ -1177,149 +1310,119 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     });
   };
 
-  const applyAiLayoutProposal = (proposal: GalleryAiLayoutProposal) => {
-    const canvasWidth = clamp(Math.round(proposal.canvas?.width || board.canvasWidth), 600, 2400);
-    const canvasHeight = clamp(Math.round(proposal.canvas?.height || board.canvasHeight), 600, 2400);
-    const palette = proposal.design_tokens?.palette || [];
-    const backgroundColor = String(proposal.background?.color || palette[0] || board.background || '#111111').trim() || '#111111';
-    const fontFamily = String(proposal.design_tokens?.font_family || 'Microsoft YaHei').trim() || 'Microsoft YaHei';
-    const nextLayers = [...(proposal.layers || [])]
-      .sort((a, b) => (a.z_index || 0) - (b.z_index || 0))
-      .reduce<BoardLayer[]>((result, layer, index) => {
-        const rect = layer.rect || { x: 0.1, y: 0.1, w: 0.3, h: 0.2 };
-        const x = clamp(Number(rect.x || 0) * canvasWidth, 0, canvasWidth);
-        const y = clamp(Number(rect.y || 0) * canvasHeight, 0, canvasHeight);
-        const w = clamp(Number(rect.w || 0.3) * canvasWidth, 80, canvasWidth);
-        const h = clamp(Number(rect.h || 0.2) * canvasHeight, 60, canvasHeight);
-        const layerId = nextLayerId();
-
-        if (layer.type === 'image') {
-          const source = layer.source || {};
-          const assetIndex = clamp(Number(source.asset_index || 0), 0, Math.max(selectedAssetLocalIds.length - 1, 0));
-          const assetLocalId = selectedAssetLocalIds[assetIndex] || selectedAssets[assetIndex]?.localId || null;
-          if (!assetLocalId) return result;
-          const style = layer.style || {};
-          result.push({
-            id: layerId,
-            type: 'image',
-            name: String(layer.name || layer.role || `图片 ${index + 1}`),
-            assetLocalId,
-            x,
-            y,
-            w: clamp(w, 120, canvasWidth),
-            h: clamp(h, 120, canvasHeight),
-            fit: 'contain',
-            radius: clamp(Number(style.radius || 0), 0, 160),
-            opacity: clamp(Number(style.opacity ?? 1), 0, 1),
-            showOriginal: true,
-            keepAspectRatio: true,
-            cropScale: 1,
-            cropOffsetX: 0,
-            cropOffsetY: 0,
-          });
-          return result;
-        }
-
-        const style = layer.style || {};
-        result.push({
-          id: layerId,
-          type: 'text',
-          name: String(layer.name || layer.role || `文字 ${index + 1}`),
-          text: String(layer.text_content || '').trim(),
-          x,
-          y,
-          w: clamp(w, 120, canvasWidth),
-          h: clamp(h, 60, canvasHeight),
-          fontSize: clamp((Number(style.font_size || 0.03) || 0.03) * canvasHeight, 12, 160),
-          fontWeight: clamp(Number(style.font_weight || 600), 300, 900),
-          fontFamily,
-          color: String(style.color || '#1F1F1F'),
-          background: String(style.background || 'transparent'),
-          align: style.align === 'center' || style.align === 'right' ? style.align : 'left',
-          lineHeight: 1.2,
-          padding: 0,
-        });
-        return result;
-      }, []);
-
-    if (nextLayers.length < 1) {
-      onAlert?.(tr('AI 排版方案中没有可用图层。', 'No usable layers were returned in this AI layout.'));
-      return;
+  const appendImportedAsset = (nextAsset: GalleryBoardAsset) => {
+    const imageUrl = String(nextAsset.imageUrl || '').trim();
+    if (!imageUrl) {
+      onAlert?.(tr('当前素材没有可用图片地址。', 'The selected asset does not have a usable image URL.'));
+      return false;
     }
 
-    setBoard({
-      templateId: String(proposal.id || inferAspectRatioId(canvasWidth, canvasHeight)),
-      canvasWidth,
-      canvasHeight,
-      background: backgroundColor,
-      backgroundImageAssetLocalId: null,
-      backgroundImageX: 0,
-      backgroundImageY: 0,
-      backgroundImageW: canvasWidth,
-      backgroundImageH: canvasHeight,
-      backgroundImageFit: 'cover',
-      backgroundImageOpacity: 1,
-      layers: nextLayers,
-      selectedLayerId: nextLayers[0]?.id || null,
-      selectedBackground: false,
+    const localId = String(nextAsset.localId || '').trim();
+    if (!localId) return false;
+
+    let inserted = false;
+    setLocalAssets((prev) => {
+      if (prev.some((item) => item.localId === localId) || assets.some((item) => item.localId === localId)) {
+        return prev;
+      }
+      inserted = true;
+      return [{ ...nextAsset, imageUrl }, ...prev];
     });
-    setLeftPanelSections((prev) => ({ ...prev, aiLayouts: true }));
+
+    setSelectedAssetLocalIds((prev) => (prev.includes(localId) ? prev : [localId, ...prev]));
+    return inserted;
   };
 
-  const generateAiLayouts = async () => {
-    if (selectedAssets.length < 1) {
-      onAlert?.(tr('请先在右侧素材区勾选至少一张素材图。', 'Select at least one asset from the asset panel first.'));
-      return;
+  const resolveHistoryImageOutputType = (historyItem: GalleryBoardHistoryItem, imageUrl: string, imageIndex: number) => {
+    const metadata = historyItem.metadata && typeof historyItem.metadata === 'object' && !Array.isArray(historyItem.metadata)
+      ? historyItem.metadata
+      : {};
+
+    const outputTypesByUrl = (metadata as any).outputTypesByUrl;
+    if (outputTypesByUrl && typeof outputTypesByUrl === 'object') {
+      const mapped = String((outputTypesByUrl as any)[imageUrl] || '').trim();
+      if (mapped) return mapped;
     }
 
-    setIsGeneratingAiLayouts(true);
-    try {
-      setAiLayoutMessage('');
-      const selectedAssetsForLlm = await Promise.all(
-        selectedAssets.map(async (asset, index) => {
-          let imageUrl = String(asset.imageUrl || '').trim();
-          if (imageUrl.startsWith('blob:')) {
-            try {
-              const blobResponse = await fetch(imageUrl);
-              if (blobResponse.ok) {
-                const blob = await blobResponse.blob();
-                imageUrl = await blobToDataUrl(blob);
-              }
-            } catch {
-              imageUrl = String(asset.imageUrl || '').trim();
-            }
-          }
+    const imageTypes = Array.isArray((metadata as any).imageTypes) ? (metadata as any).imageTypes : [];
+    if (imageIndex >= 0 && imageIndex < imageTypes.length) {
+      const mapped = String(imageTypes[imageIndex] || '').trim();
+      if (mapped) return mapped;
+    }
 
-          return {
-            local_id: asset.localId,
-            name: `${tr('图片', 'Image')} ${index + 1}`,
-            image_url: imageUrl,
-          };
-        })
-      );
-      const response = await galleryApi.generateLayouts({
-        product_name: productName,
-        core_selling_points: sellingPoints.filter((item) => String(item || '').trim()),
-        aspect_ratio: currentCanvasPresetId === 'custom' ? inferAspectRatioId(board.canvasWidth, board.canvasHeight) : currentCanvasPresetId,
-        count: 3,
-        selected_assets: selectedAssetsForLlm,
+    const outputImages = Array.isArray((metadata as any).outputImages) ? (metadata as any).outputImages : [];
+    if (outputImages.length > 0) {
+      const matched = outputImages.find((item: any) => {
+        const itemUrl = String(item?.imageUrl || item?.downloadUrl || item?.url || item?.preview_url || item?.image_url || '').trim();
+        return itemUrl && itemUrl === imageUrl;
       });
-
-      const proposals = response?.data?.proposals || [];
-      setAiLayoutProposals(proposals);
-      setAiLayoutFallbackUsed(Boolean(response?.data?.fallback_used));
-      setAiLayoutMessage(String(response?.data?.warning || ''));
-      setLeftPanelSections((prev) => ({ ...prev, aiLayouts: true }));
-      if (proposals.length < 1) {
-        onAlert?.(tr('未生成可用的排版方案。', 'No usable layout proposals were generated.'));
-      }
-    } catch (error: any) {
-      setAiLayoutFallbackUsed(false);
-      setAiLayoutMessage('');
-      onAlert?.(String(error?.message || error || tr('生成 AI 排版失败。', 'Failed to generate AI layouts.')));
-    } finally {
-      setIsGeneratingAiLayouts(false);
+      const mapped = String(matched?.outputType || matched?.output_type || matched?.category || matched?.type || '').trim();
+      if (mapped) return mapped;
     }
+
+    const maybeResults = (metadata as any).results || (metadata as any).items || (metadata as any).outputs;
+    const results = Array.isArray(maybeResults) ? maybeResults : [];
+    if (results.length > 0) {
+      const matched = results.find((item: any) => {
+        const itemUrl = String(item?.preview_url || item?.image_url || item?.url || item?.src || '').trim();
+        return itemUrl && itemUrl === imageUrl;
+      });
+      const mapped = String(matched?.outputType || matched?.output_type || matched?.type || matched?.category || '').trim();
+      if (mapped) return mapped;
+    }
+
+    const selections = historyItem.settings?.typeSelections;
+    if (selections && typeof selections === 'object') {
+      const enabledKeys = Object.entries(selections)
+        .filter(([, value]) => Boolean(value?.enabled) && Number(value?.count || 0) > 0)
+        .map(([key]) => key);
+      if (enabledKeys.length === 1) return enabledKeys[0];
+    }
+
+    return '';
+  };
+
+  const getOutputTypeLabel = (outputType: string) => {
+    const cleaned = String(outputType || '').trim();
+    if (cleaned === 'white_bg') return tr('白底图', 'White Background');
+    if (cleaned === 'scene') return tr('场景图', 'Scene');
+    if (cleaned === 'selling_point') return tr('卖点图', 'Selling Point');
+    if (cleaned === 'cover') return tr('封面图', 'Cover');
+    if (cleaned === 'poster') return tr('海报图', 'Poster');
+    return cleaned;
+  };
+
+  const openLibraryPicker = () => {
+    setLibraryCurrentFolderId(null);
+    setLibraryError(null);
+    setIsLibraryPickerOpen(true);
+  };
+
+  const closeLibraryPicker = () => {
+    setIsLibraryPickerOpen(false);
+    setLibraryCurrentFolderId(null);
+    setLibraryError(null);
+    setLibraryItems([]);
+    setLibraryFolders([]);
+    setLibraryBreadcrumb([]);
+    setLibraryLoading(false);
+  };
+
+  const importHistoryAsset = (historyItem: GalleryBoardHistoryItem, imageUrl: string, imageIndex: number) =>
+    appendImportedAsset({
+      localId: `history-${historyItem.id}-${imageIndex}`,
+      requestId: `${tr('历史图片', 'History Image')} ${historyItem.createdAt}`,
+      imageUrl,
+      layout: null,
+    });
+
+  const importLibraryAsset = (asset: LibraryAsset) => {
+    appendImportedAsset({
+      localId: `library-${asset.type}-${asset.id}`,
+      requestId: asset.name || `asset-${asset.id}`,
+      imageUrl: String(asset.file_url || asset.thumbnail || '').trim(),
+      layout: null,
+    });
   };
 
   const removeSelectedLayer = () => {
@@ -2274,7 +2377,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                             className="relative mx-auto w-full overflow-hidden rounded-md"
                             style={{
                               aspectRatio: `${template.canvasWidth} / ${template.canvasHeight}`,
-                              background: template.background,
+                              background: TEMPLATE_PREVIEW_BACKGROUND,
                               border: isLightTheme
                                 ? '1px solid rgba(15, 23, 42, 0.18)'
                                 : '1px solid rgba(255, 255, 255, 0.06)',
@@ -2321,73 +2424,6 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
             ) : null}
           </div>
 
-          <div
-            className={`overflow-hidden rounded-2xl border ${
-              isLightTheme ? 'border-slate-200 bg-slate-50/90' : 'border-white/10 bg-black/20'
-            }`}
-          >
-            <button
-              type="button"
-              onClick={() => toggleLeftPanelSection('aiLayouts')}
-              className="flex w-full items-start justify-between gap-3 px-3 py-3 text-left"
-            >
-              <div>
-                <div className="text-xs font-bold uppercase tracking-[0.24em] text-zinc-500">
-                  {tr('AI排版方案', 'AI Layouts')}
-                </div>
-                <div className="mt-1 text-[11px] text-zinc-400">
-                  {tr('先在右侧勾选素材，再生成多套可编辑排版。', 'Select assets on the right, then generate editable layout ideas.')}
-                </div>
-              </div>
-              <ChevronDown
-                className={`mt-0.5 h-4 w-4 shrink-0 text-zinc-400 transition ${leftPanelSections.aiLayouts ? 'rotate-180' : ''}`}
-              />
-            </button>
-
-            {leftPanelSections.aiLayouts ? (
-              <div className="space-y-2 border-t border-white/10 px-3 pb-3 pt-3">
-                {isGeneratingAiLayouts ? (
-                  <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-4 text-sm text-zinc-400">
-                    {tr('正在生成 AI 排版方案...', 'Generating AI layout proposals...')}
-                  </div>
-                ) : aiLayoutProposals.length > 0 ? (
-                  aiLayoutProposals.map((proposal, index) => (
-                    <div key={proposal.id || index} className="rounded-xl border border-white/10 bg-black/20 p-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="text-xs font-semibold text-zinc-100">{proposal.name || `${tr('方案', 'Plan')} ${index + 1}`}</div>
-                          <div className="mt-1 text-[10px] text-zinc-500">
-                            {proposal.canvas?.aspect_ratio} · {proposal.canvas?.width} x {proposal.canvas?.height}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => applyAiLayoutProposal(proposal)}
-                          className="rounded-lg border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 text-[10px] font-semibold text-orange-200 transition hover:bg-orange-500/15"
-                        >
-                          {tr('应用', 'Apply')}
-                        </button>
-                      </div>
-                      {proposal.reason ? (
-                        <div className="mt-2 text-[11px] leading-5 text-zinc-400">{proposal.reason}</div>
-                      ) : null}
-                    </div>
-                  ))
-                ) : (
-                  <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-4 text-sm text-zinc-500">
-                    {tr('还没有生成方案。勾选素材后点击上方“生成AI排版”。', 'No proposals yet. Select assets and click Generate AI Layouts.')}
-                  </div>
-                )}
-
-                {aiLayoutMessage ? (
-                  <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-[11px] leading-5 text-zinc-500">
-                    {aiLayoutFallbackUsed ? tr('当前显示的是稳定回退方案：', 'Showing fallback proposals: ') : ''}
-                    {aiLayoutMessage}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
         </div>
       </aside>
 
@@ -2416,14 +2452,6 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={generateAiLayouts}
-              disabled={isGeneratingAiLayouts || selectedAssets.length < 1}
-              className="inline-flex items-center gap-2 rounded-xl border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs font-semibold text-orange-200 transition hover:bg-orange-500/15 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {isGeneratingAiLayouts ? tr('生成中...', 'Generating...') : tr('生成AI排版', 'Generate AI Layouts')}
-            </button>
             <button
               type="button"
               onClick={addTextLayer}
@@ -3364,11 +3392,11 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
             {rightPanelSections.assets ? (
               <div className="border-t border-white/10 px-4 pb-4 pt-4">
-                <div className="flex items-start justify-between gap-3">
+                <div className="space-y-3">
                   <div className="text-[11px] text-zinc-500">
                     {tr('已选素材', 'Selected')} {selectedAssetLocalIds.length}
                   </div>
-                  <div className="shrink-0">
+                  <div className="flex flex-wrap items-center gap-2">
                     <input
                       ref={uploadInputRef}
                       type="file"
@@ -3383,6 +3411,21 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                       className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
                     >
                       {tr('上传素材', 'Upload Images')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openLibraryPicker}
+                      className="inline-flex items-center gap-2 rounded-xl border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs font-semibold text-orange-200 transition hover:bg-orange-500/15"
+                    >
+                      <Folder className="h-3.5 w-3.5" />
+                      {tr('从素材库导入', 'Import from Library')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsHistoryPickerOpen(true)}
+                      className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
+                    >
+                      {tr('从历史记录导入', 'Import from History')}
                     </button>
                   </div>
                 </div>
@@ -3472,7 +3515,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                     })
                   ) : (
                     <div className="col-span-2 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-500">
-                      {tr('当前还没有素材，可先上传本地图片后再加入画板。', 'There are no assets yet. Upload local images first, then add them to the board.')}
+                      {tr('当前还没有素材，可先上传本地图片，或从素材库、历史记录导入后再加入画板。', 'There are no assets yet. Upload local images or import from the library or history first, then add them to the board.')}
                     </div>
                   )}
                 </div>
@@ -3482,6 +3525,217 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
         </div>
       </aside>
       </div>
+
+      <AppDialog
+        isOpen={isHistoryPickerOpen}
+        title={tr('从历史图片生成记录导入', 'Import from Image History')}
+        subtitle={tr('历史生成图导入后会进入右侧素材区，可继续加入画板、替换图层或设为背景。', 'Imported history images will appear in the asset panel for board placement, replacement, or background use.')}
+        onClose={() => setIsHistoryPickerOpen(false)}
+        widthClassName="max-w-6xl"
+        contentClassName="overflow-hidden"
+        footer={
+          <button
+            type="button"
+            onClick={() => setIsHistoryPickerOpen(false)}
+            className="rounded-xl border border-white/10 bg-zinc-900/70 px-4 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
+          >
+            {tr('关闭', 'Close')}
+          </button>
+        }
+      >
+        <div className="min-h-[320px] max-h-[72vh] overflow-y-auto custom-scroll pr-1">
+          {historyImageEntries.length < 1 ? (
+            <div className="flex h-72 items-center justify-center text-sm text-zinc-500">
+              {tr('暂无可导入的历史图片生成记录。', 'No image generation history is available yet.')}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {historyImageEntries.map((entry) => {
+                const outputType = resolveHistoryImageOutputType(entry.item, entry.imageUrl, entry.imageIndex);
+                const outputTypeLabel = getOutputTypeLabel(outputType);
+                const localId = `history-${entry.historyId}-${entry.imageIndex}`;
+                const isImported = mergedAssets.some((item) => item.localId === localId);
+                return (
+                  <div key={localId} className="overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+                    <button
+                      type="button"
+                      onClick={() => openBoardImagePreview(entry.imageUrl)}
+                      className="block w-full"
+                    >
+                      <img src={entry.imageUrl} alt={localId} className="aspect-square w-full object-cover" />
+                    </button>
+                    <div className="border-t border-white/10 px-3 py-3">
+                      <div className="text-[11px] text-zinc-500">{entry.createdAt}</div>
+                      {outputTypeLabel ? (
+                        <div className="mt-1 truncate text-[11px] font-semibold text-zinc-300">{outputTypeLabel}</div>
+                      ) : null}
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openBoardImagePreview(entry.imageUrl)}
+                          className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
+                        >
+                          {tr('预览', 'Preview')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => importHistoryAsset(entry.item, entry.imageUrl, entry.imageIndex)}
+                          disabled={isImported}
+                          className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                            isImported
+                              ? 'cursor-default border border-white/10 bg-white/5 text-zinc-500'
+                              : 'bg-orange-500 text-black hover:bg-orange-400'
+                          }`}
+                        >
+                          {isImported ? tr('已导入', 'Imported') : tr('导入', 'Import')}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </AppDialog>
+
+      <AppDialog
+        isOpen={isLibraryPickerOpen}
+        title={tr('从素材库导入', 'Import from Library')}
+        subtitle={tr('导入后会进入右侧素材区，可继续加入画板、替换图层或设为背景。', 'Imported assets will appear in the asset panel for board placement, replacement, or background use.')}
+        onClose={closeLibraryPicker}
+        widthClassName="max-w-5xl"
+        contentClassName="overflow-hidden"
+        footer={
+          <button
+            type="button"
+            onClick={closeLibraryPicker}
+            className="rounded-xl border border-white/10 bg-zinc-900/70 px-4 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
+          >
+            {tr('关闭', 'Close')}
+          </button>
+        }
+      >
+        <div className="flex h-[min(72vh,680px)] flex-col gap-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {LIBRARY_PICKER_TYPE_OPTIONS.map((option) => {
+                const active = libraryAssetType === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      setLibraryAssetType(option.value);
+                      setLibraryCurrentFolderId(null);
+                    }}
+                    className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                      active
+                        ? 'border-orange-500/40 bg-orange-500/10 text-orange-200'
+                        : 'border-white/10 bg-zinc-900/70 text-zinc-300 hover:bg-zinc-800'
+                    }`}
+                  >
+                    {tr(option.zh, option.en)}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-zinc-500">
+              <button
+                type="button"
+                onClick={() => setLibraryCurrentFolderId(null)}
+                className={`transition hover:text-zinc-200 ${libraryCurrentFolderId === null ? 'text-zinc-200' : ''}`}
+              >
+                {tr('根目录', 'Root')}
+              </button>
+              {libraryBreadcrumb.map((folder) => (
+                <React.Fragment key={folder.id}>
+                  <span>/</span>
+                  <button
+                    type="button"
+                    onClick={() => setLibraryCurrentFolderId(folder.id)}
+                    className={`max-w-[180px] truncate transition hover:text-zinc-200 ${libraryCurrentFolderId === folder.id ? 'text-zinc-200' : ''}`}
+                  >
+                    {folder.name}
+                  </button>
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto custom-scroll pr-1">
+            {libraryLoading ? (
+              <div className="flex h-56 items-center justify-center text-sm text-zinc-400">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {tr('素材加载中...', 'Loading library assets...')}
+              </div>
+            ) : libraryError ? (
+              <div className="flex h-56 items-center justify-center text-sm text-red-300">
+                {libraryError}
+              </div>
+            ) : libraryItems.length < 1 && libraryFolders.length < 1 ? (
+              <div className="flex h-56 items-center justify-center text-sm text-zinc-500">
+                {tr('当前目录下暂无可用素材。', 'No usable assets were found in this folder.')}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                {libraryFolders.map((folder) => (
+                  <button
+                    key={folder.id}
+                    type="button"
+                    onClick={() => setLibraryCurrentFolderId(folder.id)}
+                    className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-white/10 bg-black/20 p-4 text-center transition hover:border-orange-500/40 hover:bg-white/5"
+                  >
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-900/80">
+                      <Folder className="h-5 w-5 text-zinc-300" />
+                    </div>
+                    <div className="w-full truncate text-xs font-semibold text-zinc-200">{folder.name}</div>
+                  </button>
+                ))}
+
+                {libraryItems.map((asset) => {
+                  const previewUrl = String(asset.thumbnail || asset.file_url || '').trim();
+                  const localId = `library-${asset.type}-${asset.id}`;
+                  const isImported = mergedAssets.some((item) => item.localId === localId);
+                  return (
+                    <div
+                      key={`${asset.type}-${asset.id}`}
+                      className="flex flex-col rounded-2xl border border-white/10 bg-black/20 p-2.5"
+                    >
+                      <div className="overflow-hidden rounded-xl border border-white/10 bg-zinc-950/70">
+                        {previewUrl ? (
+                          <img src={previewUrl} alt={asset.name} className="aspect-[4/5] w-full object-cover" />
+                        ) : (
+                          <div className="flex aspect-[4/5] items-center justify-center text-xs text-zinc-500">
+                            {tr('无预览', 'No Preview')}
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-2 truncate text-xs font-semibold text-zinc-200">{asset.name || `asset-${asset.id}`}</div>
+                      <div className="mt-1 text-[10px] text-zinc-500">
+                        {tr(asset.type === 'scene' ? '场景素材' : '商品素材', asset.type === 'scene' ? 'Scene Asset' : 'Product Asset')}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => importLibraryAsset(asset)}
+                        disabled={isImported}
+                        className={`mt-3 rounded-xl px-3 py-2 text-[11px] font-semibold transition ${
+                          isImported
+                            ? 'cursor-default border border-white/10 bg-white/5 text-zinc-500'
+                            : 'border border-orange-500/30 bg-orange-500/10 text-orange-200 hover:bg-orange-500/15'
+                        }`}
+                      >
+                        {isImported ? tr('已导入', 'Imported') : tr('导入到素材区', 'Import')}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </AppDialog>
 
       <AppDialog
         isOpen={Boolean(previewImageUrl)}

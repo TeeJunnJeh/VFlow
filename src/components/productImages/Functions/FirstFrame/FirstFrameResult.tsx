@@ -7,10 +7,11 @@ interface FirstFrameResultProps {
   results: ProductImageResult[];
   isLoading?: boolean;
   elapsedSeconds?: number | null;
+  selectionKey?: string;
   onRegenerate: () => void;
   onDownload: (imageId: string, filename?: string) => Promise<void>;
   onDownloadAll: (prefix: string) => Promise<void>;
-  onSetAsFirstFrame: (imageId: string) => void;
+  onSaveToAssets: (imageId: string) => Promise<boolean>;
   onNextStep: (imageId: string) => void;
 }
 
@@ -31,15 +32,18 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
   results,
   isLoading = false,
   elapsedSeconds = null,
+  selectionKey,
   onRegenerate,
   onDownload,
   onDownloadAll,
-  onSetAsFirstFrame,
+  onSaveToAssets,
   onNextStep,
 }) => {
   const { t } = useLanguage();
 
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [selectedImageId, setSelectedImageId] = useState<string | null>(results[0]?.id || null);
   const [showFullImage, setShowFullImage] = useState(false);
   const [filenamePrefix, setFilenamePrefix] = useState('ai_first_frame');
@@ -56,6 +60,10 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
       setSelectedImageId(results[0].id);
     }
   }, [results, selectedImageId]);
+
+  useEffect(() => {
+    setSelectedImageId(results[0]?.id || null);
+  }, [results, selectionKey]);
 
   const selectedImage = results.find((r) => r.id === selectedImageId) || results[0] || null;
 
@@ -168,6 +176,24 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
     }
   };
 
+  const handleSaveToAssets = async (imageId: string) => {
+    if (savingIds.has(imageId) || savedIds.has(imageId)) return;
+
+    setSavingIds((prev) => new Set(prev).add(imageId));
+    try {
+      const saved = await onSaveToAssets(imageId);
+      if (saved) {
+        setSavedIds((prev) => new Set(prev).add(imageId));
+      }
+    } finally {
+      setSavingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(imageId);
+        return next;
+      });
+    }
+  };
+
   return (
     <div className="w-full space-y-6">
       <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
@@ -247,10 +273,15 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
               {downloadingIds.has(selectedImage.id) ? t.ff_downloading : t.ff_download_image}
             </button>
             <button
-              onClick={() => onSetAsFirstFrame(selectedImage.id)}
-              className="flex items-center justify-center gap-2 rounded-xl border border-orange-500/40 bg-orange-500/10 px-4 py-3 text-sm font-bold text-orange-300 transition hover:bg-orange-500/20"
+              onClick={() => void handleSaveToAssets(selectedImage.id)}
+              disabled={savingIds.has(selectedImage.id) || savedIds.has(selectedImage.id)}
+              className="flex items-center justify-center gap-2 rounded-xl border border-orange-500/40 bg-orange-500/10 px-4 py-3 text-sm font-bold text-orange-300 transition hover:bg-orange-500/20 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {t.ff_set_as_workbench_first_frame}
+              {savedIds.has(selectedImage.id)
+                ? t.ff_saved_to_image_assets
+                : savingIds.has(selectedImage.id)
+                  ? t.ff_saving_to_image_assets
+                  : t.ff_save_to_image_assets}
             </button>
           </div>
 

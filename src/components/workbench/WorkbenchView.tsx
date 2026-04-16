@@ -4106,7 +4106,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const prompt = aiOptimizePrompt.trim();
     if (!prompt) {
-      openInfo(popupTitles.notice, t.wb_ai_opt_need_prompt || '请先生成或填写提示词脚本。');
+      openInfo(popupTitles.notice, t.wb_prompt_script_required || '请先生成或填写提示词脚本。');
       return;
     }
 
@@ -10963,7 +10963,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       >
                         {isAiOptimizePromptGenerating
                           ? (t.wb_ai_opt_prompt_generating || '生成中...')
-                          : (t.wb_ai_opt_build_prompt_btn || '生成提示词脚本')}
+                          : (t.wb_prompt_script_generate_btn || '生成提示词脚本')}
                       </button>
                       <button
                           type="button"

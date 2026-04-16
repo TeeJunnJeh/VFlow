@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { ChevronDown, Eye, Image as ImageIcon, LayoutGrid, Minus, Plus, RotateCw, Sparkles, Upload, Wand2, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ChevronLeft, Eye, Image as ImageIcon, LayoutGrid, Minus, Plus, RotateCw, Sparkles, Upload, Wand2, X } from 'lucide-react';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import type { ViewType } from '../../../workbench/types';
 import type { LoadingTheme } from '../../../../utils/loadingTheme';
@@ -17,6 +17,8 @@ type GalleryOutputItemConfig = {
   resolution: '1k' | '2k' | '4k';
   count: number;
   title?: string;
+  modelCardId?: string;
+  sceneCardId?: string;
   layout?: string;
   copy?: {
     headline?: string;
@@ -25,6 +27,44 @@ type GalleryOutputItemConfig = {
     bulletPoints?: string[];
   };
   notes?: string;
+  prompt?: string;
+  cardConfig?: {
+    visualFocus?: string;
+    compositionHint?: string;
+    copyTone?: string;
+    negativeHints?: string;
+    sellingPointText?: string;
+    headlineFocus?: string;
+    heroStyle?: string;
+    campaignAngle?: string;
+    promotionTone?: string;
+    copyBlockDensity?: string;
+    backgroundStyle?: string;
+    displayAngle?: string;
+  };
+};
+
+type GalleryModelCardConfig = {
+  id: string;
+  name: string;
+  imagePath?: string;
+  modelInfo?: string;
+  imageFile?: File | null;
+  imagePreviewUrl?: string | null;
+};
+
+type GallerySceneCardConfig = {
+  id: string;
+  name: string;
+  sourceMode: 'preset' | 'custom';
+  presetId?: string;
+  sceneConfig: {
+    sceneTheme: string;
+    sceneDescription: string;
+    sceneProps: string;
+    lighting: string;
+    mood: string;
+  };
 };
 
 export type ImagesGalleryViewProps = {
@@ -59,16 +99,12 @@ export type ImagesGalleryViewProps = {
   hotStyleError: string | null;
   handleHotStyleAnalyze: () => void;
 
-  isGalleryModelInfoOpen: boolean;
-  setIsGalleryModelInfoOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  galleryModelImagePreviewUrl: string | null;
-  galleryModelImagePath: string;
-  galleryModelFileInputRef: React.RefObject<HTMLInputElement | null>;
-  setGalleryModelImageFile: (file: File | null) => void;
-  setGalleryModelImagePath: (path: string) => void;
-  galleryModelInfo: string;
-  setGalleryModelInfo: (info: string) => void;
-  handleGalleryModelFileSelection: (picked: File[]) => void;
+  galleryModelCards: GalleryModelCardConfig[];
+  setGalleryModelCards: React.Dispatch<React.SetStateAction<GalleryModelCardConfig[]>>;
+  addGalleryModelCard: () => void;
+  removeGalleryModelCard: (cardId: string) => void;
+  clearGalleryModelCardImage: (cardId: string) => void;
+  handleGalleryModelCardFileSelection: (cardId: string, picked: File[]) => void;
 
   galleryTargetScene: 'detail' | 'xiaohongshu' | 'douyin' | 'poster' | 'ads';
   setGalleryTargetScene: React.Dispatch<React.SetStateAction<'detail' | 'xiaohongshu' | 'douyin' | 'poster' | 'ads'>>;
@@ -78,21 +114,14 @@ export type ImagesGalleryViewProps = {
   setGalleryCopyLanguage: (v: string) => void;
   GALLERY_COPY_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: string }>;
 
-  galleryScenePresetId: string;
   GALLERY_SCENE_PRESETS: Array<{ id: string; name: string }>;
-  clearGallerySceneConfig: () => void;
-  applyGalleryScenePreset: (id: string) => void;
-
-  gallerySceneTheme: string;
-  setGallerySceneTheme: (v: string) => void;
-  gallerySceneMood: string;
-  setGallerySceneMood: (v: string) => void;
-  gallerySceneDescription: string;
-  setGallerySceneDescription: (v: string) => void;
-  gallerySceneProps: string;
-  setGallerySceneProps: (v: string) => void;
-  gallerySceneLighting: string;
-  setGallerySceneLighting: (v: string) => void;
+  gallerySceneCards: GallerySceneCardConfig[];
+  setGallerySceneCards: React.Dispatch<React.SetStateAction<GallerySceneCardConfig[]>>;
+  addGallerySceneCard: () => void;
+  removeGallerySceneCard: (cardId: string) => void;
+  applyGalleryScenePresetToCard: (id: string) => GallerySceneCardConfig['sceneConfig'];
+  galleryResourceGuide: { target: 'model' | 'scene' | null; token: number };
+  guideGalleryResourceSection: (target: 'model' | 'scene') => void;
 
   galleryOutputMode: 'custom' | 'ai';
   setGalleryOutputMode: React.Dispatch<React.SetStateAction<'custom' | 'ai'>>;
@@ -295,6 +324,10 @@ const GalleryLoadingCard: React.FC<{
 const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
   const [leftWidth, setLeftWidth] = useState<number>(GALLERY_PANEL_DEFAULT_WIDTH);
   const [middleWidth, setMiddleWidth] = useState<number>(GALLERY_PANEL_DEFAULT_WIDTH);
+  const [isBasicsCollapsed, setIsBasicsCollapsed] = useState(false);
+  const [resourceHighlight, setResourceHighlight] = useState<'model' | 'scene' | null>(null);
+  const modelSectionRef = useRef<HTMLDivElement | null>(null);
+  const sceneSectionRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const savedLeftWidth = localStorage.getItem('gallery_left_width');
@@ -391,16 +424,12 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     hotStyleError,
     handleHotStyleAnalyze,
 
-    isGalleryModelInfoOpen,
-    setIsGalleryModelInfoOpen,
-    galleryModelImagePreviewUrl,
-    galleryModelImagePath,
-    galleryModelFileInputRef,
-    setGalleryModelImageFile,
-    setGalleryModelImagePath,
-    galleryModelInfo,
-    setGalleryModelInfo,
-    handleGalleryModelFileSelection,
+    galleryModelCards,
+    setGalleryModelCards,
+    addGalleryModelCard,
+    removeGalleryModelCard,
+    clearGalleryModelCardImage,
+    handleGalleryModelCardFileSelection,
 
     galleryTargetScene,
     setGalleryTargetScene,
@@ -410,21 +439,14 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     setGalleryCopyLanguage,
     GALLERY_COPY_LANGUAGE_OPTIONS,
 
-    galleryScenePresetId,
     GALLERY_SCENE_PRESETS,
-    clearGallerySceneConfig,
-    applyGalleryScenePreset,
-
-    gallerySceneTheme,
-    setGallerySceneTheme,
-    gallerySceneMood,
-    setGallerySceneMood,
-    gallerySceneDescription,
-    setGallerySceneDescription,
-    gallerySceneProps,
-    setGallerySceneProps,
-    gallerySceneLighting,
-    setGallerySceneLighting,
+    gallerySceneCards,
+    setGallerySceneCards,
+    addGallerySceneCard,
+    removeGallerySceneCard,
+    applyGalleryScenePresetToCard,
+    galleryResourceGuide,
+    guideGalleryResourceSection,
 
     galleryOutputMode,
     setGalleryOutputMode,
@@ -454,6 +476,132 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
   } = props;
 
   const galleryPreviewAspectClass = React.useMemo(() => getGalleryPreviewAspectClass(galleryPreviewAspectRatio), [galleryPreviewAspectRatio]);
+
+  useEffect(() => {
+    const target = galleryResourceGuide.target;
+    if (!target) return;
+    const targetRef = target === 'model' ? modelSectionRef : sceneSectionRef;
+    targetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setResourceHighlight(target);
+    const timer = window.setTimeout(() => setResourceHighlight((current) => (current === target ? null : current)), 2200);
+    return () => window.clearTimeout(timer);
+  }, [galleryResourceGuide.target, galleryResourceGuide.token]);
+
+  const updateOutputItem = (itemId: string, updater: (item: GalleryOutputItemConfig) => GalleryOutputItemConfig) => {
+    setGalleryOutputItems((prev) => prev.map((item) => (item.id === itemId ? updater(item) : item)));
+  };
+
+  const galleryOptimizingItemIds: Record<string, boolean> = {};
+
+  const getModelCardName = (cardId?: string) => {
+    const id = String(cardId || '').trim();
+    if (!id) return '';
+    return String(galleryModelCards.find((card) => card.id === id)?.name || '').trim();
+  };
+
+  const getSceneCardName = (cardId?: string) => {
+    const id = String(cardId || '').trim();
+    if (!id) return '';
+    return String(gallerySceneCards.find((card) => card.id === id)?.name || '').trim();
+  };
+
+  const buildCardConfigFields = (outputType: GalleryOutputItemConfig['outputType']) => {
+    const common = [
+      {
+        key: 'visualFocus',
+        label: tr('视觉重点', 'Visual Focus'),
+        placeholder: tr('例如：突出材质、肤感、包装细节', 'e.g. emphasize texture, skin feel, packaging details'),
+      },
+      {
+        key: 'compositionHint',
+        label: tr('构图补充', 'Composition Hint'),
+        placeholder: tr('例如：低机位、近景、留白偏右', 'e.g. low angle, close-up, whitespace on the right'),
+      },
+      {
+        key: 'copyTone',
+        label: tr('文案语气', 'Copy Tone'),
+        placeholder: tr('例如：专业、温柔、种草感', 'e.g. professional, warm, social-proof tone'),
+      },
+      {
+        key: 'negativeHints',
+        label: tr('避坑提示', 'Negative Hints'),
+        placeholder: tr('例如：不要悬浮道具、不要强烈镜面反射', 'e.g. avoid floating props, avoid strong mirror reflection'),
+      },
+    ];
+
+    const typeSpecific =
+      outputType === 'selling_point'
+        ? [
+            {
+              key: 'sellingPointText',
+              label: tr('聚焦卖点', 'Focused Selling Point'),
+              placeholder: tr('例如：72h 持妆、防水不假面', 'e.g. 72h long-wear, waterproof, no cakey finish'),
+            },
+            {
+              key: 'headlineFocus',
+              label: tr('标题焦点', 'Headline Focus'),
+              placeholder: tr('例如：更适合放大的利益点短句', 'e.g. short benefit statement for headline area'),
+            },
+          ]
+        : outputType === 'scene'
+          ? [
+              {
+                key: 'backgroundStyle',
+                label: tr('场景风格', 'Background Style'),
+                placeholder: tr('例如：厨房台面、露营草地、浴室石材', 'e.g. kitchen counter, picnic lawn, bathroom stone'),
+              },
+              {
+                key: 'displayAngle',
+                label: tr('展示角度', 'Display Angle'),
+                placeholder: tr('例如：45 度半俯视、平视近景', 'e.g. 45-degree top angle, eye-level close shot'),
+              },
+            ]
+          : outputType === 'cover'
+            ? [
+                {
+                  key: 'heroStyle',
+                  label: tr('主视觉风格', 'Hero Style'),
+                  placeholder: tr('例如：高质感、极简、品牌首图感', 'e.g. premium, minimal, hero-cover feel'),
+                },
+                {
+                  key: 'headlineFocus',
+                  label: tr('标题焦点', 'Headline Focus'),
+                  placeholder: tr('例如：适合封面第一眼识别的信息', 'e.g. first-glance message for cover image'),
+                },
+              ]
+            : outputType === 'poster'
+              ? [
+                  {
+                    key: 'campaignAngle',
+                    label: tr('活动角度', 'Campaign Angle'),
+                    placeholder: tr('例如：节日促销、礼赠、明星单品', 'e.g. festival promo, gifting, hero product'),
+                  },
+                  {
+                    key: 'promotionTone',
+                    label: tr('海报调性', 'Promotion Tone'),
+                    placeholder: tr('例如：强促销、轻奢、高端品牌感', 'e.g. hard sale, premium, luxury feel'),
+                  },
+                  {
+                    key: 'copyBlockDensity',
+                    label: tr('文案区密度', 'Copy Block Density'),
+                    placeholder: tr('例如：大标题+副标题，或多块信息位', 'e.g. large headline + subheadline, or multi-block text zones'),
+                  },
+                ]
+              : [
+                  {
+                    key: 'displayAngle',
+                    label: tr('展示角度', 'Display Angle'),
+                    placeholder: tr('例如：正面、45 度、俯拍', 'e.g. front, 45-degree, top shot'),
+                  },
+                  {
+                    key: 'backgroundStyle',
+                    label: tr('背景处理', 'Background Treatment'),
+                    placeholder: tr('例如：纯白、浅灰渐变、柔和阴影', 'e.g. pure white, light gray gradient, soft shadow'),
+                  },
+                ];
+
+    return [...common, ...typeSpecific] as Array<{ key: string; label: string; placeholder: string }>;
+  };
 
   return (
     <div className={`${panelClassName('product_images_gallery')} h-full min-h-0 flex flex-col px-10 py-6`}>
@@ -748,89 +896,313 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
             )}
           </div>
 
-          <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-bold text-zinc-200">{tr('模特信息', 'Model Info')}</div>
+          <div
+            ref={modelSectionRef}
+            className={`rounded-2xl border p-5 transition ${resourceHighlight === 'model' ? 'border-orange-500/60 bg-orange-500/5' : 'border-white/5 bg-white/2'}`}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-bold text-zinc-200">{tr('模特资源', 'Model Resources')}</div>
+                <div className="mt-1 text-[11px] text-zinc-500">
+                  {tr('每张模特卡保留姓名、照片和可选描述，供不同出图卡绑定。', 'Each model card stores a name, photo, and optional notes for output cards to bind.')}
+                </div>
+              </div>
               <button
                 type="button"
-                onClick={() => setIsGalleryModelInfoOpen((prev: boolean) => !prev)}
-                className="w-9 h-9 rounded-xl border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 flex items-center justify-center"
-                aria-label={isGalleryModelInfoOpen ? tr('收起', 'Collapse') : tr('展开', 'Expand')}
+                onClick={() => {
+                  guideGalleryResourceSection('model');
+                  addGalleryModelCard();
+                }}
+                className="shrink-0 px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800"
               >
-                <ChevronDown className={`w-4 h-4 transition-transform ${isGalleryModelInfoOpen ? 'rotate-180' : ''}`} />
+                {tr('新增模特', 'Add Model')}
               </button>
             </div>
 
-            {isGalleryModelInfoOpen ? (
-              <div className="mt-4 space-y-4">
-                <div className="space-y-2">
-                  <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('模特照片', 'Model Photo')}</div>
-                  <div className="flex items-start gap-3">
-                    <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-white/10 bg-black/20 shrink-0">
-                      {galleryModelImagePreviewUrl || galleryModelImagePath ? (
-                        <img
-                          src={galleryModelImagePreviewUrl || galleryModelImagePath}
-                          className="w-full h-full object-cover"
-                          alt={tr('模特照片', 'Model Photo')}
-                        />
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => galleryModelFileInputRef.current?.click()}
-                          className="w-full h-full text-zinc-500 hover:text-zinc-300 hover:bg-white/5 transition flex items-center justify-center"
-                        >
-                          <Upload className="w-5 h-5" />
-                        </button>
-                      )}
-                      {galleryModelImagePreviewUrl || galleryModelImagePath ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setGalleryModelImageFile(null);
-                            setGalleryModelImagePath('');
-                          }}
-                          className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 border border-white/10 text-zinc-200 hover:text-white hover:bg-black/80 transition flex items-center justify-center"
-                          aria-label={tr('移除', 'Remove')}
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      ) : null}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <button
-                        type="button"
-                        onClick={() => galleryModelFileInputRef.current?.click()}
-                        className="px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800"
-                      >
-                        {tr('上传模特照片', 'Upload Model Photo')}
-                      </button>
-                      <div className="mt-2 text-[11px] text-zinc-500">
-                        {tr('可选：用于生成含模特出镜的场景/封面/海报图。', 'Optional: used for scene/cover/poster images with the model.')}
-                      </div>
-                    </div>
+            <div className="mt-4 space-y-3">
+              {galleryModelCards.length === 0 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    guideGalleryResourceSection('model');
+                    addGalleryModelCard();
+                  }}
+                  className="w-full rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-left text-zinc-400 hover:border-orange-500/40 hover:text-zinc-200 transition"
+                >
+                  <div className="text-sm font-bold">{tr('暂无模特卡片，点击去创建', 'No model cards yet. Click to create one')}</div>
+                  <div className="mt-1 text-[11px] text-zinc-500">
+                    {tr('模特照片为必填，信息描述可选。', 'Model photo is required and the info field is optional.')}
                   </div>
-                  <input
-                    ref={galleryModelFileInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => handleGalleryModelFileSelection(Array.from(e.target.files || []))}
-                  />
-                </div>
+                </button>
+              ) : (
+                galleryModelCards.map((card) => {
+                  const uploadInputId = `gallery-model-upload-${card.id}`;
+                  const previewSrc = String(card.imagePreviewUrl || card.imagePath || '').trim();
+                  return (
+                    <div key={card.id} className="rounded-xl border border-white/10 bg-black/20 p-3 space-y-3">
+                      <div className="flex items-center gap-3">
+                        <input
+                          value={String(card.name || '')}
+                          onChange={(e) =>
+                            setGalleryModelCards((prev) =>
+                              prev.map((item) => (item.id === card.id ? { ...item, name: e.target.value } : item))
+                            )
+                          }
+                          className="flex-1 bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
+                          placeholder={tr('例如：模特1', 'e.g. Model 1')}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeGalleryModelCard(card.id)}
+                          className="w-9 h-9 rounded-xl border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 flex items-center justify-center"
+                          title={tr('删除模特卡', 'Delete model card')}
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
 
-                <div className="space-y-2">
-                  <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('模特信息', 'Model Details')}</div>
-                  <textarea
-                    value={galleryModelInfo}
-                    onChange={(e) => setGalleryModelInfo(e.target.value)}
-                    rows={4}
-                    className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
-                    placeholder={tr('例如：女性，20-30岁，干净自然妆容，黑色长发，休闲运动风穿搭。', 'E.g. Female, 20-30, natural makeup, long black hair, casual sporty outfit.')}
-                  />
+                      <div className="flex items-start gap-3">
+                        <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-white/10 bg-black/30 shrink-0">
+                          {previewSrc ? (
+                            <img src={previewSrc} className="w-full h-full object-cover" alt={String(card.name || 'model')} />
+                          ) : (
+                            <label htmlFor={uploadInputId} className="w-full h-full flex items-center justify-center text-zinc-500 hover:text-zinc-300 cursor-pointer">
+                              <Upload className="w-5 h-5" />
+                            </label>
+                          )}
+                          {previewSrc ? (
+                            <button
+                              type="button"
+                              onClick={() => clearGalleryModelCardImage(card.id)}
+                              className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 border border-white/10 text-zinc-200 hover:text-white hover:bg-black/80 transition flex items-center justify-center"
+                              aria-label={tr('移除', 'Remove')}
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          ) : null}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <label
+                            htmlFor={uploadInputId}
+                            className="inline-flex px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+                          >
+                            {previewSrc ? tr('更换照片', 'Replace Photo') : tr('上传照片', 'Upload Photo')}
+                          </label>
+                          <div className="mt-2 text-[11px] text-zinc-500">
+                            {tr('模特照片必填，用于商品出镜参考。', 'A model photo is required when the output needs a model reference.')}
+                          </div>
+                          <input
+                            id={uploadInputId}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => handleGalleryModelCardFileSelection(card.id, Array.from(e.target.files || []))}
+                          />
+                        </div>
+                      </div>
+
+                      <textarea
+                        value={String(card.modelInfo || '')}
+                        onChange={(e) =>
+                          setGalleryModelCards((prev) =>
+                            prev.map((item) => (item.id === card.id ? { ...item, modelInfo: e.target.value } : item))
+                          )
+                        }
+                        rows={3}
+                        className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
+                        placeholder={tr('可选：例如年龄、妆容、发型、服装风格、动作气质等。', 'Optional: e.g. age, makeup, hairstyle, outfit style, pose and mood.')}
+                      />
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div
+            ref={sceneSectionRef}
+            className={`rounded-2xl border p-5 transition ${resourceHighlight === 'scene' ? 'border-orange-500/60 bg-orange-500/5' : 'border-white/5 bg-white/2'}`}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-bold text-zinc-200">{tr('场景资源', 'Scene Resources')}</div>
+                <div className="mt-1 text-[11px] text-zinc-500">
+                  {tr('支持自定义场景，也支持从预设快速创建，再由出图卡按卡片名映射选择。', 'Create scenes from presets or customize them, then bind output cards by scene card name.')}
                 </div>
               </div>
-            ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  guideGalleryResourceSection('scene');
+                  addGallerySceneCard();
+                }}
+                className="shrink-0 px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800"
+              >
+                {tr('新增场景', 'Add Scene')}
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {gallerySceneCards.length === 0 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    guideGalleryResourceSection('scene');
+                    addGallerySceneCard();
+                  }}
+                  className="w-full rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-left text-zinc-400 hover:border-orange-500/40 hover:text-zinc-200 transition"
+                >
+                  <div className="text-sm font-bold">{tr('暂无场景卡片，点击去创建', 'No scene cards yet. Click to create one')}</div>
+                  <div className="mt-1 text-[11px] text-zinc-500">
+                    {tr('可从预设开始，也可直接填写自己的主题、氛围和道具。', 'Start from a preset or directly fill your own theme, mood, and props.')}
+                  </div>
+                </button>
+              ) : (
+                gallerySceneCards.map((card) => (
+                  <div key={card.id} className="rounded-xl border border-white/10 bg-black/20 p-3 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <input
+                        value={String(card.name || '')}
+                        onChange={(e) =>
+                          setGallerySceneCards((prev) =>
+                            prev.map((item) => (item.id === card.id ? { ...item, name: e.target.value } : item))
+                          )
+                        }
+                        className="flex-1 bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
+                        placeholder={tr('例如：场景1', 'e.g. Scene 1')}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeGallerySceneCard(card.id)}
+                        className="w-9 h-9 rounded-xl border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 flex items-center justify-center"
+                        title={tr('删除场景卡', 'Delete scene card')}
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('预设场景', 'Preset Scene')}</div>
+                      <DropdownSelect
+                        value={String(card.presetId || 'custom')}
+                        options={[
+                          { value: 'custom', label: tr('自定义', 'Custom') },
+                          ...GALLERY_SCENE_PRESETS.map((item: any) => ({ value: item.id, label: item.name })),
+                        ]}
+                        onChange={(value) => {
+                          const presetId = String(value || 'custom');
+                          setGallerySceneCards((prev) =>
+                            prev.map((item) => {
+                              if (item.id !== card.id) return item;
+                              if (presetId === 'custom') {
+                                return { ...item, sourceMode: 'custom', presetId: '' };
+                              }
+                              return {
+                                ...item,
+                                sourceMode: 'preset',
+                                presetId,
+                                sceneConfig: applyGalleryScenePresetToCard(presetId),
+                              };
+                            })
+                          );
+                        }}
+                        buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                        iconClassName="w-4 h-4 text-zinc-500"
+                        optionClassName="text-xs"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="space-y-1">
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('场景主题', 'Scene Theme')}</div>
+                        <input
+                          type="text"
+                          value={String(card.sceneConfig?.sceneTheme || '')}
+                          onChange={(e) =>
+                            setGallerySceneCards((prev) =>
+                              prev.map((item) => (
+                                item.id === card.id ? { ...item, sceneConfig: { ...item.sceneConfig, sceneTheme: e.target.value } } : item
+                              ))
+                            )
+                          }
+                          className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
+                          placeholder={tr('例如：现代厨房台面', 'e.g. modern kitchen counter')}
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('氛围', 'Mood')}</div>
+                        <input
+                          type="text"
+                          value={String(card.sceneConfig?.mood || '')}
+                          onChange={(e) =>
+                            setGallerySceneCards((prev) =>
+                              prev.map((item) => (
+                                item.id === card.id ? { ...item, sceneConfig: { ...item.sceneConfig, mood: e.target.value } } : item
+                              ))
+                            )
+                          }
+                          className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
+                          placeholder={tr('例如：清新、日常、轻奢', 'e.g. fresh, everyday, premium')}
+                        />
+                      </label>
+                    </div>
+
+                    <label className="space-y-1">
+                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('场景描述', 'Scene Description')}</div>
+                      <textarea
+                        value={String(card.sceneConfig?.sceneDescription || '')}
+                        onChange={(e) =>
+                          setGallerySceneCards((prev) =>
+                            prev.map((item) => (
+                              item.id === card.id ? { ...item, sceneConfig: { ...item.sceneConfig, sceneDescription: e.target.value } } : item
+                            ))
+                          )
+                        }
+                        rows={2}
+                        className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
+                        placeholder={tr('描述环境、背景和商品所在位置。', 'Describe the environment, background, and where the product sits.')}
+                      />
+                    </label>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="space-y-1">
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('道具', 'Props')}</div>
+                        <input
+                          type="text"
+                          value={String(card.sceneConfig?.sceneProps || '')}
+                          onChange={(e) =>
+                            setGallerySceneCards((prev) =>
+                              prev.map((item) => (
+                                item.id === card.id ? { ...item, sceneConfig: { ...item.sceneConfig, sceneProps: e.target.value } } : item
+                              ))
+                            )
+                          }
+                          className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
+                          placeholder={tr('例如：玻璃杯、花束、毛巾', 'e.g. glass cup, flowers, towel')}
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('光线', 'Lighting')}</div>
+                        <input
+                          type="text"
+                          value={String(card.sceneConfig?.lighting || '')}
+                          onChange={(e) =>
+                            setGallerySceneCards((prev) =>
+                              prev.map((item) => (
+                                item.id === card.id ? { ...item, sceneConfig: { ...item.sceneConfig, lighting: e.target.value } } : item
+                              ))
+                            )
+                          }
+                          className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
+                          placeholder={tr('例如：侧前方柔光', 'e.g. soft side-front light')}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
 
@@ -852,7 +1224,19 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
             <div className="mt-4 p-4 rounded-xl border border-white/10 bg-black/20 space-y-6 flex-1">
               <div>
-                <div className="text-xs font-bold text-zinc-200">{t.pi_gallery_settings_section_basics}</div>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs font-bold text-zinc-200">{t.pi_gallery_settings_section_basics}</div>
+                  <button
+                    type="button"
+                    onClick={() => setIsBasicsCollapsed((prev) => !prev)}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400 transition hover:border-white/20 hover:bg-white/10 hover:text-zinc-200"
+                    aria-label={isBasicsCollapsed ? tr('展开基础配置', 'Expand Basics') : tr('收起基础配置', 'Collapse Basics')}
+                    title={isBasicsCollapsed ? tr('展开基础配置', 'Expand Basics') : tr('收起基础配置', 'Collapse Basics')}
+                  >
+                    <ChevronLeft className={`h-4 w-4 transition-transform ${isBasicsCollapsed ? '-rotate-90' : 'rotate-90'}`} />
+                  </button>
+                </div>
+                {!isBasicsCollapsed ? (
                 <div className="mt-3 grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.hist_img_setting_scene}</div>
@@ -901,90 +1285,11 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                     />
                   </div>
                 </div>
+                ) : null}
               </div>
 
-              <div>
-                <div className="text-xs font-bold text-zinc-200">{tr('场景设定', 'Scene Settings')}</div>
-                <div className="mt-3 space-y-3">
-                  <div className="space-y-2">
-                    <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('场景预设', 'Scene Preset')}</div>
-                    <DropdownSelect
-                      value={galleryScenePresetId || 'custom'}
-                      options={[
-                        { value: 'custom', label: tr('自定义', 'Custom') },
-                        ...GALLERY_SCENE_PRESETS.map((item: any) => ({ value: item.id, label: item.name })),
-                      ]}
-                      onChange={(value) => {
-                        const next = String(value || 'custom');
-                        if (next === 'custom') {
-                          clearGallerySceneConfig();
-                          return;
-                        }
-                        applyGalleryScenePreset(next);
-                      }}
-                      buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                      iconClassName="w-4 h-4 text-zinc-500"
-                      optionClassName="text-xs"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="space-y-1">
-                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('场景主题', 'Scene Theme')}</div>
-                      <input
-                        type="text"
-                        value={gallerySceneTheme}
-                        onChange={(e) => setGallerySceneTheme(e.target.value)}
-                        className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
-                        placeholder={tr('例如：现代厨房台面', 'e.g. modern kitchen counter')}
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('氛围', 'Mood')}</div>
-                      <input
-                        type="text"
-                        value={gallerySceneMood}
-                        onChange={(e) => setGallerySceneMood(e.target.value)}
-                        className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
-                        placeholder={tr('例如：清新生活感', 'e.g. fresh lifestyle')}
-                      />
-                    </label>
-                  </div>
-
-                  <label className="space-y-1">
-                    <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('场景描述', 'Scene Description')}</div>
-                    <textarea
-                      value={gallerySceneDescription}
-                      onChange={(e) => setGallerySceneDescription(e.target.value)}
-                      rows={2}
-                      className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
-                      placeholder={tr('描述环境、背景和构图关系', 'Describe environment, background and composition')}
-                    />
-                  </label>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="space-y-1">
-                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('道具', 'Props')}</div>
-                      <input
-                        type="text"
-                        value={gallerySceneProps}
-                        onChange={(e) => setGallerySceneProps(e.target.value)}
-                        className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
-                        placeholder={tr('例如：玻璃杯、绿植', 'e.g. glass cup, plant')}
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('光线', 'Lighting')}</div>
-                      <input
-                        type="text"
-                        value={gallerySceneLighting}
-                        onChange={(e) => setGallerySceneLighting(e.target.value)}
-                        className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
-                        placeholder={tr('例如：侧前方柔光', 'e.g. soft side-front light')}
-                      />
-                    </label>
-                  </div>
-                </div>
+              <div className="hidden">
+                {tr('模特和场景统一在左侧资源区维护。这里的出图卡只负责选择映射关系，并补充当前卡片的辅助生成信息。', 'Model and scene resources are managed on the left. Output cards here only choose bindings and provide card-specific generation hints.')}
               </div>
 
               <div>
@@ -1008,10 +1313,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                         setGalleryOutputMode('ai');
                         openGalleryAiOutputPlanner();
                       }}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition border ${
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition border ${
                         galleryOutputMode === 'ai'
-                          ? 'bg-orange-500/10 border-orange-500/40 text-orange-300'
-                          : 'bg-white/5 border-white/10 text-zinc-400 hover:text-zinc-200'
+                          ? 'border-orange-400/50 bg-orange-500/15 text-orange-200 shadow-[0_0_20px_rgba(249,115,22,0.18)]'
+                          : 'border-orange-500/30 bg-orange-500/10 text-orange-200 hover:bg-orange-500/15'
                       }`}
                     >
                       {tr('AI智能添加', 'AI Add')}
@@ -1020,26 +1325,42 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 </div>
 
                 <div className="mt-3 space-y-3">
-                  {galleryOutputItems.map((item) => (
-                    <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 space-y-2">
+                  {galleryOutputItems.map((item) => {
+                    const supportsResourceBinding = item.outputType !== 'white_bg';
+                    const selectedModelName = getModelCardName(item.modelCardId);
+                    const selectedSceneName = getSceneCardName(item.sceneCardId);
+                    const extraConfigFields = buildCardConfigFields(item.outputType);
+                    return (
+                    <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 space-y-3">
                       <div className="flex items-center justify-between gap-2">
                         <label className="flex items-center gap-2 text-xs text-zinc-200">
                           <input
                             type="checkbox"
                             checked={Boolean(item.enabled)}
-                            onChange={(e) => setGalleryOutputItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, enabled: e.target.checked } : it)))}
+                            onChange={(e) => updateOutputItem(item.id, (current) => ({ ...current, enabled: e.target.checked }))}
                             className="accent-orange-500"
                           />
                           <span className="font-bold">{tr('启用', 'Enabled')}</span>
                         </label>
 
-                        <button
-                          type="button"
-                          onClick={() => setGalleryOutputItems((prev) => prev.filter((it) => it.id !== item.id))}
-                          className="w-8 h-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 flex items-center justify-center"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => undefined}
+                            className="hidden"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            {galleryOptimizingItemIds[item.id] ? tr('优化中...', 'Optimizing...') : tr('AI优化', 'AI Optimize')}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setGalleryOutputItems((prev) => prev.filter((it) => it.id !== item.id))}
+                            className="w-8 h-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 flex items-center justify-center"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-3">
@@ -1061,7 +1382,12 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                                   raw === 'scene' || raw === 'selling_point' || raw === 'cover' || raw === 'poster'
                                     ? raw
                                     : 'white_bg';
-                                return { ...it, outputType: next as any };
+                                return {
+                                  ...it,
+                                  outputType: next as any,
+                                  modelCardId: next === 'white_bg' ? undefined : it.modelCardId,
+                                  sceneCardId: next === 'white_bg' ? undefined : it.sceneCardId,
+                                };
                               })
                             )
                           }
@@ -1138,6 +1464,87 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                         </div>
                       </div>
 
+                      {supportsResourceBinding ? (
+                        <div className="w-full">
+                          <div className="hidden">{tr('资源映射', 'Resource Binding')}</div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('模特', 'Model')}</div>
+                              {galleryModelCards.length > 0 ? (
+                                <>
+                                  <DropdownSelect
+                                    value={String(item.modelCardId || '')}
+                                    options={[
+                                      { value: '', label: tr('不使用模特', 'No Model') },
+                                      ...galleryModelCards.map((card) => ({ value: card.id, label: card.name || card.id })),
+                                    ]}
+                                    onChange={(value) => updateOutputItem(item.id, (current) => ({ ...current, modelCardId: String(value || '') || undefined }))}
+                                    buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                                    iconClassName="w-4 h-4 text-zinc-500"
+                                    optionClassName="text-xs"
+                                  />
+                                  <div className="hidden">
+                                    {item.modelCardId && !selectedModelName
+                                      ? tr('已绑定的模特卡不存在，请重新选择。', 'The bound model card no longer exists. Please reselect it.')
+                                      : selectedModelName
+                                        ? tr(`当前映射：${selectedModelName}`, `Current binding: ${selectedModelName}`)
+                                        : tr('未绑定模特卡', 'No model card bound')}
+                                  </div>
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    guideGalleryResourceSection('model');
+                                    addGalleryModelCard();
+                                  }}
+                                  className="w-full rounded-xl border border-dashed border-orange-500/30 bg-orange-500/5 px-3 py-2 text-xs font-bold text-orange-200 hover:bg-orange-500/10 transition"
+                                >
+                                  {tr('暂无模特卡，去创建', 'No model cards. Create one')}
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="space-y-1">
+                              <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('场景', 'Scene')}</div>
+                              {gallerySceneCards.length > 0 ? (
+                                <>
+                                  <DropdownSelect
+                                    value={String(item.sceneCardId || '')}
+                                    options={[
+                                      { value: '', label: tr('不使用场景', 'No Scene') },
+                                      ...gallerySceneCards.map((card) => ({ value: card.id, label: card.name || card.id })),
+                                    ]}
+                                    onChange={(value) => updateOutputItem(item.id, (current) => ({ ...current, sceneCardId: String(value || '') || undefined }))}
+                                    buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                                    iconClassName="w-4 h-4 text-zinc-500"
+                                    optionClassName="text-xs"
+                                  />
+                                  <div className="hidden">
+                                    {item.sceneCardId && !selectedSceneName
+                                      ? tr('已绑定的场景卡不存在，请重新选择。', 'The bound scene card no longer exists. Please reselect it.')
+                                      : selectedSceneName
+                                        ? tr(`当前映射：${selectedSceneName}`, `Current binding: ${selectedSceneName}`)
+                                        : tr('未绑定场景卡', 'No scene card bound')}
+                                  </div>
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    guideGalleryResourceSection('scene');
+                                    addGallerySceneCard();
+                                  }}
+                                  className="w-full rounded-xl border border-dashed border-orange-500/30 bg-orange-500/5 px-3 py-2 text-xs font-bold text-orange-200 hover:bg-orange-500/10 transition"
+                                >
+                                  {tr('暂无场景卡，去创建', 'No scene cards. Create one')}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+
                       <div className="space-y-1">
                         <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">
                           {tr('构图描述', 'Layout')}
@@ -1158,15 +1565,39 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                         />
                       </div>
 
-                      {item.title || item.layout || item.copy || item.notes ? (
+                      <div className="hidden">
+                        {extraConfigFields.map((field) => (
+                          <label key={`${item.id}-${field.key}`} className="space-y-1">
+                            <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{field.label}</div>
+                            <input
+                              type="text"
+                              value={String((item.cardConfig as any)?.[field.key] || '')}
+                              onChange={(e) =>
+                                updateOutputItem(item.id, (current) => ({
+                                  ...current,
+                                  cardConfig: {
+                                    ...(current.cardConfig || {}),
+                                    [field.key]: e.target.value,
+                                  },
+                                }))
+                              }
+                              className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
+                              placeholder={field.placeholder}
+                            />
+                          </label>
+                        ))}
+                      </div>
+
+                      {false ? (
                         <div className="text-[11px] text-zinc-500 space-y-1">
                           {item.title ? <div>{`${tr('方案', 'Title')}: ${String(item.title)}`}</div> : null}
-                          {item.copy?.headline ? <div>{`${tr('文案', 'Copy')}: ${String(item.copy.headline)}`}</div> : null}
+                          {item.copy?.headline ? <div>{`${tr('文案', 'Copy')}: ${String(item.copy?.headline)}`}</div> : null}
                           {item.notes ? <div>{`${tr('备注', 'Notes')}: ${String(item.notes)}`}</div> : null}
                         </div>
                       ) : null}
                     </div>
-                  ))}
+                    );
+                  })}
 
                   {galleryOutputMode === 'custom' ? (
                     <button

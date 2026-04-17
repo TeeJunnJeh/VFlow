@@ -9,10 +9,13 @@ import { FirstFrameResult } from './FirstFrameResult';
 import ResizableSplitter from '../../../common/ResizableSplitter';
 import { LoadingProgress } from '../../Common/LoadingProgress';
 import { ErrorDialog, type ErrorInfo } from '../../Common/ErrorDialog';
-import { downloadBlob, productImagesApi } from '../../../../services/productImagesApi';
+import { productImagesApi } from '../../../../services/productImagesApi';
+import { assetsApi } from '../../../../services/assets';
 import type { FirstFrameParams, ProductImageResult } from '../../../../types/productImages';
 import { deleteImageHistoryItem, notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
 import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../../../utils/loadingTheme';
+import { saveBlobWithPickerFallback } from '../../../../utils/browserDownload';
+import { useRequireAuth } from '../../../../utils/useRequireAuth';
 
 type Phase = 'upload' | 'form' | 'generating' | 'result' | 'error';
 
@@ -29,12 +32,14 @@ interface FirstFrameHistoryItem {
   workspaceOrder: number;
   createdAt: string;
   outputImages: ProductImageResult[];
+  elapsedSeconds: number | null;
 }
 
 interface FirstFrameViewProps {
   onBack?: () => void;
   projectId?: string;
   embedded?: boolean;
+  isVisible?: boolean;
   onApplyToWorkbench?: () => void;
   headerActionsContainer?: HTMLElement | null;
 }
@@ -45,9 +50,12 @@ const FIRST_FRAME_ACTIVE_WORKSPACE_KEY = 'vflow_first_frame_active_workspace_v1'
 const FIRST_FRAME_COUNTDOWN_SECONDS = 120;
 const FIRST_FRAME_PROGRESS_HOLD_MAX = 95;
 const FIRST_FRAME_PANEL_MIN_WIDTH = 280;
-const FIRST_FRAME_PANEL_MAX_WIDTH = 640;
-const FIRST_FRAME_LEFT_DEFAULT_WIDTH = 500;
-const FIRST_FRAME_MIDDLE_DEFAULT_WIDTH = 600;
+const FIRST_FRAME_PANEL_MAX_WIDTH = 720;
+const FIRST_FRAME_DEFAULT_LEFT_RATIO = 0.8;
+const FIRST_FRAME_DEFAULT_MIDDLE_RATIO = 1;
+const FIRST_FRAME_DEFAULT_RIGHT_RATIO = 1;
+const FIRST_FRAME_DEFAULT_TOTAL_RATIO =
+  FIRST_FRAME_DEFAULT_LEFT_RATIO + FIRST_FRAME_DEFAULT_MIDDLE_RATIO + FIRST_FRAME_DEFAULT_RIGHT_RATIO;
 
 const createDefaultWorkspaceMeta = (): FirstFrameWorkspaceMeta => ({
   id: 'ff-workspace-1',
@@ -56,12 +64,17 @@ const createDefaultWorkspaceMeta = (): FirstFrameWorkspaceMeta => ({
   updatedAt: Date.now(),
 });
 
-const sanitizeHistoryImage = (item: any, index: number): ProductImageResult | null => {
+const sanitizeHistoryImage = (item: any, index: number, historyId: string): ProductImageResult | null => {
   const imageUrl = String(item?.imageUrl || item?.downloadUrl || '').trim();
   if (!imageUrl) return null;
 
+  const rawId = String(item?.id || '').trim();
+  const namespacedId = rawId
+    ? `first-frame-history-${historyId}-${index}-${rawId}`
+    : `first-frame-history-${historyId}-${index}`;
+
   return {
-    id: String(item?.id || `first-frame-history-${Date.now()}-${index}`),
+    id: namespacedId,
     imageUrl,
     downloadUrl: String(item?.downloadUrl || imageUrl),
     format: String(item?.format || 'jpg'),
@@ -74,15 +87,21 @@ const sanitizeHistoryImage = (item: any, index: number): ProductImageResult | nu
 const mapImageHistoryToFirstFrameItem = (item: ImageHistoryItem): FirstFrameHistoryItem | null => {
   if (item.featureType !== 'first_frame') return null;
 
+  const historyId = String(item.id || '').trim();
   const outputImages = (Array.isArray(item.metadata?.outputImages)
     ? item.metadata.outputImages
-        .map((img: any, index: number) => sanitizeHistoryImage(img, index))
+        .map((img: any, index: number) => sanitizeHistoryImage(img, index, historyId))
         .filter(Boolean)
     : item.images
-        .map((imageUrl, index) => sanitizeHistoryImage({ imageUrl, downloadUrl: imageUrl }, index))
+        .map((imageUrl, index) => sanitizeHistoryImage({ imageUrl, downloadUrl: imageUrl }, index, historyId))
         .filter(Boolean)) as ProductImageResult[];
 
   if (outputImages.length === 0) return null;
+
+  const rawElapsedSeconds = Number(item.metadata?.elapsedSeconds ?? item.metadata?.elapsed_seconds);
+  const elapsedSeconds = Number.isFinite(rawElapsedSeconds) && rawElapsedSeconds > 0
+    ? Math.round(rawElapsedSeconds)
+    : null;
 
   return {
     id: item.id,
@@ -90,6 +109,7 @@ const mapImageHistoryToFirstFrameItem = (item: ImageHistoryItem): FirstFrameHist
     workspaceOrder: item.workspaceOrder || 1,
     createdAt: item.createdAt,
     outputImages,
+    elapsedSeconds,
   } satisfies FirstFrameHistoryItem;
 };
 
@@ -133,6 +153,7 @@ interface FirstFrameWorkspacePaneProps {
   workspaceOrder: number;
   workspaceLabel: string;
   projectId?: string;
+  isVisible?: boolean;
   onApplyToWorkbench?: () => void;
 }
 
@@ -141,12 +162,15 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   workspaceOrder,
   workspaceLabel,
   projectId,
+  isVisible = true,
   onApplyToWorkbench,
 }) => {
   const { t } = useLanguage();
+  const { requireAuth } = useRequireAuth();
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [leftWidth, setLeftWidth] = useState<number>(FIRST_FRAME_LEFT_DEFAULT_WIDTH);
-  const [middleWidth, setMiddleWidth] = useState<number>(FIRST_FRAME_MIDDLE_DEFAULT_WIDTH);
+  const previousContainerWidthRef = useRef(0);
+  const [leftWidth, setLeftWidth] = useState<number>(500);
+  const [middleWidth, setMiddleWidth] = useState<number>(600);
 
   const [phase, setPhase] = useState<Phase>('upload');
   const [images, setImages] = useState<File[]>([]);
@@ -157,6 +181,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const [rightPanel, setRightPanel] = useState<'preview' | 'history'>('preview');
   const [historyItems, setHistoryItems] = useState<FirstFrameHistoryItem[]>([]);
   const [lastElapsedSeconds, setLastElapsedSeconds] = useState<number | null>(null);
+  const [resultSelectionKey, setResultSelectionKey] = useState<string>('');
   const [loadingTheme, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
   const [loadingBackgroundSrc, setLoadingBackgroundSrc] = useState<string>('');
 
@@ -243,6 +268,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   }, []);
 
   const handleGenerateFormSubmit = async (params: FirstFrameParams) => {
+    if (!requireAuth()) return;
     if (images.length === 0) {
       setError({
         code: 'NO_IMAGES',
@@ -278,6 +304,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
       if (response.status === 'completed' && response.outputImages && response.outputImages.length > 0) {
         setResults(response.outputImages);
+        setResultSelectionKey(`generation:${workspaceId}:${Date.now()}`);
         await refreshWorkspaceHistory();
         notifyImageHistoryUpdated();
         setPhase('result');
@@ -352,7 +379,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
       const blob = await productImagesApi.downloadImageByUrl(selected.imageUrl);
       const nextName = filename || buildFileName('ai_first_frame', Math.max(index, 0), imageId);
-      downloadBlob(blob, nextName);
+      await saveBlobWithPickerFallback(blob, nextName);
     } catch {
       setError({
         code: 'DOWNLOAD_FAILED',
@@ -384,10 +411,42 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     onApplyToWorkbench?.();
   };
 
-  const handleSetAsFirstFrame = (imageId: string) => {
+  const buildAssetFileName = (image: ProductImageResult, index: number) => {
+    const rawFormat = String(image.format || '').trim().toLowerCase();
+    const url = String(image.imageUrl || '').toLowerCase();
+    const extension = rawFormat
+      || (url.endsWith('.png') ? 'png' : '')
+      || (url.endsWith('.webp') ? 'webp' : '')
+      || 'jpg';
+
+    const normalizedExtension = extension === 'jpeg' ? 'jpg' : extension;
+    return buildFileName('ai_first_frame', Math.max(index, 0), image.id).replace(/\.jpg$/i, `.${normalizedExtension}`);
+  };
+
+  const handleSaveToAssets = async (imageId: string): Promise<boolean> => {
+    if (!requireAuth()) return false;
+
     const image = results.find((r) => r.id === imageId);
-    if (!image) return;
-    applyToWorkbench(image);
+    if (!image) {
+      throw new Error('Selected image not found');
+    }
+
+    try {
+      const index = results.findIndex((item) => item.id === imageId);
+      const blob = await productImagesApi.downloadImageByUrl(image.imageUrl);
+      const fileName = buildAssetFileName(image, index);
+      const fileType = blob.type || `image/${fileName.toLowerCase().endsWith('.png') ? 'png' : fileName.toLowerCase().endsWith('.webp') ? 'webp' : 'jpeg'}`;
+      const file = new File([blob], fileName, { type: fileType });
+      await assetsApi.uploadAsset(file, 'product');
+      return true;
+    } catch (error) {
+      setError({
+        code: 'SAVE_TO_ASSETS_FAILED',
+        message: t.ff_error_save_to_image_assets_failed,
+        severity: 'error',
+      });
+      throw error;
+    }
   };
 
   const handleNextStep = (imageId: string) => {
@@ -406,7 +465,8 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const activateHistoryItem = (item: FirstFrameHistoryItem) => {
     if (!item.outputImages || item.outputImages.length === 0) return;
     setResults(item.outputImages);
-    setLastElapsedSeconds(null);
+    setLastElapsedSeconds(item.elapsedSeconds);
+    setResultSelectionKey(`history:${item.id}:${item.createdAt}`);
     setPhase('result');
     setProgress(100);
     setRightPanel('preview');
@@ -422,6 +482,41 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const clampPanelWidth = useCallback((requested: number, min: number, max: number) => (
     Math.min(Math.max(requested, min), max)
   ), []);
+
+  const computeDefaultPanelWidths = useCallback((containerWidth: number) => {
+    const leftRaw = (containerWidth * FIRST_FRAME_DEFAULT_LEFT_RATIO) / FIRST_FRAME_DEFAULT_TOTAL_RATIO;
+    const middleRaw = (containerWidth * FIRST_FRAME_DEFAULT_MIDDLE_RATIO) / FIRST_FRAME_DEFAULT_TOTAL_RATIO;
+
+    let nextLeft = clampPanelWidth(leftRaw, FIRST_FRAME_PANEL_MIN_WIDTH, FIRST_FRAME_PANEL_MAX_WIDTH);
+    let nextMiddle = clampPanelWidth(middleRaw, FIRST_FRAME_PANEL_MIN_WIDTH, FIRST_FRAME_PANEL_MAX_WIDTH);
+
+    const maxMiddleByContainer = containerWidth - nextLeft - FIRST_FRAME_PANEL_MIN_WIDTH;
+    nextMiddle = Math.max(
+      FIRST_FRAME_PANEL_MIN_WIDTH,
+      Math.min(nextMiddle, maxMiddleByContainer)
+    );
+
+    const maxLeftByContainer = containerWidth - nextMiddle - FIRST_FRAME_PANEL_MIN_WIDTH;
+    nextLeft = Math.max(
+      FIRST_FRAME_PANEL_MIN_WIDTH,
+      Math.min(nextLeft, maxLeftByContainer)
+    );
+
+    return { nextLeft, nextMiddle };
+  }, [clampPanelWidth]);
+
+  const resetPanelWidthsForVisibleLayout = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const containerWidth = container.clientWidth;
+    if (!Number.isFinite(containerWidth) || containerWidth <= FIRST_FRAME_PANEL_MIN_WIDTH * 2) return;
+
+    const { nextLeft, nextMiddle } = computeDefaultPanelWidths(containerWidth);
+
+    setLeftWidth(nextLeft);
+    setMiddleWidth(nextMiddle);
+  }, [computeDefaultPanelWidths]);
 
   const handleLeftResize = useCallback((width: number) => {
     const requestedWidth = clampPanelWidth(width, FIRST_FRAME_PANEL_MIN_WIDTH, FIRST_FRAME_PANEL_MAX_WIDTH);
@@ -454,6 +549,8 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   }, [clampPanelWidth, leftWidth]);
 
   useEffect(() => {
+    if (!isVisible) return;
+
     const keepWidthsValid = () => {
       const container = containerRef.current;
       if (!container) return;
@@ -479,7 +576,57 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     keepWidthsValid();
     window.addEventListener('resize', keepWidthsValid);
     return () => window.removeEventListener('resize', keepWidthsValid);
-  }, [clampPanelWidth, leftWidth, middleWidth]);
+  }, [clampPanelWidth, isVisible, leftWidth, middleWidth]);
+
+  useEffect(() => {
+    if (!isVisible) return;
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const rafId = window.requestAnimationFrame(() => {
+      resetPanelWidthsForVisibleLayout();
+      timeoutId = window.setTimeout(() => {
+        resetPanelWidthsForVisibleLayout();
+      }, 120);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      if (timeoutId) window.clearTimeout(timeoutId);
+    };
+  }, [isVisible, resetPanelWidthsForVisibleLayout]);
+
+  useEffect(() => {
+    if (!isVisible) return;
+
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') return;
+
+    previousContainerWidthRef.current = container.clientWidth;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+
+      const nextWidth = entry.contentRect.width;
+      const prevWidth = previousContainerWidthRef.current;
+      previousContainerWidthRef.current = nextWidth;
+
+      const widthsLookCollapsed =
+        leftWidth <= FIRST_FRAME_PANEL_MIN_WIDTH + 1 &&
+        middleWidth <= FIRST_FRAME_PANEL_MIN_WIDTH + 1;
+      const containerCanFitDefaultLayout =
+        nextWidth >= FIRST_FRAME_PANEL_MIN_WIDTH * 3;
+
+      if ((prevWidth <= 1 || widthsLookCollapsed) && containerCanFitDefaultLayout) {
+        window.requestAnimationFrame(() => {
+          resetPanelWidthsForVisibleLayout();
+        });
+      }
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [isVisible, leftWidth, middleWidth, resetPanelWidthsForVisibleLayout]);
 
   return (
     <>
@@ -493,18 +640,11 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
               <h2 className="text-lg font-semibold text-white">
                 {t.ff_upload_materials}
               </h2>
-              <p className="mt-1 text-xs text-zinc-500">
-                {t.ff_upload_one_product_image_for_first_frame}
-              </p>
             </div>
             <ImageUploader
               key={`${workspaceId}-${uploaderResetKey}`}
               maxFiles={1}
-              uploadedStatusText={
-                images.length > 0
-                  ? `${t.ff_uploaded_status_prefix} ${images.length} ${t.ff_uploaded_status_suffix}`
-                  : undefined
-              }
+              previewVariant="first-frame"
               onFilesSelected={handleImagesSelected}
               onError={(err) =>
                 setError({
@@ -534,9 +674,6 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
               <h2 className="text-lg font-semibold text-white">
                 {t.ff_generation_settings}
               </h2>
-              <p className="mt-1 text-xs text-zinc-500">
-                {t.ff_generation_settings_desc}
-              </p>
             </div>
 
             <FirstFrameForm
@@ -566,9 +703,6 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                 <h2 className="text-lg font-semibold text-white">
                   {t.ff_result_preview}
                 </h2>
-                <p className="mt-1 text-xs text-zinc-500">
-                  {t.ff_result_preview_desc}
-                </p>
               </div>
               <div className="flex items-center rounded-xl border border-white/10 bg-black/20 p-1">
                 <button
@@ -614,10 +748,11 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                 <FirstFrameResult
                   results={results}
                   elapsedSeconds={lastElapsedSeconds}
+                  selectionKey={resultSelectionKey}
                   onRegenerate={handleRegenerate}
                   onDownload={handleDownload}
                   onDownloadAll={handleDownloadAll}
-                  onSetAsFirstFrame={handleSetAsFirstFrame}
+                  onSaveToAssets={handleSaveToAssets}
                   onNextStep={handleNextStep}
                 />
               ) : (
@@ -702,6 +837,7 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
   onBack,
   projectId,
   embedded = false,
+  isVisible = true,
   onApplyToWorkbench,
   headerActionsContainer,
 }) => {
@@ -906,9 +1042,6 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
               <h1 className="text-2xl font-bold text-white mb-1">
                 {t.ff_page_title}
               </h1>
-              <p className="text-zinc-400 text-sm">
-                {t.ff_page_subtitle}
-              </p>
             </div>
 
             <div className="ml-auto">
@@ -918,12 +1051,6 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
         )}
 
         {embedded && headerActionsContainer ? createPortal(workspaceActions, headerActionsContainer) : null}
-
-        <div className="mb-4 rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3">
-          <p className="text-xs text-blue-300">
-            {t.ff_workspace_tip}
-          </p>
-        </div>
 
         {workspaceMetas.map((workspace) => (
           <div
@@ -936,6 +1063,7 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
               workspaceOrder={workspace.order}
               workspaceLabel={workspaceLabel(workspace)}
               projectId={projectId}
+              isVisible={isVisible && workspace.id === activeWorkspaceId}
               onApplyToWorkbench={onApplyToWorkbench}
             />
           </div>

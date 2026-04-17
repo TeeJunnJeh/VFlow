@@ -7,6 +7,7 @@ import { useLanguage } from '../../context/LanguageContext';
 interface InviteRewardDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  onDismissPermanent?: () => void;
 }
 
 const buildShareLink = (code: string): string => {
@@ -20,13 +21,14 @@ const buildShareLink = (code: string): string => {
   }
 };
 
-export const InviteRewardDialog: React.FC<InviteRewardDialogProps> = ({ isOpen, onClose }) => {
+export const InviteRewardDialog: React.FC<InviteRewardDialogProps> = ({ isOpen, onClose, onDismissPermanent }) => {
   const { t } = useLanguage();
   const [summary, setSummary] = useState<InviteSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [isDismissConfirmOpen, setIsDismissConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -35,6 +37,7 @@ export const InviteRewardDialog: React.FC<InviteRewardDialogProps> = ({ isOpen, 
     setError('');
     setCopiedCode(false);
     setCopiedLink(false);
+    setIsDismissConfirmOpen(false);
     authApi
       .getInviteSummary()
       .then((data) => {
@@ -90,7 +93,14 @@ export const InviteRewardDialog: React.FC<InviteRewardDialogProps> = ({ isOpen, 
     ? t.invite_reward_capped_title
     : t.invite_reward_title.replace('{amount}', String(amount));
 
+  const handleDismissConfirm = () => {
+    setIsDismissConfirmOpen(false);
+    if (onDismissPermanent) onDismissPermanent();
+    onClose();
+  };
+
   return (
+    <>
     <AppDialog
       isOpen={isOpen}
       onClose={onClose}
@@ -104,13 +114,24 @@ export const InviteRewardDialog: React.FC<InviteRewardDialogProps> = ({ isOpen, 
       }
       overlayClassName="z-[130]"
       footer={
-        <button
-          type="button"
-          onClick={onClose}
-          className="px-4 py-2 rounded-lg bg-violet-500/80 hover:bg-violet-500 text-white text-xs font-bold transition"
-        >
-          {t.invite_reward_close}
-        </button>
+        <>
+          {onDismissPermanent && (
+            <button
+              type="button"
+              onClick={() => setIsDismissConfirmOpen(true)}
+              className="mr-auto text-xs text-zinc-500 hover:text-zinc-300 border-b border-dashed border-zinc-600 hover:border-zinc-400 pb-0.5 transition"
+            >
+              {t.invite_reward_dismiss}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg bg-violet-500/80 hover:bg-violet-500 text-white text-xs font-bold transition"
+          >
+            {t.invite_reward_close}
+          </button>
+        </>
       }
     >
       {loading ? (
@@ -135,7 +156,7 @@ export const InviteRewardDialog: React.FC<InviteRewardDialogProps> = ({ isOpen, 
             <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
               {t.invite_reward_code_label}
             </div>
-            <div className="flex items-stretch rounded-lg border border-white/10 bg-[#0a0a0a] overflow-hidden">
+            <div className="flex items-stretch rounded-lg border border-white/10 bg-zinc-950 overflow-hidden">
               <div className="flex-1 px-3 py-2.5 text-sm font-mono tracking-widest text-white truncate">
                 {summary.invite_code}
               </div>
@@ -154,7 +175,7 @@ export const InviteRewardDialog: React.FC<InviteRewardDialogProps> = ({ isOpen, 
             <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
               {t.invite_reward_link_label}
             </div>
-            <div className="flex items-stretch rounded-lg border border-white/10 bg-[#0a0a0a] overflow-hidden">
+            <div className="flex items-stretch rounded-lg border border-white/10 bg-zinc-950 overflow-hidden">
               <div className="flex-1 px-3 py-2.5 text-xs text-zinc-300 truncate">{shareLink}</div>
               <button
                 type="button"
@@ -169,5 +190,36 @@ export const InviteRewardDialog: React.FC<InviteRewardDialogProps> = ({ isOpen, 
         </div>
       ) : null}
     </AppDialog>
+
+    <AppDialog
+      isOpen={isDismissConfirmOpen}
+      onClose={() => setIsDismissConfirmOpen(false)}
+      title={t.invite_reward_dismiss_title}
+      overlayClassName="z-[140]"
+      widthClassName="max-w-sm"
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={() => setIsDismissConfirmOpen(false)}
+            className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold transition"
+          >
+            {t.invite_reward_dismiss_cancel}
+          </button>
+          <button
+            type="button"
+            onClick={handleDismissConfirm}
+            className="px-4 py-2 rounded-lg bg-violet-500/80 hover:bg-violet-500 text-white text-xs font-bold transition"
+          >
+            {t.invite_reward_dismiss_confirm}
+          </button>
+        </>
+      }
+    >
+      <div className="text-sm text-zinc-300 leading-relaxed">
+        {t.invite_reward_dismiss_desc}
+      </div>
+    </AppDialog>
+    </>
   );
 };

@@ -82,11 +82,27 @@ const Workbench = () => {
 
   // Post-login reward popup: triggered only when the user has just logged in in this session,
   // NOT when the session is restored via /api/auth/me/ on page reload.
+  // Honors the per-user "don't show again" flag stored in localStorage.
   useEffect(() => {
     if (!justLoggedIn || !user) return;
-    setIsInviteRewardOpen(true);
+    let dismissed = false;
+    try {
+      dismissed = localStorage.getItem(`invite_reward_dismissed_${user.id}`) === '1';
+    } catch {
+      // localStorage unavailable (private mode etc.) → fall back to showing the dialog
+    }
+    if (!dismissed) setIsInviteRewardOpen(true);
     consumeJustLoggedIn();
   }, [justLoggedIn, user, consumeJustLoggedIn]);
+
+  const handleInviteRewardDismissPermanent = () => {
+    if (!user) return;
+    try {
+      localStorage.setItem(`invite_reward_dismissed_${user.id}`, '1');
+    } catch {
+      // best-effort: if storage fails, user will simply see the dialog again next login
+    }
+  };
 
   // --- Data Passing State ---
   const [selectedAssetForWorkbench, setSelectedAssetForWorkbench] = useState<{
@@ -160,12 +176,16 @@ const Workbench = () => {
 
     if (theme !== 'system') return;
 
+    const cleanup = () => {
+      root.classList.remove('theme-light', 'theme-dim');
+    };
+
     if (typeof media.addEventListener === 'function') {
       media.addEventListener('change', applyTheme);
-      return () => media.removeEventListener('change', applyTheme);
+      return () => { media.removeEventListener('change', applyTheme); cleanup(); };
     }
     media.addListener(applyTheme);
-    return () => media.removeListener(applyTheme);
+    return () => { media.removeListener(applyTheme); cleanup(); };
   }, [theme]);
 
   useEffect(() => {
@@ -608,6 +628,7 @@ const Workbench = () => {
           <InviteRewardDialog
             isOpen={isInviteRewardOpen}
             onClose={() => setIsInviteRewardOpen(false)}
+            onDismissPermanent={handleInviteRewardDismissPermanent}
           />
 
           {isInfoOpen && (

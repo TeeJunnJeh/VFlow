@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
+import { useRequireAuth } from '../../utils/useRequireAuth';
 import { useTasks } from '../../context/TaskContext';
 import { useWorkbenchModel } from '../../context/WorkbenchModelContext';
 import { videoApi, VideoApiError, type GeneratePreviewData } from '../../services/video';
@@ -830,6 +831,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const { t, language } = useLanguage();
     const uiLanguageCode = useMemo(() => normalizeUiLanguageCode(language), [language]);
   const { user } = useAuth();
+  const { requireAuth } = useRequireAuth();
   const { tasks, addTask, updateTask, upsertTask } = useTasks();
   const { model: selectedModel, setModel: setSelectedModel } = useWorkbenchModel();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2983,7 +2985,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           assetsApi.getFolders({ type: assetLibraryTab, parentId: assetLibraryCurrentFolderId }),
         ]);
 
-        setAssetLibraryItems(filterAssetLibraryItems(items));
+        let mergedItems = items;
+        if (!user) {
+          try {
+            const cached = JSON.parse(sessionStorage.getItem('vflow_guest_assets') || '[]');
+            const typed = cached.filter((a: any) => a.type === assetLibraryTab);
+            mergedItems = [...typed, ...items];
+          } catch { /* ignore */ }
+        }
+        setAssetLibraryItems(filterAssetLibraryItems(mergedItems));
         setAssetLibraryFolders(sortByCreatedAtDesc(Array.isArray(folderData.folders) ? folderData.folders : []));
         setAssetLibraryBreadcrumb(Array.isArray(folderData.breadcrumb) ? folderData.breadcrumb : []);
         setAssetLibrarySubjects([]);
@@ -4096,7 +4106,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const prompt = aiOptimizePrompt.trim();
     if (!prompt) {
-      openInfo(popupTitles.notice, t.wb_ai_opt_need_prompt || '请先生成或填写提示词脚本。');
+      openInfo(popupTitles.notice, t.wb_prompt_script_required || '请先生成或填写提示词脚本。');
       return;
     }
 
@@ -4826,11 +4836,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const handleAiRecognize = useCallback(
       async () => {
-        if (!user?.id) {
-          openInfo(popupTitles.notice, t.wb_popup_not_logged_in);
-          return;
-        }
-
         const imagePaths = await resolveProductRecognitionImagePaths();
         if (imagePaths.length === 0) {
           openInfo(popupTitles.notice, t.wb_popup_need_product_image_first);
@@ -7346,13 +7351,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const handleGenerateScripts = async () => {
     if (scriptGenerationLockRef.current) return;
     scriptGenerationLockRef.current = true;
-    if (!user?.id) {
-      scriptGenerationLockRef.current = false;
-      openInfo(popupTitles.notice, t.wb_popup_not_logged_in);
-      return;
-    }
 
-    const cooldownRemainingMs = getScriptGenerationCooldownRemainingMs(user.id);
+    const effectiveUserId = user?.id || 0;
+
+    const cooldownRemainingMs = getScriptGenerationCooldownRemainingMs(effectiveUserId);
     if (cooldownRemainingMs > 0) {
       scriptGenerationLockRef.current = false;
       openInfo(popupTitles.warning, t.wb_popup_script_generation_too_frequent || '操作过于频繁，请稍后再试。');
@@ -7635,7 +7637,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       let sawVariant = false;
       let streamFailedMessage: string | null = null;
       await videoApi.generateScriptStream(
-        user.id,
+        effectiveUserId,
         payload,
         {
           onStart: (event) => {
@@ -8063,6 +8065,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const handleGenerateVideo = async () => {
+    if (!requireAuth()) return;
     const issues = validateGenerateRequirements();
     if (issues.length > 0) {
       showGenerateValidationIssues(issues);
@@ -10960,7 +10963,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       >
                         {isAiOptimizePromptGenerating
                           ? (t.wb_ai_opt_prompt_generating || '生成中...')
-                          : (t.wb_ai_opt_build_prompt_btn || '生成提示词脚本')}
+                          : (t.wb_prompt_script_generate_btn || '生成提示词脚本')}
                       </button>
                       <button
                           type="button"

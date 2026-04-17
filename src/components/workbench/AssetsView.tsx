@@ -713,6 +713,17 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   // --- Effects ---
   useEffect(() => {
     if (viewMode === 'library') {
+      if (!user) {
+        // Guest: restore temp assets from session cache
+        try {
+          const cached: Asset[] = JSON.parse(sessionStorage.getItem('vflow_guest_assets') || '[]');
+          setAssetList(cached.filter(a => a.type === activeAssetTab));
+          setAllTypeAssets(cached);
+        } catch { setAssetList([]); setAllTypeAssets([]); }
+        setFolderList([]);
+        setAllTypeFolders([]);
+        return;
+      }
       if (activeAssetTab === 'subject') {
         void loadSubjects();
       } else {
@@ -724,7 +735,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       return;
     }
     void loadPlazaData();
-  }, [loadData, loadPlazaData, loadSubjects, viewMode, activeAssetTab]);
+  }, [loadData, loadPlazaData, loadSubjects, viewMode, activeAssetTab, user]);
 
   useEffect(() => {
     if (isFolderModalOpen) {
@@ -864,6 +875,33 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     return () => { cancelled = true; };
   }, [assetPreview]);
 
+  /** Probe width/height/duration from a local File using browser APIs */
+  const probeMediaMeta = (file: File): Promise<{ width: number | null; height: number | null; duration: number | null; kind: string }> =>
+    new Promise((resolve) => {
+      const objectUrl = URL.createObjectURL(file);
+      if (file.type.startsWith('video/')) {
+        const v = document.createElement('video');
+        v.preload = 'metadata';
+        v.onloadedmetadata = () => { resolve({ width: v.videoWidth, height: v.videoHeight, duration: v.duration, kind: 'video' }); URL.revokeObjectURL(objectUrl); };
+        v.onerror = () => { resolve({ width: null, height: null, duration: null, kind: 'video' }); URL.revokeObjectURL(objectUrl); };
+        v.src = objectUrl;
+      } else if (file.type.startsWith('image/')) {
+        const img = new Image();
+        img.onload = () => { resolve({ width: img.naturalWidth, height: img.naturalHeight, duration: null, kind: 'image' }); URL.revokeObjectURL(objectUrl); };
+        img.onerror = () => { resolve({ width: null, height: null, duration: null, kind: 'image' }); URL.revokeObjectURL(objectUrl); };
+        img.src = objectUrl;
+      } else if (file.type.startsWith('audio/')) {
+        const a = document.createElement('audio');
+        a.preload = 'metadata';
+        a.onloadedmetadata = () => { resolve({ width: null, height: null, duration: a.duration, kind: 'audio' }); URL.revokeObjectURL(objectUrl); };
+        a.onerror = () => { resolve({ width: null, height: null, duration: null, kind: 'audio' }); URL.revokeObjectURL(objectUrl); };
+        a.src = objectUrl;
+      } else {
+        URL.revokeObjectURL(objectUrl);
+        resolve({ width: null, height: null, duration: null, kind: 'unknown' });
+      }
+    });
+
   const uploadFiles = async (files: FileList | File[]) => {
     const errors: string[] = [];
     const validFiles: File[] = [];
@@ -876,13 +914,52 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     if (validFiles.length === 0) return;
     setIsUploading(true);
     try {
-      const uploadTasks = validFiles.map(async (file) => {
-        const uploadResp = await assetsApi.uploadAsset(file, activeAssetTab, currentFolderId);
-        await patchUploadedMediaMetadata(uploadResp, file, activeAssetTab);
-        return uploadResp;
-      });
-      await Promise.all(uploadTasks);
-      await loadData();
+      if (!user) {
+        // Guest: upload via temp endpoint, store results in local state
+        const tempAssets: Asset[] = [];
+        for (const file of validFiles) {
+          const resp = await assetsApi.uploadTempAsset(file);
+          const url = resp?.data?.url || resp?.url || '';
+          // Probe media dimensions/duration from the local file
+          const mediaMeta = await probeMediaMeta(file);
+          tempAssets.push({
+            id: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            name: file.name,
+            type: activeAssetTab,
+            file_url: url,
+            thumbnail: url,
+            media_kind: mediaMeta.kind as Asset['media_kind'],
+            size: String(file.size),
+            status: 'ready',
+            created_at: new Date().toISOString(),
+            folder_id: null,
+            meta_data: {
+              width: mediaMeta.width,
+              height: mediaMeta.height,
+              video_width: mediaMeta.width,
+              video_height: mediaMeta.height,
+              size_bytes: file.size,
+              duration_seconds: mediaMeta.duration,
+              format: file.type || null,
+            },
+          });
+        }
+        setAssetList(prev => [...tempAssets, ...prev]);
+        setAllTypeAssets(prev => [...tempAssets, ...prev]);
+        // Persist to session cache
+        try {
+          const existing: Asset[] = JSON.parse(sessionStorage.getItem('vflow_guest_assets') || '[]');
+          sessionStorage.setItem('vflow_guest_assets', JSON.stringify([...tempAssets, ...existing]));
+        } catch { /* ignore */ }
+      } else {
+        const uploadTasks = validFiles.map(async (file) => {
+          const uploadResp = await assetsApi.uploadAsset(file, activeAssetTab, currentFolderId);
+          await patchUploadedMediaMetadata(uploadResp, file, activeAssetTab);
+          return uploadResp;
+        });
+        await Promise.all(uploadTasks);
+        await loadData();
+      }
       showToast((t as any).assets_upload_success_title || `Successfully uploaded ${validFiles.length} files!`);
     } catch (err) {
       console.error(err);

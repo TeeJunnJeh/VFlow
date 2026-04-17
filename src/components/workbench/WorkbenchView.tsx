@@ -3119,7 +3119,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (targetMediaKind === 'image') {
       return {
         targetMediaKind: 'image',
-        allowedTabs: ['product'],
+        allowedTabs: ['model', 'product'],
         preferredTab: 'product',
       };
     }

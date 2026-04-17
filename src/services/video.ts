@@ -19,6 +19,20 @@ export interface HistoryQueryParams {
   status?: 'ALL' | HistoryProjectStatus;
   keyword?: string;
   sort?: HistorySort;
+  page?: number;
+  page_size?: number;
+}
+
+export interface HistoryPagination {
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+}
+
+export interface HistoryListResponse {
+  items: HistoryProject[];
+  pagination: HistoryPagination;
 }
 
 export interface HistoryProject {
@@ -27,6 +41,7 @@ export interface HistoryProject {
   status: HistoryProjectStatus;
   cover_url: string | null;
   video_url: string | null;
+  generation_model?: string | null;
   duration: number;
   created_at: string;
   updated_at: string;
@@ -40,6 +55,24 @@ export interface HistoryProject {
     ratio: string;
   };
 }
+
+export interface HistoryDetailResponse {
+  id: string;
+  request_payload: Record<string, unknown> | null;
+  model_request: Record<string, unknown> | null;
+}
+
+type ScriptStreamEvent = {
+  message?: string;
+  data?: Record<string, unknown>;
+};
+
+type ScriptStreamCallbacks = {
+  onStart?: (event: ScriptStreamEvent) => void;
+  onVariant?: (event: ScriptStreamEvent) => void | Promise<void>;
+  onDone?: (event: ScriptStreamEvent) => void;
+  onErrorEvent?: (event: ScriptStreamEvent) => void;
+};
 
 type ApiEnvelope<T> = {
   code?: number;
@@ -65,19 +98,19 @@ export type GenerateFusionImagePayload = {
   resolution?: '1K' | '2K' | '4K';
 };
 
-export type ReplayReverseScriptData = {
-  summary: string;
-  styleTags: string[];
-  styleReferenceText?: string;
-  suggestedPrompt: string;
-  suggestedCategory: string;
-  suggestedSellingPoints: string;
-  sampled_keyframes?: Array<{
-    frame_index: number;
-    timestamp_sec: number;
-    timestamp: string;
-  }>;
-  metrics?: Record<string, unknown>;
+export type GenerateFirstFramePayload = {
+  project_id?: string;
+  reference_image_path: string;
+  aspect_ratio?: string;
+  frame_type?: 'first' | 'last' | 'both';
+  model?: string;
+  prompt_override?: string;
+  product_description_override?: string;
+};
+
+const asRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== 'object') return null;
+  return value as Record<string, unknown>;
 };
 
 export type TextSeparationBlockPayload = {
@@ -139,11 +172,8 @@ const parseSseChunk = (chunk: string): { event: string; data: string } | null =>
       dataLines.push(line.slice(5).trim());
     }
   }
-
-  return {
-    event,
-    data: dataLines.join('\n'),
-  };
+  const data = dataLines.join('\n');
+  return { event, data };
 };
 
 const findSseBoundary = (buffer: string): { index: number; separatorLength: number } | null => {
@@ -251,8 +281,10 @@ export const videoApi = {
   },
 
   // Debug: fetch backend prompt templates (for prompt tuning UI)
-  getPromptTemplates: async () => {
-    const response = await fetch(`${API_BASE_URL}/prompt-templates/`, {
+  getPromptTemplates: async (params?: { category?: string }) => {
+    const category = typeof params?.category === 'string' ? params.category.trim() : '';
+    const query = category ? `?category=${encodeURIComponent(category)}` : '';
+    const response = await fetch(`${API_BASE_URL}/prompt-templates/${query}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -290,15 +322,8 @@ export const videoApi = {
     return await response.json();
   },
 
-  generateFirstFrame: async (payload: {
-    project_id: string;
-    reference_image_path: string;
-    aspect_ratio?: string;
-    frame_type?: 'first' | 'last' | 'both';
-    model?: string;
-    prompt_override?: string;
-    product_description_override?: string;
-  }) => {
+  // Backward-compatible entry used by WorkbenchView (Kling first/last frame generation).
+  generateFirstFrame: async (payload: GenerateFirstFramePayload) => {
     const csrftoken = getCookie('csrftoken');
 
     const response = await fetch(`${API_BASE_URL}/generate_first_frame`, {
@@ -745,11 +770,7 @@ export const videoApi = {
   },
 
   // 2. Generate Script
-  generateScript: async (
-    userId: string | number,
-    payload: unknown,
-    options?: { signal?: AbortSignal }
-  ) => {
+  generateScript: async (userId: string | number, payload: unknown) => {
     const csrftoken = getCookie('csrftoken');
 
     const body = JSON.stringify(payload);
@@ -767,7 +788,6 @@ export const videoApi = {
       },
       credentials: 'include',
       body,
-      signal: options?.signal,
     });
 
     if (!response.ok) {
@@ -777,60 +797,100 @@ export const videoApi = {
     return await response.json();
   },
 
+  // 2.1 Generate Script (stream-compatible wrapper)
   generateScriptStream: async (
     userId: string | number,
     payload: unknown,
-    handlers?: ScriptStreamHandlers,
-    options?: { signal?: AbortSignal }
+    callbacks: ScriptStreamCallbacks = {},
+    options?: { signal?: AbortSignal },
   ) => {
     const csrftoken = getCookie('csrftoken');
-    const body = JSON.stringify(payload);
-    if (!body) {
-      throw new Error('Script generation payload is empty');
-    }
-
     const response = await fetch(`${API_BASE_URL}/users/${userId}/generate-script-stream`, {
       method: 'POST',
       headers: {
-        'Accept': 'text/event-stream',
+        'Accept': 'text/event-stream, application/json',
         'Content-Type': 'application/json; charset=utf-8',
         'X-CSRFToken': csrftoken || '',
         'X-Requested-With': 'XMLHttpRequest',
       },
       credentials: 'include',
-      body,
+      body: JSON.stringify(payload),
       signal: options?.signal,
     });
 
     if (!response.ok) {
       throw await parseApiError(response, 'Script generation failed');
     }
-    if (!response.body) {
-      throw new Error('Script generation stream is unavailable');
+
+    const contentType = response.headers.get('content-type') || '';
+    const isSse = contentType.includes('text/event-stream');
+
+    if (!isSse) {
+      const json = (await response.json()) as ApiEnvelope<{ script_contents?: unknown[] }>;
+      if (json?.code !== undefined && json.code !== 0) {
+        throw new Error(String(json?.message || 'Script generation failed'));
+      }
+
+      const scriptContents = Array.isArray((json?.data as Record<string, unknown> | undefined)?.script_contents)
+        ? ((json?.data as Record<string, unknown>).script_contents as unknown[])
+        : [];
+
+      callbacks.onStart?.({ data: { total: scriptContents.length, completed: 0 } });
+      for (let i = 0; i < scriptContents.length; i++) {
+        await callbacks.onVariant?.({
+          data: {
+            index: i + 1,
+            total: scriptContents.length,
+            completed: i + 1,
+            script_content: scriptContents[i],
+          },
+        });
+      }
+      callbacks.onDone?.({ data: { completed: scriptContents.length, total: scriptContents.length } });
+      return;
     }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let buffer = '';
+    const reader = response.body?.getReader();
+    if (!reader) return;
 
-    const dispatchPayload = async (eventName: string, payloadText: string) => {
-      if (!payloadText) return;
-      let parsed: ScriptStreamEnvelope;
-      try {
-        parsed = JSON.parse(payloadText) as ScriptStreamEnvelope;
-      } catch {
-        return;
+    const decoder = new TextDecoder();
+    const dispatchPayload = async (event: string, data: string) => {
+      let payload: any = {};
+      if (data) {
+        try {
+          payload = JSON.parse(data);
+        } catch (e) {
+          payload = { message: data };
+        }
       }
-      if (eventName === 'start') await handlers?.onStart?.(parsed);
-      else if (eventName === 'variant') await handlers?.onVariant?.(parsed);
-      else if (eventName === 'done') await handlers?.onDone?.(parsed);
-      else if (eventName === 'cancelled') await handlers?.onCancelled?.(parsed);
-      else if (eventName === 'error') await handlers?.onErrorEvent?.(parsed);
+
+      switch (event) {
+        case 'start':
+        case 'onStart':
+          await callbacks.onStart?.(payload as ScriptStreamEnvelope);
+          break;
+        case 'variant':
+        case 'message':
+        case 'update':
+          await callbacks.onVariant?.(payload as ScriptStreamEnvelope);
+          break;
+        case 'done':
+        case 'complete':
+          await callbacks.onDone?.(payload as ScriptStreamEnvelope);
+          break;
+        case 'error':
+          await callbacks.onErrorEvent?.(payload as ScriptStreamEnvelope);
+          break;
+        default:
+          await callbacks.onVariant?.(payload as ScriptStreamEnvelope);
+      }
     };
 
+    let buffer = '';
     while (true) {
-      const { value, done } = await reader.read();
-      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
       let boundary = findSseBoundary(buffer);
       while (boundary) {
@@ -1090,7 +1150,7 @@ export const videoApi = {
   },
 
   // 4. History list
-  getHistory: async (params?: HistoryQueryParams): Promise<HistoryProject[]> => {
+  getHistory: async (params?: HistoryQueryParams): Promise<HistoryListResponse> => {
     return traceApiRequest({
       metricName: 'history_list',
       apiPath: '/api/projects/history/',
@@ -1105,6 +1165,12 @@ export const videoApi = {
         }
         if (params?.sort) {
           query.set('sort', params.sort);
+        }
+        if (params?.page && params.page > 0) {
+          query.set('page', String(Math.floor(params.page)));
+        }
+        if (params?.page_size && params.page_size > 0) {
+          query.set('page_size', String(Math.floor(params.page_size)));
         }
 
         const queryString = query.toString();
@@ -1128,58 +1194,16 @@ export const videoApi = {
         const contentType = response.headers.get('content-type') || '';
         if (!contentType.includes('application/json')) throw new Error('Unexpected response');
 
-        const json = (await response.json()) as ApiEnvelope<{ items?: HistoryProject[] }>;
+        const json = (await response.json()) as ApiEnvelope<HistoryProject[] | { items?: HistoryProject[]; pagination?: HistoryPagination }>;
         if (json?.code !== undefined && json.code !== 0) {
           throw new Error((json?.message || 'Failed to fetch history') as string);
         }
-        const items = (json?.data as { items?: unknown } | undefined)?.items;
-        return Array.isArray(items) ? (items as HistoryProject[]) : [];
+        return parseHistoryListResponse(json?.data);
       }
     });
   },
 
-  // 4.1 History detail (lazy-load heavy fields: request_payload, model_request)
-  getHistoryDetail: async (projectId: string): Promise<{
-    id: string;
-    request_payload: Record<string, unknown> | null;
-    model_request: Record<string, unknown> | null;
-  }> => {
-    return traceApiRequest({
-      metricName: 'history_detail',
-      apiPath: `/api/projects/${projectId}/history-detail/`,
-      method: 'GET',
-      fn: async () => {
-        const response = await fetch(`${API_BASE_URL}/${projectId}/history-detail/`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest',
-          },
-          credentials: 'include',
-        });
 
-        if (!response.ok) {
-          throw await parseApiError(response, 'Failed to fetch project detail');
-        }
-
-        const json = (await response.json()) as ApiEnvelope<{
-          id: string;
-          request_payload: Record<string, unknown> | null;
-          model_request: Record<string, unknown> | null;
-        }>;
-
-        if (json?.code !== undefined && json.code !== 0) {
-          throw new Error((json?.message || 'Failed to fetch project detail') as string);
-        }
-
-        return {
-          id: String(json?.data?.id ?? projectId),
-          request_payload: json?.data?.request_payload ?? null,
-          model_request: json?.data?.model_request ?? null,
-        };
-      },
-    });
-  },
 
   // 5. Delete project (physical delete)
   deleteProject: async (projectId: string): Promise<boolean> => {
@@ -1284,18 +1308,27 @@ export const videoApi = {
   },
 
   // 8. Get favorites list
-  getFavorites: async (params?: HistoryQueryParams): Promise<HistoryProject[]> => {
+  getFavorites: async (params?: HistoryQueryParams): Promise<HistoryListResponse> => {
     return traceApiRequest({
       metricName: 'favorite_list',
       apiPath: '/api/projects/favorites/',
       method: 'GET',
       fn: async () => {
         const query = new URLSearchParams();
+        if (params?.status && params.status !== 'ALL') {
+          query.set('status', params.status);
+        }
         if (params?.keyword && params.keyword.trim()) {
           query.set('keyword', params.keyword.trim());
         }
         if (params?.sort) {
           query.set('sort', params.sort);
+        }
+        if (params?.page && params.page > 0) {
+          query.set('page', String(Math.floor(params.page)));
+        }
+        if (params?.page_size && params.page_size > 0) {
+          query.set('page_size', String(Math.floor(params.page_size)));
         }
 
         const queryString = query.toString();
@@ -1318,13 +1351,52 @@ export const videoApi = {
         const contentType = response.headers.get('content-type') || '';
         if (!contentType.includes('application/json')) throw new Error('Unexpected response');
 
-        const json = (await response.json()) as ApiEnvelope<{ items?: HistoryProject[] }>;
+        const json = (await response.json()) as ApiEnvelope<HistoryProject[] | { items?: HistoryProject[]; pagination?: HistoryPagination }>;
         if (json?.code !== undefined && json.code !== 0) {
           throw new Error((json?.message || 'Failed to fetch favorites') as string);
         }
-        const items = (json?.data as { items?: unknown } | undefined)?.items;
-        return Array.isArray(items) ? (items as HistoryProject[]) : [];
+        return parseHistoryListResponse(json?.data);
       }
     });
   },
+
+  // 9. Get history detail (heavy fields loaded on demand)
+  getHistoryDetail: async (projectId: string): Promise<HistoryDetailResponse> => {
+    return traceApiRequest({
+      metricName: 'history_detail',
+      apiPath: `/api/projects/${projectId}/history-detail/`,
+      method: 'GET',
+      fn: async () => {
+        const response = await fetch(`${API_BASE_URL}/${projectId}/history-detail/`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          throw await parseApiError(response, 'Request failed');
+        }
+
+        if (response.redirected) throw new Error('Unauthorized');
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) throw new Error('Unexpected response');
+
+        const json = (await response.json()) as ApiEnvelope<HistoryDetailResponse>;
+        if (json?.code !== undefined && json.code !== 0) {
+          throw new Error((json?.message || 'Failed to fetch history detail') as string);
+        }
+
+        const data = asRecord(json?.data);
+        return {
+          id: String(data?.id || projectId),
+          request_payload: asRecord(data?.request_payload),
+          model_request: asRecord(data?.model_request),
+        };
+      },
+    });
+  },
 };
+

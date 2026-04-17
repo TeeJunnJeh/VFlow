@@ -36,6 +36,12 @@ const formatDuration = (seconds: number) => {
   return `${m}:${String(rem).padStart(2, '0')}`;
 };
 
+const formatModelLabel = (model: string | null | undefined) => {
+  const text = String(model || '').trim();
+  if (!text) return null;
+  return text;
+};
+
 const formatDateTimeToMinute = (value: string) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
@@ -93,6 +99,8 @@ const formatI18n = (template: string | undefined, vars: Record<string, string | 
   }, template);
 };
 
+const HISTORY_PAGE_SIZE = 16;
+
 export const HistoryView = () => {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -104,6 +112,7 @@ export const HistoryView = () => {
   const [deleteTarget, setDeleteTarget] = useState<HistoryProject | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [promptProject, setPromptProject] = useState<HistoryProject | null>(null);
+  const [loadingPromptProjectId, setLoadingPromptProjectId] = useState<string | null>(null);
   const [selectedProjects, setSelectedProjects] = useState<Record<string, { id: string; title: string; video_url: string | null }>>({});
   const [isBatchDownloading, setIsBatchDownloading] = useState(false);
   const [isBatchFavoriting, setIsBatchFavoriting] = useState(false);
@@ -134,7 +143,9 @@ export const HistoryView = () => {
     status: statusFilter,
     keyword: searchKeyword,
     sort: sortBy,
-  }), [statusFilter, searchKeyword, sortBy]);
+    page: currentPage,
+    page_size: HISTORY_PAGE_SIZE,
+  }), [statusFilter, searchKeyword, sortBy, currentPage]);
 
   const selectedIds = useMemo(() => Object.keys(selectedProjects), [selectedProjects]);
   const selectedCount = selectedIds.length;
@@ -153,6 +164,8 @@ export const HistoryView = () => {
       setProjects([]);
       setError(null);
       setIsLoading(false);
+      setTotalPages(1);
+      setTotalResults(0);
       return;
     }
 
@@ -162,10 +175,19 @@ export const HistoryView = () => {
       const data = showOnlyFavorites 
         ? await videoApi.getFavorites(historyQuery)
         : await videoApi.getHistory(historyQuery);
-      setProjects(Array.isArray(data) ? data : []);
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const pagination = data?.pagination;
+      setProjects(items);
+      setTotalResults(Number(pagination?.total || 0));
+      setTotalPages(Math.max(1, Number(pagination?.total_pages || 1)));
+      if (pagination?.page && pagination.page !== currentPage) {
+        setCurrentPage(pagination.page);
+      }
     } catch (e: unknown) {
       setError(getErrorMessage(e, 'Failed to load history'));
       setProjects([]);
+      setTotalPages(1);
+      setTotalResults(0);
     } finally {
       setIsLoading(false);
     }
@@ -191,6 +213,10 @@ export const HistoryView = () => {
   }, [searchInput]);
 
   useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, searchKeyword, sortBy, showOnlyFavorites]);
+
+  useEffect(() => {
     let cancelled = false;
 
     const run = async () => {
@@ -209,11 +235,20 @@ export const HistoryView = () => {
           ? await videoApi.getFavorites(historyQuery)
           : await videoApi.getHistory(historyQuery);
         if (cancelled) return;
-        setProjects(Array.isArray(data) ? data : []);
+        const items = Array.isArray(data?.items) ? data.items : [];
+        const pagination = data?.pagination;
+        setProjects(items);
+        setTotalResults(Number(pagination?.total || 0));
+        setTotalPages(Math.max(1, Number(pagination?.total_pages || 1)));
+        if (pagination?.page && pagination.page !== currentPage) {
+          setCurrentPage(pagination.page);
+        }
       } catch (e: unknown) {
         if (cancelled) return;
         setError(getErrorMessage(e, 'Failed to load history'));
         setProjects([]);
+        setTotalPages(1);
+        setTotalResults(0);
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -223,7 +258,7 @@ export const HistoryView = () => {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, historyQuery, showOnlyFavorites]);
+  }, [user?.id, historyQuery, showOnlyFavorites, currentPage]);
 
   useEffect(() => {
     if (!playingVideo) return;
@@ -699,6 +734,15 @@ export const HistoryView = () => {
     }
   };
 
+  const canGoPrevPage = currentPage > 1;
+  const canGoNextPage = currentPage < totalPages;
+
+  const changePage = (nextPage: number) => {
+    if (nextPage < 1 || nextPage > totalPages || nextPage === currentPage) return;
+    setCurrentPage(nextPage);
+    setSelectedProjects({});
+  };
+
   return (
     <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300 relative">
       <header className="hist-header flex flex-col px-10 pt-6 pb-0 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-50">
@@ -1020,11 +1064,11 @@ export const HistoryView = () => {
                       </button>
                    </div>
                 </div>
-                <div className="mt-2 text-xs text-zinc-500 mb-2">{projects.length} {t.hist_results_label}</div>
+                <div className="mt-2 text-xs text-zinc-500 mb-2">{totalResults} {t.hist_results_label}</div>
               </div>
 
               <div className={viewMode === 'list' ? "flex flex-col gap-3" : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"}>
-                {projects.map(proj => {
+                  {projects.map((proj) => {
                 const coverUrl = toDisplayUrl(proj.cover_url);
                 const videoUrl = toDisplayUrl(proj.video_url);
                 const canPlay = proj.status === 'SUCCESS' && !!videoUrl;
@@ -1033,6 +1077,7 @@ export const HistoryView = () => {
                 const showPublishTikTok = !isTikTokPublished;
 
                 const durationText = formatDuration(proj.duration);
+                const modelLabel = formatModelLabel(proj.generation_model);
 
                 if (viewMode === 'list') {
                   return (
@@ -1063,6 +1108,8 @@ export const HistoryView = () => {
                               <img
                                 src={coverUrl}
                                 alt={proj.title}
+                                loading="eager"
+                                decoding="async"
                                 className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition duration-500"
                               />
                             ) : (
@@ -1070,6 +1117,12 @@ export const HistoryView = () => {
                                 <Video className="w-6 h-6 text-zinc-600" />
                               </div>
                             )}
+
+                            {modelLabel ? (
+                              <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/60 rounded text-[9px] text-zinc-100 backdrop-blur-sm border border-white/10 max-w-[70%] truncate">
+                                {modelLabel}
+                              </div>
+                            ) : null}
 
                             {durationText ? (
                               <div className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/60 rounded text-[9px] text-zinc-200 font-mono backdrop-blur-sm">
@@ -1238,6 +1291,8 @@ export const HistoryView = () => {
                             <img
                               src={coverUrl}
                               alt={proj.title}
+                              loading="eager"
+                              decoding="async"
                               className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition duration-500 scale-100 group-hover:scale-105"
                             />
                           ) : (
@@ -1245,6 +1300,12 @@ export const HistoryView = () => {
                               <Video className="w-8 h-8 text-zinc-600" />
                             </div>
                           )}
+
+                          {modelLabel ? (
+                            <div className="absolute bottom-2 left-2 px-1.5 py-0.5 bg-black/60 rounded text-[10px] text-zinc-100 backdrop-blur-sm border border-white/10 max-w-[70%] truncate">
+                              {modelLabel}
+                            </div>
+                          ) : null}
 
                           {durationText ? (
                             <div className="absolute bottom-2 right-2 px-1.5 py-0.5 bg-black/60 rounded text-[10px] text-zinc-200 font-mono backdrop-blur-sm">
@@ -1374,6 +1435,30 @@ export const HistoryView = () => {
                   </div>
                 );
                 })}
+              </div>
+
+              <div className="mt-6 flex items-center justify-between gap-3 border-t border-zinc-200/60 dark:border-white/10 pt-4">
+                <div className="text-xs text-zinc-500">
+                  第 {currentPage} / {totalPages} 页
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => changePage(currentPage - 1)}
+                    disabled={!canGoPrevPage || isLoading}
+                    className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-white/10 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    上一页
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => changePage(currentPage + 1)}
+                    disabled={!canGoNextPage || isLoading}
+                    className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-white/10 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    下一页
+                  </button>
+                </div>
               </div>
             </>
           )}

@@ -639,11 +639,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
             <ImageUploader
               key={`${workspaceId}-${uploaderResetKey}`}
               maxFiles={1}
-              uploadedStatusText={
-                images.length > 0
-                  ? `${t.ff_uploaded_status_prefix} ${images.length} ${t.ff_uploaded_status_suffix}`
-                  : undefined
-              }
+              previewVariant="first-frame"
               onFilesSelected={handleImagesSelected}
               onError={(err) =>
                 setError({

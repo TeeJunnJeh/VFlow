@@ -14,7 +14,7 @@ interface ImageUploaderProps {
   onError: (error: string) => void;
   disabled?: boolean;
   multiple?: boolean;
-  uploadedStatusText?: string;
+  previewVariant?: 'default' | 'first-frame';
 }
 
 const DEFAULT_ACCEPTED_FORMATS = ['image/jpeg', 'image/png', 'image/webp'];
@@ -28,12 +28,13 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   onError,
   disabled = false,
   multiple = true,
-  uploadedStatusText,
+  previewVariant = 'default',
 }) => {
   const { t } = useLanguage();
   const [dragActive, setDragActive] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
+  const [previewingIndex, setPreviewingIndex] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   /**
@@ -157,6 +158,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
     const newFiles = selectedFiles.filter((_, i) => i !== index);
     const newPreviews = previews.filter((_, i) => i !== index);
 
+    setPreviewingIndex((current) => (current === null || current === index ? null : current > index ? current - 1 : current));
     setSelectedFiles(newFiles);
     setPreviews(newPreviews);
     onFilesSelected(newFiles);
@@ -170,6 +172,9 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       inputRef.current.click();
     }
   };
+
+  const previewingFile = previewingIndex !== null ? selectedFiles[previewingIndex] || null : null;
+  const previewingImage = previewingIndex !== null ? previews[previewingIndex] || '' : '';
 
   return (
     <div className="w-full">
@@ -233,22 +238,44 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
                   <img
                     src={preview}
                     alt={`Preview ${index + 1}`}
-                    className="w-full h-full object-cover"
+                    className={`w-full h-full object-cover ${previewVariant === 'first-frame' ? 'cursor-zoom-in' : ''}`}
+                    onClick={previewVariant === 'first-frame' ? () => setPreviewingIndex(index) : undefined}
                   />
 
-                  {/* 悬停时显示操作 */}
-                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                    <button
-                      onClick={() => handleRemoveFile(index)}
-                      className="p-2 bg-red-500 text-white rounded hover:bg-red-600 transition"
-                      title={t.ff_delete}
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                    <span className="text-white text-xs">
-                      {selectedFiles[index].name}
-                    </span>
-                  </div>
+                  {previewVariant === 'first-frame' ? (
+                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/15 to-transparent opacity-0 transition-opacity group-hover:opacity-100">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveFile(index);
+                        }}
+                        className="pointer-events-auto absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/65 text-white transition hover:bg-black/85"
+                        title={t.ff_delete}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                      <div className="absolute inset-x-0 bottom-0 p-2">
+                        <p className="truncate text-xs font-medium !text-white">
+                          {selectedFiles[index].name}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveFile(index)}
+                        className="p-2 bg-red-500 text-white rounded hover:bg-red-600 transition"
+                        title={t.ff_delete}
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                      <span className="text-white text-xs">
+                        {selectedFiles[index].name}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* 文件大小 */}
@@ -259,11 +286,31 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
             ))}
           </div>
 
-          {uploadedStatusText && (
-            <div className="wb-emerald-upload-status-wrap mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-2 text-center">
-              <p className="wb-emerald-upload-status text-sm text-emerald-400/85">{uploadedStatusText}</p>
+        </div>
+      )}
+
+      {previewVariant === 'first-frame' && previewingFile && previewingImage && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setPreviewingIndex(null)}
+        >
+          <div className="relative max-h-screen max-w-5xl" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={previewingImage}
+              alt={previewingFile.name}
+              className="max-h-[85vh] max-w-full rounded-lg object-contain"
+            />
+            <div className="absolute inset-x-0 bottom-0 rounded-b-lg bg-black/55 px-4 py-3 text-sm text-white">
+              {previewingFile.name}
             </div>
-          )}
+            <button
+              type="button"
+              onClick={() => setPreviewingIndex(null)}
+              className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white transition hover:bg-black/70"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
       )}
     </div>

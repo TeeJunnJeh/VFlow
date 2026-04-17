@@ -62,7 +62,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
     () => [
       { label: t.ff_output_count_1, value: 1 as const },
       { label: t.ff_output_count_2, value: 2 as const },
-      { label: t.ff_output_count_4_recommended, value: 4 as const },
+      { label: t.ff_output_count_4, value: 4 as const },
     ],
     [t]
   );
@@ -190,7 +190,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
         <div>
           <div className="mb-2 flex items-center justify-between gap-2">
             <label className="block text-sm text-zinc-300 font-medium">
-              {t.wb_ai_opt_need_prompt || '生成要求'}
+              {t.ff_prompt_label || '填写生成要求'}
             </label>
             <button
               type="button"
@@ -200,7 +200,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
             >
               {isPolishingPrompt
                 ? (t.wb_ai_opt_prompt_generating || '润色中...')
-                : (t.wb_ai_opt_build_prompt_btn || 'AI 润色')}
+                : (t.ff_prompt_optimize_btn || 'AI优化文案')}
             </button>
           </div>
           <textarea
@@ -217,7 +217,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
               }
             }}
             rows={5}
-            placeholder={t.wb_ai_opt_prompt_placeholder || '例如：女生单人手持口红，近景半身，干净背景，电商质感，真实肤感，避免文字和水印'}
+            placeholder={t.ff_prompt_placeholder || '请输入你想生成的首帧画面内容，例如主体、场景、构图、风格'}
             className={`w-full rounded-xl border bg-zinc-900/70 px-3 py-2.5 text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-orange-500/30 ${errors.prompt ? 'border-red-500' : 'border-white/10'}`}
           />
           {errors.prompt ? <p className="text-red-400 text-xs mt-1">{errors.prompt}</p> : null}
@@ -266,8 +266,8 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
                   {item.label}
                 </button>
               ))}
-              </div>
             </div>
+          </div>
         </div>
 
         <div className="flex gap-3 pt-4 border-t border-zinc-700">
@@ -299,12 +299,6 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
           >
             {t.ff_reset}
           </button>
-        </div>
-
-        <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3">
-          <p className="text-xs text-blue-300">
-            {t.ff_generation_tip_with_prefix}
-          </p>
         </div>
       </div>
     </form>

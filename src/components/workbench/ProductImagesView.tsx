@@ -700,7 +700,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       default:
         return {
           title: t.ff_page_title || tr('AI 首帧图生成', 'AI First Frame Generation'),
-          subtitle: t.ff_page_subtitle || tr('为视频生成提供起始视觉素材', 'Create starting visuals for video generation'),
+          subtitle: '',
         };
     }
   }, [currentValue, t, isZh]);

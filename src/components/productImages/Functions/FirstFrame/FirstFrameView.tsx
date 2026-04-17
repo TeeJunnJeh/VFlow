@@ -635,9 +635,6 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
               <h2 className="text-lg font-semibold text-white">
                 {t.ff_upload_materials}
               </h2>
-              <p className="mt-1 text-xs text-zinc-500">
-                {t.ff_upload_one_product_image_for_first_frame}
-              </p>
             </div>
             <ImageUploader
               key={`${workspaceId}-${uploaderResetKey}`}
@@ -676,9 +673,6 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
               <h2 className="text-lg font-semibold text-white">
                 {t.ff_generation_settings}
               </h2>
-              <p className="mt-1 text-xs text-zinc-500">
-                {t.ff_generation_settings_desc}
-              </p>
             </div>
 
             <FirstFrameForm
@@ -708,9 +702,6 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                 <h2 className="text-lg font-semibold text-white">
                   {t.ff_result_preview}
                 </h2>
-                <p className="mt-1 text-xs text-zinc-500">
-                  {t.ff_result_preview_desc}
-                </p>
               </div>
               <div className="flex items-center rounded-xl border border-white/10 bg-black/20 p-1">
                 <button
@@ -1050,9 +1041,6 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
               <h1 className="text-2xl font-bold text-white mb-1">
                 {t.ff_page_title}
               </h1>
-              <p className="text-zinc-400 text-sm">
-                {t.ff_page_subtitle}
-              </p>
             </div>
 
             <div className="ml-auto">
@@ -1062,12 +1050,6 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
         )}
 
         {embedded && headerActionsContainer ? createPortal(workspaceActions, headerActionsContainer) : null}
-
-        <div className="mb-4 rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3">
-          <p className="text-xs text-blue-300">
-            {t.ff_workspace_tip}
-          </p>
-        </div>
 
         {workspaceMetas.map((workspace) => (
           <div

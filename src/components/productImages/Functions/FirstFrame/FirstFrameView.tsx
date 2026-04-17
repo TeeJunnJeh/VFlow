@@ -9,11 +9,12 @@ import { FirstFrameResult } from './FirstFrameResult';
 import ResizableSplitter from '../../../common/ResizableSplitter';
 import { LoadingProgress } from '../../Common/LoadingProgress';
 import { ErrorDialog, type ErrorInfo } from '../../Common/ErrorDialog';
-import { downloadBlob, productImagesApi } from '../../../../services/productImagesApi';
+import { productImagesApi } from '../../../../services/productImagesApi';
 import { assetsApi } from '../../../../services/assets';
 import type { FirstFrameParams, ProductImageResult } from '../../../../types/productImages';
 import { deleteImageHistoryItem, notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
 import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../../../utils/loadingTheme';
+import { saveBlobWithPickerFallback } from '../../../../utils/browserDownload';
 import { useRequireAuth } from '../../../../utils/useRequireAuth';
 
 type Phase = 'upload' | 'form' | 'generating' | 'result' | 'error';
@@ -50,8 +51,11 @@ const FIRST_FRAME_COUNTDOWN_SECONDS = 120;
 const FIRST_FRAME_PROGRESS_HOLD_MAX = 95;
 const FIRST_FRAME_PANEL_MIN_WIDTH = 280;
 const FIRST_FRAME_PANEL_MAX_WIDTH = 720;
-const FIRST_FRAME_LEFT_DEFAULT_WIDTH = 500;
-const FIRST_FRAME_MIDDLE_DEFAULT_WIDTH = 600;
+const FIRST_FRAME_DEFAULT_LEFT_RATIO = 0.8;
+const FIRST_FRAME_DEFAULT_MIDDLE_RATIO = 1;
+const FIRST_FRAME_DEFAULT_RIGHT_RATIO = 1;
+const FIRST_FRAME_DEFAULT_TOTAL_RATIO =
+  FIRST_FRAME_DEFAULT_LEFT_RATIO + FIRST_FRAME_DEFAULT_MIDDLE_RATIO + FIRST_FRAME_DEFAULT_RIGHT_RATIO;
 
 const createDefaultWorkspaceMeta = (): FirstFrameWorkspaceMeta => ({
   id: 'ff-workspace-1',
@@ -165,8 +169,8 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const { requireAuth } = useRequireAuth();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const previousContainerWidthRef = useRef(0);
-  const [leftWidth, setLeftWidth] = useState<number>(FIRST_FRAME_LEFT_DEFAULT_WIDTH);
-  const [middleWidth, setMiddleWidth] = useState<number>(FIRST_FRAME_MIDDLE_DEFAULT_WIDTH);
+  const [leftWidth, setLeftWidth] = useState<number>(500);
+  const [middleWidth, setMiddleWidth] = useState<number>(600);
 
   const [phase, setPhase] = useState<Phase>('upload');
   const [images, setImages] = useState<File[]>([]);
@@ -375,7 +379,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
       const blob = await productImagesApi.downloadImageByUrl(selected.imageUrl);
       const nextName = filename || buildFileName('ai_first_frame', Math.max(index, 0), imageId);
-      downloadBlob(blob, nextName);
+      await saveBlobWithPickerFallback(blob, nextName);
     } catch {
       setError({
         code: 'DOWNLOAD_FAILED',
@@ -479,23 +483,12 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     Math.min(Math.max(requested, min), max)
   ), []);
 
-  const resetPanelWidthsForVisibleLayout = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return;
+  const computeDefaultPanelWidths = useCallback((containerWidth: number) => {
+    const leftRaw = (containerWidth * FIRST_FRAME_DEFAULT_LEFT_RATIO) / FIRST_FRAME_DEFAULT_TOTAL_RATIO;
+    const middleRaw = (containerWidth * FIRST_FRAME_DEFAULT_MIDDLE_RATIO) / FIRST_FRAME_DEFAULT_TOTAL_RATIO;
 
-    const containerWidth = container.clientWidth;
-    if (!Number.isFinite(containerWidth) || containerWidth <= FIRST_FRAME_PANEL_MIN_WIDTH * 2) return;
-
-    let nextLeft = clampPanelWidth(
-      FIRST_FRAME_LEFT_DEFAULT_WIDTH,
-      FIRST_FRAME_PANEL_MIN_WIDTH,
-      FIRST_FRAME_PANEL_MAX_WIDTH
-    );
-    let nextMiddle = clampPanelWidth(
-      FIRST_FRAME_MIDDLE_DEFAULT_WIDTH,
-      FIRST_FRAME_PANEL_MIN_WIDTH,
-      FIRST_FRAME_PANEL_MAX_WIDTH
-    );
+    let nextLeft = clampPanelWidth(leftRaw, FIRST_FRAME_PANEL_MIN_WIDTH, FIRST_FRAME_PANEL_MAX_WIDTH);
+    let nextMiddle = clampPanelWidth(middleRaw, FIRST_FRAME_PANEL_MIN_WIDTH, FIRST_FRAME_PANEL_MAX_WIDTH);
 
     const maxMiddleByContainer = containerWidth - nextLeft - FIRST_FRAME_PANEL_MIN_WIDTH;
     nextMiddle = Math.max(
@@ -509,9 +502,21 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       Math.min(nextLeft, maxLeftByContainer)
     );
 
+    return { nextLeft, nextMiddle };
+  }, [clampPanelWidth]);
+
+  const resetPanelWidthsForVisibleLayout = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const containerWidth = container.clientWidth;
+    if (!Number.isFinite(containerWidth) || containerWidth <= FIRST_FRAME_PANEL_MIN_WIDTH * 2) return;
+
+    const { nextLeft, nextMiddle } = computeDefaultPanelWidths(containerWidth);
+
     setLeftWidth(nextLeft);
     setMiddleWidth(nextMiddle);
-  }, [clampPanelWidth]);
+  }, [computeDefaultPanelWidths]);
 
   const handleLeftResize = useCallback((width: number) => {
     const requestedWidth = clampPanelWidth(width, FIRST_FRAME_PANEL_MIN_WIDTH, FIRST_FRAME_PANEL_MAX_WIDTH);
@@ -610,7 +615,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
         leftWidth <= FIRST_FRAME_PANEL_MIN_WIDTH + 1 &&
         middleWidth <= FIRST_FRAME_PANEL_MIN_WIDTH + 1;
       const containerCanFitDefaultLayout =
-        nextWidth >= FIRST_FRAME_LEFT_DEFAULT_WIDTH + FIRST_FRAME_MIDDLE_DEFAULT_WIDTH + FIRST_FRAME_PANEL_MIN_WIDTH;
+        nextWidth >= FIRST_FRAME_PANEL_MIN_WIDTH * 3;
 
       if ((prevWidth <= 1 || widthsLookCollapsed) && containerCanFitDefaultLayout) {
         window.requestAnimationFrame(() => {

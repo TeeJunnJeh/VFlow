@@ -2850,7 +2850,7 @@ export const translations = {
     ff_optimized: "已优化",
     ff_downloading: "下载中...",
     ff_download_image: "下载此图",
-    ff_save_to_image_assets: "保存此图至素材库",
+    ff_save_to_image_assets: "保存至素材库",
     ff_saving_to_image_assets: "保存中...",
     ff_saved_to_image_assets: "已保存至图片素材",
     ff_downloading_all: "打包下载中...",

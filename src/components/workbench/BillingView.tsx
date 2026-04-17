@@ -5,6 +5,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
+import { LanguageSwitcher } from '../common/LanguageSwitcher';
 
 export const BillingView: React.FC = () => {
   const { t } = useLanguage();
@@ -64,11 +65,11 @@ export const BillingView: React.FC = () => {
           if (pollingRef.current) clearInterval(pollingRef.current);
           setShowPayQR(false);
           await loadData();
-          openInfo('Success', 'Payment received successfully!');
+          openInfo(t.billing_recharge_success || 'Payment received successfully!', '');
         } else if (res?.code === 0 && (res.data.status === 'CANCELLED' || res.data.status === 'FAILED')) {
           if (pollingRef.current) clearInterval(pollingRef.current);
           setShowPayQR(false);
-          openInfo('Payment Terminated', `Order status: ${res.data.status}`);
+          openInfo(t.billing_recharge_failed || 'Payment failed or cancelled.', `Order status: ${res.data.status}`);
         }
       } catch (e) {
         console.error("Polling error", e);
@@ -93,9 +94,7 @@ export const BillingView: React.FC = () => {
         setShowPayQR(true);
         startPolling(order.out_trade_no);
       } else {
-        // Fallback for mock/auto-success
-        await loadData();
-        openInfo('Success', res.message || 'Recharge completed');
+        openInfo('Payment Error', t.billing_pay_error || 'Failed to get WeChat Pay QR code. Please check payment config and retry.');
       }
     } catch (err: any) {
       openInfo('Error', err?.message || 'Recharge failed');
@@ -120,12 +119,17 @@ export const BillingView: React.FC = () => {
     const normalizedType = String(tx?.type || '').trim().toUpperCase();
     if (normalizedType && byType[normalizedType]) return byType[normalizedType];
 
+    // Map raw Chinese labels from backend to i18n keys
     const rawLabel = String(tx?.type_label || '').trim();
-    if (rawLabel === '系统赠送') return t.billing_tx_system_gift || 'System gift';
-    if (rawLabel === '用户充值') return t.billing_tx_recharge || 'Recharge';
-    if (rawLabel === '生成消耗') return t.billing_tx_generation_cost || 'Generation cost';
-    if (rawLabel === '素材收集消耗') return t.billing_tx_asset_collect_cost || 'Asset collect cost';
-    if (rawLabel === '失败退款') return t.billing_tx_refund || 'Refund';
+    const rawMap: Record<string, string> = {
+      '系统赠送': t.billing_tx_system_gift || 'System gift',
+      '用户充值': t.billing_tx_recharge || 'Recharge',
+      '微信支付充值': t.billing_tx_recharge || 'Recharge',
+      '生成消耗': t.billing_tx_generation_cost || 'Generation cost',
+      '素材收集消耗': t.billing_tx_asset_collect_cost || 'Asset collect cost',
+      '失败退款': t.billing_tx_refund || 'Refund',
+    };
+    if (rawMap[rawLabel]) return rawMap[rawLabel];
 
     return rawLabel || '-';
   };
@@ -135,8 +139,8 @@ export const BillingView: React.FC = () => {
     const normalizedType = String(tx?.type || '').trim().toUpperCase();
     const mediaType = String((meta as any)?.media_type || '').trim().toLowerCase();
     if (normalizedType === 'GENERATION_COST') {
-      if (mediaType === 'video') return '视频生成';
-      if (mediaType === 'image') return '图片生成';
+      if (mediaType === 'video') return t.billing_desc_video_generation || 'Video generation';
+      if (mediaType === 'image') return t.billing_desc_image_generation || 'Image generation';
     }
 
     const raw = String(tx?.description || '').trim();
@@ -147,11 +151,13 @@ export const BillingView: React.FC = () => {
       '任务失败退款': t.billing_desc_task_refund_failed || 'Task failure refund',
       '脚本生成': t.billing_desc_script_generation || 'Script generation',
       '视频生成': t.billing_desc_video_generation || 'Video generation',
+      '图片生成': t.billing_desc_image_generation || 'Image generation',
       '脚本生成失败退款': t.billing_desc_script_generation_refund || 'Script generation refund',
       '素材广场收集消耗': t.billing_desc_asset_collect || 'Asset plaza collect cost',
       '新用户赠送': t.billing_desc_new_user_gift || 'New user gift',
       '系统退款': t.billing_desc_system_refund || 'System refund',
       '生成消耗': t.billing_desc_generation_cost || 'Generation cost',
+      '微信支付充值': t.billing_tx_recharge || 'Recharge',
     };
 
     return map[normalized] || raw;
@@ -162,27 +168,44 @@ export const BillingView: React.FC = () => {
     if (!meta) return '';
     const mediaType = String((meta as any).media_type || '').trim().toLowerCase();
     const rawMode = String((meta as any).pricing_mode || '').trim();
-    const mode = mediaType === 'video'
-      ? (rawMode === 'replay' ? '爆款复刻' : rawMode === 'fast' ? '极速出片' : rawMode)
-      : rawMode;
+
+    // Translate common Chinese mode values
+    const modeMap: Record<string, string> = {
+      'replay': t.billing_mode_replay || 'Viral Replay',
+      'fast': t.billing_mode_fast || 'Fast Render',
+      '爆款复刻': t.billing_mode_replay || 'Viral Replay',
+      '极速出片': t.billing_mode_fast || 'Fast Render',
+      'ai首帧图': t.billing_mode_fast || 'Fast Render',
+    };
+    const mode = modeMap[rawMode] || rawMode;
+
     const model = String((meta as any).model_display_name || (meta as any).model || '').trim();
-    const rateLabel = String((meta as any).rate_label || '').trim();
+    const rawRateLabel = String((meta as any).rate_label || '').trim();
+    // Translate rate label: "2V点/张" → "2 V-points/img", "3V点/秒" → "3 V-points/sec"
+    const creditName = t.billing_credit_name || 'credits';
+    const rateLabel = rawRateLabel
+      .replace(/V点/g, creditName)
+      .replace(/张$/,'')
+      .replace(/秒$/,'')
+      + (rawRateLabel.includes('张') ? `/${t.billing_unit_images || 'img'}` : '')
+      + (rawRateLabel.includes('秒') ? `/${t.billing_unit_seconds || 'sec'}` : '');
+
     const billedUnits = Number((meta as any).billed_units || 0);
     const rateUnit = String((meta as any).rate_unit || '').trim().toLowerCase();
     const billedUnitsLabel = billedUnits > 0
-      ? `${billedUnits}${rateUnit === 'second' ? '秒' : rateUnit === 'image' ? '张' : ''}`
+      ? `${billedUnits}${rateUnit === 'second' ? (t.billing_unit_seconds || 'sec') : rateUnit === 'image' ? (t.billing_unit_images || 'img') : rateUnit}`
       : '';
     const videoCountRaw = Number((meta as any).video_count || (meta as any).task_count || 0);
     const videoCount = Number.isFinite(videoCountRaw) ? Math.max(0, Math.round(videoCountRaw)) : 0;
-    const videoCountLabel = mediaType === 'video' && videoCount > 0 ? `${videoCount}个视频` : '';
+    const videoCountLabel = mediaType === 'video' && videoCount > 0 ? `${videoCount}${t.billing_unit_videos || 'video(s)'}` : '';
     const cost = Number((meta as any).cost || 0);
     const detailParts = [
-      mode ? `模式: ${mode}` : '',
-      model ? `模型: ${model}` : '',
-      rateLabel ? `单价: ${rateLabel}` : '',
-      videoCountLabel ? `数量: ${videoCountLabel}` : '',
-      billedUnitsLabel ? `计费单位: ${billedUnitsLabel}` : '',
-      cost > 0 ? `扣费: ${cost} V点` : '',
+      mode ? `${t.billing_meta_mode || 'Mode'}: ${mode}` : '',
+      model ? `${t.billing_meta_model || 'Model'}: ${model}` : '',
+      rateLabel ? `${t.billing_meta_rate || 'Rate'}: ${rateLabel}` : '',
+      videoCountLabel ? `${t.billing_meta_count || 'Count'}: ${videoCountLabel}` : '',
+      billedUnitsLabel ? `${t.billing_meta_unit || 'Billed'}: ${billedUnitsLabel}` : '',
+      cost > 0 ? `${t.billing_meta_cost || 'Cost'}: ${cost} ${creditName}` : '',
     ].filter(Boolean);
     return detailParts.join(' | ');
   };
@@ -210,7 +233,7 @@ export const BillingView: React.FC = () => {
             {t.wb_nav_billing || 'Billing & Credits'}
           </h1>
           <p className="text-zinc-500 text-xs mt-1">
-            {planMeta.description || 'Manage your plan, balance and top-ups.'}
+            {planMeta.description || t.billing_plan_description || 'Manage your plan, balance and top-ups.'}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -220,6 +243,7 @@ export const BillingView: React.FC = () => {
           <div className="px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/40 text-xs text-orange-400 font-semibold">
             {t.billing_balance_label || 'Balance'}: {balance} {t.billing_credit_unit || 'credits'}
           </div>
+          <LanguageSwitcher />
         </div>
       </header>
 
@@ -302,7 +326,7 @@ export const BillingView: React.FC = () => {
       {showPayQR && (
         <AppDialog
           isOpen={showPayQR}
-          title="Scan to Pay"
+          title={t.billing_qr_title || 'Scan to Pay'}
           onClose={() => {
             setShowPayQR(false);
             if (pollingRef.current) clearInterval(pollingRef.current);
@@ -311,8 +335,8 @@ export const BillingView: React.FC = () => {
           <div className="flex flex-col items-center py-4 bg-white rounded-lg">
              <QRCodeSVG value={payOrder?.code_url} size={200} />
              <p className="mt-4 text-zinc-900 font-bold text-lg">¥{payOrder?.amount}</p>
-             <p className="text-zinc-500 text-xs mt-1">Please use WeChat to scan the QR code</p>
-             <p className="text-zinc-400 text-[10px] mt-2">Order ID: {payOrder?.out_trade_no}</p>
+             <p className="text-zinc-500 text-xs mt-1">{t.billing_qr_hint || 'Please use WeChat to scan the QR code'}</p>
+             <p className="text-zinc-400 text-[10px] mt-2">{t.billing_qr_order_id || 'Order ID'}: {payOrder?.out_trade_no}</p>
           </div>
           <div className="mt-4 flex justify-center">
             <button 
@@ -322,7 +346,7 @@ export const BillingView: React.FC = () => {
                }}
                className="text-zinc-400 hover:text-white text-xs underline"
             >
-              Cancel Payment
+              {t.billing_qr_cancel || 'Cancel Payment'}
             </button>
           </div>
         </AppDialog>
@@ -338,7 +362,7 @@ export const BillingView: React.FC = () => {
               className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
               onClick={() => setIsDialogOpen(false)}
             >
-              OK
+              {t.btn_ok || 'OK'}
             </button>
           }
         >

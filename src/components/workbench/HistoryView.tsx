@@ -112,7 +112,6 @@ export const HistoryView = () => {
   const [deleteTarget, setDeleteTarget] = useState<HistoryProject | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [promptProject, setPromptProject] = useState<HistoryProject | null>(null);
-  const [loadingPromptProjectId, setLoadingPromptProjectId] = useState<string | null>(null);
   const [selectedProjects, setSelectedProjects] = useState<Record<string, { id: string; title: string; video_url: string | null }>>({});
   const [isBatchDownloading, setIsBatchDownloading] = useState(false);
   const [isBatchFavoriting, setIsBatchFavoriting] = useState(false);
@@ -127,6 +126,9 @@ export const HistoryView = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [postingTikTokProjectId, setPostingTikTokProjectId] = useState<string | null>(null);
   const [retryingProjectId, setRetryingProjectId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalResults, setTotalResults] = useState(0);
   const [historyTab, setHistoryTab] = useState<HistoryTab>('video');
   const [loadingPromptId, setLoadingPromptId] = useState<string | null>(null);
   const [promptTab, setPromptTab] = useState<'final' | 'original'>('final');

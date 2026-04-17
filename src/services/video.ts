@@ -98,6 +98,21 @@ export type GenerateFusionImagePayload = {
   resolution?: '1K' | '2K' | '4K';
 };
 
+export type ReplayReverseScriptData = {
+  summary: string;
+  styleTags: string[];
+  styleReferenceText?: string;
+  suggestedPrompt: string;
+  suggestedCategory: string;
+  suggestedSellingPoints: string;
+  sampled_keyframes?: Array<{
+    frame_index: number;
+    timestamp_sec: number;
+    timestamp: string;
+  }>;
+  metrics?: Record<string, unknown>;
+};
+
 export type GenerateFirstFramePayload = {
   project_id?: string;
   reference_image_path: string;
@@ -111,6 +126,58 @@ export type GenerateFirstFramePayload = {
 const asRecord = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== 'object') return null;
   return value as Record<string, unknown>;
+};
+
+const toPositiveInt = (value: unknown, fallback: number) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  const i = Math.floor(n);
+  return i > 0 ? i : fallback;
+};
+
+const toNonNegativeInt = (value: unknown, fallback: number) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  const i = Math.floor(n);
+  return i >= 0 ? i : fallback;
+};
+
+const parseHistoryListResponse = (data: unknown): HistoryListResponse => {
+  if (Array.isArray(data)) {
+    const count = data.length;
+    return {
+      items: data as HistoryProject[],
+      pagination: {
+        page: 1,
+        page_size: count || 1,
+        total: count,
+        total_pages: 1,
+      },
+    };
+  }
+
+  const rec = asRecord(data);
+  const itemsRaw = rec ? rec.items : undefined;
+  const items = Array.isArray(itemsRaw) ? (itemsRaw as HistoryProject[]) : [];
+
+  const paginationRaw = rec ? asRecord(rec.pagination) : null;
+  const total = toNonNegativeInt(paginationRaw?.total ?? items.length, items.length);
+  const pageSize = toPositiveInt(paginationRaw?.page_size ?? items.length ?? 1, items.length || 1);
+  const totalPages = toPositiveInt(
+    paginationRaw?.total_pages ?? Math.max(1, Math.ceil(total / Math.max(1, pageSize))),
+    1,
+  );
+  const page = Math.min(toPositiveInt(paginationRaw?.page ?? 1, 1), totalPages);
+
+  return {
+    items,
+    pagination: {
+      page,
+      page_size: pageSize,
+      total,
+      total_pages: totalPages,
+    },
+  };
 };
 
 export type TextSeparationBlockPayload = {
@@ -1399,4 +1466,3 @@ export const videoApi = {
     });
   },
 };
-

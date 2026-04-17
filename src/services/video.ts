@@ -172,16 +172,8 @@ const parseSseChunk = (chunk: string): { event: string; data: string } | null =>
       dataLines.push(line.slice(5).trim());
     }
   }
-
-  return {
-    items,
-    pagination: {
-      page,
-      page_size: pageSize,
-      total,
-      total_pages: totalPages,
-    },
-  };
+  const data = dataLines.join('\n');
+  return { event, data };
 };
 
 const findSseBoundary = (buffer: string): { index: number; separatorLength: number } | null => {
@@ -713,6 +705,38 @@ export const videoApi = {
     if (!reader) return;
 
     const decoder = new TextDecoder();
+    const dispatchPayload = async (event: string, data: string) => {
+      let payload: any = {};
+      if (data) {
+        try {
+          payload = JSON.parse(data);
+        } catch (e) {
+          payload = { message: data };
+        }
+      }
+
+      switch (event) {
+        case 'start':
+        case 'onStart':
+          await callbacks.onStart?.(payload as ScriptStreamEnvelope);
+          break;
+        case 'variant':
+        case 'message':
+        case 'update':
+          await callbacks.onVariant?.(payload as ScriptStreamEnvelope);
+          break;
+        case 'done':
+        case 'complete':
+          await callbacks.onDone?.(payload as ScriptStreamEnvelope);
+          break;
+        case 'error':
+          await callbacks.onErrorEvent?.(payload as ScriptStreamEnvelope);
+          break;
+        default:
+          await callbacks.onVariant?.(payload as ScriptStreamEnvelope);
+      }
+    };
+
     let buffer = '';
     while (true) {
       const { done, value } = await reader.read();
@@ -1030,48 +1054,7 @@ export const videoApi = {
     });
   },
 
-  // 4.1 History detail (lazy-load heavy fields: request_payload, model_request)
-  getHistoryDetail: async (projectId: string): Promise<{
-    id: string;
-    request_payload: Record<string, unknown> | null;
-    model_request: Record<string, unknown> | null;
-  }> => {
-    return traceApiRequest({
-      metricName: 'history_detail',
-      apiPath: `/api/projects/${projectId}/history-detail/`,
-      method: 'GET',
-      fn: async () => {
-        const response = await fetch(`${API_BASE_URL}/${projectId}/history-detail/`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest',
-          },
-          credentials: 'include',
-        });
 
-        if (!response.ok) {
-          throw await parseApiError(response, 'Failed to fetch project detail');
-        }
-
-        const json = (await response.json()) as ApiEnvelope<{
-          id: string;
-          request_payload: Record<string, unknown> | null;
-          model_request: Record<string, unknown> | null;
-        }>;
-
-        if (json?.code !== undefined && json.code !== 0) {
-          throw new Error((json?.message || 'Failed to fetch project detail') as string);
-        }
-
-        return {
-          id: String(json?.data?.id ?? projectId),
-          request_payload: json?.data?.request_payload ?? null,
-          model_request: json?.data?.model_request ?? null,
-        };
-      },
-    });
-  },
 
   // 5. Delete project (physical delete)
   deleteProject: async (projectId: string): Promise<boolean> => {

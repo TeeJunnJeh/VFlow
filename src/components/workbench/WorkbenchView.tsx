@@ -1021,6 +1021,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const scriptGenerationProjectIdRef = useRef<string | null>(null);
   const currentScriptQueueTaskIdRef = useRef<string | null>(null);
   const currentImageQueueTaskIdRef = useRef<string | null>(null);
+  const isMountedRef = useRef(true);
+  const currentProjectIdRef = useRef('');
   const transferStationOwnerId = user?.id ?? null;
   const refreshTransferStationItems = useCallback(() => {
     setTransferStationItems(loadTransferStationItems(transferStationOwnerId));
@@ -1029,6 +1031,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   useEffect(() => {
     refreshTransferStationItems();
   }, [refreshTransferStationItems]);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const handleTransferStationUpdated = () => {
@@ -1426,6 +1434,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [projectStore, setProjectStore] = useState<LocalProjectStore>(() => loadLocalProjectStore(user?.id ?? null));
   const [projectStoreOwner, setProjectStoreOwner] = useState<string>(() => getLocalProjectStoreOwner(user?.id ?? null));
   const [projectStoreLoadVersion, setProjectStoreLoadVersion] = useState(0);
+
+  useEffect(() => {
+    currentProjectIdRef.current = projectStore.currentProjectId;
+  }, [projectStore.currentProjectId]);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [isTaskQueueOpen, setIsTaskQueueOpen] = useState(false);
   const taskQueueButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -2444,25 +2456,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   useEffect(() => {
     const currentProjectId = projectStore.currentProjectId;
-
-    if (
-      isGeneratingScript
-      && scriptGenerationProjectIdRef.current
-      && scriptGenerationProjectIdRef.current !== currentProjectId
-    ) {
-      // Keep the remote generation running, but detach UI from the previous project.
-      activeScriptGenerationSeqRef.current += 1;
-      scriptGenerationAbortRef.current = null;
-      scriptGenerationStartedAtRef.current = null;
-      scriptGenerationEstimateKeyRef.current = null;
-      scriptGenerationFinishingRef.current = false;
-      scriptGenerationProjectIdRef.current = null;
-      setIsGeneratingScript(false);
-      setIsScriptGenerationProgressVisible(false);
-      setScriptGenerationProgress(0);
-      setScriptGenerationCompletedCount(0);
-      setScriptGenerationTotalCount(0);
-    }
 
     const workspace = projectStore.workspaces[currentProjectId];
     if (workspace) {
@@ -3614,12 +3607,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const videoFormats = VIDEO_EXTS.join('/');
   const formatHint = `图片(${imageFormats}) 视频(${videoFormats}) · ≤1GB`;
   const isBatchDebugMode = reuseQueueEnabled && hasAnyReuseQueue;
+  const SCRIPT_GRID_PAGE_SIZE = 4;
+  const scriptGridMaxStart = scriptPages.length <= SCRIPT_GRID_PAGE_SIZE
+    ? 0
+    : Math.floor((scriptPages.length - 1) / SCRIPT_GRID_PAGE_SIZE) * SCRIPT_GRID_PAGE_SIZE;
   const visibleScriptPages = useMemo(
-    () => scriptPages.slice(scriptGridPageStart, scriptGridPageStart + 4),
+    () => scriptPages.slice(scriptGridPageStart, scriptGridPageStart + SCRIPT_GRID_PAGE_SIZE),
     [scriptGridPageStart, scriptPages]
   );
   const canSlideScriptGridPrev = scriptGridPageStart > 0;
-  const canSlideScriptGridNext = scriptGridPageStart + 4 < scriptPages.length;
+  const canSlideScriptGridNext = scriptGridPageStart < scriptGridMaxStart;
   const scriptPlanCardClass = 'w-[calc((100%-36px)/4)] min-w-[220px] flex-shrink-0 rounded-2xl border p-4 text-left transition h-[360px] flex flex-col gap-3';
   const scriptPlanCardBodyClass = 'min-h-0 rounded-xl border px-3 py-3 text-[11px] leading-6 whitespace-pre-wrap break-words flex-1 overflow-y-auto';
   const materialTypeLabelMap: Record<AssetLibraryTab, string> = {
@@ -7177,6 +7174,36 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setIsShotBreakdownOpen(false);
   }, [parseScriptPage]);
 
+  const appendGeneratedScriptPageToWorkspace = useCallback((projectId: string, raw: any, options?: { replaceExisting?: boolean }) => {
+    const pid = String(projectId || '').trim();
+    if (!pid) return;
+    const replaceExisting = !!options?.replaceExisting;
+
+    setProjectStore((prev) => {
+      const prevWorkspace = prev.workspaces[pid] || createWorkspaceState({ scripts: [], scriptPagePrefix: t.wb_script_page_prefix, userId: user?.id ?? null });
+      const prevPages = Array.isArray((prevWorkspace as any).scriptPages) ? (prevWorkspace as any).scriptPages : [];
+      const nextPages = replaceExisting
+        ? [parseScriptPage(raw, 0)]
+        : [...prevPages, parseScriptPage(raw, prevPages.length)];
+      const nextActive = Math.max(0, nextPages.length - 1);
+      const nextScripts = nextPages[nextActive]?.scripts || [];
+
+      return {
+        ...prev,
+        projects: prev.projects.map((p) => (p.id === pid ? { ...p, updatedAt: Date.now() } : p)),
+        workspaces: {
+          ...prev.workspaces,
+          [pid]: {
+            ...(prevWorkspace as any),
+            scriptPages: nextPages,
+            activeScriptPage: nextActive,
+            scripts: nextScripts,
+          },
+        },
+      };
+    });
+  }, [createWorkspaceState, parseScriptPage, setProjectStore, t.wb_script_page_prefix, user?.id]);
+
   // 补生成分镜：基于当前页已有的整片方案，只跑 Stage 2 分镜拆分。
   const handleGenerateShotsOnly = useCallback(async () => {
     if (isGeneratingShotsOnly) return;
@@ -7490,7 +7517,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     scriptGenerationStartedAtRef.current = Date.now();
     scriptGenerationEstimateKeyRef.current = estimateStorageKey;
     scriptGenerationFinishingRef.current = false;
-    scriptGenerationProjectIdRef.current = projectStore.currentProjectId;
+    const generationProjectId = projectStore.currentProjectId;
+    scriptGenerationProjectIdRef.current = generationProjectId;
     const generationSeq = activeScriptGenerationSeqRef.current + 1;
     activeScriptGenerationSeqRef.current = generationSeq;
     const abortController = new AbortController();
@@ -7692,7 +7720,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             const elapsedSeconds = startedAt ? Math.max(1, Math.round((Date.now() - startedAt) / 1000)) : null;
             shouldHideProgressImmediately = false;
             await finishScriptGenerationProgress();
-            appendGeneratedScriptPage({ script_content: scriptContent }, { replaceExisting: isFirstVariant });
+            if (isMountedRef.current && currentProjectIdRef.current === generationProjectId) {
+              appendGeneratedScriptPage({ script_content: scriptContent }, { replaceExisting: isFirstVariant });
+            } else {
+              appendGeneratedScriptPageToWorkspace(generationProjectId, { script_content: scriptContent }, { replaceExisting: isFirstVariant });
+            }
 
             const completed = Number(data.completed);
             const total = Number(data.total);
@@ -7819,22 +7851,33 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setIsShotBreakdownOpen(false);
   };
 
+  const getScriptGridMaxStart = (length: number, pageSize: number) => {
+    if (length <= pageSize) return 0;
+    return Math.floor((length - 1) / pageSize) * pageSize;
+  };
+
   useEffect(() => {
-    setScriptGridPageStart((prev) => Math.min(prev, Math.max(0, scriptPages.length - 4)));
+    setScriptGridPageStart((prev) => Math.min(prev, getScriptGridMaxStart(scriptPages.length, SCRIPT_GRID_PAGE_SIZE)));
   }, [scriptPages.length]);
 
   useEffect(() => {
-    if (activeScriptPage < scriptGridPageStart || activeScriptPage >= scriptGridPageStart + 4) {
-      setScriptGridPageStart(Math.max(0, Math.floor(activeScriptPage / 4) * 4));
-    }
-  }, [activeScriptPage, scriptGridPageStart]);
+    setScriptGridPageStart((prev) => {
+      if (activeScriptPage < prev || activeScriptPage >= prev + SCRIPT_GRID_PAGE_SIZE) {
+        return Math.min(
+          Math.max(0, Math.floor(activeScriptPage / SCRIPT_GRID_PAGE_SIZE) * SCRIPT_GRID_PAGE_SIZE),
+          getScriptGridMaxStart(scriptPages.length, SCRIPT_GRID_PAGE_SIZE)
+        );
+      }
+      return prev;
+    });
+  }, [activeScriptPage, scriptPages.length]);
 
   const handleScriptGridSlidePrev = () => {
-    setScriptGridPageStart((prev) => Math.max(0, prev - 4));
+    setScriptGridPageStart((prev) => Math.max(0, prev - SCRIPT_GRID_PAGE_SIZE));
   };
 
   const handleScriptGridSlideNext = () => {
-    setScriptGridPageStart((prev) => Math.min(Math.max(0, scriptPages.length - 4), prev + 4));
+    setScriptGridPageStart((prev) => Math.min(getScriptGridMaxStart(scriptPages.length, SCRIPT_GRID_PAGE_SIZE), prev + SCRIPT_GRID_PAGE_SIZE));
   };
 
   useEffect(() => {
@@ -10801,20 +10844,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold ${active ? 'border-orange-400/70 bg-orange-500/20 text-orange-100' : 'border-white/10 bg-white/5 text-zinc-300'}`}>
-                                {t.wb_script_plan_card_badge || 'Kling prompt'}
-                              </span>
                               {page.sourceLabel && (
                                 <span className="rounded border border-sky-400/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-200">
                                   {page.sourceLabel}
                                 </span>
                               )}
                             </div>
-                            <div className={`mt-2 text-[12px] font-bold leading-5 ${active ? 'text-orange-100' : 'text-zinc-100'}`}>
+                            <div className={`text-[12px] font-bold leading-5 ${active ? 'text-orange-400' : 'text-zinc-100'}`}>
                               {formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix)}
                             </div>
                           </div>
-                          <span className={`shrink-0 text-[10px] ${active ? 'text-orange-300' : 'text-zinc-500'}`}>
+                          <span className={`shrink-0 text-[10px] ${active ? 'text-orange-400' : 'text-zinc-500'}`}>
                             {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
                           </span>
                         </div>
@@ -11740,7 +11780,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             )}
             <div className="flex justify-between items-center shrink-0 min-h-[32px] gap-3">
               <div className="flex items-center gap-3">
-                <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
+                <h2 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
                 <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{genDuration}s</div>
                 <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
                     <button
@@ -11805,10 +11845,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
             </div>
 
+            <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
             {scriptPages.length > 0 && (
               <div className="shrink-0 rounded-xl border border-white/10 bg-black/20 p-2.5">
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">
                     {t.wb_script_grid_title || 'Script Variants'}
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -11830,12 +11871,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     >
                       <ChevronRight className="h-3.5 w-3.5" />
                     </button>
+                    <span className="px-1 text-[10px] tabular-nums text-zinc-500">
+                      {scriptPages.length === 0 ? '-' : `${scriptGridPageStart + 1}-${Math.min(scriptGridPageStart + SCRIPT_GRID_PAGE_SIZE, scriptPages.length)}`}
+                    </span>
                     <button
                         type="button"
                         onClick={() => setIsScriptGridDialogOpen(true)}
                         className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5 transition"
                     >
-                      {(t.wb_script_grid_open_more || 'View More')} ({scriptPages.length})
+                      {(language === 'zh' ? '查看全部' : 'View All')} ({scriptPages.length})
                     </button>
                   </div>
                 </div>
@@ -11855,20 +11899,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold ${active ? 'border-orange-400/70 bg-orange-500/20 text-orange-100' : 'border-white/10 bg-white/5 text-zinc-300'}`}>
-                                {t.wb_script_plan_card_badge || 'Kling prompt'}
-                              </span>
                               {page.sourceLabel && (
                                 <span className="rounded border border-sky-400/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-200">
                                   {page.sourceLabel}
                                 </span>
                               )}
                             </div>
-                            <div className={`mt-2 text-[12px] font-bold leading-5 ${active ? 'text-orange-100' : 'text-zinc-100'}`}>
+                            <div className={`text-[12px] font-bold leading-5 ${active ? 'text-orange-400' : 'text-zinc-100'}`}>
                               {formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix)}
                             </div>
                           </div>
-                          <span className={`shrink-0 text-[9px] ${active ? 'text-orange-300 font-bold' : 'text-zinc-500'}`}>
+                          <span className={`shrink-0 text-[9px] ${active ? 'text-orange-400 font-bold' : 'text-zinc-500'}`}>
                             {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
                           </span>
                         </div>
@@ -11893,7 +11934,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
             )}
 
-            <div className="flex-1 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
               {activeScriptPlan && (
                   <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-2xl relative overflow-hidden">
                     {/* 装饰性背景光晕：极微弱的紫色透出 */}
@@ -11971,11 +12011,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         </button>
                       </div>
                     </div>
-                    {!isShotBreakdownOpen ? (
-                        <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
-                          当前默认展示完整脚本方案。点击“展开分镜”进行镜头级精修。
-                        </div>
-                    ) : scripts.length === 0 ? (
+                    {scripts.length === 0 ? (
                         (() => {
                           const currentPageFullScript = String(scriptPages[activeScriptPage]?.fullScript || '').trim();
                           if (currentPageFullScript) {
@@ -12150,16 +12186,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       {t.wb_enable_storyboard}
                     </button>
                   </div>
-                  {!isShotBreakdownOpen ? (
-                    <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-[11px] text-zinc-500">
-                      {t.wb_storyboard_hint_default_master}
-                    </div>
-                  ) : scripts.length === 0 ? (
-                    <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
-                      <FileJson className="w-10 h-10 mb-2 opacity-50" />
-                      <p className="text-xs">{t.wb_empty_scripts}</p>
-                    </div>
-                  ) : (
+                  {scripts.length === 0 ? null : (
                     scripts.map((script, index) => (
                       <div key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
                         <div className="flex justify-between items-start mb-3">

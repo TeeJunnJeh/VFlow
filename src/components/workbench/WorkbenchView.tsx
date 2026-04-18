@@ -3,9 +3,9 @@ import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder,
   Wand2, Loader2, Clapperboard, ArrowRight, PlayCircle, BookmarkPlus, FolderOpen,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
-  Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift, ImagePlus,
+  Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift, ImagePlus, Users, Image as ImageIcon,
   SlidersHorizontal,Palette, MapPin, Activity, Camera, Lightbulb, Music, Scissors, Megaphone, AlignLeft,
-  Languages, HelpCircle, AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ChevronsDown
+  Languages, HelpCircle, AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ChevronsDown, Library
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -1148,7 +1148,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [translatingShots, setTranslatingShots] = useState<Record<number, boolean>>({});
   const [creationMode, setCreationMode] = useState<'fast' | 'replay'>(() => (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
   const [seedanceReplayUploadIntent, setSeedanceReplayUploadIntent] = useState<SeedanceReplayUploadIntent>({ targetMediaKind: null });
-  const [seedanceReplayFocusTarget, setSeedanceReplayFocusTarget] = useState<'top' | SeedanceReplayMediaKind | null>(null);
+  const [seedanceReplayFocusTarget, setSeedanceReplayFocusTarget] = useState<SeedanceReplayMediaKind | null>(null);
   const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
   const [billingPricing, setBillingPricing] = useState<BillingPricingCatalog | null>(null);
   const [isModelSectionCollapsed, setIsModelSectionCollapsed] = useState(false);
@@ -3722,7 +3722,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     [t, uploadDisplayAssets]
   );
 
-  const focusSeedanceReplayValidationTarget = useCallback((target: 'top' | SeedanceReplayMediaKind) => {
+  const focusSeedanceReplayValidationTarget = useCallback((target: SeedanceReplayMediaKind) => {
     setSeedanceReplayFocusTarget(null);
     window.requestAnimationFrame(() => {
       setSeedanceReplayFocusTarget(target);
@@ -7405,16 +7405,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (Object.keys(requiredErrors).length > 0) setRequiredErrors({});
 
     if (isSeedanceReplayMode && seedanceReplayValidation.hasBlockingIssues) {
-      const focusTarget: 'top' | SeedanceReplayMediaKind = seedanceReplayValidation.globalErrors.length > 0
-        ? 'top'
-        : seedanceReplayValidation.imageErrors.length > 0
+      if (seedanceReplayValidation.globalErrors.length > 0) {
+        openInfo(popupTitles.notice, seedanceReplayValidation.globalErrors.join('\n'));
+      } else {
+        const focusTarget: SeedanceReplayMediaKind = seedanceReplayValidation.imageErrors.length > 0
           ? 'image'
           : seedanceReplayValidation.videoErrors.length > 0
             ? 'video'
-            : seedanceReplayValidation.audioErrors.length > 0
-              ? 'audio'
-              : 'top';
-      focusSeedanceReplayValidationTarget(focusTarget);
+            : 'audio';
+        focusSeedanceReplayValidationTarget(focusTarget);
+      }
       scriptGenerationLockRef.current = false;
       return;
     }
@@ -8705,28 +8705,29 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <ArrowRight className="w-3 h-3 text-zinc-500" />
                   {t.wb_render_power_title}
                 </h2>
-                <div className="w-full text-left rounded-2xl border border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10 p-4 flex items-center gap-4">
+                <div className="group w-full text-left rounded-2xl border border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10 p-4 flex items-center gap-4">
                   <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-orange-500/20 border border-orange-500/30">
                     <Video className="w-5 h-5 text-orange-400" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className={language === 'vi' ? 'flex items-center gap-1.5' : 'flex items-center gap-2'}>
+                    <div className="flex items-center gap-2 overflow-hidden">
                       <div className="text-[14px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div>
-                      <span className="relative inline-flex items-center group/replay-tip shrink-0">
-                        <Info className="h-3.5 w-3.5 text-zinc-500" />
-                        <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 w-60 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[11px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/replay-tip:opacity-100">
-                          <span className="block">{t.wb_recommend_engine_desc}</span>
-                          <span className="mt-1 block text-zinc-300">{t.wb_replay_seedance_only}</span>
-                        </span>
-                      </span>
-                      <span
-                          className={[
-                            'rounded-full font-black bg-emerald-500 text-black whitespace-nowrap shrink-0',
-                            language === 'vi' ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-0.5 text-[10px]',
-                          ].join(' ')}
-                      >
-                    {t.wb_engine_dedicated}
-                  </span>
+                      <div className="min-w-0 overflow-hidden">
+                        <div className="flex max-w-0 items-center gap-1.5 whitespace-nowrap opacity-0 transition-all duration-300 ease-out group-hover:max-w-[176px] group-hover:opacity-100">
+                          <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
+                            <ImageIcon className="h-3.5 w-3.5" />
+                          </span>
+                          <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
+                            <Video className="h-3.5 w-3.5" />
+                          </span>
+                          <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
+                            <Music className="h-3.5 w-3.5" />
+                          </span>
+                          <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
+                            <Users className="h-3.5 w-3.5" />
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                   <div className="flex flex-col items-center gap-2 shrink-0">
@@ -9165,6 +9166,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           <div ref={uploadSectionRef} className={`flex flex-col gap-3 ${getGuideFocusClass('upload')}`}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
+              {isSeedanceReplayMode && (
+                <button
+                  type="button"
+                  onClick={handleSeedanceReplayOpenLibrary}
+                  className="wb-upload-library-btn inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-1.5 text-xs font-bold text-zinc-300 transition hover:border-white/25 hover:bg-white/[0.08] hover:text-white"
+                >
+                  <Library className="h-3.5 w-3.5" />
+                  {t.wb_seedance_replay_quick_add_button || '快速添加'}
+                </button>
+              )}
             </div>
             {isSeedanceReplayMode ? (
               <>
@@ -9177,7 +9188,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   onPreview={handleSeedanceReplayPreview}
                   onRemove={handleSeedanceReplayRemove}
                   onSetFrameRole={handleSeedanceReplaySetFrameRole}
-                  onOpenLibrary={handleSeedanceReplayOpenLibrary}
                 />
               </>
             ) : (

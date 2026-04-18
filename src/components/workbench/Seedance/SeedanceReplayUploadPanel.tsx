@@ -3,7 +3,6 @@ import {
   ChevronDown,
   Eye,
   Image as ImageIcon,
-  Library,
   Music,
   Play,
   Plus,
@@ -54,18 +53,17 @@ export type SeedanceReplayUploadAsset = {
 type SeedanceReplayUploadPanelProps = {
   assets: SeedanceReplayUploadAsset[];
   validationSummary?: SeedanceReplayValidationSummary;
-  focusTarget?: 'top' | SeedanceReplayMediaKind | null;
+  focusTarget?: SeedanceReplayMediaKind | null;
   onAddVirtualModel?: () => void;
   onOpenLibraryForKind?: (kind: SeedanceReplayMediaKind) => void;
   onPreview?: (assetId: string) => void;
   onRemove?: (assetId: string) => void;
   onSetFrameRole?: (assetId: string, role: 'firstFrame' | 'lastFrame' | null) => void;
-  onOpenLibrary?: () => void;
 };
 
 const noop = () => {};
 const FILE_SIZE_MB = 1024 * 1024;
-const tooltipBaseClass = 'pointer-events-none absolute top-full mt-2 w-[240px] rounded-2xl border border-white/20 bg-zinc-950/90 p-3 text-left opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition group-hover:opacity-100 group-focus-visible:opacity-100 z-20';
+const tooltipBaseClass = 'pointer-events-none absolute top-full mt-2 w-[240px] rounded-2xl border border-white/20 bg-zinc-950/90 p-3 text-left opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition group-hover:opacity-100 group-focus-visible:opacity-100 z-[80]';
 const normalizedFormatLabelMap: Record<string, string> = {
   jpg: 'jpeg',
   tif: 'tiff',
@@ -141,14 +139,13 @@ export function SeedanceReplayUploadPanel({
   onPreview = noop,
   onRemove = noop,
   onSetFrameRole,
-  onOpenLibrary,
 }: SeedanceReplayUploadPanelProps) {
   const { t } = useLanguage();
-  const topRef = useRef<HTMLDivElement>(null);
+  const [themeClassSnapshot, setThemeClassSnapshot] = useState('');
   const imageCardRef = useRef<HTMLDivElement>(null);
   const videoCardRef = useRef<HTMLDivElement>(null);
   const audioCardRef = useRef<HTMLDivElement>(null);
-  const [flashTarget, setFlashTarget] = useState<'top' | SeedanceReplayMediaKind | null>(null);
+  const [flashTarget, setFlashTarget] = useState<SeedanceReplayMediaKind | null>(null);
   const imageAssets = assets.filter((asset) => asset.mediaKind === 'image');
   const videoAssets = assets.filter((asset) => asset.mediaKind === 'video');
   const audioAssets = assets.filter((asset) => asset.mediaKind === 'audio');
@@ -161,27 +158,31 @@ export function SeedanceReplayUploadPanel({
   const videoTotalDuration = videoAssets.reduce((sum, asset) => sum + (asset.durationSeconds || 0), 0);
   const audioTotalDuration = audioAssets.reduce((sum, asset) => sum + (asset.durationSeconds || 0), 0);
 
-  const hasContent = assets.length > 0;
   const imageErrors = validationSummary?.imageErrors || [];
   const videoErrors = validationSummary?.videoErrors || [];
   const audioErrors = validationSummary?.audioErrors || [];
-  const globalErrors = validationSummary?.globalErrors || [];
-  const hasMinimumAssets = validationSummary?.hasMinimumAssets ?? (imageCount > 0 || videoCount > 0);
-  const hasBlockingIssues = validationSummary?.hasBlockingIssues ?? (globalErrors.length > 0 || imageErrors.length > 0 || videoErrors.length > 0 || audioErrors.length > 0);
-  const hasSatisfiedConditions = hasMinimumAssets && !hasBlockingIssues;
   const imageOverLimit = imageErrors.length > 0;
   const videoOverLimit = videoErrors.length > 0;
   const audioOverLimit = audioErrors.length > 0;
+  const isLightTheme = themeClassSnapshot.includes('theme-light');
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    const sync = () => setThemeClassSnapshot(root.className || '');
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(root, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!focusTarget) return;
-    const targetRef = focusTarget === 'top'
-      ? topRef
-      : focusTarget === 'image'
-        ? imageCardRef
-        : focusTarget === 'video'
-          ? videoCardRef
-          : audioCardRef;
+    const targetRef = focusTarget === 'image'
+      ? imageCardRef
+      : focusTarget === 'video'
+        ? videoCardRef
+        : audioCardRef;
     targetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     setFlashTarget(focusTarget);
     const timer = window.setTimeout(() => {
@@ -202,124 +203,6 @@ export function SeedanceReplayUploadPanel({
           100% { transform: translate3d(0, 0, 0); }
         }
       `}</style>
-      {!hasContent ? (
-        <div className="glass-panel relative z-10 rounded-xl border border-dashed border-white/10 p-5 sm:p-6">
-          <div className="mx-auto flex max-w-lg flex-col items-center text-center">
-            <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
-              <RoundIcon icon={<ImageIcon className="h-4 w-4" />} label={t.wb_seedance_replay_media_image || 'Image'} tooltipItems={mediaTooltipItems.image} />
-              <RoundIcon icon={<Video className="h-4 w-4" />} label={t.wb_seedance_replay_media_video || 'Video'} tooltipItems={mediaTooltipItems.video} />
-              <RoundIcon icon={<Music className="h-4 w-4" />} label={t.wb_seedance_replay_media_audio || 'Audio'} tooltipItems={mediaTooltipItems.audio} />
-              <RoundIcon icon={<Users className="h-4 w-4" />} label={t.wb_seedance_replay_virtual_models || 'Virtual Models'} tooltipItems={mediaTooltipItems.model} />
-            </div>
-
-            <h3 className="text-base font-bold text-zinc-100">{t.wb_seedance_replay_add_reference_title || 'Add Reference Assets'}</h3>
-            {onOpenLibrary && (
-              <button
-                type="button"
-                onClick={onOpenLibrary}
-                className="wb-upload-library-btn mt-3 inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/[0.04] px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:border-white/30 hover:bg-white/[0.08]"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                {t.wb_seedance_replay_open_library || '从素材库选择'}
-              </button>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div className="glass-panel rounded-xl border border-white/10 p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-bold text-zinc-500">
-              {t.wb_seedance_replay_quick_add || 'Quick Add'}
-              <span className="ml-1 font-medium text-zinc-500/80">
-                {t.wb_seedance_replay_quick_add_hint_auto || '(从素材库选择素材，系统自动按类别归类)'}
-              </span>
-            </span>
-            {onOpenLibrary && (
-              <button
-                type="button"
-                onClick={onOpenLibrary}
-                className="wb-upload-library-btn ml-auto inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-bold text-zinc-300 transition hover:border-white/25 hover:bg-white/[0.08] hover:text-white"
-              >
-                <Library className="h-3 w-3" />
-                {t.wb_seedance_replay_open_library || '从素材库选择'}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      <div
-        ref={topRef}
-        style={flashTarget === 'top' ? shakeAnimationStyle : undefined}
-        className={`glass-panel rounded-xl border px-3 py-3 transition-all duration-300 ${
-          flashTarget === 'top'
-            ? 'border-orange-400/70 ring-2 ring-orange-400/40 shadow-[0_0_0_1px_rgba(251,146,60,0.35),0_0_28px_rgba(251,146,60,0.14)]'
-            : 'border-white/10'
-        }`}
-      >
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-300 lg:gap-5">
-            <StatusMetric icon={<ImageIcon className="h-3.5 w-3.5 text-zinc-500" />} label={t.wb_seedance_replay_media_image || 'Image'} value={imageCount} limit={SEEDANCE_REPLAY_IMAGE_LIMIT} error={imageOverLimit} />
-            <MetricDivider />
-            <StatusMetric
-              icon={<Video className="h-3.5 w-3.5 text-zinc-500" />}
-              label={t.wb_seedance_replay_media_video || 'Video'}
-              value={videoCount}
-              limit={SEEDANCE_REPLAY_VIDEO_LIMIT}
-              duration={formatSeconds(videoTotalDuration)}
-              durationLimit={`${SEEDANCE_REPLAY_DURATION_MAX}s`}
-              error={videoOverLimit}
-            />
-            <MetricDivider />
-            <StatusMetric
-              icon={<Music className="h-3.5 w-3.5 text-zinc-500" />}
-              label={t.wb_seedance_replay_media_audio || 'Audio'}
-              value={audioCount}
-              limit={SEEDANCE_REPLAY_AUDIO_LIMIT}
-              duration={formatSeconds(audioTotalDuration)}
-              durationLimit={`${SEEDANCE_REPLAY_DURATION_MAX}s`}
-              error={audioOverLimit}
-            />
-          </div>
-
-          <div className={`flex items-center gap-2 text-xs font-medium ${hasSatisfiedConditions ? 'text-emerald-400' : 'text-zinc-500'}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${hasSatisfiedConditions ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
-            {hasSatisfiedConditions
-              ? (t.wb_seedance_replay_conditions_ready || 'Requirements Met')
-              : (t.wb_seedance_replay_conditions_pending || 'Requirements Pending')}
-          </div>
-        </div>
-
-        {(globalErrors.length > 0 || imageErrors.length > 0 || videoErrors.length > 0 || audioErrors.length > 0) && (
-          <div className="mt-3 space-y-1.5 border-t border-white/10 pt-3">
-            {globalErrors.map((message) => (
-              <p key={message} className="flex items-center gap-2 text-xs text-orange-300">
-                <span className="h-1.5 w-1.5 rounded-full bg-orange-400" />
-                {message}
-              </p>
-            ))}
-            {imageErrors.map((message) => (
-              <p key={message} className="flex items-center gap-2 text-xs text-red-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
-                {message}
-              </p>
-            ))}
-            {videoErrors.map((message) => (
-              <p key={message} className="flex items-center gap-2 text-xs text-red-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
-                {message}
-              </p>
-            ))}
-            {audioErrors.map((message) => (
-              <p key={message} className="flex items-center gap-2 text-xs text-red-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
-                {message}
-              </p>
-            ))}
-          </div>
-        )}
-      </div>
-
       <div className="grid grid-cols-1 gap-3">
         <CategoryCard
           cardKey="image"
@@ -335,6 +218,9 @@ export function SeedanceReplayUploadPanel({
           onPreview={onPreview}
           onRemove={onRemove}
           onSetFrameRole={onSetFrameRole}
+          tooltipLabel={t.wb_seedance_replay_media_image || 'Image'}
+          tooltipItems={mediaTooltipItems.image}
+          isLightTheme={isLightTheme}
           onOpenLibrary={onOpenLibraryForKind ? () => onOpenLibraryForKind('image') : undefined}
         />
         <CategoryCard
@@ -352,6 +238,9 @@ export function SeedanceReplayUploadPanel({
           errorMessages={videoErrors}
           onPreview={onPreview}
           onRemove={onRemove}
+          tooltipLabel={t.wb_seedance_replay_media_video || 'Video'}
+          tooltipItems={mediaTooltipItems.video}
+          isLightTheme={isLightTheme}
           onOpenLibrary={onOpenLibraryForKind ? () => onOpenLibraryForKind('video') : undefined}
         />
         <CategoryCard
@@ -369,12 +258,18 @@ export function SeedanceReplayUploadPanel({
           errorMessages={audioErrors}
           onPreview={onPreview}
           onRemove={onRemove}
+          tooltipLabel={t.wb_seedance_replay_media_audio || 'Audio'}
+          tooltipItems={mediaTooltipItems.audio}
+          isLightTheme={isLightTheme}
           onOpenLibrary={onOpenLibraryForKind ? () => onOpenLibraryForKind('audio') : undefined}
         />
 
         {/* Virtual Model Zone */}
         <VirtualModelCard
           modelAssets={modelAssets}
+          tooltipLabel={t.wb_seedance_replay_virtual_models || 'Virtual Models'}
+          tooltipItems={mediaTooltipItems.model}
+          isLightTheme={isLightTheme}
           onAddVirtualModel={onAddVirtualModel}
           onPreview={onPreview}
           onRemove={onRemove}
@@ -383,96 +278,6 @@ export function SeedanceReplayUploadPanel({
 
     </div>
   );
-}
-
-function RoundIcon({
-  icon,
-  label,
-  tooltipItems,
-  tooltipAlign = 'center',
-}: {
-  icon: React.ReactNode;
-  label?: string;
-  tooltipItems?: string[];
-  tooltipAlign?: TooltipAlign;
-}) {
-  const hasTooltip = Boolean(label && tooltipItems?.length);
-
-  return (
-    <div className="group relative">
-      <div
-        className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400 transition hover:border-white/20 hover:bg-white/10 hover:text-zinc-200"
-        tabIndex={hasTooltip ? 0 : -1}
-        aria-label={label}
-      >
-        {icon}
-      </div>
-      {hasTooltip && (
-        <div className={`${tooltipBaseClass} ${tooltipAlignClass(tooltipAlign)}`}>
-          <div className="text-[11px] font-bold text-white/90">{label}</div>
-          <div className="mt-1 space-y-1 text-[10px] leading-relaxed text-zinc-200/80">
-            {tooltipItems!.map((item) => (
-              <div key={item}>{item}</div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PrimaryButton({
-  children,
-  onClick,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/[0.04] px-3 py-2 text-xs font-bold text-white shadow-[0_2px_8px_rgba(0,0,0,0.18)] transition hover:border-white/30 hover:bg-white/[0.08]"
-    >
-      {children}
-    </button>
-  );
-}
-
-function StatusMetric({
-  icon,
-  label,
-  value,
-  limit,
-  duration,
-  durationLimit,
-  error,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  limit: number;
-  duration?: string;
-  durationLimit?: string;
-  error?: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-1.5">
-      {icon}
-      <span className="text-xs text-zinc-300">
-        {label} <span className={value > limit || error ? 'text-orange-300' : 'text-zinc-100'}>{value}</span>/{limit}
-      </span>
-      {duration && durationLimit && (
-        <span className="text-[11px] text-zinc-500">
-          <span className={error ? 'text-red-400' : 'text-zinc-400'}>{duration}</span>/{durationLimit}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function MetricDivider() {
-  return <div className="hidden h-3.5 w-px bg-white/10 sm:block" />;
 }
 
 const SEEDANCE_REPLAY_CARD_COLLAPSE_STORAGE_KEY = 'seedanceReplayUploadCardCollapseState';
@@ -542,6 +347,9 @@ type CategoryCardProps = {
   cardKey: SeedanceReplayCardKey;
   title: string;
   icon: React.ReactNode;
+  tooltipLabel?: string;
+  tooltipItems?: string[];
+  isLightTheme?: boolean;
   containerRef?: React.RefObject<HTMLDivElement | null>;
   highlighted?: boolean;
   items: SeedanceReplayUploadAsset[];
@@ -561,6 +369,9 @@ function CategoryCard({
   cardKey,
   title,
   icon,
+  tooltipLabel,
+  tooltipItems,
+  isLightTheme = false,
   containerRef,
   highlighted = false,
   items,
@@ -583,7 +394,7 @@ function CategoryCard({
     <div
       ref={containerRef}
       style={highlighted ? shakeAnimationStyle : undefined}
-      className={`glass-panel rounded-xl border p-3.5 transition-all duration-300 ${
+      className={`glass-panel relative z-0 rounded-xl border p-3.5 transition-all duration-300 hover:z-20 focus-within:z-20 ${
         highlighted
           ? 'border-orange-400/70 ring-2 ring-orange-400/40 shadow-[0_0_0_1px_rgba(251,146,60,0.35),0_0_28px_rgba(251,146,60,0.14)]'
           : exceedsLimit
@@ -598,7 +409,9 @@ function CategoryCard({
           onClick={toggleCollapsed}
         >
           <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-zinc-500 transition-transform duration-300 ${collapsed ? '-rotate-90' : ''}`} />
-          <div className="text-zinc-400">{icon}</div>
+          <IconTooltip label={tooltipLabel || title} items={tooltipItems} isLightTheme={isLightTheme}>
+            <div className="text-zinc-400">{icon}</div>
+          </IconTooltip>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-bold text-zinc-100">{title}</h3>
@@ -658,11 +471,17 @@ function CategoryCard({
 
 function VirtualModelCard({
   modelAssets,
+  tooltipLabel,
+  tooltipItems,
+  isLightTheme = false,
   onAddVirtualModel,
   onPreview,
   onRemove,
 }: {
   modelAssets: SeedanceReplayUploadAsset[];
+  tooltipLabel?: string;
+  tooltipItems?: string[];
+  isLightTheme?: boolean;
   onAddVirtualModel: () => void;
   onPreview: (assetId: string) => void;
   onRemove: (assetId: string) => void;
@@ -671,7 +490,7 @@ function VirtualModelCard({
   const { collapsed, toggleCollapsed } = useSeedanceReplayCardCollapse('model', modelAssets.length);
 
   return (
-    <div className="glass-panel rounded-xl border border-white/10 p-3.5">
+    <div className="glass-panel relative z-0 rounded-xl border border-white/10 p-3.5 hover:z-20 focus-within:z-20">
       <div className={`flex items-center justify-between gap-3 ${collapsed ? '' : 'mb-3'}`}>
         <button
           type="button"
@@ -679,7 +498,9 @@ function VirtualModelCard({
           onClick={toggleCollapsed}
         >
           <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-zinc-500 transition-transform duration-300 ${collapsed ? '-rotate-90' : ''}`} />
-          <div className="text-zinc-400"><Users className="h-4 w-4" /></div>
+          <IconTooltip label={tooltipLabel || (t.wb_seedance_replay_virtual_models || '虚拟模特')} items={tooltipItems} isLightTheme={isLightTheme}>
+            <div className="text-zinc-400"><Users className="h-4 w-4" /></div>
+          </IconTooltip>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-bold text-zinc-100">{t.wb_seedance_replay_virtual_models || '虚拟模特'}</h3>
@@ -726,6 +547,40 @@ function MiniIconButton({
     >
       {children}
     </button>
+  );
+}
+
+function IconTooltip({
+  label,
+  items,
+  children,
+  isLightTheme = false,
+}: {
+  label: string;
+  items?: string[];
+  children: React.ReactNode;
+  isLightTheme?: boolean;
+}) {
+  if (!items?.length) return <>{children}</>;
+
+  return (
+    <div className="group relative z-10">
+      <div
+        className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-500 transition hover:text-zinc-200"
+        tabIndex={0}
+        aria-label={label}
+      >
+        {children}
+      </div>
+      <div className={`${tooltipBaseClass} ${tooltipAlignClass('left')}`}>
+        <div className={`text-[11px] font-bold ${isLightTheme ? 'text-slate-900' : 'text-white/90'}`}>{label}</div>
+        <div className={`mt-1 space-y-1 text-[10px] leading-relaxed ${isLightTheme ? 'text-slate-700' : 'text-zinc-200/80'}`}>
+          {items.map((item) => (
+            <div key={item}>{item}</div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 

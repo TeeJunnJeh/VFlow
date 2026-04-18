@@ -4,6 +4,7 @@ import { DropdownSelect } from '../../../common/DropdownSelect';
 import type { ViewType } from '../../../workbench/types';
 import type { LoadingTheme } from '../../../../utils/loadingTheme';
 import ResizableSplitter from '../../../common/ResizableSplitter';
+import { AppDialog } from '../../../common/AppDialog';
 
 const GALLERY_PANEL_MIN_WIDTH = 300;
 const GALLERY_PANEL_MAX_WIDTH = 500;
@@ -67,6 +68,28 @@ type GallerySceneCardConfig = {
   };
 };
 
+type GalleryBulkRatioStrategy = 'recommended' | '1:1' | '4:5' | '9:16';
+type GalleryBulkBindingStrategy = 'none' | 'auto_primary';
+type GalleryBulkConfig = {
+  ratioStrategy: GalleryBulkRatioStrategy;
+  resolution: '1k' | '2k' | '4k';
+  bindingStrategy: GalleryBulkBindingStrategy;
+  typeSelections: Record<GalleryOutputItemConfig['outputType'], { enabled: boolean; count: number }>;
+};
+
+const cloneGalleryBulkConfig = (value: GalleryBulkConfig): GalleryBulkConfig => ({
+  ratioStrategy: value.ratioStrategy,
+  resolution: value.resolution,
+  bindingStrategy: value.bindingStrategy,
+  typeSelections: {
+    white_bg: { ...value.typeSelections.white_bg },
+    scene: { ...value.typeSelections.scene },
+    selling_point: { ...value.typeSelections.selling_point },
+    cover: { ...value.typeSelections.cover },
+    poster: { ...value.typeSelections.poster },
+  },
+});
+
 export type ImagesGalleryViewProps = {
   panelClassName: (view: ViewType) => string;
   t: any;
@@ -123,12 +146,21 @@ export type ImagesGalleryViewProps = {
   galleryResourceGuide: { target: 'model' | 'scene' | null; token: number };
   guideGalleryResourceSection: (target: 'model' | 'scene') => void;
 
+  galleryBulkConfig: GalleryBulkConfig;
+  setGalleryBulkConfig: React.Dispatch<React.SetStateAction<GalleryBulkConfig>>;
+  handleApplyGalleryBulkConfig: (nextConfig?: GalleryBulkConfig) => boolean | Promise<boolean>;
+  galleryAdvancedDirty: boolean;
+  isGalleryAdvancedEditingCollapsed: boolean;
+  setIsGalleryAdvancedEditingCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
+  markGalleryAdvancedDirty: () => void;
   galleryOutputMode: 'custom' | 'ai';
-  setGalleryOutputMode: React.Dispatch<React.SetStateAction<'custom' | 'ai'>>;
   galleryOutputItems: GalleryOutputItemConfig[];
   setGalleryOutputItems: React.Dispatch<React.SetStateAction<GalleryOutputItemConfig[]>>;
   galleryPreviewAspectRatio: string;
   openGalleryAiOutputPlanner: () => void;
+  handleGalleryAiLayoutSuggestions: () => void | Promise<void>;
+  openGalleryAiLayoutPromptDialog: () => void;
+  isGalleryAiLayoutDesigning: boolean;
 
   handleGalleryGenerate: () => void;
   isGalleryGenerating: boolean;
@@ -325,6 +357,8 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
   const [leftWidth, setLeftWidth] = useState<number>(GALLERY_PANEL_DEFAULT_WIDTH);
   const [middleWidth, setMiddleWidth] = useState<number>(GALLERY_PANEL_DEFAULT_WIDTH);
   const [isBasicsCollapsed, setIsBasicsCollapsed] = useState(false);
+  const [isQuickBatchDialogOpen, setIsQuickBatchDialogOpen] = useState(false);
+  const [galleryBulkDialogDraft, setGalleryBulkDialogDraft] = useState<GalleryBulkConfig>(() => cloneGalleryBulkConfig(props.galleryBulkConfig));
   const [resourceHighlight, setResourceHighlight] = useState<'model' | 'scene' | null>(null);
   const modelSectionRef = useRef<HTMLDivElement | null>(null);
   const sceneSectionRef = useRef<HTMLDivElement | null>(null);
@@ -448,12 +482,21 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     galleryResourceGuide,
     guideGalleryResourceSection,
 
+    galleryBulkConfig,
+    setGalleryBulkConfig,
+    handleApplyGalleryBulkConfig,
+    galleryAdvancedDirty,
+    isGalleryAdvancedEditingCollapsed,
+    setIsGalleryAdvancedEditingCollapsed,
+    markGalleryAdvancedDirty,
     galleryOutputMode,
-    setGalleryOutputMode,
     galleryOutputItems,
     setGalleryOutputItems,
     galleryPreviewAspectRatio,
     openGalleryAiOutputPlanner,
+    handleGalleryAiLayoutSuggestions,
+    openGalleryAiLayoutPromptDialog,
+    isGalleryAiLayoutDesigning,
 
     handleGalleryGenerate,
     isGalleryGenerating,
@@ -487,11 +530,56 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     return () => window.clearTimeout(timer);
   }, [galleryResourceGuide.target, galleryResourceGuide.token]);
 
+  const mutateAdvancedOutputItems = (
+    updater: (items: GalleryOutputItemConfig[]) => GalleryOutputItemConfig[]
+  ) => {
+    markGalleryAdvancedDirty();
+    setGalleryOutputItems(updater);
+  };
+
   const updateOutputItem = (itemId: string, updater: (item: GalleryOutputItemConfig) => GalleryOutputItemConfig) => {
-    setGalleryOutputItems((prev) => prev.map((item) => (item.id === itemId ? updater(item) : item)));
+    mutateAdvancedOutputItems((prev) => prev.map((item) => (item.id === itemId ? updater(item) : item)));
   };
 
   const galleryOptimizingItemIds: Record<string, boolean> = {};
+  const galleryAdvancedItemCount = galleryOutputItems.filter((item) => item.enabled && item.count > 0).length;
+  const bulkTypeCards: Array<{
+    outputType: GalleryOutputItemConfig['outputType'];
+    title: string;
+    description: string;
+    accentClass: string;
+  }> = [
+    {
+      outputType: 'white_bg',
+      title: tr('白底图', 'White Background'),
+      description: tr('适合主图、标准化电商展示。', 'Best for clean hero shots and catalog use.'),
+      accentClass: 'border-sky-400/30 bg-sky-500/8',
+    },
+    {
+      outputType: 'scene',
+      title: tr('场景图', 'Scene'),
+      description: tr('适合带入使用环境与生活方式氛围。', 'Places the product into a contextual lifestyle scene.'),
+      accentClass: 'border-emerald-400/30 bg-emerald-500/8',
+    },
+    {
+      outputType: 'selling_point',
+      title: tr('卖点图', 'Selling Point'),
+      description: tr('一张图聚焦一个核心卖点。', 'Keeps each image focused on one key benefit.'),
+      accentClass: 'border-amber-400/30 bg-amber-500/10',
+    },
+    {
+      outputType: 'cover',
+      title: tr('封面图', 'Cover'),
+      description: tr('适合详情页首屏或合集封面。', 'Good for collection covers and top-of-page visuals.'),
+      accentClass: 'border-fuchsia-400/30 bg-fuchsia-500/10',
+    },
+    {
+      outputType: 'poster',
+      title: tr('海报图', 'Poster'),
+      description: tr('适合促销、活动和长画幅传播。', 'Built for campaign posters and long-form promo placements.'),
+      accentClass: 'border-orange-400/30 bg-orange-500/10',
+    },
+  ];
 
   const getModelCardName = (cardId?: string) => {
     const id = String(cardId || '').trim();
@@ -503,6 +591,38 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     const id = String(cardId || '').trim();
     if (!id) return '';
     return String(gallerySceneCards.find((card) => card.id === id)?.name || '').trim();
+  };
+
+  const openQuickBatchDialog = () => {
+    setGalleryBulkDialogDraft(cloneGalleryBulkConfig(galleryBulkConfig));
+    setIsQuickBatchDialogOpen(true);
+  };
+
+  const closeQuickBatchDialog = () => {
+    setIsQuickBatchDialogOpen(false);
+  };
+
+  const galleryBulkDialogPlannedCount = Object.values(galleryBulkDialogDraft.typeSelections).reduce(
+    (sum, item) => sum + (item.enabled ? Math.max(0, Math.round(Number(item.count || 0))) : 0),
+    0
+  );
+  const galleryBulkSummaryItems = bulkTypeCards
+    .map((card) => {
+      const selection = galleryBulkConfig.typeSelections[card.outputType];
+      const count = selection?.enabled ? Math.max(0, Math.round(Number(selection.count || 0))) : 0;
+      if (count <= 0) return null;
+      return tr(`${card.title} ${count} 张`, `${card.title} ${count}`);
+    })
+    .filter(Boolean) as string[];
+  const galleryBulkSummaryPrimary = galleryBulkSummaryItems.length > 0
+    ? galleryBulkSummaryItems.join(' · ')
+    : tr('未启用任何批量出图类型', 'No batch output types enabled');
+
+  const handleQuickBatchDialogApply = async () => {
+    const applied = await handleApplyGalleryBulkConfig(cloneGalleryBulkConfig(galleryBulkDialogDraft));
+    if (applied) {
+      setIsQuickBatchDialogOpen(false);
+    }
   };
 
   const buildCardConfigFields = (outputType: GalleryOutputItemConfig['outputType']) => {
@@ -604,6 +724,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
   };
 
   return (
+    <>
     <div className={`${panelClassName('product_images_gallery')} h-full min-h-0 flex flex-col px-10 py-6`}>
       <div className="flex-1 min-h-0 flex overflow-hidden relative" id="gallery-container">
         <div
@@ -1288,322 +1409,373 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 ) : null}
               </div>
 
+              <button
+                type="button"
+                onClick={openQuickBatchDialog}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-sm font-bold text-orange-200 transition hover:bg-orange-500/15"
+              >
+                <Sparkles className="h-4 w-4" />
+                {tr('快速批量', 'Quick Batch')}
+              </button>
+
               <div className="hidden">
                 {tr('模特和场景统一在左侧资源区维护。这里的出图卡只负责选择映射关系，并补充当前卡片的辅助生成信息。', 'Model and scene resources are managed on the left. Output cards here only choose bindings and provide card-specific generation hints.')}
               </div>
 
+              <div className="rounded-2xl border border-orange-500/20 bg-[linear-gradient(180deg,rgba(249,115,22,0.06),rgba(17,24,39,0.1))] p-4">
+                <div className="text-xs font-bold text-zinc-100">{tr('快速批量摘要', 'Quick Batch Summary')}</div>
+                <div className="mt-3 rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
+                  <div className="text-sm font-bold text-zinc-100">
+                    {galleryBulkSummaryPrimary}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={openGalleryAiOutputPlanner}
+                  className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-bold transition ${
+                    galleryOutputMode === 'ai'
+                      ? 'border-orange-400/50 bg-orange-500/15 text-orange-100 shadow-[0_0_20px_rgba(249,115,22,0.14)]'
+                      : 'border-orange-500/30 bg-orange-500/10 text-orange-200 hover:bg-orange-500/15'
+                  }`}
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {tr('AI 推荐组合', 'AI Recommended Mix')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleGalleryAiLayoutSuggestions();
+                  }}
+                  disabled={isGalleryAiLayoutDesigning || galleryAdvancedItemCount <= 0}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-bold text-zinc-100 transition hover:bg-white/10 disabled:opacity-50"
+                >
+                  <Wand2 className="h-3.5 w-3.5" />
+                  {isGalleryAiLayoutDesigning ? tr('设计中...', 'Designing...') : tr('AI帮我设计', 'AI Design For Me')}
+                </button>
+                <button
+                  type="button"
+                  onClick={openGalleryAiLayoutPromptDialog}
+                  disabled={isGalleryAiLayoutDesigning || galleryAdvancedItemCount <= 0}
+                  className="inline-flex items-center gap-1 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-[11px] font-bold text-zinc-300 transition hover:bg-white/5 disabled:opacity-50"
+                >
+                  {tr('补充要求', 'Extra Prompt')}
+                </button>
+              </div>
+
               <div>
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-bold text-zinc-200">{tr('出图类型', 'Output Plan')}</div>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-bold text-zinc-200">{tr('高级编辑', 'Advanced Editing')}</div>
+                    <div className="mt-1 text-[11px] leading-5 text-zinc-500">
+                      {galleryAdvancedDirty
+                        ? tr('当前列表已经手动微调，以下设置会直接影响最终逐张出图。', 'This list has been manually tuned. Changes below directly affect each final output card.')
+                        : tr('当前列表来自快速批量或 AI 推荐，需要时再按张微调。', 'This list currently comes from Quick Batch or AI recommendations. Fine-tune only when needed.')}
+                    </div>
+                  </div>
                   <div className="flex items-center gap-2">
+                    {galleryAdvancedDirty ? (
+                      <span className="rounded-full border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-orange-200">
+                        {tr('已微调', 'Adjusted')}
+                      </span>
+                    ) : (
+                      <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-400">
+                        {galleryOutputMode === 'ai' ? tr('AI推荐', 'AI Mix') : tr('批量默认', 'Batch Default')}
+                      </span>
+                    )}
                     <button
                       type="button"
-                      onClick={() => setGalleryOutputMode('custom')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition border ${
-                        galleryOutputMode === 'custom'
-                          ? 'bg-orange-500/10 border-orange-500/40 text-orange-300'
-                          : 'bg-white/5 border-white/10 text-zinc-400 hover:text-zinc-200'
-                      }`}
+                      onClick={() => setIsGalleryAdvancedEditingCollapsed((prev) => !prev)}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400 transition hover:border-white/20 hover:bg-white/10 hover:text-zinc-200"
+                      aria-label={isGalleryAdvancedEditingCollapsed ? tr('展开高级编辑', 'Expand Advanced Editing') : tr('收起高级编辑', 'Collapse Advanced Editing')}
+                      title={isGalleryAdvancedEditingCollapsed ? tr('展开高级编辑', 'Expand Advanced Editing') : tr('收起高级编辑', 'Collapse Advanced Editing')}
                     >
-                      {tr('自定义类型', 'Custom')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setGalleryOutputMode('ai');
-                        openGalleryAiOutputPlanner();
-                      }}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition border ${
-                        galleryOutputMode === 'ai'
-                          ? 'border-orange-400/50 bg-orange-500/15 text-orange-200 shadow-[0_0_20px_rgba(249,115,22,0.18)]'
-                          : 'border-orange-500/30 bg-orange-500/10 text-orange-200 hover:bg-orange-500/15'
-                      }`}
-                    >
-                      {tr('AI智能添加', 'AI Add')}
+                      <ChevronLeft className={`h-4 w-4 transition-transform ${isGalleryAdvancedEditingCollapsed ? '-rotate-90' : 'rotate-90'}`} />
                     </button>
                   </div>
                 </div>
 
-                <div className="mt-3 space-y-3">
-                  {galleryOutputItems.map((item) => {
-                    const supportsResourceBinding = item.outputType !== 'white_bg';
-                    const selectedModelName = getModelCardName(item.modelCardId);
-                    const selectedSceneName = getSceneCardName(item.sceneCardId);
-                    const extraConfigFields = buildCardConfigFields(item.outputType);
-                    return (
-                    <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <label className="flex items-center gap-2 text-xs text-zinc-200">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(item.enabled)}
-                            onChange={(e) => updateOutputItem(item.id, (current) => ({ ...current, enabled: e.target.checked }))}
-                            className="accent-orange-500"
-                          />
-                          <span className="font-bold">{tr('启用', 'Enabled')}</span>
-                        </label>
+                {isGalleryAdvancedEditingCollapsed ? (
+                  <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-[11px] text-zinc-500">
+                    {galleryAdvancedItemCount > 0
+                      ? tr(`已配置 ${galleryAdvancedItemCount} 条出图条目，展开后可按张调整。`, `${galleryAdvancedItemCount} output items configured. Expand to edit per card.`)
+                      : tr('当前还没有逐张出图条目。先用快速批量生成一组，再进入高级编辑。', 'No per-card output items yet. Generate a batch first, then open Advanced Editing.')}
+                  </div>
+                ) : (
+                  <div className="mt-3 space-y-3">
+                    {galleryOutputItems.map((item) => {
+                      const supportsResourceBinding = item.outputType !== 'white_bg';
+                      const selectedModelName = getModelCardName(item.modelCardId);
+                      const selectedSceneName = getSceneCardName(item.sceneCardId);
+                      const extraConfigFields = buildCardConfigFields(item.outputType);
+                      return (
+                      <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="flex items-center gap-2 text-xs text-zinc-200">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(item.enabled)}
+                              onChange={(e) => updateOutputItem(item.id, (current) => ({ ...current, enabled: e.target.checked }))}
+                              className="accent-orange-500"
+                            />
+                            <span className="font-bold">{tr('启用', 'Enabled')}</span>
+                          </label>
 
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => undefined}
-                            className="hidden"
-                          >
-                            <Sparkles className="w-3.5 h-3.5" />
-                            {galleryOptimizingItemIds[item.id] ? tr('优化中...', 'Optimizing...') : tr('AI优化', 'AI Optimize')}
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => undefined}
+                              className="hidden"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                              {galleryOptimizingItemIds[item.id] ? tr('优化中...', 'Optimizing...') : tr('AI优化', 'AI Optimize')}
+                            </button>
 
-                          <button
-                            type="button"
-                            onClick={() => setGalleryOutputItems((prev) => prev.filter((it) => it.id !== item.id))}
-                            className="w-8 h-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 flex items-center justify-center"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
+                            <button
+                              type="button"
+                              onClick={() => mutateAdvancedOutputItems((prev) => prev.filter((it) => it.id !== item.id))}
+                              className="w-8 h-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 flex items-center justify-center"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="grid grid-cols-2 gap-3">
-                        <DropdownSelect
-                          value={String(item.outputType || 'white_bg')}
-                          options={[
-                            { value: 'white_bg', label: t.pi_gallery_output_white_bg },
-                            { value: 'scene', label: t.pi_gallery_output_scene },
-                            { value: 'selling_point', label: t.pi_gallery_output_selling_point },
-                            { value: 'cover', label: t.pi_gallery_output_cover },
-                            { value: 'poster', label: t.pi_gallery_output_poster },
-                          ]}
-                          onChange={(v) =>
-                            setGalleryOutputItems((prev) =>
-                              prev.map((it) => {
-                                if (it.id !== item.id) return it;
-                                const raw = String(v || 'white_bg');
-                                const next =
-                                  raw === 'scene' || raw === 'selling_point' || raw === 'cover' || raw === 'poster'
-                                    ? raw
-                                    : 'white_bg';
-                                return {
-                                  ...it,
-                                  outputType: next as any,
-                                  modelCardId: next === 'white_bg' ? undefined : it.modelCardId,
-                                  sceneCardId: next === 'white_bg' ? undefined : it.sceneCardId,
-                                };
-                              })
-                            )
-                          }
-                          buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                          iconClassName="w-4 h-4 text-zinc-500"
-                          optionClassName="text-xs"
-                        />
-                        <DropdownSelect
-                          value={String(item.aspectRatio || '1:1')}
-                          options={[
-                            { value: '21:9', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_21_9}` },
-                            { value: '16:9', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_16_9}` },
-                            { value: '4:3', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_4_3}` },
-                            { value: '3:2', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_3_2}` },
-                            { value: '1:1', label: `${t.pi_gallery_ratio_group_square} · ${t.pi_gallery_ratio_1_1}` },
-                            { value: '9:16', label: `${t.pi_gallery_ratio_group_vertical} · ${t.pi_gallery_ratio_9_16}` },
-                            { value: '3:4', label: `${t.pi_gallery_ratio_group_vertical} · ${t.pi_gallery_ratio_3_4}` },
-                            { value: '2:3', label: `${t.pi_gallery_ratio_group_vertical} · ${t.pi_gallery_ratio_2_3}` },
-                            { value: '5:4', label: `${t.pi_gallery_ratio_group_flexible} · ${t.pi_gallery_ratio_5_4}` },
-                            { value: '4:5', label: `${t.pi_gallery_ratio_group_flexible} · ${t.pi_gallery_ratio_4_5}` },
-                          ]}
-                          onChange={(v) => setGalleryOutputItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, aspectRatio: String(v || '1:1') } : it)))}
-                          buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                          iconClassName="w-4 h-4 text-zinc-500"
-                          optionClassName="text-xs"
-                        />
-                      </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <DropdownSelect
+                            value={String(item.outputType || 'white_bg')}
+                            options={[
+                              { value: 'white_bg', label: t.pi_gallery_output_white_bg },
+                              { value: 'scene', label: t.pi_gallery_output_scene },
+                              { value: 'selling_point', label: t.pi_gallery_output_selling_point },
+                              { value: 'cover', label: t.pi_gallery_output_cover },
+                              { value: 'poster', label: t.pi_gallery_output_poster },
+                            ]}
+                            onChange={(v) =>
+                              mutateAdvancedOutputItems((prev) =>
+                                prev.map((it) => {
+                                  if (it.id !== item.id) return it;
+                                  const raw = String(v || 'white_bg');
+                                  const next =
+                                    raw === 'scene' || raw === 'selling_point' || raw === 'cover' || raw === 'poster'
+                                      ? raw
+                                      : 'white_bg';
+                                  return {
+                                    ...it,
+                                    outputType: next as any,
+                                    modelCardId: next === 'white_bg' ? undefined : it.modelCardId,
+                                    sceneCardId: next === 'white_bg' ? undefined : it.sceneCardId,
+                                  };
+                                })
+                              )
+                            }
+                            buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                            iconClassName="w-4 h-4 text-zinc-500"
+                            optionClassName="text-xs"
+                          />
+                          <DropdownSelect
+                            value={String(item.aspectRatio || '1:1')}
+                            options={[
+                              { value: '21:9', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_21_9}` },
+                              { value: '16:9', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_16_9}` },
+                              { value: '4:3', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_4_3}` },
+                              { value: '3:2', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_3_2}` },
+                              { value: '1:1', label: `${t.pi_gallery_ratio_group_square} · ${t.pi_gallery_ratio_1_1}` },
+                              { value: '9:16', label: `${t.pi_gallery_ratio_group_vertical} · ${t.pi_gallery_ratio_9_16}` },
+                              { value: '3:4', label: `${t.pi_gallery_ratio_group_vertical} · ${t.pi_gallery_ratio_3_4}` },
+                              { value: '2:3', label: `${t.pi_gallery_ratio_group_vertical} · ${t.pi_gallery_ratio_2_3}` },
+                              { value: '5:4', label: `${t.pi_gallery_ratio_group_flexible} · ${t.pi_gallery_ratio_5_4}` },
+                              { value: '4:5', label: `${t.pi_gallery_ratio_group_flexible} · ${t.pi_gallery_ratio_4_5}` },
+                            ]}
+                            onChange={(v) => updateOutputItem(item.id, (current) => ({ ...current, aspectRatio: String(v || '1:1') }))}
+                            buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                            iconClassName="w-4 h-4 text-zinc-500"
+                            optionClassName="text-xs"
+                          />
+                        </div>
 
-                      <div className="grid grid-cols-2 gap-3">
-                        <DropdownSelect
-                          value={String(item.resolution || '1k')}
-                          options={[
-                            { value: '1k', label: '1K' },
-                            { value: '2k', label: '2K' },
-                            { value: '4k', label: '4K' },
-                          ]}
-                          onChange={(v) =>
-                            setGalleryOutputItems((prev) =>
-                              prev.map((it) => {
-                                if (it.id !== item.id) return it;
+                        <div className="grid grid-cols-2 gap-3">
+                          <DropdownSelect
+                            value={String(item.resolution || '1k')}
+                            options={[
+                              { value: '1k', label: '1K' },
+                              { value: '2k', label: '2K' },
+                              { value: '4k', label: '4K' },
+                            ]}
+                            onChange={(v) =>
+                              updateOutputItem(item.id, (current) => {
                                 const raw = String(v || '1k').toLowerCase();
                                 const resolution = raw === '2k' || raw === '4k' ? raw : '1k';
-                                return { ...it, resolution: resolution as any };
+                                return { ...current, resolution: resolution as any };
                               })
-                            )
-                          }
-                          buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                          iconClassName="w-4 h-4 text-zinc-500"
-                          optionClassName="text-xs"
-                        />
+                            }
+                            buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                            iconClassName="w-4 h-4 text-zinc-500"
+                            optionClassName="text-xs"
+                          />
 
-                        <div className="flex items-center justify-end">
-                          <div className="flex items-center">
-                            <button
-                              type="button"
-                              onClick={() => setGalleryOutputItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, count: Math.max(1, Number(it.count || 1) - 1) } : it)))}
-                              disabled={!item.enabled || Number(item.count || 1) <= 1}
-                              className="w-8 h-8 rounded-l-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-50 flex items-center justify-center"
-                            >
-                              <Minus className="w-4 h-4" />
-                            </button>
-                            <div className="w-10 h-8 flex items-center justify-center border-t border-b border-white/10 bg-black/30 text-xs text-zinc-200">
-                              {Number(item.count || 1)}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setGalleryOutputItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, count: Math.min(8, Number(it.count || 1) + 1) } : it)))}
-                              disabled={!item.enabled || Number(item.count || 1) >= 8}
-                              className="w-8 h-8 rounded-r-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-50 flex items-center justify-center"
-                            >
-                              <Plus className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      {supportsResourceBinding ? (
-                        <div className="w-full">
-                          <div className="hidden">{tr('资源映射', 'Resource Binding')}</div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1">
-                              <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('模特', 'Model')}</div>
-                              {galleryModelCards.length > 0 ? (
-                                <>
-                                  <DropdownSelect
-                                    value={String(item.modelCardId || '')}
-                                    options={[
-                                      { value: '', label: tr('不使用模特', 'No Model') },
-                                      ...galleryModelCards.map((card) => ({ value: card.id, label: card.name || card.id })),
-                                    ]}
-                                    onChange={(value) => updateOutputItem(item.id, (current) => ({ ...current, modelCardId: String(value || '') || undefined }))}
-                                    buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                                    iconClassName="w-4 h-4 text-zinc-500"
-                                    optionClassName="text-xs"
-                                  />
-                                  <div className="hidden">
-                                    {item.modelCardId && !selectedModelName
-                                      ? tr('已绑定的模特卡不存在，请重新选择。', 'The bound model card no longer exists. Please reselect it.')
-                                      : selectedModelName
-                                        ? tr(`当前映射：${selectedModelName}`, `Current binding: ${selectedModelName}`)
-                                        : tr('未绑定模特卡', 'No model card bound')}
-                                  </div>
-                                </>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    guideGalleryResourceSection('model');
-                                    addGalleryModelCard();
-                                  }}
-                                  className="w-full rounded-xl border border-dashed border-orange-500/30 bg-orange-500/5 px-3 py-2 text-xs font-bold text-orange-200 hover:bg-orange-500/10 transition"
-                                >
-                                  {tr('暂无模特卡，去创建', 'No model cards. Create one')}
-                                </button>
-                              )}
-                            </div>
-
-                            <div className="space-y-1">
-                              <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('场景', 'Scene')}</div>
-                              {gallerySceneCards.length > 0 ? (
-                                <>
-                                  <DropdownSelect
-                                    value={String(item.sceneCardId || '')}
-                                    options={[
-                                      { value: '', label: tr('不使用场景', 'No Scene') },
-                                      ...gallerySceneCards.map((card) => ({ value: card.id, label: card.name || card.id })),
-                                    ]}
-                                    onChange={(value) => updateOutputItem(item.id, (current) => ({ ...current, sceneCardId: String(value || '') || undefined }))}
-                                    buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                                    iconClassName="w-4 h-4 text-zinc-500"
-                                    optionClassName="text-xs"
-                                  />
-                                  <div className="hidden">
-                                    {item.sceneCardId && !selectedSceneName
-                                      ? tr('已绑定的场景卡不存在，请重新选择。', 'The bound scene card no longer exists. Please reselect it.')
-                                      : selectedSceneName
-                                        ? tr(`当前映射：${selectedSceneName}`, `Current binding: ${selectedSceneName}`)
-                                        : tr('未绑定场景卡', 'No scene card bound')}
-                                  </div>
-                                </>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    guideGalleryResourceSection('scene');
-                                    addGallerySceneCard();
-                                  }}
-                                  className="w-full rounded-xl border border-dashed border-orange-500/30 bg-orange-500/5 px-3 py-2 text-xs font-bold text-orange-200 hover:bg-orange-500/10 transition"
-                                >
-                                  {tr('暂无场景卡，去创建', 'No scene cards. Create one')}
-                                </button>
-                              )}
+                          <div className="flex items-center justify-end">
+                            <div className="flex items-center">
+                              <button
+                                type="button"
+                                onClick={() => updateOutputItem(item.id, (current) => ({ ...current, count: Math.max(1, Number(current.count || 1) - 1) }))}
+                                disabled={!item.enabled || Number(item.count || 1) <= 1}
+                                className="w-8 h-8 rounded-l-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-50 flex items-center justify-center"
+                              >
+                                <Minus className="w-4 h-4" />
+                              </button>
+                              <div className="w-10 h-8 flex items-center justify-center border-t border-b border-white/10 bg-black/30 text-xs text-zinc-200">
+                                {Number(item.count || 1)}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => updateOutputItem(item.id, (current) => ({ ...current, count: Math.min(8, Number(current.count || 1) + 1) }))}
+                                disabled={!item.enabled || Number(item.count || 1) >= 8}
+                                className="w-8 h-8 rounded-r-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-50 flex items-center justify-center"
+                              >
+                                <Plus className="w-4 h-4" />
+                              </button>
                             </div>
                           </div>
                         </div>
-                      ) : null}
 
-                      <div className="space-y-1">
-                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">
-                          {tr('构图描述', 'Layout')}
+                        {supportsResourceBinding ? (
+                          <div className="w-full">
+                            <div className="hidden">{tr('资源映射', 'Resource Binding')}</div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('模特', 'Model')}</div>
+                                {galleryModelCards.length > 0 ? (
+                                  <>
+                                    <DropdownSelect
+                                      value={String(item.modelCardId || '')}
+                                      options={[
+                                        { value: '', label: tr('不使用模特', 'No Model') },
+                                        ...galleryModelCards.map((card) => ({ value: card.id, label: card.name || card.id })),
+                                      ]}
+                                      onChange={(value) => updateOutputItem(item.id, (current) => ({ ...current, modelCardId: String(value || '') || undefined }))}
+                                      buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                                      iconClassName="w-4 h-4 text-zinc-500"
+                                      optionClassName="text-xs"
+                                    />
+                                    <div className="hidden">
+                                      {item.modelCardId && !selectedModelName
+                                        ? tr('已绑定的模特卡不存在，请重新选择。', 'The bound model card no longer exists. Please reselect it.')
+                                        : selectedModelName
+                                          ? tr(`当前映射：${selectedModelName}`, `Current binding: ${selectedModelName}`)
+                                          : tr('未绑定模特卡', 'No model card bound')}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      guideGalleryResourceSection('model');
+                                      addGalleryModelCard();
+                                    }}
+                                    className="w-full rounded-xl border border-dashed border-orange-500/30 bg-orange-500/5 px-3 py-2 text-xs font-bold text-orange-200 hover:bg-orange-500/10 transition"
+                                  >
+                                    {tr('暂无模特卡，去创建', 'No model cards. Create one')}
+                                  </button>
+                                )}
+                              </div>
+
+                              <div className="space-y-1">
+                                <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('场景', 'Scene')}</div>
+                                {gallerySceneCards.length > 0 ? (
+                                  <>
+                                    <DropdownSelect
+                                      value={String(item.sceneCardId || '')}
+                                      options={[
+                                        { value: '', label: tr('不使用场景', 'No Scene') },
+                                        ...gallerySceneCards.map((card) => ({ value: card.id, label: card.name || card.id })),
+                                      ]}
+                                      onChange={(value) => updateOutputItem(item.id, (current) => ({ ...current, sceneCardId: String(value || '') || undefined }))}
+                                      buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                                      iconClassName="w-4 h-4 text-zinc-500"
+                                      optionClassName="text-xs"
+                                    />
+                                    <div className="hidden">
+                                      {item.sceneCardId && !selectedSceneName
+                                        ? tr('已绑定的场景卡不存在，请重新选择。', 'The bound scene card no longer exists. Please reselect it.')
+                                        : selectedSceneName
+                                          ? tr(`当前映射：${selectedSceneName}`, `Current binding: ${selectedSceneName}`)
+                                          : tr('未绑定场景卡', 'No scene card bound')}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      guideGalleryResourceSection('scene');
+                                      addGallerySceneCard();
+                                    }}
+                                    className="w-full rounded-xl border border-dashed border-orange-500/30 bg-orange-500/5 px-3 py-2 text-xs font-bold text-orange-200 hover:bg-orange-500/10 transition"
+                                  >
+                                    {tr('暂无场景卡，去创建', 'No scene cards. Create one')}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <div className="space-y-1">
+                          <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">
+                            {tr('构图描述', 'Layout')}
+                          </div>
+                          <textarea
+                            value={String(item.layout || '')}
+                            onChange={(e) => updateOutputItem(item.id, (current) => ({ ...current, layout: e.target.value }))}
+                            rows={3}
+                            className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
+                            placeholder={tr(
+                              '例如：商品居中偏下，顶部留白放主标题；右侧留白放 3 条卖点 bullet；底部留白放品牌/规格信息（不要生成可读文字）。',
+                              'E.g. Product centered lower; top whitespace for headline; right whitespace for bullet points; bottom whitespace for brand/specs (no readable text).'
+                            )}
+                          />
                         </div>
-                        <textarea
-                          value={String(item.layout || '')}
-                          onChange={(e) =>
-                            setGalleryOutputItems((prev) =>
-                              prev.map((it) => (it.id === item.id ? { ...it, layout: e.target.value } : it))
-                            )
-                          }
-                          rows={3}
-                          className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
-                          placeholder={tr(
-                            '例如：商品居中偏下，顶部留白放主标题；右侧留白放 3 条卖点 bullet；底部留白放品牌/规格信息（不要生成可读文字）。',
-                            'E.g. Product centered lower; top whitespace for headline; right whitespace for bullet points; bottom whitespace for brand/specs (no readable text).'
-                          )}
-                        />
-                      </div>
 
-                      <div className="hidden">
-                        {extraConfigFields.map((field) => (
-                          <label key={`${item.id}-${field.key}`} className="space-y-1">
-                            <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{field.label}</div>
-                            <input
-                              type="text"
-                              value={String((item.cardConfig as any)?.[field.key] || '')}
-                              onChange={(e) =>
-                                updateOutputItem(item.id, (current) => ({
-                                  ...current,
-                                  cardConfig: {
-                                    ...(current.cardConfig || {}),
-                                    [field.key]: e.target.value,
-                                  },
-                                }))
-                              }
-                              className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
-                              placeholder={field.placeholder}
-                            />
-                          </label>
-                        ))}
-                      </div>
-
-                      {false ? (
-                        <div className="text-[11px] text-zinc-500 space-y-1">
-                          {item.title ? <div>{`${tr('方案', 'Title')}: ${String(item.title)}`}</div> : null}
-                          {item.copy?.headline ? <div>{`${tr('文案', 'Copy')}: ${String(item.copy?.headline)}`}</div> : null}
-                          {item.notes ? <div>{`${tr('备注', 'Notes')}: ${String(item.notes)}`}</div> : null}
+                        <div className="hidden">
+                          {extraConfigFields.map((field) => (
+                            <label key={`${item.id}-${field.key}`} className="space-y-1">
+                              <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{field.label}</div>
+                              <input
+                                type="text"
+                                value={String((item.cardConfig as any)?.[field.key] || '')}
+                                onChange={(e) =>
+                                  updateOutputItem(item.id, (current) => ({
+                                    ...current,
+                                    cardConfig: {
+                                      ...(current.cardConfig || {}),
+                                      [field.key]: e.target.value,
+                                    },
+                                  }))
+                                }
+                                className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
+                                placeholder={field.placeholder}
+                              />
+                            </label>
+                          ))}
                         </div>
-                      ) : null}
-                    </div>
-                    );
-                  })}
 
-                  {galleryOutputMode === 'custom' ? (
+                        {false ? (
+                          <div className="text-[11px] text-zinc-500 space-y-1">
+                            {item.title ? <div>{`${tr('方案', 'Title')}: ${String(item.title)}`}</div> : null}
+                            {item.copy?.headline ? <div>{`${tr('文案', 'Copy')}: ${String(item.copy?.headline)}`}</div> : null}
+                            {item.notes ? <div>{`${tr('备注', 'Notes')}: ${String(item.notes)}`}</div> : null}
+                          </div>
+                        ) : null}
+                      </div>
+                      );
+                    })}
+
                     <button
                       type="button"
                       onClick={() =>
-                        setGalleryOutputItems((prev) => [
+                        mutateAdvancedOutputItems((prev) => [
                           ...prev,
                           { id: `pg-out-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, enabled: true, outputType: 'white_bg', aspectRatio: '1:1', resolution: '1k', count: 1, layout: '' },
                         ])
@@ -1612,16 +1784,8 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                     >
                       {tr('添加条目', 'Add Item')}
                     </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={openGalleryAiOutputPlanner}
-                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-zinc-200 hover:bg-white/10 transition"
-                    >
-                      {tr('重新 AI 生成', 'Regenerate with AI')}
-                    </button>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
 
             </div>
@@ -1925,6 +2089,233 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
         </div>
       </div>
     </div>
+    <AppDialog
+      isOpen={isQuickBatchDialogOpen}
+      title={tr('快速批量', 'Quick Batch')}
+      subtitle={tr(
+        '在这个弹窗里集中确定整批套图的类型、比例和资源绑定，应用后再回到底部做高级微调。',
+        'Set the full batch mix, ratio strategy, and resource bindings here, then return to fine-tune below if needed.'
+      )}
+      onClose={closeQuickBatchDialog}
+      widthClassName="max-w-4xl"
+      overlayClassName="z-[170]"
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              closeQuickBatchDialog();
+              openGalleryAiOutputPlanner();
+            }}
+            className={`px-4 py-2 rounded-xl text-xs font-bold border transition ${
+              galleryOutputMode === 'ai'
+                ? 'border-orange-400/50 bg-orange-500/15 text-orange-100'
+                : 'border-orange-500/30 bg-orange-500/10 text-orange-200 hover:bg-orange-500/15'
+            }`}
+          >
+            {galleryOutputMode === 'ai' ? tr('重新 AI 推荐', 'Refresh AI Mix') : tr('AI 推荐组合', 'AI Recommended Mix')}
+          </button>
+          <button
+            type="button"
+            onClick={closeQuickBatchDialog}
+            className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
+          >
+            {tr('取消', 'Cancel')}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              void handleQuickBatchDialogApply();
+            }}
+            className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 text-black hover:bg-orange-400 transition"
+          >
+            {tr('应用批量配置', 'Apply Batch Config')}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-5">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <label className="space-y-1">
+            <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">{tr('批量比例', 'Ratio Strategy')}</div>
+            <DropdownSelect
+              value={galleryBulkDialogDraft.ratioStrategy}
+              options={[
+                { value: 'recommended', label: tr('按类型推荐', 'Recommended by Type') },
+                { value: '1:1', label: '1:1' },
+                { value: '4:5', label: '4:5' },
+                { value: '9:16', label: '9:16' },
+              ]}
+              onChange={(value) =>
+                setGalleryBulkDialogDraft((prev) => ({
+                  ...prev,
+                  ratioStrategy: String(value || 'recommended') as GalleryBulkConfig['ratioStrategy'],
+                }))
+              }
+              buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+              iconClassName="w-4 h-4 text-zinc-500"
+              optionClassName="text-xs"
+            />
+          </label>
+
+          <label className="space-y-1">
+            <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">{tr('批量分辨率', 'Resolution')}</div>
+            <DropdownSelect
+              value={galleryBulkDialogDraft.resolution}
+              options={[
+                { value: '1k', label: '1K' },
+                { value: '2k', label: '2K' },
+                { value: '4k', label: '4K' },
+              ]}
+              onChange={(value) =>
+                setGalleryBulkDialogDraft((prev) => ({
+                  ...prev,
+                  resolution: (String(value || '1k').toLowerCase() === '2k' || String(value || '1k').toLowerCase() === '4k'
+                    ? String(value).toLowerCase()
+                    : '1k') as GalleryBulkConfig['resolution'],
+                }))
+              }
+              buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+              iconClassName="w-4 h-4 text-zinc-500"
+              optionClassName="text-xs"
+            />
+          </label>
+
+          <label className="space-y-1">
+            <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">{tr('资源绑定', 'Binding')}</div>
+            <DropdownSelect
+              value={galleryBulkDialogDraft.bindingStrategy}
+              options={[
+                { value: 'auto_primary', label: tr('自动绑定默认模特/场景', 'Auto-bind Primary Model/Scene') },
+                { value: 'none', label: tr('不预绑定', 'Do Not Pre-bind') },
+              ]}
+              onChange={(value) =>
+                setGalleryBulkDialogDraft((prev) => ({
+                  ...prev,
+                  bindingStrategy: String(value || 'auto_primary') === 'none' ? 'none' : 'auto_primary',
+                }))
+              }
+              buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+              iconClassName="w-4 h-4 text-zinc-500"
+              optionClassName="text-xs"
+            />
+          </label>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {bulkTypeCards.map((card) => {
+            const selection = galleryBulkDialogDraft.typeSelections[card.outputType];
+            const enabled = Boolean(selection?.enabled);
+            const count = Math.max(0, Math.round(Number(selection?.count || 0)));
+            return (
+              <div
+                key={card.outputType}
+                className={`rounded-2xl border px-4 py-3 transition ${
+                  enabled ? `${card.accentClass} text-zinc-100` : 'border-white/10 bg-black/20 text-zinc-300'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <label className="flex min-w-0 flex-1 items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      onChange={(e) =>
+                        setGalleryBulkDialogDraft((prev) => ({
+                          ...prev,
+                          typeSelections: {
+                            ...prev.typeSelections,
+                            [card.outputType]: {
+                              enabled: e.target.checked,
+                              count: e.target.checked ? Math.max(1, count || 1) : 0,
+                            },
+                          },
+                        }))
+                      }
+                      className="mt-1 accent-orange-500"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-bold">{card.title}</span>
+                      <span className="mt-1 block text-[11px] leading-5 text-zinc-400">{card.description}</span>
+                    </span>
+                  </label>
+
+                  <div className="flex items-center">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setGalleryBulkDialogDraft((prev) => ({
+                          ...prev,
+                          typeSelections: {
+                            ...prev.typeSelections,
+                            [card.outputType]: {
+                              enabled: prev.typeSelections[card.outputType].enabled,
+                              count: Math.max(0, Math.round(Number(prev.typeSelections[card.outputType].count || 0)) - 1),
+                            },
+                          },
+                        }))
+                      }
+                      disabled={!enabled || count <= 1}
+                      className="h-8 w-8 rounded-l-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-50"
+                    >
+                      <Minus className="mx-auto h-4 w-4" />
+                    </button>
+                    <div className="flex h-8 w-10 items-center justify-center border-y border-white/10 bg-black/30 text-xs text-zinc-100">
+                      {count}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setGalleryBulkDialogDraft((prev) => ({
+                          ...prev,
+                          typeSelections: {
+                            ...prev.typeSelections,
+                            [card.outputType]: {
+                              enabled: true,
+                              count: Math.min(8, Math.max(1, Math.round(Number(prev.typeSelections[card.outputType].count || 0)) + 1)),
+                            },
+                          },
+                        }))
+                      }
+                      disabled={!enabled || count >= 8}
+                      className="h-8 w-8 rounded-r-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-50"
+                    >
+                      <Plus className="mx-auto h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-500">
+                  <span>
+                    {galleryBulkDialogDraft.ratioStrategy === 'recommended'
+                      ? tr('按类型推荐比例', 'Using recommended ratios')
+                      : tr(`统一比例 ${galleryBulkDialogDraft.ratioStrategy}`, `Unified ratio ${galleryBulkDialogDraft.ratioStrategy}`)}
+                  </span>
+                  {card.outputType === 'selling_point' ? (
+                    <span>
+                      {gallerySellingPoints.some((item) => String(item || '').trim())
+                        ? tr(`当前有效卖点 ${gallerySellingPoints.filter((item) => String(item || '').trim()).length} 条`, `${gallerySellingPoints.filter((item) => String(item || '').trim()).length} selling points detected`)
+                        : tr('未填写卖点时默认不生成卖点图', 'Selling-point images stay off until selling points are filled')}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="rounded-xl border border-white/10 bg-black/25 px-4 py-3">
+          <div className="text-xs font-bold text-zinc-100">
+            {tr(`当前批量共 ${galleryBulkDialogPlannedCount} 张`, `${galleryBulkDialogPlannedCount} images in batch`)}
+          </div>
+          <div className="mt-1 text-[11px] leading-5 text-zinc-500">
+            {galleryAdvancedDirty
+              ? tr('当前高级编辑已手动微调。应用新的批量配置时，会提示是否覆盖这些逐张调整。', 'Advanced edits already exist. Applying the new batch config will ask before overwriting those per-card changes.')
+              : tr('点击应用后会刷新下方高级编辑列表，但不会直接开始生成。', 'Applying will refresh the advanced list below, but will not generate yet.')}
+          </div>
+        </div>
+      </div>
+    </AppDialog>
+    </>
   );
 };
 

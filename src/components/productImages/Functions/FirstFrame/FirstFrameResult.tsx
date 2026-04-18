@@ -101,8 +101,8 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
 
   return (
     <div className="w-full space-y-6">
-      <div className="overflow-hidden rounded-xl bg-zinc-900">
-        <div className="flex flex-col items-center gap-4 bg-black/30 p-8">
+      <div className="overflow-hidden rounded-xl bg-transparent">
+        <div className="flex flex-col items-center gap-4 bg-transparent p-8">
           <div className="relative">
             {selectedImage ? (
               <div className="relative">
@@ -131,7 +131,7 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
                 <img
                   src={selectedImage.imageUrl}
                   alt={t.ff_first_frame_alt}
-                  className="max-h-96 max-w-sm cursor-pointer rounded-lg border-2 border-grey-500/10 object-contain transition hover:border-orange-500"
+                  className="max-h-96 max-w-sm cursor-pointer rounded-lg object-contain transition hover:border border-orange-500"
                   onClick={() => setShowFullImage(true)}
                 />
               </div>
@@ -144,7 +144,7 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
         </div>
 
         {results.length > 1 && (
-          <div className="bg-zinc-800/30 px-8 py-6">
+          <div className="bg-transparent px-8 py-6">
             <p className="mb-4 text-sm font-medium text-zinc-300">{t.ff_preview_variants}</p>
             <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
               {results.map((result) => (

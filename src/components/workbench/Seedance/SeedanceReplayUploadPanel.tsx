@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import {
+  ChevronDown,
   Eye,
   Image as ImageIcon,
   Library,
@@ -212,16 +213,13 @@ export function SeedanceReplayUploadPanel({
             </div>
 
             <h3 className="text-base font-bold text-zinc-100">{t.wb_seedance_replay_add_reference_title || 'Add Reference Assets'}</h3>
-            <p className="mt-1 text-xs leading-5 text-zinc-400">
-              {t.wb_seedance_replay_add_reference_desc_auto || '从左侧素材库拖入素材，系统将根据素材类别自动识别分类。'}
-            </p>
             {onOpenLibrary && (
               <button
                 type="button"
                 onClick={onOpenLibrary}
                 className="wb-upload-library-btn mt-3 inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/[0.04] px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:border-white/30 hover:bg-white/[0.08]"
               >
-                <Library className="h-3.5 w-3.5" />
+                <Plus className="h-3.5 w-3.5" />
                 {t.wb_seedance_replay_open_library || '从素材库选择'}
               </button>
             )}
@@ -324,6 +322,7 @@ export function SeedanceReplayUploadPanel({
 
       <div className="grid grid-cols-1 gap-3">
         <CategoryCard
+          cardKey="image"
           containerRef={imageCardRef}
           highlighted={flashTarget === 'image'}
           title={t.wb_seedance_replay_ref_images || 'Reference Images'}
@@ -339,6 +338,7 @@ export function SeedanceReplayUploadPanel({
           onOpenLibrary={onOpenLibraryForKind ? () => onOpenLibraryForKind('image') : undefined}
         />
         <CategoryCard
+          cardKey="video"
           containerRef={videoCardRef}
           highlighted={flashTarget === 'video'}
           title={t.wb_seedance_replay_ref_videos || 'Reference Videos'}
@@ -355,6 +355,7 @@ export function SeedanceReplayUploadPanel({
           onOpenLibrary={onOpenLibraryForKind ? () => onOpenLibraryForKind('video') : undefined}
         />
         <CategoryCard
+          cardKey="audio"
           containerRef={audioCardRef}
           highlighted={flashTarget === 'audio'}
           title={t.wb_seedance_replay_ref_audio || 'Reference Audio'}
@@ -372,35 +373,12 @@ export function SeedanceReplayUploadPanel({
         />
 
         {/* Virtual Model Zone */}
-        <div className="glass-panel rounded-xl border border-white/10 p-3.5">
-          <div className="mb-3 flex items-start justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <div className="text-zinc-400"><Users className="h-4 w-4" /></div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-sm font-bold text-zinc-100">{t.wb_seedance_replay_virtual_models || '虚拟模特'}</h3>
-                  <span className="text-xs text-zinc-500">{modelAssets.length}/3</span>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <MiniIconButton onClick={onAddVirtualModel}>
-                <Plus className="h-3.5 w-3.5" />
-              </MiniIconButton>
-            </div>
-          </div>
-          {modelAssets.length === 0 ? (
-            <div className="flex min-h-[4.25rem] items-center justify-center rounded-xl border border-dashed border-white/10 bg-black/10 px-4 py-3 text-center text-xs leading-snug text-zinc-500">
-              {t.wb_seedance_replay_virtual_models_empty || 'Click the "+" icon to add from the virtual model library.'}
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {modelAssets.map((item) => (
-                <ImageCard key={item.id} item={item} onPreview={onPreview} onRemove={onRemove} />
-              ))}
-            </div>
-          )}
-        </div>
+        <VirtualModelCard
+          modelAssets={modelAssets}
+          onAddVirtualModel={onAddVirtualModel}
+          onPreview={onPreview}
+          onRemove={onRemove}
+        />
       </div>
 
     </div>
@@ -497,7 +475,71 @@ function MetricDivider() {
   return <div className="hidden h-3.5 w-px bg-white/10 sm:block" />;
 }
 
+const SEEDANCE_REPLAY_CARD_COLLAPSE_STORAGE_KEY = 'seedanceReplayUploadCardCollapseState';
+
+type SeedanceReplayCardKey = 'image' | 'video' | 'audio' | 'model';
+
+function readSeedanceReplayCardCollapseState(cardKey: SeedanceReplayCardKey, fallback: boolean) {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = window.localStorage.getItem(SEEDANCE_REPLAY_CARD_COLLAPSE_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<Record<SeedanceReplayCardKey, boolean>>;
+    const value = parsed?.[cardKey];
+    return typeof value === 'boolean' ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeSeedanceReplayCardCollapseState(cardKey: SeedanceReplayCardKey, collapsed: boolean) {
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = window.localStorage.getItem(SEEDANCE_REPLAY_CARD_COLLAPSE_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) as Partial<Record<SeedanceReplayCardKey, boolean>> : {};
+    window.localStorage.setItem(
+      SEEDANCE_REPLAY_CARD_COLLAPSE_STORAGE_KEY,
+      JSON.stringify({
+        ...parsed,
+        [cardKey]: collapsed,
+      }),
+    );
+  } catch {
+    // Ignore localStorage write failures.
+  }
+}
+
+function useSeedanceReplayCardCollapse(cardKey: SeedanceReplayCardKey, itemCount: number) {
+  const [collapsed, setCollapsed] = useState(() => readSeedanceReplayCardCollapseState(cardKey, itemCount === 0));
+  const previousCountRef = useRef(itemCount);
+
+  useEffect(() => {
+    writeSeedanceReplayCardCollapseState(cardKey, collapsed);
+  }, [cardKey, collapsed]);
+
+  useEffect(() => {
+    const previousCount = previousCountRef.current;
+    if (itemCount > previousCount) {
+      setCollapsed(false);
+    } else if (itemCount === 0 && previousCount > 0) {
+      setCollapsed(true);
+    }
+    previousCountRef.current = itemCount;
+  }, [itemCount]);
+
+  const toggleCollapsed = () => {
+    setCollapsed((current) => {
+      const next = !current;
+      writeSeedanceReplayCardCollapseState(cardKey, next);
+      return next;
+    });
+  };
+
+  return { collapsed, toggleCollapsed };
+}
+
 type CategoryCardProps = {
+  cardKey: SeedanceReplayCardKey;
   title: string;
   icon: React.ReactNode;
   containerRef?: React.RefObject<HTMLDivElement | null>;
@@ -516,6 +558,7 @@ type CategoryCardProps = {
 };
 
 function CategoryCard({
+  cardKey,
   title,
   icon,
   containerRef,
@@ -534,6 +577,7 @@ function CategoryCard({
 }: CategoryCardProps) {
   const { t } = useLanguage();
   const isEmpty = items.length === 0;
+  const { collapsed, toggleCollapsed } = useSeedanceReplayCardCollapse(cardKey, items.length);
 
   return (
     <div
@@ -547,8 +591,13 @@ function CategoryCard({
             : 'border-white/10'
       }`}
     >
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2.5">
+      <div className={`flex items-center justify-between gap-3 ${collapsed ? '' : 'mb-3'}`}>
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+          onClick={toggleCollapsed}
+        >
+          <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-zinc-500 transition-transform duration-300 ${collapsed ? '-rotate-90' : ''}`} />
           <div className="text-zinc-400">{icon}</div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -563,44 +612,101 @@ function CategoryCard({
               </span>
             </div>
           </div>
-        </div>
+        </button>
         {onOpenLibrary ? (
-          <div className="flex items-center gap-1.5">
-            <MiniIconButton onClick={onOpenLibrary}>
-              <Plus className="h-3.5 w-3.5" />
-            </MiniIconButton>
-          </div>
+          <MiniIconButton onClick={onOpenLibrary}>
+            <Plus className="h-3.5 w-3.5" />
+          </MiniIconButton>
         ) : null}
       </div>
 
-      {isEmpty ? (
-        <div className="flex min-h-[4.25rem] items-center justify-center rounded-xl border border-dashed border-white/10 bg-black/10 px-4 py-3 text-center text-xs leading-snug text-zinc-500">
-          {onOpenLibrary
-            ? (t.wb_seedance_replay_empty_hint_library || 'Click the "+" icon to add from the material library.')
-            : (t.wb_seedance_replay_empty_hint || 'Choose from the material library.')}
-        </div>
-      ) : items[0].mediaKind === 'image' ? (
-        <StackedImageDisplay items={items} onPreview={onPreview} onRemove={onRemove} onSetFrameRole={onSetFrameRole} />
-      ) : items[0].mediaKind === 'video' ? (
-        <StackedVideoDisplay items={items} onPreview={onPreview} onRemove={onRemove} />
-      ) : (
-        <div className="space-y-2">
-          {items.map((item) => (
-            <AudioCard key={item.id} item={item} onPreview={onPreview} onRemove={onRemove} />
-          ))}
-        </div>
-      )}
+      <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${collapsed ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'}`}>
+        <div className="overflow-hidden">
+          {isEmpty ? (
+            <div className="flex min-h-[4.25rem] items-center justify-center rounded-xl border border-dashed border-white/10 bg-black/10 px-4 py-3 text-center text-xs leading-snug text-zinc-500">
+              {onOpenLibrary
+                ? (t.wb_seedance_replay_empty_hint_library || 'Click the "+" icon to add from the material library.')
+                : (t.wb_seedance_replay_empty_hint || 'Choose from the material library.')}
+            </div>
+          ) : items[0].mediaKind === 'image' ? (
+            <StackedImageDisplay items={items} onPreview={onPreview} onRemove={onRemove} onSetFrameRole={onSetFrameRole} />
+          ) : items[0].mediaKind === 'video' ? (
+            <StackedVideoDisplay items={items} onPreview={onPreview} onRemove={onRemove} />
+          ) : (
+            <div className="space-y-2">
+              {items.map((item) => (
+                <AudioCard key={item.id} item={item} onPreview={onPreview} onRemove={onRemove} />
+              ))}
+            </div>
+          )}
 
-      {errorMessages.length > 0 && (
-        <div className="mt-3 space-y-1.5 border-t border-white/10 pt-3">
-          {errorMessages.map((message) => (
-            <p key={message} className="flex items-center gap-2 text-xs text-red-400">
-              <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
-              {message}
-            </p>
-          ))}
+          {errorMessages.length > 0 && (
+            <div className="mt-3 space-y-1.5 border-t border-white/10 pt-3">
+              {errorMessages.map((message) => (
+                <p key={message} className="flex items-center gap-2 text-xs text-red-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                  {message}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </div>
+    </div>
+  );
+}
+
+function VirtualModelCard({
+  modelAssets,
+  onAddVirtualModel,
+  onPreview,
+  onRemove,
+}: {
+  modelAssets: SeedanceReplayUploadAsset[];
+  onAddVirtualModel: () => void;
+  onPreview: (assetId: string) => void;
+  onRemove: (assetId: string) => void;
+}) {
+  const { t } = useLanguage();
+  const { collapsed, toggleCollapsed } = useSeedanceReplayCardCollapse('model', modelAssets.length);
+
+  return (
+    <div className="glass-panel rounded-xl border border-white/10 p-3.5">
+      <div className={`flex items-center justify-between gap-3 ${collapsed ? '' : 'mb-3'}`}>
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+          onClick={toggleCollapsed}
+        >
+          <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-zinc-500 transition-transform duration-300 ${collapsed ? '-rotate-90' : ''}`} />
+          <div className="text-zinc-400"><Users className="h-4 w-4" /></div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-bold text-zinc-100">{t.wb_seedance_replay_virtual_models || '虚拟模特'}</h3>
+              <span className="text-xs text-zinc-500">{modelAssets.length}/3</span>
+            </div>
+          </div>
+        </button>
+        <MiniIconButton onClick={onAddVirtualModel}>
+          <Plus className="h-3.5 w-3.5" />
+        </MiniIconButton>
+      </div>
+
+      <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${collapsed ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'}`}>
+        <div className="overflow-hidden">
+          {modelAssets.length === 0 ? (
+            <div className="flex min-h-[4.25rem] items-center justify-center rounded-xl border border-dashed border-white/10 bg-black/10 px-4 py-3 text-center text-xs leading-snug text-zinc-500">
+              {t.wb_seedance_replay_virtual_models_empty || 'Click the "+" icon to add from the virtual model library.'}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {modelAssets.map((item) => (
+                <ImageCard key={item.id} item={item} onPreview={onPreview} onRemove={onRemove} />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

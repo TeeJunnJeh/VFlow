@@ -218,7 +218,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
             }}
             rows={5}
             placeholder={t.ff_prompt_placeholder || '请输入你想生成的首帧画面内容，例如主体、场景、构图、风格'}
-            className={`w-full rounded-xl border bg-zinc-900/70 px-3 py-2.5 text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-orange-500/30 ${errors.prompt ? 'border-red-500' : 'border-white/10'}`}
+            className={`h-38 w-full resize-none overflow-y-auto rounded-xl border bg-zinc-900/70 px-3 py-2.5 text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-orange-500/30 ${errors.prompt ? 'border-red-500' : 'border-white/10'}`}
           />
           {errors.prompt ? <p className="text-red-400 text-xs mt-1">{errors.prompt}</p> : null}
         </div>

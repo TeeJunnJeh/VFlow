@@ -20,7 +20,10 @@ type GalleryOutputItemConfig = {
   title?: string;
   modelCardId?: string;
   sceneCardId?: string;
+  /** @deprecated kept for backward compat; read/write goes through `layouts[layoutIndex]`. */
   layout?: string;
+  layouts?: string[];
+  layoutIndex?: number;
   copy?: {
     headline?: string;
     subheadline?: string;
@@ -1461,7 +1464,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   disabled={isGalleryAiLayoutDesigning || galleryAdvancedItemCount <= 0}
                   className="inline-flex items-center gap-1 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-[11px] font-bold text-zinc-300 transition hover:bg-white/5 disabled:opacity-50"
                 >
-                  {tr('补充要求', 'Extra Prompt')}
+                  {tr('高级设置', 'Advanced Settings')}
                 </button>
               </div>
 
@@ -1722,21 +1725,95 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                           </div>
                         ) : null}
 
-                        <div className="space-y-1">
-                          <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">
-                            {tr('构图描述', 'Layout')}
-                          </div>
-                          <textarea
-                            value={String(item.layout || '')}
-                            onChange={(e) => updateOutputItem(item.id, (current) => ({ ...current, layout: e.target.value }))}
-                            rows={3}
-                            className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
-                            placeholder={tr(
-                              '例如：商品居中偏下，顶部留白放主标题；右侧留白放 3 条卖点 bullet；底部留白放品牌/规格信息（不要生成可读文字）。',
-                              'E.g. Product centered lower; top whitespace for headline; right whitespace for bullet points; bottom whitespace for brand/specs (no readable text).'
-                            )}
-                          />
-                        </div>
+                        {(() => {
+                          const layoutsArr = Array.isArray(item.layouts) ? item.layouts : [];
+                          const totalVariants = layoutsArr.length;
+                          const clampedIndex = totalVariants > 0
+                            ? Math.min(Math.max(0, Number(item.layoutIndex ?? 0)), totalVariants - 1)
+                            : 0;
+                          const currentLayout = totalVariants > 0
+                            ? String(layoutsArr[clampedIndex] ?? '')
+                            : String(item.layout || '');
+                          const handleLayoutChange = (nextText: string) => {
+                            updateOutputItem(item.id, (current) => {
+                              const prevLayouts = Array.isArray(current.layouts) ? current.layouts : [];
+                              const prevIdx = prevLayouts.length > 0
+                                ? Math.min(Math.max(0, Number(current.layoutIndex ?? 0)), prevLayouts.length - 1)
+                                : 0;
+                              let nextLayouts: string[];
+                              if (prevLayouts.length > 0) {
+                                nextLayouts = prevLayouts.map((txt, idx) => (idx === prevIdx ? nextText : txt));
+                              } else {
+                                nextLayouts = nextText ? [nextText] : [];
+                              }
+                              return {
+                                ...current,
+                                layout: nextText,
+                                layouts: nextLayouts,
+                                layoutIndex: nextLayouts.length > 0 ? Math.min(prevIdx, nextLayouts.length - 1) : 0,
+                              };
+                            });
+                          };
+                          const goVariant = (delta: number) => {
+                            updateOutputItem(item.id, (current) => {
+                              const prevLayouts = Array.isArray(current.layouts) ? current.layouts : [];
+                              if (prevLayouts.length <= 1) return current;
+                              const prevIdx = Math.min(Math.max(0, Number(current.layoutIndex ?? 0)), prevLayouts.length - 1);
+                              const nextIdx = Math.min(prevLayouts.length - 1, Math.max(0, prevIdx + delta));
+                              return {
+                                ...current,
+                                layoutIndex: nextIdx,
+                                layout: prevLayouts[nextIdx] ?? current.layout,
+                              };
+                            });
+                          };
+                          return (
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">
+                                  {tr('构图描述', 'Layout')}
+                                </div>
+                                {totalVariants > 1 ? (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => goVariant(-1)}
+                                      disabled={clampedIndex <= 0}
+                                      className="h-6 w-6 rounded-md border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 flex items-center justify-center disabled:opacity-40"
+                                      aria-label={tr('上一份构图', 'Previous layout')}
+                                      title={tr('上一份构图', 'Previous layout')}
+                                    >
+                                      <ChevronLeft className="h-3.5 w-3.5" />
+                                    </button>
+                                    <span className="min-w-[2.5rem] text-center text-[11px] font-bold tabular-nums text-zinc-300">
+                                      {`${clampedIndex + 1}/${totalVariants}`}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => goVariant(1)}
+                                      disabled={clampedIndex >= totalVariants - 1}
+                                      className="h-6 w-6 rounded-md border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 flex items-center justify-center disabled:opacity-40"
+                                      aria-label={tr('下一份构图', 'Next layout')}
+                                      title={tr('下一份构图', 'Next layout')}
+                                    >
+                                      <ChevronLeft className="h-3.5 w-3.5 rotate-180" />
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </div>
+                              <textarea
+                                value={currentLayout}
+                                onChange={(e) => handleLayoutChange(e.target.value)}
+                                rows={3}
+                                className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
+                                placeholder={tr(
+                                  '例如：商品居中偏下，顶部留白放主标题；右侧留白放 3 条卖点 bullet；底部留白放品牌/规格信息（不要生成可读文字）。',
+                                  'E.g. Product centered lower; top whitespace for headline; right whitespace for bullet points; bottom whitespace for brand/specs (no readable text).'
+                                )}
+                              />
+                            </div>
+                          );
+                        })()}
 
                         <div className="hidden">
                           {extraConfigFields.map((field) => (
@@ -1777,7 +1854,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                       onClick={() =>
                         mutateAdvancedOutputItems((prev) => [
                           ...prev,
-                          { id: `pg-out-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, enabled: true, outputType: 'white_bg', aspectRatio: '1:1', resolution: '1k', count: 1, layout: '' },
+                          { id: `pg-out-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, enabled: true, outputType: 'white_bg', aspectRatio: '1:1', resolution: '1k', count: 1, layout: '', layouts: [], layoutIndex: 0 },
                         ])
                       }
                       className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-zinc-200 hover:bg-white/10 transition"

@@ -20,6 +20,7 @@ import {
   type ImageHistoryFeatureType,
   type ImageHistoryItem,
 } from '../../utils/imageHistory';
+import { downloadBlobInBrowser, saveBlobWithPickerFallback } from '../../utils/browserDownload';
 
 interface GallerySettings {
   targetScene: string;
@@ -303,11 +304,7 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
       const response = await fetch(url, { mode: 'cors' });
       const blob = await response.blob();
       const ext = blob.type?.includes('png') ? '.png' : blob.type?.includes('webp') ? '.webp' : '.jpg';
-      const anchor = document.createElement('a');
-      anchor.href = URL.createObjectURL(blob);
-      anchor.download = `image${index != null ? `_${index + 1}` : ''}${ext}`;
-      anchor.click();
-      URL.revokeObjectURL(anchor.href);
+      await saveBlobWithPickerFallback(blob, `image${index != null ? `_${index + 1}` : ''}${ext}`);
     } catch {
       window.open(url, '_blank');
     }
@@ -315,7 +312,16 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
 
   const downloadAllImages = async (images: string[]) => {
     for (let index = 0; index < images.length; index += 1) {
-      await downloadImage(images[index], index);
+      const url = images[index];
+      try {
+        const response = await fetch(url, { mode: 'cors' });
+        const blob = await response.blob();
+        const ext = blob.type?.includes('png') ? '.png' : blob.type?.includes('webp') ? '.webp' : '.jpg';
+        downloadBlobInBrowser(blob, `image_${index + 1}${ext}`);
+      } catch {
+        window.open(url, '_blank');
+      }
+
       if (index < images.length - 1) {
         await new Promise((resolve) => setTimeout(resolve, 300));
       }

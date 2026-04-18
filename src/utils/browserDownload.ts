@@ -20,7 +20,7 @@ type SavePickerWindow = Window & typeof globalThis & {
   showSaveFilePicker?: (options?: SaveFilePickerOptionsLike) => Promise<SaveFilePickerHandleLike>;
 };
 
-function triggerBrowserDownload(blob: Blob, filename: string): void {
+export function downloadBlobInBrowser(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -56,7 +56,7 @@ function buildPickerTypes(blob: Blob, filename: string): SavePickerAcceptOption[
 export async function saveBlobWithPickerFallback(blob: Blob, filename: string): Promise<void> {
   const win = window as SavePickerWindow;
   if (typeof win.showSaveFilePicker !== 'function') {
-    triggerBrowserDownload(blob, filename);
+    downloadBlobInBrowser(blob, filename);
     return;
   }
 
@@ -72,7 +72,7 @@ export async function saveBlobWithPickerFallback(blob: Blob, filename: string): 
     if (error instanceof DOMException && error.name === 'AbortError') {
       return;
     }
-    triggerBrowserDownload(blob, filename);
+    downloadBlobInBrowser(blob, filename);
   }
 }
 

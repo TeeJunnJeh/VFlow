@@ -200,23 +200,6 @@ export type ImagesGalleryViewProps = {
   preventDragDefaults: (e: React.DragEvent) => void;
 };
 
-const getGalleryPreviewAspectClass = (ratio: string) => {
-  const cleaned = String(ratio || '').trim();
-  const map: Record<string, string> = {
-    '21:9': 'aspect-[21/9]',
-    '16:9': 'aspect-[16/9]',
-    '4:3': 'aspect-[4/3]',
-    '3:2': 'aspect-[3/2]',
-    '1:1': 'aspect-square',
-    '9:16': 'aspect-[9/16]',
-    '3:4': 'aspect-[3/4]',
-    '2:3': 'aspect-[2/3]',
-    '5:4': 'aspect-[5/4]',
-    '4:5': 'aspect-[4/5]',
-    default: 'aspect-square',
-  };
-  return map[cleaned] || 'aspect-square';
-};
 
 const hexToRgba = (hex: string, alpha: number) => {
   const cleaned = String(hex || '').trim().replace('#', '');
@@ -495,7 +478,6 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     galleryOutputMode,
     galleryOutputItems,
     setGalleryOutputItems,
-    galleryPreviewAspectRatio,
     openGalleryAiOutputPlanner,
     handleGalleryAiLayoutSuggestions,
     openGalleryAiLayoutPromptDialog,
@@ -520,8 +502,6 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
     preventDragDefaults,
   } = props;
-
-  const galleryPreviewAspectClass = React.useMemo(() => getGalleryPreviewAspectClass(galleryPreviewAspectRatio), [galleryPreviewAspectRatio]);
 
   useEffect(() => {
     const target = galleryResourceGuide.target;
@@ -731,11 +711,11 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     <div className={`${panelClassName('product_images_gallery')} h-full min-h-0 flex flex-col px-10 py-6`}>
       <div className="flex-1 min-h-0 flex overflow-hidden relative" id="gallery-container">
         <div
-          className="flex flex-col gap-4 min-h-0 overflow-y-auto custom-scroll pr-2 shrink-0 transition-[width] duration-100 border border-transparent hover:border-orange-500/20"
+          className="flex flex-col gap-3 min-h-0 overflow-y-auto custom-scroll pr-2 shrink-0 transition-colors duration-150 rounded-2xl border border-white/5 bg-white/2 hover:border-orange-500/20"
           style={{ width: `${leftWidth}px`, minWidth: `${GALLERY_PANEL_MIN_WIDTH}px` }}
           data-testid="left-panel"
         >
-          <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
+          <div className="p-5">
             <div className="flex items-center justify-between">
               <div className="text-sm font-bold text-zinc-200">
                 {t.wb_product_images_gallery_upload_title || 'Upload Product Images'}
@@ -750,7 +730,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
               </button>
             </div>
 
-            <div className="mt-4">
+            <div className="mt-3">
               <input
                 ref={galleryFileInputRef}
                 type="file"
@@ -877,12 +857,12 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
+          <div className="p-5">
             <div className="flex items-center justify-between">
               <div className="text-sm font-bold text-zinc-200">{tr('商品信息', 'Product Info')}</div>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-4">
+            <div className="mt-3 grid grid-cols-1 gap-3">
               <div className="space-y-2">
                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.hist_img_setting_product}</div>
                 <input
@@ -944,11 +924,11 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
+          <div className="p-5">
             <div className="text-sm font-bold text-zinc-200">{tr('爆款风格分析', 'Hot Style Analysis')}</div>
 
             {hotStyleLoading ? (
-              <div className="mt-4 h-28 rounded-xl border border-white/10 bg-white/5 flex flex-col items-center justify-center gap-3 text-zinc-400">
+              <div className="mt-3 h-28 rounded-xl border border-white/10 bg-white/5 flex flex-col items-center justify-center gap-3 text-zinc-400">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-zinc-400/70 animate-pulse" />
                   <span className="w-2 h-2 rounded-full bg-zinc-400/70 animate-pulse [animation-delay:150ms]" />
@@ -1022,7 +1002,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
           <div
             ref={modelSectionRef}
-            className={`rounded-2xl border p-5 transition ${resourceHighlight === 'model' ? 'border-orange-500/60 bg-orange-500/5' : 'border-white/5 bg-white/2'}`}
+            className={`rounded-2xl p-5 transition ${resourceHighlight === 'model' ? 'bg-orange-500/5 ring-1 ring-orange-500/30' : ''}`}
           >
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -1043,7 +1023,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
               </button>
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className="mt-3 space-y-3">
               {galleryModelCards.length === 0 ? (
                 <button
                   type="button"
@@ -1146,7 +1126,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
           <div
             ref={sceneSectionRef}
-            className={`rounded-2xl border p-5 transition ${resourceHighlight === 'scene' ? 'border-orange-500/60 bg-orange-500/5' : 'border-white/5 bg-white/2'}`}
+            className={`rounded-2xl p-5 transition ${resourceHighlight === 'scene' ? 'bg-orange-500/5 ring-1 ring-orange-500/30' : ''}`}
           >
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -1167,7 +1147,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
               </button>
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className="mt-3 space-y-3">
               {gallerySceneCards.length === 0 ? (
                 <button
                   type="button"
@@ -1994,7 +1974,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                         key={item.localId}
                         className="group rounded-xl border border-white/10 bg-black/20 overflow-hidden shadow-sm transition-all duration-200 ease-out hover:-translate-y-1 hover:border-indigo-500 hover:ring-1 hover:ring-indigo-500/50 hover:shadow-xl"
                       >
-                        <div className={`relative w-full ${galleryPreviewAspectClass} border-b border-white/10 bg-black/30`}>
+                        <div className="relative w-full aspect-square border-b border-white/10 bg-black/30">
                           {item.imageUrl ? (
                             <button
                               type="button"

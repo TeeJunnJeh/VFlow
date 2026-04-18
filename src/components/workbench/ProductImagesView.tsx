@@ -14,6 +14,7 @@ import { downloadBlob, productImagesApi } from '../../services/productImagesApi'
 import { billingApi } from '../../services/billing';
 import { notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, removeImageHistoryAssets, replaceImageHistoryAsset, subscribeImageHistory, type ImageHistoryItem } from '../../utils/imageHistory';
 import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../utils/loadingTheme';
+import { saveBlobWithPickerFallback } from '../../utils/browserDownload';
 import { useRequireAuth } from '../../utils/useRequireAuth';
 
 interface ProductImagesViewProps {
@@ -1429,7 +1430,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     setIsGalleryPreviewDownloading(true);
     try {
       const blob = await productImagesApi.downloadImageByUrl(galleryPreviewImageUrl);
-      downloadBlob(blob, buildGalleryPreviewFilename(galleryPreviewImageUrl));
+      await saveBlobWithPickerFallback(blob, buildGalleryPreviewFilename(galleryPreviewImageUrl));
       setGalleryToastMessage(tr('已开始下载', 'Download started'));
     } catch (err: any) {
       openGalleryAlert(String(err?.message || tr('下载失败，请重试。', 'Download failed. Please try again.')));
@@ -2575,14 +2576,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
       const outBlob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
       if (!outBlob) throw new Error(tr('导出失败', 'Export failed'));
-      const outUrl = URL.createObjectURL(outBlob);
-      const a = document.createElement('a');
-      a.href = outUrl;
-      a.download = `product_gallery_edit_${Date.now()}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(outUrl);
+      await saveBlobWithPickerFallback(outBlob, `product_gallery_edit_${Date.now()}.png`);
       URL.revokeObjectURL(objUrl);
     } catch (err: any) {
       openGalleryAlert(String(err?.message || err || tr('导出失败', 'Export failed')));

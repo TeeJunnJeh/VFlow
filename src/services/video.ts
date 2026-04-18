@@ -209,14 +209,27 @@ export type TextSeparationSecondaryElementPayload = {
 export type TextSeparationSecondaryCreatePayload = {
   sample_title?: string;
   background_image_url: string;
+  original_image_url?: string;
   reference_image_data_url: string;
+  canvas_aspect_ratio?: number;
   global_prompt?: string;
   elements: TextSeparationSecondaryElementPayload[];
+  elements_snapshot?: unknown[];
 };
 
 export type TextSeparationSecondaryTask = {
+  history_id?: string;
   request_id: string;
   status: string;
+  created_at?: string;
+  sample_title?: string;
+  background_image_url?: string;
+  original_image_url?: string;
+  global_prompt?: string;
+  elements?: TextSeparationSecondaryElementPayload[];
+  canvas_aspect_ratio?: number;
+  preview_url?: string;
+  error?: string;
   get_url?: string | null;
 };
 
@@ -224,6 +237,23 @@ export type TextSeparationSecondaryResult = {
   request_id: string;
   status: string;
   outputs: string[];
+  error?: string;
+};
+
+export type TextSeparationSecondaryHistoryItem = {
+  history_id: string;
+  request_id: string;
+  status: string;
+  created_at: string;
+  updated_at?: string;
+  sample_title?: string;
+  background_image_url?: string;
+  original_image_url?: string;
+  global_prompt?: string;
+  elements?: TextSeparationSecondaryElementPayload[];
+  elements_snapshot?: unknown[];
+  canvas_aspect_ratio?: number;
+  preview_url?: string;
   error?: string;
 };
 
@@ -835,6 +865,28 @@ export const videoApi = {
       throw new Error('Invalid secondary creation result');
     }
     return data;
+  },
+
+  textSeparationSecondaryHistory: async (): Promise<TextSeparationSecondaryHistoryItem[]> => {
+    const response = await fetch(`${API_BASE_URL}/text-separation-secondary-history`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Secondary creation history request failed');
+    }
+
+    const json = (await response.json()) as ApiEnvelope<{ items?: TextSeparationSecondaryHistoryItem[] }>;
+    if (json?.code !== undefined && json.code !== 0) {
+      throw new Error((json?.message || 'Secondary creation history request failed') as string);
+    }
+
+    return Array.isArray(json?.data?.items) ? json.data.items : [];
   },
 
   // 0. Create Project (non-template)

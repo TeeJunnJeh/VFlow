@@ -106,7 +106,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
       { view: 'product_images_first_frame', label: tx('wb_nav_product_first_frame', tr('AI 首帧图', 'AI First Frame')) },
       { view: 'product_images_smart_repair', label: tx('wb_nav_product_smart_repair', tr('AI 智能修复', 'AI Smart Repair')) },
       { view: 'product_images_gallery', label: tx('wb_nav_product_gallery', tr('AI 商品套图', 'AI Product Gallery')) },
-      { view: 'product_images_text_separation', label: tx('wb_nav_product_text_separation', tr('文本分离', 'Text Separation')) },
+      { view: 'product_images_text_separation', label: tx('wb_nav_product_text_separation', tr('AI 海报编辑', 'AI Poster Editor')) },
     ];
 
     return (

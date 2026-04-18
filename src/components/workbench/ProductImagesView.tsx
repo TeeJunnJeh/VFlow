@@ -807,7 +807,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       },
       {
         value: 'product_images_text_separation',
-        label: tx('wb_nav_product_text_separation', tr('文本分离', 'Text Separation')),
+        label: tx('wb_nav_product_text_separation', tr('AI 海报编辑', 'AI Poster Editor')),
       },
     ],
     [t, isZh]
@@ -852,8 +852,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         };
       case 'product_images_text_separation':
         return {
-          title: tr('文本分离', 'Text Separation'),
-          subtitle: tr('上传海报，或复用商品套图历史图片，可生成去字底图和可编辑文本框', 'Upload a poster or reuse Product Gallery history to extract text and generate a clean background'),
+          title: tr('AI 海报编辑', 'AI Poster Editor'),
+          subtitle: tr('上传一张带字海报，自动提取可编辑文本框，并通过文本重绘把灵感快速变成新的视觉方案。', 'Upload a poster with text, automatically extract editable text blocks, and use text-to-image to quickly turn your inspiration into new visual concepts.'),
         };
       case 'product_images_first_frame':
       default:
@@ -4763,208 +4763,224 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               onBack={() => setTextSeparationSession(null)}
             />
           ) : (
-            <div className="h-full flex gap-6">
-              <div className="w-[30%] min-w-[360px] max-w-[420px]">
-                <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
-                  <input
-                    ref={textSeparationFileInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      handleTextSeparationFileSelection(Array.from(e.target.files || []));
-                      e.target.value = '';
-                    }}
-                  />
-                  <div
-                    className="transition-colors"
-                    onDragEnter={(e) => {
-                      preventDragDefaults(e);
-                      setIsTextSeparationDragActive(true);
-                    }}
-                    onDragOver={(e) => {
-                      preventDragDefaults(e);
-                      setIsTextSeparationDragActive(true);
-                    }}
-                    onDragLeave={(e) => {
-                      preventDragDefaults(e);
-                      setIsTextSeparationDragActive(false);
-                    }}
-                    onDrop={(e) => {
-                      preventDragDefaults(e);
-                      setIsTextSeparationDragActive(false);
-                      handleTextSeparationFileSelection(Array.from(e.dataTransfer.files || []));
-                    }}
-                  >
-                  {textSeparationUploadPreviewUrl ? (
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-sm font-bold text-zinc-200">{tr('当前处理图片', 'Current Image')}</div>
-                          <div className="mt-2 truncate text-sm font-bold text-zinc-200">
-                            {textSeparationUploadName || tr('最近上传', 'Latest upload')}
+              <div className="h-full flex flex-col gap-6 p-2">
+
+                <div className="flex flex-1 min-h-0 gap-8">
+                  <div className="w-[26%] min-w-[300px] max-w-[380px] flex flex-col gap-6">
+                    <div className="space-y-6">
+                      <input
+                        ref={textSeparationFileInputRef}
+                        type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        handleTextSeparationFileSelection(Array.from(e.target.files || []));
+                        e.target.value = '';
+                      }}
+                      />
+
+                    <div
+                      className="relative"
+                      onDragEnter={(e) => {
+                        preventDragDefaults(e);
+                        setIsTextSeparationDragActive(true);
+                      }}
+                      onDragOver={(e) => {
+                        preventDragDefaults(e);
+                        setIsTextSeparationDragActive(true);
+                      }}
+                      onDragLeave={(e) => {
+                        preventDragDefaults(e);
+                        setIsTextSeparationDragActive(false);
+                      }}
+                      onDrop={(e) => {
+                        preventDragDefaults(e);
+                        setIsTextSeparationDragActive(false);
+                        handleTextSeparationFileSelection(Array.from(e.dataTransfer.files || []));
+                      }}
+                    >
+                        {textSeparationUploadPreviewUrl ? (
+                          <div className="space-y-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="text-xs font-medium uppercase tracking-wider text-zinc-500">{tr('当前处理图片', 'Current Image')}</div>
+                                <div className="mt-1 truncate text-sm font-bold text-zinc-200">
+                                  {textSeparationUploadName || tr('最近上传', 'Latest upload')}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => clearSelectedTextSeparationSource()}
+                              disabled={isTextSeparationLoading}
+                              className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-zinc-400 transition hover:border-red-500/30 hover:text-red-400 disabled:opacity-50"
+                            >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                            <img
+                              src={textSeparationUploadPreviewUrl}
+                              alt={textSeparationUploadName || 'upload'}
+                              className="aspect-auto max-h-[300px] w-full rounded-2xl border border-dashed border-white/15 bg-white/[0.03] object-cover"
+                            />
+                            <div className="mt-4 flex gap-3">
+                              <button
+                                type="button"
+                                onClick={handleStartTextSeparation}
+                              disabled={isTextSeparationLoading || !textSeparationSelectedImagePath}
+                              className="flex-1 rounded-xl border border-orange-500/40 bg-orange-500/10 px-4 py-3 text-sm font-bold text-orange-200 transition hover:bg-orange-500/20 disabled:border-white/10 disabled:bg-black/30 disabled:text-zinc-500"
+                            >
+                              <div className="flex items-center justify-center gap-2">
+                                {isTextSeparationLoading ? tr('处理中...', 'Processing...') : tr('开始文本分离', 'Start Text Separation')}
+                                {textSeparationEstimatedCost > 0 && !isTextSeparationLoading ? (
+                                  <span className="rounded bg-black/20 px-1.5 py-0.5 text-[10px]">-{textSeparationEstimatedCost} V</span>
+                                ) : null}
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openGalleryImagePreview(textSeparationUploadPreviewUrl)}
+                              className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:bg-white/[0.04]"
+                            >
+                              {tr('查看', 'View')}
+                            </button>
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => clearSelectedTextSeparationSource()}
-                          disabled={isTextSeparationLoading}
-                          className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/50 text-zinc-300 transition hover:bg-black/80 hover:text-white disabled:opacity-60"
-                          title={tr('删除并重新选择', 'Remove and choose again')}
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-                      <img
-                        src={textSeparationUploadPreviewUrl}
-                        alt={textSeparationUploadName || 'upload'}
-                        className="mt-3 w-full rounded-xl border border-white/10 object-cover"
-                      />
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          type="button"
-                          onClick={handleStartTextSeparation}
-                          disabled={isTextSeparationLoading || !textSeparationSelectedImagePath}
-                          className="text-separation-start-btn grid flex-1 grid-cols-[1fr_auto_1fr] items-center rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black transition hover:bg-orange-400 disabled:opacity-60 disabled:hover:bg-orange-500"
-                        >
-                          <span aria-hidden="true" className="min-w-0" />
-                          <span className="min-w-0 justify-self-center text-center">
-                            {isTextSeparationLoading ? tr('处理中...', 'Processing...') : tr('开始文本分离', 'Start Text Separation')}
-                          </span>
-                          <span className="justify-self-end self-center pr-0.5 text-right">
-                            {textSeparationEstimatedCost > 0 ? (
-                              <span className="whitespace-nowrap text-[10px] font-semibold tabular-nums text-black/75">
-                                {`-${textSeparationEstimatedCost} ${tr('V点', 'V-points')}`}
-                              </span>
-                            ) : null}
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openGalleryImagePreview(textSeparationUploadPreviewUrl)}
-                          className="rounded-xl border border-white/10 bg-zinc-900/70 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:bg-zinc-800"
-                        >
-                          {tr('查看', 'View')}
-                        </button>
-                      </div>
+                      ) : (
+                          <div className="space-y-3">
+                            <button
+                              type="button"
+                              onClick={() => textSeparationFileInputRef.current?.click()}
+                            disabled={isTextSeparationLoading}
+                              className={`flex aspect-[16/10] w-full flex-col items-center justify-center rounded-2xl border border-dashed px-6 transition ${
+                                isTextSeparationDragActive
+                                    ? 'border-orange-500 bg-white/[0.05]'
+                                    : 'border-white/15 bg-white/[0.03] hover:border-white/30 hover:bg-white/[0.05]'
+                              }`}
+                            >
+                                <Upload className={`mb-4 h-8 w-8 ${isTextSeparationDragActive ? 'text-orange-400' : 'text-zinc-400'}`} />
+                              <div className="text-[15px] font-bold text-zinc-200">{tr('拖拽图片或点击选择', 'Choose one poster image')}</div>
+                              <div className="mt-2 text-[11px] uppercase tracking-widest text-zinc-500">JPG, PNG, WEBP (MAX 10MB)</div>
+                            </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsTextSeparationHistoryPickerOpen(true)}
+                            disabled={isTextSeparationLoading}
+                              className="w-full rounded-xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-3.5 text-[15px] font-bold text-zinc-400 transition hover:border-white/30 hover:bg-white/[0.05] hover:text-zinc-200 disabled:opacity-50"
+                            >
+                            {tr('从商品套图历史记录选择', 'Choose from Product Gallery History')}
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <>
-                      <div className="text-sm font-bold text-zinc-200">{tr('上传图片', 'Upload Image')}</div>
-                      <div
-                        onDragEnter={(e) => {
-                          e.preventDefault();
-                          if (!isTextSeparationLoading) setIsTextSeparationDragActive(true);
-                        }}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          if (!isTextSeparationLoading) setIsTextSeparationDragActive(true);
-                        }}
-                        onDragLeave={(e) => {
-                          e.preventDefault();
-                          const nextTarget = e.relatedTarget as Node | null;
-                          if (!e.currentTarget.contains(nextTarget)) {
-                            setIsTextSeparationDragActive(false);
-                          }
-                        }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          setIsTextSeparationDragActive(false);
-                          if (isTextSeparationLoading) return;
-                          const file = Array.from(e.dataTransfer.files || [])[0];
-                          if (!file) return;
-                          if (!isSupportedGalleryImageFile(file)) {
-                            openGalleryAlert(gallerySupportedFormatTip);
-                            return;
-                          }
-                          void handleTextSeparationUpload(file);
-                        }}
-                      >
-                      <button
-                        type="button"
-                        onClick={() => textSeparationFileInputRef.current?.click()}
-                        disabled={isTextSeparationLoading}
-                        className={`mt-4 w-full rounded-2xl border border-dashed px-4 py-10 text-center transition disabled:opacity-60 ${
-                          isTextSeparationLoading
-                            ? 'border-white/10 bg-black/20 text-zinc-500'
-                            : isTextSeparationDragActive
-                              ? 'border-orange-400 bg-orange-500/10 text-orange-200'
-                              : 'border-white/10 bg-black/20 text-zinc-500 hover:border-white/20 hover:text-zinc-300'
-                        }`}
-                      >
-                        <Upload className="mx-auto mb-3 h-10 w-10 opacity-70" />
-                        <div className="text-sm font-semibold">{tr('选择一张海报图片', 'Choose one poster image')}</div>
-                        <div className="mt-1 text-[11px]">{tr('点击选择，或将文件拖拽到这里', 'Click to choose or drag a file here')}</div>
-                        <div className="mt-1 text-[11px]">JPG / PNG / WEBP</div>
-                      </button>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsTextSeparationHistoryPickerOpen(true)}
-                        disabled={isTextSeparationLoading}
-                        className="mt-3 w-full rounded-xl border border-white/10 bg-zinc-900/70 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-60"
-                      >
-                        {tr('从商品套图历史记录选择', 'Choose from Product Gallery History')}
-                      </button>
-                    </>
-                  )}
+                    </div>
                   </div>
-                </div>
-              </div>
 
-              <div className="flex-1 min-w-0 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0 max-h-[calc(100vh-80px)]">
-                <div className="text-sm font-bold text-zinc-200">{tr('生成记录', 'Generation Records')}</div>
-                <div className="flex-1 mt-4 rounded-2xl border border-dashed border-white/10 bg-black/10 overflow-y-auto">
-                  {textSeparationRecords.length === 0 ? (
-                    <div className="h-full flex items-center justify-center text-zinc-600 text-sm">
-                      {tr('暂无生成记录', 'No generation records yet')}
+                  <div className="flex flex-1 min-w-0 flex-col">
+                    <div className="mb-4 flex items-center gap-2 text-zinc-400">
+                      <LayoutGrid className="h-4 w-4" />
+                      <div className="text-base font-bold">{tr('生成记录', 'Generation Records')}</div>
                     </div>
-                  ) : (
-                    <div className="p-4 grid grid-cols-2 gap-3">
-                      {textSeparationRecords.map((item) => (
-                        <button
-                          type="button"
-                          key={item.id}
-                          onClick={() => openTextSeparationHistoryItem(item)}
-                          disabled={item.status !== 'succeeded'}
-                          className="overflow-hidden rounded-xl border border-white/10 bg-black/20 text-left transition hover:border-orange-500/40 disabled:hover:border-white/10 disabled:cursor-default"
-                        >
-                          <div className="aspect-video overflow-hidden border-b border-white/10 bg-black/30 relative">
-                            <img
-                              src={(item.status === 'succeeded' && item.backgroundImageUrl) ? item.backgroundImageUrl : item.originalImageUrl}
-                              alt={item.sampleTitle}
-                              className={`h-full w-full object-cover ${item.status === 'processing' ? 'opacity-70' : ''}`}
-                            />
-                            {item.status === 'processing' ? (
-                              <div className="absolute inset-x-3 bottom-3">
-                                <div className="h-2 rounded-full bg-white/10 overflow-hidden">
-                                  <div
-                                    className="h-full rounded-full bg-orange-500 transition-[width] duration-200"
-                                    style={{ width: `${Math.max(6, item.progress)}%` }}
+
+                    <div className="custom-scrollbar flex-1 overflow-y-auto px-4 py-6">
+                      {textSeparationRecords.length === 0 ? (
+                        <div className="flex h-full flex-col items-center justify-center gap-3 opacity-40">
+                          <Plus className="h-5 w-5 text-zinc-500" />
+                          <p className="text-sm font-medium italic tracking-wide text-zinc-500">{tr('还没有生成记录', 'No generation records yet')}</p>
+                        </div>
+                      ) : (
+                          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+                          {textSeparationRecords.map((item) => (
+                            <button
+                              type="button"
+                              key={item.id}
+                              onClick={() => openTextSeparationHistoryItem(item)}
+                              disabled={item.status !== 'succeeded'}
+                                className="group/card relative overflow-hidden rounded-3xl border border-white/10 bg-zinc-900/20 text-left shadow-[0_8px_20px_rgba(0,0,0,0.12)] transition-all duration-300 hover:-translate-y-1 hover:border-orange-500/40 hover:bg-zinc-900/40 hover:shadow-[0_12px_28px_rgba(0,0,0,0.18)] disabled:cursor-default disabled:hover:translate-y-0 disabled:hover:shadow-[0_8px_20px_rgba(0,0,0,0.12)]"
+                              >
+                                <div className="relative aspect-[5/4] overflow-hidden rounded-t-xl bg-black/20">
+                                  <img
+                                    src={item.originalImageUrl}
+                                    alt={item.sampleTitle}
+                                    className={`h-full w-full object-cover transition-all duration-500 ${item.status === 'processing' ? 'opacity-40 blur-[2px]' : 'opacity-90 group-hover/card:scale-[1.03] group-hover/card:opacity-100'}`}
                                   />
+                              {item.status === 'processing' ? (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center p-4">
+                                  <div className="w-full max-w-[120px] space-y-2">
+                                    <div className="flex justify-between text-[10px] font-bold uppercase tracking-tighter text-orange-400">
+                                      <span>Processing</span>
+                                      <span>{Math.round(item.progress)}%</span>
+                                    </div>
+                                    <div className="h-1 overflow-hidden rounded-full bg-white/5 ring-1 ring-white/10">
+                                      <div
+                                        className="h-full bg-orange-500 transition-all duration-500"
+                                        style={{ width: `${Math.max(6, item.progress)}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                                <div className="flex items-center justify-between gap-3 px-3 py-3">
+                                <div className="min-w-0">
+                                  <div className="truncate text-sm font-bold text-zinc-200 transition-colors group-hover/card:text-orange-200">{item.sampleTitle}</div>
+                                  <div className="mt-1 text-xs font-medium uppercase italic tracking-tighter text-zinc-500">{item.createdAt}</div>
+                                </div>
+                                <div className={`shrink-0 rounded px-2 py-0.5 text-xs font-black uppercase tracking-widest ${item.status === 'processing' ? 'bg-orange-400/10 text-orange-400' : 'bg-emerald-400/10 text-emerald-400'}`}>
+                                  {item.status === 'processing' ? tr('等待', 'Wait') : tr('完成', 'Done')}
                                 </div>
                               </div>
-                            ) : null}
-                          </div>
-                          <div className="p-3">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="truncate text-sm font-bold text-zinc-200">{item.sampleTitle}</div>
-                              <div className={`text-[11px] font-bold ${item.status === 'processing' ? 'text-orange-300' : 'text-emerald-300'}`}>
-                                {item.status === 'processing' ? tr('生成中', 'Processing') : tr('已完成', 'Done')}
-                              </div>
-                            </div>
-                            <div className="mt-1 text-[11px] text-zinc-500">{item.createdAt}</div>
-                            <div className="mt-2 text-xs text-zinc-400">
-                              {item.status === 'processing'
-                                ? tr(`进度 ${Math.round(item.progress)}%`, `${Math.round(item.progress)}% complete`)
-                                : tr(`文本框 ${item.textBlocks?.length || 0} 个`, `${item.textBlocks?.length || 0} text blocks`)}
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  </div>
                 </div>
+
+                <div className="border-t border-white/10 pt-6">
+                  <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
+                    <div className="max-w-xl">
+                      <div className="mb-3 inline-block border border-white/10 px-2 py-0.5 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Workflow</div>
+                      <h2 className="text-lg font-bold tracking-tight text-zinc-100">{tr('使用指南', 'Quick Guide')}</h2>
+                      <p className="mt-1 text-sm italic text-zinc-500">
+                        {tr('三步把带字海报变成可编辑、可重绘的创意资产。', 'Turn a text-heavy poster into an editable, repaintable creative asset in three steps.')}
+                      </p>
+                    </div>
+                  </div>
+
+                    <div className="grid gap-8 lg:grid-cols-3">
+                  {[
+                    {
+                      step: '01',
+                      title: tr('上传原始海报', 'Upload'),
+                      img: '/ai-poster-editor-guide/origin.jpeg',
+                      desc: tr('系统自动提取可编辑文本框，并生成干净底图。', 'Extract editable text blocks and build a clean background.'),
+                    },
+                    {
+                      step: '02',
+                      title: tr('自由编辑并导出', 'Edit'),
+                      img: '/ai-poster-editor-guide/edited.png',
+                      desc: tr('调整文案、样式和排版，也可以一键导出为 PPTX。', 'Refine copy, styling, and layout, then export to PPTX.'),
+                    },
+                    {
+                      step: '03',
+                      title: tr('文本重绘释放创意', 'Repaint'),
+                      img: '/ai-poster-editor-guide/repainted.jpeg',
+                      desc: tr('AI 会在保留底图氛围的前提下，重绘成新的效果。', 'AI repaints the poster into a new visual direction.'),
+                    },
+                      ].map((card) => (
+                        <div key={card.step} className="space-y-5">
+                          <div className="mx-auto w-[88%] overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+                            <img src={card.img} alt={card.title} className="block h-auto w-full opacity-90" />
+                          </div>
+                          <div className="mx-auto w-[88%]">
+                            <div className="mb-2 text-sm font-black uppercase tracking-[0.3em] text-orange-600">{card.step}</div>
+                            <div className="mb-2 text-sm font-bold text-zinc-200">{card.title}</div>
+                            <p className="text-sm font-medium leading-relaxed text-zinc-500">{card.desc}</p>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
               </div>
             </div>
           )}

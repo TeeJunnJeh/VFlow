@@ -1,4 +1,4 @@
-// src/services/video.ts
+﻿// src/services/video.ts
 
 import { traceApiRequest } from './opsTrace';
 import { apiRequest, getCookie } from './apiClient';
@@ -227,6 +227,7 @@ export type TextSeparationSecondaryTask = {
   original_image_url?: string;
   global_prompt?: string;
   elements?: TextSeparationSecondaryElementPayload[];
+  elements_snapshot?: unknown[];
   canvas_aspect_ratio?: number;
   preview_url?: string;
   error?: string;

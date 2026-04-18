@@ -164,7 +164,10 @@ type GalleryOutputItem = {
   title?: string;
   modelCardId?: string;
   sceneCardId?: string;
+  /** @deprecated kept for backward compat with old snapshots; new code reads from `layouts[layoutIndex]`. */
   layout?: string;
+  layouts?: string[];
+  layoutIndex?: number;
   copy?: {
     headline?: string;
     subheadline?: string;
@@ -495,6 +498,17 @@ const normalizeGalleryOutputItem = (row: any): GalleryOutputItem | null => {
   const resolutionRaw = String(row?.resolution || '1k').trim().toLowerCase();
   const resolution = resolutionRaw === '2k' || resolutionRaw === '4k' ? resolutionRaw : '1k';
   const count = Math.max(0, Math.round(Number(row?.count || 0)));
+  const rawLayouts = Array.isArray(row?.layouts)
+    ? row.layouts.map((entry: any) => String(entry ?? '')).filter((entry: string) => entry.trim().length > 0)
+    : [];
+  const legacyLayout = typeof row?.layout === 'string' ? row.layout : '';
+  const layouts = rawLayouts.length > 0
+    ? rawLayouts
+    : (legacyLayout && legacyLayout.trim() ? [legacyLayout] : []);
+  const rawIndex = Number(row?.layoutIndex ?? row?.layout_index ?? 0);
+  const layoutIndex = Number.isFinite(rawIndex)
+    ? Math.min(Math.max(0, Math.floor(rawIndex)), Math.max(0, layouts.length - 1))
+    : 0;
   return {
     id: String(row?.id || createGalleryOutputItemId()),
     enabled: Boolean(row?.enabled ?? true),
@@ -509,7 +523,9 @@ const normalizeGalleryOutputItem = (row: any): GalleryOutputItem | null => {
     sceneCardId: supportsResourceBinding
       ? (typeof row?.sceneCardId === 'string' ? row.sceneCardId : (typeof row?.scene_card_id === 'string' ? row.scene_card_id : undefined))
       : undefined,
-    layout: typeof row?.layout === 'string' ? row.layout : undefined,
+    layout: layouts[layoutIndex] ?? (legacyLayout || undefined),
+    layouts,
+    layoutIndex,
   };
 };
 
@@ -1192,12 +1208,19 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     prompt: string;
     isGenerating: boolean;
     error: string | null;
+    completed: number;
+    total: number;
   }>({
     open: false,
     prompt: '',
     isGenerating: false,
     error: null,
+    completed: 0,
+    total: 0,
   });
+  const GALLERY_LAYOUT_VARIANTS_MIN = 1;
+  const GALLERY_LAYOUT_VARIANTS_MAX = 5;
+  const [galleryLayoutVariants, setGalleryLayoutVariants] = useState<number>(3);
 
   type GalleryPreviewSource =
     | { kind: 'preview_item'; localId: string }
@@ -2717,7 +2740,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   };
 
   const openGalleryAiLayoutPromptDialog = () => {
-    setGalleryAiLayoutDesigner({ open: true, prompt: '', isGenerating: false, error: null });
+    setGalleryAiLayoutDesigner((prev) => ({ ...prev, open: true, isGenerating: false, error: null, completed: 0, total: 0 }));
   };
 
   const closeGalleryAiLayoutPromptDialog = () => {
@@ -2831,6 +2854,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     const supportsResourceBinding = item.outputType !== 'white_bg';
     const modelCard = supportsResourceBinding && item.modelCardId ? (modelCardsById.get(item.modelCardId) || null) : null;
     const sceneCard = supportsResourceBinding && item.sceneCardId ? (sceneCardsById.get(item.sceneCardId) || null) : null;
+    const layouts = Array.isArray(item.layouts) ? item.layouts : [];
+    const activeIdx = Math.min(Math.max(0, Number(item.layoutIndex ?? 0)), Math.max(0, layouts.length - 1));
+    const activeLayout = layouts[activeIdx] ?? item.layout ?? undefined;
     return {
       id: item.id,
       enabled: item.enabled,
@@ -2842,7 +2868,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       scene_card_id: supportsResourceBinding ? (item.sceneCardId || undefined) : undefined,
       model_binding: buildGalleryResolvedModelBinding(modelCard),
       scene_binding: buildGalleryResolvedSceneBinding(sceneCard),
-      layout: item.layout,
+      layout: activeLayout,
     };
   };
 
@@ -2928,7 +2954,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       return;
     }
 
-    const hasExistingLayouts = enabledItems.some((item) => Boolean(String(item.layout || '').trim()));
+    const hasExistingLayouts = enabledItems.some((item) => {
+      const layouts = Array.isArray(item.layouts) ? item.layouts : [];
+      if (layouts.some((txt) => String(txt || '').trim().length > 0)) return true;
+      return Boolean(String(item.layout || '').trim());
+    });
     if (hasExistingLayouts) {
       const action = await openGalleryConfirm(
         tr(
@@ -2944,7 +2974,22 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       if (action !== 'ok') return;
     }
 
-    setGalleryAiLayoutDesigner((prev) => ({ ...prev, isGenerating: true, error: null }));
+    const variantCount = Math.max(
+      GALLERY_LAYOUT_VARIANTS_MIN,
+      Math.min(GALLERY_LAYOUT_VARIANTS_MAX, Math.floor(Number(galleryLayoutVariants) || 1))
+    );
+    const enabledIdSet = new Set(enabledItems.map((it) => it.id));
+
+    setGalleryAiLayoutDesigner((prev) => ({ ...prev, isGenerating: true, error: null, completed: 0, total: variantCount }));
+    setGalleryOutputItems((prev) =>
+      prev.map((item) => {
+        if (!enabledIdSet.has(item.id)) return item;
+        return { ...item, layouts: [], layoutIndex: 0, layout: '' };
+      })
+    );
+    setGalleryAdvancedDirty(true);
+    setIsGalleryAdvancedEditingCollapsed(false);
+
     try {
       const hasNewImages = galleryImages.length > 0;
       const hasRestoredPaths = galleryRestoredImagePaths.length > 0;
@@ -2975,7 +3020,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         }
       }
 
-      const planResp = await videoApi.generateProductGalleryPlan({
+      const basePayload = {
         prompt: buildGalleryAiLayoutPrompt(enabledItems, extraPrompt),
         image_paths: imagePaths,
         product_name: galleryProductName.trim(),
@@ -2987,34 +3032,51 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         scene_config: hasSceneConfig ? sceneConfig : undefined,
         model_image_path: String(resolvedPrimaryModelCard?.imagePath || '').trim() || undefined,
         model_info: String(resolvedPrimaryModelCard?.modelInfo || '').trim() || undefined,
-      });
-      const data = (planResp as any)?.data || planResp;
-      const rawItems = Array.isArray(data?.items) ? data.items : [];
-      if (rawItems.length === 0) throw new Error(tr('AI 未返回可用构图描述', 'AI returned no usable layout suggestions'));
+      };
 
-      const nextLayouts = rawItems
-        .map((row: any) => String(row?.layout || '').trim())
-        .filter(Boolean);
-      if (nextLayouts.length === 0) {
-        throw new Error(tr('AI 未返回可用构图描述', 'AI returned no usable layout suggestions'));
-      }
-
-      let nextIndex = 0;
-      setGalleryOutputItems((prev) =>
-        prev.map((item) => {
-          if (!(item.enabled && item.count > 0)) return item;
-          const nextLayout = nextLayouts[nextIndex];
-          nextIndex += 1;
-          if (!nextLayout) return item;
-          return {
-            ...item,
-            layout: nextLayout,
-          };
+      let successCount = 0;
+      await Promise.all(
+        Array.from({ length: variantCount }).map(async () => {
+          try {
+            const planResp = await videoApi.generateProductGalleryPlan({ ...basePayload });
+            const data = (planResp as any)?.data || planResp;
+            const rawItems = Array.isArray(data?.items) ? data.items : [];
+            if (rawItems.length === 0) return;
+            const enabledIdOrder = enabledItems.map((it) => it.id);
+            const layoutById = new Map<string, string>();
+            enabledIdOrder.forEach((id, idx) => {
+              const layout = String(rawItems[idx]?.layout || '').trim();
+              if (layout) layoutById.set(id, layout);
+            });
+            if (layoutById.size === 0) return;
+            setGalleryOutputItems((prev) =>
+              prev.map((item) => {
+                const next = layoutById.get(item.id);
+                if (!next) return item;
+                const prevLayouts = Array.isArray(item.layouts) ? item.layouts : [];
+                const nextLayouts = [...prevLayouts, next];
+                return {
+                  ...item,
+                  layouts: nextLayouts,
+                  layoutIndex: Math.min(Number(item.layoutIndex ?? 0), Math.max(0, nextLayouts.length - 1)),
+                  layout: nextLayouts[Math.min(Number(item.layoutIndex ?? 0), nextLayouts.length - 1)] ?? next,
+                };
+              })
+            );
+            successCount += 1;
+          } catch (err) {
+            console.warn('[gallery] layout variant failed', err);
+          } finally {
+            setGalleryAiLayoutDesigner((prev) => ({ ...prev, completed: prev.completed + 1 }));
+          }
         })
       );
-      setGalleryAdvancedDirty(true);
-      setIsGalleryAdvancedEditingCollapsed(false);
-      setGalleryAiLayoutDesigner({ open: false, prompt: '', isGenerating: false, error: null });
+
+      if (successCount === 0) {
+        throw new Error(tr('AI 全部候选生成失败，请重试。', 'All layout variants failed. Please retry.'));
+      }
+
+      setGalleryAiLayoutDesigner((prev) => ({ ...prev, open: false, prompt: prev.prompt, isGenerating: false, error: null }));
     } catch (err: any) {
       const message = String(err?.message || tr('AI 设计失败，请重试。', 'AI layout design failed. Please try again.'));
       setGalleryAiLayoutDesigner((prev) => ({ ...prev, isGenerating: false, error: fromDialog ? message : null }));
@@ -3081,6 +3143,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           const outputType = normalizeAiOutputType(row?.outputType ?? row?.output_type ?? row?.type);
           if (!outputType) return null;
           const shouldBindPrimaryResources = outputType === 'scene' || outputType === 'selling_point' || outputType === 'cover' || outputType === 'poster';
+          const layoutText = typeof row?.layout === 'string' ? row.layout.trim() : '';
+          const layouts = layoutText ? [layoutText] : [];
           return {
             id: createGalleryOutputItemId(),
             enabled: Boolean(row?.enabled ?? true),
@@ -3090,7 +3154,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             count: 1,
             modelCardId: shouldBindPrimaryResources ? (resolvedPrimaryModelCard?.id || undefined) : undefined,
             sceneCardId: shouldBindPrimaryResources ? (primarySceneCard?.id || undefined) : undefined,
-            layout: typeof row?.layout === 'string' ? row.layout : undefined,
+            layout: layoutText || undefined,
+            layouts,
+            layoutIndex: 0,
           } satisfies GalleryOutputItem;
         })
         .filter(Boolean) as GalleryOutputItem[];
@@ -3189,9 +3255,24 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       setGalleryOutputItems((prev) =>
         prev.map((item) => {
           if (item.id !== targetId) return item;
+          const optimizedLayout = typeof optimized?.layout === 'string' ? optimized.layout : '';
+          const prevLayouts = Array.isArray(item.layouts) ? item.layouts : [];
+          const prevIdx = Math.min(Math.max(0, Number(item.layoutIndex ?? 0)), Math.max(0, prevLayouts.length - 1));
+          let nextLayouts = prevLayouts;
+          let nextLayoutText = item.layout;
+          if (optimizedLayout) {
+            if (prevLayouts.length > 0) {
+              nextLayouts = prevLayouts.map((txt, idx) => (idx === prevIdx ? optimizedLayout : txt));
+            } else {
+              nextLayouts = [optimizedLayout];
+            }
+            nextLayoutText = optimizedLayout;
+          }
           return {
             ...item,
-            layout: typeof optimized?.layout === 'string' ? optimized.layout : item.layout,
+            layout: nextLayoutText,
+            layouts: nextLayouts,
+            layoutIndex: Math.min(prevIdx, Math.max(0, nextLayouts.length - 1)),
             copy: nextCopy || item.copy,
             notes: typeof optimized?.notes === 'string' ? optimized.notes : item.notes,
             prompt: typeof optimized?.prompt === 'string' ? optimized.prompt : item.prompt,
@@ -3317,6 +3398,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             modelCardId: sellingPointEntries[0]?.modelCardId,
             sceneCardId: sellingPointEntries[0]?.sceneCardId,
             layout: sellingPointEntries[0]?.layout,
+            layouts: Array.isArray(sellingPointEntries[0]?.layouts) ? [...sellingPointEntries[0]!.layouts!] : [],
+            layoutIndex: sellingPointEntries[0]?.layoutIndex ?? 0,
           },
         ];
 
@@ -3405,6 +3488,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         modelCardId: item.modelCardId,
         sceneCardId: item.sceneCardId,
         layout: item.layout,
+        layouts: Array.isArray(item.layouts) ? [...item.layouts] : undefined,
+        layoutIndex: item.layoutIndex,
       })),
       modelCards: workingModelCards.map((card) => toGalleryModelCardSnapshot(card)),
       sceneCards: gallerySceneCards.map((card) => ({
@@ -3809,7 +3894,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
       <AppDialog
         isOpen={galleryAiLayoutDesigner.open}
-        title={tr('AI帮我设计', 'AI Design For Me')}
+        title={tr('高级设置', 'Advanced Settings')}
         onClose={closeGalleryAiLayoutPromptDialog}
         widthClassName="max-w-lg"
         overlayClassName="z-[160]"
@@ -3831,12 +3916,16 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               disabled={galleryAiLayoutDesigner.isGenerating}
               className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 text-black hover:bg-orange-400 transition disabled:opacity-50"
             >
-              {galleryAiLayoutDesigner.isGenerating ? tr('设计中...', 'Designing...') : tr('开始设计', 'Generate Layouts')}
+              {galleryAiLayoutDesigner.isGenerating
+                ? (galleryAiLayoutDesigner.total > 0
+                    ? `${tr('设计中', 'Designing')} ${galleryAiLayoutDesigner.completed}/${galleryAiLayoutDesigner.total}...`
+                    : tr('设计中...', 'Designing...'))
+                : tr('开始设计', 'Generate Layouts')}
             </button>
           </>
         }
       >
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div className="text-xs text-zinc-400">
             {tr(
               '补一句额外要求，AI 会在保持当前图种和张数不变的前提下，为每条出图条目补全构图描述。',
@@ -3850,6 +3939,40 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
             placeholder={tr('例如：场景图更偏小红书生活方式感，卖点图留出右侧文案区。', 'E.g. make scene images feel more Xiaohongshu-lifestyle, and leave a clean text area on the right for selling-point images.')}
           />
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5">
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-zinc-200">{tr('每张图生成构图候选数', 'Layout variants per image')}</div>
+              <div className="mt-0.5 text-[11px] leading-4 text-zinc-500">
+                {tr(
+                  '一次生成多份构图，高级编辑里可按卡片左右翻页挑选。',
+                  'Generate multiple layouts so you can browse them per card in Advanced Editing.'
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setGalleryLayoutVariants((v) => Math.max(GALLERY_LAYOUT_VARIANTS_MIN, Math.floor(Number(v) || 1) - 1))}
+                disabled={galleryAiLayoutDesigner.isGenerating || galleryLayoutVariants <= GALLERY_LAYOUT_VARIANTS_MIN}
+                className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 flex items-center justify-center disabled:opacity-40"
+                aria-label={tr('减少候选数', 'Decrease variants')}
+              >
+                <Minus className="h-3.5 w-3.5" />
+              </button>
+              <div className="min-w-[2.5rem] text-center text-sm font-bold tabular-nums text-zinc-100">
+                {galleryLayoutVariants}
+              </div>
+              <button
+                type="button"
+                onClick={() => setGalleryLayoutVariants((v) => Math.min(GALLERY_LAYOUT_VARIANTS_MAX, Math.floor(Number(v) || 1) + 1))}
+                disabled={galleryAiLayoutDesigner.isGenerating || galleryLayoutVariants >= GALLERY_LAYOUT_VARIANTS_MAX}
+                className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 flex items-center justify-center disabled:opacity-40"
+                aria-label={tr('增加候选数', 'Increase variants')}
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
           {galleryAiLayoutDesigner.error ? (
             <div className="text-xs text-red-400">{galleryAiLayoutDesigner.error}</div>
           ) : null}

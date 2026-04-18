@@ -940,6 +940,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [assetLibraryCurrentFolderId, setAssetLibraryCurrentFolderId] = useState<string | null>(null);
   const [assetLibraryLoading, setAssetLibraryLoading] = useState(false);
   const [isAssetLibraryUploading, setIsAssetLibraryUploading] = useState(false);
+  const [assetLibraryUploadSuccessVisible, setAssetLibraryUploadSuccessVisible] = useState(false);
+  const [assetLibraryUploadSuccessFading, setAssetLibraryUploadSuccessFading] = useState(false);
+  const assetLibraryUploadSuccessTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const [assetLibraryHoverAssetId, setAssetLibraryHoverAssetId] = useState<string | null>(null);
+  const [assetLibraryHoverClickedAssetId, setAssetLibraryHoverClickedAssetId] = useState<string | null>(null);
   const [assetLibraryError, setAssetLibraryError] = useState<string | null>(null);
   const [assetLibrarySubjects, setAssetLibrarySubjects] = useState<SubjectGroup[]>([]);
   const [seedanceReplayLibraryIntent, setSeedanceReplayLibraryIntent] = useState<SeedanceReplayLibraryIntent | null>(null);
@@ -3086,7 +3091,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       await reloadAssetLibraryItems();
 
       if (successCount > 0 && failedMessages.length === 0) {
-        openInfo(popupTitles.success, formatMessage((t as any).assets_upload_success_count || '已上传 {count} 个文件', { count: successCount }));
+        if (assetLibraryUploadSuccessTimerRef.current) {
+          window.clearTimeout(assetLibraryUploadSuccessTimerRef.current);
+          assetLibraryUploadSuccessTimerRef.current = null;
+        }
+
+        setAssetLibraryUploadSuccessVisible(true);
+        setAssetLibraryUploadSuccessFading(false);
+        window.requestAnimationFrame(() => setAssetLibraryUploadSuccessFading(true));
+        assetLibraryUploadSuccessTimerRef.current = window.setTimeout(() => {
+          setAssetLibraryUploadSuccessVisible(false);
+          setAssetLibraryUploadSuccessFading(false);
+          assetLibraryUploadSuccessTimerRef.current = null;
+        }, 2000);
       } else if (successCount > 0) {
         openInfo(
           popupTitles.notice,
@@ -3362,16 +3379,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return queuedAsset;
   }
 
-  const selectAssetFromLibraryPopup = (asset: LibraryAsset) => {
+  const selectAssetFromLibraryPopup = (asset: LibraryAsset): boolean => {
     if (assetLibraryPickMode === 'script_import') {
       void handleImportScriptFromLibraryAsset(asset);
-      return;
+      return true;
     }
 
     if (assetLibraryPickMode === 'background_audio') {
       if (asset.media_kind !== 'audio') {
         openInfo(popupTitles.notice, t.wb_audio_picker_only_audio || '请选择音频素材');
-        return;
+        return false;
       }
       setSelectedBackgroundAudio({
         id: asset.id,
@@ -3382,8 +3399,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setIsAssetLibraryOpen(false);
       setAssetLibraryPickMode('default');
       setIsBackgroundAudioSourceOpen(false);
-      return;
+      return true;
     }
+
     if (isSeedanceReplayMode && seedanceReplayLibraryIntent) {
       const queuedAsset = buildSeedanceReplayQueuedAssetFromLibrary(asset);
       const candidate = buildSeedanceReplayLibraryCandidate(asset);
@@ -3392,14 +3410,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           popupTitles.notice,
           t.wb_seedance_replay_notice_unsupported_library_asset || 'The selected asset is not supported as a Seedance reference asset.',
         );
-        return;
+        return false;
       }
       if (!seedanceReplayLibraryIntent.allowedTabs.includes(queuedAsset.materialType || 'product')) {
         openInfo(
           popupTitles.notice,
           t.wb_seedance_replay_notice_unsupported_library_category || 'This entry does not support the selected asset category.',
         );
-        return;
+        return false;
       }
       if (seedanceReplayLibraryIntent.targetMediaKind && queuedAsset.mediaKind !== seedanceReplayLibraryIntent.targetMediaKind) {
         const kindLabel = seedanceReplayLibraryIntent.targetMediaKind === 'image'
@@ -3414,12 +3432,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             { kind: kindLabel },
           ),
         );
-        return;
+        return false;
       }
       const validationMessage = validateSeedanceReplayParsedAsset(candidate, t);
       if (validationMessage) {
         openInfo(popupTitles.notice, validationMessage);
-        return;
+        return false;
       }
 
       const normalizedQueuedUrl = normalizeSeedanceAssetUrl(
@@ -3437,7 +3455,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           popupTitles.notice,
           t.wb_seedance_replay_notice_duplicate_asset || 'This asset has already been added. Please choose another one.',
         );
-        return;
+        return false;
       }
 
       const currentCount = uploadDisplayAssets.filter((item) => item.mediaKind === queuedAsset.mediaKind).length;
@@ -3459,15 +3477,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             { limit, kind: kindLabel },
           ),
         );
-        return;
+        return false;
       }
 
       setAssetQueue((prev) => [...prev, queuedAsset]);
       applyWorkbenchAssetSelection(queuedAsset);
       setLastUploadedUrl(queuedAsset.assetUrl || null);
-      return;
+      return true;
     }
-    queueLibraryAssetIntoWorkbench(asset);
+
+    const queued = queueLibraryAssetIntoWorkbench(asset);
+    return Boolean(queued);
   };
 
   const selectSubjectFromLibraryPopup = (subject: SubjectGroup) => {
@@ -11141,11 +11161,25 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           type="button"
                           onClick={triggerAssetLibraryLocalUpload}
                           disabled={isAssetLibraryUploading}
-                          className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading ? 'cursor-not-allowed border-orange-500/25 bg-orange-500/10 text-orange-200/70' : 'border-orange-500/45 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+                          className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading
+                            ? 'cursor-not-allowed border-white/10 bg-white/5 text-zinc-200/70'
+                            : assetLibraryUploadSuccessVisible
+                              ? 'border-transparent bg-transparent text-emerald-200'
+                              : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
+                            }`}
                         >
-                          {isAssetLibraryUploading
-                            ? ((t as any).wb_uploading || '上传中...')
-                            : ((t as any).wb_btn_upload_to_library || '上传素材')}
+                          {isAssetLibraryUploading ? (
+                            (t as any).wb_uploading || '上传中...'
+                          ) : assetLibraryUploadSuccessVisible ? (
+                            <span
+                              className={`inline-flex items-center justify-center gap-1.5 text-emerald-200 transition-opacity duration-[2000ms] ${assetLibraryUploadSuccessFading ? 'opacity-0' : 'opacity-100'}`}
+                              aria-label={language === 'zh' ? '上传成功' : 'Upload succeeded'}
+                            >
+                              <CheckCircle className="h-4 w-4" />
+                            </span>
+                          ) : (
+                            (t as any).wb_btn_upload_to_library || '上传素材'
+                          )}
                         </button>
                       )}
                       <button
@@ -11180,11 +11214,25 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           type="button"
                           onClick={triggerAssetLibraryLocalUpload}
                           disabled={isAssetLibraryUploading}
-                          className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading ? 'cursor-not-allowed border-orange-500/25 bg-orange-500/10 text-orange-200/70' : 'border-orange-500/45 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+                          className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading
+                            ? 'cursor-not-allowed border-white/10 bg-white/5 text-zinc-200/70'
+                            : assetLibraryUploadSuccessVisible
+                              ? 'border-transparent bg-transparent text-emerald-200'
+                              : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
+                            }`}
                         >
-                          {isAssetLibraryUploading
-                            ? ((t as any).wb_uploading || '上传中...')
-                            : ((t as any).wb_btn_upload_to_library || '上传素材')}
+                          {isAssetLibraryUploading ? (
+                            (t as any).wb_uploading || '上传中...'
+                          ) : assetLibraryUploadSuccessVisible ? (
+                            <span
+                              className={`inline-flex items-center justify-center gap-1.5 text-emerald-200 transition-opacity duration-[2000ms] ${assetLibraryUploadSuccessFading ? 'opacity-0' : 'opacity-100'}`}
+                              aria-label={language === 'zh' ? '上传成功' : 'Upload succeeded'}
+                            >
+                              <CheckCircle className="h-4 w-4" />
+                            </span>
+                          ) : (
+                            (t as any).wb_btn_upload_to_library || '上传素材'
+                          )}
                         </button>
                       )}
                       <button
@@ -11276,11 +11324,25 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           type="button"
                           onClick={triggerAssetLibraryLocalUpload}
                           disabled={isAssetLibraryUploading}
-                          className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading ? 'cursor-not-allowed border-orange-500/25 bg-orange-500/10 text-orange-200/70' : 'border-orange-500/45 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+                          className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading
+                            ? 'cursor-not-allowed border-white/10 bg-white/5 text-zinc-200/70'
+                            : assetLibraryUploadSuccessVisible
+                              ? 'border-transparent bg-transparent text-emerald-200'
+                              : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
+                            }`}
                         >
-                          {isAssetLibraryUploading
-                            ? ((t as any).wb_uploading || '上传中...')
-                            : ((t as any).wb_btn_upload_to_library || '上传素材')}
+                          {isAssetLibraryUploading ? (
+                            (t as any).wb_uploading || '上传中...'
+                          ) : assetLibraryUploadSuccessVisible ? (
+                            <span
+                              className={`inline-flex items-center justify-center gap-1.5 text-emerald-200 transition-opacity duration-[2000ms] ${assetLibraryUploadSuccessFading ? 'opacity-0' : 'opacity-100'}`}
+                              aria-label={language === 'zh' ? '上传成功' : 'Upload succeeded'}
+                            >
+                              <CheckCircle className="h-4 w-4" />
+                            </span>
+                          ) : (
+                            (t as any).wb_btn_upload_to_library || '上传素材'
+                          )}
                         </button>
                       </div>
                   ) : (
@@ -11311,11 +11373,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             <button
                                 key={asset.id}
                                 type="button"
+                                onMouseEnter={() => {
+                                  setAssetLibraryHoverAssetId(asset.id);
+                                  setAssetLibraryHoverClickedAssetId(null);
+                                }}
+                                onMouseLeave={() => {
+                                  setAssetLibraryHoverAssetId((prev) => (prev === asset.id ? null : prev));
+                                  setAssetLibraryHoverClickedAssetId((prev) => (prev === asset.id ? null : prev));
+                                }}
                                 onClick={() => {
                                   if (alreadyAddedInSeedance) return;
-                                  selectAssetFromLibraryPopup(asset);
+                                  const ok = selectAssetFromLibraryPopup(asset);
+                                  if (ok) setAssetLibraryHoverClickedAssetId(asset.id);
                                 }}
-                                className={`text-left rounded-lg border bg-black/30 p-1 transition ${alreadyAddedInSeedance ? 'border-emerald-400/70 ring-1 ring-emerald-400/35' : 'border-white/10 hover:border-orange-500/50 hover:bg-white/5'}`}
+                                className={`group text-left rounded-lg border bg-black/30 p-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30 ${alreadyAddedInSeedance ? 'border-emerald-400/70 ring-1 ring-emerald-400/35' : 'border-white/10 hover:border-orange-500/50 hover:bg-white/5'}`}
                                 title={alreadyAddedInSeedance ? (t.wb_seedance_replay_notice_duplicate_asset || 'This asset has already been added.') : undefined}
                             >
                               <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
@@ -11343,6 +11414,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 ) : (
                                     <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} />
                                 )}
+
+                                {!alreadyAddedInSeedance ? (
+                                  <>
+                                    <div
+                                      className={`pointer-events-none absolute inset-0 bg-black/45 transition-opacity duration-200 ${assetLibraryHoverAssetId === asset.id ? 'opacity-100' : 'opacity-0'}`}
+                                    />
+                                    <div
+                                      className={`pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity duration-200 ${assetLibraryHoverAssetId === asset.id ? 'opacity-100' : 'opacity-0'}`}
+                                    >
+                                      {assetLibraryHoverAssetId === asset.id && assetLibraryHoverClickedAssetId === asset.id ? (
+                                        <Check className="h-7 w-7 text-white" />
+                                      ) : (
+                                        <Plus className="h-8 w-8 text-white" />
+                                      )}
+                                    </div>
+                                  </>
+                                ) : null}
                               </div>
                               <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{asset.name}</div>
                             </button>

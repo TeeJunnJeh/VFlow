@@ -527,35 +527,33 @@ const Workbench = () => {
             </div>
           )}
 
-          {activeView === 'workbench' && (
-            <div className="flex-1 h-full min-h-0">
-              <ViewErrorBoundary label="WorkbenchView">
-              <WorkbenchView
-                initialFileUrl={selectedAssetForWorkbench?.mode === 'background_audio' ? null : (selectedAssetForWorkbench?.asset?.file_url || null)}
-                initialFileName={selectedAssetForWorkbench?.mode === 'background_audio' ? '' : selectedAssetForWorkbench?.asset?.name}
-                initialLibraryAsset={selectedAssetForWorkbench?.asset || null}
-                initialLibraryAssetToken={selectedAssetForWorkbench?.token || null}
-                initialLibraryAssetMode={selectedAssetForWorkbench?.mode || 'library_asset'}
-                initialLibraryAssetTargetProjectId={selectedAssetForWorkbench?.targetProjectId || null}
-                initialLibraryAssetForceFirstFrame={selectedAssetForWorkbench?.forceFirstFrame === true}
-                onInitialLibraryAssetHandled={() => setSelectedAssetForWorkbench(null)}
-                initialTransferRole={transferRole}
-                initialTransferProjectName={transferProjectName}
-                initialTransferModel={transferModel}
-                onTransferRoleHandled={() => { setTransferRole(null); setTransferProjectName(null); setTransferModel(null); }}
-                templateList={templateList}
-                selectedTemplate={selectedTemplate}
-                onSelectTemplate={setSelectedTemplate}
-                generatedVideoUrl={generatedVideoUrl}
-                setGeneratedVideoUrl={setGeneratedVideoUrl}
-                onExportToServer={handleExportToServer}
-                onNavigateToAssetsLibrary={handleNavigateToAssetsLibrary}
-                replayReusePayload={replayReusePayload}
-                onReplayReusePayloadHandled={() => setReplayReusePayload(null)}
-              />
-              </ViewErrorBoundary>
-            </div>
-          )}
+          <div className={activeView === 'workbench' ? 'flex-1 h-full min-h-0' : 'hidden'}>
+            <ViewErrorBoundary label="WorkbenchView">
+            <WorkbenchView
+              initialFileUrl={selectedAssetForWorkbench?.mode === 'background_audio' ? null : (selectedAssetForWorkbench?.asset?.file_url || null)}
+              initialFileName={selectedAssetForWorkbench?.mode === 'background_audio' ? '' : selectedAssetForWorkbench?.asset?.name}
+              initialLibraryAsset={selectedAssetForWorkbench?.asset || null}
+              initialLibraryAssetToken={selectedAssetForWorkbench?.token || null}
+              initialLibraryAssetMode={selectedAssetForWorkbench?.mode || 'library_asset'}
+              initialLibraryAssetTargetProjectId={selectedAssetForWorkbench?.targetProjectId || null}
+              initialLibraryAssetForceFirstFrame={selectedAssetForWorkbench?.forceFirstFrame === true}
+              onInitialLibraryAssetHandled={() => setSelectedAssetForWorkbench(null)}
+              initialTransferRole={transferRole}
+              initialTransferProjectName={transferProjectName}
+              initialTransferModel={transferModel}
+              onTransferRoleHandled={() => { setTransferRole(null); setTransferProjectName(null); setTransferModel(null); }}
+              templateList={templateList}
+              selectedTemplate={selectedTemplate}
+              onSelectTemplate={setSelectedTemplate}
+              generatedVideoUrl={generatedVideoUrl}
+              setGeneratedVideoUrl={setGeneratedVideoUrl}
+              onExportToServer={handleExportToServer}
+              onNavigateToAssetsLibrary={handleNavigateToAssetsLibrary}
+              replayReusePayload={replayReusePayload}
+              onReplayReusePayloadHandled={() => setReplayReusePayload(null)}
+            />
+            </ViewErrorBoundary>
+          </div>
 
           <div className={activeView === 'replay_lab' ? 'flex-1 h-full min-h-0' : 'hidden'}>
             <ReplayScriptView

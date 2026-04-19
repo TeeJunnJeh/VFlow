@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder,
-  Wand2, Loader2, Clapperboard, ArrowRight, PlayCircle, BookmarkPlus, FolderOpen,
+  Wand2, Loader2, Clapperboard, ArrowRight, BookmarkPlus, FolderOpen,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift, ImagePlus, Users, Image as ImageIcon,
-  SlidersHorizontal,Palette, MapPin, Activity, Camera, Lightbulb, Music, Scissors, Megaphone, AlignLeft,
-  Languages, HelpCircle, AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ChevronsDown, Library
+  SlidersHorizontal, Music, Languages, HelpCircle, AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ChevronsDown, Library
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -34,6 +34,26 @@ import { ErrorModal } from './workflow/ErrorModal';
 import type { ErrorModalProps } from './workflow/ErrorModal';
 import { buildErrorModalData, type ErrorCategory, type ErrorI18n } from '../../utils/errorModalHelper';
 import { getWorkbenchPreferences, setWorkbenchPreferences } from '../../utils/preferences';
+import {
+  buildCreativeCardEditorText,
+  buildCreativeCardPrompt,
+  buildFullScriptFallback,
+  buildScriptEstimateStorageKey,
+  buildScriptsFromShots,
+  formatScriptPageDisplayName,
+  getScriptGenerationCooldownRemainingMs,
+  hasCreativeCardContent,
+  isAbortError,
+  normalizeScriptText,
+  parseScriptStringList,
+  readLocalScriptEstimate,
+  recordScriptGenerationCancelTimestamp,
+  useScriptGenerationProgress,
+  writeLocalScriptEstimate,
+  type ScriptCreativeCard,
+  type ScriptItem,
+  type ScriptPage,
+} from '../../utils/scriptUtils';
 import {
   clearTransferStationItems,
   loadTransferStationItems,
@@ -69,11 +89,8 @@ const ENABLE_PROMPT_LAB = true;
 const ENABLE_STORYBOARD_PROMPT = false;
 const WAIT_PROGRESS_SIM_DURATION_MS = 90_000;
 const WAIT_PROGRESS_MAX_BEFORE_HOLD = 90;
-const WAIT_PROGRESS_HOLD_MIN = 92;
-const WAIT_PROGRESS_HOLD_MAX = 98;
 const SCRIPT_PROGRESS_MAX_BEFORE_HOLD = 88;
 const SCRIPT_PROGRESS_HOLD_MAX = 96;
-const SCRIPT_ESTIMATE_STORAGE_KEY_PREFIX = 'vflow_script_eta_v1';
 const WAITING_PREVIEW_VIDEO_SRC = (import.meta.env.VITE_WAITING_PREVIEW_VIDEO_URL || 'https://vflow.genviewtech.com/media/vedio.mp4').toString();
 const ASSET_PLACEHOLDER_DATA_URL = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiB2aWV3Qm94PSIwIDAgMzAwIDQwMCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzFmMjkzNyIvPjx0ZXh0IHg9IjE1MCIgeT0iMjAwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiBmaWxsPSIjOWNhM2FmIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiPk5vIFByZXZpZXc8L3RleHQ+PC9zdmc+';
 const TRANSFER_STATION_DRAG_MIME = 'application/x-vflow-transfer-station-item';
@@ -122,6 +139,7 @@ type BillingPricingCatalog = {
     models?: Record<string, BillingPricingModelEntry>;
     modes?: Record<string, BillingPricingModeEntry>;
   };
+
   image?: {
     default_model?: string;
     models?: Record<string, BillingPricingModelEntry>;
@@ -180,16 +198,6 @@ const getSeedanceReplayLocalAccept = (mediaKind?: SeedanceReplayMediaKind | null
 // The state `enableStoryboardEditor` replaces the old `enableStoryboardEditor` const.
 
 // Types specific to Workbench View
-type ScriptItem = {
-  id: number;
-  shot: string;
-  type: string;
-  dur: string;
-  visual: string;
-  audio: string;
-  audioTranslation: string;
-};
-
 type WorkbenchAspectRatio = '9:16' | '16:9' | '1:1' | '4:3' | '3:4' | '21:9';
 
 const DEFAULT_WORKBENCH_ASPECT_RATIO: WorkbenchAspectRatio = '9:16';
@@ -207,55 +215,6 @@ const normalizeWorkbenchAspectRatio = (value: string | null | undefined): Workbe
   }
 
   return DEFAULT_WORKBENCH_ASPECT_RATIO;
-};
-
-/** Default script-tab titles saved under any locale; re-render with current `wb_script_page_prefix` when the pattern matches. */
-const WB_SCRIPT_PAGE_DEFAULT_PREFIXES = new Set(['脚本', 'Script', 'Skrip', 'Kịch bản', '스크립트']);
-
-function formatScriptPageDisplayName(name: string | undefined, zeroBasedIndex: number, prefix: string): string {
-  const trimmed = String(name || '').trim();
-  if (!trimmed) return `${prefix} ${zeroBasedIndex + 1}`;
-  const m = trimmed.match(/^(.+?)\s+(\d+)\s*$/);
-  if (!m) return trimmed;
-  const n = parseInt(m[2], 10);
-  if (n !== zeroBasedIndex + 1) return trimmed;
-  if (!WB_SCRIPT_PAGE_DEFAULT_PREFIXES.has(m[1])) return trimmed;
-  return `${prefix} ${n}`;
-}
-
-type ScriptCreativeCard = {
-  style?: string;
-  environment?: string;
-  tonePacing?: string;
-  camera?: string;
-  lighting?: string;
-  actions?: string[];
-  backgroundSound?: string;
-  transitionEditing?: string;
-  callToAction?: string;
-};
-
-type ScriptPage = {
-  id: string;
-  name: string;
-  scripts: ScriptItem[];
-  fullScript?: string;
-  sourceLabel?: string;
-  continuityAnchor?: {
-    subject?: string;
-    scene?: string;
-    style?: string;
-  };
-  scriptStructure?: {
-    hook?: string;
-    development?: string;
-    payoff?: string;
-  };
-  sellingPoints?: string[];
-  sceneSuggestions?: string[];
-  styleTags?: string[];
-  creativeCard?: ScriptCreativeCard;
-  creativeCardText?: string;
 };
 
 type QueuedAsset = {
@@ -307,10 +266,6 @@ type AssetLibraryPickMode = 'default' | 'background_audio' | 'script_import';
 type AiOptimizeResolution = 'sd' | 'hd' | 'uhd';
 type WaitProgressPhase = 'idle' | 'simulating' | 'holding' | 'finishing' | 'done';
 
-type ScriptEstimateCacheEntry = {
-  avgSeconds: number;
-  sampleCount: number;
-};
 
 type GeneratePayload = {
   model: string;
@@ -411,69 +366,6 @@ const LOCAL_PROJECT_STORE_KEY_PREFIX = 'vflow_workbench_projects_v1';
 const DEFAULT_PROJECT_NAME = 'Project_Alpha_01';
 const MAX_PROJECT_NAME_LENGTH = 30;
 const PROJECT_ACTION_MENU_RESERVED_SPACE = 60;
-const SCRIPT_GENERATION_CANCEL_WINDOW_MS = 60_000;
-const SCRIPT_GENERATION_CANCEL_LIMIT = 3;
-const SCRIPT_GENERATION_CANCEL_STORAGE_KEY_PREFIX = 'vflow_script_generation_cancels_v1';
-
-const buildScriptGenerationCancelStorageKey = (userId?: string | number | null) => {
-  const normalized = userId === null || userId === undefined || userId === '' ? 'guest' : String(userId);
-  return `${SCRIPT_GENERATION_CANCEL_STORAGE_KEY_PREFIX}_${normalized}`;
-};
-
-const readRecentScriptGenerationCancelTimestamps = (userId?: string | number | null): number[] => {
-  if (typeof window === 'undefined') return [];
-
-  try {
-    const raw = window.localStorage.getItem(buildScriptGenerationCancelStorageKey(userId));
-    const parsed = raw ? JSON.parse(raw) : [];
-    const now = Date.now();
-    const next = Array.isArray(parsed)
-      ? parsed
-        .map((value) => Number(value))
-        .filter((value) => Number.isFinite(value) && now - value < SCRIPT_GENERATION_CANCEL_WINDOW_MS)
-      : [];
-
-    if (next.length !== (Array.isArray(parsed) ? parsed.length : 0)) {
-      window.localStorage.setItem(buildScriptGenerationCancelStorageKey(userId), JSON.stringify(next));
-    }
-
-    return next;
-  } catch {
-    return [];
-  }
-};
-
-const recordScriptGenerationCancelTimestamp = (userId?: string | number | null): number[] => {
-  if (typeof window === 'undefined') return [];
-
-  const next = [
-    ...readRecentScriptGenerationCancelTimestamps(userId),
-    Date.now(),
-  ];
-
-  try {
-    window.localStorage.setItem(buildScriptGenerationCancelStorageKey(userId), JSON.stringify(next));
-  } catch {
-    // Ignore localStorage failures and keep cancellation non-blocking.
-  }
-
-  return next;
-};
-
-const getScriptGenerationCooldownRemainingMs = (userId?: string | number | null): number => {
-  const timestamps = readRecentScriptGenerationCancelTimestamps(userId);
-  if (timestamps.length < SCRIPT_GENERATION_CANCEL_LIMIT) return 0;
-
-  const oldestRelevant = timestamps[timestamps.length - SCRIPT_GENERATION_CANCEL_LIMIT];
-  if (!Number.isFinite(oldestRelevant)) return 0;
-
-  return Math.max(0, oldestRelevant + SCRIPT_GENERATION_CANCEL_WINDOW_MS - Date.now());
-};
-
-const isAbortError = (error: unknown): boolean => {
-  if (!error || typeof error !== 'object') return false;
-  return (error as { name?: string }).name === 'AbortError';
-};
 
 const estimateProjectNameWidthEm = (value: string): number => {
   const text = value || '';
@@ -539,9 +431,9 @@ const createWorkspaceState = (params?: {
     selectedTemplateId: null,
     selectedModelId:
       prefs.selectedModelId === 'kling' ||
-      prefs.selectedModelId === 'sora2' ||
-      prefs.selectedModelId === 'sora2pro' ||
-      prefs.selectedModelId === 'seedance2.0'
+        prefs.selectedModelId === 'sora2' ||
+        prefs.selectedModelId === 'sora2pro' ||
+        prefs.selectedModelId === 'seedance2.0'
         ? prefs.selectedModelId
         : null,
     generatedVideoUrl: null,
@@ -574,8 +466,8 @@ const loadLocalProjectStore = (userId?: string | number | null): LocalProjectSto
     if (!parsed || typeof parsed !== 'object') return createDefaultProjectStore();
     if (!Array.isArray(parsed.projects) || parsed.projects.length === 0) return createDefaultProjectStore();
     const currentProjectId = typeof parsed.currentProjectId === 'string' && parsed.currentProjectId
-        ? parsed.currentProjectId
-        : parsed.projects[0].id;
+      ? parsed.currentProjectId
+      : parsed.projects[0].id;
     return {
       currentProjectId,
       projects: (parsed.projects as LocalProjectMeta[]).map(p => ({
@@ -592,9 +484,9 @@ const loadLocalProjectStore = (userId?: string | number | null): LocalProjectSto
 const ensureUniqueProjectName = (rawName: string, projects: LocalProjectMeta[], excludeId?: string): string => {
   const baseName = (rawName || '').trim() || 'Project';
   const names = new Set(
-      projects
-          .filter((project) => project.id !== excludeId)
-          .map((project) => project.name.toLowerCase())
+    projects
+      .filter((project) => project.id !== excludeId)
+      .map((project) => project.name.toLowerCase())
   );
   if (!names.has(baseName.toLowerCase())) return baseName;
   let suffix = 1;
@@ -607,14 +499,14 @@ const ensureUniqueProjectName = (rawName: string, projects: LocalProjectMeta[], 
 };
 
 const SoraStarIcon: React.FC<{ className?: string }> = ({ className }) => (
-    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
-      <path
-          d="M12 2.5l2.2 7.3 7.3 2.2-7.3 2.2-2.2 7.3-2.2-7.3-7.3-2.2 7.3-2.2L12 2.5Z"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinejoin="round"
-      />
-    </svg>
+  <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+    <path
+      d="M12 2.5l2.2 7.3 7.3 2.2-7.3 2.2-2.2 7.3-2.2-7.3-7.3-2.2 7.3-2.2L12 2.5Z"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinejoin="round"
+    />
+  </svg>
 );
 
 const RATIO_TO_RES: Record<string, string> = {
@@ -713,20 +605,20 @@ const compressImage = async (file: File, maxWidth = 1920, maxHeight = 1920, qual
       }
       ctx.drawImage(img, 0, 0, width, height);
       canvas.toBlob(
-          (blob) => {
-            URL.revokeObjectURL(objectUrl);
-            if (blob) {
-              const compressedFile = new File([blob], file.name, {
-                type: 'image/jpeg',
-                lastModified: Date.now(),
-              });
-              resolve(compressedFile);
-            } else {
-              resolve(file);
-            }
-          },
-          'image/jpeg',
-          quality
+        (blob) => {
+          URL.revokeObjectURL(objectUrl);
+          if (blob) {
+            const compressedFile = new File([blob], file.name, {
+              type: 'image/jpeg',
+              lastModified: Date.now(),
+            });
+            resolve(compressedFile);
+          } else {
+            resolve(file);
+          }
+        },
+        'image/jpeg',
+        quality
       );
     };
     img.onerror = () => {
@@ -738,23 +630,23 @@ const compressImage = async (file: File, maxWidth = 1920, maxHeight = 1920, qual
 };
 
 type LangLabelKey =
-    | 'lang_en'
-    | 'lang_zh'
-    | 'lang_es'
-    | 'lang_ja'
-    | 'lang_ko'
-    | 'lang_ms'
-    | 'lang_vi'
-    | 'lang_id';
+  | 'lang_en'
+  | 'lang_zh'
+  | 'lang_es'
+  | 'lang_ja'
+  | 'lang_ko'
+  | 'lang_ms'
+  | 'lang_vi'
+  | 'lang_id';
 
 type RegionLabelKey =
-    | 'wb_region_us'
-    | 'wb_region_sea'
-    | 'wb_region_eu'
-    | 'wb_region_jp'
-    | 'wb_region_kr'
-    | 'wb_region_cn'
-    | 'wb_region_mx';
+  | 'wb_region_us'
+  | 'wb_region_sea'
+  | 'wb_region_eu'
+  | 'wb_region_jp'
+  | 'wb_region_kr'
+  | 'wb_region_cn'
+  | 'wb_region_mx';
 
 type GuideStepKey = 'mode' | 'upload' | 'config' | 'scripts' | 'preview';
 
@@ -805,31 +697,31 @@ interface WorkbenchViewProps {
 }
 
 export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
-                                                              initialFileUrl,
-                                                              initialFileName,
-                                                              initialAssetSource,
-                                                              initialLibraryAsset,
-                                                              initialLibraryAssetToken,
-                                                              initialLibraryAssetMode,
-                                                              initialLibraryAssetTargetProjectId,
-                                                              initialLibraryAssetForceFirstFrame,
-                                                              onInitialLibraryAssetHandled,
-                                                              initialTransferRole,
-                                                              initialTransferProjectName,
-                                                              initialTransferModel,
-                                                              onTransferRoleHandled,
-                                                              templateList,
-                                                              onSelectTemplate,
-                                                              selectedTemplate,
-                                                              generatedVideoUrl,
-                                                              setGeneratedVideoUrl,
-                                                              onExportToServer,
-                                                              onNavigateToAssetsLibrary,
-                                                              replayReusePayload,
-                                                              onReplayReusePayloadHandled
-                                                            }) => {
+  initialFileUrl,
+  initialFileName,
+  initialAssetSource,
+  initialLibraryAsset,
+  initialLibraryAssetToken,
+  initialLibraryAssetMode,
+  initialLibraryAssetTargetProjectId,
+  initialLibraryAssetForceFirstFrame,
+  onInitialLibraryAssetHandled,
+  initialTransferRole,
+  initialTransferProjectName,
+  initialTransferModel,
+  onTransferRoleHandled,
+  templateList,
+  onSelectTemplate,
+  selectedTemplate,
+  generatedVideoUrl,
+  setGeneratedVideoUrl,
+  onExportToServer,
+  onNavigateToAssetsLibrary,
+  replayReusePayload,
+  onReplayReusePayloadHandled
+}) => {
   const { t, language } = useLanguage();
-    const uiLanguageCode = useMemo(() => normalizeUiLanguageCode(language), [language]);
+  const uiLanguageCode = useMemo(() => normalizeUiLanguageCode(language), [language]);
   const { user } = useAuth();
   const { requireAuth } = useRequireAuth();
   const { tasks, addTask, updateTask, upsertTask } = useTasks();
@@ -878,7 +770,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
   const [promptTemplates, setPromptTemplates] = useState<PromptStepTemplate[]>([]);
   const [promptOverrides, setPromptOverrides] = useState<PromptOverrides>(() =>
-      ENABLE_PROMPT_LAB ? loadPromptOverrides() : {}
+    ENABLE_PROMPT_LAB ? loadPromptOverrides() : {}
   );
   const [promptTemplatesLoading, setPromptTemplatesLoading] = useState(false);
   const [promptTemplatesError, setPromptTemplatesError] = useState<string | null>(null);
@@ -886,21 +778,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [guideStepIndex, setGuideStepIndex] = useState(0);
   const [guidePanelStyle, setGuidePanelStyle] = useState<React.CSSProperties>({});
   const promptOverridesPayload = useMemo(
-      () => (ENABLE_PROMPT_LAB ? buildBackendPromptOverrides(promptOverrides) : null),
-      [promptOverrides]
+    () => (ENABLE_PROMPT_LAB ? buildBackendPromptOverrides(promptOverrides) : null),
+    [promptOverrides]
   );
   const guideSteps = useMemo<Array<{ key: GuideStepKey; title: string; description: string }>>(
-      () => [
-        { key: 'mode', title: t.wb_guide_mode_title, description: t.wb_guide_mode_desc },
-        { key: 'upload', title: t.wb_guide_upload_title, description: t.wb_guide_upload_desc },
-        { key: 'config', title: t.wb_guide_config_title, description: t.wb_guide_config_desc },
-        { key: 'scripts', title: t.wb_guide_scripts_title, description: t.wb_guide_scripts_desc },
-        { key: 'preview', title: t.wb_guide_preview_title, description: t.wb_guide_preview_desc },
-      ],
-      [language, t]
+    () => [
+      { key: 'mode', title: t.wb_guide_mode_title, description: t.wb_guide_mode_desc },
+      { key: 'upload', title: t.wb_guide_upload_title, description: t.wb_guide_upload_desc },
+      { key: 'config', title: t.wb_guide_config_title, description: t.wb_guide_config_desc },
+      { key: 'scripts', title: t.wb_guide_scripts_title, description: t.wb_guide_scripts_desc },
+      { key: 'preview', title: t.wb_guide_preview_title, description: t.wb_guide_preview_desc },
+    ],
+    [language, t]
   );
   const formatMessage = (template: string, values: Record<string, string | number>) =>
-      template.replace(/\{(\w+)\}/g, (match, key) => (Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : match));
+    template.replace(/\{(\w+)\}/g, (match, key) => (Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : match));
   const popupTitles = {
     success: t.ui_dialog_success,
     notice: t.ui_dialog_notice,
@@ -1050,6 +942,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [refreshTransferStationItems]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
     };
@@ -1348,12 +1241,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [confirmCancelLabel, setConfirmCancelLabel] = useState('');
   const confirmResolveRef = useRef<((v: boolean) => void) | null>(null);
   const openConfirm = (
-      title: string,
-      message: string,
-      opts?: {
-        okLabel?: string;
-        cancelLabel?: string;
-      }
+    title: string,
+    message: string,
+    opts?: {
+      okLabel?: string;
+      cancelLabel?: string;
+    }
   ) => {
     return new Promise<boolean>((resolve) => {
       confirmResolveRef.current = resolve;
@@ -1369,6 +1262,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     { id: 1, shot: '1', type: 'Medium', dur: '2s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio, audioTranslation: '' },
     { id: 2, shot: '2', type: 'Detail', dur: '2s', visual: t.demo_shot2_visual, audio: t.demo_shot2_audio, audioTranslation: '' }
   ]), [t]);
+  const isDemoScriptsRef = useRef(false);
   const [scripts, setScripts] = useState<ScriptItem[]>(buildDemoScripts);
   const [scriptPages, setScriptPages] = useState<ScriptPage[]>(() => ([{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: buildDemoScripts() }]));
   const [activeScriptPage, setActiveScriptPage] = useState(0);
@@ -1505,8 +1399,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const isSwitchingProjectRef = useRef(false);
   const skipNextKlingNormalizeRef = useRef(false);
   const currentProject = useMemo(
-      () => projectStore.projects.find((project) => project.id === projectStore.currentProjectId) || null,
-      [projectStore.currentProjectId, projectStore.projects]
+    () => projectStore.projects.find((project) => project.id === projectStore.currentProjectId) || null,
+    [projectStore.currentProjectId, projectStore.projects]
   );
 
   const activeVideoTasks = useMemo(
@@ -1767,8 +1661,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const compactTimeLanguages = new Set(['zh', 'ko']);
   const useCompactTime = compactTimeLanguages.has(language);
   const sortedProjects: LocalProjectMeta[] = useMemo(
-      () => [...projectStore.projects].sort((a, b) => (b.createdAt || b.updatedAt) - (a.createdAt || a.updatedAt)),
-      [projectStore.projects]
+    () => [...projectStore.projects].sort((a, b) => (b.createdAt || b.updatedAt) - (a.createdAt || a.updatedAt)),
+    [projectStore.projects]
   );
   const currentProjectIndex = useMemo(() => (
     sortedProjects.findIndex((p) => p.id === projectStore.currentProjectId)
@@ -1811,15 +1705,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
     const restoredModelId =
       workspace.selectedModelId === 'kling' ||
-      workspace.selectedModelId === 'sora2' ||
-      workspace.selectedModelId === 'sora2pro' ||
-      workspace.selectedModelId === 'seedance2.0'
+        workspace.selectedModelId === 'sora2' ||
+        workspace.selectedModelId === 'sora2pro' ||
+        workspace.selectedModelId === 'seedance2.0'
         ? workspace.selectedModelId
         : (
           initialPrefs.selectedModelId === 'kling' ||
-          initialPrefs.selectedModelId === 'sora2' ||
-          initialPrefs.selectedModelId === 'sora2pro' ||
-          initialPrefs.selectedModelId === 'seedance2.0'
+            initialPrefs.selectedModelId === 'sora2' ||
+            initialPrefs.selectedModelId === 'sora2pro' ||
+            initialPrefs.selectedModelId === 'seedance2.0'
             ? initialPrefs.selectedModelId
             : 'sora2'
         );
@@ -1839,9 +1733,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const restoredAssetQueue = (Array.isArray(workspace.assetQueue) ? workspace.assetQueue : []).map((item) => {
       const rawPreview = item?.previewUrl || null;
       const stablePreview =
-          (rawPreview && rawPreview.startsWith('blob:'))
-              ? (toDisplayUrl(item.uploadedPath || item.assetUrl) || null)
-              : (toDisplayUrl(rawPreview) || rawPreview);
+        (rawPreview && rawPreview.startsWith('blob:'))
+          ? (toDisplayUrl(item.uploadedPath || item.assetUrl) || null)
+          : (toDisplayUrl(rawPreview) || rawPreview);
 
       return {
         ...item,
@@ -1930,9 +1824,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const commitProjectRename = (
-      projectId: string,
-      nameDraft: string,
-      options?: { keepEditingOnFail?: boolean; originalName?: string }
+    projectId: string,
+    nameDraft: string,
+    options?: { keepEditingOnFail?: boolean; originalName?: string }
   ) => {
     const trimmedName = (nameDraft || '').trim();
     if (trimmedName.length > MAX_PROJECT_NAME_LENGTH) {
@@ -1942,8 +1836,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         setRenameRetryState({ projectId, originalName: fallbackName });
       }
       openInfo(
-          t.assets_confirm_title || 'Notice',
-          messageTpl.replace('{max}', String(MAX_PROJECT_NAME_LENGTH))
+        t.assets_confirm_title || 'Notice',
+        messageTpl.replace('{max}', String(MAX_PROJECT_NAME_LENGTH))
       );
       return false;
     }
@@ -1952,7 +1846,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return {
         ...prev,
         projects: prev.projects.map((project) => (
-            project.id === projectId ? { ...project, name: nextName, updatedAt: Date.now() } : project
+          project.id === projectId ? { ...project, name: nextName, updatedAt: Date.now() } : project
         )),
       };
     });
@@ -2205,7 +2099,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const toggleProjectSelection = (projectId: string) => {
     setSelectedProjectIds((prev) => (
-        prev.includes(projectId) ? prev.filter((id) => id !== projectId) : [...prev, projectId]
+      prev.includes(projectId) ? prev.filter((id) => id !== projectId) : [...prev, projectId]
     ));
   };
 
@@ -2214,8 +2108,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setProjectStore((prev) => {
       const remaining = prev.projects.filter((project) => !idSet.has(project.id));
       const nextProjects = remaining.length > 0
-          ? remaining
-          : [{ id: 'project_alpha_01', name: DEFAULT_PROJECT_NAME, updatedAt: Date.now(), createdAt: Date.now() }];
+        ? remaining
+        : [{ id: 'project_alpha_01', name: DEFAULT_PROJECT_NAME, updatedAt: Date.now(), createdAt: Date.now() }];
       const nextCurrent = idSet.has(prev.currentProjectId) ? nextProjects[0].id : prev.currentProjectId;
       const nextWorkspaces = { ...prev.workspaces };
       ids.forEach((id) => { delete nextWorkspaces[id]; });
@@ -2521,9 +2415,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const persistedAssetQueue = assetQueue.map((item) => {
       const rawPreview = item.previewUrl;
       const stablePreview =
-          rawPreview && rawPreview.startsWith('blob:')
-              ? (item.uploadedPath || item.assetUrl || null)
-              : rawPreview;
+        rawPreview && rawPreview.startsWith('blob:')
+          ? (item.uploadedPath || item.assetUrl || null)
+          : rawPreview;
 
       return {
         ...item,
@@ -2576,7 +2470,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return {
         ...prev,
         projects: prev.projects.map((project) => (
-            project.id === currentProjectId ? { ...project, updatedAt: Date.now() } : project
+          project.id === currentProjectId ? { ...project, updatedAt: Date.now() } : project
         )),
         workspaces: {
           ...prev.workspaces,
@@ -2873,7 +2767,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       if (!canAutoSaveRef.current) return;
       const snapshot = latestSnapshotRef.current;
       if (!snapshot) return;
-      videoApi.saveDraft(snapshot).catch(() => {});
+      videoApi.saveDraft(snapshot).catch(() => { });
     };
   }, []);
 
@@ -2964,19 +2858,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const filteredItems = seedanceReplayLibraryIntent
       ? normalizedItems.filter((item) => {
-          let itemTab: AssetLibraryTab;
-          if (item.media_kind === 'video') {
-            itemTab = 'motion';
-          } else if (item.media_kind === 'audio') {
-            itemTab = 'audio';
-          } else {
-            const rawType = String((item as any).type || '').toLowerCase();
-            itemTab = (rawType === 'model' || rawType === 'scene' || rawType === 'reference')
-              ? (rawType as AssetLibraryTab)
-              : 'product';
-          }
-          return seedanceReplayLibraryIntent.allowedTabs.includes(itemTab);
-        })
+        let itemTab: AssetLibraryTab;
+        if (item.media_kind === 'video') {
+          itemTab = 'motion';
+        } else if (item.media_kind === 'audio') {
+          itemTab = 'audio';
+        } else {
+          const rawType = String((item as any).type || '').toLowerCase();
+          itemTab = (rawType === 'model' || rawType === 'scene' || rawType === 'reference')
+            ? (rawType as AssetLibraryTab)
+            : 'product';
+        }
+        return seedanceReplayLibraryIntent.allowedTabs.includes(itemTab);
+      })
       : assetLibraryPickMode === 'background_audio'
         ? normalizedItems.filter((item) => item.media_kind === 'audio')
         : normalizedItems.filter((item) => item.media_kind !== 'audio');
@@ -3338,7 +3232,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       source: candidate.mediaKind === 'image' ? 'product' : 'preference',
       materialType: candidate.mediaKind === 'video' ? 'motion'
         : candidate.mediaKind === 'audio' ? 'audio'
-        : (baseAsset.materialType === 'model' ? 'model' : 'product'),
+          : (baseAsset.materialType === 'model' ? 'model' : 'product'),
       isPrimaryFrame: candidate.mediaKind === 'image',
       mediaKind: candidate.mediaKind,
       durationSeconds: candidate.durationSeconds ?? null,
@@ -3554,8 +3448,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const currentScriptDuration = enableStoryboardEditor
-      ? scripts.reduce((total, s) => total + (parseFloat(s.dur.replace('s', '')) || 0), 0)
-      : genDuration;
+    ? scripts.reduce((total, s) => total + (parseFloat(s.dur.replace('s', '')) || 0), 0)
+    : genDuration;
   const isDurationValid = Math.abs(currentScriptDuration - genDuration) < 0.1;
   const hasAnyReuseQueue = assetQueue.length > 0 || scriptQueue.length > 0;
   const isReuseReady = assetQueue.length > 0 && scriptQueue.length > 0;
@@ -3632,6 +3526,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     () => scriptPages.slice(scriptGridPageStart, scriptGridPageStart + SCRIPT_GRID_PAGE_SIZE),
     [scriptGridPageStart, scriptPages]
   );
+  useEffect(() => {
+    console.log('[WB][ScriptGrid] visibleScriptPages updated', {
+      scriptGridPageStart,
+      pageSize: SCRIPT_GRID_PAGE_SIZE,
+      totalPages: scriptPages.length,
+      visibleCount: visibleScriptPages.length,
+      visible: visibleScriptPages.map((p) => ({
+        id: p.id,
+        name: p.name,
+        scriptsCount: Array.isArray(p.scripts) ? p.scripts.length : 0,
+        hasFullScript: Boolean(String(p.fullScript || '').trim()),
+        hasCreativeCardText: Boolean(String(p.creativeCardText || '').trim()),
+      })),
+    });
+  }, [SCRIPT_GRID_PAGE_SIZE, scriptGridPageStart, scriptPages.length, visibleScriptPages]);
   const canSlideScriptGridPrev = scriptGridPageStart > 0;
   const canSlideScriptGridNext = scriptGridPageStart < scriptGridMaxStart;
   const scriptPlanCardClass = 'w-[calc((100%-36px)/4)] min-w-[220px] flex-shrink-0 rounded-2xl border p-4 text-left transition h-[360px] flex flex-col gap-3';
@@ -3666,8 +3575,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const assetLibraryVisibleTabs = assetLibraryPickMode === 'script_import'
     ? scriptImportAssetLibraryTabs
     : assetLibraryTab === 'subject'
-    ? subjectAssetLibraryTabs
-    : (seedanceReplayLibraryIntent ? seedanceReplayAssetLibraryTabs : defaultAssetLibraryTabs);
+      ? subjectAssetLibraryTabs
+      : (seedanceReplayLibraryIntent ? seedanceReplayAssetLibraryTabs : defaultAssetLibraryTabs);
   const isSeedanceReplayMode = creationMode === 'replay' && selectedModel === 'seedance2.0';
   const uploadDisplayAssets: QueuedAsset[] = useMemo(() => {
     if (assetQueue.length > 0) return assetQueue;
@@ -4305,9 +4214,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return t.wb_label_reference_image || 'Reference';
   };
   const canBeKlingSubject = useCallback((asset: QueuedAsset) => (
-      asset.mediaKind === 'image'
-      && (asset.materialType === 'model' || asset.materialType === 'product')
-      && hasSubjectOtherViews(asset)
+    asset.mediaKind === 'image'
+    && (asset.materialType === 'model' || asset.materialType === 'product')
+    && hasSubjectOtherViews(asset)
   ), [hasSubjectOtherViews]);
   const sortKlingQueueAssets = useCallback((assets: QueuedAsset[]) => {
     const priority = (asset: QueuedAsset) => {
@@ -4321,7 +4230,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     let subjectAssigned = false;
     let tailAssigned = false;
 
-      const normalized = assets.map((item): QueuedAsset => {
+    const normalized = assets.map((item): QueuedAsset => {
       if (item.mediaKind !== 'image') {
         return { ...item, source: 'preference', isPrimaryFrame: false };
       }
@@ -4418,7 +4327,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     if (slot === 'primary') {
       if (isKlingOmniMode && klingGenerateMode === 'subject' && !canBeKlingSubject(target)) {
-          handleInvalidKlingSubjectTarget(target);
+        handleInvalidKlingSubjectTarget(target);
         return;
       }
       const primarySource: QueuedAsset['source'] = isKlingOmniMode
@@ -4495,9 +4404,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const activeGuideStep = isGuideOpen ? guideSteps[guideStepIndex] : null;
   const isGuideFocused = (key: GuideStepKey) => activeGuideStep?.key === key;
   const getGuideFocusClass = (key: GuideStepKey) => (
-      isGuideFocused(key)
-          ? 'relative z-[85] ring-2 ring-orange-400/80 ring-offset-2 ring-offset-black/60 shadow-[0_0_24px_rgba(251,146,60,0.35)] rounded-xl'
-          : ''
+    isGuideFocused(key)
+      ? 'relative z-[85] ring-2 ring-orange-400/80 ring-offset-2 ring-offset-black/60 shadow-[0_0_24px_rgba(251,146,60,0.35)] rounded-xl'
+      : ''
   );
 
   const getGuideTargetElement = useCallback(() => {
@@ -4583,47 +4492,37 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return uploadResp?.url || uploadResp?.file_url || uploadResp?.path || uploadResp?.data?.url || null;
   };
 
-  const buildCreativeCardPrompt = (card?: ScriptCreativeCard) => {
-    if (!card) return '';
-    const sections: string[] = [];
-    if (card.style) sections.push(`[风格]: ${card.style}`);
-    if (card.environment) sections.push(`[环境]: ${card.environment}`);
-    if (card.tonePacing) sections.push(`[语调与节奏]: ${card.tonePacing}`);
-    if (card.camera) sections.push(`[镜头]: ${card.camera}`);
-    if (card.lighting) sections.push(`[光线]: ${card.lighting}`);
-    if (Array.isArray(card.actions) && card.actions.length > 0) {
-      const actions = card.actions.map((item, idx) => `- ${idx + 1}. ${item}`).join('\n');
-      sections.push(`[动作]:\n${actions}`);
-    }
-    if (card.backgroundSound) sections.push(`[背景音]: ${card.backgroundSound}`);
-    if (card.transitionEditing) sections.push(`[转场 / 剪辑]: ${card.transitionEditing}`);
-    if (card.callToAction) sections.push(`[行动号召]: ${card.callToAction}`);
-    return sections.join('\n');
-  };
-
-  const buildCreativeCardEditorText = (card?: ScriptCreativeCard) => {
-    const text = buildCreativeCardPrompt(card).trim();
-    return text;
-  };
-
-  const hasCreativeCardContent = (card?: ScriptCreativeCard) => {
-    if (!card) return false;
-    if ((card.style || '').trim()) return true;
-    if ((card.environment || '').trim()) return true;
-    if ((card.tonePacing || '').trim()) return true;
-    if ((card.camera || '').trim()) return true;
-    if ((card.lighting || '').trim()) return true;
-    if ((card.backgroundSound || '').trim()) return true;
-    if ((card.transitionEditing || '').trim()) return true;
-    if ((card.callToAction || '').trim()) return true;
-    if ((card.actions || []).some((item) => String(item || '').trim().length > 0)) return true;
-    return false;
-  };
 
   const hasActiveScriptConcept =
-      Boolean((activeFullScript || '').trim())
-      || Boolean((activeCreativeCardText || '').trim())
-      || hasCreativeCardContent(activeCreativeCard);
+    Boolean((activeFullScript || '').trim())
+    || Boolean((activeCreativeCardText || '').trim())
+    || hasCreativeCardContent(activeCreativeCard);
+
+  const hasAnyScriptPlanGridContent = useMemo(() => {
+    return scriptPages.some((page) => {
+      const hasConcept = Boolean((page?.fullScript || '').trim())
+        || Boolean((page?.creativeCardText || '').trim())
+        || hasCreativeCardContent(page?.creativeCard);
+      if (hasConcept) return true;
+      const pageScripts = Array.isArray(page?.scripts) ? page.scripts : [];
+      return pageScripts.some((item) => Boolean(String(item?.visual || '').trim()) || Boolean(String(item?.audio || '').trim()));
+    });
+  }, [scriptPages]);
+
+  const resetScriptPlanGridToDefault = useCallback(() => {
+    isDemoScriptsRef.current = false;
+    const defaultPage: ScriptPage = {
+      id: 'page-1',
+      name: `${t.wb_script_page_prefix} 1`,
+      scripts: [],
+    };
+    scriptPagesRef.current = [defaultPage];
+    setScriptPages([defaultPage]);
+    setActiveScriptPage(0);
+    setScripts([]);
+    setScriptGridPageStart(0);
+    setIsShotBreakdownOpen(false);
+  }, [t.wb_script_page_prefix]);
 
   useEffect(() => {
     console.log('[ScriptDebug] render-state', {
@@ -4636,10 +4535,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [activeScriptPage, scriptPages.length, activeScriptPlan?.creativeCardText, activeScriptPlan?.fullScript]);
 
   function buildCombinedScriptPrompt(
-      fullScript: string,
-      card?: ScriptCreativeCard,
-      inputScripts: ScriptItem[] = [],
-      cardText?: string
+    fullScript: string,
+    card?: ScriptCreativeCard,
+    inputScripts: ScriptItem[] = [],
+    cardText?: string
   ) {
     const creativeCardPrompt = (cardText || '').trim() || buildCreativeCardPrompt(card);
     const masterScriptPrompt = (fullScript || '').trim() ? `[完整脚本]: ${(fullScript || '').trim()}` : '';
@@ -4705,7 +4604,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const getProductRecognitionSources = useCallback(() => {
     return uploadDisplayAssets.filter(
-        (asset) => asset.materialType === 'product' && asset.mediaKind === 'image'
+      (asset) => asset.materialType === 'product' && asset.mediaKind === 'image'
     );
   }, [uploadDisplayAssets]);
 
@@ -4734,7 +4633,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     if (Object.keys(queuedPathUpdates).length > 0) {
       setAssetQueue((prev) => prev.map((item) => (
-          queuedPathUpdates[item.id] ? { ...item, uploadedPath: queuedPathUpdates[item.id] } : item
+        queuedPathUpdates[item.id] ? { ...item, uploadedPath: queuedPathUpdates[item.id] } : item
       )));
     }
 
@@ -4784,7 +4683,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const SEPARATOR_HIT_WIDTH = 16;
     const previewWidth = previewSectionRef.current?.getBoundingClientRect().width ?? 300;
     const maxLeftByLayout = Math.floor(
-        layoutRect.width - previewWidth - SCRIPT_COLUMN_MIN_WIDTH - GAP_PX * 3 - SEPARATOR_HIT_WIDTH
+      layoutRect.width - previewWidth - SCRIPT_COLUMN_MIN_WIDTH - GAP_PX * 3 - SEPARATOR_HIT_WIDTH
     );
     const maxLeft = Math.max(LEFT_COLUMN_MIN_WIDTH, Math.min(640, maxLeftByLayout));
 
@@ -4844,9 +4743,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const newScriptWidth = scriptRect.width + delta;
       const newRatio = newScriptWidth / totalWidth;
 
-      if (newScriptWidth >= SCRIPT_COLUMN_MIN_WIDTH && 
-          (totalWidth - newScriptWidth) >= PREVIEW_COLUMN_MIN_WIDTH &&
-          newRatio > 0.2 && newRatio < 0.9) {
+      if (newScriptWidth >= SCRIPT_COLUMN_MIN_WIDTH &&
+        (totalWidth - newScriptWidth) >= PREVIEW_COLUMN_MIN_WIDTH &&
+        newRatio > 0.2 && newRatio < 0.9) {
         setScriptPreviewRatio(newRatio);
         try {
           sessionStorage.setItem(SCRIPT_PREVIEW_RATIO_KEY, String(newRatio));
@@ -4869,119 +4768,119 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [scriptPreviewRatio, SCRIPT_COLUMN_MIN_WIDTH, PREVIEW_COLUMN_MIN_WIDTH, SCRIPT_PREVIEW_RATIO_KEY]);
 
   const handleAiRecognize = useCallback(
-      async () => {
-        const imagePaths = await resolveProductRecognitionImagePaths();
-        if (imagePaths.length === 0) {
-          openInfo(popupTitles.notice, t.wb_popup_need_product_image_first);
-          return;
+    async () => {
+      const imagePaths = await resolveProductRecognitionImagePaths();
+      if (imagePaths.length === 0) {
+        openInfo(popupTitles.notice, t.wb_popup_need_product_image_first);
+        return;
+      }
+
+      // Determine if user has manually edited any product info field
+      const hasUserEdited = Boolean(
+        (productInfoTouched.name && productName.trim()) ||
+        (productInfoTouched.category && productCategory.trim()) ||
+        (productInfoTouched.sellingPoints && coreSellingPoints.trim()) ||
+        (productInfoTouched.audience && targetAudience.trim())
+      );
+
+      // Always send existing content as context for the AI (whether user-typed or AI-filled)
+      const hasAnyContent = Boolean(
+        productName.trim() || productCategory.trim() || coreSellingPoints.trim() || targetAudience.trim()
+      );
+
+      // Build existing_info payload when fields have content
+      const existingInfo = hasAnyContent
+        ? {
+          ...(productName.trim() ? { product_name: productName.trim() } : {}),
+          ...(productCategory.trim() ? { product_category: productCategory.trim() } : {}),
+          ...(coreSellingPoints.trim() ? { core_selling_points: coreSellingPoints.trim() } : {}),
+          ...(targetAudience.trim() ? { target_audience: targetAudience.trim() } : {}),
         }
+        : undefined;
 
-        // Determine if user has manually edited any product info field
-        const hasUserEdited = Boolean(
-          (productInfoTouched.name && productName.trim()) ||
-          (productInfoTouched.category && productCategory.trim()) ||
-          (productInfoTouched.sellingPoints && coreSellingPoints.trim()) ||
-          (productInfoTouched.audience && targetAudience.trim())
-        );
+      setIsAiRecognizing(true);
+      try {
+        const resp = await videoApi.recognizeProductInfo({
+          image_paths: imagePaths,
+          output_language: language,
+          ...(existingInfo ? { existing_info: existingInfo } : {}),
+        });
+        const data = resp?.data || resp?.result || resp?.payload || resp;
 
-        // Always send existing content as context for the AI (whether user-typed or AI-filled)
-        const hasAnyContent = Boolean(
-          productName.trim() || productCategory.trim() || coreSellingPoints.trim() || targetAudience.trim()
-        );
+        const nextName = String(data?.product_name || '').trim();
+        const nextCategory = String(data?.product_category || '').trim();
+        const nextSelling = Array.isArray(data?.core_selling_points)
+          ? data.core_selling_points.filter(Boolean).join('\n')
+          : String(data?.core_selling_points || '').trim();
+        const nextAudience = String(data?.target_audience || '').trim();
 
-        // Build existing_info payload when fields have content
-        const existingInfo = hasAnyContent
-          ? {
-              ...(productName.trim() ? { product_name: productName.trim() } : {}),
-              ...(productCategory.trim() ? { product_category: productCategory.trim() } : {}),
-              ...(coreSellingPoints.trim() ? { core_selling_points: coreSellingPoints.trim() } : {}),
-              ...(targetAudience.trim() ? { target_audience: targetAudience.trim() } : {}),
-            }
-          : undefined;
+        // If user has manually edited fields, show per-field overwrite dialog
+        if (hasUserEdited) {
+          const fields: AiOverwriteField[] = [
+            { key: 'product_name', label: t.wb_field_product_name_label, currentValue: productName.trim(), newValue: nextName },
+            { key: 'product_category', label: t.wb_field_product_category_label, currentValue: productCategory.trim(), newValue: nextCategory },
+            { key: 'core_selling_points', label: t.wb_field_core_selling_points_label, currentValue: coreSellingPoints.trim(), newValue: nextSelling },
+            { key: 'target_audience', label: t.wb_field_target_audience_label, currentValue: targetAudience.trim(), newValue: nextAudience },
+          ];
 
-        setIsAiRecognizing(true);
-        try {
-          const resp = await videoApi.recognizeProductInfo({
-            image_paths: imagePaths,
-            output_language: language,
-            ...(existingInfo ? { existing_info: existingInfo } : {}),
-          });
-          const data = resp?.data || resp?.result || resp?.payload || resp;
+          // Only show fields that actually differ
+          const changedFields = fields.filter((f) => f.currentValue !== f.newValue);
 
-          const nextName = String(data?.product_name || '').trim();
-          const nextCategory = String(data?.product_category || '').trim();
-          const nextSelling = Array.isArray(data?.core_selling_points)
-              ? data.core_selling_points.filter(Boolean).join('\n')
-              : String(data?.core_selling_points || '').trim();
-          const nextAudience = String(data?.target_audience || '').trim();
-
-          // If user has manually edited fields, show per-field overwrite dialog
-          if (hasUserEdited) {
-            const fields: AiOverwriteField[] = [
-              { key: 'product_name', label: t.wb_field_product_name_label, currentValue: productName.trim(), newValue: nextName },
-              { key: 'product_category', label: t.wb_field_product_category_label, currentValue: productCategory.trim(), newValue: nextCategory },
-              { key: 'core_selling_points', label: t.wb_field_core_selling_points_label, currentValue: coreSellingPoints.trim(), newValue: nextSelling },
-              { key: 'target_audience', label: t.wb_field_target_audience_label, currentValue: targetAudience.trim(), newValue: nextAudience },
-            ];
-
-            // Only show fields that actually differ
-            const changedFields = fields.filter((f) => f.currentValue !== f.newValue);
-
-            if (changedFields.length === 0) {
-              openInfo(popupTitles.notice, t.wb_ai_overwrite_no_change);
-            } else {
-              // Open the overwrite dialog and wait for user selection
-              const selectedKeys = await new Promise<Set<string> | null>((resolve) => {
-                aiOverwriteResolveRef.current = resolve;
-                setAiOverwriteFields(fields);
-                setIsAiOverwriteOpen(true);
-              });
-
-              if (!selectedKeys) {
-                // User cancelled
-                return;
-              }
-
-              // Apply only selected fields
-              if (selectedKeys.has('product_name')) setProductName(nextName);
-              if (selectedKeys.has('product_category')) setProductCategory(nextCategory);
-              if (selectedKeys.has('core_selling_points')) setCoreSellingPoints(nextSelling);
-              if (selectedKeys.has('target_audience')) setTargetAudience(nextAudience);
-            }
+          if (changedFields.length === 0) {
+            openInfo(popupTitles.notice, t.wb_ai_overwrite_no_change);
           } else {
-            // No existing content — apply all directly (original behavior)
-            setProductName(nextName);
-            setProductCategory(nextCategory);
-            setCoreSellingPoints(nextSelling);
-            setTargetAudience(nextAudience);
+            // Open the overwrite dialog and wait for user selection
+            const selectedKeys = await new Promise<Set<string> | null>((resolve) => {
+              aiOverwriteResolveRef.current = resolve;
+              setAiOverwriteFields(fields);
+              setIsAiOverwriteOpen(true);
+            });
+
+            if (!selectedKeys) {
+              // User cancelled
+              return;
+            }
+
+            // Apply only selected fields
+            if (selectedKeys.has('product_name')) setProductName(nextName);
+            if (selectedKeys.has('product_category')) setProductCategory(nextCategory);
+            if (selectedKeys.has('core_selling_points')) setCoreSellingPoints(nextSelling);
+            if (selectedKeys.has('target_audience')) setTargetAudience(nextAudience);
           }
-
-          setProductInfoTouched({ name: false, category: false, sellingPoints: false, audience: false });
-
-          const recognizedSignature = buildProductRecognitionSourceSignature(getProductRecognitionSources());
-
-          setHasAiRecognized(true);
-          setRecognizedProductSourceSignature(recognizedSignature);
-          setNeedsAiReRecognize(false);
-        } catch (err: any) {
-          openErrorModal(err, { category: 'recognize_failed' });
-        } finally {
-          setIsAiRecognizing(false);
+        } else {
+          // No existing content — apply all directly (original behavior)
+          setProductName(nextName);
+          setProductCategory(nextCategory);
+          setCoreSellingPoints(nextSelling);
+          setTargetAudience(nextAudience);
         }
-      },
-      [
-        coreSellingPoints,
-        openInfo,
-        productCategory,
-        productInfoTouched,
-        productName,
-        getProductRecognitionSources,
-        resolveProductRecognitionImagePaths,
-        targetAudience,
-        user?.id,
-        t,
-        language
-      ]
+
+        setProductInfoTouched({ name: false, category: false, sellingPoints: false, audience: false });
+
+        const recognizedSignature = buildProductRecognitionSourceSignature(getProductRecognitionSources());
+
+        setHasAiRecognized(true);
+        setRecognizedProductSourceSignature(recognizedSignature);
+        setNeedsAiReRecognize(false);
+      } catch (err: any) {
+        openErrorModal(err, { category: 'recognize_failed' });
+      } finally {
+        setIsAiRecognizing(false);
+      }
+    },
+    [
+      coreSellingPoints,
+      openInfo,
+      productCategory,
+      productInfoTouched,
+      productName,
+      getProductRecognitionSources,
+      resolveProductRecognitionImagePaths,
+      targetAudience,
+      user?.id,
+      t,
+      language
+    ]
   );
 
   const handleGenerateKlingBoundaryFrames = async () => {
@@ -5136,13 +5035,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
         omniAssets.push({
           role:
-              asset.source === 'subject'
-                  ? 'subject'
-                  : asset.source === 'tail'
-                      ? 'last_frame'
-                  : asset.source === 'product'
-                      ? 'first_frame'
-                      : 'reference',
+            asset.source === 'subject'
+              ? 'subject'
+              : asset.source === 'tail'
+                ? 'last_frame'
+                : asset.source === 'product'
+                  ? 'first_frame'
+                  : 'reference',
           image_url: apiPath,
           asset_id: asset.assetId || null,
           name: asset.name,
@@ -5296,8 +5195,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!user?.id) throw new Error('请先登录');
 
     const createResp = await videoApi.createProject(user.id, {
-        title: (productName || '').trim() || fileName || 'Video',
-        aspect_ratio: aspectRatio || selectedTemplate?.aspect_ratio || '9:16',
+      title: (productName || '').trim() || fileName || 'Video',
+      aspect_ratio: aspectRatio || selectedTemplate?.aspect_ratio || '9:16',
       script_content: {
         duration: genDuration,
         shots: enableStoryboardEditor ? scripts : [],
@@ -5454,11 +5353,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
 
       const prompt =
-          (typeof actionRequired?.prompt === 'string' && actionRequired.prompt.trim())
-              ? actionRequired.prompt.trim()
-              : (requestFlag === 'allow_image_resize'
-                  ? '当前图片不满足最小分辨率要求，是否自动放大后继续？'
-                  : '当前图片超过 10MB，是否自动压缩后继续？');
+        (typeof actionRequired?.prompt === 'string' && actionRequired.prompt.trim())
+          ? actionRequired.prompt.trim()
+          : (requestFlag === 'allow_image_resize'
+            ? '当前图片不满足最小分辨率要求，是否自动放大后继续？'
+            : '当前图片超过 10MB，是否自动压缩后继续？');
 
       const confirmed = await openConfirm(t.wb_popup_image_adjustment_title, prompt);
       if (!confirmed) {
@@ -5697,8 +5596,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const latestFile = files[files.length - 1];
     const mediaKind = inferMediaKind({ name: latestFile.name, file: latestFile });
     const source: QueuedAsset['source'] = mediaKind === 'video'
-        ? 'preference'
-        : (isKlingOmniMode ? suggestKlingImageSourceForMode(assetQueue) : 'product');
+      ? 'preference'
+      : (isKlingOmniMode ? suggestKlingImageSourceForMode(assetQueue) : 'product');
     const latestItem: QueuedAsset = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-0`,
       name: latestFile.name,
@@ -5752,8 +5651,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     if (errors.length > 0) {
       openInfo(
-          (t as any).assets_upload_formats_title || '提示',
-          `${errors.join('\n')}\n\n${(t as any).assets_upload_formats_title || '支持格式'}：${formatHint}`
+        (t as any).assets_upload_formats_title || '提示',
+        `${errors.join('\n')}\n\n${(t as any).assets_upload_formats_title || '支持格式'}：${formatHint}`
       );
     }
 
@@ -5884,8 +5783,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
 
     const primarySource: QueuedAsset['source'] = isKlingOmniMode
-        ? (klingGenerateMode === 'subject' ? 'subject' : 'product')
-        : 'product';
+      ? (klingGenerateMode === 'subject' ? 'subject' : 'product')
+      : 'product';
 
     if (isKlingOmniMode) {
       applyKlingPrimarySelection(targetId, primarySource);
@@ -6049,6 +5948,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const updateScripts = (newScripts: ScriptItem[]) => {
+    isDemoScriptsRef.current = false;
     setScripts(newScripts);
     setScriptPages(prev => {
       const next = [...prev];
@@ -6525,205 +6425,204 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [handleSeedanceReplayLocalFiles, seedanceReplayUploadIntent]);
 
   const klingPrimarySlotAsset = useMemo(
-      () => uploadDisplayAssets.find((asset) => klingGenerateMode === 'subject' ? asset.source === 'subject' : asset.source === 'product') || null,
-      [uploadDisplayAssets, klingGenerateMode]
+    () => uploadDisplayAssets.find((asset) => klingGenerateMode === 'subject' ? asset.source === 'subject' : asset.source === 'product') || null,
+    [uploadDisplayAssets, klingGenerateMode]
   );
   const klingTailSlotAsset = useMemo(
-      () => uploadDisplayAssets.find((asset) => asset.source === 'tail') || null,
-      [uploadDisplayAssets]
+    () => uploadDisplayAssets.find((asset) => asset.source === 'tail') || null,
+    [uploadDisplayAssets]
   );
   const klingReferenceSlotAssets = useMemo(
-      () => uploadDisplayAssets.filter((asset) => asset.id !== klingPrimarySlotAsset?.id && asset.id !== klingTailSlotAsset?.id),
-      [uploadDisplayAssets, klingPrimarySlotAsset, klingTailSlotAsset]
+    () => uploadDisplayAssets.filter((asset) => asset.id !== klingPrimarySlotAsset?.id && asset.id !== klingTailSlotAsset?.id),
+    [uploadDisplayAssets, klingPrimarySlotAsset, klingTailSlotAsset]
   );
   const klingPrimarySlotHint = klingPrimarySlotAsset ? (
-      <span className="inline-flex items-center gap-1 text-[10px] font-medium normal-case tracking-normal text-green-400">
-        1/1
-        <CheckCircle className="h-3 w-3" />
-      </span>
+    <span className="inline-flex items-center gap-1 text-[10px] font-medium normal-case tracking-normal text-green-400">
+      1/1
+      <CheckCircle className="h-3 w-3" />
+    </span>
   ) : (
-      <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">
-        {klingGenerateMode === 'subject'
-          ? (t.wb_kling_primary_slot_subject_required || '必传1个主体')
-          : (t.wb_kling_primary_slot_first_frame_required || '必传1张')}
-      </span>
+    <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">
+      {klingGenerateMode === 'subject'
+        ? (t.wb_kling_primary_slot_subject_required || '必传1个主体')
+        : (t.wb_kling_primary_slot_first_frame_required || '必传1张')}
+    </span>
   );
   const klingReferenceLimit = klingGenerateMode === 'subject' ? 3 : 6;
   const isKlingReferenceOverflow = klingReferenceSlotAssets.length > klingReferenceLimit;
   const klingReferenceSlotHint = klingReferenceSlotAssets.length > 0 ? (
-      <span className={`inline-flex items-center gap-1 text-[10px] font-medium normal-case tracking-normal ${isKlingReferenceOverflow ? 'text-red-400' : 'text-green-400'}`}>
-        {klingReferenceSlotAssets.length}/{klingReferenceLimit}
-        {!isKlingReferenceOverflow ? <CheckCircle className="h-3 w-3" /> : null}
-        {isKlingReferenceOverflow ? (
-          <span>
-            {klingGenerateMode === 'subject'
-              ? (t.wb_kling_reference_slot_subject_max || '最多3张')
-              : (t.wb_kling_reference_slot_first_frame_max || '最多6张')}
-          </span>
-        ) : null}
-      </span>
+    <span className={`inline-flex items-center gap-1 text-[10px] font-medium normal-case tracking-normal ${isKlingReferenceOverflow ? 'text-red-400' : 'text-green-400'}`}>
+      {klingReferenceSlotAssets.length}/{klingReferenceLimit}
+      {!isKlingReferenceOverflow ? <CheckCircle className="h-3 w-3" /> : null}
+      {isKlingReferenceOverflow ? (
+        <span>
+          {klingGenerateMode === 'subject'
+            ? (t.wb_kling_reference_slot_subject_max || '最多3张')
+            : (t.wb_kling_reference_slot_first_frame_max || '最多6张')}
+        </span>
+      ) : null}
+    </span>
   ) : (
-      <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">
-        {klingGenerateMode === 'subject'
-          ? (t.wb_kling_reference_slot_subject_range || '1~3张')
-          : (t.wb_kling_reference_slot_first_frame_optional || '可选 · ≤6张')}
-      </span>
+    <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">
+      {klingGenerateMode === 'subject'
+        ? (t.wb_kling_reference_slot_subject_range || '1~3张')
+        : (t.wb_kling_reference_slot_first_frame_optional || '可选 · ≤6张')}
+    </span>
   );
   const renderUploadAssetCard = useCallback((asset: QueuedAsset, compact = false) => {
     const inQueue = assetQueue.find((item) => item.id === asset.id);
     const selected = selectedQueueAssetId ? selectedQueueAssetId === asset.id : uploadedFile === asset.previewUrl;
     const highlighted = isKlingOmniMode
-        ? (klingGenerateMode === 'subject'
-            ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
-            : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product'))
-        : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product');
+      ? (klingGenerateMode === 'subject'
+        ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
+        : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product'))
+      : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product');
 
     return (
-        <div
-            key={asset.id}
-            role="button"
-            tabIndex={0}
-            draggable={Boolean(inQueue && asset.mediaKind === 'image')}
-            onDragStart={(e) => {
-              if (!inQueue) {
-                e.preventDefault();
-                return;
-              }
-              handleWorkbenchAssetDragStart(inQueue, e);
-            }}
-            onDragEnd={clearWorkbenchDragState}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (inQueue) {
-                selectAssetFromQueue(inQueue);
-                return;
-              }
-              setUploadedFile(asset.previewUrl || null);
-              setFileName(asset.name || '');
-              setSelectedFileObj(asset.fileObj || null);
-              setSelectedAssetUrl(asset.assetUrl || null);
-              setSelectedAssetSource(asset.source || null);
-              setCurrentMaterialType(asset.materialType || null);
-              setSelectedQueueAssetId(null);
-            }}
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter' && e.key !== ' ') return;
-              e.preventDefault();
-              e.stopPropagation();
-              if (inQueue) {
-                selectAssetFromQueue(inQueue);
-                return;
-              }
-              setUploadedFile(asset.previewUrl || null);
-              setFileName(asset.name || '');
-              setSelectedFileObj(asset.fileObj || null);
-              setSelectedAssetUrl(asset.assetUrl || null);
-              setSelectedAssetSource(asset.source || null);
-              setCurrentMaterialType(asset.materialType || null);
-              setSelectedQueueAssetId(null);
-            }}
-            className={`relative w-full rounded-md overflow-hidden border text-left transition ${selected ? 'border-orange-500/70 ring-1 ring-orange-500/50' : 'border-white/10 hover:border-white/20'}`}
-        >
-          {asset.previewUrl ? (asset.mediaKind === 'video' ? (
-              <video src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" muted playsInline />
-          ) : (
-            <img src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" alt={asset.name} />
-          )) : (
-            <div className="w-full h-24 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
-          )}
-          {(() => {
-            const hideMaterialTypeSelect =
-              isKlingOmniMode && (klingGenerateMode === 'first_frame' || klingGenerateMode === 'first_last_frame');
-            const showSubjectBadge =
-              isKlingOmniMode &&
-              klingGenerateMode === 'subject' &&
-              hasSubjectOtherViews(asset) &&
-              (asset.materialType === 'product' || asset.materialType === 'model');
-            if (!showSubjectBadge && hideMaterialTypeSelect) return null;
-            return (
-              <div className="absolute top-1 left-1 z-10 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                {showSubjectBadge ? (
-                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm">
-                    <Layers3 className="h-3 w-3" />
-                  </span>
-                ) : null}
-                {!hideMaterialTypeSelect ? (
-                  <select
-                    className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
-                    value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product')}
-                    onChange={(e) => {
-                      const newType = e.target.value as AssetLibraryTab;
-                      setAssetQueue((prev) => {
-                        const next = prev.map((item): QueuedAsset =>
-                          item.id === asset.id ? { ...item, materialType: newType } : item
-                        );
-                        return isKlingOmniMode ? normalizeQueueSourcesForKlingMode(next, klingGenerateMode) : next;
-                      });
-                      if (selectedQueueAssetId === asset.id || uploadedFile === asset.previewUrl) {
-                        setCurrentMaterialType(newType);
-                      }
-                    }}
-                    style={{
-                      backgroundImage:
-                        'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")',
-                      backgroundRepeat: 'no-repeat',
-                      backgroundPosition: 'right 6px center',
-                    }}
-                  >
-                    <option value="product">{materialTypeLabelMap['product']}</option>
-                    <option value="model">{materialTypeLabelMap['model']}</option>
-                    <option value="scene">{materialTypeLabelMap['scene']}</option>
-                    <option value="motion">{materialTypeLabelMap['motion']}</option>
-                    <option value="audio">{materialTypeLabelMap['audio']}</option>
-                  </select>
-                ) : null}
-              </div>
-            );
-          })()}
-          <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
-            {!isKlingOmniMode && asset.mediaKind === 'image' && (
-                <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const primarySource: QueuedAsset['source'] = isKlingOmniMode
-                          ? (klingGenerateMode === 'subject' ? 'subject' : 'product')
-                          : 'product';
-                      const nextSource: QueuedAsset['source'] = highlighted ? 'preference' : primarySource;
-
-                      if (inQueue) {
-                        if (isKlingOmniMode && nextSource !== 'preference') {
-                          applyKlingPrimarySelection(asset.id, nextSource);
-                        } else {
-                          setAssetQueue(prev => prev.map((item): QueuedAsset => (
-                              item.id === asset.id
-                                  ? { ...item, source: 'preference', isPrimaryFrame: false }
-                                  : item
-                          )));
-                        }
-                      }
-
-                      if (selected) {
-                        setSelectedAssetSource(nextSource);
-                      }
-                    }}
-                    className={`rounded border px-1.5 py-0.5 text-[9px] font-bold transition ${
-                        highlighted
-                            ? 'border-orange-500/70 bg-orange-500/20 text-orange-300'
-                            : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'
-                    }`}
+      <div
+        key={asset.id}
+        role="button"
+        tabIndex={0}
+        draggable={Boolean(inQueue && asset.mediaKind === 'image')}
+        onDragStart={(e) => {
+          if (!inQueue) {
+            e.preventDefault();
+            return;
+          }
+          handleWorkbenchAssetDragStart(inQueue, e);
+        }}
+        onDragEnd={clearWorkbenchDragState}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (inQueue) {
+            selectAssetFromQueue(inQueue);
+            return;
+          }
+          setUploadedFile(asset.previewUrl || null);
+          setFileName(asset.name || '');
+          setSelectedFileObj(asset.fileObj || null);
+          setSelectedAssetUrl(asset.assetUrl || null);
+          setSelectedAssetSource(asset.source || null);
+          setCurrentMaterialType(asset.materialType || null);
+          setSelectedQueueAssetId(null);
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          e.stopPropagation();
+          if (inQueue) {
+            selectAssetFromQueue(inQueue);
+            return;
+          }
+          setUploadedFile(asset.previewUrl || null);
+          setFileName(asset.name || '');
+          setSelectedFileObj(asset.fileObj || null);
+          setSelectedAssetUrl(asset.assetUrl || null);
+          setSelectedAssetSource(asset.source || null);
+          setCurrentMaterialType(asset.materialType || null);
+          setSelectedQueueAssetId(null);
+        }}
+        className={`relative w-full rounded-md overflow-hidden border text-left transition ${selected ? 'border-orange-500/70 ring-1 ring-orange-500/50' : 'border-white/10 hover:border-white/20'}`}
+      >
+        {asset.previewUrl ? (asset.mediaKind === 'video' ? (
+          <video src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" muted playsInline />
+        ) : (
+          <img src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" alt={asset.name} />
+        )) : (
+          <div className="w-full h-24 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
+        )}
+        {(() => {
+          const hideMaterialTypeSelect =
+            isKlingOmniMode && (klingGenerateMode === 'first_frame' || klingGenerateMode === 'first_last_frame');
+          const showSubjectBadge =
+            isKlingOmniMode &&
+            klingGenerateMode === 'subject' &&
+            hasSubjectOtherViews(asset) &&
+            (asset.materialType === 'product' || asset.materialType === 'model');
+          if (!showSubjectBadge && hideMaterialTypeSelect) return null;
+          return (
+            <div className="absolute top-1 left-1 z-10 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+              {showSubjectBadge ? (
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm">
+                  <Layers3 className="h-3 w-3" />
+                </span>
+              ) : null}
+              {!hideMaterialTypeSelect ? (
+                <select
+                  className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
+                  value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product')}
+                  onChange={(e) => {
+                    const newType = e.target.value as AssetLibraryTab;
+                    setAssetQueue((prev) => {
+                      const next = prev.map((item): QueuedAsset =>
+                        item.id === asset.id ? { ...item, materialType: newType } : item
+                      );
+                      return isKlingOmniMode ? normalizeQueueSourcesForKlingMode(next, klingGenerateMode) : next;
+                    });
+                    if (selectedQueueAssetId === asset.id || uploadedFile === asset.previewUrl) {
+                      setCurrentMaterialType(newType);
+                    }
+                  }}
+                  style={{
+                    backgroundImage:
+                      'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")',
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 6px center',
+                  }}
                 >
-                    {highlighted
-                      ? (isKlingOmniMode ? klingRoleLabel(klingGenerateMode === 'subject' ? 'subject' : 'product') : (t.wb_label_first_frame || 'First Frame'))
-                      : (isKlingOmniMode ? klingRoleLabel('preference') : (t.wb_label_reference_image || 'Reference'))}
-                </button>
-            )}
-            <button onClick={(e) => removeUpload(e, asset.id)} className="p-1 bg-black/50 hover:bg-red-500 rounded text-white transition"><X className="w-2.5 h-2.5" /></button>
-          </div>
-          <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-10">
-            <p className="text-[9px] text-white truncate drop-shadow-md">{asset.name}</p>
-          </div>
+                  <option value="product">{materialTypeLabelMap['product']}</option>
+                  <option value="model">{materialTypeLabelMap['model']}</option>
+                  <option value="scene">{materialTypeLabelMap['scene']}</option>
+                  <option value="motion">{materialTypeLabelMap['motion']}</option>
+                  <option value="audio">{materialTypeLabelMap['audio']}</option>
+                </select>
+              ) : null}
+            </div>
+          );
+        })()}
+        <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
+          {!isKlingOmniMode && asset.mediaKind === 'image' && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                const primarySource: QueuedAsset['source'] = isKlingOmniMode
+                  ? (klingGenerateMode === 'subject' ? 'subject' : 'product')
+                  : 'product';
+                const nextSource: QueuedAsset['source'] = highlighted ? 'preference' : primarySource;
+
+                if (inQueue) {
+                  if (isKlingOmniMode && nextSource !== 'preference') {
+                    applyKlingPrimarySelection(asset.id, nextSource);
+                  } else {
+                    setAssetQueue(prev => prev.map((item): QueuedAsset => (
+                      item.id === asset.id
+                        ? { ...item, source: 'preference', isPrimaryFrame: false }
+                        : item
+                    )));
+                  }
+                }
+
+                if (selected) {
+                  setSelectedAssetSource(nextSource);
+                }
+              }}
+              className={`rounded border px-1.5 py-0.5 text-[9px] font-bold transition ${highlighted
+                ? 'border-orange-500/70 bg-orange-500/20 text-orange-300'
+                : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'
+                }`}
+            >
+              {highlighted
+                ? (isKlingOmniMode ? klingRoleLabel(klingGenerateMode === 'subject' ? 'subject' : 'product') : (t.wb_label_first_frame || 'First Frame'))
+                : (isKlingOmniMode ? klingRoleLabel('preference') : (t.wb_label_reference_image || 'Reference'))}
+            </button>
+          )}
+          <button onClick={(e) => removeUpload(e, asset.id)} className="p-1 bg-black/50 hover:bg-red-500 rounded text-white transition"><X className="w-2.5 h-2.5" /></button>
         </div>
+        <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-10">
+          <p className="text-[9px] text-white truncate drop-shadow-md">{asset.name}</p>
+        </div>
+      </div>
     );
   }, [
     applyKlingPrimarySelection,
@@ -6789,86 +6688,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return () => window.clearTimeout(timer);
   }, [scriptGenerationNotice]);
 
-  const buildScriptEstimateStorageKey = useCallback((params: { script_count: number; duration: number; has_reference_assets: boolean; with_shots?: boolean }) => {
-    const userPart = user?.id ?? 'guest';
-    return [
-      SCRIPT_ESTIMATE_STORAGE_KEY_PREFIX,
-      userPart,
-      params.script_count,
-      params.duration,
-      params.has_reference_assets ? 1 : 0,
-      params.with_shots === false ? 'noshots' : 'shots',
-    ].join('_');
-  }, [user?.id]);
-
-  const readLocalScriptEstimate = useCallback((storageKey: string): ScriptEstimateCacheEntry | null => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as Partial<ScriptEstimateCacheEntry>;
-      const avgSeconds = Number(parsed.avgSeconds);
-      const sampleCount = Number(parsed.sampleCount);
-      if (!Number.isFinite(avgSeconds) || avgSeconds <= 0) return null;
-      if (!Number.isFinite(sampleCount) || sampleCount < 1) return null;
-      return {
-        avgSeconds,
-        sampleCount: Math.max(1, Math.round(sampleCount)),
-      };
-    } catch {
-      return null;
-    }
-  }, []);
-
-  const writeLocalScriptEstimate = useCallback((storageKey: string, elapsedSeconds: number) => {
-    const seconds = Math.max(1, Math.round(elapsedSeconds));
-    const prev = readLocalScriptEstimate(storageKey);
-    const nextCount = (prev?.sampleCount || 0) + 1;
-    const nextAvg = prev
-      ? ((prev.avgSeconds * prev.sampleCount) + seconds) / nextCount
-      : seconds;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify({
-        avgSeconds: nextAvg,
-        sampleCount: nextCount,
-      }));
-    } catch {
-      // ignore storage failures
-    }
-  }, [readLocalScriptEstimate]);
-
-  const normalizeScriptText = useCallback((value: any) => String(value || '').replace(/\s+/g, ' ').trim(), []);
-
-  const parseScriptStringList = useCallback((value: any, maxLen = 5) => {
-    if (!Array.isArray(value)) return [];
-    const next: string[] = [];
-    for (const item of value) {
-      const text = normalizeScriptText(item);
-      if (!text) continue;
-      if (next.includes(text)) continue;
-      next.push(text);
-      if (next.length >= maxLen) break;
-    }
-    return next;
-  }, [normalizeScriptText]);
-
-  const buildScriptsFromShots = useCallback((shots: any[]) => shots.map((shot: any) => ({
-    id: shot.shot_index,
-    shot: String(shot.shot_index),
-    type: shot.type || 'Medium',
-    dur: `${shot.duration_sec}s`,
-    visual: shot.visual,
-    audio: shot.audio || shot.voiceover || '',
-    audioTranslation: shot.voiceover_translation || '',
-  })), []);
-
-  const buildFullScriptFallback = useCallback((scriptsList: ScriptItem[]) => (
-    scriptsList
-      .map((item) => normalizeScriptText(item.visual))
-      .filter((text) => !!text)
-      .join(' ')
-  ), [normalizeScriptText]);
 
   const applyImportedScriptText = useCallback((rawText: string, sourceName?: string, sourceLabel?: string) => {
+    isDemoScriptsRef.current = false;
     const content = String(rawText || '').trim();
     if (!content) {
       openInfo(popupTitles.notice, t.wb_script_import_empty || '素材库中的脚本内容为空。');
@@ -7113,6 +6935,49 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
   }, [activeCreativeCard, activeCreativeCardText, activeFullScript, activeScriptPage, activeScriptPlan?.continuityAnchor, activeScriptPlan?.sceneSuggestions, activeScriptPlan?.scriptStructure, activeScriptPlan?.sellingPoints, activeScriptPlan?.styleTags, buildCombinedScriptPrompt, normalizeScriptAssetName, openInfo, popupTitles.notice, popupTitles.success, scriptSaveNameDraft, scripts, t.wb_script_save_need_content, t.wb_script_save_failed, t.wb_script_saved_to_library, t.wb_script_save_name_required]);
 
+  const saveCurrentWorkspaceScriptsToLibrary = useCallback(async () => {
+    const fallbackName = scriptPages[activeScriptPage]?.name || `${t.wb_script_page_prefix} ${activeScriptPage + 1}`;
+    const displayName = normalizeScriptAssetName(fallbackName);
+    const combinedScript = buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts, activeCreativeCardText).trim();
+    if (!displayName || !combinedScript) {
+      openInfo(popupTitles.notice, t.wb_script_save_need_content || '请先生成或编辑脚本后再保存。');
+      return false;
+    }
+
+    const payload = {
+      name: displayName,
+      video_master_script: activeFullScript?.trim() || combinedScript,
+      creative_card: activeCreativeCard || null,
+      creative_card_text: activeCreativeCardText || '',
+      scripts,
+      shots: scripts,
+      continuity_anchor: activeScriptPlan?.continuityAnchor || null,
+      script_structure: activeScriptPlan?.scriptStructure || null,
+      selling_points: activeScriptPlan?.sellingPoints || [],
+      scene_suggestions: activeScriptPlan?.sceneSuggestions || [],
+      style_tags: activeScriptPlan?.styleTags || [],
+      saved_at: new Date().toISOString(),
+    };
+
+    setIsSavingScriptAsset(true);
+    try {
+      const scriptFile = new File([JSON.stringify(payload, null, 2)], `${displayName}.json`, { type: 'application/json' });
+      const uploadResult = await assetsApi.uploadAsset(scriptFile, 'script');
+      const uploadedAsset = uploadResult?.data || uploadResult?.asset || uploadResult?.data?.asset || null;
+      const uploadedAssetId = uploadedAsset?.id ? String(uploadedAsset.id) : '';
+      if (uploadedAssetId) {
+        await assetsApi.renameAsset(uploadedAssetId, displayName).catch(() => undefined);
+      }
+      openInfo(popupTitles.success, t.wb_script_saved_to_library || '已保存到素材库。');
+      return true;
+    } catch (err: any) {
+      openInfo(popupTitles.notice, String(err?.message || t.wb_script_save_failed || '保存失败，请稍后重试。'));
+      return false;
+    } finally {
+      setIsSavingScriptAsset(false);
+    }
+  }, [activeCreativeCard, activeCreativeCardText, activeFullScript, activeScriptPage, activeScriptPlan?.continuityAnchor, activeScriptPlan?.sceneSuggestions, activeScriptPlan?.scriptStructure, activeScriptPlan?.sellingPoints, activeScriptPlan?.styleTags, buildCombinedScriptPrompt, normalizeScriptAssetName, openInfo, popupTitles.notice, popupTitles.success, scriptPages, scripts, t.wb_script_page_prefix, t.wb_script_save_failed, t.wb_script_save_need_content, t.wb_script_saved_to_library]);
+
   const parseScriptPage = useCallback((raw: any, idx: number): ScriptPage => {
     const shots = buildScriptsFromShots(raw?.shots || raw?.script_content?.shots || []);
     const scriptContent = raw?.script_content || raw || {};
@@ -7171,6 +7036,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [buildCreativeCardEditorText, buildFullScriptFallback, buildScriptsFromShots, normalizeScriptText, parseScriptStringList, t.wb_script_page_prefix]);
 
   const appendGeneratedScriptPage = useCallback((raw: any, options?: { replaceExisting?: boolean }) => {
+    isDemoScriptsRef.current = false;
     const replaceExisting = !!options?.replaceExisting;
     if (replaceExisting) {
       const nextPage = parseScriptPage(raw, 0);
@@ -7318,59 +7184,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     t,
   ]);
 
-  const finishScriptGenerationProgress = useCallback(async () => {
-    scriptGenerationFinishingRef.current = true;
-    const from = Math.max(0, Math.min(100, scriptGenerationProgress));
-    if (from < 100) {
-      await new Promise<void>((resolve) => {
-        const startedAt = performance.now();
-        const durationMs = 380;
-        const animate = (now: number) => {
-          const ratio = Math.min(1, (now - startedAt) / durationMs);
-          const eased = 1 - Math.pow(1 - ratio, 3);
-          setScriptGenerationProgress(from + (100 - from) * eased);
-          if (ratio < 1) {
-            window.requestAnimationFrame(animate);
-            return;
-          }
-          setScriptGenerationProgress(100);
-          resolve();
-        };
-        window.requestAnimationFrame(animate);
-      });
-    } else {
-      setScriptGenerationProgress(100);
-    }
-    await new Promise((resolve) => window.setTimeout(resolve, 1000));
-  }, [scriptGenerationProgress]);
+  const { finishScriptGenerationProgress } = useScriptGenerationProgress({
+    isGenerating: isGeneratingScript,
+    estimatedSeconds: scriptGenerationEstimatedSeconds,
+    progress: scriptGenerationProgress,
+    setProgress: setScriptGenerationProgress,
+    startedAtRef: scriptGenerationStartedAtRef,
+    finishingRef: scriptGenerationFinishingRef,
+    maxBeforeHold: SCRIPT_PROGRESS_MAX_BEFORE_HOLD,
+    holdMax: SCRIPT_PROGRESS_HOLD_MAX,
+  });
 
-  useEffect(() => {
-    if (!isGeneratingScript || !scriptGenerationStartedAtRef.current) return;
-
-    const tick = () => {
-      if (scriptGenerationFinishingRef.current) return;
-      const startedAt = scriptGenerationStartedAtRef.current;
-      if (!startedAt) return;
-      const elapsed = Math.max(0, (Date.now() - startedAt) / 1000);
-      const estimated = Math.max(1, scriptGenerationEstimatedSeconds || 45);
-      let nextProgress = 0;
-      if (elapsed <= estimated) {
-        const ratio = Math.min(1, elapsed / estimated);
-        nextProgress = Math.pow(ratio, 0.85) * SCRIPT_PROGRESS_MAX_BEFORE_HOLD;
-      } else {
-        const overflow = elapsed - estimated;
-        nextProgress = Math.min(
-          SCRIPT_PROGRESS_HOLD_MAX,
-          SCRIPT_PROGRESS_MAX_BEFORE_HOLD + Math.log1p(overflow) * 3
-        );
-      }
-      setScriptGenerationProgress(Math.max(0, Math.min(100, nextProgress)));
-    };
-
-    tick();
-    const timer = window.setInterval(tick, 250);
-    return () => window.clearInterval(timer);
-  }, [isGeneratingScript, scriptGenerationEstimatedSeconds]);
+  const SCRIPT_GEN_IN_PROGRESS_KEY = `vflow_workbench_script_gen_in_progress_v1_${user?.id ?? 'guest'}`;
 
   const handleCancelGenerateScripts = useCallback(() => {
     const controller = scriptGenerationAbortRef.current;
@@ -7391,6 +7216,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       });
       currentScriptQueueTaskIdRef.current = null;
     }
+    try {
+      window.localStorage.removeItem(SCRIPT_GEN_IN_PROGRESS_KEY);
+    } catch {
+    }
+
     controller.abort();
     setIsGeneratingScript(false);
     setIsScriptGenerationProgressVisible(false);
@@ -7400,6 +7230,54 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     recordScriptGenerationCancelTimestamp(user?.id ?? null);
     setScriptGenerationNotice(t.wb_popup_script_generation_cancelled || '已成功取消脚本');
   }, [t.wb_popup_script_generation_cancelled, updateTask, user?.id]);
+
+  const handleGenerateScriptsRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(SCRIPT_GEN_IN_PROGRESS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { projectId?: string; startedAt?: number };
+      const pid = String(parsed?.projectId || '').trim();
+      const startedAt = Number(parsed?.startedAt);
+      if (!pid || pid !== String(projectStore.currentProjectId || '').trim()) return;
+      if (!Number.isFinite(startedAt) || startedAt <= 0) return;
+      if (Date.now() - startedAt > 12 * 60 * 1000) {
+        window.localStorage.removeItem(SCRIPT_GEN_IN_PROGRESS_KEY);
+        return;
+      }
+
+      window.localStorage.removeItem(SCRIPT_GEN_IN_PROGRESS_KEY);
+      setScriptGenerationNotice('检测到未完成的脚本生成，已自动继续生成。');
+      window.setTimeout(() => {
+        handleGenerateScriptsRef.current?.();
+      }, 250);
+    } catch {
+    }
+  }, [SCRIPT_GEN_IN_PROGRESS_KEY, projectStore.currentProjectId]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(SCRIPT_GEN_IN_PROGRESS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { projectId?: string; startedAt?: number };
+      const pid = String(parsed?.projectId || '').trim();
+      const startedAt = Number(parsed?.startedAt);
+      if (!pid || pid !== String(projectStore.currentProjectId || '').trim()) return;
+      if (!Number.isFinite(startedAt) || startedAt <= 0) return;
+      if (Date.now() - startedAt > 12 * 60 * 1000) {
+        window.localStorage.removeItem(SCRIPT_GEN_IN_PROGRESS_KEY);
+        return;
+      }
+
+      window.localStorage.removeItem(SCRIPT_GEN_IN_PROGRESS_KEY);
+      setScriptGenerationNotice('检测到未完成的脚本生成，已自动继续生成。');
+      window.setTimeout(() => {
+        handleGenerateScriptsRef.current?.();
+      }, 250);
+    } catch {
+    }
+  }, [SCRIPT_GEN_IN_PROGRESS_KEY, projectStore.currentProjectId]);
 
   useEffect(() => {
     return () => {
@@ -7483,6 +7361,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
+    if (hasAnyScriptPlanGridContent) {
+      const shouldKeepCurrentScripts = await openConfirm(
+        '提示',
+        '是否保留当前工作区内脚本？',
+        { okLabel: '保留并保存到素材库', cancelLabel: '不保留' }
+      );
+      if (shouldKeepCurrentScripts) {
+        const saved = await saveCurrentWorkspaceScriptsToLibrary();
+        if (!saved) {
+          scriptGenerationLockRef.current = false;
+          return;
+        }
+      }
+      resetScriptPlanGridToDefault();
+    }
+
     const totalScriptCount = Math.max(1, scriptVariantCount || 1);
     const estimateParams = {
       script_count: 1,
@@ -7490,7 +7384,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       has_reference_assets: uploadDisplayAssets.some((asset) => asset.mediaKind === 'image' || asset.mediaKind === 'video'),
       with_shots: enableStoryboardEditor,
     };
-    const estimateStorageKey = buildScriptEstimateStorageKey(estimateParams);
+    const estimateStorageKey = buildScriptEstimateStorageKey(user?.id ?? null, estimateParams);
     let estimatedSeconds = 45;
     try {
       const resp: any = await Promise.race([
@@ -7527,6 +7421,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     setIsGeneratingScript(true);
     setIsScriptGenerationProgressVisible(true);
+    try {
+      window.localStorage.setItem(SCRIPT_GEN_IN_PROGRESS_KEY, JSON.stringify({
+        projectId: projectStore.currentProjectId,
+        startedAt: Date.now(),
+      }));
+    } catch {
+    }
+    try {
+      window.localStorage.setItem(SCRIPT_GEN_IN_PROGRESS_KEY, JSON.stringify({
+        projectId: projectStore.currentProjectId,
+        startedAt: Date.now(),
+      }));
+    } catch {
+    }
     setScriptGenerationEstimatedSeconds(estimatedSeconds);
     setScriptGenerationProgress(0);
     setScriptGenerationCompletedCount(0);
@@ -7609,7 +7517,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       if (Object.keys(queuedPathUpdates).length > 0) {
         setAssetQueue(prev => prev.map(item => (
-            queuedPathUpdates[item.id] ? { ...item, uploadedPath: queuedPathUpdates[item.id] } : item
+          queuedPathUpdates[item.id] ? { ...item, uploadedPath: queuedPathUpdates[item.id] } : item
         )));
       }
 
@@ -7643,17 +7551,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       })();
       const klingPrimaryImage = selectedModel === 'kling'
         ? (() => {
-            const primaryAsset = normalizedImageAssets.find((asset) => asset.source === (klingGenerateMode === 'subject' ? 'subject' : 'product')) || null;
-            if (!primaryAsset) return null;
-            const primaryPath = resolvedReferencePaths.get(primaryAsset.id) || '';
-            if (!primaryPath) return null;
-            return {
-              path: primaryPath,
-              type: (primaryAsset.materialType === 'model' || primaryAsset.materialType === 'product' || primaryAsset.materialType === 'scene')
-                ? primaryAsset.materialType
-                : 'product',
-            };
-          })()
+          const primaryAsset = normalizedImageAssets.find((asset) => asset.source === (klingGenerateMode === 'subject' ? 'subject' : 'product')) || null;
+          if (!primaryAsset) return null;
+          const primaryPath = resolvedReferencePaths.get(primaryAsset.id) || '';
+          if (!primaryPath) return null;
+          return {
+            path: primaryPath,
+            type: (primaryAsset.materialType === 'model' || primaryAsset.materialType === 'product' || primaryAsset.materialType === 'scene')
+              ? primaryAsset.materialType
+              : 'product',
+          };
+        })()
         : null;
 
       const category = productCategory.trim() || selectedTemplate?.product_category || "相机";
@@ -7736,12 +7644,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             const startedAt = scriptGenerationStartedAtRef.current;
             const elapsedSeconds = startedAt ? Math.max(1, Math.round((Date.now() - startedAt) / 1000)) : null;
             shouldHideProgressImmediately = false;
-            await finishScriptGenerationProgress();
-            if (isMountedRef.current && currentProjectIdRef.current === generationProjectId) {
+            flushSync(() => {
+              if (!isMountedRef.current) return;
               appendGeneratedScriptPage({ script_content: scriptContent }, { replaceExisting: isFirstVariant });
-            } else {
-              appendGeneratedScriptPageToWorkspace(generationProjectId, { script_content: scriptContent }, { replaceExisting: isFirstVariant });
-            }
+            });
+            appendGeneratedScriptPageToWorkspace(generationProjectId, { script_content: scriptContent }, { replaceExisting: isFirstVariant });
+            void finishScriptGenerationProgress();
 
             const completed = Number(data.completed);
             const total = Number(data.total);
@@ -7830,6 +7738,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       });
       openErrorModal(err, { category: 'script_failed', onRetry: handleGenerateScripts });
     } finally {
+      try {
+        window.localStorage.removeItem(SCRIPT_GEN_IN_PROGRESS_KEY);
+      } catch {
+      }
       if (scriptGenerationAbortRef.current === abortController) {
         scriptGenerationAbortRef.current = null;
       }
@@ -7851,6 +7763,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       scriptGenerationFinishingRef.current = false;
       scriptGenerationLockRef.current = false;
     }
+  };
+
+  handleGenerateScriptsRef.current = () => {
+    void handleGenerateScripts();
   };
 
   const handleScriptPageChange = (nextIndex: number) => {
@@ -7906,9 +7822,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [activeScriptPage, scriptPages]);
 
   useEffect(() => {
+    if (!isDemoScriptsRef.current) return;
     const isDemo = scripts.length === 2 && scripts[0].id === 1 && scripts[1].id === 2;
 
     if (isDemo) {
+      console.log('isDemo', isDemo);
       const newDemo = buildDemoScripts();
       setScripts(newDemo);
       setScriptPages(prev => {
@@ -7922,7 +7840,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [t, buildDemoScripts, scripts.length]);
 
   const formatI18nTemplate = (template: string, vars: Record<string, string | number>) =>
-      template.replace(/\{(\w+)\}/g, (match, key) => (Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : match));
+    template.replace(/\{(\w+)\}/g, (match, key) => (Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : match));
 
   const validateGenerateRequirements = () => {
     const issues: string[] = [];
@@ -7948,8 +7866,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
     if (selectedModel === 'kling') {
       const imageAssets = normalizeQueueSourcesForKlingMode(
-          uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image'),
-          klingGenerateMode
+        uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image'),
+        klingGenerateMode
       );
       const firstFrameCount = imageAssets.filter((asset) => asset.source === 'product').length;
       const tailFrameCount = imageAssets.filter((asset) => asset.source === 'tail').length;
@@ -7981,10 +7899,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (enableStoryboardEditor && !isDurationValid) {
       const template = t.wb_gen_req_issue_duration_mismatch || 'Storyboard: total shot duration ({scriptDuration}s) must match configured duration ({configDuration}s).';
       issues.push(
-          formatI18nTemplate(template, {
-            scriptDuration: currentScriptDuration.toFixed(1),
-            configDuration: genDuration,
-          })
+        formatI18nTemplate(template, {
+          scriptDuration: currentScriptDuration.toFixed(1),
+          configDuration: genDuration,
+        })
       );
     }
     if (!selectedTemplate?.id && !user?.id) {
@@ -8183,8 +8101,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
         // 收集所有音频素材的路径，用于 Seedance reference_audio
         const audioPaths = preparedAssets
-            .filter((a) => a.mediaKind === 'audio')
-            .map((a) => (a as any).apiPath as string);
+          .filter((a) => a.mediaKind === 'audio')
+          .map((a) => (a as any).apiPath as string);
 
         // 非音频素材才参与 asset × script 矩阵生成
         const nonAudioAssets = preparedAssets.filter((a) => a.mediaKind !== 'audio');
@@ -8195,10 +8113,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         for (const asset of effectiveAssets) {
           for (const scriptPack of scriptQueue) {
             const combinedScriptPrompt = buildCombinedScriptPrompt(
-                scriptPack.fullScript || '',
-                scriptPack.creativeCard,
-                scriptPack.scripts,
-                scriptPack.creativeCardText || ''
+              scriptPack.fullScript || '',
+              scriptPack.creativeCard,
+              scriptPack.scripts,
+              scriptPack.creativeCardText || ''
             );
 
             let newProjectId: string | undefined;
@@ -8228,10 +8146,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               duration: scriptPack.duration,
               aspect_ratio: aspectRatio,
               ...(asset
-                  ? (asset.mediaKind === 'video'
-                      ? { motion_video_path: (asset as any).apiPath }
-                      : { image_path: (asset as any).apiPath })
-                  : {}),
+                ? (asset.mediaKind === 'video'
+                  ? { motion_video_path: (asset as any).apiPath }
+                  : { image_path: (asset as any).apiPath })
+                : {}),
               sound: soundSetting,
               ...(audioPaths.length > 0 ? { audio_paths: audioPaths } : {}),
               ...(selectedBackgroundAudio && soundSetting === 'off'
@@ -8369,8 +8287,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const userConfirmed = await openConfirm('Upload to TikTok', confirmMessage);
       if (!userConfirmed) {
         const switchAccount = await openConfirm(
-            'Switch TikTok Account',
-            '是否要切换TikTok账号？\n\n点击"确定"后：\n1. 系统将取消当前授权\n2. 跳转到TikTok授权页面\n3. 如需切换到其他账号，请在TikTok页面先退出当前账号，再登录新账号\n4. 授权成功后视频将自动上传到新账号的草稿箱'
+          'Switch TikTok Account',
+          '是否要切换TikTok账号？\n\n点击"确定"后：\n1. 系统将取消当前授权\n2. 跳转到TikTok授权页面\n3. 如需切换到其他账号，请在TikTok页面先退出当前账号，再登录新账号\n4. 授权成功后视频将自动上传到新账号的草稿箱'
         );
         if (switchAccount) {
           try {
@@ -8440,10 +8358,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   useEffect(() => {
     if (creationMode !== 'fast') return;
     if (
-        selectedModel === 'kling' ||
-        selectedModel === 'sora2' ||
-        selectedModel === 'sora2pro' ||
-        selectedModel === 'seedance2.0'
+      selectedModel === 'kling' ||
+      selectedModel === 'sora2' ||
+      selectedModel === 'sora2pro' ||
+      selectedModel === 'seedance2.0'
     ) {
       lastFastModelRef.current = selectedModel;
     }
@@ -8465,13 +8383,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [normalizeDurationForModel, selectedModel]);
 
   const backendModel =
-      selectedModel === 'sora2pro'
-          ? 'sora-2-pro'
-          : selectedModel === 'sora2'
-              ? 'sora-2'
-              : selectedModel === 'kling'
-                  ? 'kling'
-                  : 'seedance-2.0';
+    selectedModel === 'sora2pro'
+      ? 'sora-2-pro'
+      : selectedModel === 'sora2'
+        ? 'sora-2'
+        : selectedModel === 'kling'
+          ? 'kling'
+          : 'seedance-2.0';
 
   const fetchEstimatedSeconds = useCallback(async (params: { model: string; duration: number; sound: 'on' | 'off'; aspect_ratio?: string; resolution?: string }) => {
     const model = String(params.model || '').trim();
@@ -8521,7 +8439,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const inactiveSegment = 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5';
 
     const tooltipBase =
-        'pointer-events-none absolute top-full mt-2 w-[250px] rounded-2xl border border-white/25 bg-zinc-950/90 p-3 text-left opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition group-hover/seg:opacity-100 group-focus-visible/seg:opacity-100 z-[200]';
+      'pointer-events-none absolute top-full mt-2 w-[250px] rounded-2xl border border-white/25 bg-zinc-950/90 p-3 text-left opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition group-hover/seg:opacity-100 group-focus-visible/seg:opacity-100 z-[200]';
 
     const tooltipAlignClass = (align: 'left' | 'center' | 'right') => {
       if (align === 'left') return 'left-0 translate-x-0';
@@ -8530,68 +8448,68 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
 
     const tooltip = (desc: string, align: 'left' | 'center' | 'right' = 'center') => (
-        <div className={`${tooltipBase} ${tooltipAlignClass(align)}`}>
-          <div className="text-[11px] font-bold text-white/90">{t.wb_model_tooltip_title}</div>
-          <div className="mt-1 text-[10px] leading-relaxed text-zinc-200/80">{desc}</div>
-        </div>
+      <div className={`${tooltipBase} ${tooltipAlignClass(align)}`}>
+        <div className="text-[11px] font-bold text-white/90">{t.wb_model_tooltip_title}</div>
+        <div className="mt-1 text-[10px] leading-relaxed text-zinc-200/80">{desc}</div>
+      </div>
     );
 
     const legacyModelSelector = (
-        <div className="flex flex-col gap-3">
-          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-            <Cpu className="w-3 h-3" /> {t.wb_model_title}
-          </h2>
-          <div className="glass-panel rounded-xl p-1 border border-white/10 bg-black/20 relative z-[90]">
-            <div className="flex items-center gap-1">
-              <button
-                  type="button"
-                  aria-pressed={selectedModel === 'kling'}
-                  onClick={() => setSelectedModel('kling')}
-                  className={`${segmentBase} ${language === 'zh' ? 'text-[10px]' : ''} ${selectedModel === 'kling' ? activeSegment : inactiveSegment}`}
-              >
-                {t.wb_model_kling_title || (language === 'zh' ? '可灵 o1' : 'Kling o1')}
-                {tooltip(t.wb_model_tip_sora_kling, 'left')}
-              </button>
-              <button
-                  type="button"
-                  aria-pressed={selectedModel === 'sora2'}
-                  onClick={() => setSelectedModel('sora2')}
-                  className={`${segmentBase} ${selectedModel === 'sora2' ? activeSegment : inactiveSegment}`}
-              >
-                Sora 2
-                {tooltip(t.wb_model_tip_sora_kling, 'center')}
-              </button>
-              <button
-                  type="button"
-                  aria-pressed={selectedModel === 'sora2pro'}
-                  onClick={() => setSelectedModel('sora2pro')}
-                  className={`${segmentBase} ${selectedModel === 'sora2pro' ? activeSegment : inactiveSegment}`}
-              >
-                Sora 2 Pro
-                {tooltip(t.wb_model_tip_sora_kling, 'center')}
-              </button>
-              <button
-                  type="button"
-                  aria-pressed={selectedModel === 'seedance2.0'}
-                  onClick={() => setSelectedModel('seedance2.0')}
-                  className={`${segmentBase} ${selectedModel === 'seedance2.0' ? activeSegment : inactiveSegment}`}
-              >
-                Seedance 2.0
-                {tooltip(t.wb_model_tip_seedance, 'right')}
-              </button>
-            </div>
+      <div className="flex flex-col gap-3">
+        <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+          <Cpu className="w-3 h-3" /> {t.wb_model_title}
+        </h2>
+        <div className="glass-panel rounded-xl p-1 border border-white/10 bg-black/20 relative z-[90]">
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              aria-pressed={selectedModel === 'kling'}
+              onClick={() => setSelectedModel('kling')}
+              className={`${segmentBase} ${language === 'zh' ? 'text-[10px]' : ''} ${selectedModel === 'kling' ? activeSegment : inactiveSegment}`}
+            >
+              {t.wb_model_kling_title || (language === 'zh' ? '可灵 o1' : 'Kling o1')}
+              {tooltip(t.wb_model_tip_sora_kling, 'left')}
+            </button>
+            <button
+              type="button"
+              aria-pressed={selectedModel === 'sora2'}
+              onClick={() => setSelectedModel('sora2')}
+              className={`${segmentBase} ${selectedModel === 'sora2' ? activeSegment : inactiveSegment}`}
+            >
+              Sora 2
+              {tooltip(t.wb_model_tip_sora_kling, 'center')}
+            </button>
+            <button
+              type="button"
+              aria-pressed={selectedModel === 'sora2pro'}
+              onClick={() => setSelectedModel('sora2pro')}
+              className={`${segmentBase} ${selectedModel === 'sora2pro' ? activeSegment : inactiveSegment}`}
+            >
+              Sora 2 Pro
+              {tooltip(t.wb_model_tip_sora_kling, 'center')}
+            </button>
+            <button
+              type="button"
+              aria-pressed={selectedModel === 'seedance2.0'}
+              onClick={() => setSelectedModel('seedance2.0')}
+              className={`${segmentBase} ${selectedModel === 'seedance2.0' ? activeSegment : inactiveSegment}`}
+            >
+              Seedance 2.0
+              {tooltip(t.wb_model_tip_seedance, 'right')}
+            </button>
           </div>
         </div>
+      </div>
     );
 
     const handleSetCreationMode = (next: 'fast' | 'replay') => {
       if (next === creationMode) return;
       if (next === 'replay') {
         if (
-            selectedModel === 'kling' ||
-            selectedModel === 'sora2' ||
-            selectedModel === 'sora2pro' ||
-            selectedModel === 'seedance2.0'
+          selectedModel === 'kling' ||
+          selectedModel === 'sora2' ||
+          selectedModel === 'sora2pro' ||
+          selectedModel === 'seedance2.0'
         ) {
           lastFastModelRef.current = selectedModel;
         }
@@ -8609,159 +8527,159 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       desc: string;
       Icon: React.ComponentType<{ className?: string }>;
     }> = [
-      {
-        id: 'kling',
-        title: t.wb_model_kling_title || (language === 'zh' ? '可灵 o1' : 'Kling o1'),
-        desc: t.wb_model_kling_desc,
-        Icon: Zap,
-      },
-      {
-        id: 'sora2',
-        title: 'Sora 2',
-        desc: t.wb_model_sora2_desc,
-        Icon: SoraStarIcon,
-      },
-      {
-        id: 'sora2pro',
-        title: 'Sora 2 Pro',
-        desc: t.wb_model_sora2pro_desc,
-        Icon: Sparkles,
-      },
+        {
+          id: 'kling',
+          title: t.wb_model_kling_title || (language === 'zh' ? '可灵 o1' : 'Kling o1'),
+          desc: t.wb_model_kling_desc,
+          Icon: Zap,
+        },
+        {
+          id: 'sora2',
+          title: 'Sora 2',
+          desc: t.wb_model_sora2_desc,
+          Icon: SoraStarIcon,
+        },
+        {
+          id: 'sora2pro',
+          title: 'Sora 2 Pro',
+          desc: t.wb_model_sora2pro_desc,
+          Icon: Sparkles,
+        },
 
-    ];
+      ];
 
     const renderModelCard = (opt: typeof modelOptions[number]) => {
       const active = selectedModel === opt.id;
       const locked = false;  // Seedance 2.0 backend ready — unlock fast mode
       const rateLabel = formatVideoRateLabel(getVideoModelPricingEntry(billingPricing, opt.id, 'fast'));
       return (
-          <button
-              key={opt.id}
-              type="button"
-              onClick={() => {
-                if (locked) return;
-                setSelectedModel(opt.id);
-              }}
-              disabled={locked}
-              className={[
-                'w-full text-left rounded-2xl border p-3 transition flex items-center gap-4',
-                'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
-                active
-                    ? 'border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10'
-                    : 'border-white/10 bg-black/20 hover:bg-white/5',
-                locked ? 'cursor-not-allowed opacity-70' : '',
-              ].join(' ')}
-              aria-pressed={active}
+        <button
+          key={opt.id}
+          type="button"
+          onClick={() => {
+            if (locked) return;
+            setSelectedModel(opt.id);
+          }}
+          disabled={locked}
+          className={[
+            'w-full text-left rounded-2xl border p-3 transition flex items-center gap-4',
+            'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+            active
+              ? 'border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10'
+              : 'border-white/10 bg-black/20 hover:bg-white/5',
+            locked ? 'cursor-not-allowed opacity-70' : '',
+          ].join(' ')}
+          aria-pressed={active}
+        >
+          <div
+            className={[
+              'w-10 h-10 rounded-2xl flex items-center justify-center shrink-0',
+              active
+                ? 'bg-orange-500/20 border border-orange-500/30'
+                : 'bg-zinc-900/60 border border-white/10',
+            ].join(' ')}
           >
-            <div
-                className={[
-                  'w-10 h-10 rounded-2xl flex items-center justify-center shrink-0',
-                  active
-                      ? 'bg-orange-500/20 border border-orange-500/30'
-                      : 'bg-zinc-900/60 border border-white/10',
-                ].join(' ')}
-            >
-              <opt.Icon className={active ? 'w-5 h-5 text-orange-500' : 'w-5 h-5 text-zinc-400'} />
-            </div>
+            <opt.Icon className={active ? 'w-5 h-5 text-orange-500' : 'w-5 h-5 text-zinc-400'} />
+          </div>
 
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5">
-                <div className="text-[14px] font-black tracking-wide text-zinc-200 truncate">{opt.title}</div>
-                <span className="relative inline-flex items-center group/model-tip shrink-0">
-                  <Info className="h-3.5 w-3.5 text-zinc-500" />
-                  <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 w-52 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[11px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/model-tip:opacity-100">
-                    {opt.desc}
-                  </span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <div className="text-[14px] font-black tracking-wide text-zinc-200 truncate">{opt.title}</div>
+              <span className="relative inline-flex items-center group/model-tip shrink-0">
+                <Info className="h-3.5 w-3.5 text-zinc-500" />
+                <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 w-52 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[11px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/model-tip:opacity-100">
+                  {opt.desc}
                 </span>
+              </span>
+            </div>
+          </div>
+          {locked ? (
+            <Lock className="w-4 h-4 text-zinc-400 shrink-0" aria-hidden="true" />
+          ) : (
+            <div className="flex flex-col items-center gap-2 shrink-0">
+              <div
+                className={[
+                  'model-check w-4 h-4 rounded-full border flex items-center justify-center',
+                  active ? 'border-orange-500 bg-orange-500' : 'model-check--inactive border-white/25 bg-transparent',
+                ].join(' ')}
+                aria-hidden="true"
+              >
+                {active ? <Check className="w-2.5 h-2.5 text-white" /> : null}
+              </div>
+              <div
+                className={[
+                  'text-[8px] whitespace-nowrap',
+                  active ? 'font-bold text-orange-500' : 'font-medium text-zinc-500',
+                ].join(' ')}
+              >
+                {rateLabel}
               </div>
             </div>
-            {locked ? (
-                <Lock className="w-4 h-4 text-zinc-400 shrink-0" aria-hidden="true" />
-            ) : (
-                <div className="flex flex-col items-center gap-2 shrink-0">
-                  <div
-                      className={[
-                        'model-check w-4 h-4 rounded-full border flex items-center justify-center',
-                        active ? 'border-orange-500 bg-orange-500' : 'model-check--inactive border-white/25 bg-transparent',
-                      ].join(' ')}
-                      aria-hidden="true"
-                  >
-                    {active ? <Check className="w-2.5 h-2.5 text-white" /> : null}
-                  </div>
-                  <div
-                      className={[
-                        'text-[8px] whitespace-nowrap',
-                        active ? 'font-bold text-orange-500' : 'font-medium text-zinc-500',
-                      ].join(' ')}
-                  >
-                    {rateLabel}
-                  </div>
-                </div>
-            )}
-          </button>
+          )}
+        </button>
       );
     };
 
     const modelSelector = (
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-2 mb-1">
-            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-              <Wand2 className="w-3 h-3" /> {t.wb_creation_mode_title}
-            </h2>
-            <button
-              type="button"
-              onClick={() => setIsModelSectionCollapsed(!isModelSectionCollapsed)}
-              className="p-1.5 text-zinc-600 hover:text-zinc-300 transition rounded"
-              title={isModelSectionCollapsed ? t.wb_expand : t.wb_collapse}
-            >
-              <ChevronsDown className={`w-4 h-4 transition-transform duration-200 ${isModelSectionCollapsed ? 'rotate-0' : 'rotate-180'}`} />
-            </button>
-          </div>
-
-          <div
-            className={[
-              'grid overflow-hidden transition-[grid-template-rows,opacity] duration-300',
-              'ease-[cubic-bezier(0.22,1,0.36,1)]',
-              isModelSectionCollapsed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
-            ].join(' ')}
-            aria-hidden={isModelSectionCollapsed}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+            <Wand2 className="w-3 h-3" /> {t.wb_creation_mode_title}
+          </h2>
+          <button
+            type="button"
+            onClick={() => setIsModelSectionCollapsed(!isModelSectionCollapsed)}
+            className="p-1.5 text-zinc-600 hover:text-zinc-300 transition rounded"
+            title={isModelSectionCollapsed ? t.wb_expand : t.wb_collapse}
           >
-            <div className="min-h-0 overflow-hidden">
-              <div
-                className={[
-                  'flex flex-col gap-6 transition-[transform,opacity] duration-300',
-                  'ease-[cubic-bezier(0.22,1,0.36,1)]',
-                  isModelSectionCollapsed ? '-translate-y-3 opacity-0' : 'translate-y-0 opacity-100',
-                ].join(' ')}
-              >
+            <ChevronsDown className={`w-4 h-4 transition-transform duration-200 ${isModelSectionCollapsed ? 'rotate-0' : 'rotate-180'}`} />
+          </button>
+        </div>
+
+        <div
+          className={[
+            'grid overflow-hidden transition-[grid-template-rows,opacity] duration-300',
+            'ease-[cubic-bezier(0.22,1,0.36,1)]',
+            isModelSectionCollapsed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
+          ].join(' ')}
+          aria-hidden={isModelSectionCollapsed}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div
+              className={[
+                'flex flex-col gap-6 transition-[transform,opacity] duration-300',
+                'ease-[cubic-bezier(0.22,1,0.36,1)]',
+                isModelSectionCollapsed ? '-translate-y-3 opacity-0' : 'translate-y-0 opacity-100',
+              ].join(' ')}
+            >
               <div>
                 <div className="creation-mode-toggle mx-3 rounded-2xl bg-white/5 border border-white/10 p-1 flex items-center gap-1">
                   <button
-                      type="button"
-                      onClick={() => handleSetCreationMode('fast')}
-                      aria-pressed={creationMode === 'fast'}
-                      className={[
-                        'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
-                        'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
-                        creationMode === 'fast'
-                            ? 'bg-white text-zinc-900 shadow-md'
-                            : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
-                      ].join(' ')}
+                    type="button"
+                    onClick={() => handleSetCreationMode('fast')}
+                    aria-pressed={creationMode === 'fast'}
+                    className={[
+                      'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
+                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                      creationMode === 'fast'
+                        ? 'bg-white text-zinc-900 shadow-md'
+                        : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
+                    ].join(' ')}
                   >
                     <Zap className={creationMode === 'fast' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
                     <span className="text-[12px]">{t.wb_creation_mode_fast}</span>
                   </button>
                   <button
-                      type="button"
-                      onClick={() => handleSetCreationMode('replay')}
-                      aria-pressed={creationMode === 'replay'}
-                      className={[
-                        'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
-                        'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
-                        creationMode === 'replay'
-                            ? 'bg-white text-zinc-900 shadow-md'
-                            : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
-                      ].join(' ')}
+                    type="button"
+                    onClick={() => handleSetCreationMode('replay')}
+                    aria-pressed={creationMode === 'replay'}
+                    className={[
+                      'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
+                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                      creationMode === 'replay'
+                        ? 'bg-white text-zinc-900 shadow-md'
+                        : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
+                    ].join(' ')}
                   >
                     <Layers className={creationMode === 'replay' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
                     <span className="text-[12px]">{t.wb_creation_mode_replay}</span>
@@ -8770,156 +8688,156 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
 
               {creationMode === 'fast' ? (
-                  <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
-                    <div className="mb-3">
-                      <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                        <ArrowRight className="w-3 h-3 text-zinc-500" />
-                        {t.wb_render_power_title}
-                      </h2>
-                    </div>
-                    <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
+                <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
+                  <div className="mb-3">
+                    <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                      <ArrowRight className="w-3 h-3 text-zinc-500" />
+                      {t.wb_render_power_title}
+                    </h2>
                   </div>
+                  <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
+                </div>
               ) : (
-              <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
-                <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                  <ArrowRight className="w-3 h-3 text-zinc-500" />
-                  {t.wb_render_power_title}
-                </h2>
-                <div className="group w-full text-left rounded-2xl border border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10 p-4 flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-orange-500/20 border border-orange-500/30">
-                    <Video className="w-5 h-5 text-orange-400" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 overflow-hidden">
-                      <div className="text-[14px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div>
-                      <div className="min-w-0 overflow-hidden">
-                        <div className="flex max-w-0 items-center gap-1.5 whitespace-nowrap opacity-0 transition-all duration-300 ease-out group-hover:max-w-[176px] group-hover:opacity-100">
-                          <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
-                            <ImageIcon className="h-3.5 w-3.5" />
-                          </span>
-                          <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
-                            <Video className="h-3.5 w-3.5" />
-                          </span>
-                          <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
-                            <Music className="h-3.5 w-3.5" />
-                          </span>
-                          <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
-                            <Users className="h-3.5 w-3.5" />
-                          </span>
+                <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
+                  <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <ArrowRight className="w-3 h-3 text-zinc-500" />
+                    {t.wb_render_power_title}
+                  </h2>
+                  <div className="group w-full text-left rounded-2xl border border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10 p-4 flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-orange-500/20 border border-orange-500/30">
+                      <Video className="w-5 h-5 text-orange-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 overflow-hidden">
+                        <div className="text-[14px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div>
+                        <div className="min-w-0 overflow-hidden">
+                          <div className="flex max-w-0 items-center gap-1.5 whitespace-nowrap opacity-0 transition-all duration-300 ease-out group-hover:max-w-[176px] group-hover:opacity-100">
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
+                              <ImageIcon className="h-3.5 w-3.5" />
+                            </span>
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
+                              <Video className="h-3.5 w-3.5" />
+                            </span>
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
+                              <Music className="h-3.5 w-3.5" />
+                            </span>
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
+                              <Users className="h-3.5 w-3.5" />
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="flex flex-col items-center gap-2 shrink-0">
-                    <div
+                    <div className="flex flex-col items-center gap-2 shrink-0">
+                      <div
                         className="model-check w-4 h-4 rounded-full border border-orange-500 bg-orange-500 flex items-center justify-center"
                         aria-hidden="true"
-                    >
-                      <Check className="w-2.5 h-2.5 text-white" />
-                    </div>
-                    <div className="text-[8px] whitespace-nowrap font-bold text-orange-500">
-                      {formatVideoRateLabel(getVideoModelPricingEntry(billingPricing, 'seedance2.0', 'replay'))}
+                      >
+                        <Check className="w-2.5 h-2.5 text-white" />
+                      </div>
+                      <div className="text-[8px] whitespace-nowrap font-bold text-orange-500">
+                        {formatVideoRateLabel(getVideoModelPricingEntry(billingPricing, 'seedance2.0', 'replay'))}
+                      </div>
                     </div>
                   </div>
-                </div>
 
-              </div>
+                </div>
               )}
-              </div>
             </div>
           </div>
         </div>
+      </div>
     );
 
     const renderLeftColumnSettings = () => (
-        <div ref={configSectionRef} className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${getGuideFocusClass('config')}`}>
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-              <Gift className="w-3 h-3 shrink-0" /> {t.wb_product_info_title || 'Product Info'}
-            </h2>
-            <button
-                type="button"
-                onClick={() => {
-                  if (isAiRecognizing) {
-                    openInfo(popupTitles.notice, t.wb_ai_recognizing_tip);
-                    return;
-                  }
-                  if (getProductRecognitionSources().length === 0) {
-                    openInfo(popupTitles.notice, t.wb_ai_need_product_image);
-                    return;
-                  }
-                  void handleAiRecognize();
-                }}
-                className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border ${isAiRecognizing || getProductRecognitionSources().length === 0 ? 'border-white/10 bg-black/30 text-zinc-600 opacity-70 hover:bg-black/30' : needsAiReRecognize ? 'border-amber-500/50 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20' : 'border-orange-500/40 bg-orange-500/10 text-orange-300 hover:bg-orange-500/20'}`}
-            >
-              {isAiRecognizing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-              {isAiRecognizing ? t.wb_ai_recognizing_btn : t.wb_ai_recognize_btn}
-              {needsAiReRecognize && !isAiRecognizing && <AlertCircle className="w-3.5 h-3.5 text-amber-300" />}
-            </button>
+      <div ref={configSectionRef} className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${getGuideFocusClass('config')}`}>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+            <Gift className="w-3 h-3 shrink-0" /> {t.wb_product_info_title || 'Product Info'}
+          </h2>
+          <button
+            type="button"
+            onClick={() => {
+              if (isAiRecognizing) {
+                openInfo(popupTitles.notice, t.wb_ai_recognizing_tip);
+                return;
+              }
+              if (getProductRecognitionSources().length === 0) {
+                openInfo(popupTitles.notice, t.wb_ai_need_product_image);
+                return;
+              }
+              void handleAiRecognize();
+            }}
+            className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border ${isAiRecognizing || getProductRecognitionSources().length === 0 ? 'border-white/10 bg-black/30 text-zinc-600 opacity-70 hover:bg-black/30' : needsAiReRecognize ? 'border-amber-500/50 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20' : 'border-orange-500/40 bg-orange-500/10 text-orange-300 hover:bg-orange-500/20'}`}
+          >
+            {isAiRecognizing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+            {isAiRecognizing ? t.wb_ai_recognizing_btn : t.wb_ai_recognize_btn}
+            {needsAiReRecognize && !isAiRecognizing && <AlertCircle className="w-3.5 h-3.5 text-amber-300" />}
+          </button>
+        </div>
+
+        {needsAiReRecognize && (
+          <div className="-mt-1 text-[10px] text-amber-300 font-medium">
+            {t.wb_ai_recognize_dirty_hint || '素材已变更，请重新执行 AI 识别。'}
           </div>
+        )}
 
-          {needsAiReRecognize && (
-            <div className="-mt-1 text-[10px] text-amber-300 font-medium">
-              {t.wb_ai_recognize_dirty_hint || '素材已变更，请重新执行 AI 识别。'}
+        <div className="flex flex-col gap-4">
+          <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
+            <div ref={videoTypeFieldRef}>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+                {t.wb_field_product_name_label}
+                <span className="ml-1 text-red-400">*</span>
+              </label>
+              <input
+                ref={productNameFieldRef}
+                value={productName}
+                onChange={(e) => {
+                  setProductName(e.target.value);
+                  setProductInfoTouched((prev) => ({ ...prev, name: true }));
+                  if (requiredErrors.productName && e.target.value.trim()) {
+                    setRequiredErrors((prev) => ({ ...prev, productName: undefined }));
+                  }
+                }}
+                placeholder={t.wb_field_product_name_placeholder}
+                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition"
+              />
+              {requiredErrors.productName && (
+                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.productName}</div>
+              )}
             </div>
-          )}
 
-          <div className="flex flex-col gap-4">
-            <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
-              <div ref={videoTypeFieldRef}>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
-                  {t.wb_field_product_name_label}
-                  <span className="ml-1 text-red-400">*</span>
-                </label>
-                <input
-                    ref={productNameFieldRef}
-                    value={productName}
-                    onChange={(e) => {
-                      setProductName(e.target.value);
-                      setProductInfoTouched((prev) => ({ ...prev, name: true }));
-                      if (requiredErrors.productName && e.target.value.trim()) {
-                        setRequiredErrors((prev) => ({ ...prev, productName: undefined }));
-                      }
-                    }}
-                    placeholder={t.wb_field_product_name_placeholder}
-                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition"
-                />
-                {requiredErrors.productName && (
-                    <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.productName}</div>
-                )}
-              </div>
-
-              <div ref={productCategoryFieldRef}>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
-                  {t.wb_field_product_category_label}
-                  <span className="ml-1 text-red-400">*</span>
-                </label>
-                <DropdownSelect
-                    value={productCategory}
-                    placeholder={t.wb_select_placeholder}
-                    options={[
-                      { value: '服装鞋靴', label: t.wb_product_category_apparel },
-                      { value: '美妆个护', label: t.wb_product_category_beauty },
-                      { value: '食品饮料', label: t.wb_product_category_food },
-                      { value: '3C数码', label: t.wb_product_category_digital },
-                      { value: '家居百货', label: t.wb_product_category_home },
-                    ]}
-                    onChange={(v) => {
-                      setProductCategory(v);
-                      setProductInfoTouched((prev) => ({ ...prev, category: true }));
-                      if (requiredErrors.productCategory && v.trim()) {
-                        setRequiredErrors((prev) => ({ ...prev, productCategory: undefined }));
-                      }
-                    }}
-                    buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
-                    labelClassName=""
-                    iconClassName="w-3 h-3 text-zinc-500"
-                    optionClassName="text-xs"
-                />
-                {requiredErrors.productCategory && (
-                    <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.productCategory}</div>
-                )}
-              </div>
+            <div ref={productCategoryFieldRef}>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+                {t.wb_field_product_category_label}
+                <span className="ml-1 text-red-400">*</span>
+              </label>
+              <DropdownSelect
+                value={productCategory}
+                placeholder={t.wb_select_placeholder}
+                options={[
+                  { value: '服装鞋靴', label: t.wb_product_category_apparel },
+                  { value: '美妆个护', label: t.wb_product_category_beauty },
+                  { value: '食品饮料', label: t.wb_product_category_food },
+                  { value: '3C数码', label: t.wb_product_category_digital },
+                  { value: '家居百货', label: t.wb_product_category_home },
+                ]}
+                onChange={(v) => {
+                  setProductCategory(v);
+                  setProductInfoTouched((prev) => ({ ...prev, category: true }));
+                  if (requiredErrors.productCategory && v.trim()) {
+                    setRequiredErrors((prev) => ({ ...prev, productCategory: undefined }));
+                  }
+                }}
+                buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                labelClassName=""
+                iconClassName="w-3 h-3 text-zinc-500"
+                optionClassName="text-xs"
+              />
+              {requiredErrors.productCategory && (
+                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.productCategory}</div>
+              )}
+            </div>
 
             <div>
               <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
@@ -8944,56 +8862,56 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               )}
             </div>
 
+            <div>
+              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_target_audience_label}</label>
+              <input
+                value={targetAudience}
+                onChange={(e) => {
+                  setTargetAudience(e.target.value);
+                  setProductInfoTouched((prev) => ({ ...prev, audience: true }));
+                }}
+                placeholder={t.wb_field_target_audience_placeholder}
+                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-4 mt-2">
+          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+            <SlidersHorizontal className="w-3 h-3" /> {t.wb_generation_settings_title}
+          </h2>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_target_audience_label}</label>
-                <input
-                    value={targetAudience}
-                    onChange={(e) => {
-                      setTargetAudience(e.target.value);
-                      setProductInfoTouched((prev) => ({ ...prev, audience: true }));
-                    }}
-                    placeholder={t.wb_field_target_audience_placeholder}
-                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition"
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_delivery_region_label}</label>
+                <DropdownSelect
+                  value={deliveryRegion}
+                  options={DELIVERY_REGION_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
+                  onChange={setDeliveryRegion}
+                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  labelClassName=""
+                  iconClassName="w-3 h-3 text-zinc-500"
+                  optionClassName="text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_video_language_label}</label>
+                <DropdownSelect
+                  value={targetLanguage}
+                  options={TARGET_LANGUAGE_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
+                  onChange={setTargetLanguage}
+                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  labelClassName=""
+                  iconClassName="w-3 h-3 text-zinc-500"
+                  optionClassName="text-xs"
                 />
               </div>
             </div>
-          </div>
-
-          <div className="flex items-center justify-between gap-4 mt-2">
-            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-              <SlidersHorizontal className="w-3 h-3" /> {t.wb_generation_settings_title}
-            </h2>
-          </div>
-
-          <div className="flex flex-col gap-4">
-            <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_delivery_region_label}</label>
-                  <DropdownSelect
-                      value={deliveryRegion}
-                      options={DELIVERY_REGION_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
-                      onChange={setDeliveryRegion}
-                      buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
-                      labelClassName=""
-                      iconClassName="w-3 h-3 text-zinc-500"
-                      optionClassName="text-xs"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_video_language_label}</label>
-                  <DropdownSelect
-                      value={targetLanguage}
-                      options={TARGET_LANGUAGE_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
-                      onChange={setTargetLanguage}
-                      buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
-                      labelClassName=""
-                      iconClassName="w-3 h-3 text-zinc-500"
-                      optionClassName="text-xs"
-                  />
-                </div>
-              </div>
 
             <div className="flex flex-col gap-4">
               <div>
@@ -9124,160 +9042,159 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 )}
               </div>
 
-                <div ref={audioConfigSectionRef}>
-                  <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_audio}</label>
-                  <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
-                    <button onClick={() => setSoundSetting('on')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'on' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_on}</button>
-                    <button onClick={() => setSoundSetting('off')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'off' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_off}</button>
-                  </div>
-                  {soundSetting === 'off' && (
-                    <div className="mt-2 space-y-2">
-                      <button
-                        type="button"
-                        onClick={() => setIsBackgroundAudioSourceOpen((prev) => !prev)}
-                        className={`w-full rounded-lg border px-3 py-2 text-xs transition ${
-                          isBackgroundAudioSourceOpen
-                            ? 'border-orange-500/60 bg-orange-500/10 text-orange-200'
-                            : 'border-white/10 bg-black/30 text-zinc-200 hover:border-orange-500/50 hover:text-orange-300 hover:bg-orange-500/5'
-                        }`}
-                      >
-                        <span className="flex items-center justify-center gap-2">
-                          <span>
-                            {selectedBackgroundAudio
-                              ? (t.wb_config_change_audio || '更换音频')
-                              : (t.wb_config_add_audio || '添加音频')}
-                          </span>
-                          {isBackgroundAudioSourceOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                        </span>
-                      </button>
-                      {isBackgroundAudioSourceOpen && (
-                        <div className="rounded-lg border border-white/10 bg-black/25 p-1">
-                          <button
-                            type="button"
-                            onClick={openBackgroundAudioPicker}
-                            className="wb-upload-library-btn flex w-full items-center rounded-md border border-transparent px-3 py-2 text-left text-xs text-zinc-200 transition hover:border-zinc-400/30 hover:bg-zinc-500/10 hover:text-orange-200"
-                          >
-                            <span>{t.wb_btn_choose_from_library || '从素材库选择'}</span>
-                          </button>
-                          <div className="px-3 pb-1 pt-2 text-[10px] text-zinc-500">
-                            {(t as any).wb_background_audio_hint_library || '可在素材库弹窗中本地上传音频并保存'}
-                          </div>
-                        </div>
-                      )}
-                      {selectedBackgroundAudio ? (
-                        <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-2">
-                          <div className="min-w-0">
-                            <div className="text-[10px] text-zinc-500 uppercase">{t.wb_config_selected_audio || '已选音频'}</div>
-                            <div className="text-xs text-zinc-200 truncate">{selectedBackgroundAudio.name}</div>
-                            <div className="mt-1 text-[10px] text-zinc-500">
-                              {selectedBackgroundAudio.source === 'local'
-                                ? ((t as any).wb_background_audio_source_local || '来源：本地上传')
-                                : ((t as any).wb_background_audio_source_library || '来源：素材库')}
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedBackgroundAudio(null);
-                              setIsBackgroundAudioSourceOpen(false);
-                            }}
-                            className="mt-2 w-full text-[10px] text-zinc-400 hover:text-red-300 rounded px-2 py-1 border border-white/10 hover:border-red-500/40"
-                          >
-                            {t.editor_model_clear || '移除'}
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="text-[10px] text-zinc-500">{t.wb_config_audio_add_hint || '生成后会自动裁剪并附加到视频'}</div>
-                      )}
-                    </div>
-                  )}
+              <div ref={audioConfigSectionRef}>
+                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_audio}</label>
+                <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
+                  <button onClick={() => setSoundSetting('on')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'on' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_on}</button>
+                  <button onClick={() => setSoundSetting('off')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'off' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_off}</button>
                 </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_reference_script_label || '参考脚本（来自视频解析）'}</label>
-                <textarea
-                  value={referenceScript}
-                  onChange={(e) => {
-                    setReferenceScript(e.target.value);
-                    setReferenceScriptProductSignature(currentProductInfoSignature);
-                  }}
-                  rows={4}
-                  placeholder={t.wb_reference_script_placeholder || '粘贴或使用“视频解析反向生成脚本”应用到工作台后的参考脚本'}
-                  className="w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-y min-h-[86px] text-zinc-300 focus:border-orange-500 focus:outline-none"
-                />
-                <div className="text-[10px] text-zinc-500">{t.wb_reference_script_hint || '该内容将作为风格参考一并输入脚本模型，帮助生成更接近参考风格的新脚本。'}</div>
-                {!isReferenceScriptFresh && referenceScript.trim() && (
-                  <div className="text-[10px] text-amber-300 font-medium">
-                    当前参考脚本对应的是旧商品信息，生成脚本时将自动忽略它。
+                {soundSetting === 'off' && (
+                  <div className="mt-2 space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsBackgroundAudioSourceOpen((prev) => !prev)}
+                      className={`w-full rounded-lg border px-3 py-2 text-xs transition ${isBackgroundAudioSourceOpen
+                        ? 'border-orange-500/60 bg-orange-500/10 text-orange-200'
+                        : 'border-white/10 bg-black/30 text-zinc-200 hover:border-orange-500/50 hover:text-orange-300 hover:bg-orange-500/5'
+                        }`}
+                    >
+                      <span className="flex items-center justify-center gap-2">
+                        <span>
+                          {selectedBackgroundAudio
+                            ? (t.wb_config_change_audio || '更换音频')
+                            : (t.wb_config_add_audio || '添加音频')}
+                        </span>
+                        {isBackgroundAudioSourceOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                      </span>
+                    </button>
+                    {isBackgroundAudioSourceOpen && (
+                      <div className="rounded-lg border border-white/10 bg-black/25 p-1">
+                        <button
+                          type="button"
+                          onClick={openBackgroundAudioPicker}
+                          className="wb-upload-library-btn flex w-full items-center rounded-md border border-transparent px-3 py-2 text-left text-xs text-zinc-200 transition hover:border-zinc-400/30 hover:bg-zinc-500/10 hover:text-orange-200"
+                        >
+                          <span>{t.wb_btn_choose_from_library || '从素材库选择'}</span>
+                        </button>
+                        <div className="px-3 pb-1 pt-2 text-[10px] text-zinc-500">
+                          {(t as any).wb_background_audio_hint_library || '可在素材库弹窗中本地上传音频并保存'}
+                        </div>
+                      </div>
+                    )}
+                    {selectedBackgroundAudio ? (
+                      <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-2">
+                        <div className="min-w-0">
+                          <div className="text-[10px] text-zinc-500 uppercase">{t.wb_config_selected_audio || '已选音频'}</div>
+                          <div className="text-xs text-zinc-200 truncate">{selectedBackgroundAudio.name}</div>
+                          <div className="mt-1 text-[10px] text-zinc-500">
+                            {selectedBackgroundAudio.source === 'local'
+                              ? ((t as any).wb_background_audio_source_local || '来源：本地上传')
+                              : ((t as any).wb_background_audio_source_library || '来源：素材库')}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedBackgroundAudio(null);
+                            setIsBackgroundAudioSourceOpen(false);
+                          }}
+                          className="mt-2 w-full text-[10px] text-zinc-400 hover:text-red-300 rounded px-2 py-1 border border-white/10 hover:border-red-500/40"
+                        >
+                          {t.editor_model_clear || '移除'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="text-[10px] text-zinc-500">{t.wb_config_audio_add_hint || '生成后会自动裁剪并附加到视频'}</div>
+                    )}
                   </div>
                 )}
               </div>
+            </div>
 
-              <div className="border-t border-white/5 my-1" />
-
-              <div className="flex flex-col gap-3">
-                <div className="flex justify-between items-center">
-                  <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_script_count_label}</label>
-                  <span className="text-[12px] font-bold text-orange-400">{scriptVariantCount} {t.wb_script_count_unit}</span>
+            <div className="space-y-2">
+              <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_reference_script_label || '参考脚本（来自视频解析）'}</label>
+              <textarea
+                value={referenceScript}
+                onChange={(e) => {
+                  setReferenceScript(e.target.value);
+                  setReferenceScriptProductSignature(currentProductInfoSignature);
+                }}
+                rows={4}
+                placeholder={t.wb_reference_script_placeholder || '粘贴或使用“视频解析反向生成脚本”应用到工作台后的参考脚本'}
+                className="w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-y min-h-[86px] text-zinc-300 focus:border-orange-500 focus:outline-none"
+              />
+              <div className="text-[10px] text-zinc-500">{t.wb_reference_script_hint || '该内容将作为风格参考一并输入脚本模型，帮助生成更接近参考风格的新脚本。'}</div>
+              {!isReferenceScriptFresh && referenceScript.trim() && (
+                <div className="text-[10px] text-amber-300 font-medium">
+                  当前参考脚本对应的是旧商品信息，生成脚本时将自动忽略它。
                 </div>
-                <input
-                    type="range"
-                    min={1}
-                    max={10}
-                    value={scriptVariantCount}
-                    onChange={(e) => setScriptVariantCount(Number(e.target.value))}
-                    className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
-                />
+              )}
+            </div>
+
+            <div className="border-t border-white/5 my-1" />
+
+            <div className="flex flex-col gap-3">
+              <div className="flex justify-between items-center">
+                <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_script_count_label}</label>
+                <span className="text-[12px] font-bold text-orange-400">{scriptVariantCount} {t.wb_script_count_unit}</span>
               </div>
+              <input
+                type="range"
+                min={1}
+                max={10}
+                value={scriptVariantCount}
+                onChange={(e) => setScriptVariantCount(Number(e.target.value))}
+                className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
+              />
             </div>
           </div>
-
         </div>
+
+      </div>
     );
 
     return (
-        <div className="w-full flex flex-col gap-6 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
-          <div ref={modeSectionRef} className={getGuideFocusClass('mode')}>
-            {modelSelector}
+      <div className="w-full flex flex-col gap-6 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
+        <div ref={modeSectionRef} className={getGuideFocusClass('mode')}>
+          {modelSelector}
+        </div>
+        {false && legacyModelSelector}
+        {/* Upload Section */}
+        <div ref={uploadSectionRef} className={`flex flex-col gap-3 ${getGuideFocusClass('upload')}`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
+            {isSeedanceReplayMode && (
+              <button
+                type="button"
+                onClick={handleSeedanceReplayOpenLibrary}
+                className="wb-upload-library-btn inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-1.5 text-xs font-bold text-zinc-300 transition hover:border-white/25 hover:bg-white/[0.08] hover:text-white"
+              >
+                <Library className="h-3.5 w-3.5" />
+                {t.wb_seedance_replay_quick_add_button || '快速添加'}
+              </button>
+            )}
           </div>
-          {false && legacyModelSelector}
-          {/* Upload Section */}
-          <div ref={uploadSectionRef} className={`flex flex-col gap-3 ${getGuideFocusClass('upload')}`}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
-              {isSeedanceReplayMode && (
-                <button
-                  type="button"
-                  onClick={handleSeedanceReplayOpenLibrary}
-                  className="wb-upload-library-btn inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-1.5 text-xs font-bold text-zinc-300 transition hover:border-white/25 hover:bg-white/[0.08] hover:text-white"
-                >
-                  <Library className="h-3.5 w-3.5" />
-                  {t.wb_seedance_replay_quick_add_button || '快速添加'}
-                </button>
-              )}
-            </div>
-            {isSeedanceReplayMode ? (
-              <>
-                <SeedanceReplayUploadPanel
-                  assets={seedanceReplayUploadAssets}
-                  validationSummary={seedanceReplayValidation}
-                  focusTarget={seedanceReplayFocusTarget}
-                  onAddVirtualModel={handleSeedanceReplayAddVirtualModel}
-                  onOpenLibraryForKind={handleSeedanceReplayAddFromLibrary}
-                  onPreview={handleSeedanceReplayPreview}
-                  onRemove={handleSeedanceReplayRemove}
-                  onSetFrameRole={handleSeedanceReplaySetFrameRole}
-                />
-              </>
-            ) : (
+          {isSeedanceReplayMode ? (
+            <>
+              <SeedanceReplayUploadPanel
+                assets={seedanceReplayUploadAssets}
+                validationSummary={seedanceReplayValidation}
+                focusTarget={seedanceReplayFocusTarget}
+                onAddVirtualModel={handleSeedanceReplayAddVirtualModel}
+                onOpenLibraryForKind={handleSeedanceReplayAddFromLibrary}
+                onPreview={handleSeedanceReplayPreview}
+                onRemove={handleSeedanceReplayRemove}
+                onSetFrameRole={handleSeedanceReplaySetFrameRole}
+              />
+            </>
+          ) : (
             <div className="flex flex-col gap-3">
-            {isKlingOmniMode && (
+              {isKlingOmniMode && (
                 <div className="grid grid-cols-3 gap-2">
                   <button
-                      type="button"
-                      onClick={() => handleKlingGenerateModeChange('first_frame')}
-                      className={`relative flex items-center justify-center overflow-visible rounded-xl border px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'first_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                    type="button"
+                    onClick={() => handleKlingGenerateModeChange('first_frame')}
+                    className={`relative flex items-center justify-center overflow-visible rounded-xl border px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'first_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
                     <div className="flex items-center justify-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_first_frame}</span>
@@ -9292,9 +9209,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </div>
                   </button>
                   <button
-                      type="button"
-                      onClick={() => handleKlingGenerateModeChange('subject')}
-                      className={`relative flex items-center justify-center overflow-visible rounded-xl border px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'subject' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                    type="button"
+                    onClick={() => handleKlingGenerateModeChange('subject')}
+                    className={`relative flex items-center justify-center overflow-visible rounded-xl border px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'subject' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
                     <div className="flex items-center justify-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_subject}</span>
@@ -9310,9 +9227,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </div>
                   </button>
                   <button
-                      type="button"
-                      onClick={() => handleKlingGenerateModeChange('first_last_frame')}
-                      className={`relative flex items-center justify-center overflow-visible rounded-xl border px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'first_last_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                    type="button"
+                    onClick={() => handleKlingGenerateModeChange('first_last_frame')}
+                    className={`relative flex items-center justify-center overflow-visible rounded-xl border px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'first_last_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
                   >
                     <div className="flex items-center justify-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_first_last_frame || 'First + Last Frame Mode'}</span>
@@ -9327,46 +9244,46 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </div>
                   </button>
                 </div>
-            )}
-            {isKlingOmniMode && klingGenerateMode === 'subject' && !isKlingSubjectModeHintDismissed && (
+              )}
+              {isKlingOmniMode && klingGenerateMode === 'subject' && !isKlingSubjectModeHintDismissed && (
                 <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                   <div className="flex items-center gap-2 text-[11px] text-zinc-300">
                     <button
-                        type="button"
-                        className="text-zinc-500 transition hover:text-zinc-300"
-                        onClick={() => setIsKlingSubjectModeHintDismissed(true)}
-                        aria-label={t.wb_close_tip}
+                      type="button"
+                      className="text-zinc-500 transition hover:text-zinc-300"
+                      onClick={() => setIsKlingSubjectModeHintDismissed(true)}
+                      aria-label={t.wb_close_tip}
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
                     <span>{t.wb_subject_need_create_hint}</span>
                   </div>
                   <button
-                      type="button"
-                      className="rounded-xl border border-orange-500/70 bg-orange-500/10 px-3 py-1.5 text-[10px] font-bold text-orange-200 transition hover:bg-orange-500/20"
-                      onClick={openSubjectCreationLibrary}
+                    type="button"
+                    className="rounded-xl border border-orange-500/70 bg-orange-500/10 px-3 py-1.5 text-[10px] font-bold text-orange-200 transition hover:bg-orange-500/20"
+                    onClick={openSubjectCreationLibrary}
                   >
                     {t.wb_subject_create_now}
                   </button>
                 </div>
-            )}
-            <div
+              )}
+              <div
                 onDragOver={undefined}
                 onDragEnter={undefined}
                 onDragLeave={undefined}
                 onDrop={undefined}
                 className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors min-h-32 relative group ${uploadDisplayAssets.length > 0 ? 'border-none' : ''} ${isKlingOmniMode ? 'border-none' : (isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50')}`}
-            >
-              {!isKlingOmniMode && isDragUploadActive && (
+              >
+                {!isKlingOmniMode && isDragUploadActive && (
                   <div className="absolute inset-1 rounded-lg border border-dashed border-orange-500/60 bg-orange-500/10 pointer-events-none" />
-              )}
-              <input type="file" ref={fileInputRef} className="hidden" accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.mkv,.webm,.avi" multiple onChange={handleWorkbenchUpload} />
-              {!isKlingOmniMode && uploadDisplayAssets.length === 0 ? (
+                )}
+                <input type="file" ref={fileInputRef} className="hidden" accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.mkv,.webm,.avi" multiple onChange={handleWorkbenchUpload} />
+                {!isKlingOmniMode && uploadDisplayAssets.length === 0 ? (
                   <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
                     <button
-                        type="button"
-                        onClick={openAssetLibraryPicker}
-                        className="wb-upload-library-btn inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-bold text-zinc-100 transition hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-200"
+                      type="button"
+                      onClick={openAssetLibraryPicker}
+                      className="wb-upload-library-btn inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-bold text-zinc-100 transition hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-200"
                     >
                       <FolderOpen className="w-3.5 h-3.5" />
                       {t.wb_btn_choose_from_library || '从素材库选择'}
@@ -9375,180 +9292,180 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       {t.wb_upload_library_hint || '可在素材库弹窗中本地上传并自动保存到素材库'}
                     </p>
                   </div>
-              ) : (
+                ) : (
                   <div className="rounded-lg bg-zinc-900/80 p-2">
                     {isKlingOmniMode ? (
-                        klingGenerateMode === 'first_last_frame' ? (
-                          klingPrimarySlotAsset && klingTailSlotAsset ? (
-                            <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scroll pr-1">
-                              <div className="rounded-xl border border-white/10 bg-black/25 p-2">
-                                <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">{t.wb_label_first_frame_short || t.wb_label_first_frame || 'First'}</div>
-                                {renderUploadAssetCard(klingPrimarySlotAsset)}
-                              </div>
-                              <div className="rounded-xl border border-white/10 bg-black/25 p-2">
-                                <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">{t.wb_label_tail_frame || 'Tail Frame'}</div>
-                                {renderUploadAssetCard(klingTailSlotAsset)}
-                              </div>
+                      klingGenerateMode === 'first_last_frame' ? (
+                        klingPrimarySlotAsset && klingTailSlotAsset ? (
+                          <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scroll pr-1">
+                            <div className="rounded-xl border border-white/10 bg-black/25 p-2">
+                              <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">{t.wb_label_first_frame_short || t.wb_label_first_frame || 'First'}</div>
+                              {renderUploadAssetCard(klingPrimarySlotAsset)}
                             </div>
-                          ) : (
-                            <div className="flex flex-col gap-2">
-                              <div className="flex gap-1.5 flex-wrap">
-                                {([
-                                  { id: 'flux-2-pro', label: 'Flux 2 Pro' },
-                                  { id: 'flux-2-flex', label: 'Flux 2 Flex' },
-                                  { id: 'gpt-image-1.5', label: 'GPT Image 1.5' },
-                                ] as const).map((m) => (
-                                  <button
-                                    key={m.id}
-                                    type="button"
-                                    onClick={() => setImageGenModel(m.id)}
-                                    className={`rounded-md px-2 py-1 text-[10px] font-bold transition border ${imageGenModel === m.id ? 'border-orange-400/60 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10'}`}
-                                  >
-                                    {m.label}
-                                  </button>
-                                ))}
-                              </div>
-                              <div
-                                  className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
-                                  onClick={openAssetLibraryPicker}
-                              >
-                                <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
-                                  <span>{t.wb_label_reference_image || '参考图'}</span>
-                                  <UploadCloud className="w-3.5 h-3.5 text-zinc-500" />
-                                </div>
-                                {klingReferenceSlotAssets.length > 0 ? (
-                                    <div className="flex flex-col gap-2 max-h-60 overflow-y-auto custom-scroll pr-1">
-                                      {klingReferenceSlotAssets.map((asset) => renderUploadAssetCard(asset))}
-                                    </div>
-                                ) : (
-                                    <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20 flex flex-col items-center justify-center gap-2">
-                                      <UploadCloud className="w-5 h-5 text-zinc-600" />
-                                      <span className="text-[10px] text-zinc-500">{t.wb_kling_reference_upload_hint || 'Click to upload a product reference image'}</span>
-                                    </div>
-                                )}
-                              </div>
+                            <div className="rounded-xl border border-white/10 bg-black/25 p-2">
+                              <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">{t.wb_label_tail_frame || 'Tail Frame'}</div>
+                              {renderUploadAssetCard(klingTailSlotAsset)}
                             </div>
-                          )
+                          </div>
                         ) : (
-                        <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scroll pr-1">
-                          <div
+                          <div className="flex flex-col gap-2">
+                            <div className="flex gap-1.5 flex-wrap">
+                              {([
+                                { id: 'flux-2-pro', label: 'Flux 2 Pro' },
+                                { id: 'flux-2-flex', label: 'Flux 2 Flex' },
+                                { id: 'gpt-image-1.5', label: 'GPT Image 1.5' },
+                              ] as const).map((m) => (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  onClick={() => setImageGenModel(m.id)}
+                                  className={`rounded-md px-2 py-1 text-[10px] font-bold transition border ${imageGenModel === m.id ? 'border-orange-400/60 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10'}`}
+                                >
+                                  {m.label}
+                                </button>
+                              ))}
+                            </div>
+                            <div
                               className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
                               onClick={openAssetLibraryPicker}
-                              onDragOver={(e) => {
-                                if (!draggingWorkbenchAssetId) return;
-                                e.preventDefault();
-                                e.stopPropagation();
-                              }}
-                              onDrop={(e) => {
-                                if (!draggingWorkbenchAssetId) return;
-                                e.preventDefault();
-                                e.stopPropagation();
-                                moveQueueAssetToSlot(draggingWorkbenchAssetId, 'primary');
-                                clearWorkbenchDragState();
-                              }}
+                            >
+                              <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
+                                <span>{t.wb_label_reference_image || '参考图'}</span>
+                                <UploadCloud className="w-3.5 h-3.5 text-zinc-500" />
+                              </div>
+                              {klingReferenceSlotAssets.length > 0 ? (
+                                <div className="flex flex-col gap-2 max-h-60 overflow-y-auto custom-scroll pr-1">
+                                  {klingReferenceSlotAssets.map((asset) => renderUploadAssetCard(asset))}
+                                </div>
+                              ) : (
+                                <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20 flex flex-col items-center justify-center gap-2">
+                                  <UploadCloud className="w-5 h-5 text-zinc-600" />
+                                  <span className="text-[10px] text-zinc-500">{t.wb_kling_reference_upload_hint || 'Click to upload a product reference image'}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      ) : (
+                        <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scroll pr-1">
+                          <div
+                            className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
+                            onClick={openAssetLibraryPicker}
+                            onDragOver={(e) => {
+                              if (!draggingWorkbenchAssetId) return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                            onDrop={(e) => {
+                              if (!draggingWorkbenchAssetId) return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              moveQueueAssetToSlot(draggingWorkbenchAssetId, 'primary');
+                              clearWorkbenchDragState();
+                            }}
                           >
                             <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
                               <span>{klingGenerateMode === 'subject' ? (t.wb_label_subject_image || 'Subject') : (t.wb_label_first_frame || 'First Frame')}</span>
                               {klingPrimarySlotHint}
                             </div>
                             {klingPrimarySlotAsset ? renderUploadAssetCard(klingPrimarySlotAsset) : (
-                                <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20" />
+                              <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20" />
                             )}
                           </div>
                           <div
-                              className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
-                              onClick={openAssetLibraryPicker}
-                              onDragOver={(e) => {
-                                if (!draggingWorkbenchAssetId) return;
-                                e.preventDefault();
-                                e.stopPropagation();
-                              }}
-                              onDrop={(e) => {
-                                if (!draggingWorkbenchAssetId) return;
-                                e.preventDefault();
-                                e.stopPropagation();
-                                moveQueueAssetToSlot(draggingWorkbenchAssetId, 'reference');
-                                clearWorkbenchDragState();
-                              }}
+                            className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
+                            onClick={openAssetLibraryPicker}
+                            onDragOver={(e) => {
+                              if (!draggingWorkbenchAssetId) return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                            onDrop={(e) => {
+                              if (!draggingWorkbenchAssetId) return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              moveQueueAssetToSlot(draggingWorkbenchAssetId, 'reference');
+                              clearWorkbenchDragState();
+                            }}
                           >
                             <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
                               <span>{t.wb_label_reference_image || 'Reference'}</span>
                               {klingReferenceSlotHint}
                             </div>
                             {klingReferenceSlotAssets.length > 0 ? (
-                                <div className="flex flex-col gap-2 max-h-60 overflow-y-auto custom-scroll pr-1">
-                                  {klingReferenceSlotAssets.map((asset) => (
-                                    <div
-                                      key={asset.id}
-                                      onDragOver={(e) => {
-                                        if (!draggingWorkbenchAssetId || draggingWorkbenchAssetId === asset.id) return;
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                      }}
-                                      onDrop={(e) => {
-                                        if (!draggingWorkbenchAssetId || draggingWorkbenchAssetId === asset.id) return;
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        moveQueueAssetToSlot(draggingWorkbenchAssetId, 'reference', asset.id);
-                                        clearWorkbenchDragState();
-                                      }}
-                                    >
-                                      {renderUploadAssetCard(asset, klingReferenceSlotAssets.length > 2)}
-                                    </div>
-                                  ))}
-                                </div>
+                              <div className="flex flex-col gap-2 max-h-60 overflow-y-auto custom-scroll pr-1">
+                                {klingReferenceSlotAssets.map((asset) => (
+                                  <div
+                                    key={asset.id}
+                                    onDragOver={(e) => {
+                                      if (!draggingWorkbenchAssetId || draggingWorkbenchAssetId === asset.id) return;
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                    }}
+                                    onDrop={(e) => {
+                                      if (!draggingWorkbenchAssetId || draggingWorkbenchAssetId === asset.id) return;
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      moveQueueAssetToSlot(draggingWorkbenchAssetId, 'reference', asset.id);
+                                      clearWorkbenchDragState();
+                                    }}
+                                  >
+                                    {renderUploadAssetCard(asset, klingReferenceSlotAssets.length > 2)}
+                                  </div>
+                                ))}
+                              </div>
                             ) : (
-                                <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20" />
+                              <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20" />
                             )}
                           </div>
                         </div>
-                        )
+                      )
                     ) : (
-                    <div className="flex flex-col gap-2 max-h-72 overflow-y-auto custom-scroll pr-1">
-                      {uploadDisplayAssets.map((asset) => {
-                        const inQueue = assetQueue.find((item) => item.id === asset.id);
-                        const selected = selectedQueueAssetId ? selectedQueueAssetId === asset.id : uploadedFile === asset.previewUrl;
-                        return (
+                      <div className="flex flex-col gap-2 max-h-72 overflow-y-auto custom-scroll pr-1">
+                        {uploadDisplayAssets.map((asset) => {
+                          const inQueue = assetQueue.find((item) => item.id === asset.id);
+                          const selected = selectedQueueAssetId ? selectedQueueAssetId === asset.id : uploadedFile === asset.previewUrl;
+                          return (
                             <div
-                                key={asset.id}
-                                role="button"
-                                tabIndex={0}
-                                onClick={() => {
-                                  if (inQueue) {
-                                    selectAssetFromQueue(inQueue);
-                                    return;
-                                  }
-                                  setUploadedFile(asset.previewUrl || null);
-                                  setFileName(asset.name || '');
-                                  setSelectedFileObj(asset.fileObj || null);
-                                  setSelectedAssetUrl(asset.assetUrl || null);
-                                  setSelectedAssetSource(asset.source || null);
-                                  setCurrentMaterialType(asset.materialType || null);
-                                  setSelectedQueueAssetId(null);
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key !== 'Enter' && e.key !== ' ') return;
-                                  e.preventDefault();
-                                  if (inQueue) {
-                                    selectAssetFromQueue(inQueue);
-                                    return;
-                                  }
-                                  setUploadedFile(asset.previewUrl || null);
-                                  setFileName(asset.name || '');
-                                  setSelectedFileObj(asset.fileObj || null);
-                                  setSelectedAssetUrl(asset.assetUrl || null);
-                                  setSelectedAssetSource(asset.source || null);
-                                  setCurrentMaterialType(asset.materialType || null);
-                                  setSelectedQueueAssetId(null);
-                                }}
-                                className={`relative w-full rounded-md overflow-hidden border text-left transition ${selected ? 'border-orange-500/70 ring-1 ring-orange-500/50' : 'border-white/10 hover:border-white/20'}`}
+                              key={asset.id}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => {
+                                if (inQueue) {
+                                  selectAssetFromQueue(inQueue);
+                                  return;
+                                }
+                                setUploadedFile(asset.previewUrl || null);
+                                setFileName(asset.name || '');
+                                setSelectedFileObj(asset.fileObj || null);
+                                setSelectedAssetUrl(asset.assetUrl || null);
+                                setSelectedAssetSource(asset.source || null);
+                                setCurrentMaterialType(asset.materialType || null);
+                                setSelectedQueueAssetId(null);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key !== 'Enter' && e.key !== ' ') return;
+                                e.preventDefault();
+                                if (inQueue) {
+                                  selectAssetFromQueue(inQueue);
+                                  return;
+                                }
+                                setUploadedFile(asset.previewUrl || null);
+                                setFileName(asset.name || '');
+                                setSelectedFileObj(asset.fileObj || null);
+                                setSelectedAssetUrl(asset.assetUrl || null);
+                                setSelectedAssetSource(asset.source || null);
+                                setCurrentMaterialType(asset.materialType || null);
+                                setSelectedQueueAssetId(null);
+                              }}
+                              className={`relative w-full rounded-md overflow-hidden border text-left transition ${selected ? 'border-orange-500/70 ring-1 ring-orange-500/50' : 'border-white/10 hover:border-white/20'}`}
                             >
                               {asset.previewUrl ? (asset.mediaKind === 'video' ? (
-                                  <video src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" muted playsInline />
+                                <video src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" muted playsInline />
                               ) : (
-                                  <img src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" alt={asset.name} />
+                                <img src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" alt={asset.name} />
                               )) : (
-                                  <div className="w-full h-24 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
+                                <div className="w-full h-24 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
                               )}
                               {!(isKlingOmniMode && (klingGenerateMode === 'first_frame' || klingGenerateMode === 'first_last_frame')) ? (
                                 <div className="absolute top-1 left-1 z-10" onClick={(e) => e.stopPropagation()}>
@@ -9584,74 +9501,73 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               ) : null}
                               <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
                                 {asset.mediaKind === 'image' && (
-                                    <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          const isHighlighted = isKlingOmniMode
-                                              ? klingGenerateMode === 'subject'
-                                                  ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
-                                                  : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
-                                              : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product');
-                                          const primarySource: QueuedAsset['source'] = isKlingOmniMode
-                                              ? (klingGenerateMode === 'subject' ? 'subject' : 'product')
-                                              : 'product';
-                                          const nextSource: QueuedAsset['source'] = isHighlighted ? 'preference' : primarySource;
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const isHighlighted = isKlingOmniMode
+                                        ? klingGenerateMode === 'subject'
+                                          ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
+                                          : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                        : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product');
+                                      const primarySource: QueuedAsset['source'] = isKlingOmniMode
+                                        ? (klingGenerateMode === 'subject' ? 'subject' : 'product')
+                                        : 'product';
+                                      const nextSource: QueuedAsset['source'] = isHighlighted ? 'preference' : primarySource;
 
-                                          if (inQueue) {
-                                            if (isKlingOmniMode && nextSource !== 'preference') {
-                                              applyKlingPrimarySelection(asset.id, nextSource);
-                                            } else {
-                                              setAssetQueue(prev => prev.map((item): QueuedAsset => (
-                                                  item.id === asset.id
-                                                      ? { ...item, source: 'preference', isPrimaryFrame: false }
-                                                      : item
-                                              )));
-                                            }
-                                          }
+                                      if (inQueue) {
+                                        if (isKlingOmniMode && nextSource !== 'preference') {
+                                          applyKlingPrimarySelection(asset.id, nextSource);
+                                        } else {
+                                          setAssetQueue(prev => prev.map((item): QueuedAsset => (
+                                            item.id === asset.id
+                                              ? { ...item, source: 'preference', isPrimaryFrame: false }
+                                              : item
+                                          )));
+                                        }
+                                      }
 
-                                          if (selected) {
-                                            setSelectedAssetSource(nextSource);
-                                          }
-                                        }}
-                                        className={`rounded border px-1.5 py-0.5 text-[10px] font-bold transition ${
-                                            selectedModel === 'sora2' || selectedModel === 'sora2pro'
-                                                ? ((
-                                                    isKlingOmniMode
-                                                        ? (
-                                                            klingGenerateMode === 'subject'
-                                                                ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
-                                                                : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
-                                                        )
-                                                        : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
-                                                )
-                                                    ? 'border-orange-500 bg-orange-500 text-white'
-                                                    : 'border-slate-600 bg-slate-600 text-white hover:bg-slate-500 hover:border-slate-500')
-                                                : ((
-                                                    isKlingOmniMode
-                                                        ? (
-                                                            klingGenerateMode === 'subject'
-                                                                ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
-                                                                : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
-                                                        )
-                                                        : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
-                                                )
-                                                    ? 'border-orange-500/70 bg-orange-500/20 text-orange-300'
-                                                    : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65')
-                                        }`}
-                                    >
-                                      {(
-                                          isKlingOmniMode
-                                              ? (
-                                                  klingGenerateMode === 'subject'
-                                                      ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
-                                                      : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
-                                              )
+                                      if (selected) {
+                                        setSelectedAssetSource(nextSource);
+                                      }
+                                    }}
+                                    className={`rounded border px-1.5 py-0.5 text-[10px] font-bold transition ${selectedModel === 'sora2' || selectedModel === 'sora2pro'
+                                      ? ((
+                                        isKlingOmniMode
+                                          ? (
+                                            klingGenerateMode === 'subject'
+                                              ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
                                               : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                          )
+                                          : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
                                       )
-                                            ? (isKlingOmniMode ? klingRoleLabel(klingGenerateMode === 'subject' ? 'subject' : 'product') : (t.wb_label_first_frame || 'First Frame'))
-                                              : (isKlingOmniMode ? klingRoleLabel('preference') : (t.wb_label_reference_image || 'Reference'))}
-                                    </button>
+                                        ? 'border-orange-500 bg-orange-500 text-white'
+                                        : 'border-slate-600 bg-slate-600 text-white hover:bg-slate-500 hover:border-slate-500')
+                                      : ((
+                                        isKlingOmniMode
+                                          ? (
+                                            klingGenerateMode === 'subject'
+                                              ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
+                                              : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                          )
+                                          : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                      )
+                                        ? 'border-orange-500/70 bg-orange-500/20 text-orange-300'
+                                        : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65')
+                                      }`}
+                                  >
+                                    {(
+                                      isKlingOmniMode
+                                        ? (
+                                          klingGenerateMode === 'subject'
+                                            ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
+                                            : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                        )
+                                        : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                    )
+                                      ? (isKlingOmniMode ? klingRoleLabel(klingGenerateMode === 'subject' ? 'subject' : 'product') : (t.wb_label_first_frame || 'First Frame'))
+                                      : (isKlingOmniMode ? klingRoleLabel('preference') : (t.wb_label_reference_image || 'Reference'))}
+                                  </button>
                                 )}
                                 <button onClick={(e) => removeUpload(e, asset.id)} className="p-1 bg-black/50 hover:bg-red-500 rounded text-white transition"><X className="w-2.5 h-2.5" /></button>
                               </div>
@@ -9660,644 +9576,697 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 {selected && <p className="text-[9px] text-green-400 flex items-center gap-1 drop-shadow-md"><CheckCircle className="w-2 h-2" /> {t.wb_ready}</p>}
                               </div>
                             </div>
-                        );
-                      })}
-                    </div>
+                          );
+                        })}
+                      </div>
                     )}
                   </div>
-              )}
-            </div>
-          <div className={`grid gap-2 grid-cols-1`}>
-            <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openAssetLibraryPicker();
-                }}
-                className="wb-upload-library-btn rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
-            >
-              {t.wb_btn_choose_from_library || '从素材库选择'}
-            </button>
-            <button
-                type="button"
-                onClick={openAiOptimizeDialog}
-                className={`${isKlingOmniMode ? 'col-span-2' : 'col-span-2'} w-full rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-[10px] font-bold text-orange-200 hover:bg-orange-500/20`}
-            >
-              <span className="inline-flex items-center justify-center gap-1.5">
-                <ImagePlus className="w-3.5 h-3.5" />
-                {t.wb_ai_opt_open_btn || 'AI智能优化'}
-              </span>
-            </button>
-            {isKlingOmniMode && klingGenerateMode === 'first_last_frame' && (
-              <button
+                )}
+              </div>
+              <div className={`grid gap-2 grid-cols-1`}>
+                <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    void handleGenerateKlingBoundaryFrames();
+                    openAssetLibraryPicker();
                   }}
-                  disabled={isGeneratingKlingBoundaryFrames}
-                  className={`rounded-lg border px-3 py-2 text-[10px] font-bold transition ${isGeneratingKlingBoundaryFrames ? 'border-orange-500/30 bg-orange-500/10 text-orange-300/70' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
-              >
-                {isGeneratingKlingBoundaryFrames
-                  ? (t.wb_kling_boundary_frames_generating || t.wb_generating || 'Generating...')
-                  : (t.wb_kling_generate_boundary_frames || 'Generate First + Last Frames From Reference')}
-              </button>
-            )}
-          </div>
-
-          {getDebugModeEnabled() && (
-          <div className="flex flex-col gap-3">
-            {/* ─── DEV: Error Modal 测试面板 ─── */}
-            <div className="rounded-xl border border-dashed border-red-500/30 bg-red-500/5 p-3">
-              <h2 className="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-2">🧪 Error Modal Test</h2>
-              <div className="flex flex-wrap gap-1.5">
-                {(
-                  [
-                    ['generation_failed', '生成失败', 500, 'VIDEO_GENERATION_FAILED', 'trk_test_001'],
-                    ['script_failed', '脚本生成失败', 500, 'SCRIPT_GENERATION_ERROR', 'trk_test_002'],
-                    ['parse_failed', '数据解析失败', 400, 'PARSE_ERROR', undefined],
-                    ['recognize_failed', '识别失败', 500, 'RECOGNIZE_FAILED', 'trk_test_003'],
-                    ['upload_failed', '上传失败', 502, 'UPLOAD_FAILED', 'trk_test_004'],
-                    ['network_error', '网络异常', 0, undefined, undefined],
-                    ['auth_error', '认证失败', 401, 'AUTH_TOKEN_EXPIRED', undefined],
-                    ['unknown_error', '未知错误', 503, 'UNKNOWN', 'trk_test_005'],
-                  ] as const
-                ).map(([cat, label, status, errCode, tid]) => (
-                  <button
-                    key={cat}
-                    className="px-2 py-1 rounded border border-red-500/30 text-[10px] text-red-300 hover:bg-red-500/20 transition"
-                    onClick={() => {
-                      const mockErr = new VideoApiError(`Mock: ${label}`, {
-                        status,
-                        errorCode: errCode,
-                        trackingId: tid,
-                      });
-                      openErrorModal(mockErr, {
-                        category: cat as ErrorCategory,
-                        onRetry: cat !== 'parse_failed' && cat !== 'auth_error'
-                          ? () => openInfo(popupTitles.notice, `[Test] 重试 "${label}" 被调用`)
-                          : undefined,
-                      });
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> {t.wb_reuse_queue}</h2>
-              <button
+                  className="wb-upload-library-btn rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
+                >
+                  {t.wb_btn_choose_from_library || '从素材库选择'}
+                </button>
+                <button
                   type="button"
-                  onClick={() => setReuseQueueEnabled((prev) => !prev)}
-                  className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold transition ${reuseQueueEnabled ? 'border-orange-500/60 bg-orange-500/15 text-orange-300' : 'border-white/10 bg-black/40 text-zinc-400 hover:bg-white/5'}`}
-              >
-                {reuseQueueEnabled ? (t.wb_reuse_queue_mode_on || '已开启') : (t.wb_reuse_queue_mode_off || '已关闭')}
-              </button>
-            </div>
-            <div className="glass-panel rounded-xl p-4 flex flex-col gap-4">
-              <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2.5">
-                <div className="flex items-center gap-2 text-[11px] font-bold text-zinc-200">
-                  <Info className="w-3.5 h-3.5 text-zinc-400" />
-                  <span>{t.wb_reuse_queue_explain_title || '复用队列怎么用？'}</span>
-                </div>
-                <p className="mt-1 text-[10px] leading-relaxed text-zinc-400">
-                  {t.wb_reuse_queue_explain_desc || '用于批量复用生成：系统会将素材队列和脚本队列做笛卡尔组合（素材 × 脚本）逐条提交任务。'}
-                </p>
-                <p className={`mt-1 text-[10px] ${reuseQueueEnabled ? 'text-orange-300' : 'text-zinc-500'}`}>
-                  {reuseQueueEnabled
-                      ? (t.wb_reuse_queue_enable_hint || '当前为批量模式：请把素材和脚本分别加入队列再生成。')
-                      : (t.wb_reuse_queue_disable_hint || '当前为单次模式：开启后才显示队列内容，适合大量复用场景。')}
-                </p>
+                  onClick={openAiOptimizeDialog}
+                  className={`${isKlingOmniMode ? 'col-span-2' : 'col-span-2'} w-full rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-[10px] font-bold text-orange-200 hover:bg-orange-500/20`}
+                >
+                  <span className="inline-flex items-center justify-center gap-1.5">
+                    <ImagePlus className="w-3.5 h-3.5" />
+                    {t.wb_ai_opt_open_btn || 'AI智能优化'}
+                  </span>
+                </button>
+                {isKlingOmniMode && klingGenerateMode === 'first_last_frame' && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleGenerateKlingBoundaryFrames();
+                    }}
+                    disabled={isGeneratingKlingBoundaryFrames}
+                    className={`rounded-lg border px-3 py-2 text-[10px] font-bold transition ${isGeneratingKlingBoundaryFrames ? 'border-orange-500/30 bg-orange-500/10 text-orange-300/70' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+                  >
+                    {isGeneratingKlingBoundaryFrames
+                      ? (t.wb_kling_boundary_frames_generating || t.wb_generating || 'Generating...')
+                      : (t.wb_kling_generate_boundary_frames || 'Generate First + Last Frames From Reference')}
+                  </button>
+                )}
               </div>
 
-              {!reuseQueueEnabled ? (
-                  <div className="text-[10px] text-zinc-500 border border-dashed border-white/10 rounded-lg px-3 py-2.5">
-                    {t.wb_reuse_queue_collapsed_hint || '复用队列已折叠。点击右上角按钮开启后即可维护队列。'}
-                  </div>
-              ) : (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_asset_queue}</div>
-                      <button
-                          onClick={addCurrentAssetToQueue}
-                          disabled={!uploadedFile && !selectedAssetUrl}
-                          className={`text-[10px] px-2 py-1 rounded border border-white/10 ${!uploadedFile && !selectedAssetUrl ? 'text-zinc-600' : 'text-orange-500 hover:bg-white/5'}`}
-                      >
-                        {t.wb_add_asset_queue}
-                      </button>
+              {getDebugModeEnabled() && (
+                <div className="flex flex-col gap-3">
+                  {/* ─── DEV: Error Modal 测试面板 ─── */}
+                  <div className="rounded-xl border border-dashed border-red-500/30 bg-red-500/5 p-3">
+                    <h2 className="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-2">🧪 Error Modal Test</h2>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(
+                        [
+                          ['generation_failed', '生成失败', 500, 'VIDEO_GENERATION_FAILED', 'trk_test_001'],
+                          ['script_failed', '脚本生成失败', 500, 'SCRIPT_GENERATION_ERROR', 'trk_test_002'],
+                          ['parse_failed', '数据解析失败', 400, 'PARSE_ERROR', undefined],
+                          ['recognize_failed', '识别失败', 500, 'RECOGNIZE_FAILED', 'trk_test_003'],
+                          ['upload_failed', '上传失败', 502, 'UPLOAD_FAILED', 'trk_test_004'],
+                          ['network_error', '网络异常', 0, undefined, undefined],
+                          ['auth_error', '认证失败', 401, 'AUTH_TOKEN_EXPIRED', undefined],
+                          ['unknown_error', '未知错误', 503, 'UNKNOWN', 'trk_test_005'],
+                        ] as const
+                      ).map(([cat, label, status, errCode, tid]) => (
+                        <button
+                          key={cat}
+                          className="px-2 py-1 rounded border border-red-500/30 text-[10px] text-red-300 hover:bg-red-500/20 transition"
+                          onClick={() => {
+                            const mockErr = new VideoApiError(`Mock: ${label}`, {
+                              status,
+                              errorCode: errCode,
+                              trackingId: tid,
+                            });
+                            openErrorModal(mockErr, {
+                              category: cat as ErrorCategory,
+                              onRetry: cat !== 'parse_failed' && cat !== 'auth_error'
+                                ? () => openInfo(popupTitles.notice, `[Test] 重试 "${label}" 被调用`)
+                                : undefined,
+                            });
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ))}
                     </div>
-                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
-                      {assetQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_assets}</div> : assetQueue.map(item => (
-                          <div
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> {t.wb_reuse_queue}</h2>
+                    <button
+                      type="button"
+                      onClick={() => setReuseQueueEnabled((prev) => !prev)}
+                      className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold transition ${reuseQueueEnabled ? 'border-orange-500/60 bg-orange-500/15 text-orange-300' : 'border-white/10 bg-black/40 text-zinc-400 hover:bg-white/5'}`}
+                    >
+                      {reuseQueueEnabled ? (t.wb_reuse_queue_mode_on || '已开启') : (t.wb_reuse_queue_mode_off || '已关闭')}
+                    </button>
+                  </div>
+                  <div className="glass-panel rounded-xl p-4 flex flex-col gap-4">
+                    <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2.5">
+                      <div className="flex items-center gap-2 text-[11px] font-bold text-zinc-200">
+                        <Info className="w-3.5 h-3.5 text-zinc-400" />
+                        <span>{t.wb_reuse_queue_explain_title || '复用队列怎么用？'}</span>
+                      </div>
+                      <p className="mt-1 text-[10px] leading-relaxed text-zinc-400">
+                        {t.wb_reuse_queue_explain_desc || '用于批量复用生成：系统会将素材队列和脚本队列做笛卡尔组合（素材 × 脚本）逐条提交任务。'}
+                      </p>
+                      <p className={`mt-1 text-[10px] ${reuseQueueEnabled ? 'text-orange-300' : 'text-zinc-500'}`}>
+                        {reuseQueueEnabled
+                          ? (t.wb_reuse_queue_enable_hint || '当前为批量模式：请把素材和脚本分别加入队列再生成。')
+                          : (t.wb_reuse_queue_disable_hint || '当前为单次模式：开启后才显示队列内容，适合大量复用场景。')}
+                      </p>
+                    </div>
+
+                    {!reuseQueueEnabled ? (
+                      <div className="text-[10px] text-zinc-500 border border-dashed border-white/10 rounded-lg px-3 py-2.5">
+                        {t.wb_reuse_queue_collapsed_hint || '复用队列已折叠。点击右上角按钮开启后即可维护队列。'}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_asset_queue}</div>
+                          <button
+                            onClick={addCurrentAssetToQueue}
+                            disabled={!uploadedFile && !selectedAssetUrl}
+                            className={`text-[10px] px-2 py-1 rounded border border-white/10 ${!uploadedFile && !selectedAssetUrl ? 'text-zinc-600' : 'text-orange-500 hover:bg-white/5'}`}
+                          >
+                            {t.wb_add_asset_queue}
+                          </button>
+                        </div>
+                        <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
+                          {assetQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_assets}</div> : assetQueue.map(item => (
+                            <div
                               key={item.id}
                               onClick={() => selectAssetFromQueue(item)}
                               className={`flex items-center gap-2 rounded-lg p-2 border cursor-pointer transition ${selectedQueueAssetId === item.id ? 'bg-orange-500/10 border-orange-500/30' : 'bg-black/30 border-white/5 hover:bg-white/5'}`}
-                          >
-                            <div className="w-8 h-8 rounded bg-zinc-800 overflow-hidden shrink-0">
-                              {item.previewUrl && (item.mediaKind === 'video' ? (
+                            >
+                              <div className="w-8 h-8 rounded bg-zinc-800 overflow-hidden shrink-0">
+                                {item.previewUrl && (item.mediaKind === 'video' ? (
                                   <video src={item.previewUrl} className="w-full h-full object-cover" muted playsInline />
-                              ) : (
+                                ) : (
                                   <img src={item.previewUrl} className="w-full h-full object-cover" />
-                              ))}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-zinc-300">
-                                  {materialTypeLabelMap[item.materialType || 'product']}
-                                </span>
-                                <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
+                                ))}
                               </div>
-                            </div>
-                            <label
-                              className={`shrink-0 flex items-center gap-1 text-[10px] px-1.5 py-1 rounded border transition ${item.mediaKind === 'image' ? 'border-white/10 text-zinc-300 hover:bg-white/5 cursor-pointer' : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-zinc-300">
+                                    {materialTypeLabelMap[item.materialType || 'product']}
+                                  </span>
+                                  <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
+                                </div>
+                              </div>
+                              <label
+                                className={`shrink-0 flex items-center gap-1 text-[10px] px-1.5 py-1 rounded border transition ${item.mediaKind === 'image' ? 'border-white/10 text-zinc-300 hover:bg-white/5 cursor-pointer' : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}
                                 onClick={(e) => e.stopPropagation()}
                                 title={item.mediaKind === 'image'
-                                    ? (isKlingOmniMode
+                                  ? (isKlingOmniMode
                                     ? (klingGenerateMode === 'subject' ? (t.wb_select_as_subject_reference || 'Use this asset as subject reference') : (t.wb_select_as_first_frame || 'Use this asset as first frame'))
                                     : (t.wb_select_as_first_frame || 'Use this asset as first frame'))
                                   : (t.wb_only_image_as_primary || 'Only image assets can be used as primary reference')}
-                            >
-                              <input
+                              >
+                                <input
                                   type="checkbox"
                                   checked={isKlingOmniMode
-                                      ? (klingGenerateMode === 'subject' ? item.source === 'subject' : item.source === 'product')
-                                      : !!item.isPrimaryFrame}
+                                    ? (klingGenerateMode === 'subject' ? item.source === 'subject' : item.source === 'product')
+                                    : !!item.isPrimaryFrame}
                                   disabled={item.mediaKind !== 'image'}
                                   onChange={() => markQueueAssetAsPrimaryFrame(item.id)}
                                   className="accent-orange-500"
-                              />
-                              <span>{isKlingOmniMode ? (klingGenerateMode === 'subject' ? (t.wb_label_subject_short || 'Subject') : (t.wb_label_first_frame_short || 'First')) : (t.wb_label_first_frame_short || 'First')}</span>
-                            </label>
-                            <button
+                                />
+                                <span>{isKlingOmniMode ? (klingGenerateMode === 'subject' ? (t.wb_label_subject_short || 'Subject') : (t.wb_label_first_frame_short || 'First')) : (t.wb_label_first_frame_short || 'First')}</span>
+                              </label>
+                              <button
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   removeAssetFromQueue(item.id);
                                 }}
-                            >
-                              <X className="w-3 h-3 text-zinc-600 hover:text-red-400" />
-                            </button>
-                          </div>
-                      ))}
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_script_queue}</div>
-                      <button
-                          onClick={addCurrentScriptToQueue}
-                          className="text-[10px] px-2 py-1 rounded border border-white/10 text-orange-500 hover:bg-white/5"
-                      >
-                        {t.wb_add_script_queue}
-                      </button>
-                    </div>
-                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
-                      {scriptQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_scripts}</div> : scriptQueue.map(item => (
-                          <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
-                            <div className="flex-1 min-w-0">
-                              <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
-                              <div className="text-[9px] text-zinc-500">{enableStoryboardEditor ? `${item.scripts.length} shots` : '完整脚本方案'}</div>
+                              >
+                                <X className="w-3 h-3 text-zinc-600 hover:text-red-400" />
+                              </button>
                             </div>
-                            <button onClick={() => removeScriptFromQueue(item.id)}><X className="w-3 h-3 text-zinc-600 hover:text-red-400" /></button>
-                          </div>
-                      ))}
-                    </div>
+                          ))}
+                        </div>
 
-                    <div className="text-[10px] text-zinc-500 pt-2 border-t border-white/5">
-                      {t.wb_estimated_generate}: {assetQueue.length} × {scriptQueue.length} = {expectedBatchCount}
-                    </div>
-                  </>
-              )}
-            </div>
-            </div>
-          )}
-            </div>
-          )}
-          </div>
+                        <div className="flex items-center justify-between">
+                          <div className="text-[10px] text-zinc-400 font-bold uppercase">{t.wb_script_queue}</div>
+                          <button
+                            onClick={addCurrentScriptToQueue}
+                            className="text-[10px] px-2 py-1 rounded border border-white/10 text-orange-500 hover:bg-white/5"
+                          >
+                            {t.wb_add_script_queue}
+                          </button>
+                        </div>
+                        <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll pr-1">
+                          {scriptQueue.length === 0 ? <div className="text-[10px] text-zinc-600">{t.wb_empty_scripts}</div> : scriptQueue.map(item => (
+                            <div key={item.id} className="flex items-center gap-2 bg-black/30 rounded-lg p-2 border border-white/5">
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[10px] text-zinc-200 truncate">{item.name}</div>
+                                <div className="text-[9px] text-zinc-500">{enableStoryboardEditor ? `${item.scripts.length} shots` : '完整脚本方案'}</div>
+                              </div>
+                              <button onClick={() => removeScriptFromQueue(item.id)}><X className="w-3 h-3 text-zinc-600 hover:text-red-400" /></button>
+                            </div>
+                          ))}
+                        </div>
 
-          {renderLeftColumnSettings()}
-
-          <div className="pt-1">
-            {scriptGenerationNotice && !isScriptGenerationForCurrentProject && (
-              <div className="mb-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-medium text-emerald-200 shadow-[0_8px_24px_rgba(16,185,129,0.12)]">
-                {scriptGenerationNotice}
-              </div>
-            )}
-            {showScriptGenerationProgressForCurrentProject && (
-              <div className="mb-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                <div className="mb-1 flex items-center justify-between gap-3 text-[10px] text-zinc-400">
-                  <span>{t.wb_waiting_progress || '进度'}</span>
-                  <div className="flex items-center gap-3">
-                    <span>{formatMessage(t.wb_script_generation_count_status || '已生成 {current}/{total} 份', { current: scriptGenerationCompletedCount, total: Math.max(scriptGenerationTotalCount, scriptGenerationCompletedCount, 1) })}</span>
-                    <span>{`${Math.max(0, Math.min(100, Math.round(scriptGenerationProgress)))}%`}</span>
+                        <div className="text-[10px] text-zinc-500 pt-2 border-t border-white/5">
+                          {t.wb_estimated_generate}: {assetQueue.length} × {scriptQueue.length} = {expectedBatchCount}
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-orange-500 via-amber-400 to-orange-200 transition-[width] duration-200 ease-out"
-                    style={{ width: `${Math.max(3, Math.min(100, scriptGenerationProgress))}%` }}
-                  />
-                </div>
-              </div>
-            )}
-            {isScriptGenerationForCurrentProject ? (
-              <div className="flex w-full gap-2">
-                <button
-                  type="button"
-                  onClick={handleCancelGenerateScripts}
-                  className="w-1/3 rounded-xl border border-orange-500/35 bg-orange-500/10 px-2 py-3 text-[10px] font-semibold text-orange-100 transition hover:bg-orange-500/18 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60"
-                >
-                  {t.wb_btn_cancel_script_generation || '取消生成'}
-                </button>
-                <div className="flex w-2/3 items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-3 text-xs font-bold text-zinc-200">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>{t.wb_generating}</span>
-                </div>
-              </div>
-            ) : (
-              <button
-                  type="button"
-                  onClick={() => {
-                    if (isScriptGenerationForCurrentProject) {
-                      openInfo(popupTitles.notice, t.wb_generate_in_progress);
-                      return;
-                    }
-                    if (!hasCurrentAsset) {
-                      openInfo(popupTitles.notice, t.wb_generate_need_asset);
-                      return;
-                    }
-                    void handleGenerateScripts();
-                  }}
-                  className={`w-full py-3 rounded-xl font-bold text-xs transition group border border-white/10 bg-black/30 text-zinc-200 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 ${!hasCurrentAsset ? 'opacity-40 hover:bg-black/30' : ''}`}
-              >
-                <span className="flex w-full items-center justify-center gap-2 px-3">
-                  <Wand2 className="w-4 h-4 shrink-0 group-hover:rotate-12 transition" />
-                  <span className="whitespace-nowrap">{t.wb_btn_gen_scripts}</span>
-                </span>
-              </button>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
+
+        {renderLeftColumnSettings()}
+
+        <div className="pt-1">
+          {scriptGenerationNotice && !isScriptGenerationForCurrentProject && (
+            <div className="mb-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-medium text-emerald-200 shadow-[0_8px_24px_rgba(16,185,129,0.12)]">
+              {scriptGenerationNotice}
+            </div>
+          )}
+          {showScriptGenerationProgressForCurrentProject && (
+            <div className="mb-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+              <div className="mb-1 flex items-center justify-between gap-3 text-[10px] text-zinc-400">
+                <span>{t.wb_waiting_progress || '进度'}</span>
+                <div className="flex items-center gap-3">
+                  <span>{formatMessage(t.wb_script_generation_count_status || '已生成 {current}/{total} 份', { current: scriptGenerationCompletedCount, total: Math.max(scriptGenerationTotalCount, scriptGenerationCompletedCount, 1) })}</span>
+                  <span>{`${Math.max(0, Math.min(100, Math.round(scriptGenerationProgress)))}%`}</span>
+                </div>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-orange-500 via-amber-400 to-orange-200 transition-[width] duration-200 ease-out"
+                  style={{ width: `${Math.max(3, Math.min(100, scriptGenerationProgress))}%` }}
+                />
+              </div>
+            </div>
+          )}
+          {isScriptGenerationForCurrentProject ? (
+            <div className="flex w-full gap-2">
+              <button
+                type="button"
+                onClick={handleCancelGenerateScripts}
+                className="w-1/3 rounded-xl border border-orange-500/35 bg-orange-500/10 px-2 py-3 text-[10px] font-semibold text-orange-100 transition hover:bg-orange-500/18 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60"
+              >
+                {t.wb_btn_cancel_script_generation || '取消生成'}
+              </button>
+              <div className="flex w-2/3 items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-3 text-xs font-bold text-zinc-200">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>{t.wb_generating}</span>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                if (isScriptGenerationForCurrentProject) {
+                  openInfo(popupTitles.notice, t.wb_generate_in_progress);
+                  return;
+                }
+                if (!hasCurrentAsset) {
+                  openInfo(popupTitles.notice, t.wb_generate_need_asset);
+                  return;
+                }
+                void handleGenerateScripts();
+              }}
+              className={`w-full py-3 rounded-xl font-bold text-xs transition group border border-white/10 bg-black/30 text-zinc-200 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 ${!hasCurrentAsset ? 'opacity-40 hover:bg-black/30' : ''}`}
+            >
+              <span className="flex w-full items-center justify-center gap-2 px-3">
+                <Wand2 className="w-4 h-4 shrink-0 group-hover:rotate-12 transition" />
+                <span className="whitespace-nowrap">{t.wb_btn_gen_scripts}</span>
+              </span>
+            </button>
+          )}
+        </div>
+      </div>
     );
   };
 
   return (
-      <div className="relative flex flex-col h-full z-10 rounded-3xl overflow-hidden border border-white/10 bg-zinc-950/80 shadow-2xl backdrop-blur-xl">
-        <header className="flex justify-between items-center px-8 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm shrink-0 relative z-50">
-          <div className="flex items-center gap-4">
-            <div className="relative">
-              <button
-                  ref={projectMenuButtonRef}
-                  type="button"
-                  title={projectUiText.listTooltip}
-                  onClick={() => {
-                    setProjectMenuOpen((prev) => !prev);
-                    setProjectActionMenuId(null);
-                  }}
-                  className="p-2 rounded-md border border-white/10 text-zinc-300 hover:text-white hover:border-white/30 hover:bg-white/10 transition"
+    <div className="relative flex flex-col h-full z-10 rounded-3xl overflow-hidden border border-white/10 bg-zinc-950/80 shadow-2xl backdrop-blur-xl">
+      <header className="flex justify-between items-center px-8 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm shrink-0 relative z-50">
+        <div className="flex items-center gap-4">
+          <div className="relative">
+            <button
+              ref={projectMenuButtonRef}
+              type="button"
+              title={projectUiText.listTooltip}
+              onClick={() => {
+                setProjectMenuOpen((prev) => !prev);
+                setProjectActionMenuId(null);
+              }}
+              className="p-2 rounded-md border border-white/10 text-zinc-300 hover:text-white hover:border-white/30 hover:bg-white/10 transition"
+            >
+              <List className="w-4 h-4" />
+            </button>
+
+            {projectMenuOpen && (
+              <div
+                ref={projectMenuRef}
+                onMouseDown={(event) => {
+                  const target = event.target as HTMLElement;
+                  if (target.closest('[data-project-action-root="true"]')) return;
+                  setProjectActionMenuId(null);
+                }}
+                className="absolute top-11 left-0 w-[360px] rounded-xl border border-white/10 bg-zinc-950/95 backdrop-blur-xl shadow-2xl shadow-black/60 p-3 text-sm"
               >
-                <List className="w-4 h-4" />
-              </button>
-
-              {projectMenuOpen && (
-                  <div
-                      ref={projectMenuRef}
-                      onMouseDown={(event) => {
-                        const target = event.target as HTMLElement;
-                        if (target.closest('[data-project-action-root="true"]')) return;
-                        setProjectActionMenuId(null);
-                      }}
-                      className="absolute top-11 left-0 w-[360px] rounded-xl border border-white/10 bg-zinc-950/95 backdrop-blur-xl shadow-2xl shadow-black/60 p-3 text-sm"
-                  >
-                    <div className="text-sm font-bold text-zinc-100 px-2 pb-2">{projectUiText.switchTitle}</div>
-                    <div className="px-2">
-                      <input
-                          value={projectSearch}
-                          onChange={(e) => setProjectSearch(e.target.value)}
-                          placeholder={projectUiText.searchPlaceholder}
-                          className="w-full rounded-lg border border-white/10 bg-black/40 text-zinc-200 text-xs px-3 py-2 outline-none focus:border-orange-500"
-                      />
+                <div className="text-sm font-bold text-zinc-100 px-2 pb-2">{projectUiText.switchTitle}</div>
+                <div className="px-2">
+                  <input
+                    value={projectSearch}
+                    onChange={(e) => setProjectSearch(e.target.value)}
+                    placeholder={projectUiText.searchPlaceholder}
+                    className="w-full rounded-lg border border-white/10 bg-black/40 text-zinc-200 text-xs px-3 py-2 outline-none focus:border-orange-500"
+                  />
+                </div>
+                <div className="h-px bg-white/10 my-3" />
+                <div className="px-2 pb-1 flex items-center justify-between">
+                  <div className="text-[11px] uppercase tracking-widest text-zinc-500">{projectUiText.recent}</div>
+                  {isProjectManageMode && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const ids = filteredProjects.map((p) => p.id);
+                          const allSelected = ids.length > 0 && ids.every((id) => selectedProjectIds.includes(id));
+                          setSelectedProjectIds(allSelected ? [] : ids);
+                        }}
+                        className="text-[11px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10"
+                      >
+                        {(() => {
+                          const ids = filteredProjects.map((p) => p.id);
+                          const allSelected = ids.length > 0 && ids.every((id) => selectedProjectIds.includes(id));
+                          return allSelected ? projectUiText.manageUnselectAll : projectUiText.manageSelectAll;
+                        })()}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsProjectManageMode(false);
+                          setSelectedProjectIds([]);
+                        }}
+                        className="text-[11px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10"
+                      >
+                        {projectUiText.manageCancel || projectUiText.cancel}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={selectedProjectIds.length === 0}
+                        onClick={() => setDeleteProjectIds(selectedProjectIds)}
+                        className={`text-[11px] px-2 py-1 rounded text-white ${selectedProjectIds.length === 0 ? 'bg-red-600/40 cursor-not-allowed' : 'bg-red-600 hover:bg-red-500'}`}
+                      >
+                        {projectUiText.manageDelete || projectUiText.delete}
+                      </button>
                     </div>
-                    <div className="h-px bg-white/10 my-3" />
-                    <div className="px-2 pb-1 flex items-center justify-between">
-                      <div className="text-[11px] uppercase tracking-widest text-zinc-500">{projectUiText.recent}</div>
-                      {isProjectManageMode && (
+                  )}
+                </div>
+                <div
+                  ref={projectListRef}
+                  className="overflow-y-auto custom-scroll pr-1"
+                  style={{ maxHeight: 256, paddingBottom: PROJECT_ACTION_MENU_RESERVED_SPACE }}
+                >
+                  {filteredProjects.length === 0 && (
+                    <div className="px-2 py-3 text-xs text-zinc-500">{projectUiText.empty}</div>
+                  )}
+                  {filteredProjects.map((project) => {
+                    const isCurrent = project.id === projectStore.currentProjectId;
+                    const isRenaming = renamingProjectId === project.id;
+                    return (
+                      <div key={project.id} className="project-menu-item-row group relative flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isProjectManageMode) {
+                              toggleProjectSelection(project.id);
+                              return;
+                            }
+                            switchProject(project.id);
+                          }}
+                          className="project-menu-item-btn flex-1 min-w-0 text-left bg-transparent border-0 appearance-none"
+                        >
                           <div className="flex items-center gap-2">
-                            <button
-                                type="button"
-                                onClick={() => {
-                                  const ids = filteredProjects.map((p) => p.id);
-                                  const allSelected = ids.length > 0 && ids.every((id) => selectedProjectIds.includes(id));
-                                  setSelectedProjectIds(allSelected ? [] : ids);
-                                }}
-                                className="text-[11px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10"
-                            >
-                              {(() => {
-                                const ids = filteredProjects.map((p) => p.id);
-                                const allSelected = ids.length > 0 && ids.every((id) => selectedProjectIds.includes(id));
-                                return allSelected ? projectUiText.manageUnselectAll : projectUiText.manageSelectAll;
-                              })()}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                  setIsProjectManageMode(false);
-                                  setSelectedProjectIds([]);
-                                }}
-                                className="text-[11px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10"
-                            >
-                              {projectUiText.manageCancel || projectUiText.cancel}
-                            </button>
-                            <button
-                                type="button"
-                                disabled={selectedProjectIds.length === 0}
-                                onClick={() => setDeleteProjectIds(selectedProjectIds)}
-                                className={`text-[11px] px-2 py-1 rounded text-white ${selectedProjectIds.length === 0 ? 'bg-red-600/40 cursor-not-allowed' : 'bg-red-600 hover:bg-red-500'}`}
-                            >
-                              {projectUiText.manageDelete || projectUiText.delete}
-                            </button>
-                          </div>
-                      )}
-                    </div>
-                    <div
-                        ref={projectListRef}
-                        className="overflow-y-auto custom-scroll pr-1"
-                        style={{ maxHeight: 256, paddingBottom: PROJECT_ACTION_MENU_RESERVED_SPACE }}
-                    >
-                      {filteredProjects.length === 0 && (
-                          <div className="px-2 py-3 text-xs text-zinc-500">{projectUiText.empty}</div>
-                      )}
-                      {filteredProjects.map((project) => {
-                        const isCurrent = project.id === projectStore.currentProjectId;
-                        const isRenaming = renamingProjectId === project.id;
-                        return (
-                            <div key={project.id} className="project-menu-item-row group relative flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5">
-                              <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (isProjectManageMode) {
-                                      toggleProjectSelection(project.id);
-                                      return;
-                                    }
-                                    switchProject(project.id);
-                                  }}
-                                  className="project-menu-item-btn flex-1 min-w-0 text-left bg-transparent border-0 appearance-none"
+                            {isProjectManageMode && (
+                              <span
+                                className={`w-4 h-4 rounded border shrink-0 inline-flex items-center justify-center ${selectedProjectIds.includes(project.id) ? 'bg-orange-500 border-orange-500 text-black' : 'border-white/30 text-transparent'}`}
                               >
-                                <div className="flex items-center gap-2">
-                                  {isProjectManageMode && (
-                                      <span
-                                          className={`w-4 h-4 rounded border shrink-0 inline-flex items-center justify-center ${selectedProjectIds.includes(project.id) ? 'bg-orange-500 border-orange-500 text-black' : 'border-white/30 text-transparent'}`}
-                                      >
-                                  <Check className="w-3 h-3" />
-                                </span>
-                                  )}
-                                  <span className="shrink-0">
-                                {isCurrent ? (
-                                    <span className="inline-flex items-center justify-center whitespace-nowrap leading-none px-2 py-1 rounded-md bg-orange-500 text-black text-[10px] font-black">
-                                    {projectUiText.currentTag}
-                                  </span>
-                                ) : null}
+                                <Check className="w-3 h-3" />
                               </span>
-                                  {isRenaming ? (
-                                      <input
-                                          autoFocus
-                                          value={renamingProjectName}
-                                          onClick={(event) => event.stopPropagation()}
-                                          onChange={(event) => setRenamingProjectName(event.target.value)}
-                                          onBlur={() => {
-                                            const renameSuccess = commitProjectRename(project.id, renamingProjectName, {
-                                              keepEditingOnFail: true,
-                                              originalName: project.name,
-                                            });
-                                            if (renameSuccess) {
-                                              setRenamingProjectId(null);
-                                            } else {
-                                              setRenamingProjectName(project.name);
-                                            }
-                                          }}
-                                          onKeyDown={(event) => {
-                                            if (event.key === 'Enter') {
-                                              const renameSuccess = commitProjectRename(project.id, renamingProjectName, {
-                                                keepEditingOnFail: true,
-                                                originalName: project.name,
-                                              });
-                                              if (renameSuccess) {
-                                                setRenamingProjectId(null);
-                                              } else {
-                                                setRenamingProjectName(project.name);
-                                              }
-                                            } else if (event.key === 'Escape') {
-                                              setRenamingProjectId(null);
-                                            }
-                                          }}
-                                          className="w-[180px] rounded border border-white/10 bg-black/40 text-zinc-100 text-xs px-2 py-1 outline-none focus:border-orange-500"
-                                      />
-                                  ) : (
-                                      <span className="text-sm text-zinc-100 truncate">{project.name}</span>
-                                  )}
-                                  <span className="text-[11px] text-zinc-500 shrink-0">{formatProjectLastEdited(project.updatedAt)}</span>
-                                </div>
+                            )}
+                            <span className="shrink-0">
+                              {isCurrent ? (
+                                <span className="inline-flex items-center justify-center whitespace-nowrap leading-none px-2 py-1 rounded-md bg-orange-500 text-black text-[10px] font-black">
+                                  {projectUiText.currentTag}
+                                </span>
+                              ) : null}
+                            </span>
+                            {isRenaming ? (
+                              <input
+                                autoFocus
+                                value={renamingProjectName}
+                                onClick={(event) => event.stopPropagation()}
+                                onChange={(event) => setRenamingProjectName(event.target.value)}
+                                onBlur={() => {
+                                  const renameSuccess = commitProjectRename(project.id, renamingProjectName, {
+                                    keepEditingOnFail: true,
+                                    originalName: project.name,
+                                  });
+                                  if (renameSuccess) {
+                                    setRenamingProjectId(null);
+                                  } else {
+                                    setRenamingProjectName(project.name);
+                                  }
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') {
+                                    const renameSuccess = commitProjectRename(project.id, renamingProjectName, {
+                                      keepEditingOnFail: true,
+                                      originalName: project.name,
+                                    });
+                                    if (renameSuccess) {
+                                      setRenamingProjectId(null);
+                                    } else {
+                                      setRenamingProjectName(project.name);
+                                    }
+                                  } else if (event.key === 'Escape') {
+                                    setRenamingProjectId(null);
+                                  }
+                                }}
+                                className="w-[180px] rounded border border-white/10 bg-black/40 text-zinc-100 text-xs px-2 py-1 outline-none focus:border-orange-500"
+                              />
+                            ) : (
+                              <span className="text-sm text-zinc-100 truncate">{project.name}</span>
+                            )}
+                            <span className="text-[11px] text-zinc-500 shrink-0">{formatProjectLastEdited(project.updatedAt)}</span>
+                          </div>
+                        </button>
+                        {!isProjectManageMode && <div className="relative" data-project-action-root="true">
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              const nextId = project.id;
+                              const isClosing = projectActionMenuId === nextId;
+                              if (isClosing) {
+                                setProjectActionMenuId(null);
+                                return;
+                              }
+
+                              setProjectActionMenuId(nextId);
+                            }}
+                            className="opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-400 hover:text-white hover:bg-white/10 transition"
+                          >
+                            <MoreHorizontal className="w-4 h-4" />
+                          </button>
+                          {projectActionMenuId === project.id && (
+                            <div data-project-action-menu="true" className="absolute right-0 top-7 w-28 rounded-lg border border-white/10 bg-zinc-900 shadow-xl p-1 z-20">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setProjectActionMenuId(null);
+                                  setRenamingProjectId(project.id);
+                                  setRenamingProjectName(project.name);
+                                }}
+                                className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-zinc-200 hover:bg-white/10"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                                {projectUiText.rename}
                               </button>
-                              {!isProjectManageMode && <div className="relative" data-project-action-root="true">
-                                <button
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      const nextId = project.id;
-                                      const isClosing = projectActionMenuId === nextId;
-                                      if (isClosing) {
-                                        setProjectActionMenuId(null);
-                                        return;
-                                      }
-
-                                      setProjectActionMenuId(nextId);
-                                    }}
-                                    className="opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-400 hover:text-white hover:bg-white/10 transition"
-                                >
-                                  <MoreHorizontal className="w-4 h-4" />
-                                </button>
-                                {projectActionMenuId === project.id && (
-                                    <div data-project-action-menu="true" className="absolute right-0 top-7 w-28 rounded-lg border border-white/10 bg-zinc-900 shadow-xl p-1 z-20">
-                                      <button
-                                          type="button"
-                                          onClick={() => {
-                                            setProjectActionMenuId(null);
-                                            setRenamingProjectId(project.id);
-                                            setRenamingProjectName(project.name);
-                                          }}
-                                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-zinc-200 hover:bg-white/10"
-                                      >
-                                        <Pencil className="w-3.5 h-3.5" />
-                                        {projectUiText.rename}
-                                      </button>
-                                      <button
-                                          type="button"
-                                          onClick={() => {
-                                            setProjectActionMenuId(null);
-                                            setDeleteProjectTarget(project);
-                                          }}
-                                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-red-400 hover:bg-red-500/10"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                        {projectUiText.delete}
-                                      </button>
-                                    </div>
-                                )}
-                              </div>}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setProjectActionMenuId(null);
+                                  setDeleteProjectTarget(project);
+                                }}
+                                className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-red-400 hover:bg-red-500/10"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                {projectUiText.delete}
+                              </button>
                             </div>
-                        );
-                      })}
-                    </div>
+                          )}
+                        </div>}
+                      </div>
+                    );
+                  })}
+                </div>
 
-                    <div className="h-px bg-white/10 my-3" />
-                    <div className="flex items-center justify-end gap-2 px-2">
-                      <button
-                          type="button"
-                          onClick={() => {
-                            setNewProjectNameDraft(projectUiText.defaultProjectName);
-                            setCreateProjectNameError('');
-                            setIsCreateProjectOpen(true);
-                          }}
-                          className="text-xs px-2 py-1 rounded text-orange-400 hover:text-orange-300 hover:bg-orange-500/10"
-                      >
-                        + {projectUiText.newProject}
-                      </button>
-                      <button
-                          type="button"
-                          onClick={() => {
-                            setIsProjectManageMode(true);
-                            setSelectedProjectIds([]);
-                            setProjectActionMenuId(null);
-                          }}
-                          className="text-xs px-2 py-1 rounded text-zinc-300 hover:text-white hover:bg-white/10"
-                      >
-                        {projectUiText.manageProjects}
-                      </button>
-                    </div>
-                  </div>
-              )}
-            </div>
-            {isHeaderProjectEditing ? (
-                <input
-                    autoFocus
-                    value={headerProjectNameDraft}
-                    onChange={(event) => setHeaderProjectNameDraft(event.target.value)}
-                    onBlur={() => {
-                      if (currentProject) commitProjectRename(currentProject.id, headerProjectNameDraft);
-                      setIsHeaderProjectEditing(false);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        if (currentProject) commitProjectRename(currentProject.id, headerProjectNameDraft);
-                        setIsHeaderProjectEditing(false);
-                      } else if (event.key === 'Escape') {
-                        setIsHeaderProjectEditing(false);
-                      }
-                    }}
-                    style={{ width: `${Math.max(1.2, Math.min(estimateProjectNameWidthEm(headerProjectNameDraft || currentProject?.name || ''), 22))}em` }}
-                    className="text-xl font-bold tracking-tight text-white bg-transparent border-b border-white/30 focus:border-orange-500 outline-none"
-                />
-            ) : (
-                <div className="flex items-center gap-2">
+                <div className="h-px bg-white/10 my-3" />
+                <div className="flex items-center justify-end gap-2 px-2">
                   <button
                     type="button"
-                    onClick={canGoToPrevProject ? goToPrevProject : undefined}
-                    aria-disabled={!canGoToPrevProject}
-                    className={`p-1 rounded transition ${canGoToPrevProject ? 'text-zinc-400 hover:text-white hover:bg-white/10' : 'text-zinc-400 opacity-35 cursor-not-allowed'}`}
-                    title="上一项目"
+                    onClick={() => {
+                      setNewProjectNameDraft(projectUiText.defaultProjectName);
+                      setCreateProjectNameError('');
+                      setIsCreateProjectOpen(true);
+                    }}
+                    className="text-xs px-2 py-1 rounded text-orange-400 hover:text-orange-300 hover:bg-orange-500/10"
                   >
-                    <ChevronLeft className="w-4 h-4" />
+                    + {projectUiText.newProject}
                   </button>
-                  <h1 className="text-xl font-bold tracking-tight text-white cursor-text" onClick={beginHeaderRename}>
-                    {currentProject?.name || DEFAULT_PROJECT_NAME}
-                  </h1>
                   <button
                     type="button"
-                    onClick={canGoToNextProject ? goToNextProject : undefined}
-                    aria-disabled={!canGoToNextProject}
-                    className={`p-1 rounded transition ${canGoToNextProject ? 'text-zinc-400 hover:text-white hover:bg-white/10' : 'text-zinc-400 opacity-35 cursor-not-allowed'}`}
-                    title="下一项目"
+                    onClick={() => {
+                      setIsProjectManageMode(true);
+                      setSelectedProjectIds([]);
+                      setProjectActionMenuId(null);
+                    }}
+                    className="text-xs px-2 py-1 rounded text-zinc-300 hover:text-white hover:bg-white/10"
                   >
-                    <ChevronRight className="w-4 h-4" />
+                    {projectUiText.manageProjects}
                   </button>
                 </div>
-            )}
-            {ENABLE_PROMPT_LAB && (
-                <>
-                  <button
-                      onClick={openPromptLab}
-                      className="flex items-center gap-1.5 px-2 py-1 rounded border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
-                      title="查看/编辑内置 prompts（临时功能）"
-                  >
-                    <FileJson className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-bold">Prompt</span>
-                  </button>
-                  <button
-                      type="button"
-                      onClick={() => {
-                        setGuideStepIndex(0);
-                        setIsGuideOpen(true);
-                      }}
-                      className="flex items-center gap-1.5 px-2 py-1 rounded border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 transition"
-                      title={t.wb_guide_button_title}
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-bold">{t.wb_guide_button_label}</span>
-                  </button>
-                </>
+              </div>
             )}
           </div>
-          <div className="flex items-center gap-3">
-            <div className="relative">
+          {isHeaderProjectEditing ? (
+            <input
+              autoFocus
+              value={headerProjectNameDraft}
+              onChange={(event) => setHeaderProjectNameDraft(event.target.value)}
+              onBlur={() => {
+                if (currentProject) commitProjectRename(currentProject.id, headerProjectNameDraft);
+                setIsHeaderProjectEditing(false);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  if (currentProject) commitProjectRename(currentProject.id, headerProjectNameDraft);
+                  setIsHeaderProjectEditing(false);
+                } else if (event.key === 'Escape') {
+                  setIsHeaderProjectEditing(false);
+                }
+              }}
+              style={{ width: `${Math.max(1.2, Math.min(estimateProjectNameWidthEm(headerProjectNameDraft || currentProject?.name || ''), 22))}em` }}
+              className="text-xl font-bold tracking-tight text-white bg-transparent border-b border-white/30 focus:border-orange-500 outline-none"
+            />
+          ) : (
+            <div className="flex items-center gap-2">
               <button
-                ref={taskQueueButtonRef}
                 type="button"
-                onClick={() => setIsTaskQueueOpen((prev) => !prev)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200 transition"
-                title={t.wb_queue_tooltip || '查看正在生成的视频队列'}
+                onClick={canGoToPrevProject ? goToPrevProject : undefined}
+                aria-disabled={!canGoToPrevProject}
+                className={`p-1 rounded transition ${canGoToPrevProject ? 'text-zinc-400 hover:text-white hover:bg-white/10' : 'text-zinc-400 opacity-35 cursor-not-allowed'}`}
+                title="上一项目"
               >
-                <List className="w-4 h-4" />
-                <span className="text-[11px] font-bold">{t.wb_queue_label || '生成队列'}</span>
-                {activeVideoTaskCount > 0 ? (
-                  <span className="ml-1 px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300 text-[10px] font-black border border-orange-500/30">
-                    {activeVideoTaskCount}
-                  </span>
-                ) : null}
+                <ChevronLeft className="w-4 h-4" />
               </button>
+              <h1 className="text-xl font-bold tracking-tight text-white cursor-text" onClick={beginHeaderRename}>
+                {currentProject?.name || DEFAULT_PROJECT_NAME}
+              </h1>
+              <button
+                type="button"
+                onClick={canGoToNextProject ? goToNextProject : undefined}
+                aria-disabled={!canGoToNextProject}
+                className={`p-1 rounded transition ${canGoToNextProject ? 'text-zinc-400 hover:text-white hover:bg-white/10' : 'text-zinc-400 opacity-35 cursor-not-allowed'}`}
+                title="下一项目"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+          {ENABLE_PROMPT_LAB && (
+            <>
+              <button
+                onClick={openPromptLab}
+                className="flex items-center gap-1.5 px-2 py-1 rounded border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
+                title="查看/编辑内置 prompts（临时功能）"
+              >
+                <FileJson className="w-3.5 h-3.5" />
+                <span className="text-[10px] font-bold">Prompt</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setGuideStepIndex(0);
+                  setIsGuideOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-2 py-1 rounded border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 transition"
+                title={t.wb_guide_button_title}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span className="text-[10px] font-bold">{t.wb_guide_button_label}</span>
+              </button>
+            </>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <button
+              ref={taskQueueButtonRef}
+              type="button"
+              onClick={() => setIsTaskQueueOpen((prev) => !prev)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200 transition"
+              title={t.wb_queue_tooltip || '查看正在生成的视频队列'}
+            >
+              <List className="w-4 h-4" />
+              <span className="text-[11px] font-bold">{t.wb_queue_label || '生成队列'}</span>
+              {activeVideoTaskCount > 0 ? (
+                <span className="ml-1 px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300 text-[10px] font-black border border-orange-500/30">
+                  {activeVideoTaskCount}
+                </span>
+              ) : null}
+            </button>
 
-              {isTaskQueueOpen && (
-                <div
-                  ref={taskQueuePanelRef}
-                  className="absolute right-0 mt-2 w-96 rounded-xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/60 backdrop-blur p-3 z-50"
-                >
+            {isTaskQueueOpen && (
+              <div
+                ref={taskQueuePanelRef}
+                className="absolute right-0 mt-2 w-96 rounded-xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/60 backdrop-blur p-3 z-50"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                    {t.wb_queue_processing || '正在生成'} {activeVideoTaskCount > 0 ? `(${activeVideoTaskCount})` : ''}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsTaskQueueOpen(false)}
+                    className="text-zinc-400 hover:text-white"
+                    title={t.wb_queue_close || '关闭'}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {activeVideoTaskCount === 0 ? (
+                  <div className="mt-3 text-xs text-zinc-500">{t.wb_queue_empty_processing || '暂无正在生成的任务'}</div>
+                ) : (
+                  <div className="mt-3 space-y-2 max-h-64 overflow-y-auto custom-scroll pr-1">
+                    {activeVideoTasks.slice(0, 12).map((task) => {
+                      const elapsed = Math.max(0, Math.floor((taskQueueNowTs - task.createdAt) / 1000));
+                      const total = (() => {
+                        const raw = Number((task as any)?.estimatedSeconds);
+                        if (Number.isFinite(raw) && raw > 0) return Math.round(raw);
+                        return 120;
+                      })();
+                      const left = Math.max(0, total - elapsed);
+                      const remainingTpl = t.wb_queue_remaining || '预估剩余 {s}s';
+                      const countdownText = left > 0 ? remainingTpl.replace('{s}', String(left)) : (t.wb_queue_soon_done || '马上完成');
+                      const backendProjectId = String(task.projectId || '').trim();
+                      const workbenchProjectId = String((task as any)?.workbenchProjectId || '').trim();
+                      const displayProjectId = workbenchProjectId || backendProjectId;
+                      const projectName = projectStore.projects.find((p) => p.id === displayProjectId)?.name || (displayProjectId ? `Project ${displayProjectId.slice(0, 6)}` : DEFAULT_PROJECT_NAME);
+                      const baseName = task.name || `Task ${task.id}`;
+                      const displayName = `${projectName} / ${baseName}`;
+
+                      return (
+                        <div key={task.id} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2.5 py-2">
+                          <Loader2 className="w-4 h-4 animate-spin text-orange-500 shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs text-zinc-100 truncate" title={displayName}>
+                              {displayName}
+                            </div>
+                            <div className="text-[10px] text-zinc-500 truncate">ID: {String(task.id)}</div>
+                          </div>
+                          <div className="text-[11px] text-zinc-300 shrink-0">{countdownText}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="mt-4">
                   <div className="flex items-center justify-between">
                     <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                      {t.wb_queue_processing || '正在生成'} {activeVideoTaskCount > 0 ? `(${activeVideoTaskCount})` : ''}
+                      {t.wb_queue_completed || '生成完成'} {completedVideoTaskCount > 0 ? `(${completedVideoTaskCount})` : ''}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsTaskQueueOpen(false)}
-                      className="text-zinc-400 hover:text-white"
-                      title={t.wb_queue_close || '关闭'}
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
+                    {completedVideoTaskCount > 3 && (
+                      <button
+                        type="button"
+                        onClick={() => setIsCompletedCollapsed(prev => !prev)}
+                        className="text-zinc-400 hover:text-white"
+                        aria-label={isCompletedCollapsed ? (t.wb_expand || '展开') : (t.wb_collapse || '折叠')}
+                        title={isCompletedCollapsed ? (t.wb_expand || '展开') : (t.wb_collapse || '折叠')}
+                      >
+                        {isCompletedCollapsed ? (
+                          <ChevronDown className="w-4 h-4" />
+                        ) : (
+                          <ChevronUp className="w-4 h-4" />
+                        )}
+                      </button>
+                    )}
                   </div>
 
-                  {activeVideoTaskCount === 0 ? (
-                    <div className="mt-3 text-xs text-zinc-500">{t.wb_queue_empty_processing || '暂无正在生成的任务'}</div>
-                  ) : (
-                    <div className="mt-3 space-y-2 max-h-64 overflow-y-auto custom-scroll pr-1">
-                      {activeVideoTasks.slice(0, 12).map((task) => {
-                        const elapsed = Math.max(0, Math.floor((taskQueueNowTs - task.createdAt) / 1000));
-                        const total = (() => {
-                          const raw = Number((task as any)?.estimatedSeconds);
-                          if (Number.isFinite(raw) && raw > 0) return Math.round(raw);
-                          return 120;
-                        })();
-                        const left = Math.max(0, total - elapsed);
-                        const remainingTpl = t.wb_queue_remaining || '预估剩余 {s}s';
-                        const countdownText = left > 0 ? remainingTpl.replace('{s}', String(left)) : (t.wb_queue_soon_done || '马上完成');
+                  {completedVideoTaskCount === 0 ? (
+                    <div className="mt-2 text-xs text-zinc-500">{t.wb_queue_empty_completed || '暂无生成完成的任务'}</div>
+                  ) : (isCompletedCollapsed && completedVideoTaskCount > 3) ? null : (
+                    <div className="mt-2 space-y-2 max-h-48 overflow-y-auto custom-scroll pr-1">
+                      {completedVideoTasks.slice(0, 12).map((task) => {
+                        const rawUrl = task.result?.video_url || task.result?.url;
+                        const url = typeof rawUrl === 'string' ? rawUrl : '';
+                        const canPreview = !!url;
                         const backendProjectId = String(task.projectId || '').trim();
                         const workbenchProjectId = String((task as any)?.workbenchProjectId || '').trim();
                         const displayProjectId = workbenchProjectId || backendProjectId;
@@ -10306,1287 +10275,1372 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         const displayName = `${projectName} / ${baseName}`;
 
                         return (
-                          <div key={task.id} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2.5 py-2">
-                            <Loader2 className="w-4 h-4 animate-spin text-orange-500 shrink-0" />
+                          <button
+                            key={task.id}
+                            onClick={() => {
+                              const debugPayload = {
+                                taskId: task.id,
+                                backendProjectId: (task as any)?.projectId,
+                                workbenchProjectId: (task as any)?.workbenchProjectId,
+                                normalizedBackendProjectId: backendProjectId,
+                                normalizedWorkbenchProjectId: workbenchProjectId,
+                                displayProjectId,
+                                hasUrl: !!url,
+                              };
+                              console.log('[TaskQueue] click completed item', debugPayload);
+                              setToastMessage(`Task ${String(task.id)} → project ${displayProjectId.slice(0, 10)}`);
+
+                              if (!canPreview) return;
+
+                              if (workbenchProjectId && projectStore.projects.some((p) => p.id === workbenchProjectId)) {
+                                setIsTaskQueueOpen(false);
+                                goToProject(workbenchProjectId, () => {
+                                  setGeneratedVideoUrl(url);
+                                  setPreviewProjectId(workbenchProjectId);
+                                  setLastGeneratedProjectId(backendProjectId || null);
+                                  setTimeout(() => previewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
+                                });
+                                return;
+                              }
+
+                              console.warn('[TaskQueue] completed item has no mapped workbenchProjectId; skip creating placeholder project', debugPayload);
+                              setToastMessage(t.wb_queue_unbound_toast || '该任务未绑定到工作台项目（旧数据），无法跳转项目');
+                            }}
+                            className={`w-full flex items-center gap-2 rounded-lg border px-2.5 py-2 ${canPreview ? 'border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200' : 'border-white/5 bg-white/5 text-zinc-500 cursor-not-allowed'}`}
+                            title={displayName}
+                          >
+                            <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
                             <div className="min-w-0 flex-1">
-                              <div className="text-xs text-zinc-100 truncate" title={displayName}>
-                                {displayName}
-                              </div>
+                              <div className="text-xs truncate">{displayName}</div>
                               <div className="text-[10px] text-zinc-500 truncate">ID: {String(task.id)}</div>
                             </div>
-                            <div className="text-[11px] text-zinc-300 shrink-0">{countdownText}</div>
-                          </div>
+                            <div className="text-[11px] text-zinc-400 shrink-0">{canPreview ? (t.wb_queue_preview || '预览') : (t.wb_queue_no_video || '暂无视频')}</div>
+                          </button>
                         );
                       })}
                     </div>
                   )}
-
-                  <div className="mt-4">
-                    <div className="flex items-center justify-between">
-                      <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                        {t.wb_queue_completed || '生成完成'} {completedVideoTaskCount > 0 ? `(${completedVideoTaskCount})` : ''}
-                      </div>
-                      {completedVideoTaskCount > 3 && (
-                        <button
-                          type="button"
-                          onClick={() => setIsCompletedCollapsed(prev => !prev)}
-                          className="text-zinc-400 hover:text-white"
-                          aria-label={isCompletedCollapsed ? (t.wb_expand || '展开') : (t.wb_collapse || '折叠')}
-                          title={isCompletedCollapsed ? (t.wb_expand || '展开') : (t.wb_collapse || '折叠')}
-                        >
-                          {isCompletedCollapsed ? (
-                            <ChevronDown className="w-4 h-4" />
-                          ) : (
-                            <ChevronUp className="w-4 h-4" />
-                          )}
-                        </button>
-                      )}
-                    </div>
-
-                    {completedVideoTaskCount === 0 ? (
-                      <div className="mt-2 text-xs text-zinc-500">{t.wb_queue_empty_completed || '暂无生成完成的任务'}</div>
-                    ) : (isCompletedCollapsed && completedVideoTaskCount > 3) ? null : (
-                      <div className="mt-2 space-y-2 max-h-48 overflow-y-auto custom-scroll pr-1">
-                        {completedVideoTasks.slice(0, 12).map((task) => {
-                          const rawUrl = task.result?.video_url || task.result?.url;
-                          const url = typeof rawUrl === 'string' ? rawUrl : '';
-                          const canPreview = !!url;
-                          const backendProjectId = String(task.projectId || '').trim();
-                          const workbenchProjectId = String((task as any)?.workbenchProjectId || '').trim();
-                          const displayProjectId = workbenchProjectId || backendProjectId;
-                          const projectName = projectStore.projects.find((p) => p.id === displayProjectId)?.name || (displayProjectId ? `Project ${displayProjectId.slice(0, 6)}` : DEFAULT_PROJECT_NAME);
-                          const baseName = task.name || `Task ${task.id}`;
-                          const displayName = `${projectName} / ${baseName}`;
-
-                          return (
-                            <button
-                              key={task.id}
-                              onClick={() => {
-                                const debugPayload = {
-                                  taskId: task.id,
-                                  backendProjectId: (task as any)?.projectId,
-                                  workbenchProjectId: (task as any)?.workbenchProjectId,
-                                  normalizedBackendProjectId: backendProjectId,
-                                  normalizedWorkbenchProjectId: workbenchProjectId,
-                                  displayProjectId,
-                                  hasUrl: !!url,
-                                };
-                                console.log('[TaskQueue] click completed item', debugPayload);
-                                setToastMessage(`Task ${String(task.id)} → project ${displayProjectId.slice(0, 10)}`);
-
-                                if (!canPreview) return;
-
-                                if (workbenchProjectId && projectStore.projects.some((p) => p.id === workbenchProjectId)) {
-                                  setIsTaskQueueOpen(false);
-                                  goToProject(workbenchProjectId, () => {
-                                    setGeneratedVideoUrl(url);
-                                    setPreviewProjectId(workbenchProjectId);
-                                    setLastGeneratedProjectId(backendProjectId || null);
-                                    setTimeout(() => previewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
-                                  });
-                                  return;
-                                }
-
-                                console.warn('[TaskQueue] completed item has no mapped workbenchProjectId; skip creating placeholder project', debugPayload);
-                                setToastMessage(t.wb_queue_unbound_toast || '该任务未绑定到工作台项目（旧数据），无法跳转项目');
-                              }}
-                              className={`w-full flex items-center gap-2 rounded-lg border px-2.5 py-2 ${canPreview ? 'border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200' : 'border-white/5 bg-white/5 text-zinc-500 cursor-not-allowed'}`}
-                              title={displayName}
-                            >
-                              <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
-                              <div className="min-w-0 flex-1">
-                                <div className="text-xs truncate">{displayName}</div>
-                                <div className="text-[10px] text-zinc-500 truncate">ID: {String(task.id)}</div>
-                              </div>
-                              <div className="text-[11px] text-zinc-400 shrink-0">{canPreview ? (t.wb_queue_preview || '预览') : (t.wb_queue_no_video || '暂无视频')}</div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <LanguageSwitcher />
-          </div>
-        </header>
-
-        {ENABLE_PROMPT_LAB && isPromptLabOpen && (
-            <PromptLabWindow
-                templates={promptTemplates}
-                loading={promptTemplatesLoading}
-                error={promptTemplatesError}
-                onReload={loadPromptLabTemplates}
-                overrides={promptOverrides}
-                onChangeOverrides={setPromptOverrides}
-                debug={{
-                  isPreparing: isPreparingDebug,
-                  isSending: isSendingDebug,
-                  payloadText: debugPayloadText,
-                  onChangePayloadText: setDebugPayloadText,
-                  preview: debugPreview,
-                  onPrepare: handlePrepareDebug,
-                  onRefresh: handleRefreshDebugPreview,
-                  onSend: handleSendDebugPayload,
-                }}
-                onClose={() => setIsPromptLabOpen(false)}
-            />
-        )}
-
-        {isGuideOpen && (
-            <>
-              <div className="fixed inset-0 z-[70] bg-black/35 backdrop-blur-[1px]" onClick={() => setIsGuideOpen(false)} />
-              <div
-                  className="fixed z-[90] rounded-2xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/60 p-4"
-                  style={guidePanelStyle}
-                  onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-base font-bold text-white">{t.wb_guide_title}</div>
-                    <div className="mt-1 text-xs text-zinc-400">{t.wb_guide_step} {guideStepIndex + 1} / {guideSteps.length}</div>
-                  </div>
-                  <button
-                      type="button"
-                      onClick={() => setIsGuideOpen(false)}
-                      className="text-zinc-400 hover:text-white"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="mt-3 rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-3">
-                  <div className="text-sm font-bold text-orange-200">{activeGuideStep?.title}</div>
-                  <div className="mt-2 text-sm text-zinc-100">{activeGuideStep?.description}</div>
-                </div>
-
-                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {guideSteps.map((step, index) => (
-                      <button
-                          key={step.key}
-                          type="button"
-                          onClick={() => setGuideStepIndex(index)}
-                          className={`text-left rounded-lg border px-3 py-2 text-xs transition ${guideStepIndex === index ? 'border-orange-500/70 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-black/40 text-zinc-300 hover:bg-white/5'}`}
-                      >
-                        {index + 1}. {step.title}
-                      </button>
-                  ))}
-                </div>
-
-                <div className="mt-4 flex justify-end gap-2">
-                  <button
-                      className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                      onClick={() => setIsGuideOpen(false)}
-                  >
-                    {t.wb_guide_close}
-                  </button>
-                  <button
-                      className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={guideStepIndex <= 0}
-                      onClick={() => setGuideStepIndex((prev) => Math.max(0, prev - 1))}
-                  >
-                    {t.wb_guide_prev}
-                  </button>
-                  <button
-                      className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
-                      onClick={() => {
-                        if (guideStepIndex >= guideSteps.length - 1) {
-                          setIsGuideOpen(false);
-                          return;
-                        }
-                        setGuideStepIndex((prev) => Math.min(guideSteps.length - 1, prev + 1));
-                      }}
-                  >
-                    {guideStepIndex >= guideSteps.length - 1 ? t.wb_guide_finish : t.wb_guide_next}
-                  </button>
                 </div>
               </div>
-            </>
-        )}
+            )}
+          </div>
 
-        {toastMessage && (
-            <div className="fixed left-6 bottom-6 z-[140] max-w-[360px] rounded-xl border border-white/10 bg-black/70 px-4 py-3 text-xs text-zinc-200 shadow-lg shadow-black/30">
-              {toastMessage}
+          <LanguageSwitcher />
+        </div>
+      </header>
+
+      {ENABLE_PROMPT_LAB && isPromptLabOpen && (
+        <PromptLabWindow
+          templates={promptTemplates}
+          loading={promptTemplatesLoading}
+          error={promptTemplatesError}
+          onReload={loadPromptLabTemplates}
+          overrides={promptOverrides}
+          onChangeOverrides={setPromptOverrides}
+          debug={{
+            isPreparing: isPreparingDebug,
+            isSending: isSendingDebug,
+            payloadText: debugPayloadText,
+            onChangePayloadText: setDebugPayloadText,
+            preview: debugPreview,
+            onPrepare: handlePrepareDebug,
+            onRefresh: handleRefreshDebugPreview,
+            onSend: handleSendDebugPayload,
+          }}
+          onClose={() => setIsPromptLabOpen(false)}
+        />
+      )}
+
+      {isGuideOpen && (
+        <>
+          <div className="fixed inset-0 z-[70] bg-black/35 backdrop-blur-[1px]" onClick={() => setIsGuideOpen(false)} />
+          <div
+            className="fixed z-[90] rounded-2xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/60 p-4"
+            style={guidePanelStyle}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-base font-bold text-white">{t.wb_guide_title}</div>
+                <div className="mt-1 text-xs text-zinc-400">{t.wb_guide_step} {guideStepIndex + 1} / {guideSteps.length}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsGuideOpen(false)}
+                className="text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
-        )}
 
-        <div className="fixed right-6 bottom-6 z-[132] flex flex-col items-end gap-2">
-          {isTransferStationOpen && (
-            <div className="w-[320px] max-h-[52vh] overflow-hidden rounded-2xl border border-orange-500/25 bg-zinc-950/92 shadow-2xl shadow-black/50 backdrop-blur-xl">
-              <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
-                <div className="text-xs font-bold text-zinc-100">
-                  {t.wb_transfer_station_title || 'Transfer Station'}
-                </div>
-                <div className="flex items-center gap-2">
-                  {transferStationItems.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={handleClearTransferStationEntries}
-                      className="rounded-md border border-white/10 px-2 py-1 text-[10px] text-zinc-300 transition hover:bg-white/10 hover:text-white"
-                    >
-                      {t.wb_transfer_station_clear_btn || 'Clear'}
-                    </button>
-                  )}
+            <div className="mt-3 rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-3">
+              <div className="text-sm font-bold text-orange-200">{activeGuideStep?.title}</div>
+              <div className="mt-2 text-sm text-zinc-100">{activeGuideStep?.description}</div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {guideSteps.map((step, index) => (
+                <button
+                  key={step.key}
+                  type="button"
+                  onClick={() => setGuideStepIndex(index)}
+                  className={`text-left rounded-lg border px-3 py-2 text-xs transition ${guideStepIndex === index ? 'border-orange-500/70 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-black/40 text-zinc-300 hover:bg-white/5'}`}
+                >
+                  {index + 1}. {step.title}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                onClick={() => setIsGuideOpen(false)}
+              >
+                {t.wb_guide_close}
+              </button>
+              <button
+                className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={guideStepIndex <= 0}
+                onClick={() => setGuideStepIndex((prev) => Math.max(0, prev - 1))}
+              >
+                {t.wb_guide_prev}
+              </button>
+              <button
+                className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
+                onClick={() => {
+                  if (guideStepIndex >= guideSteps.length - 1) {
+                    setIsGuideOpen(false);
+                    return;
+                  }
+                  setGuideStepIndex((prev) => Math.min(guideSteps.length - 1, prev + 1));
+                }}
+              >
+                {guideStepIndex >= guideSteps.length - 1 ? t.wb_guide_finish : t.wb_guide_next}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {toastMessage && (
+        <div className="fixed left-6 bottom-6 z-[140] max-w-[360px] rounded-xl border border-white/10 bg-black/70 px-4 py-3 text-xs text-zinc-200 shadow-lg shadow-black/30">
+          {toastMessage}
+        </div>
+      )}
+
+      {/* 中转站 */}
+      <div className="fixed right-6 bottom-6 z-[132] flex flex-col items-end gap-2">
+        {isTransferStationOpen && (
+          <div className="w-[320px] max-h-[52vh] overflow-hidden rounded-2xl border border-orange-500/25 bg-zinc-950/92 shadow-2xl shadow-black/50 backdrop-blur-xl">
+            <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+              <div className="text-xs font-bold text-zinc-100">
+                {t.wb_transfer_station_title || 'Transfer Station'}
+              </div>
+              <div className="flex items-center gap-2">
+                {transferStationItems.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => setIsTransferStationOpen(false)}
-                    className="text-zinc-400 transition hover:text-white"
-                    title={t.wb_queue_close || 'Close'}
+                    onClick={handleClearTransferStationEntries}
+                    className="rounded-md border border-white/10 px-2 py-1 text-[10px] text-zinc-300 transition hover:bg-white/10 hover:text-white"
                   >
-                    <X className="h-4 w-4" />
+                    {t.wb_transfer_station_clear_btn || 'Clear'}
                   </button>
-                </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsTransferStationOpen(false)}
+                  className="text-zinc-400 transition hover:text-white"
+                  title={t.wb_queue_close || 'Close'}
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
+            </div>
 
-              {transferStationItems.length === 0 ? (
-                <div className="px-4 py-6 text-center text-xs text-zinc-500">
-                  {t.wb_transfer_station_empty || 'No assets yet. Add assets or history items into the transfer station first.'}
-                </div>
-              ) : (
-                <div className="max-h-[42vh] space-y-2 overflow-y-auto p-3 custom-scroll">
-                  {transferStationItems.map((item) => {
-                    const mediaLabel = item.mediaKind === 'script'
-                      ? (t.wb_transfer_station_media_script || 'Script')
-                      : item.mediaKind === 'video'
+            {transferStationItems.length === 0 ? (
+              <div className="px-4 py-6 text-center text-xs text-zinc-500">
+                {t.wb_transfer_station_empty || 'No assets yet. Add assets or history items into the transfer station first.'}
+              </div>
+            ) : (
+              <div className="max-h-[42vh] space-y-2 overflow-y-auto p-3 custom-scroll">
+                {transferStationItems.map((item) => {
+                  const mediaLabel = item.mediaKind === 'script'
+                    ? (t.wb_transfer_station_media_script || 'Script')
+                    : item.mediaKind === 'video'
                       ? (t.wb_upload_video || 'Video')
                       : item.mediaKind === 'audio'
                         ? (t.wb_upload_audio || 'Audio')
                         : (t.wb_upload_image || 'Image');
-                    const sourceLabel = item.source === 'history'
-                      ? (t.wb_transfer_station_source_history || 'History')
-                      : item.source === 'replay'
-                        ? (t.wb_transfer_station_source_replay || 'Replay')
+                  const sourceLabel = item.source === 'history'
+                    ? (t.wb_transfer_station_source_history || 'History')
+                    : item.source === 'replay'
+                      ? (t.wb_transfer_station_source_replay || 'Replay')
                       : (t.wb_transfer_station_source_assets || 'Assets');
 
-                    return (
-                      <div key={item.id} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-2">
-                        <button
-                          type="button"
-                          draggable
-                          onDragStart={(event) => handleTransferStationItemDragStart(item, event)}
-                          onClick={() => handleUseTransferStationItem(item)}
-                          className="group flex min-w-0 flex-1 items-center gap-2 text-left"
-                          title={item.mediaKind === 'script'
-                            ? (t.wb_transfer_station_drag_hint_script || 'Drag to scripts area, or click to apply')
-                            : (t.wb_transfer_station_drag_hint || 'Drag to upload area, or click to apply')}
-                        >
-                          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-black/40">
-                            {item.mediaKind === 'video' ? (
-                              <video src={item.fileUrl} className="h-full w-full object-cover" muted playsInline />
-                            ) : item.mediaKind === 'audio' ? (
-                              <div className="flex h-full w-full items-center justify-center text-zinc-300">
-                                <Music className="h-4 w-4" />
-                              </div>
-                            ) : item.mediaKind === 'script' ? (
-                              <div className="flex h-full w-full items-center justify-center text-zinc-300">
-                                <FileJson className="h-4 w-4" />
-                              </div>
-                            ) : (
-                              <img src={item.fileUrl} alt={item.name} className="h-full w-full object-cover" />
+                  return (
+                    <div key={item.id} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-2">
+                      <button
+                        type="button"
+                        draggable
+                        onDragStart={(event) => handleTransferStationItemDragStart(item, event)}
+                        onClick={() => handleUseTransferStationItem(item)}
+                        className="group flex min-w-0 flex-1 items-center gap-2 text-left"
+                        title={item.mediaKind === 'script'
+                          ? (t.wb_transfer_station_drag_hint_script || 'Drag to scripts area, or click to apply')
+                          : (t.wb_transfer_station_drag_hint || 'Drag to upload area, or click to apply')}
+                      >
+                        <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-black/40">
+                          {item.mediaKind === 'video' ? (
+                            <video src={item.fileUrl} className="h-full w-full object-cover" muted playsInline />
+                          ) : item.mediaKind === 'audio' ? (
+                            <div className="flex h-full w-full items-center justify-center text-zinc-300">
+                              <Music className="h-4 w-4" />
+                            </div>
+                          ) : item.mediaKind === 'script' ? (
+                            <div className="flex h-full w-full items-center justify-center text-zinc-300">
+                              <FileJson className="h-4 w-4" />
+                            </div>
+                          ) : (
+                            <img src={item.fileUrl} alt={item.name} className="h-full w-full object-cover" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-xs font-semibold text-zinc-100">{item.name}</div>
+                          {item.mediaKind === 'script' && item.scriptContent ? (
+                            <div className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-zinc-400">
+                              {item.scriptContent}
+                            </div>
+                          ) : (
+                            <div className="mt-1 flex items-center gap-1 text-[10px] text-zinc-400">
+                              <span className="rounded border border-white/10 px-1.5 py-0.5">{mediaLabel}</span>
+                              <span className="rounded border border-white/10 px-1.5 py-0.5">{sourceLabel}</span>
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveTransferStationEntry(item.id)}
+                        className="rounded-md border border-white/10 p-1.5 text-zinc-400 transition hover:border-red-400/60 hover:text-red-300"
+                        title={t.wb_transfer_station_remove_btn || 'Remove'}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setIsTransferStationOpen((prev) => !prev)}
+          className="group relative flex h-14 w-14 items-center justify-center rounded-full border border-orange-400/50 bg-gradient-to-br from-orange-500/90 to-amber-500/80 text-white shadow-[0_16px_35px_rgba(251,146,60,0.35)] transition hover:scale-[1.04]"
+          title={t.wb_transfer_station_title || 'Transfer Station'}
+        >
+          <FolderPlus className="h-6 w-6" />
+          <span className="pointer-events-none absolute -right-1 -top-1 min-w-[20px] rounded-full border border-black/20 bg-black/75 px-1.5 py-0.5 text-[10px] font-black leading-none text-orange-200">
+            {transferStationItems.length}
+          </span>
+          <span className="pointer-events-none absolute right-full mr-2 whitespace-nowrap rounded-md border border-white/10 bg-black/80 px-2 py-1 text-[10px] font-semibold text-zinc-100 opacity-0 transition group-hover:opacity-100">
+            {t.wb_transfer_station_title || 'Transfer Station'}
+          </span>
+        </button>
+      </div>
+
+      {/* 结构化错误弹窗 —— 替代原有的 openInfo(error) 纯文本展示 */}
+      {errorModalData && (
+        <ErrorModal
+          isOpen={true}
+          title={errorModalData.title}
+          code={errorModalData.code}
+          message={errorModalData.message}
+          details={errorModalData.details}
+          suggestions={errorModalData.suggestions}
+          actions={errorModalData.actions}
+          trackingId={errorModalData.trackingId}
+          onClose={closeErrorModal}
+        />
+      )}
+
+      {isInfoOpen && (
+        <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={closeInfoDialog} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={closeInfoDialog}>OK</button></>}>
+          <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
+        </AppDialog>
+      )}
+      {isConfirmOpen && (
+        <AppDialog
+          isOpen={isConfirmOpen}
+          title={confirmTitle || 'Confirm'}
+          onClose={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}
+          footer={
+            <>
+              <button className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}>{confirmCancelLabel || t.wb_confirm_cancel}</button>
+              <button className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(true); confirmResolveRef.current = null; } }}>{confirmOkLabel || t.wb_confirm_ok}</button>
+            </>
+          }
+        >
+          <div className="whitespace-pre-line text-sm text-zinc-300">{confirmMessage}</div>
+        </AppDialog>
+      )}
+      <AiOverwriteDialog
+        isOpen={isAiOverwriteOpen}
+        fields={aiOverwriteFields}
+        title={t.wb_ai_overwrite_dialog_title}
+        applyLabel={t.wb_ai_overwrite_apply}
+        cancelLabel={t.wb_ai_overwrite_confirm_cancel}
+        currentLabel={t.wb_ai_overwrite_field_current}
+        newLabel={t.wb_ai_overwrite_field_new}
+        onConfirm={(selectedKeys) => {
+          setIsAiOverwriteOpen(false);
+          if (aiOverwriteResolveRef.current) {
+            aiOverwriteResolveRef.current(selectedKeys);
+            aiOverwriteResolveRef.current = null;
+          }
+        }}
+        onCancel={() => {
+          setIsAiOverwriteOpen(false);
+          if (aiOverwriteResolveRef.current) {
+            aiOverwriteResolveRef.current(null);
+            aiOverwriteResolveRef.current = null;
+          }
+        }}
+      />
+      {isKlingSubjectGuideOpen && (
+        <AppDialog
+          isOpen={isKlingSubjectGuideOpen}
+          title="提示"
+          onClose={() => setIsKlingSubjectGuideOpen(false)}
+          footer={
+            <>
+              <button
+                className="rounded-xl border border-orange-500/70 bg-orange-500/10 px-4 py-2 text-sm font-bold text-orange-200 hover:bg-orange-500/20"
+                onClick={() => {
+                  setIsKlingSubjectGuideOpen(false);
+                  openSubjectCreationLibrary();
+                }}
+              >
+                去创建主体
+              </button>
+              <button
+                className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                onClick={() => setIsKlingSubjectGuideOpen(false)}
+              >
+                取消
+              </button>
+            </>
+          }
+        >
+          <div className="whitespace-pre-line text-sm text-zinc-300">{`主体模式不能直接使用单张图片。
+请先去素材库创建“主体”，上传同一主体的多张不同角度图片，例如正面、侧面、背面或不同姿态。
+创建完成后，再回到这里选择该主体。`}</div>
+        </AppDialog>
+      )}
+      {deleteProjectTarget && (
+        <AppDialog
+          isOpen={!!deleteProjectTarget}
+          title={projectUiText.deleteTitle}
+          onClose={() => setDeleteProjectTarget(null)}
+          footer={
+            <>
+              <button
+                className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                onClick={() => setDeleteProjectTarget(null)}
+              >
+                {projectUiText.cancel}
+              </button>
+              <button
+                className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500"
+                onClick={() => {
+                  const target = deleteProjectTarget;
+                  if (!target) return;
+                  removeProjectsByIds([target.id]);
+                  setDeleteProjectTarget(null);
+                  setProjectMenuOpen(false);
+                }}
+              >
+                {projectUiText.delete}
+              </button>
+            </>
+          }
+        >
+          <div className="whitespace-pre-line text-sm text-zinc-300">{projectUiText.deleteDesc}</div>
+        </AppDialog>
+      )}
+      {deleteProjectIds.length > 0 && (
+        <AppDialog
+          isOpen={deleteProjectIds.length > 0}
+          title={projectUiText.bulkDeleteTitle || projectUiText.deleteTitle}
+          onClose={() => setDeleteProjectIds([])}
+          footer={
+            <>
+              <button
+                className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                onClick={() => setDeleteProjectIds([])}
+              >
+                {projectUiText.cancel}
+              </button>
+              <button
+                className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500"
+                onClick={() => {
+                  removeProjectsByIds(deleteProjectIds);
+                  setDeleteProjectIds([]);
+                  setSelectedProjectIds([]);
+                  setIsProjectManageMode(false);
+                }}
+              >
+                {projectUiText.delete}
+              </button>
+            </>
+          }
+        >
+          <div className="whitespace-pre-line text-sm text-zinc-300">{projectUiText.bulkDeleteDesc || projectUiText.deleteDesc}</div>
+        </AppDialog>
+      )}
+      {isCreateProjectOpen && (
+        <AppDialog
+          isOpen={isCreateProjectOpen}
+          title={projectUiText.createTitle || projectUiText.newProject}
+          onClose={() => {
+            setIsCreateProjectOpen(false);
+            setCreateProjectNameError('');
+          }}
+          footer={
+            <>
+              <button
+                className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                onClick={() => {
+                  setIsCreateProjectOpen(false);
+                  setCreateProjectNameError('');
+                }}
+              >
+                {projectUiText.cancel}
+              </button>
+              <button
+                className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
+                onClick={() => createNewProject(newProjectNameDraft)}
+              >
+                {projectUiText.createConfirm || projectUiText.newProject}
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-2">
+            <div className="text-sm text-zinc-300">{projectUiText.createNameLabel || t.assets_name_label || 'Name'}</div>
+            <input
+              autoFocus
+              value={newProjectNameDraft}
+              onChange={(e) => {
+                const nextName = e.target.value;
+                setNewProjectNameDraft(nextName);
+                if (createProjectNameError && nextName.trim().length <= MAX_PROJECT_NAME_LENGTH) {
+                  setCreateProjectNameError('');
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') createNewProject(newProjectNameDraft);
+              }}
+              placeholder={projectUiText.createNamePlaceholder || projectUiText.defaultProjectName}
+              className={`w-full rounded-lg border bg-black/40 text-zinc-100 px-3 py-2 text-sm outline-none focus:border-orange-500 ${createProjectNameError ? 'border-red-500' : 'border-white/10'}`}
+            />
+            {createProjectNameError && (
+              <div className="text-xs text-red-400">{createProjectNameError}</div>
+            )}
+          </div>
+        </AppDialog>
+      )}
+
+      {isScriptGridDialogOpen && (
+        <AppDialog
+          isOpen={isScriptGridDialogOpen}
+          title={t.wb_script_grid_title || 'Script Variants'}
+          onClose={() => setIsScriptGridDialogOpen(false)}
+          widthClassName="max-w-[min(96vw,1320px)]"
+        >
+          <div className="max-h-[72vh] overflow-x-auto overflow-y-hidden custom-scroll pr-1 pb-2">
+            <div className="flex flex-nowrap gap-3">
+              {scriptPages.map((page, index) => {
+                const active = index === activeScriptPage;
+                const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim()
+                  || (t.wb_script_grid_card_empty || 'No script content yet');
+                return (
+                  <div key={page.id} className="relative group/scriptcard">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleScriptPageChange(index);
+                        setIsScriptGridDialogOpen(false);
+                      }}
+                      className={`${scriptPlanCardClass} ${active ? 'border-orange-500/70 bg-orange-500/10 ring-1 ring-orange-500/35' : 'border-white/10 bg-black/25 hover:border-orange-500/35 hover:bg-white/5'}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {page.sourceLabel && (
+                              <span className="rounded border border-sky-400/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-200">
+                                {page.sourceLabel}
+                              </span>
                             )}
                           </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-xs font-semibold text-zinc-100">{item.name}</div>
-                            {item.mediaKind === 'script' && item.scriptContent ? (
-                              <div className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-zinc-400">
-                                {item.scriptContent}
-                              </div>
-                            ) : (
-                              <div className="mt-1 flex items-center gap-1 text-[10px] text-zinc-400">
-                                <span className="rounded border border-white/10 px-1.5 py-0.5">{mediaLabel}</span>
-                                <span className="rounded border border-white/10 px-1.5 py-0.5">{sourceLabel}</span>
-                              </div>
-                            )}
+                          <div className={`text-[12px] font-bold leading-5 ${active ? 'text-orange-400' : 'text-zinc-100'}`}>
+                            {formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix)}
                           </div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveTransferStationEntry(item.id)}
-                          className="rounded-md border border-white/10 p-1.5 text-zinc-400 transition hover:border-red-400/60 hover:text-red-300"
-                          title={t.wb_transfer_station_remove_btn || 'Remove'}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        </div>
+                        <span className={`shrink-0 text-[10px] ${active ? 'text-orange-400' : 'text-zinc-500'}`}>
+                          {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
+                        </span>
                       </div>
+                      <div className={`${scriptPlanCardBodyClass} mt-1 ${active ? 'border-orange-400/30 bg-black/15 text-orange-100/90' : 'border-white/10 bg-black/20 text-zinc-300'}`}>
+                        {previewText}
+                      </div>
+                    </button>
+                    {scriptPages.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); removeScriptPage(index); }}
+                        className="absolute -top-1.5 -right-1.5 z-10 hidden group-hover/scriptcard:flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-zinc-900 text-zinc-400 transition hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-300"
+                        title={t.wb_delete || 'Delete'}
+                      >
+                        <Trash2 className="h-2.5 w-2.5" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </AppDialog>
+      )}
+
+      {isScriptSaveDialogOpen && (
+        <AppDialog
+          isOpen={isScriptSaveDialogOpen}
+          title={t.wb_script_save_dialog_title || '保存到素材库'}
+          onClose={() => setIsScriptSaveDialogOpen(false)}
+          footer={
+            <>
+              <button
+                className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                onClick={() => setIsScriptSaveDialogOpen(false)}
+              >
+                {t.wb_confirm_cancel}
+              </button>
+              <button
+                className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
+                onClick={() => void confirmScriptSaveToLibrary()}
+                disabled={isSavingScriptAsset}
+              >
+                {isSavingScriptAsset ? (t.assets_saving_description || '保存中...') : (t.wb_script_save_to_library || '保存到素材库')}
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-2">
+            <div className="text-sm text-zinc-300">{t.wb_script_save_name_label || '脚本名称'}</div>
+            <input
+              autoFocus
+              value={scriptSaveNameDraft}
+              onChange={(e) => setScriptSaveNameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void confirmScriptSaveToLibrary();
+                }
+              }}
+              placeholder={t.wb_script_save_name_placeholder || '请输入脚本名称'}
+              className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-orange-500"
+            />
+            <div className="text-xs text-zinc-500">{t.wb_script_save_name_hint || '保存后会以这个名称显示在素材库中。'}</div>
+          </div>
+        </AppDialog>
+      )}
+
+      {isAiOptimizeOpen && (
+        <AppDialog
+          isOpen={isAiOptimizeOpen}
+          title={t.wb_ai_opt_title || 'AI智能优化'}
+          onClose={() => setIsAiOptimizeOpen(false)}
+          widthClassName="max-w-[min(92vw,980px)]"
+          footer={
+            <>
+              <button
+                className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
+                onClick={() => setIsAiOptimizeOpen(false)}
+              >
+                {t.wb_confirm_cancel}
+              </button>
+              <div className="relative group/cost-image">
+                <button
+                  type="button"
+                  onClick={() => void handleGenerateOptimizedImages()}
+                  disabled={isAiOptimizeGenerating}
+                  className={`px-4 py-2 rounded-lg text-sm font-bold text-white transition ${isAiOptimizeGenerating ? 'bg-orange-500/70 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600'}`}
+                >
+                  <span className="flex items-center gap-3 whitespace-nowrap">
+                    <span>
+                      {isAiOptimizeGenerating
+                        ? (t.wb_ai_opt_generating || '生成中...')
+                        : (t.wb_ai_opt_generate_btn || '生成优化图')}
+                    </span>
+                    {estimatedImageCostLabel ? (
+                      <span className="text-[11px] font-semibold text-white/90">{estimatedImageCostLabel}</span>
+                    ) : null}
+                  </span>
+                </button>
+                <span className="pointer-events-none absolute bottom-full right-0 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/cost-image:opacity-100">
+                  {t.wb_cost_tip_generate_image || '生成图片会消耗点数，具体以实际扣费为准。'}
+                </span>
+              </div>
+            </>
+          }
+        >
+          <div className="w-full max-h-[72vh] overflow-y-auto custom-scroll pr-1 flex flex-col gap-4">
+            <div className="space-y-2">
+              <div className="text-sm font-bold text-zinc-200">{t.wb_ai_opt_reference_title || '选择参考图'}</div>
+              <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+                {aiOptimizeImageCandidates.map((asset) => {
+                  const active = asset.id === aiOptimizeReferenceId;
+                  return (
+                    <button
+                      key={asset.id}
+                      type="button"
+                      onClick={() => setAiOptimizeReferenceId(asset.id)}
+                      className={`text-left rounded-lg border p-1 transition ${active ? 'border-orange-500/70 bg-orange-500/10' : 'border-white/10 bg-black/20 hover:border-orange-500/40'}`}
+                    >
+                      <div className="w-full aspect-[3/4] rounded-md overflow-hidden bg-zinc-900">
+                        <img src={asset.previewUrl || ''} alt={asset.name} className="w-full h-full object-cover" />
+                      </div>
+                      <div className="mt-1 text-[10px] text-zinc-200 truncate">{asset.name}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-zinc-400">{t.wb_field_product_category_label}</label>
+                <input
+                  value={aiOptimizeCategory}
+                  onChange={(e) => setAiOptimizeCategory(e.target.value)}
+                  placeholder={t.wb_select_placeholder}
+                  className="w-full rounded-lg border border-white/10 bg-black/30 text-zinc-100 px-3 py-2 text-sm outline-none focus:border-orange-500"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_keywords_label || '关键词'}</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {aiOptimizeKeywordChoices.map((keyword) => {
+                    const active = aiOptimizeKeywords.includes(keyword);
+                    return (
+                      <button
+                        key={keyword}
+                        type="button"
+                        onClick={() => {
+                          setAiOptimizeKeywords((prev) => (
+                            prev.includes(keyword)
+                              ? prev.filter((item) => item !== keyword)
+                              : [...prev, keyword]
+                          ));
+                        }}
+                        className={`text-[11px] px-2 py-1 rounded-full border transition ${active ? 'border-orange-500/70 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                      >
+                        {keyword}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_prompt_label || '提示词脚本'}</label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleBuildAiOptimizePromptScript()}
+                    disabled={isAiOptimizePromptGenerating}
+                    className={`text-[11px] px-2 py-1 rounded border transition ${isAiOptimizePromptGenerating ? 'border-orange-500/30 bg-orange-500/5 text-orange-200/70 cursor-not-allowed' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+                  >
+                    {isAiOptimizePromptGenerating
+                      ? (t.wb_ai_opt_prompt_generating || '生成中...')
+                      : (t.wb_prompt_script_generate_btn || '生成提示词脚本')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveAiOptimizePromptToLibrary()}
+                    disabled={isAiOptimizePromptSaving}
+                    className={`text-[11px] px-2 py-1 rounded border transition ${isAiOptimizePromptSaving ? 'border-sky-500/25 bg-sky-500/5 text-sky-200/70 cursor-not-allowed' : 'border-sky-500/55 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20'}`}
+                  >
+                    {isAiOptimizePromptSaving
+                      ? (t.assets_saving_description || '保存中...')
+                      : (t.wb_ai_opt_save_prompt_btn || '保存进素材库')}
+                  </button>
+                </div>
+              </div>
+              <textarea
+                value={aiOptimizePrompt}
+                onChange={(e) => setAiOptimizePrompt(e.target.value)}
+                rows={6}
+                placeholder={t.wb_ai_opt_prompt_placeholder || '请生成或手动编辑提示词脚本'}
+                className="w-full rounded-lg border border-white/10 bg-black/30 text-zinc-100 px-3 py-2 text-sm outline-none focus:border-orange-500 resize-y"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-zinc-400">{t.aspect_ratio || '视频比例'}</label>
+                <DropdownSelect
+                  value={aiOptimizeAspectRatio}
+                  options={[
+                    { value: '9:16', label: '9:16' },
+                    { value: '16:9', label: '16:9' },
+                    { value: '1:1', label: '1:1' },
+                  ]}
+                  onChange={(v) => {
+                    if (v === '9:16' || v === '16:9' || v === '1:1') setAiOptimizeAspectRatio(v);
+                  }}
+                  buttonClassName="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300"
+                  iconClassName="w-3 h-3 text-zinc-500"
+                  optionClassName="text-xs"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_resolution_label || '分辨率'}</label>
+                <DropdownSelect
+                  value={aiOptimizeResolution}
+                  options={[
+                    { value: 'sd', label: t.wb_ai_opt_resolution_sd || '标清' },
+                    { value: 'hd', label: t.wb_ai_opt_resolution_hd || '高清' },
+                    { value: 'uhd', label: t.wb_ai_opt_resolution_uhd || '超清' },
+                  ]}
+                  onChange={(v) => {
+                    if (v === 'sd' || v === 'hd' || v === 'uhd') setAiOptimizeResolution(v);
+                  }}
+                  buttonClassName="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300"
+                  iconClassName="w-3 h-3 text-zinc-500"
+                  optionClassName="text-xs"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_style_strength || '风格强度'}: {aiOptimizeStyleStrength}</label>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={aiOptimizeStyleStrength}
+                  onChange={(e) => setAiOptimizeStyleStrength(Number(e.target.value))}
+                  className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_generate_count || '生成数量'}</label>
+                <DropdownSelect
+                  value={String(aiOptimizeCount)}
+                  options={[
+                    { value: '1', label: '1' },
+                    { value: '2', label: '2' },
+                    { value: '3', label: '3' },
+                    { value: '4', label: '4' },
+                  ]}
+                  onChange={(v) => {
+                    const next = Number(v);
+                    if (Number.isFinite(next)) setAiOptimizeCount(Math.max(1, Math.min(4, next)));
+                  }}
+                  buttonClassName="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300"
+                  iconClassName="w-3 h-3 text-zinc-500"
+                  optionClassName="text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-sm font-bold text-zinc-200">{t.wb_ai_opt_result_title || '生成结果'}</div>
+              {aiOptimizeResults.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-white/10 bg-black/20 px-3 py-6 text-center text-xs text-zinc-500">
+                  {t.wb_ai_opt_result_empty || '生成后会在这里展示可一键替换的图片结果'}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {aiOptimizeResults.map((item) => (
+                    <div key={item.id} className="rounded-lg border border-white/10 bg-black/20 p-1.5">
+                      <div className="w-full aspect-[3/4] rounded-md overflow-hidden bg-zinc-900">
+                        <img src={item.url} alt={item.id} className="w-full h-full object-cover" />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleReplaceWithOptimizedImage(item.url)}
+                        className="mt-2 w-full rounded-md border border-orange-500/60 bg-orange-500/15 px-2 py-1.5 text-[11px] font-bold text-orange-200 hover:bg-orange-500/25"
+                      >
+                        {t.wb_ai_opt_replace_btn || '一键替换'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </AppDialog>
+      )}
+
+      {isAssetLibraryOpen && (
+        <AppDialog
+          isOpen={isAssetLibraryOpen}
+          titleClassName="text-lg"
+          title={
+            assetLibraryPickMode === 'background_audio'
+              ? (t.wb_audio_picker_title || '选择音频素材')
+              : assetLibraryPickMode === 'script_import'
+                ? (t.wb_script_import_from_library || '从素材库导入脚本')
+                : (t.wb_dialog_choose_from_library || '从素材库选择')
+          }
+          onClose={() => {
+            setIsAssetLibraryOpen(false);
+            setAssetLibraryPickMode('default');
+            setSeedanceReplayLibraryIntent(null);
+          }}
+          widthClassName="max-w-[min(92vw,980px)]"
+          footer={
+            <>
+              <button
+                className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
+                onClick={() => {
+                  setIsAssetLibraryOpen(false);
+                  setAssetLibraryPickMode('default');
+                  setSeedanceReplayLibraryIntent(null);
+                }}
+              >
+                关闭
+              </button>
+            </>
+          }
+        >
+          <div className="w-full h-[62vh] max-h-[600px] min-h-[440px] flex flex-col gap-2.5">
+            <input
+              ref={assetLibraryUploadInputRef}
+              type="file"
+              className="hidden"
+              multiple
+              onChange={handleAssetLibraryLocalUploadChange}
+            />
+            {assetLibraryPickMode === 'background_audio' ? (
+              <div className="flex items-center justify-between gap-3 px-1">
+                <div className="text-xs text-zinc-400">{t.wb_audio_picker_hint || '仅显示音频素材'}</div>
+                <div className="flex items-center gap-2">
+                  {assetLibraryTab !== 'subject' && (
+                    <button
+                      type="button"
+                      onClick={triggerAssetLibraryLocalUpload}
+                      disabled={isAssetLibraryUploading}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading
+                        ? 'cursor-not-allowed border-white/10 bg-white/5 text-zinc-200/70'
+                        : assetLibraryUploadSuccessVisible
+                          ? 'border-transparent bg-transparent text-emerald-200'
+                          : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
+                        }`}
+                    >
+                      {isAssetLibraryUploading ? (
+                        (t as any).wb_uploading || '上传中...'
+                      ) : assetLibraryUploadSuccessVisible ? (
+                        <span
+                          className={`inline-flex items-center justify-center gap-1.5 text-emerald-200 transition-opacity duration-[2000ms] ${assetLibraryUploadSuccessFading ? 'opacity-0' : 'opacity-100'}`}
+                          aria-label={language === 'zh' ? '上传成功' : 'Upload succeeded'}
+                        >
+                          <CheckCircle className="h-4 w-4" />
+                        </span>
+                      ) : (
+                        (t as any).wb_btn_upload_to_library || '上传素材'
+                      )}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={openSubjectCreationLibrary}
+                    className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-bold text-zinc-200 transition hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-200"
+                  >
+                    {(t as any).wb_btn_manage_assets_library || '前往素材库'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                  {assetLibraryVisibleTabs.map((tab) => (
+                    <button
+                      key={tab.value}
+                      type="button"
+                      onClick={() => {
+                        setAssetLibraryTab(tab.value);
+                        setAssetLibraryCurrentFolderId(null);
+                      }}
+                      className={`shrink-0 rounded-full border px-5 py-2 text-[14px] font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {assetLibraryTab !== 'subject' && (
+                    <button
+                      type="button"
+                      onClick={triggerAssetLibraryLocalUpload}
+                      disabled={isAssetLibraryUploading}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading
+                        ? 'cursor-not-allowed border-white/10 bg-white/5 text-zinc-200/70'
+                        : assetLibraryUploadSuccessVisible
+                          ? 'border-transparent bg-transparent text-emerald-200'
+                          : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
+                        }`}
+                    >
+                      {isAssetLibraryUploading ? (
+                        (t as any).wb_uploading || '上传中...'
+                      ) : assetLibraryUploadSuccessVisible ? (
+                        <span
+                          className={`inline-flex items-center justify-center gap-1.5 text-emerald-200 transition-opacity duration-[2000ms] ${assetLibraryUploadSuccessFading ? 'opacity-0' : 'opacity-100'}`}
+                          aria-label={language === 'zh' ? '上传成功' : 'Upload succeeded'}
+                        >
+                          <CheckCircle className="h-4 w-4" />
+                        </span>
+                      ) : (
+                        (t as any).wb_btn_upload_to_library || '上传素材'
+                      )}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={openSubjectCreationLibrary}
+                    className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-bold text-zinc-200 transition hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-200"
+                  >
+                    {(t as any).wb_btn_manage_assets_library || '前往素材库'}
+                  </button>
+                </div>
+              </div>
+            )}
+            {assetLibraryTab !== 'subject' && (
+              <div className="flex items-center gap-2 text-sm text-zinc-500 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setAssetLibraryCurrentFolderId(null)}
+                  className={`wb-asset-library-crumb hover:text-white ${assetLibraryCurrentFolderId === null ? 'text-white' : ''}`}
+                >
+                  {t.assets_root || '根目录'}
+                </button>
+                {assetLibraryBreadcrumb.map((folder) => (
+                  <div key={folder.id} className="flex items-center gap-2 min-w-0">
+                    <span>/</span>
+                    <button
+                      type="button"
+                      onClick={() => setAssetLibraryCurrentFolderId(folder.id)}
+                      className={`wb-asset-library-crumb hover:text-white truncate ${assetLibraryCurrentFolderId === folder.id ? 'text-white' : ''}`}
+                    >
+                      {folder.name}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-1">
+              {assetLibraryLoading ? (
+                <div className="h-52 flex items-center justify-center text-zinc-400">
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载中...
+                </div>
+              ) : assetLibraryError ? (
+                <div className="h-52 flex items-center justify-center text-red-300 text-sm">
+                  {assetLibraryError}
+                </div>
+              ) : assetLibraryTab === 'subject' ? (
+                assetLibrarySubjects.length === 0 ? (
+                  <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">
+                    暂无主体，请先在素材库中创建主体
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-6 gap-2">
+                    {assetLibrarySubjects.map((subject) => (
+                      <button
+                        key={subject.id}
+                        type="button"
+                        onClick={() => selectSubjectFromLibraryPopup(subject)}
+                        className="text-left rounded-lg border bg-black/30 p-1 transition border-white/10 hover:border-orange-500/50 hover:bg-white/5"
+                      >
+                        <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
+                          {subject.primary_asset ? (
+                            <img src={subject.primary_asset.file_url} className="w-full h-full object-cover" alt={subject.name} />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-zinc-500">
+                              <Layers3 className="w-6 h-6" />
+                            </div>
+                          )}
+                          {subject.other_assets.length > 0 && (
+                            <div className="absolute top-1.5 right-1.5 z-10 rounded-full bg-black/55 border border-white/15 p-1 text-white shadow-lg">
+                              <Layers3 className="w-3.5 h-3.5" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{subject.name}</div>
+                      </button>
+                    ))}
+                  </div>
+                )
+              ) : assetLibraryItems.length === 0 && assetLibraryFolders.length === 0 ? (
+                <div className="h-52 flex flex-col items-center justify-center gap-3 text-zinc-500 text-sm">
+                  <div>
+                    {assetLibraryPickMode === 'background_audio'
+                      ? (t.wb_audio_picker_empty || '暂无音频素材')
+                      : assetLibraryPickMode === 'script_import'
+                        ? (t.wb_script_library_empty || '暂无脚本素材')
+                        : '暂无素材'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={triggerAssetLibraryLocalUpload}
+                    disabled={isAssetLibraryUploading}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading
+                      ? 'cursor-not-allowed border-white/10 bg-white/5 text-zinc-200/70'
+                      : assetLibraryUploadSuccessVisible
+                        ? 'border-transparent bg-transparent text-emerald-200'
+                        : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
+                      }`}
+                  >
+                    {isAssetLibraryUploading ? (
+                      (t as any).wb_uploading || '上传中...'
+                    ) : assetLibraryUploadSuccessVisible ? (
+                      <span
+                        className={`inline-flex items-center justify-center gap-1.5 text-emerald-200 transition-opacity duration-[2000ms] ${assetLibraryUploadSuccessFading ? 'opacity-0' : 'opacity-100'}`}
+                        aria-label={language === 'zh' ? '上传成功' : 'Upload succeeded'}
+                      >
+                        <CheckCircle className="h-4 w-4" />
+                      </span>
+                    ) : (
+                      (t as any).wb_btn_upload_to_library || '上传素材'
+                    )}
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-6 gap-2">
+                  {assetLibraryFolders.map((folder) => (
+                    <button
+                      key={folder.id}
+                      type="button"
+                      onClick={() => setAssetLibraryCurrentFolderId(folder.id)}
+                      className="text-left rounded-lg border border-white/10 bg-black/30 p-1 hover:border-orange-500/50 hover:bg-white/5 transition"
+                    >
+                      <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-900/60 relative flex items-center justify-center">
+                        <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center">
+                          <Folder className="w-5 h-5 text-zinc-300" />
+                        </div>
+                      </div>
+                      <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{folder.name}</div>
+                    </button>
+                  ))}
+                  {assetLibraryItems.map((asset) => {
+                    const alreadyAddedInSeedance = (
+                      isSeedanceReplayMode
+                      && assetLibraryPickMode === 'default'
+                      && isSeedanceReplayAssetAlreadyAdded(asset)
+                    );
+
+                    return (
+                      <button
+                        key={asset.id}
+                        type="button"
+                        onMouseEnter={() => {
+                          setAssetLibraryHoverAssetId(asset.id);
+                          setAssetLibraryHoverClickedAssetId(null);
+                        }}
+                        onMouseLeave={() => {
+                          setAssetLibraryHoverAssetId((prev) => (prev === asset.id ? null : prev));
+                          setAssetLibraryHoverClickedAssetId((prev) => (prev === asset.id ? null : prev));
+                        }}
+                        onClick={() => {
+                          if (alreadyAddedInSeedance) return;
+                          const ok = selectAssetFromLibraryPopup(asset);
+                          if (ok) setAssetLibraryHoverClickedAssetId(asset.id);
+                        }}
+                        className={`group text-left rounded-lg border bg-black/30 p-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30 ${alreadyAddedInSeedance ? 'border-emerald-400/70 ring-1 ring-emerald-400/35' : 'border-white/10 hover:border-orange-500/50 hover:bg-white/5'}`}
+                        title={alreadyAddedInSeedance ? (t.wb_seedance_replay_notice_duplicate_asset || 'This asset has already been added.') : undefined}
+                      >
+                        <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
+                          {isKlingOmniMode && hasSubjectOtherViews(asset) && (
+                            <div className="absolute top-1.5 right-1.5 z-10 rounded-full bg-black/55 border border-white/15 p-1 text-white shadow-lg">
+                              <Layers3 className="w-3.5 h-3.5" />
+                            </div>
+                          )}
+                          {alreadyAddedInSeedance && (
+                            <div className="wb-seedance-replay-added-badge absolute left-1.5 top-1.5 z-10 rounded-full border border-emerald-500/20 bg-emerald-500/5 px-1.5 py-0.5 text-[9px] font-bold text-emerald-400/85">
+                              {t.wb_seedance_replay_added_badge || '已添加'}
+                            </div>
+                          )}
+                          {asset.media_kind === 'video' ? (
+                            <video src={asset.file_url} className="w-full h-full object-cover" muted playsInline />
+                          ) : asset.media_kind === 'audio' ? (
+                            <div className="w-full h-full flex items-center justify-center bg-zinc-900 text-zinc-200">
+                              <Music className="w-5 h-5" />
+                            </div>
+                          ) : asset.media_kind === 'document' || asset.type === 'script' ? (
+                            <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-zinc-900 text-zinc-200">
+                              <FileJson className="w-5 h-5" />
+                              <span className="text-[10px] text-zinc-400">{t.assets_tab_scripts || 'Script'}</span>
+                            </div>
+                          ) : (
+                            <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} />
+                          )}
+
+                          {!alreadyAddedInSeedance ? (
+                            <>
+                              <div
+                                className={`pointer-events-none absolute inset-0 bg-black/45 transition-opacity duration-200 ${assetLibraryHoverAssetId === asset.id ? 'opacity-100' : 'opacity-0'}`}
+                              />
+                              <div
+                                className={`pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity duration-200 ${assetLibraryHoverAssetId === asset.id ? 'opacity-100' : 'opacity-0'}`}
+                              >
+                                {assetLibraryHoverAssetId === asset.id && assetLibraryHoverClickedAssetId === asset.id ? (
+                                  <Check className="h-7 w-7 text-white" />
+                                ) : (
+                                  <Plus className="h-8 w-8 text-white" />
+                                )}
+                              </div>
+                            </>
+                          ) : null}
+                        </div>
+                        <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{asset.name}</div>
+                      </button>
                     );
                   })}
                 </div>
               )}
             </div>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setIsTransferStationOpen((prev) => !prev)}
-            className="group relative flex h-14 w-14 items-center justify-center rounded-full border border-orange-400/50 bg-gradient-to-br from-orange-500/90 to-amber-500/80 text-white shadow-[0_16px_35px_rgba(251,146,60,0.35)] transition hover:scale-[1.04]"
-            title={t.wb_transfer_station_title || 'Transfer Station'}
-          >
-            <FolderPlus className="h-6 w-6" />
-            <span className="pointer-events-none absolute -right-1 -top-1 min-w-[20px] rounded-full border border-black/20 bg-black/75 px-1.5 py-0.5 text-[10px] font-black leading-none text-orange-200">
-              {transferStationItems.length}
-            </span>
-            <span className="pointer-events-none absolute right-full mr-2 whitespace-nowrap rounded-md border border-white/10 bg-black/80 px-2 py-1 text-[10px] font-semibold text-zinc-100 opacity-0 transition group-hover:opacity-100">
-              {t.wb_transfer_station_title || 'Transfer Station'}
-            </span>
-          </button>
-        </div>
-
-        {/* 结构化错误弹窗 —— 替代原有的 openInfo(error) 纯文本展示 */}
-        {errorModalData && (
-          <ErrorModal
-            isOpen={true}
-            title={errorModalData.title}
-            code={errorModalData.code}
-            message={errorModalData.message}
-            details={errorModalData.details}
-            suggestions={errorModalData.suggestions}
-            actions={errorModalData.actions}
-            trackingId={errorModalData.trackingId}
-            onClose={closeErrorModal}
-          />
-        )}
-
-        {isInfoOpen && (
-            <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={closeInfoDialog} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={closeInfoDialog}>OK</button></>}>
-              <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
-            </AppDialog>
-        )}
-        {isConfirmOpen && (
-            <AppDialog
-                isOpen={isConfirmOpen}
-                title={confirmTitle || 'Confirm'}
-                onClose={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}
-                footer={
-                  <>
-                    <button className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(false); confirmResolveRef.current = null; } }}>{confirmCancelLabel || t.wb_confirm_cancel}</button>
-                    <button className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600" onClick={() => { setIsConfirmOpen(false); if (confirmResolveRef.current) { confirmResolveRef.current(true); confirmResolveRef.current = null; } }}>{confirmOkLabel || t.wb_confirm_ok}</button>
-                  </>
-                }
-            >
-              <div className="whitespace-pre-line text-sm text-zinc-300">{confirmMessage}</div>
-            </AppDialog>
-        )}
-        <AiOverwriteDialog
-          isOpen={isAiOverwriteOpen}
-          fields={aiOverwriteFields}
-          title={t.wb_ai_overwrite_dialog_title}
-          applyLabel={t.wb_ai_overwrite_apply}
-          cancelLabel={t.wb_ai_overwrite_confirm_cancel}
-          currentLabel={t.wb_ai_overwrite_field_current}
-          newLabel={t.wb_ai_overwrite_field_new}
-          onConfirm={(selectedKeys) => {
-            setIsAiOverwriteOpen(false);
-            if (aiOverwriteResolveRef.current) {
-              aiOverwriteResolveRef.current(selectedKeys);
-              aiOverwriteResolveRef.current = null;
-            }
-          }}
-          onCancel={() => {
-            setIsAiOverwriteOpen(false);
-            if (aiOverwriteResolveRef.current) {
-              aiOverwriteResolveRef.current(null);
-              aiOverwriteResolveRef.current = null;
-            }
-          }}
-        />
-        {isKlingSubjectGuideOpen && (
-            <AppDialog
-                isOpen={isKlingSubjectGuideOpen}
-                title="提示"
-                onClose={() => setIsKlingSubjectGuideOpen(false)}
-                footer={
-                  <>
-                    <button
-                        className="rounded-xl border border-orange-500/70 bg-orange-500/10 px-4 py-2 text-sm font-bold text-orange-200 hover:bg-orange-500/20"
-                        onClick={() => {
-                          setIsKlingSubjectGuideOpen(false);
-                          openSubjectCreationLibrary();
-                        }}
-                    >
-                      去创建主体
-                    </button>
-                    <button
-                        className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                        onClick={() => setIsKlingSubjectGuideOpen(false)}
-                    >
-                      取消
-                    </button>
-                  </>
-                }
-            >
-              <div className="whitespace-pre-line text-sm text-zinc-300">{`主体模式不能直接使用单张图片。
-请先去素材库创建“主体”，上传同一主体的多张不同角度图片，例如正面、侧面、背面或不同姿态。
-创建完成后，再回到这里选择该主体。`}</div>
-            </AppDialog>
-        )}
-        {deleteProjectTarget && (
-            <AppDialog
-                isOpen={!!deleteProjectTarget}
-                title={projectUiText.deleteTitle}
-                onClose={() => setDeleteProjectTarget(null)}
-                footer={
-                  <>
-                    <button
-                        className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                        onClick={() => setDeleteProjectTarget(null)}
-                    >
-                      {projectUiText.cancel}
-                    </button>
-                    <button
-                        className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500"
-                        onClick={() => {
-                          const target = deleteProjectTarget;
-                          if (!target) return;
-                          removeProjectsByIds([target.id]);
-                          setDeleteProjectTarget(null);
-                          setProjectMenuOpen(false);
-                        }}
-                    >
-                      {projectUiText.delete}
-                    </button>
-                  </>
-                }
-            >
-              <div className="whitespace-pre-line text-sm text-zinc-300">{projectUiText.deleteDesc}</div>
-            </AppDialog>
-        )}
-        {deleteProjectIds.length > 0 && (
-            <AppDialog
-                isOpen={deleteProjectIds.length > 0}
-                title={projectUiText.bulkDeleteTitle || projectUiText.deleteTitle}
-                onClose={() => setDeleteProjectIds([])}
-                footer={
-                  <>
-                    <button
-                        className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                        onClick={() => setDeleteProjectIds([])}
-                    >
-                      {projectUiText.cancel}
-                    </button>
-                    <button
-                        className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500"
-                        onClick={() => {
-                          removeProjectsByIds(deleteProjectIds);
-                          setDeleteProjectIds([]);
-                          setSelectedProjectIds([]);
-                          setIsProjectManageMode(false);
-                        }}
-                    >
-                      {projectUiText.delete}
-                    </button>
-                  </>
-                }
-            >
-              <div className="whitespace-pre-line text-sm text-zinc-300">{projectUiText.bulkDeleteDesc || projectUiText.deleteDesc}</div>
-            </AppDialog>
-        )}
-        {isCreateProjectOpen && (
-            <AppDialog
-                isOpen={isCreateProjectOpen}
-                title={projectUiText.createTitle || projectUiText.newProject}
-                onClose={() => {
-                  setIsCreateProjectOpen(false);
-                  setCreateProjectNameError('');
-                }}
-                footer={
-                  <>
-                    <button
-                        className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                        onClick={() => {
-                          setIsCreateProjectOpen(false);
-                          setCreateProjectNameError('');
-                        }}
-                    >
-                      {projectUiText.cancel}
-                    </button>
-                    <button
-                        className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
-                        onClick={() => createNewProject(newProjectNameDraft)}
-                    >
-                      {projectUiText.createConfirm || projectUiText.newProject}
-                    </button>
-                  </>
-                }
-            >
-              <div className="space-y-2">
-                <div className="text-sm text-zinc-300">{projectUiText.createNameLabel || t.assets_name_label || 'Name'}</div>
-                <input
-                    autoFocus
-                    value={newProjectNameDraft}
-                    onChange={(e) => {
-                      const nextName = e.target.value;
-                      setNewProjectNameDraft(nextName);
-                      if (createProjectNameError && nextName.trim().length <= MAX_PROJECT_NAME_LENGTH) {
-                        setCreateProjectNameError('');
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') createNewProject(newProjectNameDraft);
-                    }}
-                    placeholder={projectUiText.createNamePlaceholder || projectUiText.defaultProjectName}
-                    className={`w-full rounded-lg border bg-black/40 text-zinc-100 px-3 py-2 text-sm outline-none focus:border-orange-500 ${createProjectNameError ? 'border-red-500' : 'border-white/10'}`}
-                />
-                {createProjectNameError && (
-                    <div className="text-xs text-red-400">{createProjectNameError}</div>
-                )}
-              </div>
-            </AppDialog>
-        )}
-
-        {isScriptGridDialogOpen && (
-            <AppDialog
-                isOpen={isScriptGridDialogOpen}
-                title={t.wb_script_grid_title || 'Script Variants'}
-                onClose={() => setIsScriptGridDialogOpen(false)}
-                widthClassName="max-w-[min(96vw,1320px)]"
-            >
-              <div className="max-h-[72vh] overflow-x-auto overflow-y-hidden custom-scroll pr-1 pb-2">
-                <div className="flex flex-nowrap gap-3">
-                  {scriptPages.map((page, index) => {
-                    const active = index === activeScriptPage;
-                    const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim()
-                      || (t.wb_script_grid_card_empty || 'No script content yet');
-                    return (
-                      <div key={page.id} className="relative group/scriptcard">
-                      <button
-                          type="button"
-                          onClick={() => {
-                            handleScriptPageChange(index);
-                            setIsScriptGridDialogOpen(false);
-                          }}
-                          className={`${scriptPlanCardClass} ${active ? 'border-orange-500/70 bg-orange-500/10 ring-1 ring-orange-500/35' : 'border-white/10 bg-black/25 hover:border-orange-500/35 hover:bg-white/5'}`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              {page.sourceLabel && (
-                                <span className="rounded border border-sky-400/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-200">
-                                  {page.sourceLabel}
-                                </span>
-                              )}
-                            </div>
-                            <div className={`text-[12px] font-bold leading-5 ${active ? 'text-orange-400' : 'text-zinc-100'}`}>
-                              {formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix)}
-                            </div>
-                          </div>
-                          <span className={`shrink-0 text-[10px] ${active ? 'text-orange-400' : 'text-zinc-500'}`}>
-                            {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
-                          </span>
-                        </div>
-                        <div className={`${scriptPlanCardBodyClass} mt-1 ${active ? 'border-orange-400/30 bg-black/15 text-orange-100/90' : 'border-white/10 bg-black/20 text-zinc-300'}`}>
-                          {previewText}
-                        </div>
-                      </button>
-                      {scriptPages.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); removeScriptPage(index); }}
-                          className="absolute -top-1.5 -right-1.5 z-10 hidden group-hover/scriptcard:flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-zinc-900 text-zinc-400 transition hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-300"
-                          title={t.wb_delete || 'Delete'}
-                        >
-                          <Trash2 className="h-2.5 w-2.5" />
-                        </button>
-                      )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </AppDialog>
-        )}
-
-        {isScriptSaveDialogOpen && (
-            <AppDialog
-                isOpen={isScriptSaveDialogOpen}
-                title={t.wb_script_save_dialog_title || '保存到素材库'}
-                onClose={() => setIsScriptSaveDialogOpen(false)}
-                footer={
-                  <>
-                    <button
-                        className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                        onClick={() => setIsScriptSaveDialogOpen(false)}
-                    >
-                      {t.wb_confirm_cancel}
-                    </button>
-                    <button
-                        className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
-                        onClick={() => void confirmScriptSaveToLibrary()}
-                        disabled={isSavingScriptAsset}
-                    >
-                      {isSavingScriptAsset ? (t.assets_saving_description || '保存中...') : (t.wb_script_save_to_library || '保存到素材库')}
-                    </button>
-                  </>
-                }
-            >
-              <div className="space-y-2">
-                <div className="text-sm text-zinc-300">{t.wb_script_save_name_label || '脚本名称'}</div>
-                <input
-                    autoFocus
-                    value={scriptSaveNameDraft}
-                    onChange={(e) => setScriptSaveNameDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        void confirmScriptSaveToLibrary();
-                      }
-                    }}
-                    placeholder={t.wb_script_save_name_placeholder || '请输入脚本名称'}
-                    className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-orange-500"
-                />
-                <div className="text-xs text-zinc-500">{t.wb_script_save_name_hint || '保存后会以这个名称显示在素材库中。'}</div>
-              </div>
-            </AppDialog>
-        )}
-
-        {isAiOptimizeOpen && (
-            <AppDialog
-                isOpen={isAiOptimizeOpen}
-                title={t.wb_ai_opt_title || 'AI智能优化'}
-                onClose={() => setIsAiOptimizeOpen(false)}
-                widthClassName="max-w-[min(92vw,980px)]"
-                footer={
-                  <>
-                    <button
-                        className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                        onClick={() => setIsAiOptimizeOpen(false)}
-                    >
-                      {t.wb_confirm_cancel}
-                    </button>
-                    <div className="relative group/cost-image">
-                      <button
-                          type="button"
-                          onClick={() => void handleGenerateOptimizedImages()}
-                          disabled={isAiOptimizeGenerating}
-                          className={`px-4 py-2 rounded-lg text-sm font-bold text-white transition ${isAiOptimizeGenerating ? 'bg-orange-500/70 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600'}`}
-                      >
-                        <span className="flex items-center gap-3 whitespace-nowrap">
-                          <span>
-                            {isAiOptimizeGenerating
-                              ? (t.wb_ai_opt_generating || '生成中...')
-                              : (t.wb_ai_opt_generate_btn || '生成优化图')}
-                          </span>
-                          {estimatedImageCostLabel ? (
-                            <span className="text-[11px] font-semibold text-white/90">{estimatedImageCostLabel}</span>
-                          ) : null}
-                        </span>
-                      </button>
-                      <span className="pointer-events-none absolute bottom-full right-0 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/cost-image:opacity-100">
-                        {t.wb_cost_tip_generate_image || '生成图片会消耗点数，具体以实际扣费为准。'}
-                      </span>
-                    </div>
-                  </>
-                }
-            >
-              <div className="w-full max-h-[72vh] overflow-y-auto custom-scroll pr-1 flex flex-col gap-4">
-                <div className="space-y-2">
-                  <div className="text-sm font-bold text-zinc-200">{t.wb_ai_opt_reference_title || '选择参考图'}</div>
-                  <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
-                    {aiOptimizeImageCandidates.map((asset) => {
-                      const active = asset.id === aiOptimizeReferenceId;
-                      return (
-                          <button
-                              key={asset.id}
-                              type="button"
-                              onClick={() => setAiOptimizeReferenceId(asset.id)}
-                              className={`text-left rounded-lg border p-1 transition ${active ? 'border-orange-500/70 bg-orange-500/10' : 'border-white/10 bg-black/20 hover:border-orange-500/40'}`}
-                          >
-                            <div className="w-full aspect-[3/4] rounded-md overflow-hidden bg-zinc-900">
-                              <img src={asset.previewUrl || ''} alt={asset.name} className="w-full h-full object-cover" />
-                            </div>
-                            <div className="mt-1 text-[10px] text-zinc-200 truncate">{asset.name}</div>
-                          </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-400">{t.wb_field_product_category_label}</label>
-                    <input
-                        value={aiOptimizeCategory}
-                        onChange={(e) => setAiOptimizeCategory(e.target.value)}
-                        placeholder={t.wb_select_placeholder}
-                        className="w-full rounded-lg border border-white/10 bg-black/30 text-zinc-100 px-3 py-2 text-sm outline-none focus:border-orange-500"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_keywords_label || '关键词'}</label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {aiOptimizeKeywordChoices.map((keyword) => {
-                        const active = aiOptimizeKeywords.includes(keyword);
-                        return (
-                            <button
-                                key={keyword}
-                                type="button"
-                                onClick={() => {
-                                  setAiOptimizeKeywords((prev) => (
-                                    prev.includes(keyword)
-                                      ? prev.filter((item) => item !== keyword)
-                                      : [...prev, keyword]
-                                  ));
-                                }}
-                                className={`text-[11px] px-2 py-1 rounded-full border transition ${active ? 'border-orange-500/70 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
-                            >
-                              {keyword}
-                            </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_prompt_label || '提示词脚本'}</label>
-                    <div className="flex items-center gap-2">
-                      <button
-                          type="button"
-                          onClick={() => void handleBuildAiOptimizePromptScript()}
-                          disabled={isAiOptimizePromptGenerating}
-                          className={`text-[11px] px-2 py-1 rounded border transition ${isAiOptimizePromptGenerating ? 'border-orange-500/30 bg-orange-500/5 text-orange-200/70 cursor-not-allowed' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
-                      >
-                        {isAiOptimizePromptGenerating
-                          ? (t.wb_ai_opt_prompt_generating || '生成中...')
-                          : (t.wb_prompt_script_generate_btn || '生成提示词脚本')}
-                      </button>
-                      <button
-                          type="button"
-                          onClick={() => void handleSaveAiOptimizePromptToLibrary()}
-                          disabled={isAiOptimizePromptSaving}
-                          className={`text-[11px] px-2 py-1 rounded border transition ${isAiOptimizePromptSaving ? 'border-sky-500/25 bg-sky-500/5 text-sky-200/70 cursor-not-allowed' : 'border-sky-500/55 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20'}`}
-                      >
-                        {isAiOptimizePromptSaving
-                          ? (t.assets_saving_description || '保存中...')
-                          : (t.wb_ai_opt_save_prompt_btn || '保存进素材库')}
-                      </button>
-                    </div>
-                  </div>
-                  <textarea
-                      value={aiOptimizePrompt}
-                      onChange={(e) => setAiOptimizePrompt(e.target.value)}
-                      rows={6}
-                      placeholder={t.wb_ai_opt_prompt_placeholder || '请生成或手动编辑提示词脚本'}
-                      className="w-full rounded-lg border border-white/10 bg-black/30 text-zinc-100 px-3 py-2 text-sm outline-none focus:border-orange-500 resize-y"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-400">{t.aspect_ratio || '视频比例'}</label>
-                    <DropdownSelect
-                        value={aiOptimizeAspectRatio}
-                        options={[
-                          { value: '9:16', label: '9:16' },
-                          { value: '16:9', label: '16:9' },
-                          { value: '1:1', label: '1:1' },
-                        ]}
-                        onChange={(v) => {
-                          if (v === '9:16' || v === '16:9' || v === '1:1') setAiOptimizeAspectRatio(v);
-                        }}
-                        buttonClassName="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300"
-                        iconClassName="w-3 h-3 text-zinc-500"
-                        optionClassName="text-xs"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_resolution_label || '分辨率'}</label>
-                    <DropdownSelect
-                        value={aiOptimizeResolution}
-                        options={[
-                          { value: 'sd', label: t.wb_ai_opt_resolution_sd || '标清' },
-                          { value: 'hd', label: t.wb_ai_opt_resolution_hd || '高清' },
-                          { value: 'uhd', label: t.wb_ai_opt_resolution_uhd || '超清' },
-                        ]}
-                        onChange={(v) => {
-                          if (v === 'sd' || v === 'hd' || v === 'uhd') setAiOptimizeResolution(v);
-                        }}
-                        buttonClassName="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300"
-                        iconClassName="w-3 h-3 text-zinc-500"
-                        optionClassName="text-xs"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_style_strength || '风格强度'}: {aiOptimizeStyleStrength}</label>
-                    <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        value={aiOptimizeStyleStrength}
-                        onChange={(e) => setAiOptimizeStyleStrength(Number(e.target.value))}
-                        className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-400">{t.wb_ai_opt_generate_count || '生成数量'}</label>
-                    <DropdownSelect
-                        value={String(aiOptimizeCount)}
-                        options={[
-                          { value: '1', label: '1' },
-                          { value: '2', label: '2' },
-                          { value: '3', label: '3' },
-                          { value: '4', label: '4' },
-                        ]}
-                        onChange={(v) => {
-                          const next = Number(v);
-                          if (Number.isFinite(next)) setAiOptimizeCount(Math.max(1, Math.min(4, next)));
-                        }}
-                        buttonClassName="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300"
-                        iconClassName="w-3 h-3 text-zinc-500"
-                        optionClassName="text-xs"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="text-sm font-bold text-zinc-200">{t.wb_ai_opt_result_title || '生成结果'}</div>
-                  {aiOptimizeResults.length === 0 ? (
-                      <div className="rounded-lg border border-dashed border-white/10 bg-black/20 px-3 py-6 text-center text-xs text-zinc-500">
-                        {t.wb_ai_opt_result_empty || '生成后会在这里展示可一键替换的图片结果'}
-                      </div>
-                  ) : (
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                        {aiOptimizeResults.map((item) => (
-                            <div key={item.id} className="rounded-lg border border-white/10 bg-black/20 p-1.5">
-                              <div className="w-full aspect-[3/4] rounded-md overflow-hidden bg-zinc-900">
-                                <img src={item.url} alt={item.id} className="w-full h-full object-cover" />
-                              </div>
-                              <button
-                                  type="button"
-                                  onClick={() => handleReplaceWithOptimizedImage(item.url)}
-                                  className="mt-2 w-full rounded-md border border-orange-500/60 bg-orange-500/15 px-2 py-1.5 text-[11px] font-bold text-orange-200 hover:bg-orange-500/25"
-                              >
-                                {t.wb_ai_opt_replace_btn || '一键替换'}
-                              </button>
-                            </div>
-                        ))}
-                      </div>
-                  )}
-                </div>
-              </div>
-            </AppDialog>
-        )}
-
-        {isAssetLibraryOpen && (
-            <AppDialog
-                isOpen={isAssetLibraryOpen}
-                titleClassName="text-lg"
-                title={
-                  assetLibraryPickMode === 'background_audio'
-                    ? (t.wb_audio_picker_title || '选择音频素材')
-                    : assetLibraryPickMode === 'script_import'
-                      ? (t.wb_script_import_from_library || '从素材库导入脚本')
-                      : (t.wb_dialog_choose_from_library || '从素材库选择')
-                }
-                onClose={() => {
-                  setIsAssetLibraryOpen(false);
-                  setAssetLibraryPickMode('default');
-                  setSeedanceReplayLibraryIntent(null);
-                }}
-                widthClassName="max-w-[min(92vw,980px)]"
-                footer={
-                  <>
-                    <button
-                        className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
-                        onClick={() => {
-                          setIsAssetLibraryOpen(false);
-                          setAssetLibraryPickMode('default');
-                          setSeedanceReplayLibraryIntent(null);
-                        }}
-                    >
-                      关闭
-                    </button>
-                  </>
-                }
-            >
-              <div className="w-full h-[62vh] max-h-[600px] min-h-[440px] flex flex-col gap-2.5">
-                <input
-                  ref={assetLibraryUploadInputRef}
-                  type="file"
-                  className="hidden"
-                  multiple
-                  onChange={handleAssetLibraryLocalUploadChange}
-                />
-                {assetLibraryPickMode === 'background_audio' ? (
-                  <div className="flex items-center justify-between gap-3 px-1">
-                    <div className="text-xs text-zinc-400">{t.wb_audio_picker_hint || '仅显示音频素材'}</div>
-                    <div className="flex items-center gap-2">
-                      {assetLibraryTab !== 'subject' && (
-                        <button
-                          type="button"
-                          onClick={triggerAssetLibraryLocalUpload}
-                          disabled={isAssetLibraryUploading}
-                          className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading
-                            ? 'cursor-not-allowed border-white/10 bg-white/5 text-zinc-200/70'
-                            : assetLibraryUploadSuccessVisible
-                              ? 'border-transparent bg-transparent text-emerald-200'
-                              : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
-                            }`}
-                        >
-                          {isAssetLibraryUploading ? (
-                            (t as any).wb_uploading || '上传中...'
-                          ) : assetLibraryUploadSuccessVisible ? (
-                            <span
-                              className={`inline-flex items-center justify-center gap-1.5 text-emerald-200 transition-opacity duration-[2000ms] ${assetLibraryUploadSuccessFading ? 'opacity-0' : 'opacity-100'}`}
-                              aria-label={language === 'zh' ? '上传成功' : 'Upload succeeded'}
-                            >
-                              <CheckCircle className="h-4 w-4" />
-                            </span>
-                          ) : (
-                            (t as any).wb_btn_upload_to_library || '上传素材'
-                          )}
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={openSubjectCreationLibrary}
-                        className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-bold text-zinc-200 transition hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-200"
-                      >
-                        {(t as any).wb_btn_manage_assets_library || '前往素材库'}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                      {assetLibraryVisibleTabs.map((tab) => (
-                          <button
-                              key={tab.value}
-                              type="button"
-                              onClick={() => {
-                                setAssetLibraryTab(tab.value);
-                                setAssetLibraryCurrentFolderId(null);
-                              }}
-                              className={`shrink-0 rounded-full border px-5 py-2 text-[14px] font-bold transition ${assetLibraryTab === tab.value ? 'border-orange-500/70 bg-orange-500/20 text-orange-300' : 'border-white/10 bg-black/30 text-zinc-300 hover:bg-white/5'}`}
-                          >
-                            {tab.label}
-                          </button>
-                      ))}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {assetLibraryTab !== 'subject' && (
-                        <button
-                          type="button"
-                          onClick={triggerAssetLibraryLocalUpload}
-                          disabled={isAssetLibraryUploading}
-                          className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading
-                            ? 'cursor-not-allowed border-white/10 bg-white/5 text-zinc-200/70'
-                            : assetLibraryUploadSuccessVisible
-                              ? 'border-transparent bg-transparent text-emerald-200'
-                              : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
-                            }`}
-                        >
-                          {isAssetLibraryUploading ? (
-                            (t as any).wb_uploading || '上传中...'
-                          ) : assetLibraryUploadSuccessVisible ? (
-                            <span
-                              className={`inline-flex items-center justify-center gap-1.5 text-emerald-200 transition-opacity duration-[2000ms] ${assetLibraryUploadSuccessFading ? 'opacity-0' : 'opacity-100'}`}
-                              aria-label={language === 'zh' ? '上传成功' : 'Upload succeeded'}
-                            >
-                              <CheckCircle className="h-4 w-4" />
-                            </span>
-                          ) : (
-                            (t as any).wb_btn_upload_to_library || '上传素材'
-                          )}
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={openSubjectCreationLibrary}
-                        className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-bold text-zinc-200 transition hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-200"
-                      >
-                        {(t as any).wb_btn_manage_assets_library || '前往素材库'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {assetLibraryTab !== 'subject' && (
-                <div className="flex items-center gap-2 text-sm text-zinc-500 min-w-0">
-                  <button
-                      type="button"
-                      onClick={() => setAssetLibraryCurrentFolderId(null)}
-                      className={`wb-asset-library-crumb hover:text-white ${assetLibraryCurrentFolderId === null ? 'text-white' : ''}`}
-                  >
-                    {t.assets_root || '根目录'}
-                  </button>
-                  {assetLibraryBreadcrumb.map((folder) => (
-                      <div key={folder.id} className="flex items-center gap-2 min-w-0">
-                        <span>/</span>
-                        <button
-                            type="button"
-                            onClick={() => setAssetLibraryCurrentFolderId(folder.id)}
-                            className={`wb-asset-library-crumb hover:text-white truncate ${assetLibraryCurrentFolderId === folder.id ? 'text-white' : ''}`}
-                        >
-                          {folder.name}
-                        </button>
-                      </div>
-                  ))}
-                </div>
-                )}
-
-                <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-1">
-                  {assetLibraryLoading ? (
-                      <div className="h-52 flex items-center justify-center text-zinc-400">
-                        <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载中...
-                      </div>
-                  ) : assetLibraryError ? (
-                      <div className="h-52 flex items-center justify-center text-red-300 text-sm">
-                        {assetLibraryError}
-                      </div>
-                  ) : assetLibraryTab === 'subject' ? (
-                    assetLibrarySubjects.length === 0 ? (
-                      <div className="h-52 flex items-center justify-center text-zinc-500 text-sm">
-                        暂无主体，请先在素材库中创建主体
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-6 gap-2">
-                        {assetLibrarySubjects.map((subject) => (
-                          <button
-                            key={subject.id}
-                            type="button"
-                            onClick={() => selectSubjectFromLibraryPopup(subject)}
-                            className="text-left rounded-lg border bg-black/30 p-1 transition border-white/10 hover:border-orange-500/50 hover:bg-white/5"
-                          >
-                            <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
-                              {subject.primary_asset ? (
-                                <img src={subject.primary_asset.file_url} className="w-full h-full object-cover" alt={subject.name} />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center text-zinc-500">
-                                  <Layers3 className="w-6 h-6" />
-                                </div>
-                              )}
-                              {subject.other_assets.length > 0 && (
-                                <div className="absolute top-1.5 right-1.5 z-10 rounded-full bg-black/55 border border-white/15 p-1 text-white shadow-lg">
-                                  <Layers3 className="w-3.5 h-3.5" />
-                                </div>
-                              )}
-                            </div>
-                            <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{subject.name}</div>
-                          </button>
-                        ))}
-                      </div>
-                    )
-                  ) : assetLibraryItems.length === 0 && assetLibraryFolders.length === 0 ? (
-                      <div className="h-52 flex flex-col items-center justify-center gap-3 text-zinc-500 text-sm">
-                        <div>
-                          {assetLibraryPickMode === 'background_audio'
-                            ? (t.wb_audio_picker_empty || '暂无音频素材')
-                            : assetLibraryPickMode === 'script_import'
-                              ? (t.wb_script_library_empty || '暂无脚本素材')
-                              : '暂无素材'}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={triggerAssetLibraryLocalUpload}
-                          disabled={isAssetLibraryUploading}
-                          className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading
-                            ? 'cursor-not-allowed border-white/10 bg-white/5 text-zinc-200/70'
-                            : assetLibraryUploadSuccessVisible
-                              ? 'border-transparent bg-transparent text-emerald-200'
-                              : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
-                            }`}
-                        >
-                          {isAssetLibraryUploading ? (
-                            (t as any).wb_uploading || '上传中...'
-                          ) : assetLibraryUploadSuccessVisible ? (
-                            <span
-                              className={`inline-flex items-center justify-center gap-1.5 text-emerald-200 transition-opacity duration-[2000ms] ${assetLibraryUploadSuccessFading ? 'opacity-0' : 'opacity-100'}`}
-                              aria-label={language === 'zh' ? '上传成功' : 'Upload succeeded'}
-                            >
-                              <CheckCircle className="h-4 w-4" />
-                            </span>
-                          ) : (
-                            (t as any).wb_btn_upload_to_library || '上传素材'
-                          )}
-                        </button>
-                      </div>
-                  ) : (
-                      <div className="grid grid-cols-6 gap-2">
-                        {assetLibraryFolders.map((folder) => (
-                            <button
-                                key={folder.id}
-                                type="button"
-                                onClick={() => setAssetLibraryCurrentFolderId(folder.id)}
-                                className="text-left rounded-lg border border-white/10 bg-black/30 p-1 hover:border-orange-500/50 hover:bg-white/5 transition"
-                            >
-                              <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-900/60 relative flex items-center justify-center">
-                                <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center">
-                                  <Folder className="w-5 h-5 text-zinc-300" />
-                                </div>
-                              </div>
-                              <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{folder.name}</div>
-                            </button>
-                        ))}
-                        {assetLibraryItems.map((asset) => {
-                          const alreadyAddedInSeedance = (
-                            isSeedanceReplayMode
-                            && assetLibraryPickMode === 'default'
-                            && isSeedanceReplayAssetAlreadyAdded(asset)
-                          );
-
-                          return (
-                            <button
-                                key={asset.id}
-                                type="button"
-                                onMouseEnter={() => {
-                                  setAssetLibraryHoverAssetId(asset.id);
-                                  setAssetLibraryHoverClickedAssetId(null);
-                                }}
-                                onMouseLeave={() => {
-                                  setAssetLibraryHoverAssetId((prev) => (prev === asset.id ? null : prev));
-                                  setAssetLibraryHoverClickedAssetId((prev) => (prev === asset.id ? null : prev));
-                                }}
-                                onClick={() => {
-                                  if (alreadyAddedInSeedance) return;
-                                  const ok = selectAssetFromLibraryPopup(asset);
-                                  if (ok) setAssetLibraryHoverClickedAssetId(asset.id);
-                                }}
-                                className={`group text-left rounded-lg border bg-black/30 p-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30 ${alreadyAddedInSeedance ? 'border-emerald-400/70 ring-1 ring-emerald-400/35' : 'border-white/10 hover:border-orange-500/50 hover:bg-white/5'}`}
-                                title={alreadyAddedInSeedance ? (t.wb_seedance_replay_notice_duplicate_asset || 'This asset has already been added.') : undefined}
-                            >
-                              <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
-                                {isKlingOmniMode && hasSubjectOtherViews(asset) && (
-                                  <div className="absolute top-1.5 right-1.5 z-10 rounded-full bg-black/55 border border-white/15 p-1 text-white shadow-lg">
-                                    <Layers3 className="w-3.5 h-3.5" />
-                                  </div>
-                                )}
-                                {alreadyAddedInSeedance && (
-                                  <div className="wb-seedance-replay-added-badge absolute left-1.5 top-1.5 z-10 rounded-full border border-emerald-500/20 bg-emerald-500/5 px-1.5 py-0.5 text-[9px] font-bold text-emerald-400/85">
-                                    {t.wb_seedance_replay_added_badge || '已添加'}
-                                  </div>
-                                )}
-                                {asset.media_kind === 'video' ? (
-                                    <video src={asset.file_url} className="w-full h-full object-cover" muted playsInline />
-                                ) : asset.media_kind === 'audio' ? (
-                                  <div className="w-full h-full flex items-center justify-center bg-zinc-900 text-zinc-200">
-                                    <Music className="w-5 h-5" />
-                                  </div>
-                                ) : asset.media_kind === 'document' || asset.type === 'script' ? (
-                                  <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-zinc-900 text-zinc-200">
-                                    <FileJson className="w-5 h-5" />
-                                    <span className="text-[10px] text-zinc-400">{t.assets_tab_scripts || 'Script'}</span>
-                                  </div>
-                                ) : (
-                                    <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} />
-                                )}
-
-                                {!alreadyAddedInSeedance ? (
-                                  <>
-                                    <div
-                                      className={`pointer-events-none absolute inset-0 bg-black/45 transition-opacity duration-200 ${assetLibraryHoverAssetId === asset.id ? 'opacity-100' : 'opacity-0'}`}
-                                    />
-                                    <div
-                                      className={`pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity duration-200 ${assetLibraryHoverAssetId === asset.id ? 'opacity-100' : 'opacity-0'}`}
-                                    >
-                                      {assetLibraryHoverAssetId === asset.id && assetLibraryHoverClickedAssetId === asset.id ? (
-                                        <Check className="h-7 w-7 text-white" />
-                                      ) : (
-                                        <Plus className="h-8 w-8 text-white" />
-                                      )}
-                                    </div>
-                                  </>
-                                ) : null}
-                              </div>
-                              <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{asset.name}</div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                  )}
-                </div>
-              </div>
-            </AppDialog>
-        )}
-
-        <AppDialog
-          isOpen={!!seedanceReplayPreviewAsset}
-          title={(
-            <span className="inline-flex max-w-full items-center gap-3">
-              <span className="truncate">{seedanceReplayPreviewAsset?.name || (t.wb_seedance_replay_preview_asset || 'Preview Asset')}</span>
-              {seedanceReplayPreviewAsset?.sizeBytes ? (
-                <span className="shrink-0 text-xs font-normal text-zinc-500">
-                  {formatAssetSize(seedanceReplayPreviewAsset.sizeBytes)}
-                </span>
-              ) : null}
-            </span>
-          )}
-          onClose={() => setSeedanceReplayPreviewAsset(null)}
-          widthClassName="max-w-[min(92vw,980px)]"
-          titleClassName="text-base"
-        >
-          <div className="flex min-h-[320px] items-center justify-center">
-            {seedanceReplayPreviewAsset?.mediaKind === 'audio' ? (
-              <div className="w-full max-w-xl space-y-4">
-                <div className="relative mx-auto aspect-[4/3] w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-black/30">
-                  {renderAudioArtwork(isLightTheme)}
-                </div>
-                <audio
-                  src={seedanceReplayPreviewSrc || undefined}
-                  className="w-full"
-                  controls
-                  autoPlay
-                  preload="metadata"
-                />
-              </div>
-            ) : seedanceReplayPreviewAsset?.mediaKind === 'video' ? (
-              <video
-                src={seedanceReplayPreviewSrc || undefined}
-                className="block max-h-[calc(100vh-12rem)] max-w-full rounded-lg object-contain"
-                controls
-                autoPlay
-                loop
-                playsInline
-              />
-            ) : (
-              <img
-                src={seedanceReplayPreviewSrc || ASSET_PLACEHOLDER_DATA_URL}
-                alt={seedanceReplayPreviewAsset?.name || 'preview asset'}
-                className="block max-h-[calc(100vh-12rem)] max-w-full rounded-lg object-contain"
-                onError={(event) => {
-                  (event.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL;
-                }}
-              />
-            )}
           </div>
         </AppDialog>
+      )}
 
-        <AppDialog
-          isOpen={isBatchGenerateOpen}
-          title={language === 'zh' ? '批量生成视频' : 'Batch Generate Videos'}
-          subtitle={language === 'zh' ? '选择一次性生成几条视频（最多 5 条），并拖拽指定每条视频对应的脚本。' : 'Choose up to 5 videos and drag scripts to map each video.'}
-          onClose={() => setIsBatchGenerateOpen(false)}
-          widthClassName="max-w-none w-[min(92vw,1080px)]"
-          contentClassName="overflow-hidden"
-        >
-          <div className="h-[min(72vh,720px)] flex gap-6">
-            <div className="w-[360px] shrink-0 rounded-2xl border border-white/10 bg-black/20 overflow-hidden flex flex-col">
-              <div className="px-5 py-4 border-b border-white/10 bg-black/30 flex items-center justify-between gap-3">
-                <div className="text-sm font-extrabold text-zinc-200">{language === 'zh' ? '脚本列表' : 'Scripts'}</div>
-                <div className="text-[11px] font-bold text-zinc-500">{scriptPages.length}</div>
+      <AppDialog
+        isOpen={!!seedanceReplayPreviewAsset}
+        title={(
+          <span className="inline-flex max-w-full items-center gap-3">
+            <span className="truncate">{seedanceReplayPreviewAsset?.name || (t.wb_seedance_replay_preview_asset || 'Preview Asset')}</span>
+            {seedanceReplayPreviewAsset?.sizeBytes ? (
+              <span className="shrink-0 text-xs font-normal text-zinc-500">
+                {formatAssetSize(seedanceReplayPreviewAsset.sizeBytes)}
+              </span>
+            ) : null}
+          </span>
+        )}
+        onClose={() => setSeedanceReplayPreviewAsset(null)}
+        widthClassName="max-w-[min(92vw,980px)]"
+        titleClassName="text-base"
+      >
+        <div className="flex min-h-[320px] items-center justify-center">
+          {seedanceReplayPreviewAsset?.mediaKind === 'audio' ? (
+            <div className="w-full max-w-xl space-y-4">
+              <div className="relative mx-auto aspect-[4/3] w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-black/30">
+                {renderAudioArtwork(isLightTheme)}
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto custom-scroll p-4 space-y-2">
-                {scriptPages.map((page, idx) => {
-                  const displayName = formatScriptPageDisplayName(page.name, idx, t.wb_script_page_prefix);
-                  const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim();
+              <audio
+                src={seedanceReplayPreviewSrc || undefined}
+                className="w-full"
+                controls
+                autoPlay
+                preload="metadata"
+              />
+            </div>
+          ) : seedanceReplayPreviewAsset?.mediaKind === 'video' ? (
+            <video
+              src={seedanceReplayPreviewSrc || undefined}
+              className="block max-h-[calc(100vh-12rem)] max-w-full rounded-lg object-contain"
+              controls
+              autoPlay
+              loop
+              playsInline
+            />
+          ) : (
+            <img
+              src={seedanceReplayPreviewSrc || ASSET_PLACEHOLDER_DATA_URL}
+              alt={seedanceReplayPreviewAsset?.name || 'preview asset'}
+              className="block max-h-[calc(100vh-12rem)] max-w-full rounded-lg object-contain"
+              onError={(event) => {
+                (event.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL;
+              }}
+            />
+          )}
+        </div>
+      </AppDialog>
+
+      <AppDialog
+        isOpen={isBatchGenerateOpen}
+        title={language === 'zh' ? '批量生成视频' : 'Batch Generate Videos'}
+        subtitle={language === 'zh' ? '选择一次性生成几条视频（最多 5 条），并拖拽指定每条视频对应的脚本。' : 'Choose up to 5 videos and drag scripts to map each video.'}
+        onClose={() => setIsBatchGenerateOpen(false)}
+        widthClassName="max-w-none w-[min(92vw,1080px)]"
+        contentClassName="overflow-hidden"
+      >
+        <div className="h-[min(72vh,720px)] flex gap-6">
+          <div className="w-[360px] shrink-0 rounded-2xl border border-white/10 bg-black/20 overflow-hidden flex flex-col">
+            <div className="px-5 py-4 border-b border-white/10 bg-black/30 flex items-center justify-between gap-3">
+              <div className="text-sm font-extrabold text-zinc-200">{language === 'zh' ? '脚本列表' : 'Scripts'}</div>
+              <div className="text-[11px] font-bold text-zinc-500">{scriptPages.length}</div>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto custom-scroll p-4 space-y-2">
+              {scriptPages.map((page, idx) => {
+                const displayName = formatScriptPageDisplayName(page.name, idx, t.wb_script_page_prefix);
+                const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim();
+                return (
+                  <div
+                    key={page.id}
+                    draggable
+                    onDragStart={(e) => {
+                      batchGenerateDragRef.current = { kind: 'script', scriptPageId: page.id };
+                      e.dataTransfer.effectAllowed = 'copyMove';
+                    }}
+                    className="rounded-xl border border-white/10 bg-black/30 px-3 py-3 hover:border-white/20 transition cursor-grab active:cursor-grabbing"
+                    title={language === 'zh' ? '拖拽到右侧槽位' : 'Drag into a slot on the right'}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-xs font-extrabold text-zinc-200 truncate">{displayName}</div>
+                        <div className="mt-1 text-[11px] text-zinc-500 line-clamp-2">{previewText || (t.wb_script_grid_card_empty || 'No script content yet')}</div>
+                      </div>
+                      <div className="shrink-0 mt-0.5 text-[10px] font-bold text-zinc-500">#{idx + 1}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex-1 min-w-0 rounded-2xl border border-white/10 bg-black/20 overflow-hidden flex flex-col">
+            <div className="px-5 py-4 border-b border-white/10 bg-black/30 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="text-sm font-extrabold text-zinc-200">{language === 'zh' ? '生成映射' : 'Mapping'}</div>
+                <div className="text-[11px] text-zinc-500">{language === 'zh' ? '把左侧脚本拖到下方每个视频槽位' : 'Drag a script into each slot'}</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={batchGenerateCount}
+                  onChange={(e) => setBatchGenerateCount(Math.max(1, Math.min(5, Number(e.target.value) || 1)))}
+                  className="h-8 rounded-lg border border-white/10 bg-black/40 px-2 text-xs text-zinc-200 outline-none hover:border-white/20"
+                >
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <option key={n} value={n}>
+                      {language === 'zh' ? `${n} 条` : `${n} videos`}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ordered = scriptPages.map((p) => p.id);
+                    setBatchGenerateSlots((prev) =>
+                      prev.map((slot, idx) => ({ ...slot, scriptPageId: ordered[idx] || null }))
+                    );
+                  }}
+                  className="h-8 px-3 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition"
+                >
+                  {language === 'zh' ? '自动填充' : 'Auto fill'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBatchGenerateSlots((prev) => prev.map((s) => ({ ...s, scriptPageId: null })))}
+                  className="h-8 px-3 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition"
+                >
+                  {language === 'zh' ? '清空' : 'Clear'}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto custom-scroll p-5">
+              <div className="grid grid-cols-1 gap-3">
+                {batchGenerateSlots.map((slot, idx) => {
+                  const page = slot.scriptPageId ? scriptPages.find((p) => p.id === slot.scriptPageId) : null;
+                  const pageIndex = page ? scriptPages.findIndex((p) => p.id === page.id) : -1;
+                  const displayName = page ? formatScriptPageDisplayName(page.name, Math.max(0, pageIndex), t.wb_script_page_prefix) : '';
+                  const previewText = page ? String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim() : '';
+                  const hasValue = Boolean(page);
+
                   return (
                     <div
-                      key={page.id}
-                      draggable
-                      onDragStart={(e) => {
-                        batchGenerateDragRef.current = { kind: 'script', scriptPageId: page.id };
-                        e.dataTransfer.effectAllowed = 'copyMove';
+                      key={slot.slotId}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
                       }}
-                      className="rounded-xl border border-white/10 bg-black/30 px-3 py-3 hover:border-white/20 transition cursor-grab active:cursor-grabbing"
-                      title={language === 'zh' ? '拖拽到右侧槽位' : 'Drag into a slot on the right'}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const drag = batchGenerateDragRef.current;
+                        if (!drag) return;
+                        setBatchGenerateSlots((prev) => {
+                          const next = prev.map((x) => ({ ...x }));
+                          const targetIndex = next.findIndex((x) => x.slotId === slot.slotId);
+                          if (targetIndex < 0) return prev;
+
+                          if (drag.kind === 'script') {
+                            next[targetIndex].scriptPageId = drag.scriptPageId;
+                            return next;
+                          }
+
+                          if (drag.kind === 'slot' && drag.slotId) {
+                            const sourceIndex = next.findIndex((x) => x.slotId === drag.slotId);
+                            if (sourceIndex < 0 || sourceIndex === targetIndex) return prev;
+                            const tmp = next[targetIndex].scriptPageId;
+                            next[targetIndex].scriptPageId = drag.scriptPageId;
+                            next[sourceIndex].scriptPageId = tmp ?? null;
+                            return next;
+                          }
+
+                          return prev;
+                        });
+                      }}
+                      className={`rounded-2xl border p-4 transition ${hasValue ? 'border-white/15 bg-black/30' : 'border-dashed border-white/10 bg-black/20'
+                        }`}
                     >
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0">
-                          <div className="text-xs font-extrabold text-zinc-200 truncate">{displayName}</div>
-                          <div className="mt-1 text-[11px] text-zinc-500 line-clamp-2">{previewText || (t.wb_script_grid_card_empty || 'No script content yet')}</div>
+                          <div className="text-[11px] font-bold text-zinc-500">
+                            {language === 'zh' ? `视频 ${idx + 1}` : `Video ${idx + 1}`}
+                          </div>
+                          {hasValue ? (
+                            <>
+                              <div
+                                draggable
+                                onDragStart={(e) => {
+                                  if (!slot.scriptPageId) return;
+                                  batchGenerateDragRef.current = { kind: 'slot', scriptPageId: slot.scriptPageId, slotId: slot.slotId };
+                                  e.dataTransfer.effectAllowed = 'move';
+                                }}
+                                className="mt-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 cursor-grab active:cursor-grabbing"
+                                title={language === 'zh' ? '拖拽到其它槽位以交换' : 'Drag to another slot to swap'}
+                              >
+                                <div className="text-xs font-extrabold text-zinc-200 truncate">{displayName}</div>
+                                <div className="mt-1 text-[11px] text-zinc-500 line-clamp-2">{previewText || (t.wb_script_grid_card_empty || 'No script content yet')}</div>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="mt-2 text-xs text-zinc-500">{language === 'zh' ? '拖拽脚本到此处' : 'Drop a script here'}</div>
+                          )}
                         </div>
-                        <div className="shrink-0 mt-0.5 text-[10px] font-bold text-zinc-500">#{idx + 1}</div>
+                        <div className="shrink-0 flex items-center gap-2">
+                          {hasValue ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setBatchGenerateSlots((prev) =>
+                                  prev.map((s) => (s.slotId === slot.slotId ? { ...s, scriptPageId: null } : s))
+                                )
+                              }
+                              className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20 transition flex items-center justify-center"
+                              aria-label="Remove"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          ) : (
+                            <div className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-500 flex items-center justify-center">
+                              <Layers className="w-4 h-4" />
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -11594,184 +11648,45 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
             </div>
 
-            <div className="flex-1 min-w-0 rounded-2xl border border-white/10 bg-black/20 overflow-hidden flex flex-col">
-              <div className="px-5 py-4 border-b border-white/10 bg-black/30 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="text-sm font-extrabold text-zinc-200">{language === 'zh' ? '生成映射' : 'Mapping'}</div>
-                  <div className="text-[11px] text-zinc-500">{language === 'zh' ? '把左侧脚本拖到下方每个视频槽位' : 'Drag a script into each slot'}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={batchGenerateCount}
-                    onChange={(e) => setBatchGenerateCount(Math.max(1, Math.min(5, Number(e.target.value) || 1)))}
-                    className="h-8 rounded-lg border border-white/10 bg-black/40 px-2 text-xs text-zinc-200 outline-none hover:border-white/20"
-                  >
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <option key={n} value={n}>
-                        {language === 'zh' ? `${n} 条` : `${n} videos`}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const ordered = scriptPages.map((p) => p.id);
-                      setBatchGenerateSlots((prev) =>
-                        prev.map((slot, idx) => ({ ...slot, scriptPageId: ordered[idx] || null }))
-                      );
-                    }}
-                    className="h-8 px-3 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition"
-                  >
-                    {language === 'zh' ? '自动填充' : 'Auto fill'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setBatchGenerateSlots((prev) => prev.map((s) => ({ ...s, scriptPageId: null })))}
-                    className="h-8 px-3 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition"
-                  >
-                    {language === 'zh' ? '清空' : 'Clear'}
-                  </button>
-                </div>
+            <div className="px-5 py-4 border-t border-white/10 bg-black/30 flex items-center justify-between gap-3">
+              <div className="text-[11px] text-zinc-500">
+                {language === 'zh' ? '提示：可以重复使用同一个脚本生成多条视频。' : 'Tip: you can reuse the same script for multiple videos.'}
               </div>
-
-              <div className="flex-1 min-h-0 overflow-y-auto custom-scroll p-5">
-                <div className="grid grid-cols-1 gap-3">
-                  {batchGenerateSlots.map((slot, idx) => {
-                    const page = slot.scriptPageId ? scriptPages.find((p) => p.id === slot.scriptPageId) : null;
-                    const pageIndex = page ? scriptPages.findIndex((p) => p.id === page.id) : -1;
-                    const displayName = page ? formatScriptPageDisplayName(page.name, Math.max(0, pageIndex), t.wb_script_page_prefix) : '';
-                    const previewText = page ? String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim() : '';
-                    const hasValue = Boolean(page);
-
-                    return (
-                      <div
-                        key={slot.slotId}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          e.dataTransfer.dropEffect = 'move';
-                        }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          const drag = batchGenerateDragRef.current;
-                          if (!drag) return;
-                          setBatchGenerateSlots((prev) => {
-                            const next = prev.map((x) => ({ ...x }));
-                            const targetIndex = next.findIndex((x) => x.slotId === slot.slotId);
-                            if (targetIndex < 0) return prev;
-
-                            if (drag.kind === 'script') {
-                              next[targetIndex].scriptPageId = drag.scriptPageId;
-                              return next;
-                            }
-
-                            if (drag.kind === 'slot' && drag.slotId) {
-                              const sourceIndex = next.findIndex((x) => x.slotId === drag.slotId);
-                              if (sourceIndex < 0 || sourceIndex === targetIndex) return prev;
-                              const tmp = next[targetIndex].scriptPageId;
-                              next[targetIndex].scriptPageId = drag.scriptPageId;
-                              next[sourceIndex].scriptPageId = tmp ?? null;
-                              return next;
-                            }
-
-                            return prev;
-                          });
-                        }}
-                        className={`rounded-2xl border p-4 transition ${
-                          hasValue ? 'border-white/15 bg-black/30' : 'border-dashed border-white/10 bg-black/20'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <div className="text-[11px] font-bold text-zinc-500">
-                              {language === 'zh' ? `视频 ${idx + 1}` : `Video ${idx + 1}`}
-                            </div>
-                            {hasValue ? (
-                              <>
-                                <div
-                                  draggable
-                                  onDragStart={(e) => {
-                                    if (!slot.scriptPageId) return;
-                                    batchGenerateDragRef.current = { kind: 'slot', scriptPageId: slot.scriptPageId, slotId: slot.slotId };
-                                    e.dataTransfer.effectAllowed = 'move';
-                                  }}
-                                  className="mt-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 cursor-grab active:cursor-grabbing"
-                                  title={language === 'zh' ? '拖拽到其它槽位以交换' : 'Drag to another slot to swap'}
-                                >
-                                  <div className="text-xs font-extrabold text-zinc-200 truncate">{displayName}</div>
-                                  <div className="mt-1 text-[11px] text-zinc-500 line-clamp-2">{previewText || (t.wb_script_grid_card_empty || 'No script content yet')}</div>
-                                </div>
-                              </>
-                            ) : (
-                              <div className="mt-2 text-xs text-zinc-500">{language === 'zh' ? '拖拽脚本到此处' : 'Drop a script here'}</div>
-                            )}
-                          </div>
-                          <div className="shrink-0 flex items-center gap-2">
-                            {hasValue ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setBatchGenerateSlots((prev) =>
-                                    prev.map((s) => (s.slotId === slot.slotId ? { ...s, scriptPageId: null } : s))
-                                  )
-                                }
-                                className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20 transition flex items-center justify-center"
-                                aria-label="Remove"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            ) : (
-                              <div className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-500 flex items-center justify-center">
-                                <Layers className="w-4 h-4" />
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="px-5 py-4 border-t border-white/10 bg-black/30 flex items-center justify-between gap-3">
-                <div className="text-[11px] text-zinc-500">
-                  {language === 'zh' ? '提示：可以重复使用同一个脚本生成多条视频。' : 'Tip: you can reuse the same script for multiple videos.'}
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsBatchGenerateOpen(false)}
-                    className="h-9 px-4 rounded-xl border border-white/10 bg-white/5 text-sm font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition"
-                  >
-                    {t.wb_confirm_cancel || '取消'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleBatchGenerateSubmit}
-                    disabled={isGenerating}
-                    className={`relative overflow-hidden rounded-xl px-4 py-2 text-xs font-extrabold text-white shadow-lg transition active:scale-[0.98] ${
-                      isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : 'hover:brightness-110'
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsBatchGenerateOpen(false)}
+                  className="h-9 px-4 rounded-xl border border-white/10 bg-white/5 text-sm font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition"
+                >
+                  {t.wb_confirm_cancel || '取消'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBatchGenerateSubmit}
+                  disabled={isGenerating}
+                  className={`relative overflow-hidden rounded-xl px-4 py-2 text-xs font-extrabold text-white shadow-lg transition active:scale-[0.98] ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : 'hover:brightness-110'
                     }`}
-                  >
-                    <span className="absolute inset-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-600" />
-                    <span className="absolute inset-0 opacity-0 transition-opacity duration-200 hover:opacity-100 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.22),transparent_55%)]" />
-                    <span className="relative flex items-center gap-2">
-                      {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clapperboard className="w-4 h-4" />}
-                      <span>{language === 'zh' ? '开始批量生成' : 'Start Batch'}</span>
-                      {estimatedBatchVideoCostLabel ? (
-                        <span className="ml-2 text-[9px] font-semibold text-white/80 whitespace-nowrap">{estimatedBatchVideoCostLabel}</span>
-                      ) : null}
-                    </span>
-                  </button>
-                </div>
+                >
+                  <span className="absolute inset-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-600" />
+                  <span className="absolute inset-0 opacity-0 transition-opacity duration-200 hover:opacity-100 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.22),transparent_55%)]" />
+                  <span className="relative flex items-center gap-2">
+                    {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clapperboard className="w-4 h-4" />}
+                    <span>{language === 'zh' ? '开始批量生成' : 'Start Batch'}</span>
+                    {estimatedBatchVideoCostLabel ? (
+                      <span className="ml-2 text-[9px] font-semibold text-white/80 whitespace-nowrap">{estimatedBatchVideoCostLabel}</span>
+                    ) : null}
+                  </span>
+                </button>
               </div>
             </div>
           </div>
-        </AppDialog>
+        </div>
+      </AppDialog>
 
-        <div ref={workspaceRowRef} className="flex-1 flex overflow-hidden p-6 gap-6" style={rowStyle}>
-          <div style={{ width: leftColumnWidth }} className="shrink-0 h-full min-w-[260px] max-w-[640px]">
-            {renderLeftColumn()}
-          </div>
+      <div ref={workspaceRowRef} className="flex-1 flex overflow-hidden p-6 gap-6" style={rowStyle}>
+        <div style={{ width: leftColumnWidth }} className="shrink-0 h-full min-w-[260px] max-w-[640px]">
+          {renderLeftColumn()}
+        </div>
 
         <div
           role="separator"
@@ -11875,31 +11790,31 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     className={`relative overflow-hidden rounded-xl px-4 py-2 text-xs font-extrabold text-white shadow-lg transition active:scale-[0.98] ${
                       isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : 'hover:brightness-110'
                     }`}
-                  >
-                    <span className="absolute inset-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-600" />
-                    <span className="absolute inset-0 opacity-0 transition-opacity duration-200 group-hover/cost-video:opacity-100 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.22),transparent_55%)]" />
-                    <span className="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5">
-                      <span className="flex items-center gap-2 whitespace-nowrap">
-                        {isGenerating ? (
-                          <Loader2 className="relative w-4 h-4 animate-spin" />
-                        ) : (
-                          <Clapperboard className="relative w-4 h-4" />
-                        )}
-                        <span className="relative">{isGenerating ? (language === 'zh' ? '生成中' : 'Generating') : (language === 'zh' ? '生成视频' : 'Generate')}</span>
-                      </span>
-                      {estimatedVideoCostLabel ? (
-                        <span className="relative ml-auto text-[9px] font-semibold text-white/80 whitespace-nowrap">{estimatedVideoCostLabel}</span>
-                      ) : null}
+                >
+                  <span className="absolute inset-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-600" />
+                  <span className="absolute inset-0 opacity-0 transition-opacity duration-200 group-hover/cost-video:opacity-100 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.22),transparent_55%)]" />
+                  <span className="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <span className="flex items-center gap-2 whitespace-nowrap">
+                      {isGenerating ? (
+                        <Loader2 className="relative w-4 h-4 animate-spin" />
+                      ) : (
+                        <Clapperboard className="relative w-4 h-4" />
+                      )}
+                      <span className="relative">{isGenerating ? (language === 'zh' ? '生成中' : 'Generating') : (language === 'zh' ? '生成视频' : 'Generate')}</span>
                     </span>
-                  </button>
-                  <span className="pointer-events-none absolute bottom-full right-0 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/cost-video:opacity-100">
-                    {t.wb_cost_tip_generate_video || '生成视频会消耗点数，具体以实际扣费为准。'}
+                    {estimatedVideoCostLabel ? (
+                      <span className="relative ml-auto text-[9px] font-semibold text-white/80 whitespace-nowrap">{estimatedVideoCostLabel}</span>
+                    ) : null}
                   </span>
-                </div>
+                </button>
+                <span className="pointer-events-none absolute bottom-full right-0 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/cost-video:opacity-100">
+                  {t.wb_cost_tip_generate_video || '生成视频会消耗点数，具体以实际扣费为准。'}
+                </span>
               </div>
             </div>
+          </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
+          <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
             {scriptPages.length > 0 && (
               <div className="shrink-0 rounded-xl border border-white/10 bg-black/20 p-2.5">
                 <div className="mb-2 flex items-center justify-between gap-2">
@@ -11908,20 +11823,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
                   <div className="flex items-center gap-1.5">
                     <button
-                        type="button"
-                        onClick={handleScriptGridSlidePrev}
-                        disabled={!canSlideScriptGridPrev}
-                        className={`h-6 w-6 rounded border transition flex items-center justify-center ${canSlideScriptGridPrev ? 'border-white/15 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5' : 'border-white/10 text-zinc-600 cursor-not-allowed'}`}
-                        aria-label={(t as any).wb_previous || 'Previous'}
+                      type="button"
+                      onClick={handleScriptGridSlidePrev}
+                      disabled={!canSlideScriptGridPrev}
+                      className={`h-6 w-6 rounded border transition flex items-center justify-center ${canSlideScriptGridPrev ? 'border-white/15 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5' : 'border-white/10 text-zinc-600 cursor-not-allowed'}`}
+                      aria-label={(t as any).wb_previous || 'Previous'}
                     >
                       <ChevronLeft className="h-3.5 w-3.5" />
                     </button>
                     <button
-                        type="button"
-                        onClick={handleScriptGridSlideNext}
-                        disabled={!canSlideScriptGridNext}
-                        className={`h-6 w-6 rounded border transition flex items-center justify-center ${canSlideScriptGridNext ? 'border-white/15 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5' : 'border-white/10 text-zinc-600 cursor-not-allowed'}`}
-                        aria-label={(t as any).wb_next || 'Next'}
+                      type="button"
+                      onClick={handleScriptGridSlideNext}
+                      disabled={!canSlideScriptGridNext}
+                      className={`h-6 w-6 rounded border transition flex items-center justify-center ${canSlideScriptGridNext ? 'border-white/15 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5' : 'border-white/10 text-zinc-600 cursor-not-allowed'}`}
+                      aria-label={(t as any).wb_next || 'Next'}
                     >
                       <ChevronRight className="h-3.5 w-3.5" />
                     </button>
@@ -11929,9 +11844,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       {scriptPages.length === 0 ? '-' : `${scriptGridPageStart + 1}-${Math.min(scriptGridPageStart + SCRIPT_GRID_PAGE_SIZE, scriptPages.length)}`}
                     </span>
                     <button
-                        type="button"
-                        onClick={() => setIsScriptGridDialogOpen(true)}
-                        className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5 transition"
+                      type="button"
+                      onClick={() => setIsScriptGridDialogOpen(true)}
+                      className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5 transition"
                     >
                       {(language === 'zh' ? '查看全部' : 'View All')} ({scriptPages.length})
                     </button>
@@ -11945,42 +11860,42 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       || (t.wb_script_grid_card_empty || 'No script content yet');
                     return (
                       <div key={page.id} className="relative group/scriptcard">
-                      <button
+                        <button
                           type="button"
                           onClick={() => handleScriptPageChange(index)}
                           className={`${scriptPlanCardClass} ${active ? 'border-orange-500/70 bg-orange-500/10 ring-1 ring-orange-500/35' : 'border-white/10 bg-black/30 hover:border-white/25 hover:bg-white/5'}`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              {page.sourceLabel && (
-                                <span className="rounded border border-sky-400/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-200">
-                                  {page.sourceLabel}
-                                </span>
-                              )}
-                            </div>
-                            <div className={`text-[12px] font-bold leading-5 ${active ? 'text-orange-400' : 'text-zinc-100'}`}>
-                              {formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix)}
-                            </div>
-                          </div>
-                          <span className={`shrink-0 text-[9px] ${active ? 'text-orange-400 font-bold' : 'text-zinc-500'}`}>
-                            {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
-                          </span>
-                        </div>
-                        <div className={`${scriptPlanCardBodyClass} ${active ? 'border-orange-400/30 bg-black/15 text-orange-100/90' : 'border-white/10 bg-black/20 text-zinc-300'}`}>
-                          {previewText}
-                        </div>
-                      </button>
-                      {scriptPages.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); removeScriptPage(index); }}
-                          className="absolute -top-1.5 -right-1.5 z-10 hidden group-hover/scriptcard:flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-zinc-900 text-zinc-400 transition hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-300"
-                          title={t.wb_delete || 'Delete'}
                         >
-                          <Trash2 className="h-2.5 w-2.5" />
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                {page.sourceLabel && (
+                                  <span className="rounded border border-sky-400/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-200">
+                                    {page.sourceLabel}
+                                  </span>
+                                )}
+                              </div>
+                              <div className={`text-[12px] font-bold leading-5 ${active ? 'text-orange-400' : 'text-zinc-100'}`}>
+                                {formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix)}
+                              </div>
+                            </div>
+                            <span className={`shrink-0 text-[9px] ${active ? 'text-orange-400 font-bold' : 'text-zinc-500'}`}>
+                              {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
+                            </span>
+                          </div>
+                          <div className={`${scriptPlanCardBodyClass} ${active ? 'border-orange-400/30 bg-black/15 text-orange-100/90' : 'border-white/10 bg-black/20 text-zinc-300'}`}>
+                            {previewText}
+                          </div>
                         </button>
-                      )}
+                        {scriptPages.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); removeScriptPage(index); }}
+                            className="absolute -top-1.5 -right-1.5 z-10 hidden group-hover/scriptcard:flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-zinc-900 text-zinc-400 transition hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-300"
+                            title={t.wb_delete || 'Delete'}
+                          >
+                            <Trash2 className="h-2.5 w-2.5" />
+                          </button>
+                        )}
                       </div>
                     );
                   })}
@@ -11988,312 +11903,312 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
             )}
 
-              {activeScriptPlan && (
-                  <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-2xl relative overflow-hidden">
-                    {/* 装饰性背景光晕：极微弱的紫色透出 */}
-                    <div className="absolute -top-20 -right-20 w-72 h-72 bg-purple-500/10 rounded-full blur-[100px] pointer-events-none" />
+            {activeScriptPlan && (
+              <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-2xl relative overflow-hidden">
+                {/* 装饰性背景光晕：极微弱的紫色透出 */}
+                <div className="absolute -top-20 -right-20 w-72 h-72 bg-purple-500/10 rounded-full blur-[100px] pointer-events-none" />
 
-                    {/* 头部 */}
-                    <div className={`flex items-center justify-between gap-3 relative z-10 mb-6 pb-4 ${isLightTheme ? 'border-b border-slate-300/80' : 'border-b border-white/10'}`}>
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.15)]">
-                          <Sparkles className="w-4 h-4 text-purple-400" />
-                        </div>
-                        <div>
-                          <div className={`flex flex-wrap items-center gap-2 text-[13px] font-black tracking-wider ${isLightTheme ? 'text-slate-900' : 'text-zinc-100'}`}>
-                            <span>{t.wb_script_plan_card_title || 'Script plan'}</span>
-                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-normal tracking-normal ${isLightTheme
-                              ? 'border border-purple-300 bg-purple-100 text-purple-800'
-                              : 'border border-purple-500/30 bg-purple-500/20 text-purple-200'
+                {/* 头部 */}
+                <div className={`flex items-center justify-between gap-3 relative z-10 mb-6 pb-4 ${isLightTheme ? 'border-b border-slate-300/80' : 'border-b border-white/10'}`}>
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.15)]">
+                      <Sparkles className="w-4 h-4 text-purple-400" />
+                    </div>
+                    <div>
+                      <div className={`flex flex-wrap items-center gap-2 text-[13px] font-black tracking-wider ${isLightTheme ? 'text-slate-900' : 'text-zinc-100'}`}>
+                        <span>{t.wb_script_plan_card_title || 'Script plan'}</span>
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-normal tracking-normal ${isLightTheme
+                          ? 'border border-purple-300 bg-purple-100 text-purple-800'
+                          : 'border border-purple-500/30 bg-purple-500/20 text-purple-200'
+                          }`}>
+                          {t.wb_script_plan_card_badge || 'Kling prompt'}
+                        </span>
+                        {activeScriptPlan?.sourceLabel && (
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-normal tracking-normal ${isLightTheme
+                            ? 'border border-sky-300 bg-sky-100 text-sky-700'
+                            : 'border border-sky-400/30 bg-sky-500/20 text-sky-200'
                             }`}>
-                              {t.wb_script_plan_card_badge || 'Kling prompt'}
-                            </span>
-                            {activeScriptPlan?.sourceLabel && (
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-normal tracking-normal ${isLightTheme
-                                ? 'border border-sky-300 bg-sky-100 text-sky-700'
-                                : 'border border-sky-400/30 bg-sky-500/20 text-sky-200'
-                              }`}>
-                                {activeScriptPlan.sourceLabel}
-                              </span>
-                            )}
-                          </div>
-                          <div className={`text-[10px] mt-0.5 font-medium ${isLightTheme ? 'text-slate-600' : 'text-zinc-500'}`}>
-                            {formatScriptPageDisplayName(activeScriptPlan?.name, activeScriptPage, t.wb_script_page_prefix)}
-                          </div>
-                        </div>
+                            {activeScriptPlan.sourceLabel}
+                          </span>
+                        )}
+                      </div>
+                      <div className={`text-[10px] mt-0.5 font-medium ${isLightTheme ? 'text-slate-600' : 'text-zinc-500'}`}>
+                        {formatScriptPageDisplayName(activeScriptPlan?.name, activeScriptPage, t.wb_script_page_prefix)}
                       </div>
                     </div>
+                  </div>
+                </div>
 
-                    <div className="space-y-1.5 relative z-10">
-                      <div className={cardThemeClass.shell}>
-                        <div className={cardThemeClass.panel}>
-                          <textarea
-                              rows={1}
-                              data-card-autosize="true"
-                              value={(activeScriptPlan?.creativeCardText ?? buildCreativeCardEditorText(activeCreativeCard)) || activeFullScript}
-                              onChange={(e) => updateActiveCreativeCardText(e.target.value)}
-                              onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                              className={`${cardThemeClass.textarea} w-full min-h-[220px]`}
-                              style={{
-                                color: isLightTheme ? '#1f2937' : '#f4f4f5',
-                                WebkitTextFillColor: isLightTheme ? '#1f2937' : '#f4f4f5',
+                <div className="space-y-1.5 relative z-10">
+                  <div className={cardThemeClass.shell}>
+                    <div className={cardThemeClass.panel}>
+                      <textarea
+                        rows={1}
+                        data-card-autosize="true"
+                        value={(activeScriptPlan?.creativeCardText ?? buildCreativeCardEditorText(activeCreativeCard)) || activeFullScript}
+                        onChange={(e) => updateActiveCreativeCardText(e.target.value)}
+                        onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                        className={`${cardThemeClass.textarea} w-full min-h-[220px]`}
+                        style={{
+                          color: isLightTheme ? '#1f2937' : '#f4f4f5',
+                          WebkitTextFillColor: isLightTheme ? '#1f2937' : '#f4f4f5',
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {enableStoryboardEditor ? (
+              <>
+                <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                  <div className="text-[10px] text-zinc-400 uppercase tracking-widest">分镜结构（可编辑）</div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setIsShotBreakdownOpen((prev) => !prev)}
+                      className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
+                    >
+                      {isShotBreakdownOpen ? '收起分镜' : '展开分镜'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setEnableStoryboardEditor(false); setIsShotBreakdownOpen(false); }}
+                      className="text-[10px] px-2 py-1 rounded border border-zinc-700 text-zinc-500 hover:text-red-400 hover:border-red-500/40 transition"
+                    >
+                      关闭分镜
+                    </button>
+                  </div>
+                </div>
+                {scripts.length === 0 ? (
+                  (() => {
+                    const currentPageFullScript = String(scriptPages[activeScriptPage]?.fullScript || '').trim();
+                    if (currentPageFullScript) {
+                      return (
+                        <div className="h-64 flex flex-col items-center justify-center text-zinc-500 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20 gap-3 px-6 text-center">
+                          <FileJson className="w-10 h-10 opacity-50" />
+                          <p className="text-xs text-zinc-400">
+                            分镜尚未生成
+                          </p>
+                          <p className="text-[10px] text-zinc-600 max-w-xs">
+                            当前脚本只有整片方案。点击下方按钮在此基础上拆分镜头。
+                          </p>
+                          <button
+                            type="button"
+                            onClick={handleGenerateShotsOnly}
+                            disabled={isGeneratingShotsOnly}
+                            className={`flex items-center gap-2 text-[11px] px-3 py-1.5 rounded border transition ${isGeneratingShotsOnly ? 'border-white/10 text-zinc-500 cursor-not-allowed' : 'border-orange-500/40 text-orange-400 hover:bg-orange-500/10'}`}
+                          >
+                            {isGeneratingShotsOnly ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                <span>生成分镜中...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>补生成分镜</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
+                        <FileJson className="w-10 h-10 mb-2 opacity-50" />
+                        <p className="text-xs">No scripts yet.</p>
+                      </div>
+                    );
+                  })()
+                ) : (
+                  scripts.map((script, index) => (
+                    <div key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
+                          <select
+                            value={script.type}
+                            onChange={(e) => handleScriptTypeChange(script.id, e.target.value)}
+                            className="text-[10px] text-zinc-300 border border-white/10 px-1.5 py-0.5 rounded bg-black/40 focus:outline-none focus:border-orange-500"
+                            title={t.wb_shot_type_label || '镜头类型'}
+                          >
+                            {shotTypeOptions.map((option) => (
+                              <option key={option.value} value={option.value} className="bg-black text-zinc-100">
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <input type="number" min={0.1} step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s', ''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
+                          <span className="text-[10px] text-zinc-500">s</span>
+                        </div>
+                        <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3">
+                        <div className="flex flex-col gap-1.5">
+                          <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_visual}</p>
+                          <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll" value={script.visual} onChange={(e) => { const ns = [...scripts]; ns[index].visual = e.target.value; updateScripts(ns); }} />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
+                          <input
+                            type="text"
+                            disabled={soundSetting === 'off'}
+                            className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
+                            value={soundSetting === 'off' ? '已关闭音频' : script.audio}
+                            onChange={(e) => {
+                              if (soundSetting === 'off') return;
+                              const ns = [...scripts];
+                              ns[index].audio = e.target.value;
+                              updateScripts(ns);
+                            }}
+                          />
+                        </div>
+                        {language !== targetLanguage && (
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center justify-between">
+                              <p className="text-[10px] text-zinc-600 uppercase font-bold ml-1">{t.wb_audio_translation || 'Translation'}</p>
+                              {soundSetting !== 'off' && (
+                                <div className="relative group/translate">
+                                  <button
+                                    type="button"
+                                    className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-white/10 text-zinc-400 hover:text-orange-400 hover:border-orange-500/40 transition"
+                                    disabled={!script.audioTranslation?.trim() || translatingShots[script.id]}
+                                  >
+                                    {translatingShots[script.id] ? (
+                                      <>
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                        <span>{t.wb_translating || '翻译中...'}</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Languages className="w-3 h-3" />
+                                        <span>{t.wb_btn_translate_to_target || '翻译成目标语言'}</span>
+                                      </>
+                                    )}
+                                  </button>
+                                  {/* 悬浮弹出菜单：直接翻译 / 创意翻译 */}
+                                  {!translatingShots[script.id] && script.audioTranslation?.trim() && (
+                                    <div className="absolute right-0 top-full pt-1 hidden group-hover/translate:flex flex-col z-50 min-w-[160px]">
+                                      <div className="flex flex-col gap-1 bg-zinc-900 border border-white/10 rounded-lg p-2 shadow-xl">
+                                        <button
+                                          type="button"
+                                          className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 hover:text-orange-400 px-2 py-1.5 rounded hover:bg-white/5 transition whitespace-nowrap"
+                                          onClick={() => handleTranslateShot(script, index, 'direct')}
+                                        >
+                                          <span>{t.wb_translate_direct || '直接翻译'}</span>
+                                          <span className="relative group/tip-d">
+                                            <HelpCircle className="w-3 h-3 text-zinc-500" />
+                                            <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden group-hover/tip-d:block bg-black/90 text-zinc-300 text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap border border-white/10">
+                                              {t.wb_translate_direct_tip || '直接翻译，保持原文含义和语气'}
+                                            </span>
+                                          </span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 hover:text-purple-400 px-2 py-1.5 rounded hover:bg-white/5 transition whitespace-nowrap"
+                                          onClick={() => handleTranslateShot(script, index, 'creative')}
+                                        >
+                                          <span>{t.wb_translate_creative || '创意翻译'}</span>
+                                          <span className="relative group/tip-c">
+                                            <HelpCircle className="w-3 h-3 text-zinc-500" />
+                                            <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden group-hover/tip-c:block bg-black/90 text-zinc-300 text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap border border-white/10">
+                                              {t.wb_translate_creative_tip || '结合产品特点和画面进行创意翻译'}
+                                            </span>
+                                          </span>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            <textarea
+                              className="w-full bg-black/20 text-xs text-zinc-400 p-3 rounded-lg border border-white/5 resize-none min-h-[40px] focus:border-white/20 transition-colors outline-none italic"
+                              value={script.audioTranslation}
+                              placeholder={t.wb_audio_translation || 'Translation'}
+                              onChange={(e) => {
+                                const ns = [...scripts];
+                                ns[index].audioTranslation = e.target.value;
+                                updateScripts(ns);
                               }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+                {isShotBreakdownOpen && (
+                  <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-between rounded-xl border border-dashed border-white/10 bg-black/20 px-3 py-3">
+                  <span className="text-[11px] text-zinc-500">{t.wb_storyboard_master_mode_hint}</span>
+                  <button
+                    type="button"
+                    onClick={() => setEnableStoryboardEditor(true)}
+                    className="text-[10px] px-2.5 py-1 rounded border border-orange-500/40 text-orange-400 hover:bg-orange-500/10 transition whitespace-nowrap"
+                  >
+                    {t.wb_enable_storyboard}
+                  </button>
+                </div>
+                {scripts.length === 0 ? null : (
+                  scripts.map((script, index) => (
+                    <div key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
+                          <select
+                            value={script.type}
+                            onChange={(e) => handleScriptTypeChange(script.id, e.target.value)}
+                            className="text-[10px] text-zinc-300 border border-white/10 px-1.5 py-0.5 rounded bg-black/40 focus:outline-none focus:border-orange-500"
+                            title={t.wb_shot_type_label || '镜头类型'}
+                          >
+                            {shotTypeOptions.map((option) => (
+                              <option key={option.value} value={option.value} className="bg-black text-zinc-100">
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <input type="number" min={0.1} step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s', ''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
+                          <span className="text-[10px] text-zinc-500">s</span>
+                        </div>
+                        <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3">
+                        <div className="flex flex-col gap-1.5">
+                          <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_visual}</p>
+                          <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll" value={script.visual} onChange={(e) => { const ns = [...scripts]; ns[index].visual = e.target.value; updateScripts(ns); }} />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
+                          <input
+                            type="text"
+                            disabled={soundSetting === 'off'}
+                            className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
+                            value={soundSetting === 'off' ? '已关闭音频' : script.audio}
+                            onChange={(e) => {
+                              if (soundSetting === 'off') return;
+                              const ns = [...scripts];
+                              ns[index].audio = e.target.value;
+                              updateScripts(ns);
+                            }}
                           />
                         </div>
                       </div>
                     </div>
-                  </div>
-              )}
-              {enableStoryboardEditor ? (
-                  <>
-                    <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                      <div className="text-[10px] text-zinc-400 uppercase tracking-widest">分镜结构（可编辑）</div>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                            type="button"
-                            onClick={() => setIsShotBreakdownOpen((prev) => !prev)}
-                            className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
-                        >
-                          {isShotBreakdownOpen ? '收起分镜' : '展开分镜'}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => { setEnableStoryboardEditor(false); setIsShotBreakdownOpen(false); }}
-                            className="text-[10px] px-2 py-1 rounded border border-zinc-700 text-zinc-500 hover:text-red-400 hover:border-red-500/40 transition"
-                        >
-                          关闭分镜
-                        </button>
-                      </div>
-                    </div>
-                    {scripts.length === 0 ? (
-                        (() => {
-                          const currentPageFullScript = String(scriptPages[activeScriptPage]?.fullScript || '').trim();
-                          if (currentPageFullScript) {
-                            return (
-                              <div className="h-64 flex flex-col items-center justify-center text-zinc-500 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20 gap-3 px-6 text-center">
-                                <FileJson className="w-10 h-10 opacity-50" />
-                                <p className="text-xs text-zinc-400">
-                                  分镜尚未生成
-                                </p>
-                                <p className="text-[10px] text-zinc-600 max-w-xs">
-                                  当前脚本只有整片方案。点击下方按钮在此基础上拆分镜头。
-                                </p>
-                                <button
-                                  type="button"
-                                  onClick={handleGenerateShotsOnly}
-                                  disabled={isGeneratingShotsOnly}
-                                  className={`flex items-center gap-2 text-[11px] px-3 py-1.5 rounded border transition ${isGeneratingShotsOnly ? 'border-white/10 text-zinc-500 cursor-not-allowed' : 'border-orange-500/40 text-orange-400 hover:bg-orange-500/10'}`}
-                                >
-                                  {isGeneratingShotsOnly ? (
-                                    <>
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                      <span>生成分镜中...</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Plus className="w-3.5 h-3.5" />
-                                      <span>补生成分镜</span>
-                                    </>
-                                  )}
-                                </button>
-                              </div>
-                            );
-                          }
-                          return (
-                            <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
-                              <FileJson className="w-10 h-10 mb-2 opacity-50" />
-                              <p className="text-xs">No scripts yet.</p>
-                            </div>
-                          );
-                        })()
-                    ) : (
-                        scripts.map((script, index) => (
-                            <div key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
-                              <div className="flex justify-between items-start mb-3">
-                                <div className="flex items-center gap-2">
-                                  <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
-                                  <select
-                                      value={script.type}
-                                      onChange={(e) => handleScriptTypeChange(script.id, e.target.value)}
-                                      className="text-[10px] text-zinc-300 border border-white/10 px-1.5 py-0.5 rounded bg-black/40 focus:outline-none focus:border-orange-500"
-                                      title={t.wb_shot_type_label || '镜头类型'}
-                                  >
-                                    {shotTypeOptions.map((option) => (
-                                        <option key={option.value} value={option.value} className="bg-black text-zinc-100">
-                                          {option.label}
-                                        </option>
-                                    ))}
-                                  </select>
-                                  <input type="number" min={0.1} step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
-                                  <span className="text-[10px] text-zinc-500">s</span>
-                                </div>
-                                <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
-                              </div>
-                              <div className="grid grid-cols-1 gap-3">
-                                <div className="flex flex-col gap-1.5">
-                                  <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_visual}</p>
-                                  <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll" value={script.visual} onChange={(e) => { const ns = [...scripts]; ns[index].visual = e.target.value; updateScripts(ns); }} />
-                                </div>
-                                <div className="flex flex-col gap-1.5">
-                                  <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
-                                  <input
-                                      type="text"
-                                      disabled={soundSetting === 'off'}
-                                      className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
-                                      value={soundSetting === 'off' ? '已关闭音频' : script.audio}
-                                      onChange={(e) => {
-                                        if (soundSetting === 'off') return;
-                                        const ns = [...scripts];
-                                        ns[index].audio = e.target.value;
-                                        updateScripts(ns);
-                                      }}
-                                  />
-                                </div>
-                                {language !== targetLanguage && (
-                                <div className="flex flex-col gap-1">
-                                    <div className="flex items-center justify-between">
-                                      <p className="text-[10px] text-zinc-600 uppercase font-bold ml-1">{t.wb_audio_translation || 'Translation'}</p>
-                                      {soundSetting !== 'off' && (
-                                        <div className="relative group/translate">
-                                          <button
-                                            type="button"
-                                            className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-white/10 text-zinc-400 hover:text-orange-400 hover:border-orange-500/40 transition"
-                                            disabled={!script.audioTranslation?.trim() || translatingShots[script.id]}
-                                          >
-                                            {translatingShots[script.id] ? (
-                                              <>
-                                                <Loader2 className="w-3 h-3 animate-spin" />
-                                                <span>{t.wb_translating || '翻译中...'}</span>
-                                              </>
-                                            ) : (
-                                              <>
-                                                <Languages className="w-3 h-3" />
-                                                <span>{t.wb_btn_translate_to_target || '翻译成目标语言'}</span>
-                                              </>
-                                            )}
-                                          </button>
-                                          {/* 悬浮弹出菜单：直接翻译 / 创意翻译 */}
-                                          {!translatingShots[script.id] && script.audioTranslation?.trim() && (
-                                            <div className="absolute right-0 top-full pt-1 hidden group-hover/translate:flex flex-col z-50 min-w-[160px]">
-                                            <div className="flex flex-col gap-1 bg-zinc-900 border border-white/10 rounded-lg p-2 shadow-xl">
-                                              <button
-                                                type="button"
-                                                className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 hover:text-orange-400 px-2 py-1.5 rounded hover:bg-white/5 transition whitespace-nowrap"
-                                                onClick={() => handleTranslateShot(script, index, 'direct')}
-                                              >
-                                                <span>{t.wb_translate_direct || '直接翻译'}</span>
-                                                <span className="relative group/tip-d">
-                                                  <HelpCircle className="w-3 h-3 text-zinc-500" />
-                                                  <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden group-hover/tip-d:block bg-black/90 text-zinc-300 text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap border border-white/10">
-                                                    {t.wb_translate_direct_tip || '直接翻译，保持原文含义和语气'}
-                                                  </span>
-                                                </span>
-                                              </button>
-                                              <button
-                                                type="button"
-                                                className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 hover:text-purple-400 px-2 py-1.5 rounded hover:bg-white/5 transition whitespace-nowrap"
-                                                onClick={() => handleTranslateShot(script, index, 'creative')}
-                                              >
-                                                <span>{t.wb_translate_creative || '创意翻译'}</span>
-                                                <span className="relative group/tip-c">
-                                                  <HelpCircle className="w-3 h-3 text-zinc-500" />
-                                                  <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden group-hover/tip-c:block bg-black/90 text-zinc-300 text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap border border-white/10">
-                                                    {t.wb_translate_creative_tip || '结合产品特点和画面进行创意翻译'}
-                                                  </span>
-                                                </span>
-                                              </button>
-                                            </div>
-                                            </div>
-                                          )}
-                                        </div>
-                                      )}
-                                    </div>
-                                    <textarea
-                                      className="w-full bg-black/20 text-xs text-zinc-400 p-3 rounded-lg border border-white/5 resize-none min-h-[40px] focus:border-white/20 transition-colors outline-none italic"
-                                      value={script.audioTranslation}
-                                      placeholder={t.wb_audio_translation || 'Translation'}
-                                      onChange={(e) => {
-                                        const ns = [...scripts];
-                                        ns[index].audioTranslation = e.target.value;
-                                        updateScripts(ns);
-                                      }}
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                        ))
-                    )}
-                    {isShotBreakdownOpen && (
-                        <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
-                    )}
-                  </>
-              ) : (
-                  <>
-                  <div className="flex items-center justify-between rounded-xl border border-dashed border-white/10 bg-black/20 px-3 py-3">
-                    <span className="text-[11px] text-zinc-500">{t.wb_storyboard_master_mode_hint}</span>
-                    <button
-                        type="button"
-                        onClick={() => setEnableStoryboardEditor(true)}
-                        className="text-[10px] px-2.5 py-1 rounded border border-orange-500/40 text-orange-400 hover:bg-orange-500/10 transition whitespace-nowrap"
-                    >
-                      {t.wb_enable_storyboard}
-                    </button>
-                  </div>
-                  {scripts.length === 0 ? null : (
-                    scripts.map((script, index) => (
-                      <div key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
-                        <div className="flex justify-between items-start mb-3">
-                            <div className="flex items-center gap-2">
-                                <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
-                                <select
-                                  value={script.type}
-                                  onChange={(e) => handleScriptTypeChange(script.id, e.target.value)}
-                                  className="text-[10px] text-zinc-300 border border-white/10 px-1.5 py-0.5 rounded bg-black/40 focus:outline-none focus:border-orange-500"
-                                  title={t.wb_shot_type_label || '镜头类型'}
-                                >
-                                  {shotTypeOptions.map((option) => (
-                                    <option key={option.value} value={option.value} className="bg-black text-zinc-100">
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
-                                <input type="number" min={0.1} step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s',''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
-                                <span className="text-[10px] text-zinc-500">s</span>
-                              </div>
-                              <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
-                            </div>
-                            <div className="grid grid-cols-1 gap-3">
-                              <div className="flex flex-col gap-1.5">
-                                <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_visual}</p>
-                                <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll" value={script.visual} onChange={(e) => { const ns = [...scripts]; ns[index].visual = e.target.value; updateScripts(ns); }} />
-                              </div>
-                              <div className="flex flex-col gap-1.5">
-                                <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
-                                <input
-                                  type="text"
-                                  disabled={soundSetting === 'off'}
-                                  className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
-                                  value={soundSetting === 'off' ? '已关闭音频' : script.audio}
-                                  onChange={(e) => {
-                                    if (soundSetting === 'off') return;
-                                    const ns = [...scripts];
-                                    ns[index].audio = e.target.value;
-                                    updateScripts(ns);
-                                  }}
-                                />
-                            </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                  {isShotBreakdownOpen && (
-                    <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
-                  )}
-                </>
-              )}
-            </div>
+                  ))
+                )}
+                {isShotBreakdownOpen && (
+                  <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
+                )}
+              </>
+            )}
           </div>
+        </div>
 
         <div
           role="separator"
@@ -12306,146 +12221,146 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-4" />
         </div>
 
-          {/* Right Column: Preview & Results */}
-          <div ref={previewSectionRef} style={{ flex: 1 - scriptPreviewRatio }} className={`flex flex-col gap-3 shrink-0 h-full ${getGuideFocusClass('preview')}`}>
-            <div className="flex justify-between items-end shrink-0 h-[32px]">
-              <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-3 h-3" /> {t.wb_col_preview}</h2>
-            </div>
-            {/* Video Player */}
-            <div className="glass-panel flex-1 rounded-2xl p-1 relative flex flex-col overflow-hidden">
-              <div className="flex-1 bg-black rounded-xl relative overflow-hidden group flex items-center justify-center">
-                {generatedVideoUrl ? (
-                    <video
-                        ref={videoRef}
-                        src={generatedVideoUrl}
-                        controls
+        {/* Right Column: Preview & Results */}
+        <div ref={previewSectionRef} style={{ flex: 1 - scriptPreviewRatio }} className={`flex flex-col gap-3 shrink-0 h-full ${getGuideFocusClass('preview')}`}>
+          <div className="flex justify-between items-end shrink-0 h-[32px]">
+            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-3 h-3" /> {t.wb_col_preview}</h2>
+          </div>
+          {/* Video Player */}
+          <div className="glass-panel flex-1 rounded-2xl p-1 relative flex flex-col overflow-hidden">
+            <div className="flex-1 bg-black rounded-xl relative overflow-hidden group flex items-center justify-center">
+              {generatedVideoUrl ? (
+                <video
+                  ref={videoRef}
+                  src={generatedVideoUrl}
+                  controls
+                  autoPlay
+                  loop
+                  className="w-full h-full object-contain"
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                />
+              ) : (
+                isWaitingPreview ? (
+                  <div className="relative h-full w-full">
+                    {!waitingVideoFailed ? (
+                      <video
+                        className="h-full w-full object-cover"
+                        src={WAITING_PREVIEW_VIDEO_SRC}
                         autoPlay
                         loop
-                        className="w-full h-full object-contain"
-                        onPlay={() => setIsPlaying(true)}
-                        onPause={() => setIsPlaying(false)}
-                    />
-                ) : (
-                    isWaitingPreview ? (
-                      <div className="relative h-full w-full">
-                        {!waitingVideoFailed ? (
-                          <video
-                            className="h-full w-full object-cover"
-                            src={WAITING_PREVIEW_VIDEO_SRC}
-                            autoPlay
-                            loop
-                            muted
-                            playsInline
-                            preload="auto"
-                            onError={() => setWaitingVideoFailed(true)}
-                          />
-                        ) : (
-                          <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-center opacity-30">
-                            <Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" />
-                          </div>
-                        )}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none" />
-                        <div className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 px-4 pb-4 text-center">
-                          <p className="text-xs text-white/80 font-semibold drop-shadow">{waitingPhaseMessage}</p>
-                          <div className="text-2xl font-black text-orange-200 tabular-nums drop-shadow">{waitingProgressPercent}%</div>
-                        </div>
+                        muted
+                        playsInline
+                        preload="auto"
+                        onError={() => setWaitingVideoFailed(true)}
+                      />
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-center opacity-30">
+                        <Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" />
                       </div>
-                    ) : (
-                      <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Submitting…' : t.wb_waiting}</p></div>
-                    )
-                )}
-
-              </div>
-              <div className="h-14 flex items-center justify-between px-4 border-t border-white/5 bg-zinc-900/50">
-                <div className="flex gap-4">
-                  <button
-                      type="button"
-                      onClick={() => skipVideoTime(-1)}
-                      disabled={!generatedVideoUrl}
-                      title="Rewind 1s"
-                      className={`text-zinc-400 hover:text-white active:scale-95 transition ${!generatedVideoUrl ? 'opacity-40 cursor-not-allowed hover:text-zinc-400 active:scale-100' : ''}`}
-                  >
-                    <SkipBack className="w-4 h-4" />
-                  </button>
-                  <button
-                      type="button"
-                      onClick={toggleVideoPlay}
-                      disabled={!generatedVideoUrl}
-                      title={isPlaying ? 'Pause' : 'Play'}
-                      className={`text-white hover:text-orange-500 active:scale-95 transition ${!generatedVideoUrl ? 'opacity-40 cursor-not-allowed hover:text-white active:scale-100' : ''}`}
-                  >
-                    {isPlaying ? (
-                        <Pause className="w-4 h-4" />
-                    ) : (
-                        <Play className="w-4 h-4 fill-current" />
                     )}
-                  </button>
-                  <button
-                      type="button"
-                      onClick={() => skipVideoTime(1)}
-                      disabled={!generatedVideoUrl}
-                      title="Forward 1s"
-                      className={`text-zinc-400 hover:text-white active:scale-95 transition ${!generatedVideoUrl ? 'opacity-40 cursor-not-allowed hover:text-zinc-400 active:scale-100' : ''}`}
-                  >
-                    <SkipForward className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="glass-panel rounded-2xl p-3 border border-white/5 flex items-center justify-between">
-              <div className="text-[10px] text-zinc-500 uppercase tracking-widest">{t.wb_tiktok_draft_title}</div>
-              <button
-                  onClick={handlePublishToTikTok}
-                  disabled={!generatedVideoUrl || isPostingTikTok}
-                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border border-white/10 ${(!generatedVideoUrl || isPostingTikTok) ? 'opacity-40 cursor-not-allowed text-zinc-500' : 'text-white bg-gradient-to-r from-purple-600 to-orange-500 hover:brightness-110'}`}
-              >
-                {isPostingTikTok ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                {isPostingTikTok ? t.wb_tiktok_uploading : t.wb_btn_tiktok_draft}
-              </button>
-            </div>
-
-            <div className="glass-panel rounded-2xl p-4 border border-white/5 max-h-56 overflow-y-auto custom-scroll">
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest">
-                  {language === 'zh' ? '本项目视频队列' : 'Project Video Queue'}
-                </div>
-                <div className="text-[10px] font-bold text-zinc-600">{currentProjectVideoQueue.length}</div>
-              </div>
-              {currentProjectVideoQueue.length === 0 ? (
-                <div className="text-[10px] text-zinc-600">{language === 'zh' ? '暂无队列任务' : 'No queued tasks'}</div>
-              ) : (
-                <div className="space-y-2">
-                  {currentProjectVideoQueue.map((task) => {
-                    const status = task?.status;
-                    const url = task?.result?.video_url || task?.result?.url;
-                    return (
-                      <div key={String(task.id)} className="flex items-center justify-between gap-2 text-[10px]">
-                        <span className="truncate text-zinc-300">{String(task.name || '').trim() || `#${String(task.id).slice(0, 8)}`}</span>
-                        {status === 'success' && url ? (
-                          <button
-                            onClick={() => {
-                              setPreviewProjectId(task.projectId || null);
-                              setLastGeneratedProjectId(task.projectId || null);
-                              setGeneratedVideoUrl(url);
-                            }}
-                            className="text-orange-400 hover:text-orange-300 transition whitespace-nowrap"
-                          >
-                            {language === 'zh' ? '预览' : 'Preview'}
-                          </button>
-                        ) : status === 'failed' ? (
-                          <span className="text-red-400 whitespace-nowrap">{language === 'zh' ? '失败' : 'Failed'}</span>
-                        ) : (
-                          <span className="text-zinc-500 whitespace-nowrap">{language === 'zh' ? '生成中…' : 'Processing…'}</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none" />
+                    <div className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 px-4 pb-4 text-center">
+                      <p className="text-xs text-white/80 font-semibold drop-shadow">{waitingPhaseMessage}</p>
+                      <div className="text-2xl font-black text-orange-200 tabular-nums drop-shadow">{waitingProgressPercent}%</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center opacity-30"><Film className="w-12 h-12 mx-auto mb-2 text-zinc-600" /><p className="text-xs text-zinc-600">{isGenerating ? 'Submitting…' : t.wb_waiting}</p></div>
+                )
               )}
+
             </div>
+            <div className="h-14 flex items-center justify-between px-4 border-t border-white/5 bg-zinc-900/50">
+              <div className="flex gap-4">
+                <button
+                  type="button"
+                  onClick={() => skipVideoTime(-1)}
+                  disabled={!generatedVideoUrl}
+                  title="Rewind 1s"
+                  className={`text-zinc-400 hover:text-white active:scale-95 transition ${!generatedVideoUrl ? 'opacity-40 cursor-not-allowed hover:text-zinc-400 active:scale-100' : ''}`}
+                >
+                  <SkipBack className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleVideoPlay}
+                  disabled={!generatedVideoUrl}
+                  title={isPlaying ? 'Pause' : 'Play'}
+                  className={`text-white hover:text-orange-500 active:scale-95 transition ${!generatedVideoUrl ? 'opacity-40 cursor-not-allowed hover:text-white active:scale-100' : ''}`}
+                >
+                  {isPlaying ? (
+                    <Pause className="w-4 h-4" />
+                  ) : (
+                    <Play className="w-4 h-4 fill-current" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => skipVideoTime(1)}
+                  disabled={!generatedVideoUrl}
+                  title="Forward 1s"
+                  className={`text-zinc-400 hover:text-white active:scale-95 transition ${!generatedVideoUrl ? 'opacity-40 cursor-not-allowed hover:text-zinc-400 active:scale-100' : ''}`}
+                >
+                  <SkipForward className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="glass-panel rounded-2xl p-3 border border-white/5 flex items-center justify-between">
+            <div className="text-[10px] text-zinc-500 uppercase tracking-widest">{t.wb_tiktok_draft_title}</div>
+            <button
+              onClick={handlePublishToTikTok}
+              disabled={!generatedVideoUrl || isPostingTikTok}
+              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border border-white/10 ${(!generatedVideoUrl || isPostingTikTok) ? 'opacity-40 cursor-not-allowed text-zinc-500' : 'text-white bg-gradient-to-r from-purple-600 to-orange-500 hover:brightness-110'}`}
+            >
+              {isPostingTikTok ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+              {isPostingTikTok ? t.wb_tiktok_uploading : t.wb_btn_tiktok_draft}
+            </button>
+          </div>
+
+          <div className="glass-panel rounded-2xl p-4 border border-white/5 max-h-56 overflow-y-auto custom-scroll">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest">
+                {language === 'zh' ? '本项目视频队列' : 'Project Video Queue'}
+              </div>
+              <div className="text-[10px] font-bold text-zinc-600">{currentProjectVideoQueue.length}</div>
+            </div>
+            {currentProjectVideoQueue.length === 0 ? (
+              <div className="text-[10px] text-zinc-600">{language === 'zh' ? '暂无队列任务' : 'No queued tasks'}</div>
+            ) : (
+              <div className="space-y-2">
+                {currentProjectVideoQueue.map((task) => {
+                  const status = task?.status;
+                  const url = task?.result?.video_url || task?.result?.url;
+                  return (
+                    <div key={String(task.id)} className="flex items-center justify-between gap-2 text-[10px]">
+                      <span className="truncate text-zinc-300">{String(task.name || '').trim() || `#${String(task.id).slice(0, 8)}`}</span>
+                      {status === 'success' && url ? (
+                        <button
+                          onClick={() => {
+                            setPreviewProjectId(task.projectId || null);
+                            setLastGeneratedProjectId(task.projectId || null);
+                            setGeneratedVideoUrl(url);
+                          }}
+                          className="text-orange-400 hover:text-orange-300 transition whitespace-nowrap"
+                        >
+                          {language === 'zh' ? '预览' : 'Preview'}
+                        </button>
+                      ) : status === 'failed' ? (
+                        <span className="text-red-400 whitespace-nowrap">{language === 'zh' ? '失败' : 'Failed'}</span>
+                      ) : (
+                        <span className="text-zinc-500 whitespace-nowrap">{language === 'zh' ? '生成中…' : 'Processing…'}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>
+    </div>
   );
 };

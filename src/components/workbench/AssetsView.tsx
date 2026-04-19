@@ -270,7 +270,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [seedanceCulturalBranches, setSeedanceCulturalBranches] = useState<string[]>([]);
   const [seedanceSkinTones, setSeedanceSkinTones] = useState<string[]>([]);
   const [seedanceSearchMode, setSeedanceSearchMode] = useState<SeedanceSearchMode>('default');
-  const [seedanceFilters, setSeedanceFilters] = useState<SeedanceCharacterFilters>({ page_size: 20, search_mode: 'default' });
+  const [seedanceFilters, setSeedanceFilters] = useState<SeedanceCharacterFilters>({ page_size: 24, search_mode: 'default' });
   const [seedanceAdvancedOpen, setSeedanceAdvancedOpen] = useState(false);
   const [showSeedanceBrowser, setShowSeedanceBrowser] = useState(false);
   const [seedanceOptionsLoaded, setSeedanceOptionsLoaded] = useState(false);
@@ -3724,7 +3724,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       key={mode}
                       onClick={() => {
                         setSeedanceSearchMode(mode);
-                        const fresh: SeedanceCharacterFilters = { page_size: 20, search_mode: mode, page: 1 };
+                        const fresh: SeedanceCharacterFilters = { page_size: 24, search_mode: mode, page: 1 };
                         setSeedanceFilters(fresh);
                         setSeedanceAdvancedOpen(false);
                         if (mode === 'default') {
@@ -3762,13 +3762,31 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           value={seedanceFilters.search_appearance || ''}
                           onChange={(e) => setSeedanceFilters((prev) => ({ ...prev, search_appearance: e.target.value }))}
                           onKeyDown={(e) => { if (e.key === 'Enter') void loadSeedanceCharacters(seedanceFilters); }}
-                          placeholder={t.assets_seedance_fuzzy_appearance_placeholder || '五官、发型、肤质、体型等，如"圆脸 大眼 卷发"'}
+                          placeholder={t.assets_seedance_fuzzy_appearance_placeholder || '如 "大眼 双眼皮" 或 "厚唇 暖白皮 卷发"'}
                           className="w-full bg-zinc-800 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-orange-500/50"
                         />
                       </div>
                       <p className="text-[10px] text-zinc-600 mt-1 leading-relaxed">
-                        {t.assets_seedance_fuzzy_appearance_hint || '多个关键词用空格分隔，如：圆脸 大眼 卷发。支持：脸型、眉形、鼻型、唇形、肤色、发型、体型、服饰等。'}
+                        {t.assets_seedance_fuzzy_appearance_hint || '空格分隔，取交集。请输入数据库中的精确标签词。'}
                       </p>
+                      <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                        <span className="text-[10px] text-zinc-500">{t.assets_seedance_fuzzy_try || '试试：'}</span>
+                        {(t.assets_seedance_fuzzy_appearance_chips || '大眼,双眼皮,厚唇,暖白皮,卷发,络腮胡,高大魁梧,圆形脸').split(',').map((chip) => (
+                          <button
+                            key={chip}
+                            onClick={() => {
+                              const prev = seedanceFilters.search_appearance || '';
+                              const next = prev ? `${prev} ${chip}` : chip;
+                              const f = { ...seedanceFilters, search_appearance: next };
+                              setSeedanceFilters(f);
+                              void loadSeedanceCharacters(f);
+                            }}
+                            className="px-1.5 py-0.5 text-[10px] bg-orange-500/10 text-orange-400 rounded hover:bg-orange-500/25 transition"
+                          >
+                            {chip}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                     {/* 经历/场景输入框 */}
                     <div>
@@ -3779,13 +3797,31 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           value={seedanceFilters.search_scene || ''}
                           onChange={(e) => setSeedanceFilters((prev) => ({ ...prev, search_scene: e.target.value }))}
                           onKeyDown={(e) => { if (e.key === 'Enter') void loadSeedanceCharacters(seedanceFilters); }}
-                          placeholder={t.assets_seedance_fuzzy_scene_placeholder || '职业、背景、生活场景等，如"教师 山村"'}
+                          placeholder={t.assets_seedance_fuzzy_scene_placeholder || '如 "美甲师" 或 "外卖 夜市"'}
                           className="w-full bg-zinc-800 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-orange-500/50"
                         />
                       </div>
                       <p className="text-[10px] text-zinc-600 mt-1 leading-relaxed">
-                        {t.assets_seedance_fuzzy_scene_hint || '描述人物的生活经历或所处场景。如：渔村 老船长、咖啡馆 钢琴师。不支持：明星名字、抽象比喻。'}
+                        {t.assets_seedance_fuzzy_scene_hint || '搜索人物故事描述。不支持：明星名字、抽象比喻。'}
                       </p>
+                      <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                        <span className="text-[10px] text-zinc-500">{t.assets_seedance_fuzzy_try || '试试：'}</span>
+                        {(t.assets_seedance_fuzzy_scene_chips || '美甲师,歌手,外卖,夜市,咖啡馆,录音棚,追剧,露营').split(',').map((chip) => (
+                          <button
+                            key={chip}
+                            onClick={() => {
+                              const prev = seedanceFilters.search_scene || '';
+                              const next = prev ? `${prev} ${chip}` : chip;
+                              const f = { ...seedanceFilters, search_scene: next };
+                              setSeedanceFilters(f);
+                              void loadSeedanceCharacters(f);
+                            }}
+                            className="px-1.5 py-0.5 text-[10px] bg-purple-500/10 text-purple-400 rounded hover:bg-purple-500/25 transition"
+                          >
+                            {chip}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 ) : (

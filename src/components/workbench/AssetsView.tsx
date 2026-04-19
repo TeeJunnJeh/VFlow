@@ -270,7 +270,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [seedanceCulturalBranches, setSeedanceCulturalBranches] = useState<string[]>([]);
   const [seedanceSkinTones, setSeedanceSkinTones] = useState<string[]>([]);
   const [seedanceSearchMode, setSeedanceSearchMode] = useState<SeedanceSearchMode>('default');
-  const [seedanceFilters, setSeedanceFilters] = useState<SeedanceCharacterFilters>({ page_size: 20, search_mode: 'default' });
+  const [seedanceFilters, setSeedanceFilters] = useState<SeedanceCharacterFilters>({ page_size: 24, search_mode: 'default' });
   const [seedanceAdvancedOpen, setSeedanceAdvancedOpen] = useState(false);
   const [showSeedanceBrowser, setShowSeedanceBrowser] = useState(false);
   const [seedanceOptionsLoaded, setSeedanceOptionsLoaded] = useState(false);
@@ -3724,7 +3724,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       key={mode}
                       onClick={() => {
                         setSeedanceSearchMode(mode);
-                        const fresh: SeedanceCharacterFilters = { page_size: 20, search_mode: mode, page: 1 };
+                        const fresh: SeedanceCharacterFilters = { page_size: 24, search_mode: mode, page: 1 };
                         setSeedanceFilters(fresh);
                         setSeedanceAdvancedOpen(false);
                         if (mode === 'default') {
@@ -3751,7 +3751,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               {/* Filters */}
               <div className="border-b border-white/5">
                 {seedanceSearchMode === 'fuzzy' ? (
-                  /* ── Fuzzy mode: dual search boxes (appearance + scene) with clickable chips ── */
+                  /* ── Fuzzy mode: dual search boxes (appearance + scene) ── */
                   <div className="px-6 py-3 space-y-3">
                     {/* 外貌输入框 */}
                     <div>
@@ -3767,23 +3767,23 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                         />
                       </div>
                       <p className="text-[10px] text-zinc-600 mt-1 leading-relaxed">
-                        {t.assets_seedance_fuzzy_appearance_hint || '空格分隔，取交集。请输入精确标签词 —— 脸型：圆形脸/心形脸/菱形脸 | 眼：大眼/杏核眼/丹凤眼/双眼皮 | 唇：厚唇/薄唇 | 肤色：暖白皮/小麦色/深棕色 | 发型：碎盖/大波浪卷/光头 | 体型：高大魁梧/匀称 | 胡须：络腮胡/胡茬'}
+                        {t.assets_seedance_fuzzy_appearance_hint || '空格分隔，取交集。请输入数据库中的精确标签词。'}
                       </p>
-                      <div className="flex flex-wrap gap-1 mt-1.5">
-                        <span className="text-[9px] text-zinc-500">{t.assets_seedance_fuzzy_try || '试试：'}</span>
+                      <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                        <span className="text-[10px] text-zinc-500">{t.assets_seedance_fuzzy_try || '试试：'}</span>
                         {(t.assets_seedance_fuzzy_appearance_chips || '大眼,双眼皮,厚唇,暖白皮,卷发,络腮胡,高大魁梧,圆形脸').split(',').map((chip) => (
                           <button
                             key={chip}
                             onClick={() => {
-                              const cur = seedanceFilters.search_appearance || '';
-                              const updated = cur ? `${cur} ${chip.trim()}` : chip.trim();
-                              const f = { ...seedanceFilters, search_appearance: updated };
+                              const prev = seedanceFilters.search_appearance || '';
+                              const next = prev ? `${prev} ${chip}` : chip;
+                              const f = { ...seedanceFilters, search_appearance: next };
                               setSeedanceFilters(f);
                               void loadSeedanceCharacters(f);
                             }}
-                            className="px-1.5 py-0.5 text-[9px] bg-orange-500/10 text-orange-400 rounded hover:bg-orange-500/25 transition"
+                            className="px-1.5 py-0.5 text-[10px] bg-orange-500/10 text-orange-400 rounded hover:bg-orange-500/25 transition"
                           >
-                            {chip.trim()}
+                            {chip}
                           </button>
                         ))}
                       </div>
@@ -3802,23 +3802,23 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                         />
                       </div>
                       <p className="text-[10px] text-zinc-600 mt-1 leading-relaxed">
-                        {t.assets_seedance_fuzzy_scene_hint || '搜索人物故事描述。职业：美甲师/歌手/外卖员/心理咨询师 | 场景：录音棚/夜市/咖啡馆/便利店 | 活动：追剧/露营/撸串'}
+                        {t.assets_seedance_fuzzy_scene_hint || '搜索人物故事描述。不支持：明星名字、抽象比喻。'}
                       </p>
-                      <div className="flex flex-wrap gap-1 mt-1.5">
-                        <span className="text-[9px] text-zinc-500">{t.assets_seedance_fuzzy_try || '试试：'}</span>
-                        {(t.assets_seedance_fuzzy_scene_chips || '美甲师,歌手,外卖员,夜市,咖啡馆,录音棚,追剧,撸串').split(',').map((chip) => (
+                      <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                        <span className="text-[10px] text-zinc-500">{t.assets_seedance_fuzzy_try || '试试：'}</span>
+                        {(t.assets_seedance_fuzzy_scene_chips || '美甲师,歌手,外卖,夜市,咖啡馆,录音棚,追剧,露营').split(',').map((chip) => (
                           <button
                             key={chip}
                             onClick={() => {
-                              const cur = seedanceFilters.search_scene || '';
-                              const updated = cur ? `${cur} ${chip.trim()}` : chip.trim();
-                              const f = { ...seedanceFilters, search_scene: updated };
+                              const prev = seedanceFilters.search_scene || '';
+                              const next = prev ? `${prev} ${chip}` : chip;
+                              const f = { ...seedanceFilters, search_scene: next };
                               setSeedanceFilters(f);
                               void loadSeedanceCharacters(f);
                             }}
-                            className="px-1.5 py-0.5 text-[9px] bg-purple-500/10 text-purple-400 rounded hover:bg-purple-500/25 transition"
+                            className="px-1.5 py-0.5 text-[10px] bg-purple-500/10 text-purple-400 rounded hover:bg-purple-500/25 transition"
                           >
-                            {chip.trim()}
+                            {chip}
                           </button>
                         ))}
                       </div>

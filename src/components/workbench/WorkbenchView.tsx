@@ -846,6 +846,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const audioConfigSectionRef = useRef<HTMLDivElement | null>(null);
   const scriptsSectionRef = useRef<HTMLDivElement | null>(null);
   const previewSectionRef = useRef<HTMLDivElement | null>(null);
+  const [scriptsColumnWidth, setScriptsColumnWidth] = useState(0);
+  const SCRIPTS_HEADER_COMPACT_THRESHOLD = 480;
+  const isScriptsHeaderCompact =
+    scriptsColumnWidth > 0 && scriptsColumnWidth < SCRIPTS_HEADER_COMPACT_THRESHOLD;
+
+  useEffect(() => {
+    const element = scriptsSectionRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const width = entry.contentRect?.width ?? 0;
+        setScriptsColumnWidth((prev) => (Math.abs(prev - width) < 1 ? prev : width));
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   const toDisplayUrl = (pathOrUrl: string | null | undefined): string | null => {
     if (!pathOrUrl) return null;
@@ -1214,7 +1231,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [coreSellingPoints, productCategory, productName, targetAudience]);
 
   const LEFT_COLUMN_MIN_WIDTH = 260;
-  const SCRIPT_COLUMN_MIN_WIDTH = 320;
+  const SCRIPT_COLUMN_MIN_WIDTH = 350;
   const PREVIEW_COLUMN_MIN_WIDTH = 260;
   const LEFT_COLUMN_RATIO_KEY = `vflow_workbench_layout_ratio_v1_${user?.id ?? 'guest'}`;
   const SCRIPT_PREVIEW_RATIO_KEY = `vflow_workbench_script_preview_ratio_v1_${user?.id ?? 'guest'}`;
@@ -11780,40 +11797,77 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             )}
             <div className="flex justify-between items-center shrink-0 min-h-[32px] gap-3">
               <div className="flex items-center gap-3">
-                <h2 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2"><Clapperboard className="w-3 h-3" /> {t.wb_col_scripts}</h2>
+                <div className="relative group/scripts-title">
+                  <h2 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2" title={t.wb_col_scripts}>
+                    <Clapperboard className="w-3 h-3" />
+                    {!isScriptsHeaderCompact && <span>{t.wb_col_scripts}</span>}
+                  </h2>
+                  {isScriptsHeaderCompact && (
+                    <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/scripts-title:opacity-100">
+                      {t.wb_col_scripts}
+                    </span>
+                  )}
+                </div>
                 <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{genDuration}s</div>
                 <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
+                  <div className="relative group/save-btn">
                     <button
-                      onClick={openScriptSaveDialog}
-                      disabled={isSavingScriptAsset}
-                      className={`flex items-center gap-1.5 px-2 py-1 rounded transition ${isSavingScriptAsset ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
-                      title={t.wb_script_save_to_library || '保存到素材库'}
-                  >
-                    {isSavingScriptAsset ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BookmarkPlus className="w-3.5 h-3.5" />}
-                    <span className="text-[10px] font-medium">{t.wb_script_save_to_library || '保存到素材库'}</span>
-                  </button>
+                        onClick={openScriptSaveDialog}
+                        disabled={isSavingScriptAsset}
+                        className={`flex items-center gap-1.5 px-2 py-1 rounded transition ${isSavingScriptAsset ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
+                        title={t.wb_script_save_to_library || '保存到素材库'}
+                    >
+                      {isSavingScriptAsset ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BookmarkPlus className="w-3.5 h-3.5" />}
+                      {!isScriptsHeaderCompact && (
+                        <span className="text-[10px] font-medium">{t.wb_script_save_to_library || '保存到素材库'}</span>
+                      )}
+                    </button>
+                    {isScriptsHeaderCompact && (
+                      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/save-btn:opacity-100">
+                        {t.wb_script_save_to_library || '保存到素材库'}
+                      </span>
+                    )}
+                  </div>
 
-                  <button
-                      onClick={openScriptLibraryPicker}
-                      className="flex items-center gap-1.5 px-2 py-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition"
-                      title={t.wb_script_import_from_library || '从素材库导入'}
-                  >
-                    <FolderOpen className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-medium">{t.wb_script_import_from_library || '从素材库导入'}</span>
-                  </button>
+                  <div className="relative group/import-btn">
+                    <button
+                        onClick={openScriptLibraryPicker}
+                        className="flex items-center gap-1.5 px-2 py-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition"
+                        title={t.wb_script_import_from_library || '从素材库导入'}
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      {!isScriptsHeaderCompact && (
+                        <span className="text-[10px] font-medium">{t.wb_script_import_from_library || '从素材库导入'}</span>
+                      )}
+                    </button>
+                    {isScriptsHeaderCompact && (
+                      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/import-btn:opacity-100">
+                        {t.wb_script_import_from_library || '从素材库导入'}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsBatchGenerateOpen(true)}
-                  disabled={isGenerating}
-                  className={`h-9 px-3 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition inline-flex items-center gap-2 ${isGenerating ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  title={language === 'zh' ? '批量生成视频' : 'Batch Generate Videos'}
-                >
-                  <Layers className="w-4 h-4" />
-                  {language === 'zh' ? '批量生成' : 'Batch'}
-                </button>
+                <div className="relative group/batch-btn">
+                  <button
+                    type="button"
+                    onClick={() => setIsBatchGenerateOpen(true)}
+                    disabled={isGenerating}
+                    className={`h-9 ${isScriptsHeaderCompact ? 'px-2' : 'px-3'} rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition inline-flex items-center gap-2 ${isGenerating ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    title={language === 'zh' ? '批量生成视频' : 'Batch Generate Videos'}
+                  >
+                    <Layers className="w-4 h-4" />
+                    {!isScriptsHeaderCompact && (
+                      <span>{language === 'zh' ? '批量生成' : 'Batch'}</span>
+                    )}
+                  </button>
+                  {isScriptsHeaderCompact && (
+                    <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/batch-btn:opacity-100">
+                      {language === 'zh' ? '批量生成视频' : 'Batch Generate Videos'}
+                    </span>
+                  )}
+                </div>
                 <div className="relative group/cost-video">
                   <button
                     onClick={handleGenerateVideo}

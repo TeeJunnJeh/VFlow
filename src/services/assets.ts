@@ -755,7 +755,6 @@ export interface SeedanceCharacter {
   skin_tone: string;
   score: number;
   title: string;
-  description: string;
   image_url: string;
   image_variant_url?: string;
 }
@@ -766,6 +765,13 @@ export interface SeedanceCharacterListResponse {
     count: number;
     page: number;
     page_size: number;
+    results: SeedanceCharacter[];
+  };
+}
+
+export interface SeedanceCharacterOptionsResponse {
+  code: number;
+  data: {
     countries: string[];
     temperaments: string[];
     occupations: string[];
@@ -773,7 +779,6 @@ export interface SeedanceCharacterListResponse {
     ethnicities: string[];
     cultural_branches: string[];
     skin_tones: string[];
-    results: SeedanceCharacter[];
   };
 }
 
@@ -838,6 +843,17 @@ export const seedanceApi = {
       }));
     }
     return json;
+  },
+
+  getOptions: async (): Promise<SeedanceCharacterOptionsResponse> => {
+    const url = `${API_BASE_URL}/seedance-characters/options/`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+    });
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
+    return await response.json();
   },
 
   collectCharacter: async (characterId: string, folderId?: string | null): Promise<any> => {

@@ -270,9 +270,10 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [seedanceCulturalBranches, setSeedanceCulturalBranches] = useState<string[]>([]);
   const [seedanceSkinTones, setSeedanceSkinTones] = useState<string[]>([]);
   const [seedanceSearchMode, setSeedanceSearchMode] = useState<SeedanceSearchMode>('default');
-  const [seedanceFilters, setSeedanceFilters] = useState<SeedanceCharacterFilters>({ page_size: 40, search_mode: 'default' });
+  const [seedanceFilters, setSeedanceFilters] = useState<SeedanceCharacterFilters>({ page_size: 20, search_mode: 'default' });
   const [seedanceAdvancedOpen, setSeedanceAdvancedOpen] = useState(false);
   const [showSeedanceBrowser, setShowSeedanceBrowser] = useState(false);
+  const [seedanceOptionsLoaded, setSeedanceOptionsLoaded] = useState(false);
 
   // New script dialog
   const [isNewScriptDialogOpen, setIsNewScriptDialogOpen] = useState(false);
@@ -710,6 +711,17 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       setSeedanceCharacters(resp.data.results);
       setSeedanceTotalCount(resp.data.count);
       setSeedancePage(resp.data.page);
+    } catch (err) {
+      console.error('Failed to load seedance characters', err);
+    } finally {
+      setSeedanceLoading(false);
+    }
+  }, [seedanceFilters]);
+
+  const loadSeedanceOptions = useCallback(async () => {
+    if (seedanceOptionsLoaded) return;
+    try {
+      const resp = await seedanceApi.getOptions();
       if (resp.data.countries?.length) setSeedanceCountries(resp.data.countries);
       if (resp.data.temperaments?.length) setSeedanceTemperaments(resp.data.temperaments);
       if (resp.data.occupations?.length) setSeedanceOccupations(resp.data.occupations);
@@ -717,12 +729,11 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       if (resp.data.ethnicities?.length) setSeedanceEthnicities(resp.data.ethnicities);
       if (resp.data.cultural_branches?.length) setSeedanceCulturalBranches(resp.data.cultural_branches);
       if (resp.data.skin_tones?.length) setSeedanceSkinTones(resp.data.skin_tones);
+      setSeedanceOptionsLoaded(true);
     } catch (err) {
-      console.error('Failed to load seedance characters', err);
-    } finally {
-      setSeedanceLoading(false);
+      console.error('Failed to load seedance options', err);
     }
-  }, [seedanceFilters]);
+  }, [seedanceOptionsLoaded]);
 
   // --- Effects ---
   useEffect(() => {
@@ -2665,7 +2676,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                   )}
                   {activeAssetTab === 'model' && (
                     <button
-                      onClick={() => { setShowSeedanceBrowser(true); void loadSeedanceCharacters(); }}
+                      onClick={() => { setShowSeedanceBrowser(true); void loadSeedanceOptions(); void loadSeedanceCharacters(); }}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition shrink-0"
                     >
                       <Plus className="w-3.5 h-3.5" /> {t.assets_add_from_model_library || '从模特库添加'}
@@ -3713,10 +3724,16 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       key={mode}
                       onClick={() => {
                         setSeedanceSearchMode(mode);
-                        const fresh: SeedanceCharacterFilters = { page_size: 40, search_mode: mode, page: 1 };
+                        const fresh: SeedanceCharacterFilters = { page_size: 20, search_mode: mode, page: 1 };
                         setSeedanceFilters(fresh);
                         setSeedanceAdvancedOpen(false);
-                        void loadSeedanceCharacters(fresh);
+                        if (mode === 'default') {
+                          void loadSeedanceCharacters(fresh);
+                        } else {
+                          // fuzzy tab: don't load until user enters search terms
+                          setSeedanceCharacters([]);
+                          setSeedanceTotalCount(0);
+                        }
                       }}
                       className={`px-3 py-1.5 text-xs rounded-t-lg border border-b-0 transition ${
                         seedanceSearchMode === mode
@@ -3975,8 +3992,16 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           }
                         }}
                       >
-                        <div className="aspect-[3/4] bg-zinc-800">
-                          <img src={char.image_url} alt={char.title} className="w-full h-full object-cover" loading="lazy" />
+                        <div className="aspect-[3/4] bg-zinc-800 overflow-hidden">
+                          <img
+                            src={char.image_url}
+                            alt={char.title}
+                            className="w-full h-full object-cover transition-opacity duration-300"
+                            loading="lazy"
+                            style={{ opacity: 0 }}
+                            onLoad={(e) => { (e.target as HTMLImageElement).style.opacity = '1'; }}
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
                         </div>
                         <div className="p-1.5">
                           <div className="text-[10px] font-bold text-zinc-200 truncate">{char.title || `${char.country} ${char.gender}`}</div>

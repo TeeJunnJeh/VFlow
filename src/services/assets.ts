@@ -832,7 +832,12 @@ export const seedanceApi = {
       credentials: 'include',
     });
     if (!response.ok) throw await parseApiError(response, 'Request failed');
-    const json = await response.json();
+    let json: SeedanceCharacterListResponse;
+    try {
+      json = await response.json();
+    } catch {
+      return { code: 0, data: { count: 0, page: 1, page_size: 20, results: [] } };
+    }
     // Normalize image URLs
     if (json?.data?.results) {
       json.data.results = json.data.results.map((c: any) => ({
@@ -853,7 +858,11 @@ export const seedanceApi = {
       credentials: 'include',
     });
     if (!response.ok) throw await parseApiError(response, 'Request failed');
-    return await response.json();
+    try {
+      return await response.json();
+    } catch {
+      return { code: 0, data: { countries: [], temperaments: [], occupations: [], races: [], ethnicities: [], cultural_branches: [], skin_tones: [] } };
+    }
   },
 
   collectCharacter: async (characterId: string, folderId?: string | null): Promise<any> => {

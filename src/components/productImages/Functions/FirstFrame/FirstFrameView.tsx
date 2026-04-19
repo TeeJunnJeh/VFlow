@@ -631,9 +631,9 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   return (
     <>
       {phase !== 'error' && (
-        <div ref={containerRef} className="flex min-h-0 overflow-hidden relative">
+        <div ref={containerRef} className="relative flex h-full min-h-0 items-stretch overflow-hidden">
           <section
-            className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5 shrink-0 transition-[width] duration-100 mr-3"
+            className="mr-3 h-full shrink-0 rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100"
             style={{ width: `${leftWidth}px`, minWidth: `${FIRST_FRAME_PANEL_MIN_WIDTH}px` }}
           >
             <div className="mb-5">
@@ -667,7 +667,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
           />
 
           <section
-            className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5 shrink-0 transition-[width] duration-100 mx-3"
+            className="mx-3 h-full shrink-0 rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100"
             style={{ width: `${middleWidth}px`, minWidth: `${FIRST_FRAME_PANEL_MIN_WIDTH}px` }}
           >
             <div className="mb-5">
@@ -695,7 +695,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
           />
 
           <section
-            className="self-start rounded-2xl border border-white/5 bg-white/[0.02] p-5 flex-1 ml-3"
+            className="ml-3 h-full flex-1 rounded-2xl border border-white/5 bg-white/[0.02] p-5"
             style={{ minWidth: `${FIRST_FRAME_PANEL_MIN_WIDTH}px` }}
           >
             <div className="mb-5 flex items-start justify-between gap-3">
@@ -955,12 +955,14 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
 
   const shellClassName = useMemo(
     () => (embedded
-      ? 'h-full'
+      ? 'flex h-full min-h-0 flex-col'
       : 'min-h-screen bg-gradient-to-br from-zinc-950 to-zinc-900 p-6'),
     [embedded]
   );
 
-  const contentWrapClassName = embedded ? 'w-full' : 'max-w-[1600px] mx-auto';
+  const contentWrapClassName = embedded
+    ? 'flex h-full min-h-0 w-full flex-col'
+    : 'mx-auto max-w-[1600px] pb-10';
   const workspaceActions = (
     <div className="flex flex-wrap items-center gap-2">
       <div className="w-48">
@@ -1026,7 +1028,7 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
 
   return (
     <div className={shellClassName}>
-      <div className={`${contentWrapClassName} pb-10`}>
+      <div className={contentWrapClassName}>
         {!embedded && (
           <div className="flex items-center gap-4 mb-8">
             {onBack && (
@@ -1055,7 +1057,7 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
         {workspaceMetas.map((workspace) => (
           <div
             key={workspace.id}
-            className={workspace.id === activeWorkspaceId ? 'block' : 'hidden'}
+            className={workspace.id === activeWorkspaceId ? 'block h-full min-h-0' : 'hidden'}
             aria-hidden={workspace.id !== activeWorkspaceId}
           >
             <FirstFrameWorkspacePane

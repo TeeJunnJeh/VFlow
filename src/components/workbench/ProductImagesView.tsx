@@ -4733,7 +4733,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           </div>
         </div>
 
-        <div className={panelClassName('product_images_first_frame')}>
+        <div className={currentValue === 'product_images_first_frame' ? 'block h-full' : 'hidden'}>
           <FirstFrameView
             embedded
             isVisible={currentValue === 'product_images_first_frame'}

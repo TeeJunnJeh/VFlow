@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder,
   Wand2, Loader2, Clapperboard, ArrowRight, BookmarkPlus, FolderOpen,
@@ -138,6 +139,7 @@ type BillingPricingCatalog = {
     models?: Record<string, BillingPricingModelEntry>;
     modes?: Record<string, BillingPricingModeEntry>;
   };
+
   image?: {
     default_model?: string;
     models?: Record<string, BillingPricingModelEntry>;
@@ -1242,6 +1244,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     { id: 1, shot: '1', type: 'Medium', dur: '2s', visual: t.demo_shot1_visual, audio: t.demo_shot1_audio, audioTranslation: '' },
     { id: 2, shot: '2', type: 'Detail', dur: '2s', visual: t.demo_shot2_visual, audio: t.demo_shot2_audio, audioTranslation: '' }
   ]), [t]);
+  const isDemoScriptsRef = useRef(false);
   const [scripts, setScripts] = useState<ScriptItem[]>(buildDemoScripts);
   const [scriptPages, setScriptPages] = useState<ScriptPage[]>(() => ([{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: buildDemoScripts() }]));
   const [activeScriptPage, setActiveScriptPage] = useState(0);
@@ -3505,6 +3508,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     () => scriptPages.slice(scriptGridPageStart, scriptGridPageStart + SCRIPT_GRID_PAGE_SIZE),
     [scriptGridPageStart, scriptPages]
   );
+  useEffect(() => {
+    console.log('[WB][ScriptGrid] visibleScriptPages updated', {
+      scriptGridPageStart,
+      pageSize: SCRIPT_GRID_PAGE_SIZE,
+      totalPages: scriptPages.length,
+      visibleCount: visibleScriptPages.length,
+      visible: visibleScriptPages.map((p) => ({
+        id: p.id,
+        name: p.name,
+        scriptsCount: Array.isArray(p.scripts) ? p.scripts.length : 0,
+        hasFullScript: Boolean(String(p.fullScript || '').trim()),
+        hasCreativeCardText: Boolean(String(p.creativeCardText || '').trim()),
+      })),
+    });
+  }, [SCRIPT_GRID_PAGE_SIZE, scriptGridPageStart, scriptPages.length, visibleScriptPages]);
   const canSlideScriptGridPrev = scriptGridPageStart > 0;
   const canSlideScriptGridNext = scriptGridPageStart < scriptGridMaxStart;
   const scriptPlanCardClass = 'w-[calc((100%-36px)/4)] min-w-[220px] flex-shrink-0 rounded-2xl border p-4 text-left transition h-[360px] flex flex-col gap-3';
@@ -4461,6 +4479,32 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     Boolean((activeFullScript || '').trim())
     || Boolean((activeCreativeCardText || '').trim())
     || hasCreativeCardContent(activeCreativeCard);
+
+  const hasAnyScriptPlanGridContent = useMemo(() => {
+    return scriptPages.some((page) => {
+      const hasConcept = Boolean((page?.fullScript || '').trim())
+        || Boolean((page?.creativeCardText || '').trim())
+        || hasCreativeCardContent(page?.creativeCard);
+      if (hasConcept) return true;
+      const pageScripts = Array.isArray(page?.scripts) ? page.scripts : [];
+      return pageScripts.some((item) => Boolean(String(item?.visual || '').trim()) || Boolean(String(item?.audio || '').trim()));
+    });
+  }, [scriptPages]);
+
+  const resetScriptPlanGridToDefault = useCallback(() => {
+    isDemoScriptsRef.current = false;
+    const defaultPage: ScriptPage = {
+      id: 'page-1',
+      name: `${t.wb_script_page_prefix} 1`,
+      scripts: [],
+    };
+    scriptPagesRef.current = [defaultPage];
+    setScriptPages([defaultPage]);
+    setActiveScriptPage(0);
+    setScripts([]);
+    setScriptGridPageStart(0);
+    setIsShotBreakdownOpen(false);
+  }, [t.wb_script_page_prefix]);
 
   useEffect(() => {
     console.log('[ScriptDebug] render-state', {
@@ -5886,6 +5930,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const updateScripts = (newScripts: ScriptItem[]) => {
+    isDemoScriptsRef.current = false;
     setScripts(newScripts);
     setScriptPages(prev => {
       const next = [...prev];
@@ -6545,8 +6590,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 }
               }}
               className={`rounded border px-1.5 py-0.5 text-[9px] font-bold transition ${highlighted
-                  ? 'border-orange-500/70 bg-orange-500/20 text-orange-300'
-                  : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'
+                ? 'border-orange-500/70 bg-orange-500/20 text-orange-300'
+                : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65'
                 }`}
             >
               {highlighted
@@ -6627,6 +6672,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
 
   const applyImportedScriptText = useCallback((rawText: string, sourceName?: string, sourceLabel?: string) => {
+    isDemoScriptsRef.current = false;
     const content = String(rawText || '').trim();
     if (!content) {
       openInfo(popupTitles.notice, t.wb_script_import_empty || '素材库中的脚本内容为空。');
@@ -6871,6 +6917,49 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
   }, [activeCreativeCard, activeCreativeCardText, activeFullScript, activeScriptPage, activeScriptPlan?.continuityAnchor, activeScriptPlan?.sceneSuggestions, activeScriptPlan?.scriptStructure, activeScriptPlan?.sellingPoints, activeScriptPlan?.styleTags, buildCombinedScriptPrompt, normalizeScriptAssetName, openInfo, popupTitles.notice, popupTitles.success, scriptSaveNameDraft, scripts, t.wb_script_save_need_content, t.wb_script_save_failed, t.wb_script_saved_to_library, t.wb_script_save_name_required]);
 
+  const saveCurrentWorkspaceScriptsToLibrary = useCallback(async () => {
+    const fallbackName = scriptPages[activeScriptPage]?.name || `${t.wb_script_page_prefix} ${activeScriptPage + 1}`;
+    const displayName = normalizeScriptAssetName(fallbackName);
+    const combinedScript = buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts, activeCreativeCardText).trim();
+    if (!displayName || !combinedScript) {
+      openInfo(popupTitles.notice, t.wb_script_save_need_content || '请先生成或编辑脚本后再保存。');
+      return false;
+    }
+
+    const payload = {
+      name: displayName,
+      video_master_script: activeFullScript?.trim() || combinedScript,
+      creative_card: activeCreativeCard || null,
+      creative_card_text: activeCreativeCardText || '',
+      scripts,
+      shots: scripts,
+      continuity_anchor: activeScriptPlan?.continuityAnchor || null,
+      script_structure: activeScriptPlan?.scriptStructure || null,
+      selling_points: activeScriptPlan?.sellingPoints || [],
+      scene_suggestions: activeScriptPlan?.sceneSuggestions || [],
+      style_tags: activeScriptPlan?.styleTags || [],
+      saved_at: new Date().toISOString(),
+    };
+
+    setIsSavingScriptAsset(true);
+    try {
+      const scriptFile = new File([JSON.stringify(payload, null, 2)], `${displayName}.json`, { type: 'application/json' });
+      const uploadResult = await assetsApi.uploadAsset(scriptFile, 'script');
+      const uploadedAsset = uploadResult?.data || uploadResult?.asset || uploadResult?.data?.asset || null;
+      const uploadedAssetId = uploadedAsset?.id ? String(uploadedAsset.id) : '';
+      if (uploadedAssetId) {
+        await assetsApi.renameAsset(uploadedAssetId, displayName).catch(() => undefined);
+      }
+      openInfo(popupTitles.success, t.wb_script_saved_to_library || '已保存到素材库。');
+      return true;
+    } catch (err: any) {
+      openInfo(popupTitles.notice, String(err?.message || t.wb_script_save_failed || '保存失败，请稍后重试。'));
+      return false;
+    } finally {
+      setIsSavingScriptAsset(false);
+    }
+  }, [activeCreativeCard, activeCreativeCardText, activeFullScript, activeScriptPage, activeScriptPlan?.continuityAnchor, activeScriptPlan?.sceneSuggestions, activeScriptPlan?.scriptStructure, activeScriptPlan?.sellingPoints, activeScriptPlan?.styleTags, buildCombinedScriptPrompt, normalizeScriptAssetName, openInfo, popupTitles.notice, popupTitles.success, scriptPages, scripts, t.wb_script_page_prefix, t.wb_script_save_failed, t.wb_script_save_need_content, t.wb_script_saved_to_library]);
+
   const parseScriptPage = useCallback((raw: any, idx: number): ScriptPage => {
     const shots = buildScriptsFromShots(raw?.shots || raw?.script_content?.shots || []);
     const scriptContent = raw?.script_content || raw || {};
@@ -6929,6 +7018,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [buildCreativeCardEditorText, buildFullScriptFallback, buildScriptsFromShots, normalizeScriptText, parseScriptStringList, t.wb_script_page_prefix]);
 
   const appendGeneratedScriptPage = useCallback((raw: any, options?: { replaceExisting?: boolean }) => {
+    isDemoScriptsRef.current = false;
     const replaceExisting = !!options?.replaceExisting;
     if (replaceExisting) {
       const nextPage = parseScriptPage(raw, 0);
@@ -7087,6 +7177,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     holdMax: SCRIPT_PROGRESS_HOLD_MAX,
   });
 
+  const SCRIPT_GEN_IN_PROGRESS_KEY = `vflow_workbench_script_gen_in_progress_v1_${user?.id ?? 'guest'}`;
+
   const handleCancelGenerateScripts = useCallback(() => {
     const controller = scriptGenerationAbortRef.current;
     if (!controller) return;
@@ -7106,6 +7198,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       });
       currentScriptQueueTaskIdRef.current = null;
     }
+    try {
+      window.localStorage.removeItem(SCRIPT_GEN_IN_PROGRESS_KEY);
+    } catch {
+    }
+
     controller.abort();
     setIsGeneratingScript(false);
     setIsScriptGenerationProgressVisible(false);
@@ -7115,6 +7212,54 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     recordScriptGenerationCancelTimestamp(user?.id ?? null);
     setScriptGenerationNotice(t.wb_popup_script_generation_cancelled || '已成功取消脚本');
   }, [t.wb_popup_script_generation_cancelled, updateTask, user?.id]);
+
+  const handleGenerateScriptsRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(SCRIPT_GEN_IN_PROGRESS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { projectId?: string; startedAt?: number };
+      const pid = String(parsed?.projectId || '').trim();
+      const startedAt = Number(parsed?.startedAt);
+      if (!pid || pid !== String(projectStore.currentProjectId || '').trim()) return;
+      if (!Number.isFinite(startedAt) || startedAt <= 0) return;
+      if (Date.now() - startedAt > 12 * 60 * 1000) {
+        window.localStorage.removeItem(SCRIPT_GEN_IN_PROGRESS_KEY);
+        return;
+      }
+
+      window.localStorage.removeItem(SCRIPT_GEN_IN_PROGRESS_KEY);
+      setScriptGenerationNotice('检测到未完成的脚本生成，已自动继续生成。');
+      window.setTimeout(() => {
+        handleGenerateScriptsRef.current?.();
+      }, 250);
+    } catch {
+    }
+  }, [SCRIPT_GEN_IN_PROGRESS_KEY, projectStore.currentProjectId]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(SCRIPT_GEN_IN_PROGRESS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { projectId?: string; startedAt?: number };
+      const pid = String(parsed?.projectId || '').trim();
+      const startedAt = Number(parsed?.startedAt);
+      if (!pid || pid !== String(projectStore.currentProjectId || '').trim()) return;
+      if (!Number.isFinite(startedAt) || startedAt <= 0) return;
+      if (Date.now() - startedAt > 12 * 60 * 1000) {
+        window.localStorage.removeItem(SCRIPT_GEN_IN_PROGRESS_KEY);
+        return;
+      }
+
+      window.localStorage.removeItem(SCRIPT_GEN_IN_PROGRESS_KEY);
+      setScriptGenerationNotice('检测到未完成的脚本生成，已自动继续生成。');
+      window.setTimeout(() => {
+        handleGenerateScriptsRef.current?.();
+      }, 250);
+    } catch {
+    }
+  }, [SCRIPT_GEN_IN_PROGRESS_KEY, projectStore.currentProjectId]);
 
   useEffect(() => {
     return () => {
@@ -7198,6 +7343,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
+    if (hasAnyScriptPlanGridContent) {
+      const shouldKeepCurrentScripts = await openConfirm(
+        '提示',
+        '是否保留当前工作区内脚本？',
+        { okLabel: '保留并保存到素材库', cancelLabel: '不保留' }
+      );
+      if (shouldKeepCurrentScripts) {
+        const saved = await saveCurrentWorkspaceScriptsToLibrary();
+        if (!saved) {
+          scriptGenerationLockRef.current = false;
+          return;
+        }
+      }
+      resetScriptPlanGridToDefault();
+    }
+
     const totalScriptCount = Math.max(1, scriptVariantCount || 1);
     const estimateParams = {
       script_count: 1,
@@ -7242,6 +7403,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     setIsGeneratingScript(true);
     setIsScriptGenerationProgressVisible(true);
+    try {
+      window.localStorage.setItem(SCRIPT_GEN_IN_PROGRESS_KEY, JSON.stringify({
+        projectId: projectStore.currentProjectId,
+        startedAt: Date.now(),
+      }));
+    } catch {
+    }
+    try {
+      window.localStorage.setItem(SCRIPT_GEN_IN_PROGRESS_KEY, JSON.stringify({
+        projectId: projectStore.currentProjectId,
+        startedAt: Date.now(),
+      }));
+    } catch {
+    }
     setScriptGenerationEstimatedSeconds(estimatedSeconds);
     setScriptGenerationProgress(0);
     setScriptGenerationCompletedCount(0);
@@ -7451,12 +7626,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             const startedAt = scriptGenerationStartedAtRef.current;
             const elapsedSeconds = startedAt ? Math.max(1, Math.round((Date.now() - startedAt) / 1000)) : null;
             shouldHideProgressImmediately = false;
-            await finishScriptGenerationProgress();
-            if (isMountedRef.current && currentProjectIdRef.current === generationProjectId) {
-              appendGeneratedScriptPage({ script_content: scriptContent }, { replaceExisting: isFirstVariant });
-            } else {
+            flushSync(() => {
+              if (isMountedRef.current) {
+                appendGeneratedScriptPage({ script_content: scriptContent }, { replaceExisting: isFirstVariant });
+                return;
+              }
               appendGeneratedScriptPageToWorkspace(generationProjectId, { script_content: scriptContent }, { replaceExisting: isFirstVariant });
-            }
+            });
+            void finishScriptGenerationProgress();
 
             const completed = Number(data.completed);
             const total = Number(data.total);
@@ -7545,6 +7722,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       });
       openErrorModal(err, { category: 'script_failed', onRetry: handleGenerateScripts });
     } finally {
+      try {
+        window.localStorage.removeItem(SCRIPT_GEN_IN_PROGRESS_KEY);
+      } catch {
+      }
       if (scriptGenerationAbortRef.current === abortController) {
         scriptGenerationAbortRef.current = null;
       }
@@ -7566,6 +7747,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       scriptGenerationFinishingRef.current = false;
       scriptGenerationLockRef.current = false;
     }
+  };
+
+  handleGenerateScriptsRef.current = () => {
+    void handleGenerateScripts();
   };
 
   const handleScriptPageChange = (nextIndex: number) => {
@@ -7621,9 +7806,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [activeScriptPage, scriptPages]);
 
   useEffect(() => {
+    if (!isDemoScriptsRef.current) return;
     const isDemo = scripts.length === 2 && scripts[0].id === 1 && scripts[1].id === 2;
 
     if (isDemo) {
+      console.log('isDemo', isDemo);
       const newDemo = buildDemoScripts();
       setScripts(newDemo);
       setScriptPages(prev => {
@@ -8851,8 +9038,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       type="button"
                       onClick={() => setIsBackgroundAudioSourceOpen((prev) => !prev)}
                       className={`w-full rounded-lg border px-3 py-2 text-xs transition ${isBackgroundAudioSourceOpen
-                          ? 'border-orange-500/60 bg-orange-500/10 text-orange-200'
-                          : 'border-white/10 bg-black/30 text-zinc-200 hover:border-orange-500/50 hover:text-orange-300 hover:bg-orange-500/5'
+                        ? 'border-orange-500/60 bg-orange-500/10 text-orange-200'
+                        : 'border-white/10 bg-black/30 text-zinc-200 hover:border-orange-500/50 hover:text-orange-300 hover:bg-orange-500/5'
                         }`}
                     >
                       <span className="flex items-center justify-center gap-2">
@@ -9329,28 +9516,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                       }
                                     }}
                                     className={`rounded border px-1.5 py-0.5 text-[10px] font-bold transition ${selectedModel === 'sora2' || selectedModel === 'sora2pro'
-                                        ? ((
-                                          isKlingOmniMode
-                                            ? (
-                                              klingGenerateMode === 'subject'
-                                                ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
-                                                : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
-                                            )
-                                            : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
-                                        )
-                                          ? 'border-orange-500 bg-orange-500 text-white'
-                                          : 'border-slate-600 bg-slate-600 text-white hover:bg-slate-500 hover:border-slate-500')
-                                        : ((
-                                          isKlingOmniMode
-                                            ? (
-                                              klingGenerateMode === 'subject'
-                                                ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
-                                                : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
-                                            )
-                                            : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
-                                        )
-                                          ? 'border-orange-500/70 bg-orange-500/20 text-orange-300'
-                                          : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65')
+                                      ? ((
+                                        isKlingOmniMode
+                                          ? (
+                                            klingGenerateMode === 'subject'
+                                              ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
+                                              : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                          )
+                                          : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                      )
+                                        ? 'border-orange-500 bg-orange-500 text-white'
+                                        : 'border-slate-600 bg-slate-600 text-white hover:bg-slate-500 hover:border-slate-500')
+                                      : ((
+                                        isKlingOmniMode
+                                          ? (
+                                            klingGenerateMode === 'subject'
+                                              ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
+                                              : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                          )
+                                          : asset.source === 'product' || (!asset.source && selected && selectedAssetSource === 'product')
+                                      )
+                                        ? 'border-orange-500/70 bg-orange-500/20 text-orange-300'
+                                        : 'border-white/20 bg-black/45 text-zinc-200 hover:bg-black/65')
                                       }`}
                                   >
                                     {(
@@ -10225,6 +10412,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         </div>
       )}
 
+      {/* 中转站 */}
       <div className="fixed right-6 bottom-6 z-[132] flex flex-col items-end gap-2">
         {isTransferStationOpen && (
           <div className="w-[320px] max-h-[52vh] overflow-hidden rounded-2xl border border-orange-500/25 bg-zinc-950/92 shadow-2xl shadow-black/50 backdrop-blur-xl">

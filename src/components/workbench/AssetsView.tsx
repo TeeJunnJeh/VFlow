@@ -3188,6 +3188,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
           ) : activeAssetTab === 'model' ? (
             /* ==================== Plaza → Virtual Models (Seedance full-page) ==================== */
             <>
+              {/* Single scrollable container: filters + grid */}
+              <div ref={seedanceScrollRef} className="flex-1 overflow-y-auto custom-scroll">
               {/* Search Mode Tabs */}
               <div className="flex items-center gap-1 mb-3">
                 {(['default', 'fuzzy'] as SeedanceSearchMode[]).map((mode) => {
@@ -3464,7 +3466,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               </div>
 
               {/* Seedance Grid with infinite scroll */}
-              <div ref={seedanceScrollRef} className="flex-1 overflow-y-auto custom-scroll">
+              <div>
                 {seedanceCharacters.length === 0 && seedanceLoading ? (
                   <div className="h-56 flex items-center justify-center text-zinc-400">
                     <Loader2 className="w-5 h-5 animate-spin mr-2" /> {t.wb_debug_loading || 'Loading...'}
@@ -3526,6 +3528,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                     {t.assets_seedance_no_more || '已加载全部模特'}
                   </div>
                 )}
+              </div>
               </div>
             </>
           ) : (

@@ -352,18 +352,6 @@ html.theme-light .wb-seedance-replay-added-badge {
   background-color: #ea580c !important;
   color: #ffffff !important;
 }
-.theme-light button.text-separation-start-btn {
-  background-color: #ff852e !important;
-  color: #111111 !important;
-}
-.theme-light button.text-separation-start-btn:hover:not(:disabled) {
-  background-color: #ffab66 !important;
-  color: #111111 !important;
-}
-.theme-light button.text-separation-start-btn:disabled {
-  background-color: #ffb17a !important;
-  color: #111111 !important;
-}
 .theme-light .ff-ghost-btn,
 .theme-light .ff-ghost-btn:hover {
   background-color: transparent !important;

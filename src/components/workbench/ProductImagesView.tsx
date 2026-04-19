@@ -14,6 +14,7 @@ import { downloadBlob, productImagesApi } from '../../services/productImagesApi'
 import { billingApi } from '../../services/billing';
 import { notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, removeImageHistoryAssets, replaceImageHistoryAsset, subscribeImageHistory, type ImageHistoryItem } from '../../utils/imageHistory';
 import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../utils/loadingTheme';
+import { saveBlobWithPickerFallback } from '../../utils/browserDownload';
 import { useRequireAuth } from '../../utils/useRequireAuth';
 
 interface ProductImagesViewProps {
@@ -85,6 +86,13 @@ type GalleryHistorySettings = {
   uploadedImagePaths?: string[];
   modelInfo?: string;
   modelImagePath?: string;
+  bulkConfig?: {
+    ratioStrategy?: GalleryBulkRatioStrategy;
+    resolution?: '1k' | '2k' | '4k';
+    bindingStrategy?: GalleryBulkBindingStrategy;
+    typeSelections?: Record<string, { enabled: boolean; count: number }>;
+  };
+  generatedFromBulk?: boolean;
 };
 
 type GallerySceneConfig = {
@@ -143,6 +151,8 @@ type GalleryHistoryItem = {
 type GalleryOutputType = 'white_bg' | 'scene' | 'selling_point' | 'cover' | 'poster';
 type GalleryConfirmAction = 'ok' | 'cancel' | 'dismiss';
 type GalleryCopyLanguageLabelKey = 'lang_en' | 'lang_zh' | 'lang_es' | 'lang_ja' | 'lang_ko' | 'lang_ms' | 'lang_vi' | 'lang_id';
+type GalleryBulkRatioStrategy = 'recommended' | '1:1' | '4:5' | '9:16';
+type GalleryBulkBindingStrategy = 'none' | 'auto_primary';
 
 type GalleryOutputMode = 'custom' | 'ai';
 type GalleryOutputItem = {
@@ -155,7 +165,10 @@ type GalleryOutputItem = {
   title?: string;
   modelCardId?: string;
   sceneCardId?: string;
+  /** @deprecated kept for backward compat with old snapshots; new code reads from `layouts[layoutIndex]`. */
   layout?: string;
+  layouts?: string[];
+  layoutIndex?: number;
   copy?: {
     headline?: string;
     subheadline?: string;
@@ -165,6 +178,13 @@ type GalleryOutputItem = {
   notes?: string;
   prompt?: string;
   cardConfig?: GalleryOutputCardConfig;
+};
+
+type GalleryBulkConfig = {
+  ratioStrategy: GalleryBulkRatioStrategy;
+  resolution: '1k' | '2k' | '4k';
+  bindingStrategy: GalleryBulkBindingStrategy;
+  typeSelections: Record<GalleryOutputType, { enabled: boolean; count: number }>;
 };
 
 const GALLERY_COPY_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: GalleryCopyLanguageLabelKey }> = [
@@ -179,6 +199,14 @@ const GALLERY_COPY_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: GalleryCop
 ];
 
 const GALLERY_OUTPUT_TYPE_ORDER: GalleryOutputType[] = ['white_bg', 'scene', 'selling_point', 'cover', 'poster'];
+const GALLERY_SCENE_SENSITIVE_TYPES = new Set<GalleryOutputType>(['scene', 'selling_point', 'cover', 'poster']);
+const GALLERY_BULK_RECOMMENDED_ASPECT_RATIOS: Record<GalleryOutputType, '1:1' | '4:5' | '9:16'> = {
+  white_bg: '1:1',
+  scene: '4:5',
+  selling_point: '1:1',
+  cover: '4:5',
+  poster: '9:16',
+};
 
 const normalizeGalleryTypeSelections = (
   selections: Record<GalleryOutputType, { enabled: boolean; count: number }>
@@ -204,6 +232,125 @@ const normalizeGalleryTypeSelections = (
     count: Math.max(0, Math.round(Number(selections.poster?.count || 0))),
   },
 });
+
+const createGalleryBulkTypeSelections = (sellingPointCount = 0) =>
+  normalizeGalleryTypeSelections({
+    white_bg: { enabled: true, count: 1 },
+    scene: { enabled: true, count: 1 },
+    selling_point: { enabled: sellingPointCount > 0, count: sellingPointCount > 0 ? sellingPointCount : 0 },
+    cover: { enabled: false, count: 0 },
+    poster: { enabled: false, count: 0 },
+  });
+
+const createDefaultGalleryBulkConfig = (sellingPointCount = 0): GalleryBulkConfig => ({
+  ratioStrategy: 'recommended',
+  resolution: '1k',
+  bindingStrategy: 'auto_primary',
+  typeSelections: createGalleryBulkTypeSelections(sellingPointCount),
+});
+
+const normalizeGalleryBulkConfig = (value: any, sellingPointCount = 0): GalleryBulkConfig => {
+  const defaults = createDefaultGalleryBulkConfig(sellingPointCount);
+  const ratioStrategy = String(value?.ratioStrategy || value?.ratio_strategy || '').trim();
+  const resolutionRaw = String(value?.resolution || '').trim().toLowerCase();
+  const bindingStrategyRaw = String(value?.bindingStrategy || value?.binding_strategy || '').trim();
+  const normalizedSelections = value?.typeSelections && typeof value.typeSelections === 'object'
+    ? normalizeGalleryTypeSelections({
+        ...defaults.typeSelections,
+        ...(value.typeSelections as Record<GalleryOutputType, { enabled: boolean; count: number }>),
+      })
+    : defaults.typeSelections;
+
+  return {
+    ratioStrategy:
+      ratioStrategy === '1:1' || ratioStrategy === '4:5' || ratioStrategy === '9:16'
+        ? ratioStrategy
+        : 'recommended',
+    resolution: resolutionRaw === '2k' || resolutionRaw === '4k' ? resolutionRaw : '1k',
+    bindingStrategy: bindingStrategyRaw === 'none' ? 'none' : 'auto_primary',
+    typeSelections: normalizedSelections,
+  };
+};
+
+const resolveGalleryBulkAspectRatio = (
+  outputType: GalleryOutputType,
+  ratioStrategy: GalleryBulkRatioStrategy
+) => (ratioStrategy === 'recommended' ? GALLERY_BULK_RECOMMENDED_ASPECT_RATIOS[outputType] : ratioStrategy);
+
+const buildGalleryOutputItemsFromBulkConfig = ({
+  bulkConfig,
+  fallbackModelCardId,
+  fallbackSceneCardId,
+}: {
+  bulkConfig: GalleryBulkConfig;
+  fallbackModelCardId?: string;
+  fallbackSceneCardId?: string;
+}): GalleryOutputItem[] =>
+  GALLERY_OUTPUT_TYPE_ORDER.flatMap((outputType) => {
+    const selection = bulkConfig.typeSelections[outputType];
+    if (!selection?.enabled) return [];
+    const count = Math.max(0, Math.round(Number(selection.count || 0)));
+    if (count <= 0) return [];
+    return [{
+      id: createGalleryOutputItemId(),
+      enabled: true,
+      outputType,
+      aspectRatio: resolveGalleryBulkAspectRatio(outputType, bulkConfig.ratioStrategy),
+      resolution: bulkConfig.resolution,
+      count,
+      modelCardId: GALLERY_SCENE_SENSITIVE_TYPES.has(outputType) && bulkConfig.bindingStrategy === 'auto_primary'
+        ? fallbackModelCardId || undefined
+        : undefined,
+      sceneCardId: GALLERY_SCENE_SENSITIVE_TYPES.has(outputType) && bulkConfig.bindingStrategy === 'auto_primary'
+        ? fallbackSceneCardId || undefined
+        : undefined,
+    }];
+  });
+
+const inferGalleryBulkConfigFromOutputItems = (
+  items: GalleryOutputItem[],
+  sellingPointCount: number
+): GalleryBulkConfig => {
+  const defaults = createDefaultGalleryBulkConfig(sellingPointCount);
+  const enabledItems = items.filter((item) => item.enabled && item.count > 0);
+  if (enabledItems.length === 0) return defaults;
+
+  const typeSelections = normalizeGalleryTypeSelections(
+    GALLERY_OUTPUT_TYPE_ORDER.reduce((acc, outputType) => {
+      const matching = enabledItems.filter((item) => item.outputType === outputType);
+      acc[outputType] = {
+        enabled: matching.length > 0,
+        count: matching.reduce((sum, item) => sum + Math.max(0, Math.round(Number(item.count || 0))), 0),
+      };
+      return acc;
+    }, {} as Record<GalleryOutputType, { enabled: boolean; count: number }>)
+  );
+
+  const firstResolution = enabledItems[0]?.resolution || '1k';
+  const sameResolution = enabledItems.every((item) => item.resolution === firstResolution);
+  const firstAspectRatio = enabledItems[0]?.aspectRatio || '1:1';
+  const sameAspectRatio = enabledItems.every((item) => item.aspectRatio === firstAspectRatio);
+  const matchesRecommended = enabledItems.every(
+    (item) => item.aspectRatio === GALLERY_BULK_RECOMMENDED_ASPECT_RATIOS[item.outputType]
+  );
+  const bindingStrategy = enabledItems.some(
+    (item) => GALLERY_SCENE_SENSITIVE_TYPES.has(item.outputType) && (item.modelCardId || item.sceneCardId)
+  )
+    ? 'auto_primary'
+    : 'none';
+
+  return {
+    ratioStrategy:
+      sameAspectRatio && (firstAspectRatio === '1:1' || firstAspectRatio === '4:5' || firstAspectRatio === '9:16')
+        ? firstAspectRatio
+        : matchesRecommended
+          ? 'recommended'
+          : 'recommended',
+    resolution: sameResolution ? firstResolution : '1k',
+    bindingStrategy,
+    typeSelections,
+  };
+};
 
 const buildGalleryGenerationPlan = (selections: Record<GalleryOutputType, { enabled: boolean; count: number }>) => {
   const plan: Array<{ outputType: GalleryOutputType; order: number }> = [];
@@ -352,6 +499,17 @@ const normalizeGalleryOutputItem = (row: any): GalleryOutputItem | null => {
   const resolutionRaw = String(row?.resolution || '1k').trim().toLowerCase();
   const resolution = resolutionRaw === '2k' || resolutionRaw === '4k' ? resolutionRaw : '1k';
   const count = Math.max(0, Math.round(Number(row?.count || 0)));
+  const rawLayouts = Array.isArray(row?.layouts)
+    ? row.layouts.map((entry: any) => String(entry ?? '')).filter((entry: string) => entry.trim().length > 0)
+    : [];
+  const legacyLayout = typeof row?.layout === 'string' ? row.layout : '';
+  const layouts = rawLayouts.length > 0
+    ? rawLayouts
+    : (legacyLayout && legacyLayout.trim() ? [legacyLayout] : []);
+  const rawIndex = Number(row?.layoutIndex ?? row?.layout_index ?? 0);
+  const layoutIndex = Number.isFinite(rawIndex)
+    ? Math.min(Math.max(0, Math.floor(rawIndex)), Math.max(0, layouts.length - 1))
+    : 0;
   return {
     id: String(row?.id || createGalleryOutputItemId()),
     enabled: Boolean(row?.enabled ?? true),
@@ -366,7 +524,9 @@ const normalizeGalleryOutputItem = (row: any): GalleryOutputItem | null => {
     sceneCardId: supportsResourceBinding
       ? (typeof row?.sceneCardId === 'string' ? row.sceneCardId : (typeof row?.scene_card_id === 'string' ? row.scene_card_id : undefined))
       : undefined,
-    layout: typeof row?.layout === 'string' ? row.layout : undefined,
+    layout: layouts[layoutIndex] ?? (legacyLayout || undefined),
+    layouts,
+    layoutIndex,
   };
 };
 
@@ -648,7 +808,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       },
       {
         value: 'product_images_text_separation',
-        label: tx('wb_nav_product_text_separation', tr('文本分离', 'Text Separation')),
+        label: tx('wb_nav_product_text_separation', tr('AI 海报编辑', 'AI Poster Editor')),
       },
     ],
     [t, isZh]
@@ -693,8 +853,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         };
       case 'product_images_text_separation':
         return {
-          title: tr('文本分离', 'Text Separation'),
-          subtitle: tr('上传海报，或复用商品套图历史图片，可生成去字底图和可编辑文本框', 'Upload a poster or reuse Product Gallery history to extract text and generate a clean background'),
+          title: tr('AI 海报编辑', 'AI Poster Editor'),
+          subtitle: tr('上传一张带字海报，自动提取可编辑文本框，并通过文本重绘把灵感快速变成新的视觉方案。', 'Upload a poster with text, automatically extract editable text blocks, and use text-to-image to quickly turn your inspiration into new visual concepts.'),
         };
       case 'product_images_first_frame':
       default:
@@ -717,8 +877,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     target: null,
     token: 0,
   });
+  const [galleryBulkConfig, setGalleryBulkConfig] = useState<GalleryBulkConfig>(() => createDefaultGalleryBulkConfig());
+  const [galleryAdvancedDirty, setGalleryAdvancedDirty] = useState(false);
+  const [isGalleryAdvancedEditingCollapsed, setIsGalleryAdvancedEditingCollapsed] = useState(true);
   const [galleryOutputMode, setGalleryOutputMode] = useState<GalleryOutputMode>('custom');
-  const [galleryOutputItems, setGalleryOutputItems] = useState<GalleryOutputItem[]>(() => [createDefaultGalleryOutputItem()]);
+  const [galleryOutputItems, setGalleryOutputItems] = useState<GalleryOutputItem[]>(() =>
+    buildGalleryOutputItemsFromBulkConfig({ bulkConfig: createDefaultGalleryBulkConfig() })
+  );
   const galleryPreviewAspectRatio = useMemo(() => {
     const firstEnabled = galleryOutputItems.find((item) => item.enabled);
     return firstEnabled?.aspectRatio || '1:1';
@@ -791,6 +956,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [galleryOptimizingItemIds, setGalleryOptimizingItemIds] = useState<Record<string, boolean>>({});
   const [imageModelRates, setImageModelRates] = useState<Record<string, number>>({});
   const galleryModelPreviewUrlsRef = useRef<string[]>([]);
+  const galleryPrevSellingPointCountRef = useRef(0);
 
   useEffect(() => {
     let alive = true;
@@ -824,6 +990,45 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       .filter((item) => item.enabled)
       .reduce((sum, item) => sum + Math.max(0, Math.round(Number(item.count || 0))), 0);
   }, [galleryOutputItems]);
+  const effectiveGallerySellingPointCount = useMemo(
+    () => gallerySellingPoints.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 5).length,
+    [gallerySellingPoints]
+  );
+
+  useEffect(() => {
+    setGalleryBulkConfig((prev) => {
+      const previousDetectedCount = galleryPrevSellingPointCountRef.current;
+      galleryPrevSellingPointCountRef.current = effectiveGallerySellingPointCount;
+
+      const currentSellingPointSelection = prev.typeSelections.selling_point;
+      const shouldSyncWithSellingPoints =
+        effectiveGallerySellingPointCount === 0 ||
+        currentSellingPointSelection.count === previousDetectedCount ||
+        currentSellingPointSelection.count === 0;
+
+      if (!shouldSyncWithSellingPoints) return prev;
+
+      const nextTypeSelections = normalizeGalleryTypeSelections({
+        ...prev.typeSelections,
+        selling_point: {
+          enabled: effectiveGallerySellingPointCount > 0,
+          count: effectiveGallerySellingPointCount,
+        },
+      });
+
+      if (
+        nextTypeSelections.selling_point.enabled === currentSellingPointSelection.enabled &&
+        nextTypeSelections.selling_point.count === currentSellingPointSelection.count
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        typeSelections: nextTypeSelections,
+      };
+    });
+  }, [effectiveGallerySellingPointCount]);
 
   const galleryEstimatedCost = useMemo(() => {
     const rate = Number(imageModelRates['gemini-3-pro-image-preview'] || 0);
@@ -999,6 +1204,24 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     isGenerating: false,
     error: null,
   });
+  const [galleryAiLayoutDesigner, setGalleryAiLayoutDesigner] = useState<{
+    open: boolean;
+    prompt: string;
+    isGenerating: boolean;
+    error: string | null;
+    completed: number;
+    total: number;
+  }>({
+    open: false,
+    prompt: '',
+    isGenerating: false,
+    error: null,
+    completed: 0,
+    total: 0,
+  });
+  const GALLERY_LAYOUT_VARIANTS_MIN = 1;
+  const GALLERY_LAYOUT_VARIANTS_MAX = 5;
+  const [galleryLayoutVariants, setGalleryLayoutVariants] = useState<number>(3);
 
   type GalleryPreviewSource =
     | { kind: 'preview_item'; localId: string }
@@ -1207,7 +1430,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     setIsGalleryPreviewDownloading(true);
     try {
       const blob = await productImagesApi.downloadImageByUrl(galleryPreviewImageUrl);
-      downloadBlob(blob, buildGalleryPreviewFilename(galleryPreviewImageUrl));
+      await saveBlobWithPickerFallback(blob, buildGalleryPreviewFilename(galleryPreviewImageUrl));
       setGalleryToastMessage(tr('已开始下载', 'Download started'));
     } catch (err: any) {
       openGalleryAlert(String(err?.message || tr('下载失败，请重试。', 'Download failed. Please try again.')));
@@ -2022,7 +2245,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       if (!raw) return;
       localStorage.removeItem(GALLERY_RESTORE_KEY);
       const s = JSON.parse(raw) as Record<string, any>;
-      const sceneSensitiveTypes = new Set<GalleryOutputType>(['scene', 'selling_point', 'cover', 'poster']);
+      const restoredSellingPoints = Array.isArray(s.sellingPoints)
+        ? s.sellingPoints.map((item: any) => String(item || '').trim()).filter(Boolean).slice(0, 5)
+        : [];
       const restoredModelCards = Array.isArray(s.modelCards)
         ? s.modelCards.map((row: any) => normalizeGalleryModelCard(row)).filter(Boolean) as GalleryModelCard[]
         : [];
@@ -2063,10 +2288,12 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       if (s.copyLanguage) setGalleryCopyLanguage(String(s.copyLanguage));
       if (s.productName) setGalleryProductName(s.productName);
       if (s.productCategory) setGalleryCategory(s.productCategory);
-      if (Array.isArray(s.sellingPoints) && s.sellingPoints.length > 0) setGallerySellingPoints(s.sellingPoints);
+      setGallerySellingPoints(restoredSellingPoints);
       if (s.outputMode === 'custom' || s.outputMode === 'ai') setGalleryOutputMode(s.outputMode);
       setGalleryModelCards(restoredModelCards);
       setGallerySceneCards(restoredSceneCards);
+
+      let restoredBulkConfig = normalizeGalleryBulkConfig(s.bulkConfig, restoredSellingPoints.length);
       if (Array.isArray(s.outputItems) && s.outputItems.length > 0) {
         const restoredItems: GalleryOutputItem[] = s.outputItems
           .map((row: any) => normalizeGalleryOutputItem(row))
@@ -2074,13 +2301,16 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             if (!item) return null;
             return {
               ...item,
-              modelCardId: item.modelCardId || (sceneSensitiveTypes.has(item.outputType) ? fallbackModelCardId || undefined : undefined),
-              sceneCardId: item.sceneCardId || (sceneSensitiveTypes.has(item.outputType) ? fallbackSceneCardId || undefined : undefined),
+              modelCardId: item.modelCardId || (GALLERY_SCENE_SENSITIVE_TYPES.has(item.outputType) ? fallbackModelCardId || undefined : undefined),
+              sceneCardId: item.sceneCardId || (GALLERY_SCENE_SENSITIVE_TYPES.has(item.outputType) ? fallbackSceneCardId || undefined : undefined),
             } satisfies GalleryOutputItem;
           })
           .filter(Boolean) as GalleryOutputItem[];
         if (restoredItems.length > 0) {
           setGalleryOutputItems(restoredItems);
+          restoredBulkConfig = s.bulkConfig
+            ? normalizeGalleryBulkConfig(s.bulkConfig, restoredSellingPoints.length)
+            : inferGalleryBulkConfigFromOutputItems(restoredItems, restoredSellingPoints.length);
         }
       } else {
         const aspectRatio = String(s.aspectRatio || '1:1').trim() || '1:1';
@@ -2101,13 +2331,19 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               aspectRatio,
               resolution: resolution as any,
               count,
-              modelCardId: sceneSensitiveTypes.has(outputType) ? fallbackModelCardId || undefined : undefined,
-              sceneCardId: sceneSensitiveTypes.has(outputType) ? fallbackSceneCardId || undefined : undefined,
+              modelCardId: GALLERY_SCENE_SENSITIVE_TYPES.has(outputType) ? fallbackModelCardId || undefined : undefined,
+              sceneCardId: GALLERY_SCENE_SENSITIVE_TYPES.has(outputType) ? fallbackSceneCardId || undefined : undefined,
             });
           }
-          if (items.length > 0) setGalleryOutputItems(items);
+          if (items.length > 0) {
+            setGalleryOutputItems(items);
+            restoredBulkConfig = inferGalleryBulkConfigFromOutputItems(items, restoredSellingPoints.length);
+          }
         }
       }
+      setGalleryBulkConfig(restoredBulkConfig);
+      setGalleryAdvancedDirty(false);
+      setIsGalleryAdvancedEditingCollapsed(true);
       // Restore backend image paths so generation can skip the upload step
       if (Array.isArray(s.uploadedImagePaths) && s.uploadedImagePaths.length > 0) {
         const paths = s.uploadedImagePaths.map((p: any) => String(p || '').trim()).filter(Boolean);
@@ -2340,14 +2576,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
       const outBlob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
       if (!outBlob) throw new Error(tr('导出失败', 'Export failed'));
-      const outUrl = URL.createObjectURL(outBlob);
-      const a = document.createElement('a');
-      a.href = outUrl;
-      a.download = `product_gallery_edit_${Date.now()}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(outUrl);
+      await saveBlobWithPickerFallback(outBlob, `product_gallery_edit_${Date.now()}.png`);
       URL.revokeObjectURL(objUrl);
     } catch (err: any) {
       openGalleryAlert(String(err?.message || err || tr('导出失败', 'Export failed')));
@@ -2504,6 +2733,14 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     setGalleryAiOutputPlanner((prev) => ({ ...prev, open: false, isGenerating: false, error: null }));
   };
 
+  const openGalleryAiLayoutPromptDialog = () => {
+    setGalleryAiLayoutDesigner((prev) => ({ ...prev, open: true, isGenerating: false, error: null, completed: 0, total: 0 }));
+  };
+
+  const closeGalleryAiLayoutPromptDialog = () => {
+    setGalleryAiLayoutDesigner((prev) => ({ ...prev, open: false, isGenerating: false, error: null }));
+  };
+
   const normalizeAiOutputType = (value: any): GalleryOutputType | null => {
     const raw = String(value || '').trim().toLowerCase();
     if (!raw) return null;
@@ -2561,6 +2798,48 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     || cards[0]
     || null;
 
+  const markGalleryAdvancedDirty = () => {
+    setGalleryAdvancedDirty(true);
+    setGalleryOutputMode('custom');
+    setIsGalleryAdvancedEditingCollapsed(false);
+  };
+
+  const handleApplyGalleryBulkConfig = async (nextBulkConfig?: GalleryBulkConfig): Promise<boolean> => {
+    const appliedBulkConfig = nextBulkConfig || galleryBulkConfig;
+    const nextItems = buildGalleryOutputItemsFromBulkConfig({
+      bulkConfig: appliedBulkConfig,
+      fallbackModelCardId: getGalleryPrimaryModelCard(galleryModelCards)?.id,
+      fallbackSceneCardId: getGalleryPrimarySceneCard(gallerySceneCards)?.id,
+    });
+
+    if (nextItems.length === 0) {
+      openGalleryAlert(tr('请至少启用 1 种出图类型。', 'Please enable at least one output type.'));
+      return false;
+    }
+
+    if (galleryAdvancedDirty && galleryOutputItems.some((item) => item.enabled && item.count > 0)) {
+      const action = await openGalleryConfirm(
+        tr(
+          '应用批量配置会覆盖当前高级编辑中的逐张调整，是否继续？',
+          'Applying the batch config will overwrite the current advanced per-card adjustments. Continue?'
+        ),
+        {
+          title: tr('覆盖高级编辑', 'Overwrite Advanced Editing'),
+          okLabel: tr('覆盖并应用', 'Overwrite & Apply'),
+          cancelLabel: tr('取消', 'Cancel'),
+        }
+      );
+      if (action !== 'ok') return false;
+    }
+
+    setGalleryBulkConfig(appliedBulkConfig);
+    setGalleryOutputItems(nextItems);
+    setGalleryOutputMode('custom');
+    setGalleryAdvancedDirty(false);
+    setIsGalleryAdvancedEditingCollapsed(true);
+    return true;
+  };
+
   const normalizeGalleryOutputPayloadItem = (
     item: GalleryOutputItem,
     modelCardsById: Map<string, GalleryModelCard>,
@@ -2569,6 +2848,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     const supportsResourceBinding = item.outputType !== 'white_bg';
     const modelCard = supportsResourceBinding && item.modelCardId ? (modelCardsById.get(item.modelCardId) || null) : null;
     const sceneCard = supportsResourceBinding && item.sceneCardId ? (sceneCardsById.get(item.sceneCardId) || null) : null;
+    const layouts = Array.isArray(item.layouts) ? item.layouts : [];
+    const activeIdx = Math.min(Math.max(0, Number(item.layoutIndex ?? 0)), Math.max(0, layouts.length - 1));
+    const activeLayout = layouts[activeIdx] ?? item.layout ?? undefined;
     return {
       id: item.id,
       enabled: item.enabled,
@@ -2580,7 +2862,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       scene_card_id: supportsResourceBinding ? (item.sceneCardId || undefined) : undefined,
       model_binding: buildGalleryResolvedModelBinding(modelCard),
       scene_binding: buildGalleryResolvedSceneBinding(sceneCard),
-      layout: item.layout,
+      layout: activeLayout,
     };
   };
 
@@ -2625,6 +2907,177 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       }
     }
     return { ok: true as const };
+  };
+
+  const buildGalleryAiLayoutPrompt = (items: GalleryOutputItem[], extraPrompt?: string) => {
+    const outputTypeLabels: Record<GalleryOutputType, string> = {
+      white_bg: t.pi_gallery_output_white_bg || tr('白底图', 'White Background'),
+      scene: t.pi_gallery_output_scene || tr('场景图', 'Scene'),
+      selling_point: t.pi_gallery_output_selling_point || tr('卖点图', 'Selling Point'),
+      cover: t.pi_gallery_output_cover || tr('封面图', 'Cover'),
+      poster: t.pi_gallery_output_poster || tr('海报图', 'Poster'),
+    };
+    const cleanedSellingPoints = gallerySellingPoints.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 5);
+    const itemLines = items.map((item, index) => {
+      const base = `${index + 1}. outputType=${item.outputType}（${outputTypeLabels[item.outputType]}）；count=${item.count}；aspectRatio=${item.aspectRatio}；resolution=${item.resolution}`;
+      if (item.outputType === 'selling_point' && cleanedSellingPoints.length > 0) {
+        return `${base}；优先卖点参考：${cleanedSellingPoints.slice(0, Math.max(1, Math.min(item.count, cleanedSellingPoints.length))).join(' / ')}`;
+      }
+      return base;
+    });
+
+    return [
+      '当前商品套图的出图组合已经确定。',
+      '不要重新规划图种，不要改变张数、比例、分辨率，不要增删条目。',
+      '你只需要为下面每一条现有条目补写一个具体可执行的 layout（构图描述）。',
+      '返回的 items 数组条目数必须与下面列表一致，顺序必须一致。',
+      '每条 item 的 outputType、count、aspectRatio、resolution 必须保持与输入一致；layout 需要写清楚商品主体摆放、镜头远近、留白区、卖点表达方式、前后景层次，并强调图片内不要生成可读文字。',
+      extraPrompt ? `额外要求：${extraPrompt}` : '',
+      `当前条目列表：\n${itemLines.join('\n')}`,
+    ].filter(Boolean).join('\n');
+  };
+
+  const handleGenerateAiLayoutSuggestions = async (extraPrompt?: string, fromDialog = false) => {
+    if (galleryAiLayoutDesigner.isGenerating) return;
+
+    const enabledItems = galleryOutputItems
+      .map((item) => normalizeGalleryOutputItem(item))
+      .filter((item): item is GalleryOutputItem => Boolean(item && item.enabled && item.count > 0));
+    if (enabledItems.length === 0) {
+      openGalleryAlert(tr('请先通过快速批量或高级编辑生成至少 1 条出图条目。', 'Create at least one output item before asking AI to design layouts.'));
+      return;
+    }
+
+    const hasExistingLayouts = enabledItems.some((item) => {
+      const layouts = Array.isArray(item.layouts) ? item.layouts : [];
+      if (layouts.some((txt) => String(txt || '').trim().length > 0)) return true;
+      return Boolean(String(item.layout || '').trim());
+    });
+    if (hasExistingLayouts) {
+      const action = await openGalleryConfirm(
+        tr(
+          'AI帮我设计会覆盖当前条目的构图描述，是否继续？',
+          'AI Design will overwrite the current layout descriptions. Continue?'
+        ),
+        {
+          title: tr('覆盖构图描述', 'Overwrite Layouts'),
+          okLabel: tr('覆盖并生成', 'Overwrite & Generate'),
+          cancelLabel: tr('取消', 'Cancel'),
+        }
+      );
+      if (action !== 'ok') return;
+    }
+
+    const variantCount = Math.max(
+      GALLERY_LAYOUT_VARIANTS_MIN,
+      Math.min(GALLERY_LAYOUT_VARIANTS_MAX, Math.floor(Number(galleryLayoutVariants) || 1))
+    );
+    const enabledIdSet = new Set(enabledItems.map((it) => it.id));
+
+    setGalleryAiLayoutDesigner((prev) => ({ ...prev, isGenerating: true, error: null, completed: 0, total: variantCount }));
+    setGalleryOutputItems((prev) =>
+      prev.map((item) => {
+        if (!enabledIdSet.has(item.id)) return item;
+        return { ...item, layouts: [], layoutIndex: 0, layout: '' };
+      })
+    );
+    setGalleryAdvancedDirty(true);
+    setIsGalleryAdvancedEditingCollapsed(false);
+
+    try {
+      const hasNewImages = galleryImages.length > 0;
+      const hasRestoredPaths = galleryRestoredImagePaths.length > 0;
+      let workingModelCards = galleryModelCards;
+      const primaryModelCard = getGalleryPrimaryModelCard(workingModelCards);
+      if (primaryModelCard?.imageFile) {
+        workingModelCards = await ensureGalleryModelCardAssetPaths([primaryModelCard.id]);
+      }
+      const resolvedPrimaryModelCard = getGalleryPrimaryModelCard(workingModelCards);
+      const primarySceneCard = getGalleryPrimarySceneCard(gallerySceneCards);
+      const sceneConfig = sanitizeGallerySceneConfig(primarySceneCard?.sceneConfig);
+      const hasSceneConfig = Object.values(sceneConfig).some((value) => Boolean(String(value || '').trim()));
+
+      let imagePaths: string[] = [];
+      if (hasRestoredPaths) {
+        imagePaths = [...galleryRestoredImagePaths];
+      } else if (hasNewImages) {
+        const target = galleryImages[0];
+        if (target && !isSupportedGalleryImageFile(target)) {
+          openGalleryAlert(gallerySupportedFormatTip);
+          setGalleryAiLayoutDesigner((prev) => ({ ...prev, isGenerating: false }));
+          return;
+        }
+        if (target) {
+          const uploadResp = await assetsApi.uploadTempAsset(target);
+          const path = extractUploadedAssetPath(uploadResp);
+          if (path) imagePaths = [String(path)];
+        }
+      }
+
+      const basePayload = {
+        prompt: buildGalleryAiLayoutPrompt(enabledItems, extraPrompt),
+        image_paths: imagePaths,
+        product_name: galleryProductName.trim(),
+        product_category: galleryCategory.trim(),
+        core_selling_points: gallerySellingPoints.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 5),
+        target_scene: galleryTargetScene,
+        style: galleryStyle,
+        target_language: galleryCopyLanguage,
+        scene_config: hasSceneConfig ? sceneConfig : undefined,
+        model_image_path: String(resolvedPrimaryModelCard?.imagePath || '').trim() || undefined,
+        model_info: String(resolvedPrimaryModelCard?.modelInfo || '').trim() || undefined,
+      };
+
+      let successCount = 0;
+      await Promise.all(
+        Array.from({ length: variantCount }).map(async () => {
+          try {
+            const planResp = await videoApi.generateProductGalleryPlan({ ...basePayload });
+            const data = (planResp as any)?.data || planResp;
+            const rawItems = Array.isArray(data?.items) ? data.items : [];
+            if (rawItems.length === 0) return;
+            const enabledIdOrder = enabledItems.map((it) => it.id);
+            const layoutById = new Map<string, string>();
+            enabledIdOrder.forEach((id, idx) => {
+              const layout = String(rawItems[idx]?.layout || '').trim();
+              if (layout) layoutById.set(id, layout);
+            });
+            if (layoutById.size === 0) return;
+            setGalleryOutputItems((prev) =>
+              prev.map((item) => {
+                const next = layoutById.get(item.id);
+                if (!next) return item;
+                const prevLayouts = Array.isArray(item.layouts) ? item.layouts : [];
+                const nextLayouts = [...prevLayouts, next];
+                return {
+                  ...item,
+                  layouts: nextLayouts,
+                  layoutIndex: Math.min(Number(item.layoutIndex ?? 0), Math.max(0, nextLayouts.length - 1)),
+                  layout: nextLayouts[Math.min(Number(item.layoutIndex ?? 0), nextLayouts.length - 1)] ?? next,
+                };
+              })
+            );
+            successCount += 1;
+          } catch (err) {
+            console.warn('[gallery] layout variant failed', err);
+          } finally {
+            setGalleryAiLayoutDesigner((prev) => ({ ...prev, completed: prev.completed + 1 }));
+          }
+        })
+      );
+
+      if (successCount === 0) {
+        throw new Error(tr('AI 全部候选生成失败，请重试。', 'All layout variants failed. Please retry.'));
+      }
+
+      setGalleryAiLayoutDesigner((prev) => ({ ...prev, open: false, prompt: prev.prompt, isGenerating: false, error: null }));
+    } catch (err: any) {
+      const message = String(err?.message || tr('AI 设计失败，请重试。', 'AI layout design failed. Please try again.'));
+      setGalleryAiLayoutDesigner((prev) => ({ ...prev, isGenerating: false, error: fromDialog ? message : null }));
+      if (!fromDialog) {
+        openGalleryAlert(message, tr('AI设计失败', 'AI Design Failed'));
+      }
+    }
   };
 
   const handleGenerateAiOutputPlan = async () => {
@@ -2684,6 +3137,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           const outputType = normalizeAiOutputType(row?.outputType ?? row?.output_type ?? row?.type);
           if (!outputType) return null;
           const shouldBindPrimaryResources = outputType === 'scene' || outputType === 'selling_point' || outputType === 'cover' || outputType === 'poster';
+          const layoutText = typeof row?.layout === 'string' ? row.layout.trim() : '';
+          const layouts = layoutText ? [layoutText] : [];
           return {
             id: createGalleryOutputItemId(),
             enabled: Boolean(row?.enabled ?? true),
@@ -2693,7 +3148,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             count: 1,
             modelCardId: shouldBindPrimaryResources ? (resolvedPrimaryModelCard?.id || undefined) : undefined,
             sceneCardId: shouldBindPrimaryResources ? (primarySceneCard?.id || undefined) : undefined,
-            layout: typeof row?.layout === 'string' ? row.layout : undefined,
+            layout: layoutText || undefined,
+            layouts,
+            layoutIndex: 0,
           } satisfies GalleryOutputItem;
         })
         .filter(Boolean) as GalleryOutputItem[];
@@ -2707,7 +3164,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       }
 
       setGalleryOutputMode('ai');
+      setGalleryBulkConfig(inferGalleryBulkConfigFromOutputItems(items, effectiveGallerySellingPointCount));
       setGalleryOutputItems(items);
+      setGalleryAdvancedDirty(false);
+      setIsGalleryAdvancedEditingCollapsed(false);
       setGalleryAiOutputPlanner({ open: false, prompt: '', isGenerating: false, error: null });
     } catch (err: any) {
       const message = String(err?.message || tr('AI 生成失败，请重试。', 'AI planning failed. Please try again.'));
@@ -2789,9 +3249,24 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       setGalleryOutputItems((prev) =>
         prev.map((item) => {
           if (item.id !== targetId) return item;
+          const optimizedLayout = typeof optimized?.layout === 'string' ? optimized.layout : '';
+          const prevLayouts = Array.isArray(item.layouts) ? item.layouts : [];
+          const prevIdx = Math.min(Math.max(0, Number(item.layoutIndex ?? 0)), Math.max(0, prevLayouts.length - 1));
+          let nextLayouts = prevLayouts;
+          let nextLayoutText = item.layout;
+          if (optimizedLayout) {
+            if (prevLayouts.length > 0) {
+              nextLayouts = prevLayouts.map((txt, idx) => (idx === prevIdx ? optimizedLayout : txt));
+            } else {
+              nextLayouts = [optimizedLayout];
+            }
+            nextLayoutText = optimizedLayout;
+          }
           return {
             ...item,
-            layout: typeof optimized?.layout === 'string' ? optimized.layout : item.layout,
+            layout: nextLayoutText,
+            layouts: nextLayouts,
+            layoutIndex: Math.min(prevIdx, Math.max(0, nextLayouts.length - 1)),
             copy: nextCopy || item.copy,
             notes: typeof optimized?.notes === 'string' ? optimized.notes : item.notes,
             prompt: typeof optimized?.prompt === 'string' ? optimized.prompt : item.prompt,
@@ -2917,6 +3392,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             modelCardId: sellingPointEntries[0]?.modelCardId,
             sceneCardId: sellingPointEntries[0]?.sceneCardId,
             layout: sellingPointEntries[0]?.layout,
+            layouts: Array.isArray(sellingPointEntries[0]?.layouts) ? [...sellingPointEntries[0]!.layouts!] : [],
+            layoutIndex: sellingPointEntries[0]?.layoutIndex ?? 0,
           },
         ];
 
@@ -3005,6 +3482,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         modelCardId: item.modelCardId,
         sceneCardId: item.sceneCardId,
         layout: item.layout,
+        layouts: Array.isArray(item.layouts) ? [...item.layouts] : undefined,
+        layoutIndex: item.layoutIndex,
       })),
       modelCards: workingModelCards.map((card) => toGalleryModelCardSnapshot(card)),
       sceneCards: gallerySceneCards.map((card) => ({
@@ -3018,6 +3497,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       modelInfo: primaryModelBinding?.model_info,
       modelImagePath: primaryModelBinding?.image_path,
       uploadedImagePaths: [] as string[],
+      bulkConfig: {
+        ratioStrategy: galleryBulkConfig.ratioStrategy,
+        resolution: galleryBulkConfig.resolution,
+        bindingStrategy: galleryBulkConfig.bindingStrategy,
+        typeSelections: galleryBulkConfig.typeSelections,
+      },
+      generatedFromBulk: !galleryAdvancedDirty,
     };
 
     // Collect all successful image URLs across all poll tasks
@@ -3355,7 +3841,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
       <AppDialog
         isOpen={galleryAiOutputPlanner.open}
-        title={tr('AI 智能添加出图类型', 'AI Output Planner')}
+        title={tr('AI 推荐组合', 'AI Recommended Mix')}
         onClose={closeGalleryAiOutputPlanner}
         widthClassName="max-w-lg"
         overlayClassName="z-[160]"
@@ -3382,7 +3868,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       >
         <div className="space-y-3">
           <div className="text-xs text-zinc-400">
-            {tr('输入你想要的套图风格/构图/卖点表达等提示词，AI 会生成可选的出图条目。', 'Describe desired styles/layouts and AI will propose output items.')}
+            {tr(
+              '输入你想要的套图风格、出图组合和卖点表达方式，AI 会给出一组推荐条目，并同步回快速批量与高级编辑。',
+              'Describe the desired style, output mix, and selling-point expression. AI will recommend a batch and sync it back to Quick Batch and Advanced Editing.'
+            )}
           </div>
           <textarea
             value={galleryAiOutputPlanner.prompt}
@@ -3393,6 +3882,93 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           />
           {galleryAiOutputPlanner.error ? (
             <div className="text-xs text-red-400">{galleryAiOutputPlanner.error}</div>
+          ) : null}
+        </div>
+      </AppDialog>
+
+      <AppDialog
+        isOpen={galleryAiLayoutDesigner.open}
+        title={tr('高级设置', 'Advanced Settings')}
+        onClose={closeGalleryAiLayoutPromptDialog}
+        widthClassName="max-w-lg"
+        overlayClassName="z-[160]"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={closeGalleryAiLayoutPromptDialog}
+              disabled={galleryAiLayoutDesigner.isGenerating}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition disabled:opacity-50"
+            >
+              {tr('取消', 'Cancel')}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void handleGenerateAiLayoutSuggestions(String(galleryAiLayoutDesigner.prompt || '').trim(), true);
+              }}
+              disabled={galleryAiLayoutDesigner.isGenerating}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 text-black hover:bg-orange-400 transition disabled:opacity-50"
+            >
+              {galleryAiLayoutDesigner.isGenerating
+                ? (galleryAiLayoutDesigner.total > 0
+                    ? `${tr('设计中', 'Designing')} ${galleryAiLayoutDesigner.completed}/${galleryAiLayoutDesigner.total}...`
+                    : tr('设计中...', 'Designing...'))
+                : tr('开始设计', 'Generate Layouts')}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="text-xs text-zinc-400">
+            {tr(
+              '补一句额外要求，AI 会在保持当前图种和张数不变的前提下，为每条出图条目补全构图描述。',
+              'Add one extra instruction and AI will fill in layout descriptions for the current output items without changing the selected mix.'
+            )}
+          </div>
+          <textarea
+            value={galleryAiLayoutDesigner.prompt}
+            onChange={(e) => setGalleryAiLayoutDesigner((prev) => ({ ...prev, prompt: e.target.value }))}
+            rows={4}
+            className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
+            placeholder={tr('例如：场景图更偏小红书生活方式感，卖点图留出右侧文案区。', 'E.g. make scene images feel more Xiaohongshu-lifestyle, and leave a clean text area on the right for selling-point images.')}
+          />
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5">
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-zinc-200">{tr('每张图生成构图候选数', 'Layout variants per image')}</div>
+              <div className="mt-0.5 text-[11px] leading-4 text-zinc-500">
+                {tr(
+                  '一次生成多份构图，高级编辑里可按卡片左右翻页挑选。',
+                  'Generate multiple layouts so you can browse them per card in Advanced Editing.'
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setGalleryLayoutVariants((v) => Math.max(GALLERY_LAYOUT_VARIANTS_MIN, Math.floor(Number(v) || 1) - 1))}
+                disabled={galleryAiLayoutDesigner.isGenerating || galleryLayoutVariants <= GALLERY_LAYOUT_VARIANTS_MIN}
+                className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 flex items-center justify-center disabled:opacity-40"
+                aria-label={tr('减少候选数', 'Decrease variants')}
+              >
+                <Minus className="h-3.5 w-3.5" />
+              </button>
+              <div className="min-w-[2.5rem] text-center text-sm font-bold tabular-nums text-zinc-100">
+                {galleryLayoutVariants}
+              </div>
+              <button
+                type="button"
+                onClick={() => setGalleryLayoutVariants((v) => Math.min(GALLERY_LAYOUT_VARIANTS_MAX, Math.floor(Number(v) || 1) + 1))}
+                disabled={galleryAiLayoutDesigner.isGenerating || galleryLayoutVariants >= GALLERY_LAYOUT_VARIANTS_MAX}
+                className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 flex items-center justify-center disabled:opacity-40"
+                aria-label={tr('增加候选数', 'Increase variants')}
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+          {galleryAiLayoutDesigner.error ? (
+            <div className="text-xs text-red-400">{galleryAiLayoutDesigner.error}</div>
           ) : null}
         </div>
       </AppDialog>
@@ -4181,208 +4757,224 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               onBack={() => setTextSeparationSession(null)}
             />
           ) : (
-            <div className="h-full flex gap-6">
-              <div className="w-[30%] min-w-[360px] max-w-[420px]">
-                <div className="rounded-2xl border border-white/5 bg-white/2 p-5">
-                  <input
-                    ref={textSeparationFileInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      handleTextSeparationFileSelection(Array.from(e.target.files || []));
-                      e.target.value = '';
-                    }}
-                  />
-                  <div
-                    className="transition-colors"
-                    onDragEnter={(e) => {
-                      preventDragDefaults(e);
-                      setIsTextSeparationDragActive(true);
-                    }}
-                    onDragOver={(e) => {
-                      preventDragDefaults(e);
-                      setIsTextSeparationDragActive(true);
-                    }}
-                    onDragLeave={(e) => {
-                      preventDragDefaults(e);
-                      setIsTextSeparationDragActive(false);
-                    }}
-                    onDrop={(e) => {
-                      preventDragDefaults(e);
-                      setIsTextSeparationDragActive(false);
-                      handleTextSeparationFileSelection(Array.from(e.dataTransfer.files || []));
-                    }}
-                  >
-                  {textSeparationUploadPreviewUrl ? (
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-sm font-bold text-zinc-200">{tr('当前处理图片', 'Current Image')}</div>
-                          <div className="mt-2 truncate text-sm font-bold text-zinc-200">
-                            {textSeparationUploadName || tr('最近上传', 'Latest upload')}
+              <div className="h-full flex flex-col gap-6 p-2">
+
+                <div className="flex flex-1 min-h-0 gap-8">
+                  <div className="w-[26%] min-w-[300px] max-w-[380px] flex flex-col gap-6">
+                    <div className="space-y-6">
+                      <input
+                        ref={textSeparationFileInputRef}
+                        type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        handleTextSeparationFileSelection(Array.from(e.target.files || []));
+                        e.target.value = '';
+                      }}
+                      />
+
+                    <div
+                      className="relative"
+                      onDragEnter={(e) => {
+                        preventDragDefaults(e);
+                        setIsTextSeparationDragActive(true);
+                      }}
+                      onDragOver={(e) => {
+                        preventDragDefaults(e);
+                        setIsTextSeparationDragActive(true);
+                      }}
+                      onDragLeave={(e) => {
+                        preventDragDefaults(e);
+                        setIsTextSeparationDragActive(false);
+                      }}
+                      onDrop={(e) => {
+                        preventDragDefaults(e);
+                        setIsTextSeparationDragActive(false);
+                        handleTextSeparationFileSelection(Array.from(e.dataTransfer.files || []));
+                      }}
+                    >
+                        {textSeparationUploadPreviewUrl ? (
+                          <div className="space-y-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="text-xs font-medium uppercase tracking-wider text-zinc-500">{tr('当前处理图片', 'Current Image')}</div>
+                                <div className="mt-1 truncate text-sm font-bold text-zinc-200">
+                                  {textSeparationUploadName || tr('最近上传', 'Latest upload')}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => clearSelectedTextSeparationSource()}
+                              disabled={isTextSeparationLoading}
+                              className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-zinc-400 transition hover:border-red-500/30 hover:text-red-400 disabled:opacity-50"
+                            >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                            <img
+                              src={textSeparationUploadPreviewUrl}
+                              alt={textSeparationUploadName || 'upload'}
+                              className="aspect-auto max-h-[300px] w-full rounded-2xl border border-dashed border-white/15 bg-white/[0.03] object-cover"
+                            />
+                            <div className="mt-4 flex gap-3">
+                              <button
+                                type="button"
+                                onClick={handleStartTextSeparation}
+                              disabled={isTextSeparationLoading || !textSeparationSelectedImagePath}
+                              className="flex-1 rounded-xl border border-orange-500/40 bg-orange-500/10 px-4 py-3 text-sm font-bold text-orange-200 transition hover:bg-orange-500/20 disabled:border-white/10 disabled:bg-black/30 disabled:text-zinc-500"
+                            >
+                              <div className="flex items-center justify-center gap-2">
+                                {isTextSeparationLoading ? tr('处理中...', 'Processing...') : tr('开始文本分离', 'Start Text Separation')}
+                                {textSeparationEstimatedCost > 0 && !isTextSeparationLoading ? (
+                                  <span className="rounded bg-black/20 px-1.5 py-0.5 text-[10px]">-{textSeparationEstimatedCost} V</span>
+                                ) : null}
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openGalleryImagePreview(textSeparationUploadPreviewUrl)}
+                              className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:bg-white/[0.04]"
+                            >
+                              {tr('查看', 'View')}
+                            </button>
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => clearSelectedTextSeparationSource()}
-                          disabled={isTextSeparationLoading}
-                          className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/50 text-zinc-300 transition hover:bg-black/80 hover:text-white disabled:opacity-60"
-                          title={tr('删除并重新选择', 'Remove and choose again')}
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-                      <img
-                        src={textSeparationUploadPreviewUrl}
-                        alt={textSeparationUploadName || 'upload'}
-                        className="mt-3 w-full rounded-xl border border-white/10 object-cover"
-                      />
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          type="button"
-                          onClick={handleStartTextSeparation}
-                          disabled={isTextSeparationLoading || !textSeparationSelectedImagePath}
-                          className="text-separation-start-btn grid flex-1 grid-cols-[1fr_auto_1fr] items-center rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-black transition hover:bg-orange-400 disabled:opacity-60 disabled:hover:bg-orange-500"
-                        >
-                          <span aria-hidden="true" className="min-w-0" />
-                          <span className="min-w-0 justify-self-center text-center">
-                            {isTextSeparationLoading ? tr('处理中...', 'Processing...') : tr('开始文本分离', 'Start Text Separation')}
-                          </span>
-                          <span className="justify-self-end self-center pr-0.5 text-right">
-                            {textSeparationEstimatedCost > 0 ? (
-                              <span className="whitespace-nowrap text-[10px] font-semibold tabular-nums text-black/75">
-                                {`-${textSeparationEstimatedCost} ${tr('V点', 'V-points')}`}
-                              </span>
-                            ) : null}
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openGalleryImagePreview(textSeparationUploadPreviewUrl)}
-                          className="rounded-xl border border-white/10 bg-zinc-900/70 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:bg-zinc-800"
-                        >
-                          {tr('查看', 'View')}
-                        </button>
-                      </div>
+                      ) : (
+                          <div className="space-y-3">
+                            <button
+                              type="button"
+                              onClick={() => textSeparationFileInputRef.current?.click()}
+                            disabled={isTextSeparationLoading}
+                              className={`flex aspect-[16/10] w-full flex-col items-center justify-center rounded-2xl border border-dashed px-6 transition ${
+                                isTextSeparationDragActive
+                                    ? 'border-orange-500 bg-white/[0.05]'
+                                    : 'border-white/15 bg-white/[0.03] hover:border-white/30 hover:bg-white/[0.05]'
+                              }`}
+                            >
+                                <Upload className={`mb-4 h-8 w-8 ${isTextSeparationDragActive ? 'text-orange-400' : 'text-zinc-400'}`} />
+                              <div className="text-[15px] font-bold text-zinc-200">{tr('拖拽图片或点击选择', 'Choose one poster image')}</div>
+                              <div className="mt-2 text-[11px] uppercase tracking-widest text-zinc-500">JPG, PNG, WEBP (MAX 10MB)</div>
+                            </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsTextSeparationHistoryPickerOpen(true)}
+                            disabled={isTextSeparationLoading}
+                              className="w-full rounded-xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-3.5 text-[15px] font-bold text-zinc-400 transition hover:border-white/30 hover:bg-white/[0.05] hover:text-zinc-200 disabled:opacity-50"
+                            >
+                            {tr('从商品套图历史记录选择', 'Choose from Product Gallery History')}
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <>
-                      <div className="text-sm font-bold text-zinc-200">{tr('上传图片', 'Upload Image')}</div>
-                      <div
-                        onDragEnter={(e) => {
-                          e.preventDefault();
-                          if (!isTextSeparationLoading) setIsTextSeparationDragActive(true);
-                        }}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          if (!isTextSeparationLoading) setIsTextSeparationDragActive(true);
-                        }}
-                        onDragLeave={(e) => {
-                          e.preventDefault();
-                          const nextTarget = e.relatedTarget as Node | null;
-                          if (!e.currentTarget.contains(nextTarget)) {
-                            setIsTextSeparationDragActive(false);
-                          }
-                        }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          setIsTextSeparationDragActive(false);
-                          if (isTextSeparationLoading) return;
-                          const file = Array.from(e.dataTransfer.files || [])[0];
-                          if (!file) return;
-                          if (!isSupportedGalleryImageFile(file)) {
-                            openGalleryAlert(gallerySupportedFormatTip);
-                            return;
-                          }
-                          void handleTextSeparationUpload(file);
-                        }}
-                      >
-                      <button
-                        type="button"
-                        onClick={() => textSeparationFileInputRef.current?.click()}
-                        disabled={isTextSeparationLoading}
-                        className={`mt-4 w-full rounded-2xl border border-dashed px-4 py-10 text-center transition disabled:opacity-60 ${
-                          isTextSeparationLoading
-                            ? 'border-white/10 bg-black/20 text-zinc-500'
-                            : isTextSeparationDragActive
-                              ? 'border-orange-400 bg-orange-500/10 text-orange-200'
-                              : 'border-white/10 bg-black/20 text-zinc-500 hover:border-white/20 hover:text-zinc-300'
-                        }`}
-                      >
-                        <Upload className="mx-auto mb-3 h-10 w-10 opacity-70" />
-                        <div className="text-sm font-semibold">{tr('选择一张海报图片', 'Choose one poster image')}</div>
-                        <div className="mt-1 text-[11px]">{tr('点击选择，或将文件拖拽到这里', 'Click to choose or drag a file here')}</div>
-                        <div className="mt-1 text-[11px]">JPG / PNG / WEBP</div>
-                      </button>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsTextSeparationHistoryPickerOpen(true)}
-                        disabled={isTextSeparationLoading}
-                        className="mt-3 w-full rounded-xl border border-white/10 bg-zinc-900/70 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-60"
-                      >
-                        {tr('从商品套图历史记录选择', 'Choose from Product Gallery History')}
-                      </button>
-                    </>
-                  )}
+                    </div>
                   </div>
-                </div>
-              </div>
 
-              <div className="flex-1 min-w-0 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0 max-h-[calc(100vh-80px)]">
-                <div className="text-sm font-bold text-zinc-200">{tr('生成记录', 'Generation Records')}</div>
-                <div className="flex-1 mt-4 rounded-2xl border border-dashed border-white/10 bg-black/10 overflow-y-auto">
-                  {textSeparationRecords.length === 0 ? (
-                    <div className="h-full flex items-center justify-center text-zinc-600 text-sm">
-                      {tr('暂无生成记录', 'No generation records yet')}
+                  <div className="flex flex-1 min-w-0 flex-col">
+                    <div className="mb-4 flex items-center gap-2 text-zinc-400">
+                      <LayoutGrid className="h-4 w-4" />
+                      <div className="text-base font-bold">{tr('生成记录', 'Generation Records')}</div>
                     </div>
-                  ) : (
-                    <div className="p-4 grid grid-cols-2 gap-3">
-                      {textSeparationRecords.map((item) => (
-                        <button
-                          type="button"
-                          key={item.id}
-                          onClick={() => openTextSeparationHistoryItem(item)}
-                          disabled={item.status !== 'succeeded'}
-                          className="overflow-hidden rounded-xl border border-white/10 bg-black/20 text-left transition hover:border-orange-500/40 disabled:hover:border-white/10 disabled:cursor-default"
-                        >
-                          <div className="aspect-video overflow-hidden border-b border-white/10 bg-black/30 relative">
-                            <img
-                              src={(item.status === 'succeeded' && item.backgroundImageUrl) ? item.backgroundImageUrl : item.originalImageUrl}
-                              alt={item.sampleTitle}
-                              className={`h-full w-full object-cover ${item.status === 'processing' ? 'opacity-70' : ''}`}
-                            />
-                            {item.status === 'processing' ? (
-                              <div className="absolute inset-x-3 bottom-3">
-                                <div className="h-2 rounded-full bg-white/10 overflow-hidden">
-                                  <div
-                                    className="h-full rounded-full bg-orange-500 transition-[width] duration-200"
-                                    style={{ width: `${Math.max(6, item.progress)}%` }}
+
+                    <div className="custom-scrollbar flex-1 overflow-y-auto px-4 py-6">
+                      {textSeparationRecords.length === 0 ? (
+                        <div className="flex h-full flex-col items-center justify-center gap-3 opacity-40">
+                          <Plus className="h-5 w-5 text-zinc-500" />
+                          <p className="text-sm font-medium italic tracking-wide text-zinc-500">{tr('还没有生成记录', 'No generation records yet')}</p>
+                        </div>
+                      ) : (
+                          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+                          {textSeparationRecords.map((item) => (
+                            <button
+                              type="button"
+                              key={item.id}
+                              onClick={() => openTextSeparationHistoryItem(item)}
+                              disabled={item.status !== 'succeeded'}
+                                className="group/card relative overflow-hidden rounded-3xl border border-white/10 bg-zinc-900/20 text-left shadow-[0_8px_20px_rgba(0,0,0,0.12)] transition-all duration-300 hover:-translate-y-1 hover:border-orange-500/40 hover:bg-zinc-900/40 hover:shadow-[0_12px_28px_rgba(0,0,0,0.18)] disabled:cursor-default disabled:hover:translate-y-0 disabled:hover:shadow-[0_8px_20px_rgba(0,0,0,0.12)]"
+                              >
+                                <div className="relative aspect-[5/4] overflow-hidden rounded-t-xl bg-black/20">
+                                  <img
+                                    src={item.originalImageUrl}
+                                    alt={item.sampleTitle}
+                                    className={`h-full w-full object-cover transition-all duration-500 ${item.status === 'processing' ? 'opacity-40 blur-[2px]' : 'opacity-90 group-hover/card:scale-[1.03] group-hover/card:opacity-100'}`}
                                   />
+                              {item.status === 'processing' ? (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center p-4">
+                                  <div className="w-full max-w-[120px] space-y-2">
+                                    <div className="flex justify-between text-[10px] font-bold uppercase tracking-tighter text-orange-400">
+                                      <span>Processing</span>
+                                      <span>{Math.round(item.progress)}%</span>
+                                    </div>
+                                    <div className="h-1 overflow-hidden rounded-full bg-white/5 ring-1 ring-white/10">
+                                      <div
+                                        className="h-full bg-orange-500 transition-all duration-500"
+                                        style={{ width: `${Math.max(6, item.progress)}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                                <div className="flex items-center justify-between gap-3 px-3 py-3">
+                                <div className="min-w-0">
+                                  <div className="truncate text-sm font-bold text-zinc-200 transition-colors group-hover/card:text-orange-200">{item.sampleTitle}</div>
+                                  <div className="mt-1 text-xs font-medium uppercase italic tracking-tighter text-zinc-500">{item.createdAt}</div>
+                                </div>
+                                <div className={`shrink-0 rounded px-2 py-0.5 text-xs font-black uppercase tracking-widest ${item.status === 'processing' ? 'bg-orange-400/10 text-orange-400' : 'bg-emerald-400/10 text-emerald-400'}`}>
+                                  {item.status === 'processing' ? tr('等待', 'Wait') : tr('完成', 'Done')}
                                 </div>
                               </div>
-                            ) : null}
-                          </div>
-                          <div className="p-3">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="truncate text-sm font-bold text-zinc-200">{item.sampleTitle}</div>
-                              <div className={`text-[11px] font-bold ${item.status === 'processing' ? 'text-orange-300' : 'text-emerald-300'}`}>
-                                {item.status === 'processing' ? tr('生成中', 'Processing') : tr('已完成', 'Done')}
-                              </div>
-                            </div>
-                            <div className="mt-1 text-[11px] text-zinc-500">{item.createdAt}</div>
-                            <div className="mt-2 text-xs text-zinc-400">
-                              {item.status === 'processing'
-                                ? tr(`进度 ${Math.round(item.progress)}%`, `${Math.round(item.progress)}% complete`)
-                                : tr(`文本框 ${item.textBlocks?.length || 0} 个`, `${item.textBlocks?.length || 0} text blocks`)}
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  </div>
                 </div>
+
+                <div className="border-t border-white/10 pt-6">
+                  <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
+                    <div className="max-w-xl">
+                      <div className="mb-3 inline-block border border-white/10 px-2 py-0.5 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Workflow</div>
+                      <h2 className="text-lg font-bold tracking-tight text-zinc-100">{tr('使用指南', 'Quick Guide')}</h2>
+                      <p className="mt-1 text-sm italic text-zinc-500">
+                        {tr('三步把带字海报变成可编辑、可重绘的创意资产。', 'Turn a text-heavy poster into an editable, repaintable creative asset in three steps.')}
+                      </p>
+                    </div>
+                  </div>
+
+                    <div className="grid gap-8 lg:grid-cols-3">
+                  {[
+                    {
+                      step: '01',
+                      title: tr('上传原始海报', 'Upload'),
+                      img: '/ai-poster-editor-guide/origin.jpeg',
+                      desc: tr('系统自动提取可编辑文本框，并生成干净底图。', 'Extract editable text blocks and build a clean background.'),
+                    },
+                    {
+                      step: '02',
+                      title: tr('自由编辑并导出', 'Edit'),
+                      img: '/ai-poster-editor-guide/edited.png',
+                      desc: tr('调整文案、样式和排版，也可以一键导出为 PPTX。', 'Refine copy, styling, and layout, then export to PPTX.'),
+                    },
+                    {
+                      step: '03',
+                      title: tr('文本重绘释放创意', 'Repaint'),
+                      img: '/ai-poster-editor-guide/repainted.jpeg',
+                      desc: tr('AI 会在保留底图氛围的前提下，重绘成新的效果。', 'AI repaints the poster into a new visual direction.'),
+                    },
+                      ].map((card) => (
+                        <div key={card.step} className="space-y-5">
+                          <div className="mx-auto w-[88%] overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+                            <img src={card.img} alt={card.title} className="block h-auto w-full opacity-90" />
+                          </div>
+                          <div className="mx-auto w-[88%]">
+                            <div className="mb-2 text-sm font-black uppercase tracking-[0.3em] text-orange-600">{card.step}</div>
+                            <div className="mb-2 text-sm font-bold text-zinc-200">{card.title}</div>
+                            <p className="text-sm font-medium leading-relaxed text-zinc-500">{card.desc}</p>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
               </div>
             </div>
           )}
@@ -4436,12 +5028,21 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           applyGalleryScenePresetToCard={applyGalleryScenePresetToCard}
           galleryResourceGuide={galleryResourceGuide}
           guideGalleryResourceSection={guideGalleryResourceSection}
+          galleryBulkConfig={galleryBulkConfig}
+          setGalleryBulkConfig={setGalleryBulkConfig}
+          handleApplyGalleryBulkConfig={handleApplyGalleryBulkConfig}
+          galleryAdvancedDirty={galleryAdvancedDirty}
+          isGalleryAdvancedEditingCollapsed={isGalleryAdvancedEditingCollapsed}
+          setIsGalleryAdvancedEditingCollapsed={setIsGalleryAdvancedEditingCollapsed}
+          markGalleryAdvancedDirty={markGalleryAdvancedDirty}
           galleryOutputMode={galleryOutputMode}
-          setGalleryOutputMode={setGalleryOutputMode}
           galleryOutputItems={galleryOutputItems}
           setGalleryOutputItems={setGalleryOutputItems}
           galleryPreviewAspectRatio={galleryPreviewAspectRatio}
           openGalleryAiOutputPlanner={openGalleryAiOutputPlanner}
+          handleGalleryAiLayoutSuggestions={handleGenerateAiLayoutSuggestions}
+          openGalleryAiLayoutPromptDialog={openGalleryAiLayoutPromptDialog}
+          isGalleryAiLayoutDesigning={galleryAiLayoutDesigner.isGenerating}
           handleGalleryGenerate={handleGalleryGenerate}
           isGalleryGenerating={isGalleryGenerating}
           galleryEstimatedCost={galleryEstimatedCost}

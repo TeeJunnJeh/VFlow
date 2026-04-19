@@ -234,7 +234,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
                 key={index}
                 className="relative group"
               >
-                <div className="relative w-full max-w-[200px] aspect-square rounded-lg overflow-hidden bg-zinc-900 border border-zinc-700">
+                <div className="relative w-full max-w-[250px] aspect-square rounded-lg overflow-hidden bg-zinc-900">
                   <img
                     src={preview}
                     alt={`Preview ${index + 1}`}

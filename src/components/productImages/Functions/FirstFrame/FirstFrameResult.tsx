@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowRight, Download, RotateCcw } from 'lucide-react';
+import { ArrowRight, Download, FolderPlus, RotateCcw } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import type { ProductImageResult } from '../../../../types/productImages';
 
@@ -101,15 +101,37 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
 
   return (
     <div className="w-full space-y-6">
-      <div className="overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900">
-        <div className="flex flex-col items-center gap-4 bg-black/30 p-8">
+      <div className="overflow-hidden rounded-xl bg-transparent">
+        <div className="flex flex-col items-center gap-4 bg-transparent p-8">
           <div className="relative">
             {selectedImage ? (
               <div className="relative">
+                <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
+                  <button
+                    onClick={() => void handleDownload(selectedImage.id)}
+                    disabled={downloadingIds.has(selectedImage.id)}
+                    aria-label={t.ff_download_image}
+                    className="flex h-7 w-8 items-center justify-center rounded-lg border border-white/20 bg-black/45 text-zinc-100 transition hover:bg-black/65 disabled:opacity-50"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => void handleSaveToAssets(selectedImage.id)}
+                    disabled={savingIds.has(selectedImage.id) || savedIds.has(selectedImage.id)}
+                    className="flex items-center justify-center gap-1.5 rounded-lg border border-orange-500/50 bg-black/45 px-2.5 py-1.5 text-xs font-semibold text-orange-200 transition hover:bg-black/65 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    <FolderPlus className="h-3.5 w-3.5" />
+                    {savedIds.has(selectedImage.id)
+                      ? t.ff_saved_to_image_assets
+                      : savingIds.has(selectedImage.id)
+                        ? t.ff_saving_to_image_assets
+                        : t.ff_save_to_image_assets}
+                  </button>
+                </div>
                 <img
                   src={selectedImage.imageUrl}
                   alt={t.ff_first_frame_alt}
-                  className="max-h-96 max-w-sm cursor-pointer rounded-lg border-2 border-orange-500/30 object-contain transition hover:border-orange-500"
+                  className="max-h-96 max-w-sm cursor-pointer rounded-lg object-contain transition hover:border border-orange-500"
                   onClick={() => setShowFullImage(true)}
                 />
               </div>
@@ -119,35 +141,10 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
               </div>
             )}
           </div>
-          {selectedImage && (
-            <div className="w-full max-w-sm">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <button
-                  onClick={() => handleDownload(selectedImage.id)}
-                  disabled={downloadingIds.has(selectedImage.id)}
-                  className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-zinc-900/70 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-50"
-                >
-                  <Download className="h-4 w-4" />
-                  {downloadingIds.has(selectedImage.id) ? t.ff_downloading : t.ff_download_image}
-                </button>
-                <button
-                  onClick={() => void handleSaveToAssets(selectedImage.id)}
-                  disabled={savingIds.has(selectedImage.id) || savedIds.has(selectedImage.id)}
-                  className="flex items-center justify-center gap-2 rounded-xl border border-orange-500/40 bg-orange-500/10 px-4 py-3 text-sm font-bold text-orange-300 transition hover:bg-orange-500/20 disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  {savedIds.has(selectedImage.id)
-                    ? t.ff_saved_to_image_assets
-                    : savingIds.has(selectedImage.id)
-                      ? t.ff_saving_to_image_assets
-                      : t.ff_save_to_image_assets}
-                </button>
-              </div>
-            </div>
-          )}
         </div>
 
         {results.length > 1 && (
-          <div className="border-t border-zinc-700 bg-zinc-800/30 px-8 py-6">
+          <div className="bg-transparent px-8 py-6">
             <p className="mb-4 text-sm font-medium text-zinc-300">{t.ff_preview_variants}</p>
             <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
               {results.map((result) => (

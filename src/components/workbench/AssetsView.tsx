@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext'
-import { assetsApi, type Asset, type AssetFolder, type PlazaAssetItem, type PlazaCollectPolicy, seedanceApi, subjectGroupApi, type SeedanceCharacter, type SeedanceCharacterFilters, type SubjectGroup } from '../../services/assets';
+import { assetsApi, type Asset, type AssetFolder, type PlazaAssetItem, type PlazaCollectPolicy, seedanceApi, subjectGroupApi, type SeedanceCharacter, type SeedanceCharacterFilters, type SeedanceSearchMode, type SubjectGroup } from '../../services/assets';
 import { videoApi } from '../../services/video';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { getSubjectGuideContent } from './subjectGuideContent';
@@ -263,7 +263,15 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [seedancePage, setSeedancePage] = useState(1);
   const [seedanceTotalCount, setSeedanceTotalCount] = useState(0);
   const [seedanceCountries, setSeedanceCountries] = useState<string[]>([]);
-  const [seedanceFilters, setSeedanceFilters] = useState<SeedanceCharacterFilters>({ page_size: 40 });
+  const [seedanceTemperaments, setSeedanceTemperaments] = useState<string[]>([]);
+  const [seedanceOccupations, setSeedanceOccupations] = useState<string[]>([]);
+  const [seedanceRaces, setSeedanceRaces] = useState<string[]>([]);
+  const [seedanceEthnicities, setSeedanceEthnicities] = useState<string[]>([]);
+  const [seedanceCulturalBranches, setSeedanceCulturalBranches] = useState<string[]>([]);
+  const [seedanceSkinTones, setSeedanceSkinTones] = useState<string[]>([]);
+  const [seedanceSearchMode, setSeedanceSearchMode] = useState<SeedanceSearchMode>('default');
+  const [seedanceFilters, setSeedanceFilters] = useState<SeedanceCharacterFilters>({ page_size: 40, search_mode: 'default' });
+  const [seedanceAdvancedOpen, setSeedanceAdvancedOpen] = useState(false);
   const [showSeedanceBrowser, setShowSeedanceBrowser] = useState(false);
 
   // New script dialog
@@ -703,6 +711,12 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       setSeedanceTotalCount(resp.data.count);
       setSeedancePage(resp.data.page);
       if (resp.data.countries?.length) setSeedanceCountries(resp.data.countries);
+      if (resp.data.temperaments?.length) setSeedanceTemperaments(resp.data.temperaments);
+      if (resp.data.occupations?.length) setSeedanceOccupations(resp.data.occupations);
+      if (resp.data.races?.length) setSeedanceRaces(resp.data.races);
+      if (resp.data.ethnicities?.length) setSeedanceEthnicities(resp.data.ethnicities);
+      if (resp.data.cultural_branches?.length) setSeedanceCulturalBranches(resp.data.cultural_branches);
+      if (resp.data.skin_tones?.length) setSeedanceSkinTones(resp.data.skin_tones);
     } catch (err) {
       console.error('Failed to load seedance characters', err);
     } finally {
@@ -2174,7 +2188,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
              <LanguageSwitcher />
              {viewMode === 'library' ? (
                <>
-                 {activeAssetTab !== 'subject' && (
+                 {activeAssetTab !== 'subject' && activeAssetTab !== 'model' && (
                    <button onClick={openCreateFolderModal} className="bg-zinc-800 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-zinc-700 transition flex items-center gap-2"><FolderPlus className="w-4 h-4" /> {t.assets_btn_new_folder}</button>
                  )}
                  {activeAssetTab !== 'model' && activeAssetTab !== 'subject' && (
@@ -3687,76 +3701,254 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                 <button className="text-zinc-400 hover:text-white" onClick={() => setShowSeedanceBrowser(false)}><X className="w-5 h-5" /></button>
               </div>
 
-              {/* Filters */}
-              <div className="flex flex-wrap items-center gap-3 px-6 py-3 border-b border-white/5">
-                <select
-                  value={seedanceFilters.gender || ''}
-                  onChange={(e) => {
-                    const f = { ...seedanceFilters, gender: e.target.value as any || undefined, page: 1 };
-                    setSeedanceFilters(f);
-                    void loadSeedanceCharacters(f);
-                  }}
-                  className="bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-orange-500/50"
-                >
-                  <option value="">{t.assets_seedance_filter_all_gender || '全部性别'}</option>
-                  <option value="Male">{t.assets_seedance_filter_male || '男'}</option>
-                  <option value="Female">{t.assets_seedance_filter_female || '女'}</option>
-                </select>
-
-                <select
-                  value={seedanceFilters.country || ''}
-                  onChange={(e) => {
-                    const f = { ...seedanceFilters, country: e.target.value || undefined, page: 1 };
-                    setSeedanceFilters(f);
-                    void loadSeedanceCharacters(f);
-                  }}
-                  className="bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-orange-500/50"
-                >
-                  <option value="">{t.assets_seedance_filter_all_country || '全部国家'}</option>
-                  {seedanceCountries.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-
-                <div className="flex items-center gap-1 text-xs text-zinc-400">
-                  <span>{t.assets_seedance_filter_age || '年龄'}:</span>
-                  <input
-                    type="number"
-                    min={0} max={100}
-                    value={seedanceFilters.age_min ?? ''}
-                    onChange={(e) => {
-                      const f = { ...seedanceFilters, age_min: e.target.value ? Number(e.target.value) : undefined, page: 1 };
-                      setSeedanceFilters(f);
-                    }}
-                    onBlur={() => void loadSeedanceCharacters(seedanceFilters)}
-                    className="w-14 bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded px-2 py-1 focus:outline-none"
-                    placeholder="min"
-                  />
-                  <span>-</span>
-                  <input
-                    type="number"
-                    min={0} max={100}
-                    value={seedanceFilters.age_max ?? ''}
-                    onChange={(e) => {
-                      const f = { ...seedanceFilters, age_max: e.target.value ? Number(e.target.value) : undefined, page: 1 };
-                      setSeedanceFilters(f);
-                    }}
-                    onBlur={() => void loadSeedanceCharacters(seedanceFilters)}
-                    className="w-14 bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded px-2 py-1 focus:outline-none"
-                    placeholder="max"
-                  />
-                </div>
-
-                <div className="relative flex-1 min-w-[200px] max-w-sm">
-                  <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    value={seedanceFilters.search || ''}
-                    onChange={(e) => setSeedanceFilters((prev) => ({ ...prev, search: e.target.value }))}
-                    onKeyDown={(e) => { if (e.key === 'Enter') void loadSeedanceCharacters(seedanceFilters); }}
-                    placeholder={t.assets_seedance_search || '搜索模特...'}
-                    className="w-full bg-zinc-800 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-orange-500/50"
-                  />
-                </div>
-
+              {/* Search Mode Tabs: 默认查询 | 模糊查询 */}
+              <div className="flex items-center gap-1 px-6 pt-3 pb-0">
+                {(['default', 'fuzzy'] as SeedanceSearchMode[]).map((mode) => {
+                  const labels: Record<SeedanceSearchMode, string> = {
+                    default: t.assets_seedance_tab_default || '条件查询',
+                    fuzzy: t.assets_seedance_tab_fuzzy || '模糊查询',
+                  };
+                  return (
+                    <button
+                      key={mode}
+                      onClick={() => {
+                        setSeedanceSearchMode(mode);
+                        const fresh: SeedanceCharacterFilters = { page_size: 40, search_mode: mode, page: 1 };
+                        setSeedanceFilters(fresh);
+                        setSeedanceAdvancedOpen(false);
+                        void loadSeedanceCharacters(fresh);
+                      }}
+                      className={`px-3 py-1.5 text-xs rounded-t-lg border border-b-0 transition ${
+                        seedanceSearchMode === mode
+                          ? 'bg-zinc-800 text-orange-400 border-white/10 font-bold'
+                          : 'bg-transparent text-zinc-500 border-transparent hover:text-zinc-300'
+                      }`}
+                    >
+                      {labels[mode]}
+                    </button>
+                  );
+                })}
                 <span className="text-[10px] text-zinc-500 ml-auto">{seedanceTotalCount} {t.assets_seedance_total || '位模特'}</span>
+              </div>
+
+              {/* Filters */}
+              <div className="border-b border-white/5">
+                {seedanceSearchMode === 'fuzzy' ? (
+                  /* ── Fuzzy mode: dual search boxes (appearance + scene) ── */
+                  <div className="px-6 py-3 space-y-3">
+                    {/* 外貌输入框 */}
+                    <div>
+                      <label className="block text-[10px] text-zinc-400 mb-1 font-medium">{t.assets_seedance_fuzzy_appearance_label || '外貌特征'}</label>
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          value={seedanceFilters.search_appearance || ''}
+                          onChange={(e) => setSeedanceFilters((prev) => ({ ...prev, search_appearance: e.target.value }))}
+                          onKeyDown={(e) => { if (e.key === 'Enter') void loadSeedanceCharacters(seedanceFilters); }}
+                          placeholder={t.assets_seedance_fuzzy_appearance_placeholder || '五官、发型、肤质、体型等，如"圆脸 大眼 卷发"'}
+                          className="w-full bg-zinc-800 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-orange-500/50"
+                        />
+                      </div>
+                      <p className="text-[10px] text-zinc-600 mt-1 leading-relaxed">
+                        {t.assets_seedance_fuzzy_appearance_hint || '多个关键词用空格分隔，如：圆脸 大眼 卷发。支持：脸型、眉形、鼻型、唇形、肤色、发型、体型、服饰等。'}
+                      </p>
+                    </div>
+                    {/* 经历/场景输入框 */}
+                    <div>
+                      <label className="block text-[10px] text-zinc-400 mb-1 font-medium">{t.assets_seedance_fuzzy_scene_label || '经历 / 场景'}</label>
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          value={seedanceFilters.search_scene || ''}
+                          onChange={(e) => setSeedanceFilters((prev) => ({ ...prev, search_scene: e.target.value }))}
+                          onKeyDown={(e) => { if (e.key === 'Enter') void loadSeedanceCharacters(seedanceFilters); }}
+                          placeholder={t.assets_seedance_fuzzy_scene_placeholder || '职业、背景、生活场景等，如"教师 山村"'}
+                          className="w-full bg-zinc-800 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-orange-500/50"
+                        />
+                      </div>
+                      <p className="text-[10px] text-zinc-600 mt-1 leading-relaxed">
+                        {t.assets_seedance_fuzzy_scene_hint || '描述人物的生活经历或所处场景。如：渔村 老船长、咖啡馆 钢琴师。不支持：明星名字、抽象比喻。'}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  /* ── Default mode: basic filters + collapsible advanced ── */
+                  <div className="px-6 py-3">
+                    {/* Basic filters row */}
+                    <div className="flex flex-wrap items-center gap-3">
+                      {/* Gender */}
+                      <select
+                        value={seedanceFilters.gender || ''}
+                        onChange={(e) => {
+                          const f = { ...seedanceFilters, gender: e.target.value as any || undefined, page: 1 };
+                          setSeedanceFilters(f);
+                          void loadSeedanceCharacters(f);
+                        }}
+                        className="bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-orange-500/50"
+                      >
+                        <option value="">{t.assets_seedance_filter_all_gender || '全部性别'}</option>
+                        <option value="Male">{t.assets_seedance_filter_male || '男'}</option>
+                        <option value="Female">{t.assets_seedance_filter_female || '女'}</option>
+                      </select>
+
+                      {/* Age range */}
+                      <div className="flex items-center gap-1 text-xs text-zinc-400">
+                        <span>{t.assets_seedance_filter_age || '年龄'}:</span>
+                        <input
+                          type="number" min={0} max={100}
+                          value={seedanceFilters.age_min ?? ''}
+                          onChange={(e) => {
+                            const f = { ...seedanceFilters, age_min: e.target.value ? Number(e.target.value) : undefined, page: 1 };
+                            setSeedanceFilters(f);
+                          }}
+                          onBlur={() => void loadSeedanceCharacters(seedanceFilters)}
+                          className="w-14 bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded px-2 py-1 focus:outline-none"
+                          placeholder="min"
+                        />
+                        <span>-</span>
+                        <input
+                          type="number" min={0} max={100}
+                          value={seedanceFilters.age_max ?? ''}
+                          onChange={(e) => {
+                            const f = { ...seedanceFilters, age_max: e.target.value ? Number(e.target.value) : undefined, page: 1 };
+                            setSeedanceFilters(f);
+                          }}
+                          onBlur={() => void loadSeedanceCharacters(seedanceFilters)}
+                          className="w-14 bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded px-2 py-1 focus:outline-none"
+                          placeholder="max"
+                        />
+                      </div>
+
+                      {/* Race */}
+                      <select
+                        value={seedanceFilters.race || ''}
+                        onChange={(e) => {
+                          const f = { ...seedanceFilters, race: e.target.value || undefined, page: 1 };
+                          setSeedanceFilters(f);
+                          void loadSeedanceCharacters(f);
+                        }}
+                        className="bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-orange-500/50"
+                      >
+                        <option value="">{t.assets_seedance_filter_all_race || '全部人种'}</option>
+                        {seedanceRaces.map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select>
+
+                      {/* Temperament */}
+                      <select
+                        value={seedanceFilters.temperament || ''}
+                        onChange={(e) => {
+                          const f = { ...seedanceFilters, temperament: e.target.value || undefined, page: 1 };
+                          setSeedanceFilters(f);
+                          void loadSeedanceCharacters(f);
+                        }}
+                        className="bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-orange-500/50"
+                      >
+                        <option value="">{t.assets_seedance_filter_all_temperament || '全部气质'}</option>
+                        {seedanceTemperaments.map((tm) => <option key={tm} value={tm}>{tm}</option>)}
+                      </select>
+                    </div>
+
+                    {/* Expandable advanced section */}
+                    <button
+                      onClick={() => setSeedanceAdvancedOpen(!seedanceAdvancedOpen)}
+                      className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 mt-2 transition"
+                    >
+                      {seedanceAdvancedOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                      {t.assets_seedance_toggle_advanced || '高级筛选'}
+                    </button>
+
+                    {seedanceAdvancedOpen && (
+                      <div className="flex flex-wrap items-center gap-3 mt-2 pt-2 border-t border-white/5">
+                        {/* Country */}
+                        <select
+                          value={seedanceFilters.country || ''}
+                          onChange={(e) => {
+                            const f = { ...seedanceFilters, country: e.target.value || undefined, page: 1 };
+                            setSeedanceFilters(f);
+                            void loadSeedanceCharacters(f);
+                          }}
+                          className="bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-orange-500/50"
+                        >
+                          <option value="">{t.assets_seedance_filter_all_country || '全部国家'}</option>
+                          {seedanceCountries.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+
+                        {/* Ethnicity */}
+                        <select
+                          value={seedanceFilters.ethnicity || ''}
+                          onChange={(e) => {
+                            const f = { ...seedanceFilters, ethnicity: e.target.value || undefined, page: 1 };
+                            setSeedanceFilters(f);
+                            void loadSeedanceCharacters(f);
+                          }}
+                          className="bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-orange-500/50"
+                        >
+                          <option value="">{t.assets_seedance_filter_all_ethnicity || '全部民族'}</option>
+                          {seedanceEthnicities.map((e) => <option key={e} value={e}>{e}</option>)}
+                        </select>
+
+                        {/* Cultural Branch */}
+                        <select
+                          value={seedanceFilters.cultural_branch || ''}
+                          onChange={(e) => {
+                            const f = { ...seedanceFilters, cultural_branch: e.target.value || undefined, page: 1 };
+                            setSeedanceFilters(f);
+                            void loadSeedanceCharacters(f);
+                          }}
+                          className="bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-orange-500/50"
+                        >
+                          <option value="">{t.assets_seedance_filter_all_cultural_branch || '全部文化分支'}</option>
+                          {seedanceCulturalBranches.map((cb) => <option key={cb} value={cb}>{cb}</option>)}
+                        </select>
+
+                        {/* Skin Tone */}
+                        <select
+                          value={seedanceFilters.skin_tone || ''}
+                          onChange={(e) => {
+                            const f = { ...seedanceFilters, skin_tone: e.target.value || undefined, page: 1 };
+                            setSeedanceFilters(f);
+                            void loadSeedanceCharacters(f);
+                          }}
+                          className="bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-orange-500/50"
+                        >
+                          <option value="">{t.assets_seedance_filter_all_skin_tone || '全部肤色'}</option>
+                          {seedanceSkinTones.map((st) => <option key={st} value={st}>{st}</option>)}
+                        </select>
+
+                        {/* Occupation */}
+                        <select
+                          value={seedanceFilters.occupation || ''}
+                          onChange={(e) => {
+                            const f = { ...seedanceFilters, occupation: e.target.value || undefined, page: 1 };
+                            setSeedanceFilters(f);
+                            void loadSeedanceCharacters(f);
+                          }}
+                          className="bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-orange-500/50"
+                        >
+                          <option value="">{t.assets_seedance_filter_all_occupation || '全部职业'}</option>
+                          {seedanceOccupations.map((oc) => <option key={oc} value={oc}>{oc}</option>)}
+                        </select>
+
+                        {/* Exact age */}
+                        <div className="flex items-center gap-1 text-xs text-zinc-400">
+                          <span>{t.assets_seedance_filter_age_exact || '精确年龄'}:</span>
+                          <input
+                            type="number" min={0} max={100}
+                            value={seedanceFilters.age_exact ?? ''}
+                            onChange={(e) => {
+                              const f = { ...seedanceFilters, age_exact: e.target.value ? Number(e.target.value) : undefined, page: 1 };
+                              setSeedanceFilters(f);
+                            }}
+                            onBlur={() => void loadSeedanceCharacters(seedanceFilters)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') void loadSeedanceCharacters(seedanceFilters); }}
+                            className="w-14 bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded px-2 py-1 focus:outline-none"
+                            placeholder="e.g. 25"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Grid */}
@@ -3790,6 +3982,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           <div className="text-[10px] font-bold text-zinc-200 truncate">{char.title || `${char.country} ${char.gender}`}</div>
                           <div className="text-[9px] text-zinc-500 truncate">{char.gender === 'Male' ? '男' : '女'} · {char.age}{t.assets_seedance_age_unit || '岁'} · {char.country}</div>
                           {char.occupation && <div className="text-[9px] text-zinc-600 truncate">{char.occupation}</div>}
+                          {char.temperament && <div className="text-[9px] text-zinc-600 truncate">{char.temperament}</div>}
                         </div>
                         {/* Hover overlay */}
                         <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">

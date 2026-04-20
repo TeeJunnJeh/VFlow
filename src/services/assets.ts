@@ -749,9 +749,12 @@ export interface SeedanceCharacter {
   country: string;
   occupation: string;
   temperament: string;
+  race: string;
+  ethnicity: string;
+  cultural_branch: string;
+  skin_tone: string;
   score: number;
   title: string;
-  description: string;
   image_url: string;
   image_variant_url?: string;
 }
@@ -762,17 +765,40 @@ export interface SeedanceCharacterListResponse {
     count: number;
     page: number;
     page_size: number;
-    countries: string[];
     results: SeedanceCharacter[];
   };
 }
 
+export interface SeedanceCharacterOptionsResponse {
+  code: number;
+  data: {
+    countries: string[];
+    temperaments: string[];
+    occupations: string[];
+    races: string[];
+    ethnicities: string[];
+    cultural_branches: string[];
+    skin_tones: string[];
+  };
+}
+
+export type SeedanceSearchMode = 'default' | 'fuzzy';
+
 export interface SeedanceCharacterFilters {
+  search_mode?: SeedanceSearchMode;
   gender?: 'Male' | 'Female';
   age_min?: number;
   age_max?: number;
+  age_exact?: number;
   country?: string;
-  search?: string;
+  temperament?: string;
+  occupation?: string;
+  race?: string;
+  ethnicity?: string;
+  cultural_branch?: string;
+  skin_tone?: string;
+  search_appearance?: string;
+  search_scene?: string;
   ordering?: string;
   page?: number;
   page_size?: number;
@@ -781,11 +807,20 @@ export interface SeedanceCharacterFilters {
 export const seedanceApi = {
   getCharacters: async (filters?: SeedanceCharacterFilters): Promise<SeedanceCharacterListResponse> => {
     const params = new URLSearchParams();
+    if (filters?.search_mode) params.set('search_mode', filters.search_mode);
     if (filters?.gender) params.set('gender', filters.gender);
     if (filters?.age_min !== undefined) params.set('age_min', String(filters.age_min));
     if (filters?.age_max !== undefined) params.set('age_max', String(filters.age_max));
+    if (filters?.age_exact !== undefined) params.set('age_exact', String(filters.age_exact));
     if (filters?.country) params.set('country', filters.country);
-    if (filters?.search) params.set('search', filters.search);
+    if (filters?.temperament) params.set('temperament', filters.temperament);
+    if (filters?.occupation) params.set('occupation', filters.occupation);
+    if (filters?.race) params.set('race', filters.race);
+    if (filters?.ethnicity) params.set('ethnicity', filters.ethnicity);
+    if (filters?.cultural_branch) params.set('cultural_branch', filters.cultural_branch);
+    if (filters?.skin_tone) params.set('skin_tone', filters.skin_tone);
+    if (filters?.search_appearance) params.set('search_appearance', filters.search_appearance);
+    if (filters?.search_scene) params.set('search_scene', filters.search_scene);
     if (filters?.ordering) params.set('ordering', filters.ordering);
     if (filters?.page) params.set('page', String(filters.page));
     if (filters?.page_size) params.set('page_size', String(filters.page_size));
@@ -797,7 +832,12 @@ export const seedanceApi = {
       credentials: 'include',
     });
     if (!response.ok) throw await parseApiError(response, 'Request failed');
-    const json = await response.json();
+    let json: SeedanceCharacterListResponse;
+    try {
+      json = await response.json();
+    } catch {
+      return { code: 0, data: { count: 0, page: 1, page_size: 20, results: [] } };
+    }
     // Normalize image URLs
     if (json?.data?.results) {
       json.data.results = json.data.results.map((c: any) => ({
@@ -808,6 +848,21 @@ export const seedanceApi = {
       }));
     }
     return json;
+  },
+
+  getOptions: async (): Promise<SeedanceCharacterOptionsResponse> => {
+    const url = `${API_BASE_URL}/seedance-characters/options/`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+    });
+    if (!response.ok) throw await parseApiError(response, 'Request failed');
+    try {
+      return await response.json();
+    } catch {
+      return { code: 0, data: { countries: [], temperaments: [], occupations: [], races: [], ethnicities: [], cultural_branches: [], skin_tones: [] } };
+    }
   },
 
   collectCharacter: async (characterId: string, folderId?: string | null): Promise<any> => {

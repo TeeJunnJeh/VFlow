@@ -775,6 +775,10 @@ function ImageCard({
   hasLastFrame?: boolean;
 }) {
   const { t } = useLanguage();
+  const sourceLabelMap: Record<SourceType, string> = {
+    library: t.wb_seedance_replay_source_library || '素材库',
+    local: t.wb_seedance_replay_source_local || '本地上传',
+  };
   const isFirstFrame = item.frameRole === '首帧';
   const isLastFrame = item.frameRole === '尾帧';
 
@@ -808,15 +812,19 @@ function ImageCard({
         <div className="h-full w-full bg-white/5" />
       )}
 
-      {item.frameRole ? (
-        <div className="absolute left-2 top-2 flex flex-col gap-1">
+      {/* Source + Frame Role labels */}
+      <div className="absolute left-2 top-2 flex flex-col gap-1">
+        <span className="rounded-md border border-white/10 bg-black/40 px-1.5 py-0.5 text-[10px] font-bold text-zinc-100 backdrop-blur">
+          {sourceLabelMap[item.source]}
+        </span>
+        {item.frameRole && (
           <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-bold backdrop-blur ${
             isFirstFrame ? 'border-blue-500/30 bg-blue-500/20 text-blue-200' : 'border-orange-500/30 bg-orange-500/20 text-orange-200'
           }`}>
             {item.frameRole}
           </span>
-        </div>
-      ) : null}
+        )}
+      </div>
 
       {/* Frame role toggle buttons in top-right */}
       {onSetFrameRole && (

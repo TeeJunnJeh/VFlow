@@ -307,6 +307,19 @@ body {
   background-color: #ffffff !important;
   color: #0f172a !important;
 }
+.theme-light .wb-product-subnav-item {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+.theme-light .wb-product-subnav-item--inactive:hover {
+  background-color: transparent !important;
+  color: rgb(109, 40, 217) !important;
+}
+.theme-light .wb-product-subnav-item--active {
+  background-color: transparent !important;
+  color: rgb(109, 40, 217) !important;
+}
 .theme-light button.wb-asset-library-crumb {
   background-color: transparent !important;
   box-shadow: none !important;

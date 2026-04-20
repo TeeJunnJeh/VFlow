@@ -83,7 +83,7 @@ const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
   return (
     <div
       ref={splitterRef}
-      className={`relative ${isVertical ? 'cursor-col-resize' : 'cursor-row-resize'} ${className}`}
+      className={`relative self-stretch ${isVertical ? 'cursor-col-resize' : 'cursor-row-resize'} ${className}`}
       onMouseDown={handleMouseDown}
       style={{
         [isVertical ? 'width' : 'height']: `${safeHitAreaSize}px`,

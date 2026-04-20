@@ -22,6 +22,7 @@ import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { authApi } from '../../services/auth';
+import { type ThemeMode } from '../../utils/theme';
 import type { ViewType } from './types';
 
 const PRODUCT_IMAGES_SECTION_ANIMATION_MS = 300;
@@ -32,8 +33,8 @@ interface SidebarProps {
   activeView: ViewType;
   setActiveView: (view: ViewType) => void;
   isDebugModeEnabled: boolean;
-  theme: 'dark' | 'light' | 'dim' | 'system';
-  setTheme: (theme: 'dark' | 'light' | 'dim' | 'system') => void;
+  theme: ThemeMode;
+  setTheme: (theme: ThemeMode) => void;
 }
 
 const PRODUCT_IMAGE_VIEWS: ViewType[] = [
@@ -65,26 +66,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
   const isZh = language === 'zh';
   const tx = (key: string, fallback: string) => ((t as any)[key] as string) || fallback;
   const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
-  const themeCycle: Array<'light' | 'dark' | 'dim' | 'system'> = ['system', 'light', 'dark', 'dim'];
+  const nextTheme: ThemeMode = theme === 'light' ? 'dark' : 'light';
 
   const handleCycleTheme = React.useCallback(() => {
-    const currentIndex = themeCycle.indexOf(theme);
-    const nextTheme = themeCycle[(currentIndex + 1 + themeCycle.length) % themeCycle.length];
     setTheme(nextTheme);
     updateUser({ theme: nextTheme });
     void authApi.updateProfile({ theme: nextTheme }).catch((err) => {
       console.error('Failed to persist sidebar theme switch', err);
     });
-  }, [setTheme, theme, updateUser]);
+  }, [nextTheme, setTheme, updateUser]);
 
-  const nextTheme = themeCycle[(themeCycle.indexOf(theme) + 1 + themeCycle.length) % themeCycle.length];
   const themeButtonLabel = nextTheme === 'light'
     ? tr('切换到日间', 'Switch to light')
-    : nextTheme === 'dark'
-      ? tr('切换到夜间', 'Switch to dark')
-      : nextTheme === 'dim'
-        ? tr('切换到暗淡', 'Switch to dim')
-        : tr('切换到跟随系统', 'Switch to system');
+    : tr('切换到夜间', 'Switch to dark');
 
   const isProductImagesView = PRODUCT_IMAGE_VIEWS.includes(activeView);
   const [isProductImagesSectionOpen, setIsProductImagesSectionOpen] = React.useState(isProductImagesView);

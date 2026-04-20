@@ -48,6 +48,7 @@ import ProductImagesView from '../components/workbench/ProductImagesView';
 import type { ViewType } from '../components/workbench/types';
 import { useLocation } from 'react-router-dom';
 import { WorkbenchModelProvider } from '../context/WorkbenchModelContext';
+import { normalizeThemeMode, type ThemeMode } from '../utils/theme';
 
 type AssetsNavigationIntent =
   | 'open_assets_for_subject_creation'
@@ -77,7 +78,7 @@ const Workbench = () => {
 
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
-  const [theme, setTheme] = useState<'dark' | 'light' | 'dim' | 'system'>(user?.theme || 'system');
+  const [theme, setTheme] = useState<ThemeMode>(normalizeThemeMode(user?.theme, 'dark'));
   const [isInviteRewardOpen, setIsInviteRewardOpen] = useState(false);
 
   // Post-login reward popup: triggered only when the user has just logged in in this session,
@@ -130,7 +131,8 @@ const Workbench = () => {
 
   // --- Effects ---
   useEffect(() => {
-    if (user?.theme && user.theme !== theme) setTheme(user.theme);
+    if (!user?.theme) return;
+    setTheme((prev) => normalizeThemeMode(user.theme, prev));
   }, [user?.theme]);
 
   useEffect(() => {
@@ -161,31 +163,11 @@ const Workbench = () => {
     if (typeof window === 'undefined') return;
 
     const root = document.documentElement;
-    const media = window.matchMedia('(prefers-color-scheme: light)');
-
-    const applyTheme = () => {
-      const effectiveTheme: 'light' | 'dark' | 'dim' =
-        theme === 'system'
-          ? (media.matches ? 'light' : 'dark')
-          : theme;
-      root.classList.toggle('theme-light', effectiveTheme === 'light');
-      root.classList.toggle('theme-dim', effectiveTheme === 'dim');
+    root.classList.toggle('theme-light', theme === 'light');
+    root.classList.remove('theme-dim');
+    return () => {
+      root.classList.remove('theme-dim');
     };
-
-    applyTheme();
-
-    if (theme !== 'system') return;
-
-    const cleanup = () => {
-      root.classList.remove('theme-light', 'theme-dim');
-    };
-
-    if (typeof media.addEventListener === 'function') {
-      media.addEventListener('change', applyTheme);
-      return () => { media.removeEventListener('change', applyTheme); cleanup(); };
-    }
-    media.addListener(applyTheme);
-    return () => { media.removeListener(applyTheme); cleanup(); };
   }, [theme]);
 
   useEffect(() => {

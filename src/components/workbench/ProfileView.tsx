@@ -10,10 +10,11 @@ import { DropdownSelect } from '../common/DropdownSelect';
 import { AppDialog } from '../common/AppDialog';
 import { getWorkbenchPreferences, setWorkbenchPreferences, type WorkbenchPreferences } from '../../utils/preferences';
 import { isStrongPassword } from '../../utils/passwordRules';
+import { normalizeThemeMode, type ThemeMode } from '../../utils/theme';
 
 interface ProfileViewProps {
-  theme: 'dark' | 'light' | 'dim' | 'system';
-  setTheme: (t: 'dark' | 'light' | 'dim' | 'system') => void;
+  theme: ThemeMode;
+  setTheme: (t: ThemeMode) => void;
   isDebugModeEnabled: boolean;
 }
 
@@ -88,7 +89,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
       selectedModelId,
       scriptVariantCount:
         typeof stored.scriptVariantCount === 'number' && stored.scriptVariantCount > 0 ? stored.scriptVariantCount : 1,
-      theme: (stored.theme === 'light' || stored.theme === 'dim' || stored.theme === 'dark' || stored.theme === 'system') ? stored.theme : theme,
+      theme: normalizeThemeMode(stored.theme, theme),
     };
   };
 
@@ -175,21 +176,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
       openInfo(t.profile_error || 'Error', err?.message || (t.profile_reset_video_estimate_failed || '重置失败'));
     } finally {
       setIsResettingVideoEstimate(false);
-    }
-  };
-
-  const handleThemeSelect = async (nextTheme: 'dark' | 'light' | 'dim') => {
-    setPrefsDraft((prev) => ({ ...prev, theme: nextTheme }));
-    setTheme(nextTheme);
-
-    const nextPrefs = { ...buildPrefsDraft(), theme: nextTheme };
-    setWorkbenchPreferences(nextPrefs, user?.id ?? null);
-
-    try {
-      const res = await authApi.updateProfile({ theme: nextTheme });
-      updateUser({ theme: res.data.theme });
-    } catch (err: any) {
-      openInfo(t.profile_error || 'Error', err?.message || 'Failed to save theme');
     }
   };
 

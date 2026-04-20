@@ -1,3 +1,5 @@
+import { normalizeThemeMode, type ThemeMode } from './theme';
+
 export type WorkbenchPreferences = {
   deliveryRegion: string;
   targetLanguage: string;
@@ -8,7 +10,7 @@ export type WorkbenchPreferences = {
   creationMode: 'fast' | 'replay';
   selectedModelId: 'kling' | 'sora2' | 'sora2pro' | 'seedance2.0';
   scriptVariantCount: number;
-  theme: 'dark' | 'light' | 'dim' | 'system';
+  theme: ThemeMode;
 };
 
 const STORAGE_KEY_PREFIX = 'vflow_workbench_preferences_v1';
@@ -66,7 +68,7 @@ const parsePreferences = (raw: string | null): Partial<WorkbenchPreferences> => 
       next.scriptVariantCount = parsed.scriptVariantCount;
     }
 
-    if (parsed.theme === 'dark' || parsed.theme === 'light' || parsed.theme === 'dim' || parsed.theme === 'system') next.theme = parsed.theme;
+    if (parsed.theme !== undefined) next.theme = normalizeThemeMode(parsed.theme, 'dark');
 
     return next;
   } catch {

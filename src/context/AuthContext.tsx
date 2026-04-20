@@ -3,6 +3,7 @@ import { authApi } from '../services/auth';
 import { videoApi } from '../services/video';
 import { clearDebugModeEnabled } from '../services/debugMode';
 import { debugLog, debugWarn, debugError } from '../services/debugMode';
+import { normalizeThemeMode, type ThemeMode } from '../utils/theme';
 
 interface User {
   account: string,
@@ -11,7 +12,7 @@ interface User {
   avatar: string;
   plan: 'free' | 'plus' | 'pro';
   credits?: number; // remaining generation credits (v点)
-  theme?: 'light' | 'dark' | 'dim' | 'system';
+  theme?: ThemeMode;
   hasPassword?: boolean;
   token?: string;
   isFrozen?: boolean;
@@ -87,7 +88,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 avatar: normalizeAvatar(backendUser.avatar),
                 plan: plan,
                 credits: backendUser.balance,
-                theme: (backendUser.theme as 'light' | 'dark' | 'dim' | 'system') || 'system',
+                theme: normalizeThemeMode(backendUser.theme, 'dark'),
                 hasPassword: backendUser.has_password === true,
                 token: undefined, // We rely on Cookie Session, no JWT token needed in state
                 isFrozen: backendUser.is_frozen === true,
@@ -172,7 +173,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       avatar: normalizeAvatar(serverData?.avatar || serverData?.data?.avatar || ''),
       plan: resolvedPlan,
       credits: serverData?.credits ?? serverData?.data?.balance ?? defaultCredits,
-      theme: serverData?.theme || serverData?.data?.theme || 'system',
+      theme: normalizeThemeMode(serverData?.theme || serverData?.data?.theme, 'dark'),
       hasPassword: (serverData?.has_password ?? serverData?.data?.has_password) === true,
       token: token,
       isFrozen: (serverData?.is_frozen ?? serverData?.data?.is_frozen) === true,
@@ -226,6 +227,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const nextPatch: Partial<User> = { ...patch };
       if ('avatar' in nextPatch) {
         nextPatch.avatar = normalizeAvatar((nextPatch as any).avatar);
+      }
+      if ('theme' in nextPatch) {
+        nextPatch.theme = normalizeThemeMode((nextPatch as any).theme, prev?.theme || 'dark');
       }
 
       const updated = { ...(prev as User || {}), ...nextPatch } as User;

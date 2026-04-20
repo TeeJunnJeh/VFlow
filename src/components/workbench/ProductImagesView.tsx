@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Eye, Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download, FileDown, ChevronLeft, ChevronRight, LayoutGrid, ArrowLeft, PencilLine, Trash2, Zap, Check, Shirt, Wrench, Clapperboard } from 'lucide-react';
+import { Eye, Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download, FileDown, ChevronLeft, ChevronRight, LayoutGrid, ArrowLeft, PencilLine, Trash2, Zap, Check, Shirt, Wrench, Clapperboard, Folder } from 'lucide-react';
 import type { ViewType } from './types';
 import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
@@ -891,13 +891,28 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       layout?: any;
     }>
   >([]);
+  const [isGalleryBoardAssetPickerOpen, setIsGalleryBoardAssetPickerOpen] = useState(false);
   const [isGalleryBoardEditorOpen, setIsGalleryBoardEditorOpen] = useState(false);
+  const [galleryBoardSessionAssets, setGalleryBoardSessionAssets] = useState<GalleryBoardAsset[]>([]);
   const [galleryBoardLocalAssets, setGalleryBoardLocalAssets] = useState<GalleryBoardAsset[]>([]);
+  const [galleryBoardPickerAssets, setGalleryBoardPickerAssets] = useState<GalleryBoardAsset[]>([]);
   const [galleryBoardDraft, setGalleryBoardDraft] = useState<GalleryBoardDraft | null>(null);
+  const [galleryBoardSelectedAssetIds, setGalleryBoardSelectedAssetIds] = useState<string[]>([]);
+  const [galleryBoardCanvasRatio, setGalleryBoardCanvasRatio] = useState<'3:4' | '1:1' | '4:3' | '2:3' | '3:2' | '16:9' | '9:16'>('3:4');
+  const [isGalleryBoardLibraryPickerOpen, setIsGalleryBoardLibraryPickerOpen] = useState(false);
+  const [galleryBoardLibraryAssetType, setGalleryBoardLibraryAssetType] = useState<'product' | 'scene'>('product');
+  const [galleryBoardLibraryLoading, setGalleryBoardLibraryLoading] = useState(false);
+  const [galleryBoardLibraryError, setGalleryBoardLibraryError] = useState<string | null>(null);
+  const [galleryBoardLibraryItems, setGalleryBoardLibraryItems] = useState<any[]>([]);
+  const [galleryBoardLibraryFolders, setGalleryBoardLibraryFolders] = useState<any[]>([]);
+  const [galleryBoardLibraryBreadcrumb, setGalleryBoardLibraryBreadcrumb] = useState<any[]>([]);
+  const [galleryBoardLibraryCurrentFolderId, setGalleryBoardLibraryCurrentFolderId] = useState<string | null>(null);
+  const [isGalleryBoardHistoryPickerOpen, setIsGalleryBoardHistoryPickerOpen] = useState(false);
+  const galleryBoardPickerUploadRef = useRef<HTMLInputElement | null>(null);
   const [galleryTextEditor, setGalleryTextEditor] = useState<{ open: boolean; localId: string; imageUrl: string; layout: any } | null>(null);
   const [galleryTextDraftLayout, setGalleryTextDraftLayout] = useState<any | null>(null);
   const [isGalleryTextExporting, setIsGalleryTextExporting] = useState(false);
-  const galleryBoardLocalAssetUrlsRef = useRef<string[]>([]);
+  const galleryBoardBlobUrlsRef = useRef<string[]>([]);
   const dragTextRef = useRef<{
     index: number;
     startClientX: number;
@@ -937,6 +952,39 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isGalleryBoardLibraryPickerOpen) return;
+    let cancelled = false;
+
+    const loadLibraryItems = async () => {
+      setGalleryBoardLibraryLoading(true);
+      setGalleryBoardLibraryError(null);
+      try {
+        const [items, folderData] = await Promise.all([
+          assetsApi.getAssets({ type: galleryBoardLibraryAssetType, folderId: galleryBoardLibraryCurrentFolderId }),
+          assetsApi.getFolders({ type: galleryBoardLibraryAssetType, parentId: galleryBoardLibraryCurrentFolderId }),
+        ]);
+        if (cancelled) return;
+        setGalleryBoardLibraryItems(Array.isArray(items) ? items.filter((item: any) => item.media_kind !== 'video') : []);
+        setGalleryBoardLibraryFolders(Array.isArray(folderData.folders) ? folderData.folders : []);
+        setGalleryBoardLibraryBreadcrumb(Array.isArray(folderData.breadcrumb) ? folderData.breadcrumb : []);
+      } catch (error: any) {
+        if (cancelled) return;
+        setGalleryBoardLibraryItems([]);
+        setGalleryBoardLibraryFolders([]);
+        setGalleryBoardLibraryBreadcrumb([]);
+        setGalleryBoardLibraryError(String(error?.message || t.ui_dialog_error));
+      } finally {
+        if (!cancelled) setGalleryBoardLibraryLoading(false);
+      }
+    };
+
+    void loadLibraryItems();
+    return () => {
+      cancelled = true;
+    };
+  }, [galleryBoardLibraryAssetType, galleryBoardLibraryCurrentFolderId, isGalleryBoardLibraryPickerOpen, t.ui_dialog_error]);
 
   const textSeparationEstimatedCost = useMemo(() => {
     const rate = Number(imageModelRates['gemini-3-pro-image-preview'] || 0);
@@ -1013,13 +1061,24 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       galleryPreviewItems
         .filter((item) => item.status === 'succeeded' && Boolean(String(item.imageUrl || '').trim()))
         .map((item) => ({
-          localId: item.localId,
+          localId: `current-${item.localId}`,
           requestId: item.requestId,
           imageUrl: String(item.imageUrl || '').trim(),
+          source: 'current' as const,
           layout: item.layout,
         })),
     [galleryPreviewItems]
   );
+  const galleryBoardCandidateAssets = useMemo(() => {
+    const deduped = new Map<string, GalleryBoardAsset>();
+    [...galleryBoardAssets, ...galleryBoardSessionAssets, ...galleryBoardPickerAssets].forEach((asset) => {
+      const localId = String(asset.localId || '').trim();
+      if (!localId || deduped.has(localId)) return;
+      deduped.set(localId, asset);
+    });
+    return Array.from(deduped.values());
+  }, [galleryBoardAssets, galleryBoardPickerAssets, galleryBoardSessionAssets]);
+  const galleryBoardSelectedAssetSet = useMemo(() => new Set(galleryBoardSelectedAssetIds), [galleryBoardSelectedAssetIds]);
   const galleryPollAbortRef = useRef(false);
   const galleryPollRunIdRef = useRef<number>(0);
 
@@ -1163,24 +1222,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     isGenerating: false,
     error: null,
   });
-  const [galleryAiLayoutDesigner, setGalleryAiLayoutDesigner] = useState<{
-    open: boolean;
-    prompt: string;
-    isGenerating: boolean;
-    error: string | null;
-    completed: number;
-    total: number;
-  }>({
-    open: false,
-    prompt: '',
-    isGenerating: false,
-    error: null,
-    completed: 0,
-    total: 0,
-  });
-  const GALLERY_LAYOUT_VARIANTS_MIN = 1;
-  const GALLERY_LAYOUT_VARIANTS_MAX = 5;
-  const [galleryLayoutVariants, setGalleryLayoutVariants] = useState<number>(3);
 
   type GalleryPreviewSource =
     | { kind: 'preview_item'; localId: string }
@@ -1226,14 +1267,14 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   }, [galleryDownloadBubbleOpen]);
 
   useEffect(() => {
-    galleryBoardLocalAssetUrlsRef.current = galleryBoardLocalAssets
+    galleryBoardBlobUrlsRef.current = [...galleryBoardSessionAssets, ...galleryBoardPickerAssets, ...galleryBoardLocalAssets]
       .map((item) => String(item.imageUrl || ''))
       .filter((url) => url.startsWith('blob:'));
-  }, [galleryBoardLocalAssets]);
+  }, [galleryBoardLocalAssets, galleryBoardPickerAssets, galleryBoardSessionAssets]);
 
   useEffect(() => {
     return () => {
-      galleryBoardLocalAssetUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      galleryBoardBlobUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     };
   }, []);
 
@@ -1301,11 +1342,106 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   };
 
   const openGalleryBoardEditor = () => {
-    setIsGalleryBoardEditorOpen(true);
+    const preservedIds = galleryBoardSessionAssets.map((item) => item.localId).filter(Boolean).slice(0, 9);
+    const defaultIds = preservedIds.length > 0
+      ? preservedIds
+      : galleryBoardAssets.slice(0, 9).map((item) => item.localId);
+    setGalleryBoardSelectedAssetIds(defaultIds);
+    setGalleryBoardCanvasRatio(galleryBoardDraft?.templateRatioId || galleryBoardCanvasRatio || '3:4');
+    setGalleryBoardLibraryCurrentFolderId(null);
+    setGalleryBoardLibraryAssetType('product');
+    setGalleryBoardPickerAssets([]);
+    setIsGalleryBoardAssetPickerOpen(true);
   };
 
   const closeGalleryBoardEditor = () => {
     setIsGalleryBoardEditorOpen(false);
+  };
+
+  const closeGalleryBoardAssetPicker = () => {
+    setIsGalleryBoardAssetPickerOpen(false);
+    setIsGalleryBoardLibraryPickerOpen(false);
+    setIsGalleryBoardHistoryPickerOpen(false);
+  };
+
+  const confirmGalleryBoardAssetPicker = () => {
+    const selectedAssets = galleryBoardCandidateAssets.filter((item) => galleryBoardSelectedAssetSet.has(item.localId)).slice(0, 9);
+    if (selectedAssets.length < 1) {
+      openGalleryAlert('请先至少选择 1 张图片', t.pg_main_notice);
+      return;
+    }
+    const nextSelectionKey = selectedAssets.map((item) => item.localId).join('|');
+    const prevSelectionKey = galleryBoardSessionAssets.map((item) => item.localId).join('|');
+    const shouldResetDraft =
+      nextSelectionKey !== prevSelectionKey ||
+      galleryBoardDraft?.templateRatioId !== galleryBoardCanvasRatio;
+    setGalleryBoardSessionAssets(selectedAssets);
+    setGalleryBoardPickerAssets([]);
+    if (shouldResetDraft) {
+      setGalleryBoardLocalAssets([]);
+      setGalleryBoardDraft(null);
+    }
+    setIsGalleryBoardAssetPickerOpen(false);
+    setIsGalleryBoardLibraryPickerOpen(false);
+    setIsGalleryBoardHistoryPickerOpen(false);
+    setIsGalleryBoardEditorOpen(true);
+  };
+
+  const appendGalleryBoardPickerAssets = (items: GalleryBoardAsset[], autoSelect = true) => {
+    if (items.length < 1) return;
+    setGalleryBoardPickerAssets((prev) => {
+      const existing = new Set(prev.map((item) => item.localId));
+      const current = new Set(galleryBoardAssets.map((item) => item.localId));
+      const next = items.filter((item) => !existing.has(item.localId) && !current.has(item.localId));
+      return next.length > 0 ? [...next, ...prev] : prev;
+    });
+    if (autoSelect) {
+      setGalleryBoardSelectedAssetIds((prev) => {
+        const next = [...prev];
+        for (const item of items) {
+          if (next.length >= 9) break;
+          if (!next.includes(item.localId)) next.push(item.localId);
+        }
+        return next;
+      });
+    }
+  };
+
+  const toggleGalleryBoardSelectedAsset = (localId: string) => {
+    setGalleryBoardSelectedAssetIds((prev) => {
+      if (prev.includes(localId)) return prev.filter((item) => item !== localId);
+      if (prev.length >= 9) {
+        openGalleryAlert('最多只能选择 9 张图片', t.pg_main_notice);
+        return prev;
+      }
+      return [...prev, localId];
+    });
+  };
+
+  const importGalleryBoardPickerHistoryAsset = (historyItem: GalleryHistoryItem, imageUrl: string, imageIndex: number) => {
+    appendGalleryBoardPickerAssets([
+      {
+        localId: `history-${historyItem.id}-${imageIndex}`,
+        requestId: `${t.pg_main_history_image} ${historyItem.createdAt}`,
+        imageUrl,
+        source: 'history',
+        layout: null,
+      },
+    ]);
+  };
+
+  const importGalleryBoardPickerLibraryAsset = (asset: any) => {
+    const previewUrl = String(asset?.file_url || asset?.thumbnail || '').trim();
+    if (!previewUrl) return;
+    appendGalleryBoardPickerAssets([
+      {
+        localId: `library-${asset.type}-${asset.id}`,
+        requestId: asset.name || `asset-${asset.id}`,
+        imageUrl: previewUrl,
+        source: 'library',
+        layout: null,
+      },
+    ]);
   };
 
   const galleryPreviewNav = useMemo<
@@ -2689,14 +2825,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     setGalleryAiOutputPlanner((prev) => ({ ...prev, open: false, isGenerating: false, error: null }));
   };
 
-  const openGalleryAiLayoutPromptDialog = () => {
-    setGalleryAiLayoutDesigner((prev) => ({ ...prev, open: true, isGenerating: false, error: null, completed: 0, total: 0 }));
-  };
-
-  const closeGalleryAiLayoutPromptDialog = () => {
-    setGalleryAiLayoutDesigner((prev) => ({ ...prev, open: false, isGenerating: false, error: null }));
-  };
-
   const normalizeAiOutputType = (value: any): GalleryOutputType | null => {
     const raw = String(value || '').trim().toLowerCase();
     if (!raw) return null;
@@ -2851,174 +2979,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       }
     }
     return { ok: true as const };
-  };
-
-  const buildGalleryAiLayoutPrompt = (items: GalleryOutputItem[], extraPrompt?: string) => {
-    const outputTypeLabels: Record<GalleryOutputType, string> = {
-      white_bg: t.pi_gallery_output_white_bg,
-      scene: t.pi_gallery_output_scene,
-      selling_point: t.pi_gallery_output_selling_point,
-      cover: t.pi_gallery_output_cover,
-      poster: t.pi_gallery_output_poster,
-    };
-    const cleanedSellingPoints = gallerySellingPoints.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 5);
-    const itemLines = items.map((item, index) => {
-      const base = `${index + 1}. outputType=${item.outputType}（${outputTypeLabels[item.outputType]}）；count=${item.count}；aspectRatio=${item.aspectRatio}；resolution=${item.resolution}`;
-      if (item.outputType === 'selling_point' && cleanedSellingPoints.length > 0) {
-        return `${base}；优先卖点参考：${cleanedSellingPoints.slice(0, Math.max(1, Math.min(item.count, cleanedSellingPoints.length))).join(' / ')}`;
-      }
-      return base;
-    });
-
-    return [
-      '当前商品套图的出图组合已经确定。',
-      '不要重新规划图种，不要改变张数、比例、分辨率，不要增删条目。',
-      '你只需要为下面每一条现有条目补写一个具体可执行的 layout（构图描述）。',
-      '返回的 items 数组条目数必须与下面列表一致，顺序必须一致。',
-      '每条 item 的 outputType、count、aspectRatio、resolution 必须保持与输入一致；layout 需要写清楚商品主体摆放、镜头远近、留白区、卖点表达方式、前后景层次，并强调图片内不要生成可读文字。',
-      extraPrompt ? `额外要求：${extraPrompt}` : '',
-      `当前条目列表：\n${itemLines.join('\n')}`,
-    ].filter(Boolean).join('\n');
-  };
-
-  const handleGenerateAiLayoutSuggestions = async (extraPrompt?: string, fromDialog = false) => {
-    if (galleryAiLayoutDesigner.isGenerating) return;
-
-    const enabledItems = galleryOutputItems
-      .map((item) => normalizeGalleryOutputItem(item))
-      .filter((item): item is GalleryOutputItem => Boolean(item && item.enabled && item.count > 0));
-    if (enabledItems.length === 0) {
-      openGalleryAlert(t.pg_main_toast_need_output_items);
-      return;
-    }
-
-    const hasExistingLayouts = enabledItems.some((item) => {
-      const layouts = Array.isArray(item.layouts) ? item.layouts : [];
-      if (layouts.some((txt) => String(txt || '').trim().length > 0)) return true;
-      return Boolean(String(item.layout || '').trim());
-    });
-    if (hasExistingLayouts) {
-      const action = await openGalleryConfirm(
-        t.pg_main_confirm_ai_design_overwrite_body,
-        {
-          title: t.pg_main_confirm_overwrite_layouts_title,
-          okLabel: t.pg_main_btn_overwrite_generate,
-          cancelLabel: t.pg_main_btn_cancel,
-        }
-      );
-      if (action !== 'ok') return;
-    }
-
-    const variantCount = Math.max(
-      GALLERY_LAYOUT_VARIANTS_MIN,
-      Math.min(GALLERY_LAYOUT_VARIANTS_MAX, Math.floor(Number(galleryLayoutVariants) || 1))
-    );
-    const enabledIdSet = new Set(enabledItems.map((it) => it.id));
-
-    setGalleryAiLayoutDesigner((prev) => ({ ...prev, isGenerating: true, error: null, completed: 0, total: variantCount }));
-    setGalleryOutputItems((prev) =>
-      prev.map((item) => {
-        if (!enabledIdSet.has(item.id)) return item;
-        return { ...item, layouts: [], layoutIndex: 0, layout: '' };
-      })
-    );
-    setGalleryAdvancedDirty(true);
-    setIsGalleryAdvancedEditingCollapsed(false);
-
-    try {
-      const hasNewImages = galleryImages.length > 0;
-      const hasRestoredPaths = galleryRestoredImagePaths.length > 0;
-      let workingModelCards = galleryModelCards;
-      const primaryModelCard = getGalleryPrimaryModelCard(workingModelCards);
-      if (primaryModelCard?.imageFile) {
-        workingModelCards = await ensureGalleryModelCardAssetPaths([primaryModelCard.id]);
-      }
-      const resolvedPrimaryModelCard = getGalleryPrimaryModelCard(workingModelCards);
-      const primarySceneCard = getGalleryPrimarySceneCard(gallerySceneCards);
-      const sceneConfig = sanitizeGallerySceneConfig(primarySceneCard?.sceneConfig);
-      const hasSceneConfig = Object.values(sceneConfig).some((value) => Boolean(String(value || '').trim()));
-
-      let imagePaths: string[] = [];
-      if (hasRestoredPaths) {
-        imagePaths = [...galleryRestoredImagePaths];
-      } else if (hasNewImages) {
-        const target = galleryImages[0];
-        if (target && !isSupportedGalleryImageFile(target)) {
-          openGalleryAlert(gallerySupportedFormatTip);
-          setGalleryAiLayoutDesigner((prev) => ({ ...prev, isGenerating: false }));
-          return;
-        }
-        if (target) {
-          const uploadResp = await assetsApi.uploadTempAsset(target);
-          const path = extractUploadedAssetPath(uploadResp);
-          if (path) imagePaths = [String(path)];
-        }
-      }
-
-      const basePayload = {
-        prompt: buildGalleryAiLayoutPrompt(enabledItems, extraPrompt),
-        image_paths: imagePaths,
-        product_name: galleryProductName.trim(),
-        product_category: galleryCategory.trim(),
-        core_selling_points: gallerySellingPoints.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 5),
-        target_scene: galleryTargetScene,
-        style: galleryStyle,
-        target_language: galleryCopyLanguage,
-        scene_config: hasSceneConfig ? sceneConfig : undefined,
-        model_image_path: String(resolvedPrimaryModelCard?.imagePath || '').trim() || undefined,
-        model_info: String(resolvedPrimaryModelCard?.modelInfo || '').trim() || undefined,
-      };
-
-      let successCount = 0;
-      await Promise.all(
-        Array.from({ length: variantCount }).map(async () => {
-          try {
-            const planResp = await videoApi.generateProductGalleryPlan({ ...basePayload });
-            const data = (planResp as any)?.data || planResp;
-            const rawItems = Array.isArray(data?.items) ? data.items : [];
-            if (rawItems.length === 0) return;
-            const enabledIdOrder = enabledItems.map((it) => it.id);
-            const layoutById = new Map<string, string>();
-            enabledIdOrder.forEach((id, idx) => {
-              const layout = String(rawItems[idx]?.layout || '').trim();
-              if (layout) layoutById.set(id, layout);
-            });
-            if (layoutById.size === 0) return;
-            setGalleryOutputItems((prev) =>
-              prev.map((item) => {
-                const next = layoutById.get(item.id);
-                if (!next) return item;
-                const prevLayouts = Array.isArray(item.layouts) ? item.layouts : [];
-                const nextLayouts = [...prevLayouts, next];
-                return {
-                  ...item,
-                  layouts: nextLayouts,
-                  layoutIndex: Math.min(Number(item.layoutIndex ?? 0), Math.max(0, nextLayouts.length - 1)),
-                  layout: nextLayouts[Math.min(Number(item.layoutIndex ?? 0), nextLayouts.length - 1)] ?? next,
-                };
-              })
-            );
-            successCount += 1;
-          } catch (err) {
-            console.warn('[gallery] layout variant failed', err);
-          } finally {
-            setGalleryAiLayoutDesigner((prev) => ({ ...prev, completed: prev.completed + 1 }));
-          }
-        })
-      );
-
-      if (successCount === 0) {
-        throw new Error(t.pg_main_error_ai_variants_all_failed);
-      }
-
-      setGalleryAiLayoutDesigner((prev) => ({ ...prev, open: false, prompt: prev.prompt, isGenerating: false, error: null }));
-    } catch (err: any) {
-      const message = String(err?.message || t.pg_main_error_ai_design_failed_retry);
-      setGalleryAiLayoutDesigner((prev) => ({ ...prev, isGenerating: false, error: fromDialog ? message : null }));
-      if (!fromDialog) {
-        openGalleryAlert(message, t.pg_main_error_ai_design_failed_title);
-      }
-    }
   };
 
   const handleGenerateAiOutputPlan = async () => {
@@ -3824,87 +3784,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       </AppDialog>
 
       <AppDialog
-        isOpen={galleryAiLayoutDesigner.open}
-        title={t.pg_main_dialog_advanced_settings_title}
-        onClose={closeGalleryAiLayoutPromptDialog}
-        widthClassName="max-w-lg"
-        overlayClassName="z-[160]"
-        footer={
-          <>
-            <button
-              type="button"
-              onClick={closeGalleryAiLayoutPromptDialog}
-              disabled={galleryAiLayoutDesigner.isGenerating}
-              className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition disabled:opacity-50"
-            >
-              {t.pg_main_btn_cancel}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                void handleGenerateAiLayoutSuggestions(String(galleryAiLayoutDesigner.prompt || '').trim(), true);
-              }}
-              disabled={galleryAiLayoutDesigner.isGenerating}
-              className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 text-black hover:bg-orange-400 transition disabled:opacity-50"
-            >
-              {galleryAiLayoutDesigner.isGenerating
-                ? (galleryAiLayoutDesigner.total > 0
-                    ? `${t.pg_main_btn_designing} ${galleryAiLayoutDesigner.completed}/${galleryAiLayoutDesigner.total}...`
-                    : t.pg_main_btn_designing_dots)
-                : t.pg_main_btn_generate_layouts}
-            </button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <div className="text-xs text-zinc-400">
-            {t.pg_main_ai_layout_instruction_description}
-          </div>
-          <textarea
-            value={galleryAiLayoutDesigner.prompt}
-            onChange={(e) => setGalleryAiLayoutDesigner((prev) => ({ ...prev, prompt: e.target.value }))}
-            rows={4}
-            className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
-            placeholder={t.pg_main_ai_layout_instruction_placeholder}
-          />
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5">
-            <div className="min-w-0">
-              <div className="text-xs font-bold text-zinc-200">{t.pg_main_layout_variants_label}</div>
-              <div className="mt-0.5 text-[11px] leading-4 text-zinc-500">
-                {t.pg_main_layout_variants_hint}
-              </div>
-            </div>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setGalleryLayoutVariants((v) => Math.max(GALLERY_LAYOUT_VARIANTS_MIN, Math.floor(Number(v) || 1) - 1))}
-                disabled={galleryAiLayoutDesigner.isGenerating || galleryLayoutVariants <= GALLERY_LAYOUT_VARIANTS_MIN}
-                className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 flex items-center justify-center disabled:opacity-40"
-                aria-label={t.pg_main_aria_decrease_variants}
-              >
-                <Minus className="h-3.5 w-3.5" />
-              </button>
-              <div className="min-w-[2.5rem] text-center text-sm font-bold tabular-nums text-zinc-100">
-                {galleryLayoutVariants}
-              </div>
-              <button
-                type="button"
-                onClick={() => setGalleryLayoutVariants((v) => Math.min(GALLERY_LAYOUT_VARIANTS_MAX, Math.floor(Number(v) || 1) + 1))}
-                disabled={galleryAiLayoutDesigner.isGenerating || galleryLayoutVariants >= GALLERY_LAYOUT_VARIANTS_MAX}
-                className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 flex items-center justify-center disabled:opacity-40"
-                aria-label={t.pg_main_aria_increase_variants}
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-          {galleryAiLayoutDesigner.error ? (
-            <div className="text-xs text-red-400">{galleryAiLayoutDesigner.error}</div>
-          ) : null}
-        </div>
-      </AppDialog>
-
-      <AppDialog
         isOpen={Boolean(galleryPreviewImageUrl)}
         title={t.pg_main_dialog_image_details_title}
         onClose={closeGalleryImagePreview}
@@ -4570,6 +4449,332 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       </AppDialog>
 
       <AppDialog
+        isOpen={isGalleryBoardAssetPickerOpen}
+        title="选择拼图图片"
+        onClose={closeGalleryBoardAssetPicker}
+        widthClassName="max-w-6xl"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={closeGalleryBoardAssetPicker}
+              className="rounded-xl border border-white/10 bg-zinc-900/70 px-4 py-2 text-xs font-bold text-zinc-200 transition hover:bg-zinc-800"
+            >
+              关闭
+            </button>
+            <button
+              type="button"
+              onClick={confirmGalleryBoardAssetPicker}
+              className="rounded-xl bg-orange-500 px-4 py-2 text-xs font-bold text-black transition hover:bg-orange-400"
+            >
+              进入模板编辑
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm text-zinc-400">已选 {galleryBoardSelectedAssetIds.length} / 9</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-xs text-zinc-500">海报比例</div>
+              {(['3:4', '1:1', '4:3', '2:3', '3:2', '16:9', '9:16'] as const).map((ratio) => (
+                <button
+                  key={ratio}
+                  type="button"
+                  onClick={() => setGalleryBoardCanvasRatio(ratio)}
+                  className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                    galleryBoardCanvasRatio === ratio
+                      ? 'border-orange-500/40 bg-orange-500/10 text-orange-200'
+                      : 'border-white/10 bg-zinc-900/70 text-zinc-300 hover:bg-zinc-800'
+                  }`}
+                >
+                  {ratio}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={galleryBoardPickerUploadRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(event) => {
+                const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith('image/'));
+                if (files.length < 1) return;
+                appendGalleryBoardPickerAssets(
+                  files.map((file, index) => ({
+                    localId: `upload-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+                    requestId: file.name,
+                    imageUrl: URL.createObjectURL(file),
+                    source: 'upload',
+                    layout: null,
+                  }))
+                );
+                event.target.value = '';
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => galleryBoardPickerUploadRef.current?.click()}
+              className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-bold text-zinc-200 transition hover:bg-zinc-800"
+            >
+              上传素材
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsGalleryBoardLibraryPickerOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-bold text-zinc-200 transition hover:bg-zinc-800"
+            >
+              <Folder className="h-3.5 w-3.5" />
+              从素材库导入
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsGalleryBoardHistoryPickerOpen(true)}
+              className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-bold text-zinc-200 transition hover:bg-zinc-800"
+            >
+              从历史记录导入
+            </button>
+          </div>
+
+          <div className="grid max-h-[62vh] grid-cols-2 gap-3 overflow-y-auto pr-1 md:grid-cols-4">
+            {galleryBoardCandidateAssets.map((asset) => {
+              const checked = galleryBoardSelectedAssetSet.has(asset.localId);
+              return (
+                <button
+                  key={asset.localId}
+                  type="button"
+                  onClick={() => toggleGalleryBoardSelectedAsset(asset.localId)}
+                  className={`overflow-hidden rounded-2xl border text-left transition ${
+                    checked ? 'border-orange-500/50 bg-orange-500/5' : 'border-white/10 bg-black/20 hover:bg-white/5'
+                  }`}
+                >
+                  <div className="relative">
+                    <img src={asset.imageUrl} alt={asset.requestId} className="aspect-square w-full object-cover" />
+                    <div className="absolute right-2 top-2 rounded-full border border-white/10 bg-black/60 px-2 py-1 text-[10px] font-bold text-white">
+                      {checked ? '已选中' : '点击选择'}
+                    </div>
+                  </div>
+                  <div className="px-3 py-3">
+                    <div className="truncate text-xs font-bold text-zinc-200">{asset.requestId}</div>
+                    <div className="mt-1 text-[11px] text-zinc-500">{asset.source || 'current'}</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </AppDialog>
+
+      <AppDialog
+        isOpen={isGalleryBoardLibraryPickerOpen}
+        title="从素材库导入"
+        onClose={() => setIsGalleryBoardLibraryPickerOpen(false)}
+        widthClassName="max-w-5xl"
+        contentClassName="overflow-hidden"
+        footer={
+          <button
+            type="button"
+            onClick={() => setIsGalleryBoardLibraryPickerOpen(false)}
+            className="rounded-xl border border-white/10 bg-zinc-900/70 px-4 py-2 text-xs font-bold text-zinc-200 transition hover:bg-zinc-800"
+          >
+            关闭
+          </button>
+        }
+      >
+        <div className="flex h-[min(72vh,680px)] flex-col gap-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {([
+                { value: 'product', label: '商品' },
+                { value: 'scene', label: '场景' },
+              ] as const).map((option) => {
+                const active = galleryBoardLibraryAssetType === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      setGalleryBoardLibraryAssetType(option.value);
+                      setGalleryBoardLibraryCurrentFolderId(null);
+                    }}
+                    className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                      active
+                        ? 'border-orange-500/40 bg-orange-500/10 text-orange-200'
+                        : 'border-white/10 bg-zinc-900/70 text-zinc-300 hover:bg-zinc-800'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-zinc-500">
+              <button
+                type="button"
+                onClick={() => setGalleryBoardLibraryCurrentFolderId(null)}
+                className={`transition hover:text-zinc-200 ${galleryBoardLibraryCurrentFolderId === null ? 'text-zinc-200' : ''}`}
+              >
+                根目录
+              </button>
+              {galleryBoardLibraryBreadcrumb.map((folder: any) => (
+                <React.Fragment key={folder.id}>
+                  <span>/</span>
+                  <button
+                    type="button"
+                    onClick={() => setGalleryBoardLibraryCurrentFolderId(folder.id)}
+                    className={`max-w-[180px] truncate transition hover:text-zinc-200 ${
+                      galleryBoardLibraryCurrentFolderId === folder.id ? 'text-zinc-200' : ''
+                    }`}
+                  >
+                    {folder.name}
+                  </button>
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto custom-scroll pr-1">
+            {galleryBoardLibraryLoading ? (
+              <div className="flex h-56 items-center justify-center text-sm text-zinc-400">素材加载中...</div>
+            ) : galleryBoardLibraryError ? (
+              <div className="flex h-56 items-center justify-center text-sm text-red-300">
+                {galleryBoardLibraryError}
+              </div>
+            ) : galleryBoardLibraryItems.length < 1 && galleryBoardLibraryFolders.length < 1 ? (
+              <div className="flex h-56 items-center justify-center text-sm text-zinc-500">
+                当前目录下暂无可用素材。
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                {galleryBoardLibraryFolders.map((folder: any) => (
+                  <button
+                    key={folder.id}
+                    type="button"
+                    onClick={() => setGalleryBoardLibraryCurrentFolderId(folder.id)}
+                    className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-white/10 bg-black/20 p-4 text-center transition hover:border-orange-500/40 hover:bg-white/5"
+                  >
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-900/80">
+                      <Folder className="h-5 w-5 text-zinc-300" />
+                    </div>
+                    <div className="w-full truncate text-xs font-semibold text-zinc-200">{folder.name}</div>
+                  </button>
+                ))}
+
+                {galleryBoardLibraryItems.map((asset: any) => {
+                  const previewUrl = String(asset.thumbnail || asset.file_url || '').trim();
+                  const localId = `library-${asset.type}-${asset.id}`;
+                  const isImported = galleryBoardCandidateAssets.some((item) => item.localId === localId);
+                  return (
+                    <div
+                      key={`${asset.type}-${asset.id}`}
+                      className="flex flex-col rounded-2xl border border-white/10 bg-black/20 p-2.5"
+                    >
+                      <div className="overflow-hidden rounded-xl border border-white/10 bg-zinc-950/70">
+                        {previewUrl ? (
+                          <img src={previewUrl} alt={asset.name} className="aspect-[4/5] w-full object-cover" />
+                        ) : (
+                          <div className="flex aspect-[4/5] items-center justify-center text-xs text-zinc-500">
+                            无预览
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-2 truncate text-xs font-semibold text-zinc-200">{asset.name || `asset-${asset.id}`}</div>
+                      <div className="mt-1 text-[10px] text-zinc-500">{asset.type === 'scene' ? '场景素材' : '商品素材'}</div>
+                      <button
+                        type="button"
+                        onClick={() => importGalleryBoardPickerLibraryAsset(asset)}
+                        disabled={isImported}
+                        className={`mt-3 rounded-xl px-3 py-2 text-[11px] font-semibold transition ${
+                          isImported
+                            ? 'cursor-default border border-white/10 bg-white/5 text-zinc-500'
+                            : 'border border-orange-500/30 bg-orange-500/10 text-orange-200 hover:bg-orange-500/15'
+                        }`}
+                      >
+                        {isImported ? '已导入' : '导入并选中'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </AppDialog>
+
+      <AppDialog
+        isOpen={isGalleryBoardHistoryPickerOpen}
+        title="从历史记录导入"
+        onClose={() => setIsGalleryBoardHistoryPickerOpen(false)}
+        widthClassName="max-w-6xl"
+        contentClassName="overflow-hidden"
+        footer={
+          <button
+            type="button"
+            onClick={() => setIsGalleryBoardHistoryPickerOpen(false)}
+            className="rounded-xl border border-white/10 bg-zinc-900/70 px-4 py-2 text-xs font-bold text-zinc-200 transition hover:bg-zinc-800"
+          >
+            关闭
+          </button>
+        }
+      >
+        <div className="min-h-[320px] max-h-[72vh] overflow-y-auto pr-1">
+          {galleryHistoryItems.length < 1 ? (
+            <div className="flex h-72 items-center justify-center text-sm text-zinc-500">
+              暂无可导入的历史图片生成记录。
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {galleryHistoryItems
+                .slice()
+                .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+                .flatMap((item) =>
+                  item.images.map((url, idx) => {
+                    const localId = `history-${item.id}-${idx}`;
+                    const isImported = galleryBoardCandidateAssets.some((asset) => asset.localId === localId);
+                    return (
+                      <div key={localId} className="overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+                        <button type="button" onClick={() => openGalleryImagePreview(url)} className="block w-full">
+                          <img src={url} alt={localId} className="aspect-square w-full object-cover" />
+                        </button>
+                        <div className="border-t border-white/10 px-3 py-3">
+                          <div className="text-[11px] text-zinc-500">{item.createdAt}</div>
+                          <div className="mt-3 flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openGalleryImagePreview(url)}
+                              className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
+                            >
+                              预览
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => importGalleryBoardPickerHistoryAsset(item, url, idx)}
+                              disabled={isImported}
+                              className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                                isImported
+                                  ? 'cursor-default border border-white/10 bg-white/5 text-zinc-500'
+                                  : 'bg-orange-500 text-black hover:bg-orange-400'
+                              }`}
+                            >
+                              {isImported ? '已导入' : '导入并选中'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+            </div>
+          )}
+        </div>
+      </AppDialog>
+
+      <AppDialog
         isOpen={isGalleryBoardEditorOpen}
         title={t.pg_main_dialog_board_editor_title}
         onClose={closeGalleryBoardEditor}
@@ -4577,10 +4782,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       >
         {isGalleryBoardEditorOpen ? (
           <GalleryBoardEditor
-            assets={galleryBoardAssets}
+            assets={galleryBoardSessionAssets}
             historyItems={galleryHistoryItems}
             productName={galleryProductName}
             sellingPoints={gallerySellingPoints}
+            initialCanvasRatio={galleryBoardCanvasRatio}
             initialTitle={galleryProductName}
             initialSubtitle={gallerySellingPoints.filter((item) => String(item || '').trim()).slice(0, 2).join(' / ')}
             initialLocalAssets={galleryBoardLocalAssets}
@@ -4942,9 +5148,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           setGalleryOutputItems={setGalleryOutputItems}
           galleryPreviewAspectRatio={galleryPreviewAspectRatio}
           openGalleryAiOutputPlanner={openGalleryAiOutputPlanner}
-          handleGalleryAiLayoutSuggestions={handleGenerateAiLayoutSuggestions}
-          openGalleryAiLayoutPromptDialog={openGalleryAiLayoutPromptDialog}
-          isGalleryAiLayoutDesigning={galleryAiLayoutDesigner.isGenerating}
           handleGalleryGenerate={handleGalleryGenerate}
           isGalleryGenerating={isGalleryGenerating}
           galleryEstimatedCost={galleryEstimatedCost}

@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Download, Folder, ImagePlus, Loader2, Plus, Replace, Trash2, Type, ZoomIn, ZoomOut } from 'lucide-react';
+import { ChevronDown, Download, Folder, Loader2, Plus, Replace, Trash2, Type, ZoomIn, ZoomOut } from 'lucide-react';
 import PptxGenJS from 'pptxgenjs';
 import { AppDialog } from '../common/AppDialog';
 import { assetsApi, type Asset as LibraryAsset, type AssetFolder } from '../../services/assets';
@@ -9,6 +9,9 @@ export type GalleryBoardAsset = {
   localId: string;
   requestId: string;
   imageUrl?: string;
+  width?: number;
+  height?: number;
+  source?: 'current' | 'upload' | 'library' | 'history';
   layout?: unknown;
 };
 
@@ -39,6 +42,9 @@ type BoardImageLayer = {
   cropScale: number;
   cropOffsetX: number;
   cropOffsetY: number;
+  rotationQuarterTurns: 0 | 1 | 2 | 3;
+  flipX: boolean;
+  flipY: boolean;
 };
 
 type BoardTextLayer = {
@@ -90,7 +96,9 @@ type TemplateSlot = {
 
 type TemplateDefinition = {
   id: string;
-  imageCount: 1 | 2 | 3 | 4;
+  assetCount: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+  ratioId: '3:4' | '1:1' | '4:3' | '2:3' | '3:2' | '16:9' | '9:16';
+  layoutStyle: 'vertical' | 'horizontal' | 'balanced';
   name: string;
   description: string;
   previewAssetPath: string;
@@ -129,6 +137,7 @@ export interface GalleryBoardEditorProps {
   historyItems?: GalleryBoardHistoryItem[];
   productName: string;
   sellingPoints: string[];
+  initialCanvasRatio?: '3:4' | '1:1' | '4:3' | '2:3' | '3:2' | '16:9' | '9:16';
   initialTemplateId?: string;
   initialTitle?: string;
   initialSubtitle?: string;
@@ -155,7 +164,9 @@ export type GalleryBoardDraft = {
   board: BoardState;
   selectedAssetLocalIds: string[];
   zoom: number;
-  templateMode: TemplateDefinition['imageCount'];
+  templateRatioId: TemplateDefinition['ratioId'];
+  gapScale: number;
+  cornerRadiusRatio: number;
 };
 
 type RightPanelSectionKey = 'board' | 'inspector' | 'assets';
@@ -165,291 +176,536 @@ type TemplateTooltipState = {
   top: number;
   left: number;
 };
+type TemplateFilterRatio = 'all' | TemplateDefinition['ratioId'];
 
 const FONT_FAMILY_OPTIONS = ['system-ui', 'Microsoft YaHei', 'PingFang SC', 'SimHei', 'serif'];
 const CANVAS_SIZE_OPTIONS = [
   { id: '1:1', label: '1:1', width: 1200, height: 1200 },
   { id: '4:5', label: '4:5', width: 1200, height: 1500 },
   { id: '3:4', label: '3:4', width: 1200, height: 1600 },
+  { id: '4:3', label: '4:3', width: 1600, height: 1200 },
+  { id: '2:3', label: '2:3', width: 1200, height: 1800 },
+  { id: '3:2', label: '3:2', width: 1500, height: 1000 },
   { id: '9:16', label: '9:16', width: 1080, height: 1920 },
   { id: '16:9', label: '16:9', width: 1600, height: 900 },
 ] as const;
-
-const TEMPLATE_MODE_OPTIONS: Array<TemplateDefinition['imageCount']> = [1, 2, 3, 4];
-const TEMPLATE_MODE_LABEL_KEYS: Record<TemplateDefinition['imageCount'], 'pg_board_mode_1image' | 'pg_board_mode_2images' | 'pg_board_mode_3images' | 'pg_board_mode_4images'> = {
-  1: 'pg_board_mode_1image',
-  2: 'pg_board_mode_2images',
-  3: 'pg_board_mode_3images',
-  4: 'pg_board_mode_4images',
-};
+const TEMPLATE_RATIO_OPTIONS: Array<TemplateDefinition['ratioId']> = ['3:4', '1:1', '4:3', '2:3', '3:2', '16:9', '9:16'];
 const TEMPLATE_PREVIEW_BACKGROUND = '#111827';
 const LIBRARY_PICKER_TYPE_OPTIONS = [
   { value: 'product', labelKey: 'pg_board_picker_product' as const },
   { value: 'scene', labelKey: 'pg_board_picker_scene' as const },
 ] as const;
 
-const TEMPLATE_DEFINITIONS: TemplateDefinition[] = [
-  {
-    id: 'single_hero',
-    imageCount: 1,
-    name: 'Single Hero',
-    description: '单图主视觉，适合商品首图和封面场景。',
-    previewAssetPath: '/templates/gallery-board/single-hero-preview.png',
-    canvasWidth: 1200,
-    canvasHeight: 1500,
-    background: '#111827',
-    slots: [{ x: 84, y: 230, w: 1032, h: 1180, fit: 'cover' }],
-    titleBox: { x: 84, y: 72, w: 780, h: 96 },
-    subtitleBox: { x: 84, y: 170, w: 900, h: 64 },
-  },
-  {
-    id: 'single_center_card',
-    imageCount: 1,
-    name: 'Single Center Card',
-    description: '中置单图留白排版，适合品牌感与高端视觉。',
-    previewAssetPath: '/templates/gallery-board/single-center-card-preview.png',
-    canvasWidth: 1200,
-    canvasHeight: 1500,
-    background: '#0f172a',
-    slots: [{ x: 150, y: 300, w: 900, h: 940, fit: 'contain' }],
-    titleBox: { x: 96, y: 84, w: 820, h: 98 },
-    subtitleBox: { x: 96, y: 186, w: 940, h: 76 },
-  },
-  {
-    id: 'single_full_bleed',
-    imageCount: 1,
-    name: 'Single Full Bleed',
-    description: '满版单图，适合冲击感强的场景封面。',
-    previewAssetPath: '/templates/gallery-board/single-full-bleed-preview.png',
-    canvasWidth: 1200,
-    canvasHeight: 1500,
-    background: '#101010',
-    slots: [{ x: 0, y: 0, w: 1200, h: 1500, fit: 'cover' }],
-    titleBox: { x: 68, y: 1080, w: 900, h: 140 },
-    subtitleBox: { x: 68, y: 1226, w: 980, h: 96 },
-  },
-  {
-    id: 'single_bottom_stage',
-    imageCount: 1,
-    name: 'Single Bottom Stage',
-    description: '底部陈列单图，上方保留更大标题空间，适合封面和促销海报。',
-    previewAssetPath: '/templates/gallery-board/single-bottom-stage-preview.png',
-    canvasWidth: 1200,
-    canvasHeight: 1500,
-    background: '#132034',
-    slots: [{ x: 120, y: 420, w: 960, h: 940, fit: 'contain' }],
-    titleBox: { x: 84, y: 84, w: 760, h: 110 },
-    subtitleBox: { x: 84, y: 208, w: 940, h: 76 },
-  },
-  {
-    id: 'dual_split',
-    imageCount: 2,
-    name: 'Dual Split',
-    description: '左右双图对比，适合前后对比或双卖点展示。',
-    previewAssetPath: '/templates/gallery-board/dual-split-preview.png',
-    canvasWidth: 1200,
-    canvasHeight: 1500,
-    background: '#1f2937',
-    slots: [
-      { x: 72, y: 360, w: 518, h: 1020, fit: 'cover' },
-      { x: 610, y: 360, w: 518, h: 1020, fit: 'cover' },
-    ],
-    titleBox: { x: 72, y: 84, w: 800, h: 110 },
-    subtitleBox: { x: 72, y: 200, w: 980, h: 84 },
-  },
-  {
-    id: 'dual_stack',
-    imageCount: 2,
-    name: 'Dual Stack',
-    description: '上下双图，适合步骤展示与体验流程。',
-    previewAssetPath: '/templates/gallery-board/dual-stack-preview.png',
-    canvasWidth: 1200,
-    canvasHeight: 1500,
-    background: '#0b1120',
-    slots: [
-      { x: 84, y: 280, w: 1032, h: 520, fit: 'cover' },
-      { x: 84, y: 860, w: 1032, h: 520, fit: 'cover' },
-    ],
-    titleBox: { x: 84, y: 80, w: 760, h: 100 },
-    subtitleBox: { x: 84, y: 182, w: 940, h: 72 },
-  },
-  {
-    id: 'hero_split',
-    imageCount: 2,
-    name: 'Hero Split',
-    description: '右侧主图 + 左侧信息区，适合重点商品宣传。',
-    previewAssetPath: '/templates/gallery-board/hero-split-preview.png',
-    canvasWidth: 1200,
-    canvasHeight: 1500,
-    background: '#151515',
-    slots: [
-      { x: 500, y: 240, w: 640, h: 1040, fit: 'cover' },
-      { x: 86, y: 980, w: 320, h: 300, fit: 'cover' },
-    ],
-    titleBox: { x: 86, y: 120, w: 340, h: 180 },
-    subtitleBox: { x: 86, y: 330, w: 340, h: 260 },
-  },
-  {
-    id: 'dual_offset_cards',
-    imageCount: 2,
-    name: 'Dual Offset Cards',
-    description: '两张错位主图，更适合商品对比和前后场景的节奏展示。',
-    previewAssetPath: '/templates/gallery-board/dual-offset-cards-preview.png',
-    canvasWidth: 1200,
-    canvasHeight: 1500,
-    background: '#131722',
-    slots: [
-      { x: 84, y: 360, w: 438, h: 920, fit: 'cover' },
-      { x: 582, y: 240, w: 534, h: 1040, fit: 'cover' },
-    ],
-    titleBox: { x: 84, y: 84, w: 760, h: 102 },
-    subtitleBox: { x: 84, y: 196, w: 940, h: 76 },
-  },
-  {
-    id: 'story_triptych',
-    imageCount: 3,
-    name: 'Story Triptych',
-    description: '三段式叙事结构，适合场景图和卖点图组合。',
-    previewAssetPath: '/templates/gallery-board/story-triptych-preview.png',
-    canvasWidth: 1200,
-    canvasHeight: 1500,
-    background: '#111827',
-    slots: [
-      { x: 72, y: 300, w: 320, h: 420, fit: 'cover' },
-      { x: 72, y: 760, w: 320, h: 420, fit: 'cover' },
-      { x: 430, y: 300, w: 700, h: 880, fit: 'cover' },
-    ],
-    titleBox: { x: 72, y: 80, w: 680, h: 120 },
-    subtitleBox: { x: 72, y: 200, w: 860, h: 84 },
-  },
-  {
-    id: 'tri_columns',
-    imageCount: 3,
-    name: 'Tri Columns',
-    description: '三列等宽结构，适合多规格或多场景对比。',
-    previewAssetPath: '/templates/gallery-board/tri-columns-preview.png',
-    canvasWidth: 1200,
-    canvasHeight: 1500,
-    background: '#0f172a',
-    slots: [
-      { x: 72, y: 320, w: 336, h: 1080, fit: 'cover' },
-      { x: 432, y: 320, w: 336, h: 1080, fit: 'cover' },
-      { x: 792, y: 320, w: 336, h: 1080, fit: 'cover' },
-    ],
-    titleBox: { x: 72, y: 84, w: 820, h: 100 },
-    subtitleBox: { x: 72, y: 190, w: 980, h: 80 },
-  },
-  {
-    id: 'tri_top_two_bottom_one',
-    imageCount: 3,
-    name: 'Tri Top Two + Bottom One',
-    description: '上两图下单图，适合细节补充 + 主视觉收束。',
-    previewAssetPath: '/templates/gallery-board/tri-top-two-bottom-one-preview.png',
-    canvasWidth: 1200,
-    canvasHeight: 1500,
-    background: '#13131a',
-    slots: [
-      { x: 72, y: 280, w: 518, h: 470, fit: 'cover' },
-      { x: 610, y: 280, w: 518, h: 470, fit: 'cover' },
-      { x: 72, y: 800, w: 1056, h: 600, fit: 'cover' },
-    ],
-    titleBox: { x: 72, y: 80, w: 760, h: 100 },
-    subtitleBox: { x: 72, y: 188, w: 960, h: 72 },
-  },
-  {
-    id: 'tri_top_one_bottom_two',
-    imageCount: 3,
-    name: 'Tri Top One + Bottom Two',
-    description: '上方一张主图，下方两张补充图，适合主视觉加细节场景组合。',
-    previewAssetPath: '/templates/gallery-board/tri-top-one-bottom-two-preview.png',
-    canvasWidth: 1200,
-    canvasHeight: 1500,
-    background: '#161927',
-    slots: [
-      { x: 72, y: 280, w: 1056, h: 560, fit: 'cover' },
-      { x: 72, y: 900, w: 510, h: 500, fit: 'cover' },
-      { x: 618, y: 900, w: 510, h: 500, fit: 'cover' },
-    ],
-    titleBox: { x: 72, y: 80, w: 760, h: 100 },
-    subtitleBox: { x: 72, y: 188, w: 960, h: 72 },
-  },
-  {
-    id: 'quad_mosaic',
-    imageCount: 4,
-    name: 'Quad Mosaic',
-    description: '四宫格拼贴，适合同类款式快速排版。',
-    previewAssetPath: '/templates/gallery-board/quad-mosaic-preview.png',
-    canvasWidth: 1200,
-    canvasHeight: 1200,
-    background: '#0f172a',
-    slots: [
-      { x: 72, y: 220, w: 498, h: 398, fit: 'cover' },
-      { x: 630, y: 220, w: 498, h: 398, fit: 'cover' },
-      { x: 72, y: 680, w: 498, h: 398, fit: 'cover' },
-      { x: 630, y: 680, w: 498, h: 398, fit: 'cover' },
-    ],
-    titleBox: { x: 72, y: 72, w: 640, h: 80 },
-    subtitleBox: { x: 72, y: 150, w: 900, h: 56 },
-  },
-  {
-    id: 'quad_equal_grid',
-    imageCount: 4,
-    name: 'Quad Equal Grid',
-    description: '四图等分，适合统一风格的套餐图输出。',
-    previewAssetPath: '/templates/gallery-board/quad-equal-grid-preview.png',
-    canvasWidth: 1200,
-    canvasHeight: 1500,
-    background: '#111827',
-    slots: [
-      { x: 72, y: 320, w: 498, h: 538, fit: 'cover' },
-      { x: 630, y: 320, w: 498, h: 538, fit: 'cover' },
-      { x: 72, y: 878, w: 498, h: 538, fit: 'cover' },
-      { x: 630, y: 878, w: 498, h: 538, fit: 'cover' },
-    ],
-    titleBox: { x: 72, y: 84, w: 740, h: 100 },
-    subtitleBox: { x: 72, y: 188, w: 960, h: 72 },
-  },
-  {
-    id: 'quad_focus',
-    imageCount: 4,
-    name: 'Quad Focus',
-    description: '一张主图 + 三张辅助图，适合主次关系明显的商品套图。',
-    previewAssetPath: '/templates/gallery-board/quad-focus-preview.png',
-    canvasWidth: 1200,
-    canvasHeight: 1500,
-    background: '#101827',
-    slots: [
-      { x: 72, y: 290, w: 690, h: 1120, fit: 'cover' },
-      { x: 792, y: 290, w: 336, h: 350, fit: 'cover' },
-      { x: 792, y: 675, w: 336, h: 350, fit: 'cover' },
-      { x: 792, y: 1060, w: 336, h: 350, fit: 'cover' },
-    ],
-    titleBox: { x: 72, y: 84, w: 760, h: 100 },
-    subtitleBox: { x: 72, y: 188, w: 940, h: 72 },
-  },
-  {
-    id: 'quad_top_banner',
-    imageCount: 4,
-    name: 'Quad Top Banner',
-    description: '上方横幅主图，下方三图并列，适合一张主卖点带三张辅助图。',
-    previewAssetPath: '/templates/gallery-board/quad-top-banner-preview.png',
-    canvasWidth: 1200,
-    canvasHeight: 1500,
-    background: '#151923',
-    slots: [
-      { x: 72, y: 240, w: 1056, h: 380, fit: 'cover' },
-      { x: 72, y: 700, w: 320, h: 700, fit: 'cover' },
-      { x: 440, y: 700, w: 320, h: 700, fit: 'cover' },
-      { x: 808, y: 700, w: 320, h: 700, fit: 'cover' },
-    ],
-    titleBox: { x: 72, y: 84, w: 760, h: 96 },
-    subtitleBox: { x: 72, y: 188, w: 940, h: 68 },
-  },
-];
+const getCanvasSizeByRatio = (ratioId: TemplateDefinition['ratioId']) => {
+  const matched = CANVAS_SIZE_OPTIONS.find((item) => item.id === ratioId);
+  return matched || CANVAS_SIZE_OPTIONS[2];
+};
 
-const resolveTemplateModeById = (templateId?: string): TemplateDefinition['imageCount'] => {
+const createTemplateDefinition = (
+  id: string,
+  ratioId: TemplateDefinition['ratioId'],
+  assetCount: TemplateDefinition['assetCount'],
+  name: string,
+  description: string,
+  layoutStyle: TemplateDefinition['layoutStyle'],
+  slots: TemplateSlot[]
+): TemplateDefinition => {
+  const canvas = getCanvasSizeByRatio(ratioId);
+  return {
+    id,
+    ratioId,
+    assetCount,
+    layoutStyle,
+    name,
+    description,
+    previewAssetPath: '',
+    canvasWidth: canvas.width,
+    canvasHeight: canvas.height,
+    background: '#111827',
+    slots,
+    titleBox: { x: 0, y: 0, w: 0, h: 0 },
+    subtitleBox: { x: 0, y: 0, w: 0, h: 0 },
+  };
+};
+
+type NormalizedTemplateSlot = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  fit?: 'cover' | 'contain';
+};
+
+const TEMPLATE_MARGIN = 0.06;
+const TEMPLATE_GAP = 0.02;
+const PORTRAIT_TEMPLATE_RATIOS: TemplateDefinition['ratioId'][] = ['3:4', '2:3', '9:16'];
+const LANDSCAPE_TEMPLATE_RATIOS: TemplateDefinition['ratioId'][] = ['4:3', '3:2', '16:9'];
+
+const createNormalizedSlot = (
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  fit: 'cover' | 'contain' = 'cover'
+): NormalizedTemplateSlot => ({ x, y, w, h, fit });
+
+const createGridNormalizedSlots = (
+  columns: number,
+  rows: number,
+  count: number,
+  area: { x?: number; y?: number; w?: number; h?: number; gapX?: number; gapY?: number } = {}
+): NormalizedTemplateSlot[] => {
+  const {
+    x = TEMPLATE_MARGIN,
+    y = TEMPLATE_MARGIN,
+    w = 1 - TEMPLATE_MARGIN * 2,
+    h = 1 - TEMPLATE_MARGIN * 2,
+    gapX = TEMPLATE_GAP,
+    gapY = TEMPLATE_GAP,
+  } = area;
+  const cellW = (w - gapX * (columns - 1)) / columns;
+  const cellH = (h - gapY * (rows - 1)) / rows;
+  const slots: NormalizedTemplateSlot[] = [];
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      slots.push(
+        createNormalizedSlot(
+          x + column * (cellW + gapX),
+          y + row * (cellH + gapY),
+          cellW,
+          cellH
+        )
+      );
+    }
+  }
+
+  return slots.slice(0, count);
+};
+
+const createNormalizedTemplateDefinition = (
+  id: string,
+  ratioId: TemplateDefinition['ratioId'],
+  assetCount: TemplateDefinition['assetCount'],
+  name: string,
+  description: string,
+  layoutStyle: TemplateDefinition['layoutStyle'],
+  slots: NormalizedTemplateSlot[]
+) => {
+  const canvas = getCanvasSizeByRatio(ratioId);
+  return createTemplateDefinition(
+    id,
+    ratioId,
+    assetCount,
+    name,
+    description,
+    layoutStyle,
+    slots.map((slot) => ({
+      ...slot,
+      x: Math.round(slot.x * canvas.width),
+      y: Math.round(slot.y * canvas.height),
+      w: Math.round(slot.w * canvas.width),
+      h: Math.round(slot.h * canvas.height),
+    }))
+  );
+};
+
+const isPortraitTemplateRatio = (ratioId: TemplateDefinition['ratioId']) => PORTRAIT_TEMPLATE_RATIOS.includes(ratioId);
+
+const isLandscapeTemplateRatio = (ratioId: TemplateDefinition['ratioId']) => LANDSCAPE_TEMPLATE_RATIOS.includes(ratioId);
+
+const createTemplatesForRatio = (ratioId: TemplateDefinition['ratioId']): TemplateDefinition[] => {
+  const ratioKey = ratioId.replace(':', '');
+  const portrait = isPortraitTemplateRatio(ratioId);
+  const landscape = isLandscapeTemplateRatio(ratioId);
+  const primaryStyle: TemplateDefinition['layoutStyle'] = portrait ? 'vertical' : landscape ? 'horizontal' : 'balanced';
+  const secondaryStyle: TemplateDefinition['layoutStyle'] = portrait || landscape ? primaryStyle : 'balanced';
+  const accentStyle: TemplateDefinition['layoutStyle'] = portrait ? 'horizontal' : landscape ? 'vertical' : 'balanced';
+
+  const twoPrimarySlots = portrait
+    ? [
+        createNormalizedSlot(0.06, 0.06, 0.88, 0.43),
+        createNormalizedSlot(0.06, 0.51, 0.88, 0.43),
+      ]
+    : [
+        createNormalizedSlot(0.06, 0.06, 0.43, 0.88),
+        createNormalizedSlot(0.51, 0.06, 0.43, 0.88),
+      ];
+  const twoCrossSlots = portrait
+    ? [
+        createNormalizedSlot(0.06, 0.06, 0.43, 0.88),
+        createNormalizedSlot(0.51, 0.06, 0.43, 0.88),
+      ]
+    : [
+        createNormalizedSlot(0.06, 0.06, 0.88, 0.43),
+        createNormalizedSlot(0.06, 0.51, 0.88, 0.43),
+      ];
+  const twoFocusSlots = portrait
+    ? [
+        createNormalizedSlot(0.06, 0.06, 0.56, 0.88),
+        createNormalizedSlot(0.64, 0.06, 0.30, 0.88),
+      ]
+    : landscape
+      ? [
+          createNormalizedSlot(0.06, 0.06, 0.88, 0.56),
+          createNormalizedSlot(0.06, 0.64, 0.88, 0.30),
+        ]
+      : [
+          createNormalizedSlot(0.06, 0.06, 0.54, 0.88),
+          createNormalizedSlot(0.62, 0.06, 0.32, 0.88),
+        ];
+
+  const threeFeatureSlots = portrait
+    ? [
+        createNormalizedSlot(0.06, 0.06, 0.88, 0.44),
+        createNormalizedSlot(0.06, 0.52, 0.43, 0.42),
+        createNormalizedSlot(0.51, 0.52, 0.43, 0.42),
+      ]
+    : landscape
+      ? [
+          createNormalizedSlot(0.06, 0.06, 0.52, 0.88),
+          createNormalizedSlot(0.60, 0.06, 0.34, 0.43),
+          createNormalizedSlot(0.60, 0.51, 0.34, 0.43),
+        ]
+      : [
+          createNormalizedSlot(0.06, 0.06, 0.88, 0.46),
+          createNormalizedSlot(0.06, 0.54, 0.43, 0.40),
+          createNormalizedSlot(0.51, 0.54, 0.43, 0.40),
+        ];
+  const threeStripSlots = createGridNormalizedSlots(3, 1, 3);
+  const threeStackSlots = createGridNormalizedSlots(1, 3, 3);
+
+  const fourFeatureSlots = portrait
+    ? [
+        createNormalizedSlot(0.06, 0.06, 0.88, 0.40),
+        ...createGridNormalizedSlots(3, 1, 3, { x: 0.06, y: 0.48, w: 0.88, h: 0.46 }),
+      ]
+    : landscape
+      ? [
+          createNormalizedSlot(0.06, 0.06, 0.46, 0.88),
+          ...createGridNormalizedSlots(1, 3, 3, { x: 0.54, y: 0.06, w: 0.40, h: 0.88 }),
+        ]
+      : [
+          createNormalizedSlot(0.06, 0.06, 0.52, 0.52),
+          createNormalizedSlot(0.60, 0.06, 0.34, 0.25),
+          createNormalizedSlot(0.60, 0.33, 0.34, 0.25),
+          createNormalizedSlot(0.06, 0.60, 0.88, 0.34),
+        ];
+  const fourGridSlots = createGridNormalizedSlots(2, 2, 4);
+  const fourStripSlots = portrait ? createGridNormalizedSlots(1, 4, 4) : createGridNormalizedSlots(4, 1, 4);
+
+  const fiveFeatureSlots = portrait
+    ? [
+        createNormalizedSlot(0.06, 0.06, 0.88, 0.34),
+        ...createGridNormalizedSlots(2, 2, 4, { x: 0.06, y: 0.42, w: 0.88, h: 0.52 }),
+      ]
+    : landscape
+      ? [
+          createNormalizedSlot(0.06, 0.06, 0.46, 0.88),
+          ...createGridNormalizedSlots(2, 2, 4, { x: 0.54, y: 0.06, w: 0.40, h: 0.88 }),
+        ]
+      : [
+          createNormalizedSlot(0.06, 0.06, 0.55, 0.40),
+          createNormalizedSlot(0.63, 0.06, 0.31, 0.19),
+          createNormalizedSlot(0.63, 0.27, 0.31, 0.19),
+          createNormalizedSlot(0.06, 0.48, 0.43, 0.46),
+          createNormalizedSlot(0.51, 0.48, 0.43, 0.46),
+        ];
+  const fiveTopBottomSlots = [
+    ...createGridNormalizedSlots(2, 1, 2, { x: 0.06, y: 0.06, w: 0.88, h: 0.34 }),
+    ...createGridNormalizedSlots(3, 1, 3, { x: 0.06, y: 0.42, w: 0.88, h: 0.52 }),
+  ];
+  const fiveStripSlots = portrait ? createGridNormalizedSlots(1, 5, 5) : createGridNormalizedSlots(5, 1, 5);
+
+  const sixPrimarySlots = portrait ? createGridNormalizedSlots(2, 3, 6) : createGridNormalizedSlots(3, 2, 6);
+  const sixCrossSlots = portrait ? createGridNormalizedSlots(3, 2, 6) : createGridNormalizedSlots(2, 3, 6);
+  const sixFeatureSlots = portrait
+    ? [
+        createNormalizedSlot(0.06, 0.06, 0.88, 0.28),
+        ...createGridNormalizedSlots(2, 1, 2, { x: 0.06, y: 0.36, w: 0.88, h: 0.24 }),
+        ...createGridNormalizedSlots(3, 1, 3, { x: 0.06, y: 0.62, w: 0.88, h: 0.32 }),
+      ]
+    : landscape
+      ? [
+          createNormalizedSlot(0.06, 0.06, 0.40, 0.88),
+          ...createGridNormalizedSlots(2, 1, 2, { x: 0.48, y: 0.06, w: 0.46, h: 0.40 }),
+          ...createGridNormalizedSlots(3, 1, 3, { x: 0.48, y: 0.52, w: 0.46, h: 0.42 }),
+        ]
+      : [
+          createNormalizedSlot(0.06, 0.06, 0.88, 0.28),
+          ...createGridNormalizedSlots(2, 1, 2, { x: 0.06, y: 0.36, w: 0.88, h: 0.24 }),
+          ...createGridNormalizedSlots(3, 1, 3, { x: 0.06, y: 0.62, w: 0.88, h: 0.32 }),
+        ];
+
+  const sevenStorySlots = portrait
+    ? [
+        createNormalizedSlot(0.06, 0.06, 0.88, 0.30),
+        ...createGridNormalizedSlots(3, 2, 6, { x: 0.06, y: 0.38, w: 0.88, h: 0.56 }),
+      ]
+    : landscape
+      ? [
+          createNormalizedSlot(0.06, 0.06, 0.40, 0.88),
+          ...createGridNormalizedSlots(2, 3, 6, { x: 0.48, y: 0.06, w: 0.46, h: 0.88 }),
+        ]
+      : [
+          createNormalizedSlot(0.06, 0.06, 0.88, 0.28),
+          ...createGridNormalizedSlots(3, 2, 6, { x: 0.06, y: 0.36, w: 0.88, h: 0.58 }),
+        ];
+  const sevenSplitSlots = [
+    ...createGridNormalizedSlots(4, 1, 4, { x: 0.06, y: 0.06, w: 0.88, h: 0.40 }),
+    ...createGridNormalizedSlots(3, 1, 3, { x: 0.06, y: 0.48, w: 0.88, h: 0.46 }),
+  ];
+
+  const eightPrimarySlots = portrait ? createGridNormalizedSlots(2, 4, 8) : createGridNormalizedSlots(4, 2, 8);
+  const eightSplitSlots = [
+    ...createGridNormalizedSlots(4, 1, 4, { x: 0.06, y: 0.06, w: 0.88, h: 0.40 }),
+    ...createGridNormalizedSlots(4, 1, 4, { x: 0.06, y: 0.48, w: 0.88, h: 0.46 }),
+  ];
+
+  const nineGridSlots = createGridNormalizedSlots(3, 3, 9);
+
+  return [
+    createNormalizedTemplateDefinition(
+      `poster-1-${ratioKey}-main`,
+      ratioId,
+      1,
+      'Single Main',
+      '单图大主视觉',
+      primaryStyle,
+      [createNormalizedSlot(0.06, 0.06, 0.88, 0.88)]
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-2-${ratioKey}-primary`,
+      ratioId,
+      2,
+      'Dual Primary',
+      portrait ? '上下双图拼接' : '左右双图拼接',
+      secondaryStyle,
+      twoPrimarySlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-2-${ratioKey}-cross`,
+      ratioId,
+      2,
+      'Dual Cross',
+      portrait ? '左右双图拼接' : '上下双图拼接',
+      accentStyle,
+      twoCrossSlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-2-${ratioKey}-focus`,
+      ratioId,
+      2,
+      'Dual Focus',
+      '一大一小主次拼接',
+      'balanced',
+      twoFocusSlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-3-${ratioKey}-feature`,
+      ratioId,
+      3,
+      'Triple Feature',
+      '一张主图加两张辅图',
+      'balanced',
+      threeFeatureSlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-3-${ratioKey}-strip`,
+      ratioId,
+      3,
+      'Triple Strip',
+      '三图并列结构',
+      'horizontal',
+      threeStripSlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-3-${ratioKey}-stack`,
+      ratioId,
+      3,
+      'Triple Stack',
+      '三图纵向堆叠',
+      'vertical',
+      threeStackSlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-4-${ratioKey}-grid`,
+      ratioId,
+      4,
+      'Quad Grid',
+      '四宫格结构',
+      'balanced',
+      fourGridSlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-4-${ratioKey}-feature`,
+      ratioId,
+      4,
+      'Quad Feature',
+      '一大三小主次排布',
+      'balanced',
+      fourFeatureSlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-4-${ratioKey}-strip`,
+      ratioId,
+      4,
+      'Quad Strip',
+      portrait ? '四图纵向长条拼接' : '四图横向长条拼接',
+      secondaryStyle,
+      fourStripSlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-5-${ratioKey}-feature`,
+      ratioId,
+      5,
+      'Five Feature',
+      '五图主图加四宫格',
+      'balanced',
+      fiveFeatureSlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-5-${ratioKey}-split`,
+      ratioId,
+      5,
+      'Five Split',
+      '上二下三拼接结构',
+      'balanced',
+      fiveTopBottomSlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-5-${ratioKey}-strip`,
+      ratioId,
+      5,
+      'Five Strip',
+      portrait ? '五图纵向长条拼接' : '五图横向长条拼接',
+      secondaryStyle,
+      fiveStripSlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-6-${ratioKey}-primary`,
+      ratioId,
+      6,
+      'Six Primary',
+      portrait ? '六图双列拼接' : '六图三列拼接',
+      'balanced',
+      sixPrimarySlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-6-${ratioKey}-cross`,
+      ratioId,
+      6,
+      'Six Cross',
+      portrait ? '六图三列拼接' : '六图双列拼接',
+      'balanced',
+      sixCrossSlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-6-${ratioKey}-feature`,
+      ratioId,
+      6,
+      'Six Feature',
+      '一张主图加五张辅图',
+      'balanced',
+      sixFeatureSlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-7-${ratioKey}-story`,
+      ratioId,
+      7,
+      'Seven Story',
+      '一张主图加六图故事版',
+      'balanced',
+      sevenStorySlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-7-${ratioKey}-split`,
+      ratioId,
+      7,
+      'Seven Split',
+      '上四下三分组拼接',
+      'balanced',
+      sevenSplitSlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-8-${ratioKey}-primary`,
+      ratioId,
+      8,
+      'Eight Primary',
+      portrait ? '八图双列长图' : '八图双排拼接',
+      'balanced',
+      eightPrimarySlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-8-${ratioKey}-split`,
+      ratioId,
+      8,
+      'Eight Split',
+      '上下双排四列拼接',
+      'balanced',
+      eightSplitSlots
+    ),
+    createNormalizedTemplateDefinition(
+      `poster-9-${ratioKey}-grid`,
+      ratioId,
+      9,
+      'Nine Grid',
+      '九宫格排布',
+      'balanced',
+      nineGridSlots
+    ),
+  ];
+};
+
+const TEMPLATE_DEFINITIONS: TemplateDefinition[] = TEMPLATE_RATIO_OPTIONS.flatMap((ratioId) => createTemplatesForRatio(ratioId));
+
+const applyTemplateVisualControls = (
+  template: TemplateDefinition,
+  gapScale: number,
+  cornerRadiusRatio: number
+) => {
+  const gapFactor = clamp(gapScale, 0.84, 1.08);
+  return template.slots.map((slot) => {
+    const centerX = slot.x + slot.w / 2;
+    const centerY = slot.y + slot.h / 2;
+    const nextW = clamp(slot.w * gapFactor, 64, template.canvasWidth);
+    const nextH = clamp(slot.h * gapFactor, 64, template.canvasHeight);
+    const nextX = clamp(centerX - nextW / 2, 0, Math.max(template.canvasWidth - nextW, 0));
+    const nextY = clamp(centerY - nextH / 2, 0, Math.max(template.canvasHeight - nextH, 0));
+
+    return {
+      ...slot,
+      x: nextX,
+      y: nextY,
+      w: nextW,
+      h: nextH,
+      radius: Math.round(Math.min(nextW, nextH) * clamp(cornerRadiusRatio, 0, 0.25)),
+    };
+  });
+};
+
+const resolveTemplateRatioById = (templateId?: string): TemplateDefinition['ratioId'] => {
   const matched = TEMPLATE_DEFINITIONS.find((item) => item.id === templateId);
-  return matched?.imageCount || TEMPLATE_DEFINITIONS[0].imageCount;
+  return matched?.ratioId || TEMPLATE_DEFINITIONS[0].ratioId;
+};
+
+const resolveDefaultTemplateId = (
+  assetCount: TemplateDefinition['assetCount'],
+  preferredRatioId?: TemplateDefinition['ratioId'],
+  preferredTemplateId?: string
+) => {
+  const preferredTemplate = preferredTemplateId
+    ? TEMPLATE_DEFINITIONS.find((item) => item.id === preferredTemplateId && item.assetCount === assetCount)
+    : null;
+  if (preferredTemplate) return preferredTemplate.id;
+
+  const ratioMatchedTemplate = preferredRatioId
+    ? TEMPLATE_DEFINITIONS.find((item) => item.assetCount === assetCount && item.ratioId === preferredRatioId)
+    : null;
+  if (ratioMatchedTemplate) return ratioMatchedTemplate.id;
+
+  const assetCountMatchedTemplate = TEMPLATE_DEFINITIONS.find((item) => item.assetCount === assetCount);
+  return assetCountMatchedTemplate?.id || TEMPLATE_DEFINITIONS[0].id;
 };
 
 const clamp = (value: number, min: number, max: number) => {
@@ -732,6 +988,44 @@ const getLayerImageDrawRect = (
   };
 };
 
+const drawBoardImageLayer = (
+  context: CanvasRenderingContext2D,
+  layer: Pick<BoardImageLayer, 'x' | 'y' | 'w' | 'h' | 'radius' | 'opacity' | 'fit' | 'showOriginal' | 'cropScale' | 'cropOffsetX' | 'cropOffsetY' | 'rotationQuarterTurns' | 'flipX' | 'flipY'>,
+  image: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number,
+  originX = 0,
+  originY = 0
+) => {
+  const rect = getLayerImageDrawRect(layer, sourceWidth, sourceHeight);
+  const centerX = originX + layer.x + layer.w / 2;
+  const centerY = originY + layer.y + layer.h / 2;
+  const radians = (layer.rotationQuarterTurns || 0) * (Math.PI / 2);
+  const scaleX = layer.flipX ? -1 : 1;
+  const scaleY = layer.flipY ? -1 : 1;
+
+  context.save();
+  context.globalAlpha = clamp(layer.opacity, 0, 1);
+  context.beginPath();
+  context.roundRect(originX + layer.x, originY + layer.y, layer.w, layer.h, layer.radius);
+  context.clip();
+  context.translate(centerX, centerY);
+  context.rotate(radians);
+  context.scale(scaleX, scaleY);
+  context.drawImage(
+    image,
+    0,
+    0,
+    sourceWidth,
+    sourceHeight,
+    -layer.w / 2 + rect.dx,
+    -layer.h / 2 + rect.dy,
+    rect.dw,
+    rect.dh
+  );
+  context.restore();
+};
+
 const alignFrameToContainedImage = (
   layer: Pick<BoardImageLayer, 'x' | 'y' | 'w' | 'h'>,
   sourceWidth: number,
@@ -834,6 +1128,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   historyItems = [],
   productName,
   sellingPoints,
+  initialCanvasRatio,
   initialTemplateId,
   initialTitle,
   initialSubtitle,
@@ -861,7 +1156,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   const [localAssets, setLocalAssets] = useState<GalleryBoardAsset[]>(() => initialLocalAssets || []);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [textFontSizeDraft, setTextFontSizeDraft] = useState('');
-  const [selectedAssetLocalIds, setSelectedAssetLocalIds] = useState<string[]>(() => initialDraft?.selectedAssetLocalIds || []);
+  const [selectedAssetLocalIds, setSelectedAssetLocalIds] = useState<string[]>(() => initialDraft?.selectedAssetLocalIds || assets.map((item) => item.localId));
   const [templateTooltip, setTemplateTooltip] = useState<TemplateTooltipState | null>(null);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [isLibraryPickerOpen, setIsLibraryPickerOpen] = useState(false);
@@ -873,9 +1168,28 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   const [libraryFolders, setLibraryFolders] = useState<AssetFolder[]>([]);
   const [libraryBreadcrumb, setLibraryBreadcrumb] = useState<AssetFolder[]>([]);
   const [libraryCurrentFolderId, setLibraryCurrentFolderId] = useState<string | null>(null);
-  const [templateMode, setTemplateMode] = useState<TemplateDefinition['imageCount']>(() =>
-    initialDraft?.templateMode || resolveTemplateModeById(initialDraft?.board?.templateId || initialTemplateId)
+  const selectedImageAssets = useMemo(
+    () => assets.filter((item) => Boolean(String(item.imageUrl || '').trim())).slice(0, 9),
+    [assets]
   );
+  const selectedAssetCount = Math.min(Math.max(selectedImageAssets.length, 1), 9) as TemplateDefinition['assetCount'];
+  const defaultTemplateId = useMemo(
+    () =>
+      resolveDefaultTemplateId(
+        selectedAssetCount,
+        initialDraft?.templateRatioId || initialCanvasRatio,
+        initialDraft?.board?.templateId || initialTemplateId
+      ),
+    [initialCanvasRatio, initialDraft?.board?.templateId, initialDraft?.templateRatioId, initialTemplateId, selectedAssetCount]
+  );
+  const [templateRatioId, setTemplateRatioId] = useState<TemplateDefinition['ratioId']>(() =>
+    initialDraft?.templateRatioId || initialCanvasRatio || resolveTemplateRatioById(initialDraft?.board?.templateId || initialTemplateId)
+  );
+  const [templateFilterRatio, setTemplateFilterRatio] = useState<TemplateFilterRatio>(() =>
+    initialDraft?.templateRatioId || initialCanvasRatio || 'all'
+  );
+  const [gapScale, setGapScale] = useState(() => initialDraft?.gapScale ?? 1);
+  const [cornerRadiusRatio, setCornerRadiusRatio] = useState(() => initialDraft?.cornerRadiusRatio ?? 0.08);
   const [, setAssetImageMetaVersion] = useState(0);
   const [rightPanelSections, setRightPanelSections] = useState<Record<RightPanelSectionKey, boolean>>({
     board: true,
@@ -918,7 +1232,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     return `board-layer-${layerIdSeedRef.current}`;
   };
 
-  const mergedAssets = useMemo(() => [...localAssets, ...assets], [assets, localAssets]);
+  const mergedAssets = useMemo(() => [...assets, ...localAssets], [assets, localAssets]);
   const historyImageEntries = useMemo(
     () =>
       historyItems
@@ -992,9 +1306,13 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   }, [isLibraryPickerOpen, libraryAssetType, libraryCurrentFolderId, t]);
 
   useEffect(() => {
-    const availableIds = new Set(mergedAssets.map((item) => item.localId));
-    setSelectedAssetLocalIds((prev) => prev.filter((item) => availableIds.has(item)));
-  }, [mergedAssets]);
+    const baseIds = assets.map((item) => item.localId);
+    setSelectedAssetLocalIds((prev) => {
+      const filtered = prev.filter((item) => baseIds.includes(item));
+      if (filtered.length > 0) return filtered;
+      return baseIds;
+    });
+  }, [assets]);
 
   const assetMap = useMemo(() => {
     const entries = mergedAssets
@@ -1003,13 +1321,17 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     return new Map(entries);
   }, [mergedAssets]);
 
-  const assetIds = useMemo(() => Array.from(assetMap.keys()), [assetMap]);
+  const assetIds = useMemo(
+    () => selectedImageAssets.map((item) => item.localId).filter((localId) => assetMap.has(localId)),
+    [assetMap, selectedImageAssets]
+  );
 
   const buildBoardFromTemplate = (
     templateId: string,
     previous?: Partial<BoardState>
   ): BoardState => {
     const template = TEMPLATE_DEFINITIONS.find((item) => item.id === templateId) || TEMPLATE_DEFINITIONS[0];
+    const visualSlots = applyTemplateVisualControls(template, gapScale, cornerRadiusRatio);
     const previousCanvasWidth = Math.max(previous?.canvasWidth || template.canvasWidth, 1);
     const previousCanvasHeight = Math.max(previous?.canvasHeight || template.canvasHeight, 1);
     const scaleX = template.canvasWidth / previousCanvasWidth;
@@ -1018,15 +1340,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       String(initialTitle || '').trim() ||
       String(productName || '').trim() ||
       t.pg_board_product_headline;
-    const subtitleFallback = String(initialSubtitle || '').trim();
-    const sellingPointTexts = Array.from({ length: template.imageCount }, (_, index) => {
-      const current = String(sellingPoints[index] || '').trim();
-      if (current) return current;
-      if (index === 0 && subtitleFallback) return subtitleFallback;
-      return `${t.pi_gallery_output_selling_point} ${index + 1}`;
-    });
-
-    const imageLayers: BoardLayer[] = template.slots.map((slot, index) => ({
+    const imageLayers: BoardLayer[] = visualSlots.map((slot, index) => ({
       id: nextLayerId(),
       type: 'image' as const,
       name: `${t.pg_board_image} ${index + 1}`,
@@ -1036,55 +1350,30 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       w: slot.w,
       h: slot.h,
       fit: slot.fit || 'cover',
-      radius: 0,
+      radius: slot.radius || 0,
       opacity: 1,
       showOriginal: false,
       keepAspectRatio: false,
       cropScale: 1,
       cropOffsetX: 0,
       cropOffsetY: 0,
+      rotationQuarterTurns: 0,
+      flipX: false,
+      flipY: false,
     }));
-
-    const sellingPointLayers: BoardLayer[] = template.slots
-      .slice(0, template.imageCount)
-      .map((slot, index) => {
-        const boxHeight = clamp(Math.round(slot.h * 0.2), 56, 132);
-        const x = clamp(slot.x + 12, 0, template.canvasWidth - 120);
-        const y = clamp(slot.y + slot.h - boxHeight - 12, 0, template.canvasHeight - boxHeight);
-        const maxWidth = Math.max(template.canvasWidth - x, 120);
-        return {
-          id: nextLayerId(),
-          type: 'text',
-          name: `${t.pi_gallery_output_selling_point} ${index + 1}`,
-          text: sellingPointTexts[index],
-          x,
-          y,
-          w: clamp(slot.w - 24, 120, maxWidth),
-          h: boxHeight,
-          fontSize: clamp(Math.round(slot.h * 0.08), 20, 38),
-          fontWeight: 600,
-          fontFamily: 'Microsoft YaHei',
-          color: '#ffffff',
-          background: 'rgba(0,0,0,0.35)',
-          align: 'left',
-          lineHeight: 1.2,
-          padding: 12,
-        } as BoardTextLayer;
-      });
 
     const layers: BoardLayer[] = [
       ...imageLayers,
-      ...sellingPointLayers,
       {
         id: nextLayerId(),
         type: 'text',
         name: t.pg_board_title,
         text: titleText,
-        x: template.titleBox.x,
-        y: template.titleBox.y,
-        w: template.titleBox.w,
-        h: template.titleBox.h,
-        fontSize: template.canvasWidth >= 1200 ? 64 : 54,
+        x: Math.round(template.canvasWidth * 0.06),
+        y: Math.round(template.canvasHeight * 0.04),
+        w: Math.round(template.canvasWidth * 0.62),
+        h: Math.round(template.canvasHeight * 0.08),
+        fontSize: clamp(Math.round(template.canvasWidth * 0.048), 32, 72),
         fontWeight: 700,
         fontFamily: 'Microsoft YaHei',
         color: '#ffffff',
@@ -1121,12 +1410,16 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     };
   };
 
-  const [board, setBoard] = useState<BoardState>(() => initialDraft?.board || buildBoardFromTemplate(initialTemplateId || TEMPLATE_DEFINITIONS[0].id));
+  const [board, setBoard] = useState<BoardState>(() => initialDraft?.board || buildBoardFromTemplate(defaultTemplateId));
   const filteredTemplates = useMemo(
-    () => TEMPLATE_DEFINITIONS.filter((item) => item.imageCount === templateMode),
-    [templateMode]
+    () =>
+      TEMPLATE_DEFINITIONS.filter(
+        (item) =>
+          item.assetCount === selectedAssetCount &&
+          (templateFilterRatio === 'all' || item.ratioId === templateFilterRatio)
+      ),
+    [selectedAssetCount, templateFilterRatio]
   );
-
   useEffect(() => {
     const maxLayerId = board.layers.reduce((maxValue, layer) => {
       const matched = String(layer.id || '').match(/board-layer-(\d+)/);
@@ -1141,15 +1434,27 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       board,
       selectedAssetLocalIds,
       zoom,
-      templateMode,
+      templateRatioId,
+      gapScale,
+      cornerRadiusRatio,
     });
-  }, [board, onDraftChange, selectedAssetLocalIds, templateMode, zoom]);
+  }, [board, cornerRadiusRatio, gapScale, onDraftChange, selectedAssetLocalIds, templateRatioId, zoom]);
 
   useEffect(() => {
     const matched = TEMPLATE_DEFINITIONS.find((item) => item.id === board.templateId);
     if (!matched) return;
-    setTemplateMode((prev) => (prev === matched.imageCount ? prev : matched.imageCount));
+    setTemplateRatioId((prev) => (prev === matched.ratioId ? prev : matched.ratioId));
   }, [board.templateId]);
+
+  useEffect(() => {
+    const matched = TEMPLATE_DEFINITIONS.find((item) => item.id === board.templateId);
+    if (matched && matched.assetCount === selectedAssetCount) return;
+    setBoard((prev) => buildBoardFromTemplate(resolveDefaultTemplateId(selectedAssetCount, templateRatioId, prev.templateId), prev));
+  }, [selectedAssetCount, templateRatioId]);
+
+  useEffect(() => {
+    setTemplateFilterRatio((prev) => (prev === 'all' ? prev : templateRatioId));
+  }, [templateRatioId]);
 
   useEffect(() => {
     const element = viewportRef.current;
@@ -1301,13 +1606,6 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     setLeftPanelSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
-  const toggleAssetSelection = (assetLocalId: string) => {
-    setSelectedAssetLocalIds((prev) => {
-      if (prev.includes(assetLocalId)) return prev.filter((item) => item !== assetLocalId);
-      return [...prev, assetLocalId];
-    });
-  };
-
   const appendImportedAsset = (nextAsset: GalleryBoardAsset) => {
     const imageUrl = String(nextAsset.imageUrl || '').trim();
     if (!imageUrl) {
@@ -1326,8 +1624,6 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       inserted = true;
       return [{ ...nextAsset, imageUrl }, ...prev];
     });
-
-    setSelectedAssetLocalIds((prev) => (prev.includes(localId) ? prev : [localId, ...prev]));
     return inserted;
   };
 
@@ -1497,34 +1793,6 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     }));
   };
 
-  const addImageLayer = (assetLocalId: string, x?: number, y?: number) => {
-    const layer: BoardImageLayer = {
-      id: nextLayerId(),
-      type: 'image',
-      name: t.pg_board_new_image,
-      assetLocalId,
-      x: clamp(x ?? board.canvasWidth * 0.16, 0, Math.max(board.canvasWidth - 320, 0)),
-      y: clamp(y ?? board.canvasHeight * 0.2, 0, Math.max(board.canvasHeight - 320, 0)),
-      w: clamp(board.canvasWidth * 0.28, 180, board.canvasWidth),
-      h: clamp(board.canvasHeight * 0.28, 180, board.canvasHeight),
-      fit: 'cover',
-      radius: 0,
-      opacity: 1,
-      showOriginal: false,
-      keepAspectRatio: false,
-      cropScale: 1,
-      cropOffsetX: 0,
-      cropOffsetY: 0,
-    };
-
-    updateBoard((prev) => ({
-      ...prev,
-      layers: [...prev.layers, layer],
-      selectedLayerId: layer.id,
-      selectedBackground: false,
-    }));
-  };
-
   const replaceSelectedImage = (assetLocalId: string) => {
     if (!selectedLayer || selectedLayer.type !== 'image') {
       onAlert?.(t.pg_board_select_image_layer_first);
@@ -1590,8 +1858,6 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   };
 
   const applyTemplate = (templateId: string) => {
-    const template = TEMPLATE_DEFINITIONS.find((item) => item.id === templateId);
-    if (template) setTemplateMode(template.imageCount);
     setBoard((prev) => buildBoardFromTemplate(templateId, prev));
   };
 
@@ -1765,15 +2031,6 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     startPointerAction({ type: 'background' }, event, 'drag');
   };
 
-  const handleAssetDrop = (event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const assetLocalId = event.dataTransfer.getData('text/vflow-gallery-asset');
-    if (!assetLocalId || !assetMap.has(assetLocalId)) return;
-    const point = toBoardPoint(event.clientX, event.clientY);
-    if (!point) return;
-    addImageLayer(assetLocalId, point.x - 160, point.y - 160);
-  };
-
   const renderBoardToCanvas = async () => {
     const canvas = document.createElement('canvas');
     canvas.width = board.canvasWidth;
@@ -1827,34 +2084,19 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
     for (const layer of board.layers) {
       if (layer.type === 'image') {
-        context.save();
-        context.globalAlpha = clamp(layer.opacity, 0, 1);
-        context.beginPath();
-        context.roundRect(layer.x, layer.y, layer.w, layer.h, layer.radius);
-        context.clip();
-
         const asset = layer.assetLocalId ? assetMap.get(layer.assetLocalId) : undefined;
         const url = String(asset?.imageUrl || '').trim();
         const image = url ? imageCache.get(url) : undefined;
 
         if (image) {
-          const sourceWidth = image.naturalWidth || image.width;
-          const sourceHeight = image.naturalHeight || image.height;
-          const rect = getLayerImageDrawRect(layer, sourceWidth, sourceHeight);
-          context.drawImage(
+          drawBoardImageLayer(
+            context,
+            layer,
             image,
-            0,
-            0,
-            sourceWidth,
-            sourceHeight,
-            layer.x + rect.dx,
-            layer.y + rect.dy,
-            rect.dw,
-            rect.dh
+            image.naturalWidth || image.width,
+            image.naturalHeight || image.height
           );
         }
-
-        context.restore();
         continue;
       }
 
@@ -2004,30 +2246,13 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
         canvas.height = Math.max(1, Math.round(layer.h));
         const context = canvas.getContext('2d');
         if (!context) throw new Error(t.pg_board_export_failed);
-
-        context.save();
-        context.globalAlpha = clamp(layer.opacity, 0, 1);
-        context.beginPath();
-        context.roundRect(0, 0, canvas.width, canvas.height, layer.radius);
-        context.clip();
-
-        const rect = getLayerImageDrawRect(
-          layer,
+        drawBoardImageLayer(
+          context,
+          { ...layer, x: 0, y: 0 },
+          image,
           image.naturalWidth || image.width,
           image.naturalHeight || image.height
         );
-        context.drawImage(
-          image,
-          0,
-          0,
-          image.naturalWidth || image.width,
-          image.naturalHeight || image.height,
-          rect.dx,
-          rect.dy,
-          rect.dw,
-          rect.dh
-        );
-        context.restore();
 
         return await canvasToPngDataUrl(canvas);
       };
@@ -2318,15 +2543,18 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
             {leftPanelSections.templates ? (
               <div className="space-y-2 border-t border-white/10 px-3 pb-3 pt-3">
+                <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-[11px] text-zinc-400">
+                  {t.pg_board_selected_count} {selectedAssetCount}
+                </div>
+
                 <div className="grid grid-cols-4 gap-2">
-                  {TEMPLATE_MODE_OPTIONS.map((mode) => {
-                    const active = templateMode === mode;
-                    const labelKey = TEMPLATE_MODE_LABEL_KEYS[mode];
+                  {(['all', ...TEMPLATE_RATIO_OPTIONS] as TemplateFilterRatio[]).map((ratio) => {
+                    const active = templateFilterRatio === ratio;
                     return (
                       <button
-                        key={mode}
+                        key={ratio}
                         type="button"
-                        onClick={() => setTemplateMode(mode)}
+                        onClick={() => setTemplateFilterRatio(ratio)}
                         className={`rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition ${
                           active
                             ? (isLightTheme
@@ -2337,7 +2565,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                                 : 'border-white/10 bg-zinc-900/70 text-zinc-300 hover:bg-zinc-800')
                         }`}
                       >
-                        {t[labelKey]}
+                        {ratio === 'all' ? t.pg_board_ratio_all : ratio}
                       </button>
                     );
                   })}
@@ -2537,8 +2765,6 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                 background: board.background || '#111111',
               }}
               onClick={clearSelection}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={handleAssetDrop}
             >
               {backgroundImageUrl ? (
                 <div
@@ -2632,9 +2858,11 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                                     top: imageRect.dy * boardScale,
                                     width: imageRect.dw * boardScale,
                                     height: imageRect.dh * boardScale,
+                                    transform: `rotate(${((layer.rotationQuarterTurns || 0) * 90).toFixed(0)}deg) scale(${layer.flipX ? -1 : 1}, ${layer.flipY ? -1 : 1})`,
+                                    transformOrigin: 'center center',
                                   }
                                 : {
-                                    transform: `translate(${(clamp(layer.cropOffsetX ?? 0, -1, 1) * 50).toFixed(2)}%, ${(clamp(layer.cropOffsetY ?? 0, -1, 1) * 50).toFixed(2)}%) scale(${clamp(layer.cropScale ?? 1, 1, 6)})`,
+                                    transform: `translate(${(clamp(layer.cropOffsetX ?? 0, -1, 1) * 50).toFixed(2)}%, ${(clamp(layer.cropOffsetY ?? 0, -1, 1) * 50).toFixed(2)}%) rotate(${((layer.rotationQuarterTurns || 0) * 90).toFixed(0)}deg) scale(${(layer.flipX ? -1 : 1) * clamp(layer.cropScale ?? 1, 1, 6)}, ${(layer.flipY ? -1 : 1) * clamp(layer.cropScale ?? 1, 1, 6)})`,
                                     transformOrigin: 'center center',
                                   }
                             }
@@ -2701,6 +2929,46 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
             {rightPanelSections.board ? (
               <div className="border-t border-white/10 px-4 pb-4 pt-4 space-y-3">
+            <div className="rounded-xl border border-white/10 bg-black/20 p-3 space-y-3">
+              <label className="space-y-1">
+                <div className="flex items-center justify-between text-[11px] text-zinc-500">
+                  <span>{t.pg_board_gap_control || '拼接缝隙'}</span>
+                  <span>{gapScale.toFixed(2)}x</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.84"
+                  max="1.08"
+                  step="0.01"
+                  value={gapScale}
+                  onChange={(event) => {
+                    const next = clamp(Number(event.target.value) || 1, 0.84, 1.08);
+                    setGapScale(next);
+                    setBoard((prev) => buildBoardFromTemplate(prev.templateId, prev));
+                  }}
+                  className="w-full accent-orange-400"
+                />
+              </label>
+              <label className="space-y-1">
+                <div className="flex items-center justify-between text-[11px] text-zinc-500">
+                  <span>{t.pg_board_corner_ratio || '全局圆角'}</span>
+                  <span>{Math.round(cornerRadiusRatio * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="0.25"
+                  step="0.01"
+                  value={cornerRadiusRatio}
+                  onChange={(event) => {
+                    const next = clamp(Number(event.target.value) || 0, 0, 0.25);
+                    setCornerRadiusRatio(next);
+                    setBoard((prev) => buildBoardFromTemplate(prev.templateId, prev));
+                  }}
+                  className="w-full accent-orange-400"
+                />
+              </label>
+            </div>
             <label className="space-y-1">
               <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
                 {t.pg_board_canvas_ratio}
@@ -3199,6 +3467,52 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                       />
                     </label>
                   </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateSelectedImageLayer({
+                          rotationQuarterTurns: (((selectedLayer.rotationQuarterTurns || 0) + 3) % 4) as 0 | 1 | 2 | 3,
+                        })
+                      }
+                      className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
+                    >
+                      {t.pg_board_rotate_left || '左转90°'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateSelectedImageLayer({
+                          rotationQuarterTurns: (((selectedLayer.rotationQuarterTurns || 0) + 1) % 4) as 0 | 1 | 2 | 3,
+                        })
+                      }
+                      className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
+                    >
+                      {t.pg_board_rotate_right || '右转90°'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateSelectedImageLayer({ flipX: !selectedLayer.flipX })}
+                      className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                        selectedLayer.flipX
+                          ? 'border-orange-500/30 bg-orange-500/10 text-orange-200'
+                          : 'border-white/10 bg-zinc-900/70 text-zinc-200 hover:bg-zinc-800'
+                      }`}
+                    >
+                      {t.pg_board_flip_horizontal || '水平翻转'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateSelectedImageLayer({ flipY: !selectedLayer.flipY })}
+                      className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                        selectedLayer.flipY
+                          ? 'border-orange-500/30 bg-orange-500/10 text-orange-200'
+                          : 'border-white/10 bg-zinc-900/70 text-zinc-200 hover:bg-zinc-800'
+                      }`}
+                    >
+                      {t.pg_board_flip_vertical || '垂直翻转'}
+                    </button>
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="space-y-1">
                       <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
@@ -3388,8 +3702,8 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
             {rightPanelSections.assets ? (
               <div className="border-t border-white/10 px-4 pb-4 pt-4">
                 <div className="space-y-3">
-                  <div className="text-[11px] text-zinc-500">
-                    {t.pg_board_selected_count} {selectedAssetLocalIds.length}
+                  <div className="text-sm font-semibold text-zinc-200">
+                    {t.pg_board_selected_count}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <input
@@ -3431,42 +3745,31 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                       const imageUrl = String(asset.imageUrl || '').trim();
                       const canRender = Boolean(imageUrl);
                       const canReplace = canRender && selectedLayer?.type === 'image';
-                      const isAssetSelected = selectedAssetLocalIds.includes(asset.localId);
+                      const isTemplateAsset = selectedAssetLocalIds.includes(asset.localId);
                       return (
                         <div
                           key={asset.localId}
                           className={`rounded-xl border p-2.5 ${
-                            isAssetSelected ? 'border-orange-500/40 bg-orange-500/5' : 'border-white/10 bg-black/20'
+                            isTemplateAsset ? 'border-orange-500/40 bg-orange-500/5' : 'border-white/10 bg-black/20'
                           }`}
                         >
                           <div className="mb-2 flex items-center justify-between gap-2 min-w-0">
                             <div className="truncate text-[11px] font-semibold text-zinc-200">
-                              {t.pg_board_image} {index + 1}
+                              {isTemplateAsset ? `${t.pg_board_image} ${index + 1}` : asset.requestId}
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => toggleAssetSelection(asset.localId)}
-                              className={`shrink-0 rounded-lg border px-2 py-1 text-[10px] font-semibold transition ${
-                                isAssetSelected
-                                  ? 'border-orange-500/30 bg-orange-500/10 text-orange-200'
-                                  : 'border-white/10 bg-zinc-900/70 text-zinc-300 hover:bg-zinc-800'
-                              }`}
-                            >
-                              {isAssetSelected ? t.pg_board_selected : t.pg_board_select_layout}
-                            </button>
+                            {isTemplateAsset ? (
+                              <div className="shrink-0 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-[10px] font-semibold text-orange-200">
+                                {t.pg_board_selected}
+                              </div>
+                            ) : null}
                           </div>
 
                           <div
-                            draggable={canRender}
                             onClick={() => {
                               if (!canRender) return;
                               openBoardImagePreview(imageUrl);
                             }}
-                            onDragStart={(event) => {
-                              if (!canRender) return;
-                              event.dataTransfer.setData('text/vflow-gallery-asset', asset.localId);
-                            }}
-                            className={`overflow-hidden rounded-lg border border-white/10 bg-zinc-950/60 ${canRender ? 'cursor-pointer active:cursor-grabbing' : ''}`}
+                            className={`overflow-hidden rounded-lg border border-white/10 bg-zinc-950/60 ${canRender ? 'cursor-pointer' : ''}`}
                           >
                             {canRender ? (
                               <img src={imageUrl} alt={asset.requestId} className="h-24 w-full object-cover" />
@@ -3478,15 +3781,6 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                           </div>
 
                           <div className="mt-2 grid grid-cols-1 gap-2">
-                            <button
-                              type="button"
-                              disabled={!canRender}
-                              onClick={() => addImageLayer(asset.localId)}
-                              className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-zinc-900/70 px-2.5 py-2 text-[11px] font-semibold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-40"
-                            >
-                              <ImagePlus className="h-3.5 w-3.5" />
-                              {t.pg_board_add_to_board}
-                            </button>
                             <button
                               type="button"
                               disabled={!canReplace}

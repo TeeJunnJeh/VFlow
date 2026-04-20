@@ -160,9 +160,6 @@ export type ImagesGalleryViewProps = {
   setGalleryOutputItems: React.Dispatch<React.SetStateAction<GalleryOutputItemConfig[]>>;
   galleryPreviewAspectRatio: string;
   openGalleryAiOutputPlanner: () => void;
-  handleGalleryAiLayoutSuggestions: () => void | Promise<void>;
-  openGalleryAiLayoutPromptDialog: () => void;
-  isGalleryAiLayoutDesigning: boolean;
 
   handleGalleryGenerate: () => void;
   isGalleryGenerating: boolean;
@@ -617,9 +614,6 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     galleryOutputItems,
     setGalleryOutputItems,
     openGalleryAiOutputPlanner,
-    handleGalleryAiLayoutSuggestions,
-    openGalleryAiLayoutPromptDialog,
-    isGalleryAiLayoutDesigning,
 
     handleGalleryGenerate,
     isGalleryGenerating,
@@ -1566,25 +1560,6 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 >
                   <Sparkles className="h-3.5 w-3.5" />
                   {t.pg_img_ai_recommended_mix}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void handleGalleryAiLayoutSuggestions();
-                  }}
-                  disabled={isGalleryAiLayoutDesigning || galleryAdvancedItemCount <= 0}
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-bold text-zinc-100 transition hover:bg-white/10 disabled:opacity-50"
-                >
-                  <Wand2 className="h-3.5 w-3.5" />
-                  {isGalleryAiLayoutDesigning ? t.pg_img_designing : t.pg_img_ai_design_for_me}
-                </button>
-                <button
-                  type="button"
-                  onClick={openGalleryAiLayoutPromptDialog}
-                  disabled={isGalleryAiLayoutDesigning || galleryAdvancedItemCount <= 0}
-                  className="inline-flex items-center gap-1 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-[11px] font-bold text-zinc-300 transition hover:bg-white/5 disabled:opacity-50"
-                >
-                  {t.pg_img_advanced_settings}
                 </button>
               </div>
 

@@ -4636,6 +4636,19 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
+      {currentValue === 'product_images_gallery' && (
+        <button
+          type="button"
+          onClick={() => {
+            window.dispatchEvent(new CustomEvent('vflow:open-product-gallery-guide'));
+          }}
+          className="px-3 py-2 rounded-xl text-xs font-bold transition border border-orange-500/30 bg-orange-500/10 text-orange-300 hover:bg-orange-500/15 inline-flex items-center gap-2"
+          title={tr('商品套图新手引导', 'Product Gallery Guide')}
+        >
+          <Sparkles className="w-4 h-4" />
+          {tr('新手引导', 'Guide')}
+        </button>
+      )}
           <LanguageSwitcher />
           {currentValue === 'product_images_first_frame' && <div ref={setFirstFrameHeaderActionsContainer} className="flex items-center gap-3" />}
         </div>

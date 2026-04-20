@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, Eye, Image as ImageIcon, LayoutGrid, Minus, Plus, RotateCw, Sparkles, Upload, Wand2, X } from 'lucide-react';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import type { ViewType } from '../../../workbench/types';
@@ -348,6 +348,146 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
   const [resourceHighlight, setResourceHighlight] = useState<'model' | 'scene' | null>(null);
   const modelSectionRef = useRef<HTMLDivElement | null>(null);
   const sceneSectionRef = useRef<HTMLDivElement | null>(null);
+  const galleryLeftPanelRef = useRef<HTMLDivElement | null>(null);
+  const galleryMiddlePanelRef = useRef<HTMLDivElement | null>(null);
+  const galleryRightPanelRef = useRef<HTMLDivElement | null>(null);
+  const galleryGenerateRef = useRef<HTMLDivElement | null>(null);
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [guideStepIndex, setGuideStepIndex] = useState(0);
+  const [guidePanelStyle, setGuidePanelStyle] = useState<React.CSSProperties>({});
+  const [guideHighlightStyle, setGuideHighlightStyle] = useState<React.CSSProperties>({});
+
+  type GuideStepKey = 'left' | 'middle' | 'generate' | 'right';
+  const guideSteps = useMemo<Array<{ key: GuideStepKey; title: string; description: string }>>(
+    () => [
+      { key: 'left', title: props.tr('上传商品图', 'Upload product images'), description: props.tr('先上传最多 3 张商品图，并补充商品信息与卖点。', 'Upload up to 3 product images, then fill product info and selling points.') },
+      { key: 'middle', title: props.tr('配置出图方案', 'Configure outputs'), description: props.tr('选择目标场景/风格/语言，并用快速批量或高级编辑配置要生成的出图卡。', 'Pick scene/style/language, then configure output cards via Quick Batch or Advanced Editing.') },
+      { key: 'generate', title: props.tr('开始生成', 'Generate'), description: props.tr('确认配置后点击开始生成，系统会按出图卡逐张生成。', 'Click Generate to start. The system will generate results card by card.') },
+      { key: 'right', title: props.tr('查看结果与历史', 'Preview & history'), description: props.tr('在预览区查看实时结果，也可以切换到历史记录管理素材。', 'Check results in Preview, or switch to History to manage past generations.') },
+    ],
+    [props]
+  );
+
+  const activeGuideStep = isGuideOpen ? guideSteps[guideStepIndex] : null;
+  const isGuideFocused = (key: GuideStepKey) => activeGuideStep?.key === key;
+  const getGuideFocusClass = (key: GuideStepKey) => (
+    isGuideFocused(key)
+      ? 'relative z-[85] ring-2 ring-orange-400/80 ring-offset-2 ring-offset-black/60 shadow-[0_0_24px_rgba(251,146,60,0.35)] rounded-2xl'
+      : ''
+  );
+
+  const getGuideTargetElement = useCallback(() => {
+    const map: Record<GuideStepKey, React.RefObject<HTMLDivElement | null>> = {
+      left: galleryLeftPanelRef,
+      middle: galleryMiddlePanelRef,
+      generate: galleryGenerateRef,
+      right: galleryRightPanelRef,
+    };
+    const key = guideSteps[guideStepIndex]?.key;
+    return key ? map[key]?.current || null : null;
+  }, [guideStepIndex, guideSteps]);
+
+  const updateGuidePanelPosition = useCallback(() => {
+    const target = getGuideTargetElement();
+    const viewportPadding = 12;
+    const panelWidth = Math.min(420, window.innerWidth - viewportPadding * 2);
+    const panelHeight = 330;
+    const highlightPadding = 10;
+
+    if (!target) {
+      setGuidePanelStyle({
+        width: `${panelWidth}px`,
+        left: `${Math.max(viewportPadding, Math.round((window.innerWidth - panelWidth) / 2))}px`,
+        top: `${Math.max(viewportPadding, Math.round((window.innerHeight - panelHeight) / 2))}px`,
+      });
+      setGuideHighlightStyle({ display: 'none' });
+      return;
+    }
+
+    const rect = target.getBoundingClientRect();
+    setGuideHighlightStyle({
+      left: `${Math.round(rect.left - highlightPadding)}px`,
+      top: `${Math.round(rect.top - highlightPadding)}px`,
+      width: `${Math.round(rect.width + highlightPadding * 2)}px`,
+      height: `${Math.round(rect.height + highlightPadding * 2)}px`,
+    });
+    let left = rect.right + 16;
+    if (left + panelWidth > window.innerWidth - viewportPadding) {
+      left = rect.left - panelWidth - 16;
+    }
+    if (left < viewportPadding) {
+      left = Math.max(viewportPadding, Math.round((window.innerWidth - panelWidth) / 2));
+    }
+
+    let top = rect.top;
+    if (top + panelHeight > window.innerHeight - viewportPadding) {
+      top = window.innerHeight - panelHeight - viewportPadding;
+    }
+    if (top < viewportPadding) {
+      top = viewportPadding;
+    }
+
+    setGuidePanelStyle({
+      width: `${panelWidth}px`,
+      left: `${Math.round(left)}px`,
+      top: `${Math.round(top)}px`,
+    });
+  }, [getGuideTargetElement]);
+
+  const galleryGuideSeenKey = useMemo(() => 'vflow_product_gallery_guide_seen_v1', []);
+  const markGalleryGuideSeen = useCallback(() => {
+    try {
+      window.localStorage.setItem(galleryGuideSeenKey, '1');
+    } catch {
+    }
+  }, [galleryGuideSeenKey]);
+
+  useEffect(() => {
+    const handler = () => {
+      setGuideStepIndex(0);
+      setIsGuideOpen(true);
+    };
+    window.addEventListener('vflow:open-product-gallery-guide', handler as EventListener);
+    return () => window.removeEventListener('vflow:open-product-gallery-guide', handler as EventListener);
+  }, []);
+
+  useEffect(() => {
+    if (isGuideOpen) return;
+    try {
+      if (window.localStorage.getItem(galleryGuideSeenKey) === '1') return;
+    } catch {
+    }
+    const timer = window.setTimeout(() => {
+      setGuideStepIndex(0);
+      setIsGuideOpen(true);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [galleryGuideSeenKey, isGuideOpen]);
+
+  useEffect(() => {
+    if (!isGuideOpen) return;
+    const target = getGuideTargetElement();
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    }
+
+    const timer = window.setTimeout(() => {
+      updateGuidePanelPosition();
+    }, 260);
+
+    const onViewportChange = () => {
+      updateGuidePanelPosition();
+    };
+
+    window.addEventListener('scroll', onViewportChange, true);
+    window.addEventListener('resize', onViewportChange);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('scroll', onViewportChange, true);
+      window.removeEventListener('resize', onViewportChange);
+    };
+  }, [guideStepIndex, getGuideTargetElement, isGuideOpen, updateGuidePanelPosition]);
 
   useEffect(() => {
     const savedLeftWidth = localStorage.getItem('gallery_left_width');
@@ -711,7 +851,8 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     <div className={`${panelClassName('product_images_gallery')} h-full min-h-0 flex flex-col px-10 py-6`}>
       <div className="flex-1 min-h-0 flex overflow-hidden relative" id="gallery-container">
         <div
-          className="flex flex-col gap-3 min-h-0 overflow-y-auto custom-scroll pr-2 shrink-0 transition-colors duration-150 rounded-2xl border border-white/5 bg-white/2 hover:border-orange-500/20"
+          ref={galleryLeftPanelRef}
+          className={`flex flex-col gap-3 min-h-0 overflow-y-auto custom-scroll pr-2 shrink-0 transition-colors duration-150 rounded-2xl border border-white/5 bg-white/2 hover:border-orange-500/20 ${getGuideFocusClass('left')}`}
           style={{ width: `${leftWidth}px`, minWidth: `${GALLERY_PANEL_MIN_WIDTH}px` }}
           data-testid="left-panel"
         >
@@ -720,14 +861,16 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
               <div className="text-sm font-bold text-zinc-200">
                 {t.wb_product_images_gallery_upload_title || 'Upload Product Images'}
               </div>
-              <button
-                type="button"
-                onClick={handleGalleryAiAnalyze}
-                disabled={isGalleryAnalyzing}
-                className="px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 disabled:opacity-60 disabled:hover:bg-zinc-900/70 transition"
-              >
-                {isGalleryAnalyzing ? tr('填写中...', 'Filling...') : tr('AI帮我填', 'AI Fill')}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleGalleryAiAnalyze}
+                  disabled={isGalleryAnalyzing}
+                  className="px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 disabled:opacity-60 disabled:hover:bg-zinc-900/70 transition"
+                >
+                  {isGalleryAnalyzing ? tr('填写中...', 'Filling...') : tr('AI帮我填', 'AI Fill')}
+                </button>
+              </div>
             </div>
 
             <div className="mt-3">
@@ -1319,7 +1462,8 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
         />
 
         <div
-          className="flex flex-col gap-4 min-h-0 overflow-y-auto custom-scroll pr-2 shrink-0 transition-[width] duration-100 border border-transparent hover:border-orange-500/20"
+          ref={galleryMiddlePanelRef}
+          className={`flex flex-col gap-4 min-h-0 overflow-y-auto custom-scroll pr-2 shrink-0 transition-[width] duration-100 border border-transparent hover:border-orange-500/20 ${getGuideFocusClass('middle')}`}
           style={{ width: `${middleWidth}px`, minWidth: `${GALLERY_PANEL_MIN_WIDTH}px` }}
           data-testid="middle-panel"
         >
@@ -1847,7 +1991,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
             </div>
 
-            <div className="mt-auto pt-6">
+            <div ref={galleryGenerateRef} className={`mt-auto pt-6 ${getGuideFocusClass('generate')}`}>
               <button
                 type="button"
                 onClick={handleGalleryGenerate}
@@ -1880,7 +2024,8 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
         />
 
         <div
-          className="flex-1 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0 overflow-hidden border border-transparent hover:border-orange-500/20"
+          ref={galleryRightPanelRef}
+          className={`flex-1 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0 overflow-hidden border border-transparent hover:border-orange-500/20 ${getGuideFocusClass('right')}`}
           style={{ minWidth: `${GALLERY_PANEL_MIN_WIDTH}px` }}
           data-testid="right-panel"
         >
@@ -2372,6 +2517,83 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
         </div>
       </div>
     </AppDialog>
+    {isGuideOpen && (
+      <div
+        className="fixed inset-0 z-[120]"
+        onClick={() => {
+          setIsGuideOpen(false);
+          markGalleryGuideSeen();
+        }}
+      >
+        <div
+          className="absolute rounded-2xl border-2 border-orange-400/90 bg-transparent pointer-events-none shadow-[0_0_0_9999px_rgba(0,0,0,0.72),0_0_32px_rgba(249,115,22,0.35)]"
+          style={guideHighlightStyle}
+        />
+        <div
+          className="absolute rounded-2xl border border-orange-500/30 bg-zinc-950/95 shadow-2xl shadow-black/60 backdrop-blur p-4"
+          style={guidePanelStyle}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-base font-bold text-white">{tr('商品套图新手引导', 'Product Gallery Guide')}</div>
+              <div className="mt-1 text-xs text-zinc-400">{tr('步骤', 'Step')} {guideStepIndex + 1} / {guideSteps.length}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setIsGuideOpen(false); markGalleryGuideSeen(); }}
+              className="text-zinc-400 hover:text-white"
+              title={tr('关闭', 'Close')}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="mt-4 rounded-xl border border-white/10 bg-black/30 px-3 py-3">
+            <div className="text-sm font-bold text-orange-200">{activeGuideStep?.title || ''}</div>
+            <div className="mt-2 text-xs leading-5 text-zinc-300">{activeGuideStep?.description || ''}</div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {guideSteps.map((step, index) => (
+              <button
+                key={step.key}
+                type="button"
+                onClick={() => setGuideStepIndex(index)}
+                className={`text-left rounded-lg border px-3 py-2 text-xs transition ${guideStepIndex === index ? 'border-orange-500/70 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-black/40 text-zinc-300 hover:bg-white/5'}`}
+              >
+                {index + 1}. {step.title}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-4 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setGuideStepIndex((prev) => Math.max(0, prev - 1))}
+              disabled={guideStepIndex <= 0}
+              className="px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5 transition"
+            >
+              {tr('上一步', 'Prev')}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (guideStepIndex >= guideSteps.length - 1) {
+                  setIsGuideOpen(false);
+                  markGalleryGuideSeen();
+                  return;
+                }
+                setGuideStepIndex((prev) => Math.min(guideSteps.length - 1, prev + 1));
+              }}
+              className="px-4 py-2 rounded-xl bg-orange-500 text-xs font-bold text-black hover:bg-orange-400 transition"
+            >
+              {guideStepIndex >= guideSteps.length - 1 ? tr('完成', 'Finish') : tr('下一步', 'Next')}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 };

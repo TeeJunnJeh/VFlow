@@ -188,6 +188,12 @@ const getImageModelPricingEntry = (
   return pricing?.image?.models?.[modelKey] || null;
 };
 
+const isSeedanceModel = (modelId: string | null | undefined) => {
+  const normalized = String(modelId || '').trim();
+  const modelKey = VIDEO_MODEL_PRICING_ALIASES[normalized] || normalized;
+  return modelKey === 'seedance-2.0';
+};
+
 const getSeedanceReplayLocalAccept = (mediaKind?: SeedanceReplayMediaKind | null) => {
   if (mediaKind === 'image') return SEEDANCE_REPLAY_IMAGE_EXTS.map((ext) => `.${ext}`).join(',');
   if (mediaKind === 'video') return SEEDANCE_REPLAY_VIDEO_EXTS.map((ext) => `.${ext}`).join(',');
@@ -3461,6 +3467,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!Number.isFinite(rate) || rate <= 0) return '-';
     return `${rate}${t.wb_vpoints_per_sec || ''}`;
   };
+  const formatApproxVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined) => {
+    const label = formatVideoRateLabel(entry);
+    if (label === '-') return label;
+    return `${t.wb_rate_approx_prefix || 'Approx. '}${label}`;
+  };
   const queuedRenderableAssetCount = assetQueue.length === 0
     ? 0
     : Math.max(1, assetQueue.filter((asset) => asset.mediaKind !== 'audio').length);
@@ -3507,7 +3518,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return Math.max(0, Math.round(rate * totalSeconds));
   }, [batchGenerateSlots, enableStoryboardEditor, genDuration, scriptPages, selectedVideoPricing]);
 
-  const estimatedVideoCostLabel = estimatedVideoCost > 0 ? `-${estimatedVideoCost} ${t.v_points || 'V点'}` : '';
+  const estimatedVideoCostLabel = estimatedVideoCost > 0 && !isSeedanceModel(selectedModel) ? `-${estimatedVideoCost} ${t.v_points || 'V点'}` : '';
   const estimatedImageCostLabel = estimatedImageCost > 0 ? `-${estimatedImageCost} ${t.v_points || 'V点'}` : '';
   const estimatedBatchVideoCostLabel = estimatedBatchVideoCost > 0 ? `-${estimatedBatchVideoCost} ${t.v_points || 'V点'}` : '';
   const hasCurrentAsset = Boolean(uploadedFile || selectedAssetUrl || selectedFileObj);
@@ -8736,7 +8747,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         <Check className="w-2.5 h-2.5 text-white" />
                       </div>
                       <div className="text-[8px] whitespace-nowrap font-bold text-orange-500">
-                        {formatVideoRateLabel(getVideoModelPricingEntry(billingPricing, 'seedance2.0', 'replay'))}
+                        {formatApproxVideoRateLabel(getVideoModelPricingEntry(billingPricing, 'seedance2.0', 'replay'))}
                       </div>
                     </div>
                   </div>

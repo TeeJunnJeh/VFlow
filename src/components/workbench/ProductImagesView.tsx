@@ -1,8 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Eye, Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download, FileDown, ChevronLeft, ChevronRight, LayoutGrid, ArrowLeft, PencilLine, Trash2, Zap, Check } from 'lucide-react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Eye, Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download, FileDown, ChevronLeft, ChevronRight, LayoutGrid, ArrowLeft, PencilLine, Trash2, Zap, Check, Shirt, Wrench, Clapperboard } from 'lucide-react';
 import type { ViewType } from './types';
 import { useLanguage } from '../../context/LanguageContext';
-import { DropdownSelect, type DropdownSelectOption } from '../common/DropdownSelect';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { FirstFrameView, ImagesGalleryView, SmartRepairView } from '../productImages';
 import { AppDialog } from '../common/AppDialog';
@@ -788,82 +787,44 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const panelClassName = (view: ViewType) => (currentValue === view ? 'block' : 'hidden');
   const [firstFrameHeaderActionsContainer, setFirstFrameHeaderActionsContainer] = useState<HTMLDivElement | null>(null);
 
-  const productToolOptions = useMemo<DropdownSelectOption[]>(
-    () => [
-      {
-        value: 'product_images_clothing_swap',
-        label: tx('wb_nav_product_clothing_swap', tr('AI 换装', 'AI Clothing Swap')),
-      },
-      {
-        value: 'product_images_first_frame',
-        label: tx('wb_nav_product_first_frame', tr('AI 首帧图', 'AI First Frame')),
-      },
-      {
-        value: 'product_images_smart_repair',
-        label: tx('wb_nav_product_smart_repair', tr('AI 智能修复', 'AI Smart Repair')),
-      },
-      {
-        value: 'product_images_gallery',
-        label: tx('wb_nav_product_gallery', tr('AI 商品套图', 'AI Product Gallery')),
-      },
-      {
-        value: 'product_images_text_separation',
-        label: tx('wb_nav_product_text_separation', tr('AI 海报编辑', 'AI Poster Editor')),
-      },
-    ],
-    [t, isZh]
-  );
-
-  const [isProductToolMenuOpen, setIsProductToolMenuOpen] = useState(false);
-  const productToolMenuRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!isProductToolMenuOpen) return;
-
-    const handleClickOutside = (event: MouseEvent) => {
-      if (productToolMenuRef.current && !productToolMenuRef.current.contains(event.target as Node)) {
-        setIsProductToolMenuOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isProductToolMenuOpen]);
-
-  useEffect(() => {
-    setIsProductToolMenuOpen(false);
-  }, [currentValue]);
-
   const currentHeader = useMemo(() => {
     switch (currentValue) {
       case 'product_images_clothing_swap':
         return {
+          icon: Shirt,
           title: tr('AI 换装', 'AI Clothing Swap'),
           subtitle: tr('商品服饰智能换装功能开发中', 'AI clothing swap is currently in development.'),
         };
       case 'product_images_smart_repair':
         return {
+          icon: Wrench,
           title: tr('AI 智能修复', 'AI Smart Repair'),
           subtitle: tr('基于三类能力中心进行可扩展的智能修图', 'Extensible smart-retouch workspace with three capability groups'),
         };
       case 'product_images_gallery':
         return {
+          icon: LayoutGrid,
           title: tr('商品套图', 'Product Gallery'),
           subtitle: tr('围绕商品信息与场景配置批量生成电商图', 'Generate e-commerce image sets from product info and scene settings'),
         };
       case 'product_images_text_separation':
         return {
+          icon: PencilLine,
           title: tr('AI 海报编辑', 'AI Poster Editor'),
           subtitle: tr('上传一张带字海报，自动提取可编辑文本框，并通过文本重绘把灵感快速变成新的视觉方案。', 'Upload a poster with text, automatically extract editable text blocks, and use text-to-image to quickly turn your inspiration into new visual concepts.'),
         };
       case 'product_images_first_frame':
       default:
         return {
+          icon: Clapperboard,
           title: t.ff_page_title || tr('AI 首帧图生成', 'AI First Frame Generation'),
           subtitle: '',
         };
     }
   }, [currentValue, t, isZh]);
+
+
+  const CurrentHeaderIcon = currentHeader.icon;
 
   const [galleryImages, setGalleryImages] = useState<File[]>([]);
   const [galleryProductName, setGalleryProductName] = useState('');
@@ -4665,50 +4626,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
       <header className="relative z-50 flex justify-between gap-6 px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm">
         <div className="min-w-0">
-          <div ref={productToolMenuRef} className="relative inline-block">
-            <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
-              <button
-                type="button"
-                onClick={() => setIsProductToolMenuOpen((prev) => !prev)}
-                className="group inline-flex items-center gap-2 rounded-lg px-2 py-1 -ml-2 text-left transition hover:bg-white/5"
-                aria-haspopup="listbox"
-                aria-expanded={isProductToolMenuOpen}
-              >
-                <ChevronDown
-                  className={`w-5 h-5 text-zinc-400 transition-transform ${isProductToolMenuOpen ? 'rotate-0' : '-rotate-90'} group-hover:text-zinc-200`}
-                />
-                <span>{currentHeader.title}</span>
-              </button>
-            </h1>
-
-            {isProductToolMenuOpen ? (
-              <div
-                className="absolute left-0 mt-2 w-56 max-h-72 overflow-auto custom-scroll rounded-xl border border-white/10 bg-zinc-950/95 backdrop-blur-sm shadow-xl z-[210] py-2"
-                role="listbox"
-              >
-                {productToolOptions.map((opt) => {
-                  const selected = opt.value === currentValue;
-                  return (
-                    <button
-                      type="button"
-                      key={opt.value}
-                      role="option"
-                      aria-selected={selected}
-                      onClick={() => {
-                        setActiveView(opt.value as ViewType);
-                        setIsProductToolMenuOpen(false);
-                      }}
-                      className={`w-full px-3 py-2 text-left text-sm transition ${
-                        selected ? 'bg-indigo-500/15 text-indigo-200' : 'text-zinc-200 hover:bg-white/5'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
-          </div>
+          <h1 className="flex items-center gap-3 text-2xl font-bold tracking-tight text-zinc-100">
+            <CurrentHeaderIcon className="h-6 w-6 shrink-0 text-zinc-100" />
+            {currentHeader.title}
+          </h1>
 
           <p className="mt-1 text-sm text-zinc-400">
             {currentHeader.subtitle}
@@ -4746,7 +4667,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           </div>
         </div>
 
-        <div className={panelClassName('product_images_first_frame')}>
+        <div className={currentValue === 'product_images_first_frame' ? 'block h-full' : 'hidden'}>
           <FirstFrameView
             embedded
             isVisible={currentValue === 'product_images_first_frame'}

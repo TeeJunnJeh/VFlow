@@ -179,6 +179,7 @@ export const BillingView: React.FC = () => {
     };
     const mode = modeMap[rawMode] || rawMode;
 
+    const billingType = String((meta as any).billing_type || '').trim().toLowerCase();
     const model = String((meta as any).model_display_name || (meta as any).model || '').trim();
     const rawRateLabel = String((meta as any).rate_label || '').trim();
     // Translate rate label: "2V点/张" → "2 V-points/img", "3V点/秒" → "3 V-points/sec"
@@ -198,7 +199,30 @@ export const BillingView: React.FC = () => {
     const videoCountRaw = Number((meta as any).video_count || (meta as any).task_count || 0);
     const videoCount = Number.isFinite(videoCountRaw) ? Math.max(0, Math.round(videoCountRaw)) : 0;
     const videoCountLabel = mediaType === 'video' && videoCount > 0 ? `${videoCount}${t.billing_unit_videos || 'video(s)'}` : '';
-    const cost = Number((meta as any).cost || 0);
+    const totalTokensRaw = Number((meta as any).total_tokens ?? (meta as any).usage?.total_tokens ?? 0);
+    const totalTokens = Number.isFinite(totalTokensRaw) ? Math.max(0, Math.round(totalTokensRaw)) : 0;
+    const resolution = String((meta as any).resolution || '').trim();
+    const hasVideoInputRaw = (meta as any).has_video_input;
+    const hasVideoInput = typeof hasVideoInputRaw === 'boolean'
+      ? hasVideoInputRaw
+      : ['true', '1', 'yes'].includes(String(hasVideoInputRaw || '').trim().toLowerCase());
+    const hasVideoInputKnown = typeof hasVideoInputRaw === 'boolean' || String(hasVideoInputRaw || '').trim() !== '';
+    const costRaw = Math.abs(Number(tx?.amount || 0)) || Number((meta as any).actual_cost || (meta as any).cost || 0);
+    const cost = Number.isFinite(costRaw) ? Math.max(0, costRaw) : 0;
+    const isSeedanceDelayed = billingType === 'seedance_delayed' || totalTokens > 0;
+    if (isSeedanceDelayed) {
+      const detailParts = [
+        mode ? `${t.billing_meta_mode || 'Mode'}: ${mode}` : '',
+        model ? `${t.billing_meta_model || 'Model'}: ${model}` : '',
+        resolution ? `${t.billing_meta_resolution || 'Resolution'}: ${resolution}` : '',
+        hasVideoInputKnown
+          ? `${t.billing_meta_video_input || 'Video Input'}: ${hasVideoInput ? (t.billing_video_input_with || 'With') : (t.billing_video_input_without || 'Without')}`
+          : '',
+        totalTokens > 0 ? `${t.billing_meta_total_tokens || 'Total Tokens'}: ${totalTokens}` : '',
+        cost > 0 ? `${t.billing_meta_actual_cost || t.billing_meta_cost || 'Actual Cost'}: ${cost} ${creditName}` : '',
+      ].filter(Boolean);
+      return detailParts.join(' | ');
+    }
     const detailParts = [
       mode ? `${t.billing_meta_mode || 'Mode'}: ${mode}` : '',
       model ? `${t.billing_meta_model || 'Model'}: ${model}` : '',

@@ -24,6 +24,10 @@ import { useAuth } from '../../context/AuthContext';
 import { authApi } from '../../services/auth';
 import type { ViewType } from './types';
 
+const PRODUCT_IMAGES_SECTION_ANIMATION_MS = 300;
+const PRODUCT_IMAGES_SECTION_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
+const PRODUCT_IMAGES_LAST_VIEW_STORAGE_KEY = 'vflow_product_images_last_view';
+
 interface SidebarProps {
   activeView: ViewType;
   setActiveView: (view: ViewType) => void;
@@ -39,6 +43,20 @@ const PRODUCT_IMAGE_VIEWS: ViewType[] = [
   'product_images_gallery',
   'product_images_text_separation',
 ];
+
+const isProductImageViewType = (view: string | null | undefined): view is ViewType => (
+  typeof view === 'string' && PRODUCT_IMAGE_VIEWS.includes(view as ViewType)
+);
+
+const readLastProductImageView = (): ViewType => {
+  if (typeof window === 'undefined') return 'product_images_first_frame';
+  try {
+    const savedView = window.localStorage.getItem(PRODUCT_IMAGES_LAST_VIEW_STORAGE_KEY);
+    return isProductImageViewType(savedView) ? savedView : 'product_images_first_frame';
+  } catch {
+    return 'product_images_first_frame';
+  }
+};
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isDebugModeEnabled, theme, setTheme }) => {
   const { t, language } = useLanguage();
@@ -74,8 +92,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
   React.useEffect(() => {
     if (isProductImagesView) {
       setIsProductImagesSectionOpen(true);
+      try {
+        window.localStorage.setItem(PRODUCT_IMAGES_LAST_VIEW_STORAGE_KEY, activeView);
+      } catch {
+        // ignore storage write failures
+      }
     }
-  }, [isProductImagesView]);
+  }, [activeView, isProductImagesView]);
 
   const navigateToView = React.useCallback((view: ViewType) => {
     setActiveView(view);
@@ -124,7 +147,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
             return;
           }
           setIsProductImagesSectionOpen(true);
-          setActiveView('product_images_first_frame');
+          setActiveView(readLastProductImageView());
         }}
         className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${
           active ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300'
@@ -231,12 +254,33 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
         </div>
       </div>
 
-      {isProductImagesSectionOpen ? (
+      <div
+        id="product-images-subnav"
+        className={`shrink-0 overflow-hidden bg-zinc-950/70 transition-[width,opacity,border-color] ${
+          isProductImagesSectionOpen
+            ? 'border-l border-white/5 opacity-100'
+            : 'border-l border-transparent opacity-0'
+        }`}
+        style={{
+          width: isProductImagesSectionOpen ? '12rem' : '0rem',
+          transitionDuration: `${PRODUCT_IMAGES_SECTION_ANIMATION_MS}ms`,
+          transitionTimingFunction: PRODUCT_IMAGES_SECTION_EASING,
+        }}
+        aria-hidden={!isProductImagesSectionOpen}
+      >
         <div
-          id="product-images-subnav"
-          className="w-48 border-l border-white/5 bg-zinc-950/70 px-3 py-6 shrink-0"
+          className="w-48 px-3 py-6"
         >
-          <div className="flex flex-col gap-1"
+          <div
+            className={`flex flex-col gap-1 transition-opacity ${
+              isProductImagesSectionOpen
+                ? 'opacity-100'
+                : 'opacity-0'
+            }`}
+            style={{
+              transitionDuration: `${PRODUCT_IMAGES_SECTION_ANIMATION_MS}ms`,
+              transitionTimingFunction: PRODUCT_IMAGES_SECTION_EASING,
+            }}
             role="menu"
             aria-label={tx('wb_nav_product_images', tr('商品图片生成', 'Product Images'))}
           >
@@ -255,16 +299,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
                   }`}
                   role="menuitem"
                   aria-current={selected ? 'page' : undefined}
+                  tabIndex={isProductImagesSectionOpen ? 0 : -1}
                 >
                   <ItemIcon className={`mr-3 h-4 w-4 shrink-0 ${selected ? 'text-violet-300' : 'text-zinc-400 group-hover:text-violet-300'}`} />
                   {selected ? <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-violet-400" /> : null}
-                  {opt.label}
+                  <span className="whitespace-nowrap">{opt.label}</span>
                 </button>
               );
             })}
           </div>
         </div>
-      ) : null}
+      </div>
     </aside>
   );
 };

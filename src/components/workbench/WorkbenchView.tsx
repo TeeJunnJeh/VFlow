@@ -11683,9 +11683,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <span className="relative flex items-center gap-2">
                     {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clapperboard className="w-4 h-4" />}
                     <span>{language === 'zh' ? '开始批量生成' : 'Start Batch'}</span>
-                    {estimatedBatchVideoCostLabel ? (
+                    {/* {estimatedBatchVideoCostLabel ? (
                       <span className="ml-2 text-[9px] font-semibold text-white/80 whitespace-nowrap">{estimatedBatchVideoCostLabel}</span>
-                    ) : null}
+                    ) : null} */}
                   </span>
                 </button>
               </div>

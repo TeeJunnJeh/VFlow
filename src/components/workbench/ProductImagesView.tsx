@@ -775,8 +775,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const { language, t } = useLanguage();
   const { requireAuth } = useRequireAuth();
   const isZh = language === 'zh';
-  const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
-  const tx = (key: string, fallback: string) => ((t as any)[key] as string) || fallback;
   const isProductView =
     activeView === 'product_images_clothing_swap' ||
     activeView === 'product_images_first_frame' ||
@@ -792,26 +790,26 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     () => [
       {
         value: 'product_images_clothing_swap',
-        label: tx('wb_nav_product_clothing_swap', tr('AI 换装', 'AI Clothing Swap')),
+        label: t.wb_nav_product_clothing_swap,
       },
       {
         value: 'product_images_first_frame',
-        label: tx('wb_nav_product_first_frame', tr('AI 首帧图', 'AI First Frame')),
+        label: t.wb_nav_product_first_frame,
       },
       {
         value: 'product_images_smart_repair',
-        label: tx('wb_nav_product_smart_repair', tr('AI 智能修复', 'AI Smart Repair')),
+        label: t.wb_nav_product_smart_repair,
       },
       {
         value: 'product_images_gallery',
-        label: tx('wb_nav_product_gallery', tr('AI 商品套图', 'AI Product Gallery')),
+        label: t.wb_nav_product_gallery,
       },
       {
         value: 'product_images_text_separation',
-        label: tx('wb_nav_product_text_separation', tr('AI 海报编辑', 'AI Poster Editor')),
+        label: t.wb_nav_product_text_separation,
       },
     ],
-    [t, isZh]
+    [t]
   );
 
   const [isProductToolMenuOpen, setIsProductToolMenuOpen] = useState(false);
@@ -838,32 +836,32 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     switch (currentValue) {
       case 'product_images_clothing_swap':
         return {
-          title: tr('AI 换装', 'AI Clothing Swap'),
-          subtitle: tr('商品服饰智能换装功能开发中', 'AI clothing swap is currently in development.'),
+          title: t.wb_nav_product_clothing_swap,
+          subtitle: t.pg_main_clothing_swap_subtitle,
         };
       case 'product_images_smart_repair':
         return {
-          title: tr('AI 智能修复', 'AI Smart Repair'),
-          subtitle: tr('基于三类能力中心进行可扩展的智能修图', 'Extensible smart-retouch workspace with three capability groups'),
+          title: t.wb_nav_product_smart_repair,
+          subtitle: t.pg_main_smart_repair_subtitle,
         };
       case 'product_images_gallery':
         return {
-          title: tr('商品套图', 'Product Gallery'),
-          subtitle: tr('围绕商品信息与场景配置批量生成电商图', 'Generate e-commerce image sets from product info and scene settings'),
+          title: t.pg_main_gallery_title,
+          subtitle: t.pg_main_gallery_subtitle,
         };
       case 'product_images_text_separation':
         return {
-          title: tr('AI 海报编辑', 'AI Poster Editor'),
-          subtitle: tr('上传一张带字海报，自动提取可编辑文本框，并通过文本重绘把灵感快速变成新的视觉方案。', 'Upload a poster with text, automatically extract editable text blocks, and use text-to-image to quickly turn your inspiration into new visual concepts.'),
+          title: t.wb_nav_product_text_separation,
+          subtitle: t.pg_main_text_separation_subtitle,
         };
       case 'product_images_first_frame':
       default:
         return {
-          title: t.ff_page_title || tr('AI 首帧图生成', 'AI First Frame Generation'),
+          title: t.ff_page_title,
           subtitle: '',
         };
     }
-  }, [currentValue, t, isZh]);
+  }, [currentValue, t]);
 
   const [galleryImages, setGalleryImages] = useState<File[]>([]);
   const [galleryProductName, setGalleryProductName] = useState('');
@@ -1068,7 +1066,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const openGalleryAlert = (message: string, title?: string) =>
     setGalleryAlert({
       open: true,
-      title: title || tr('提示', 'Notice'),
+      title: title || t.pg_main_notice,
       message,
     });
 
@@ -1154,7 +1152,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       const uploadResp = await assetsApi.uploadTempAsset(card.imageFile);
       const path = extractUploadedAssetPath(uploadResp);
       if (!path) {
-        throw new Error(tr(`模特卡片「${card.name || card.id}」图片上传失败，请重试。`, `Failed to upload model image for "${card.name || card.id}".`));
+        throw new Error(t.pg_main_error_model_card_upload.replace('{name}', String(card.name || card.id)));
       }
       nextCards.push({
         ...card,
@@ -1431,9 +1429,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     try {
       const blob = await productImagesApi.downloadImageByUrl(galleryPreviewImageUrl);
       await saveBlobWithPickerFallback(blob, buildGalleryPreviewFilename(galleryPreviewImageUrl));
-      setGalleryToastMessage(tr('已开始下载', 'Download started'));
+      setGalleryToastMessage(t.pg_main_toast_download_started);
     } catch (err: any) {
-      openGalleryAlert(String(err?.message || tr('下载失败，请重试。', 'Download failed. Please try again.')));
+      openGalleryAlert(String(err?.message || t.pg_main_toast_download_failed));
     } finally {
       setIsGalleryPreviewDownloading(false);
     }
@@ -1461,9 +1459,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           await new Promise((resolve) => setTimeout(resolve, 200));
         }
       }
-      setGalleryToastMessage(tr('已开始下载', 'Download started'));
+      setGalleryToastMessage(t.pg_main_toast_download_started);
     } catch (err: any) {
-      openGalleryAlert(String(err?.message || tr('下载失败，请重试。', 'Download failed. Please try again.')));
+      openGalleryAlert(String(err?.message || t.pg_main_toast_download_failed));
     } finally {
       setIsGalleryPreviewDownloading(false);
     }
@@ -1490,11 +1488,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       const win = window.open('', '_blank');
       if (!win) {
         URL.revokeObjectURL(objectUrl);
-        openGalleryAlert(tr('浏览器阻止了弹窗，请允许弹窗后重试。', 'Popup blocked by browser. Please allow popups and try again.'));
+        openGalleryAlert(t.pg_main_toast_popup_blocked);
         return;
       }
 
-      const title = tr('导出为PDF', 'Export as PDF');
+      const title = t.pi_gallery_preview_export_pdf;
       win.document.open();
       win.document.write(`<!doctype html><html><head><meta charset="utf-8" /><title>${title}</title><style>@page{size:A4;margin:12mm;}html,body{height:100%;}body{margin:0;display:flex;align-items:center;justify-content:center;}img{max-width:100%;max-height:100%;object-fit:contain;}</style></head><body><img id="img" src="${objectUrl}" /><script>const img=document.getElementById('img');img.onload=()=>{setTimeout(()=>{window.focus();window.print();},50)};window.onafterprint=()=>{window.close();};</script></body></html>`);
       win.document.close();
@@ -1511,7 +1509,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         }, 400);
       }
     } catch (err: any) {
-      openGalleryAlert(String(err?.message || tr('导出失败，请重试。', 'Export failed. Please try again.')));
+      openGalleryAlert(String(err?.message || t.pg_main_toast_export_failed_retry));
     } finally {
       setIsGalleryPreviewExportingPdf(false);
     }
@@ -1693,14 +1691,14 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     if (!galleryPreviewImageUrl) return;
     if (galleryInpaint.isGenerating) return;
     if (!galleryInpaint.rect) {
-      setGalleryInpaint((prev) => ({ ...prev, error: tr('请先框选要修改的区域', 'Please select an area to edit') }));
+      setGalleryInpaint((prev) => ({ ...prev, error: t.pg_main_inpaint_error_select_area }));
       return;
     }
 
     const img = galleryInpaintImgRef.current;
     const box = galleryInpaintBoxRef.current;
     if (!img || !box || !img.naturalWidth || !img.naturalHeight) {
-      setGalleryInpaint((prev) => ({ ...prev, error: tr('图片未加载完成', 'Image not ready') }));
+      setGalleryInpaint((prev) => ({ ...prev, error: t.pg_main_inpaint_error_image_not_ready }));
       return;
     }
 
@@ -1730,7 +1728,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
     const prompt = String(galleryInpaint.prompt || '').trim();
     if (!prompt) {
-      setGalleryInpaint((prev) => ({ ...prev, error: tr('请填写修改指令', 'Please enter an edit instruction') }));
+      setGalleryInpaint((prev) => ({ ...prev, error: t.pg_main_inpaint_error_enter_instruction }));
       return;
     }
 
@@ -1759,7 +1757,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       }
 
       const requestId = String(data?.data?.request_id || '').trim();
-      if (!requestId) throw new Error(tr('创建任务失败', 'Failed to create task'));
+      if (!requestId) throw new Error(t.pg_main_error_create_task_failed);
 
       let outputUrl: string | null = null;
       for (let i = 0; i < 40; i += 1) {
@@ -1776,7 +1774,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       }
 
       if (!outputUrl) {
-        throw new Error(tr('生成失败，请重试。', 'Generation failed. Please try again.'));
+        throw new Error(t.pg_main_toast_generation_failed_retry);
       }
 
       setGalleryInpaint((prev) => ({ ...prev, isGenerating: false, resultUrl: outputUrl, error: null, step: 'compare', selectedCompare: 'edited' }));
@@ -1881,7 +1879,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         textBlocks,
       });
     } catch (err: any) {
-      openGalleryAlert(String(err?.message || tr('打开文本分离失败', 'Failed to open text separation')));
+      openGalleryAlert(String(err?.message || t.pg_main_toast_open_text_separation_failed));
     } finally {
       setIsTextSeparationLoading(false);
     }
@@ -1960,7 +1958,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     return {
       id: item.id,
       createdAt: item.createdAt,
-      sampleTitle: String(item.metadata?.sampleTitle || tr('未命名图片', 'Untitled image')).trim(),
+      sampleTitle: String(item.metadata?.sampleTitle || t.pg_main_untitled_image).trim(),
       originalImageUrl,
       backgroundImageUrl,
       textBlocks: normalizeTextSeparationBlocks(Array.isArray(item.metadata?.textBlocks) ? item.metadata.textBlocks : []),
@@ -2005,7 +2003,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         historyRecordId: String((parsed as any)?.history_record_id || '').trim(),
       };
     } catch (err: any) {
-      openGalleryAlert(String(err?.message || tr('打开文本分离失败', 'Failed to open text separation')));
+      openGalleryAlert(String(err?.message || t.pg_main_toast_open_text_separation_failed));
       return null;
     } finally {
       setIsTextSeparationLoading(false);
@@ -2015,7 +2013,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const handleStartTextSeparation = async () => {
     if (!textSeparationSelectedImagePath || isTextSeparationLoading || !textSeparationUploadPreviewUrl) return;
     const recordId = `ts_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const sampleTitle = textSeparationUploadName || tr('未命名图片', 'Untitled image');
+    const sampleTitle = textSeparationUploadName || t.pg_main_untitled_image;
     const originalImageUrl = textSeparationSelectedOriginalUrl || textSeparationUploadPreviewUrl;
     const imagePath = textSeparationSelectedImagePath;
     const createdAt = new Date().toISOString();
@@ -2075,12 +2073,12 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       const imagePath = String(uploadResp?.data?.path || uploadResp?.data?.url || uploadResp?.path || uploadResp?.url || '').trim();
       const originalUrl = String(uploadResp?.data?.url || uploadResp?.url || imagePath || '').trim();
       if (!imagePath) {
-        throw new Error(tr('上传成功但未返回图片路径', 'Upload succeeded but no image path was returned'));
+        throw new Error(t.pg_main_error_upload_no_path);
       }
       setTextSeparationSelectedImagePath(imagePath);
       setTextSeparationSelectedOriginalUrl(originalUrl || objectUrl);
     } catch (err: any) {
-      openGalleryAlert(String(err?.message || tr('上传图片失败', 'Failed to upload image')));
+      openGalleryAlert(String(err?.message || t.pg_main_toast_upload_failed));
     }
   };
 
@@ -2097,11 +2095,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     if (galleryHistorySelectedKeys.length === 0) return;
 
     const action = await openGalleryConfirm(
-      tr('确定删除选中的图片吗？', 'Delete selected images?'),
+      t.pg_main_confirm_delete_selected,
       {
-        title: tr('删除确认', 'Delete confirmation'),
-        okLabel: tr('删除', 'Delete'),
-        cancelLabel: tr('取消', 'Cancel'),
+        title: t.pg_main_confirm_delete_title,
+        okLabel: t.pg_main_btn_delete,
+        cancelLabel: t.pg_main_btn_cancel,
       }
     );
 
@@ -2125,10 +2123,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       galleryConfirmResolverRef.current = resolve;
       setGalleryConfirm({
         open: true,
-        title: opts?.title || tr('确认', 'Confirm'),
+        title: opts?.title || t.pg_main_confirm_default_title,
         message,
-        okLabel: opts?.okLabel || tr('确定', 'OK'),
-        cancelLabel: opts?.cancelLabel || tr('取消', 'Cancel'),
+        okLabel: opts?.okLabel || t.pg_main_btn_ok,
+        cancelLabel: opts?.cancelLabel || t.pg_main_btn_cancel,
       });
     });
 
@@ -2355,10 +2353,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     } catch { /* ignore */ }
   }, [activeView]);
 
-  const gallerySupportedFormatTip = tr(
-    '文件格式不支持，仅支持图片：.jpg .jpeg .png .webp',
-    'Unsupported file format. Only images are supported: .jpg .jpeg .png .webp'
-  );
+  const gallerySupportedFormatTip = t.pg_main_unsupported_format_tip;
 
   const isSupportedGalleryImageFile = (file: File) => {
     const name = String(file?.name || '').toLowerCase();
@@ -2434,7 +2429,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     const url = String(item.imageUrl || '').trim();
     if (!url) return;
     if (!item.layout || !item.layout.elements) {
-      openGalleryAlert(tr('没有可编辑版式，请先生成爆款风格并填写卖点后再生成套图。', 'No editable layout. Fill selling points and generate styles, then generate gallery again.'));
+      openGalleryAlert(t.pg_main_toast_no_editable_layout);
       return;
     }
     const draft = JSON.parse(JSON.stringify(item.layout));
@@ -2510,14 +2505,14 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     setIsGalleryTextExporting(true);
     try {
       const resp = await fetch(url, { method: 'GET', credentials: 'include' });
-      if (!resp.ok) throw new Error(tr('下载背景图失败', 'Failed to download background'));
+      if (!resp.ok) throw new Error(t.pg_main_error_download_bg_failed);
       const blob = await resp.blob();
       const objUrl = URL.createObjectURL(blob);
 
       const img = new Image();
       const imgLoaded = new Promise<void>((resolve, reject) => {
         img.onload = () => resolve();
-        img.onerror = () => reject(new Error(tr('加载背景图失败', 'Failed to load background')));
+        img.onerror = () => reject(new Error(t.pg_main_error_load_bg_failed));
       });
       img.src = objUrl;
       await imgLoaded;
@@ -2526,7 +2521,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       canvas.width = img.naturalWidth || img.width;
       canvas.height = img.naturalHeight || img.height;
       const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error(tr('导出失败', 'Export failed'));
+      if (!ctx) throw new Error(t.pg_main_error_export_failed);
 
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
@@ -2575,11 +2570,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       }
 
       const outBlob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
-      if (!outBlob) throw new Error(tr('导出失败', 'Export failed'));
+      if (!outBlob) throw new Error(t.pg_main_error_export_failed);
       await saveBlobWithPickerFallback(outBlob, `product_gallery_edit_${Date.now()}.png`);
       URL.revokeObjectURL(objUrl);
     } catch (err: any) {
-      openGalleryAlert(String(err?.message || err || tr('导出失败', 'Export failed')));
+      openGalleryAlert(String(err?.message || err || t.pg_main_error_export_failed));
     } finally {
       setIsGalleryTextExporting(false);
     }
@@ -2587,11 +2582,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
   const handleHotStyleAnalyze = async () => {
     if (!gallerySellingPoints.some((p) => String(p || '').trim())) {
-      openGalleryAlert(tr('请先填写核心卖点', 'Please fill selling points first'));
+      openGalleryAlert(t.pg_main_toast_fill_selling_points);
       return;
     }
     if (galleryImages.length === 0) {
-      openGalleryAlert(tr('请先上传至少 1 张商品图片。', 'Please upload at least 1 product image.'));
+      openGalleryAlert(t.pg_main_toast_upload_one_image);
       return;
     }
 
@@ -2607,7 +2602,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         const p = extractUploadedAssetPath(resp);
         if (p) imagePaths.push(p);
       }
-      if (imagePaths.length === 0) throw new Error(tr('图片上传失败', 'Image upload failed'));
+      if (imagePaths.length === 0) throw new Error(t.pg_main_error_image_upload_failed);
 
       const selling = gallerySellingPoints.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 5);
       const apiResp = await videoApi.hotStyleAnalysis({
@@ -2627,13 +2622,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           })).filter((x: any) => x.name && x.description).slice(0, 4)
         : [];
 
-      if (styles.length === 0) throw new Error(tr('AI 返回格式不正确', 'AI response invalid'));
+      if (styles.length === 0) throw new Error(t.pg_main_error_ai_response_invalid);
       setHotStyleItems(styles);
       setHotStyleSelectedIndex(null);
     } catch (err: any) {
-      const msg = String(err?.message || err || tr('分析失败，请重试。', 'Analysis failed')).trim();
+      const msg = String(err?.message || err || t.pg_main_toast_analysis_failed_retry).trim();
       setHotStyleError(msg);
-      openGalleryAlert(msg, tr('分析失败', 'Analysis Failed'));
+      openGalleryAlert(msg, t.pg_main_toast_analysis_failed_title);
     } finally {
       setHotStyleLoading(false);
     }
@@ -2648,7 +2643,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     const hasRestoredPaths = galleryRestoredImagePaths.length > 0;
 
     if (!hasNewImages && !hasRestoredPaths) {
-      openGalleryAlert(tr('请先上传至少 1 张商品图片。', 'Please upload at least 1 product image.'));
+      openGalleryAlert(t.pg_main_toast_upload_one_image);
       return;
     }
 
@@ -2660,11 +2655,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
     if (hasExisting) {
       const action = await openGalleryConfirm(
-        tr('是否使用新的识别结果覆盖当前内容？', 'Overwrite current fields with new AI results?'),
+        t.pg_main_confirm_overwrite_with_ai,
         {
-          title: tr('覆盖确认', 'Overwrite confirmation'),
-          okLabel: tr('覆盖', 'Overwrite'),
-          cancelLabel: tr('取消', 'Cancel'),
+          title: t.pg_main_confirm_overwrite_title,
+          okLabel: t.pg_main_btn_overwrite,
+          cancelLabel: t.pg_main_btn_cancel,
         }
       );
       if (action !== 'ok') return;
@@ -2692,7 +2687,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       }
 
       if (imagePaths.length === 0) {
-        throw new Error(tr('图片上传失败，请重试。', 'Image upload failed. Please try again.'));
+        throw new Error(t.pg_main_toast_image_upload_failed_retry);
       }
 
       const resp = await videoApi.recognizeProductInfo({ image_paths: imagePaths, output_language: language });
@@ -2717,9 +2712,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       const isTypeInvalid = rawMsg.includes('文件格式不支持') || rawMsg.toLowerCase().includes('file_type_invalid');
       const message = isTypeInvalid
         ? gallerySupportedFormatTip
-        : String(rawMsg || tr('识别失败，请重试。', 'Recognition failed. Please try again.'));
+        : String(rawMsg || t.pg_main_toast_recognition_failed_retry);
 
-      openGalleryAlert(message, tr('识别失败', 'Recognition failed'));
+      openGalleryAlert(message, t.pg_main_toast_recognition_failed_title);
     } finally {
       setIsGalleryAnalyzing(false);
     }
@@ -2813,20 +2808,17 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     });
 
     if (nextItems.length === 0) {
-      openGalleryAlert(tr('请至少启用 1 种出图类型。', 'Please enable at least one output type.'));
+      openGalleryAlert(t.pg_main_toast_enable_one_output);
       return false;
     }
 
     if (galleryAdvancedDirty && galleryOutputItems.some((item) => item.enabled && item.count > 0)) {
       const action = await openGalleryConfirm(
-        tr(
-          '应用批量配置会覆盖当前高级编辑中的逐张调整，是否继续？',
-          'Applying the batch config will overwrite the current advanced per-card adjustments. Continue?'
-        ),
+        t.pg_main_confirm_overwrite_advanced_body,
         {
-          title: tr('覆盖高级编辑', 'Overwrite Advanced Editing'),
-          okLabel: tr('覆盖并应用', 'Overwrite & Apply'),
-          cancelLabel: tr('取消', 'Cancel'),
+          title: t.pg_main_confirm_overwrite_advanced_title,
+          okLabel: t.pg_main_btn_overwrite_apply,
+          cancelLabel: t.pg_main_btn_cancel,
         }
       );
       if (action !== 'ok') return false;
@@ -2878,20 +2870,14 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           return {
             ok: false as const,
             target: 'model' as const,
-            message: tr(
-              `出图卡片缺少已绑定的模特资源，请先重新选择或创建模特卡片后再生成。`,
-              'A bound model resource is missing. Re-select or create a model card before generating.'
-            ),
+            message: t.pg_main_error_missing_bound_model,
           };
         }
         if (!String(modelCard.imagePath || '').trim() && !modelCard.imageFile) {
           return {
             ok: false as const,
             target: 'model' as const,
-            message: tr(
-              `模特卡片「${modelCard.name || item.modelCardId}」缺少照片，请补充后再生成。`,
-              `Model card "${modelCard.name || item.modelCardId}" needs a photo before generating.`
-            ),
+            message: t.pg_main_error_model_card_missing_photo.replace('{name}', String(modelCard.name || item.modelCardId)),
           };
         }
       }
@@ -2899,10 +2885,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         return {
           ok: false as const,
           target: 'scene' as const,
-          message: tr(
-            `出图卡片缺少已绑定的场景资源，请先重新选择或创建场景卡片后再生成。`,
-            'A bound scene resource is missing. Re-select or create a scene card before generating.'
-          ),
+          message: t.pg_main_error_missing_bound_scene,
         };
       }
     }
@@ -2911,11 +2894,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
   const buildGalleryAiLayoutPrompt = (items: GalleryOutputItem[], extraPrompt?: string) => {
     const outputTypeLabels: Record<GalleryOutputType, string> = {
-      white_bg: t.pi_gallery_output_white_bg || tr('白底图', 'White Background'),
-      scene: t.pi_gallery_output_scene || tr('场景图', 'Scene'),
-      selling_point: t.pi_gallery_output_selling_point || tr('卖点图', 'Selling Point'),
-      cover: t.pi_gallery_output_cover || tr('封面图', 'Cover'),
-      poster: t.pi_gallery_output_poster || tr('海报图', 'Poster'),
+      white_bg: t.pi_gallery_output_white_bg,
+      scene: t.pi_gallery_output_scene,
+      selling_point: t.pi_gallery_output_selling_point,
+      cover: t.pi_gallery_output_cover,
+      poster: t.pi_gallery_output_poster,
     };
     const cleanedSellingPoints = gallerySellingPoints.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 5);
     const itemLines = items.map((item, index) => {
@@ -2944,7 +2927,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       .map((item) => normalizeGalleryOutputItem(item))
       .filter((item): item is GalleryOutputItem => Boolean(item && item.enabled && item.count > 0));
     if (enabledItems.length === 0) {
-      openGalleryAlert(tr('请先通过快速批量或高级编辑生成至少 1 条出图条目。', 'Create at least one output item before asking AI to design layouts.'));
+      openGalleryAlert(t.pg_main_toast_need_output_items);
       return;
     }
 
@@ -2955,14 +2938,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     });
     if (hasExistingLayouts) {
       const action = await openGalleryConfirm(
-        tr(
-          'AI帮我设计会覆盖当前条目的构图描述，是否继续？',
-          'AI Design will overwrite the current layout descriptions. Continue?'
-        ),
+        t.pg_main_confirm_ai_design_overwrite_body,
         {
-          title: tr('覆盖构图描述', 'Overwrite Layouts'),
-          okLabel: tr('覆盖并生成', 'Overwrite & Generate'),
-          cancelLabel: tr('取消', 'Cancel'),
+          title: t.pg_main_confirm_overwrite_layouts_title,
+          okLabel: t.pg_main_btn_overwrite_generate,
+          cancelLabel: t.pg_main_btn_cancel,
         }
       );
       if (action !== 'ok') return;
@@ -3067,15 +3047,15 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       );
 
       if (successCount === 0) {
-        throw new Error(tr('AI 全部候选生成失败，请重试。', 'All layout variants failed. Please retry.'));
+        throw new Error(t.pg_main_error_ai_variants_all_failed);
       }
 
       setGalleryAiLayoutDesigner((prev) => ({ ...prev, open: false, prompt: prev.prompt, isGenerating: false, error: null }));
     } catch (err: any) {
-      const message = String(err?.message || tr('AI 设计失败，请重试。', 'AI layout design failed. Please try again.'));
+      const message = String(err?.message || t.pg_main_error_ai_design_failed_retry);
       setGalleryAiLayoutDesigner((prev) => ({ ...prev, isGenerating: false, error: fromDialog ? message : null }));
       if (!fromDialog) {
-        openGalleryAlert(message, tr('AI设计失败', 'AI Design Failed'));
+        openGalleryAlert(message, t.pg_main_error_ai_design_failed_title);
       }
     }
   };
@@ -3130,7 +3110,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       });
       const data = (planResp as any)?.data || planResp;
       const rawItems = Array.isArray(data?.items) ? data.items : [];
-      if (rawItems.length === 0) throw new Error(tr('AI 未返回可用方案条目', 'AI returned no usable items'));
+      if (rawItems.length === 0) throw new Error(t.pg_main_error_ai_no_items);
 
       const items: GalleryOutputItem[] = rawItems
         .map((row: any) => {
@@ -3157,10 +3137,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
       const total = items.filter((it) => it.enabled).reduce((sum, it) => sum + Math.max(0, Math.round(Number(it.count || 0))), 0);
       if (total <= 0) {
-        throw new Error(tr('AI 方案总数量为 0', 'AI plan total count is 0'));
+        throw new Error(t.pg_main_error_ai_plan_total_zero);
       }
       if (total > 20) {
-        throw new Error(tr('AI 方案生成数量超过 20，请减少数量', 'AI plan exceeds 20 images'));
+        throw new Error(t.pg_main_error_ai_plan_exceeds_20);
       }
 
       setGalleryOutputMode('ai');
@@ -3170,7 +3150,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       setIsGalleryAdvancedEditingCollapsed(false);
       setGalleryAiOutputPlanner({ open: false, prompt: '', isGenerating: false, error: null });
     } catch (err: any) {
-      const message = String(err?.message || tr('AI 生成失败，请重试。', 'AI planning failed. Please try again.'));
+      const message = String(err?.message || t.pg_main_error_ai_planning_failed_retry);
       setGalleryAiOutputPlanner((prev) => ({ ...prev, isGenerating: false, error: message }));
     }
   };
@@ -3185,7 +3165,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     const hasNewImages = galleryImages.length > 0;
     const hasRestoredPaths = galleryRestoredImagePaths.length > 0;
     if (!hasNewImages && !hasRestoredPaths) {
-      openGalleryAlert(tr('请先上传至少 1 张商品图片。', 'Please upload at least 1 product image.'));
+      openGalleryAlert(t.pg_main_toast_upload_one_image);
       return;
     }
 
@@ -3220,7 +3200,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         }
       }
       if (imagePaths.length === 0) {
-        throw new Error(tr('图片上传失败，请重试。', 'Image upload failed. Please try again.'));
+        throw new Error(t.pg_main_toast_image_upload_failed_retry);
       }
 
       const requiredModelCardIds = normalizedItem.modelCardId ? [normalizedItem.modelCardId] : [];
@@ -3275,7 +3255,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         })
       );
     } catch (err: any) {
-      openGalleryAlert(String(err?.message || tr('单卡优化失败，请重试。', 'Failed to optimize this card. Please try again.')));
+      openGalleryAlert(String(err?.message || t.pg_main_error_optimize_card_failed));
     } finally {
       setGalleryOptimizingItemIds((prev) => ({ ...prev, [targetId]: false }));
     }
@@ -3290,7 +3270,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     const hasRestoredPaths = galleryRestoredImagePaths.length > 0;
 
     if (!hasNewImages && !hasRestoredPaths) {
-      openGalleryAlert(tr('请先上传至少 1 张商品图片。', 'Please upload at least 1 product image.'));
+      openGalleryAlert(t.pg_main_toast_upload_one_image);
       return;
     }
 
@@ -3320,11 +3300,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
     let totalCount = normalizedOutputItems.reduce((sum, item) => sum + item.count, 0);
     if (totalCount <= 0) {
-      openGalleryAlert(tr('请至少添加 1 个出图类型条目。', 'Please add at least one output item.'));
+      openGalleryAlert(t.pg_main_toast_add_one_output_item);
       return;
     }
     if (totalCount > 20) {
-      openGalleryAlert(tr('生成数量过多，请减少条目数量或每种数量（最多 20 张）。', 'Too many images. Please reduce counts (max 20).'));
+      openGalleryAlert(t.pg_main_toast_too_many_images);
       return;
     }
 
@@ -3343,14 +3323,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       effectiveSellingPoints.length !== requestedSellingPointCount
     ) {
       const confirmAction = await openGalleryConfirm(
-        tr(
-          `当前卖点数和将生成的卖点图数目不一致。按当前数目继续生成时，只会根据前 ${Math.min(requestedSellingPointCount, effectiveSellingPoints.length)} 个卖点生成卖点图；保持一致则会自动把生成图片数调整为 ${effectiveSellingPoints.length}。关闭弹窗可返回重新设置数量。`,
-          `The number of selling points does not match the number of selling-point images to generate. If you keep the current image count, only the first ${Math.min(requestedSellingPointCount, effectiveSellingPoints.length)} selling point(s) will be used. If you match them, the image count will be updated to ${effectiveSellingPoints.length}. Close the dialog to adjust the count manually.`
-        ),
+        t.pg_main_selling_point_count_mismatch
+          .replace('{used}', String(Math.min(requestedSellingPointCount, effectiveSellingPoints.length)))
+          .replace('{total}', String(effectiveSellingPoints.length)),
         {
-          title: tr('卖点图数量提醒', 'Selling Point Count Reminder'),
-          okLabel: tr('保持一致', 'Match Count'),
-          cancelLabel: tr('按当前数目生成', 'Use Current Count'),
+          title: t.pg_main_confirm_selling_point_count_title,
+          okLabel: t.pg_main_btn_match_count,
+          cancelLabel: t.pg_main_btn_use_current_count,
         }
       );
 
@@ -3418,11 +3397,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     });
     totalCount = flattenedPlan.length;
     if (totalCount <= 0) {
-      openGalleryAlert(tr('请至少添加 1 个出图类型条目。', 'Please add at least one output item.'));
+      openGalleryAlert(t.pg_main_toast_add_one_output_item);
       return;
     }
     if (totalCount > 20) {
-      openGalleryAlert(tr('生成数量过多，请减少条目数量或每种数量（最多 20 张）。', 'Too many images. Please reduce counts (max 20).'));
+      openGalleryAlert(t.pg_main_toast_too_many_images);
       return;
     }
 
@@ -3541,7 +3520,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       }
 
       if (imagePaths.length === 0) {
-        throw new Error(tr('图片上传失败，请重试。', 'Image upload failed. Please try again.'));
+        throw new Error(t.pg_main_toast_image_upload_failed_retry);
       }
 
       // Save uploaded paths into the snapshot so history re-generate can reference them
@@ -3554,7 +3533,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       /*
         void modelImagePath;
         void 0;
-        if (!path) throw new Error(tr('模特图片上传失败，请重试。', 'Model image upload failed. Please try again.'));
+        if (!path) throw new Error(t.pg_main_error_model_upload_failed);
         modelImagePath = String(path);
         setGalleryModelImagePath(modelImagePath);
       */
@@ -3609,7 +3588,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         .filter(Boolean) as Array<{ localId: string; requestId: string; status: 'created' | 'processing' | 'succeeded' | 'failed'; imageUrl?: string; error?: string; outputType?: string; createdAt?: string; layout?: any }>;
 
       if (initial.length === 0) {
-        throw new Error(tr('创建生成任务失败，请重试。', 'Failed to create generation tasks.'));
+        throw new Error(t.pg_main_error_create_generation_task_failed);
       }
 
       setGalleryPreviewItems(initial);
@@ -3671,10 +3650,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
         for (let i = 0; i < 120; i += 1) {
           if (galleryPollAbortRef.current) {
-            return { status: 'failed' as const, error: tr('生成流程被中断', 'Generation was interrupted') };
+            return { status: 'failed' as const, error: t.pg_main_error_generation_interrupted };
           }
           if (galleryPollRunIdRef.current !== runId) {
-            return { status: 'failed' as const, error: tr('生成任务已失效，请重试。', 'Generation task became stale. Please try again.') };
+            return { status: 'failed' as const, error: t.pg_main_error_generation_task_stale };
           }
 
           const statusResp = await videoApi.getProductGalleryResult(requestId);
@@ -3693,7 +3672,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           if (outputs.length > 0) {
             const url = String(outputs[0] || '').trim();
             if (!url) {
-              throw new Error(tr('生成结果为空', 'Output is empty'));
+              throw new Error(t.pg_main_error_generation_empty);
             }
 
             const outputType = String(data?.type || data?.output_type || data?.image_type || data?.kind || '').trim();
@@ -3727,7 +3706,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           }
 
           if (failureStatuses.has(status)) {
-            const errorMessage = upstreamError || tr('生成失败', 'Failed');
+            const errorMessage = upstreamError || t.pg_main_status_failed;
             setGalleryPreviewItems((prev) =>
               prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: errorMessage } : it))
             );
@@ -3735,7 +3714,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           }
 
           if (successStatuses.has(status)) {
-            const errorMessage = upstreamError || tr('生成成功但无结果', 'Succeeded but no output');
+            const errorMessage = upstreamError || t.pg_main_error_generation_no_result;
             setGalleryPreviewItems((prev) =>
               prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: errorMessage } : it))
             );
@@ -3745,7 +3724,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           await sleep(1500);
         }
 
-        const timeoutMessage = tr('生成超时', 'Timeout');
+        const timeoutMessage = t.pg_main_error_generation_timeout;
         setGalleryPreviewItems((prev) =>
           prev.map((it) => (it.requestId === requestId ? { ...it, status: 'failed' as const, error: timeoutMessage } : it))
         );
@@ -3758,17 +3737,17 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       if (failedResults.length > 0) {
         const firstError = String(failedResults[0]?.error || '').trim();
         if (collectedImageUrls.length === 0) {
-          throw new Error(firstError || tr('商品套图生成失败，请稍后重试。', 'Product gallery generation failed. Please try again.'));
+          throw new Error(firstError || t.pg_main_error_gallery_generation_failed);
         }
         openGalleryAlert(
           firstError
-            ? tr('部分图片生成失败：', 'Some images failed to generate: ') + firstError
-            : tr('部分图片生成失败，请检查结果后重试。', 'Some images failed to generate. Please review the results and try again.')
+            ? t.pg_main_error_partial_failed_prefix + firstError
+            : t.pg_main_error_partial_failed_review
         );
       }
 
       if (collectedImageUrls.length === 0 && failedResults.length === 0) {
-        throw new Error(tr('商品套图生成未返回结果，请重试。', 'Product gallery generation returned no result. Please try again.'));
+        throw new Error(t.pg_main_error_gallery_no_result);
       }
 
       if (collectedImageUrls.length > 0) {
@@ -3776,7 +3755,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         notifyImageHistoryUpdated();
       }
     } catch (err: any) {
-      const message = String(err?.message || tr('生成失败，请重试。', 'Generation failed. Please try again.'));
+      const message = String(err?.message || t.pg_main_toast_generation_failed_retry);
       setGalleryPreviewItems((prev) =>
         prev.some((item) => Boolean(String(item.imageUrl || '').trim()))
           ? prev
@@ -3803,7 +3782,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             onClick={closeGalleryAlert}
             className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 text-black hover:bg-orange-400 transition"
           >
-            {tr('确定', 'OK')}
+            {t.pg_main_btn_ok}
           </button>
         }
       >
@@ -3841,7 +3820,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
       <AppDialog
         isOpen={galleryAiOutputPlanner.open}
-        title={tr('AI 推荐组合', 'AI Recommended Mix')}
+        title={t.pg_main_dialog_ai_recommended_mix_title}
         onClose={closeGalleryAiOutputPlanner}
         widthClassName="max-w-lg"
         overlayClassName="z-[160]"
@@ -3853,7 +3832,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               disabled={galleryAiOutputPlanner.isGenerating}
               className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition disabled:opacity-50"
             >
-              {tr('取消', 'Cancel')}
+              {t.pg_main_btn_cancel}
             </button>
             <button
               type="button"
@@ -3861,24 +3840,21 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               disabled={galleryAiOutputPlanner.isGenerating}
               className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 text-black hover:bg-orange-400 transition disabled:opacity-50"
             >
-              {galleryAiOutputPlanner.isGenerating ? tr('生成中...', 'Generating...') : tr('生成方案', 'Generate')}
+              {galleryAiOutputPlanner.isGenerating ? t.pi_gallery_inpaint_generating : t.pg_main_btn_generate_plan}
             </button>
           </>
         }
       >
         <div className="space-y-3">
           <div className="text-xs text-zinc-400">
-            {tr(
-              '输入你想要的套图风格、出图组合和卖点表达方式，AI 会给出一组推荐条目，并同步回快速批量与高级编辑。',
-              'Describe the desired style, output mix, and selling-point expression. AI will recommend a batch and sync it back to Quick Batch and Advanced Editing.'
-            )}
+            {t.pg_main_ai_recommend_description}
           </div>
           <textarea
             value={galleryAiOutputPlanner.prompt}
             onChange={(e) => setGalleryAiOutputPlanner((prev) => ({ ...prev, prompt: e.target.value }))}
             rows={4}
             className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
-            placeholder={tr('例如：白底主图 2 张 + 场景图 2 张（厨房台面，晨光），卖点图 3 张（每张一个卖点），海报 1 张偏节日氛围。', 'E.g. 2 white background + 2 kitchen scene + 3 selling-point (one per point) + 1 festive poster.')}
+            placeholder={t.pg_main_ai_recommend_placeholder}
           />
           {galleryAiOutputPlanner.error ? (
             <div className="text-xs text-red-400">{galleryAiOutputPlanner.error}</div>
@@ -3888,7 +3864,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
       <AppDialog
         isOpen={galleryAiLayoutDesigner.open}
-        title={tr('高级设置', 'Advanced Settings')}
+        title={t.pg_main_dialog_advanced_settings_title}
         onClose={closeGalleryAiLayoutPromptDialog}
         widthClassName="max-w-lg"
         overlayClassName="z-[160]"
@@ -3900,7 +3876,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               disabled={galleryAiLayoutDesigner.isGenerating}
               className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition disabled:opacity-50"
             >
-              {tr('取消', 'Cancel')}
+              {t.pg_main_btn_cancel}
             </button>
             <button
               type="button"
@@ -3912,35 +3888,29 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             >
               {galleryAiLayoutDesigner.isGenerating
                 ? (galleryAiLayoutDesigner.total > 0
-                    ? `${tr('设计中', 'Designing')} ${galleryAiLayoutDesigner.completed}/${galleryAiLayoutDesigner.total}...`
-                    : tr('设计中...', 'Designing...'))
-                : tr('开始设计', 'Generate Layouts')}
+                    ? `${t.pg_main_btn_designing} ${galleryAiLayoutDesigner.completed}/${galleryAiLayoutDesigner.total}...`
+                    : t.pg_main_btn_designing_dots)
+                : t.pg_main_btn_generate_layouts}
             </button>
           </>
         }
       >
         <div className="space-y-4">
           <div className="text-xs text-zinc-400">
-            {tr(
-              '补一句额外要求，AI 会在保持当前图种和张数不变的前提下，为每条出图条目补全构图描述。',
-              'Add one extra instruction and AI will fill in layout descriptions for the current output items without changing the selected mix.'
-            )}
+            {t.pg_main_ai_layout_instruction_description}
           </div>
           <textarea
             value={galleryAiLayoutDesigner.prompt}
             onChange={(e) => setGalleryAiLayoutDesigner((prev) => ({ ...prev, prompt: e.target.value }))}
             rows={4}
             className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
-            placeholder={tr('例如：场景图更偏小红书生活方式感，卖点图留出右侧文案区。', 'E.g. make scene images feel more Xiaohongshu-lifestyle, and leave a clean text area on the right for selling-point images.')}
+            placeholder={t.pg_main_ai_layout_instruction_placeholder}
           />
           <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5">
             <div className="min-w-0">
-              <div className="text-xs font-bold text-zinc-200">{tr('每张图生成构图候选数', 'Layout variants per image')}</div>
+              <div className="text-xs font-bold text-zinc-200">{t.pg_main_layout_variants_label}</div>
               <div className="mt-0.5 text-[11px] leading-4 text-zinc-500">
-                {tr(
-                  '一次生成多份构图，高级编辑里可按卡片左右翻页挑选。',
-                  'Generate multiple layouts so you can browse them per card in Advanced Editing.'
-                )}
+                {t.pg_main_layout_variants_hint}
               </div>
             </div>
             <div className="flex items-center gap-1">
@@ -3949,7 +3919,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                 onClick={() => setGalleryLayoutVariants((v) => Math.max(GALLERY_LAYOUT_VARIANTS_MIN, Math.floor(Number(v) || 1) - 1))}
                 disabled={galleryAiLayoutDesigner.isGenerating || galleryLayoutVariants <= GALLERY_LAYOUT_VARIANTS_MIN}
                 className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 flex items-center justify-center disabled:opacity-40"
-                aria-label={tr('减少候选数', 'Decrease variants')}
+                aria-label={t.pg_main_aria_decrease_variants}
               >
                 <Minus className="h-3.5 w-3.5" />
               </button>
@@ -3961,7 +3931,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                 onClick={() => setGalleryLayoutVariants((v) => Math.min(GALLERY_LAYOUT_VARIANTS_MAX, Math.floor(Number(v) || 1) + 1))}
                 disabled={galleryAiLayoutDesigner.isGenerating || galleryLayoutVariants >= GALLERY_LAYOUT_VARIANTS_MAX}
                 className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 flex items-center justify-center disabled:opacity-40"
-                aria-label={tr('增加候选数', 'Increase variants')}
+                aria-label={t.pg_main_aria_increase_variants}
               >
                 <Plus className="h-3.5 w-3.5" />
               </button>
@@ -3975,7 +3945,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
       <AppDialog
         isOpen={Boolean(galleryPreviewImageUrl)}
-        title={tr('图片详情预览', 'Image Details')}
+        title={t.pg_main_dialog_image_details_title}
         onClose={closeGalleryImagePreview}
         widthClassName="max-w-6xl h-[calc(100vh-3rem)]"
         titleClassName="text-base"
@@ -3985,15 +3955,15 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           const targetSceneValue = String(activeHistoryItem?.settings?.targetScene || galleryTargetScene || '').trim();
           const targetSceneLabel =
             targetSceneValue === 'detail'
-              ? tr('详情页风格', 'Detail Style')
+              ? t.pg_main_style_detail
               : targetSceneValue === 'poster'
-                ? tr('海报风格', 'Poster Style')
+                ? t.pg_main_style_poster
                 : targetSceneValue === 'xiaohongshu'
-                  ? tr('小红书风格', 'Xiaohongshu Style')
+                  ? t.pg_main_style_xiaohongshu
                   : targetSceneValue === 'douyin'
-                    ? tr('抖音风格', 'Douyin Style')
+                    ? t.pg_main_style_douyin
                     : targetSceneValue === 'ads'
-                      ? tr('广告风格', 'Ads Style')
+                      ? t.pg_main_style_ads
                       : '-';
           return `${productNameLabel} · ${targetSceneLabel}`;
         })()}
@@ -4052,7 +4022,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                 .filter(([, value]) => Boolean((value as any)?.enabled) && Number((value as any)?.count || 0) > 0)
                 .map(([key]) => key);
               if (enabledKeys.length === 1) return enabledKeys[0];
-              if (enabledKeys.length > 1) return tr('多种', 'Multiple');
+              if (enabledKeys.length > 1) return t.pg_main_multiple;
             }
 
             return '';
@@ -4070,15 +4040,15 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           const targetSceneValue = String(activeHistoryItem?.settings?.targetScene || galleryTargetScene || '').trim();
           const targetSceneLabel =
             targetSceneValue === 'detail'
-              ? tr('详情页风格', 'Detail Style')
+              ? t.pg_main_style_detail
               : targetSceneValue === 'poster'
-                ? tr('海报风格', 'Poster Style')
+                ? t.pg_main_style_poster
                 : targetSceneValue === 'xiaohongshu'
-                  ? tr('小红书风格', 'Xiaohongshu Style')
+                  ? t.pg_main_style_xiaohongshu
                   : targetSceneValue === 'douyin'
-                    ? tr('抖音风格', 'Douyin Style')
+                    ? t.pg_main_style_douyin
                     : targetSceneValue === 'ads'
-                      ? tr('广告风格', 'Ads Style')
+                      ? t.pg_main_style_ads
                       : '-';
           const previewSubtitle = `${productNameLabel} · ${targetSceneLabel}`;
           const outputType = String(activePreviewItem?.outputType || resolveHistoryOutputType() || '').trim();
@@ -4111,7 +4081,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                       onClick={handleGalleryPreviewPrev}
                       disabled={galleryPreviewNav.index <= 0}
                       className="absolute left-2 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-black/60 border border-white/10 text-zinc-200 hover:bg-black/75 disabled:opacity-40 disabled:hover:bg-black/60 transition flex items-center justify-center"
-                      aria-label={tr('上一张', 'Previous')}
+                      aria-label={t.pg_main_aria_previous}
                     >
                       <ChevronLeft className="w-5 h-5" />
                     </button>
@@ -4120,7 +4090,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   <div className="relative h-full w-full overflow-hidden">
                     <img
                       src={galleryPreviewImageUrl}
-                      alt={tr('预览图片', 'Preview image')}
+                      alt={t.pg_main_aria_preview_image}
                       className="h-full w-full object-contain transition-transform duration-300 ease-out group-hover:scale-105"
                       onLoad={(e) => {
                         const img = e.currentTarget;
@@ -4135,7 +4105,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                       onClick={handleGalleryPreviewNext}
                       disabled={galleryPreviewNav.index >= galleryPreviewNav.total - 1}
                       className="absolute right-2 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-black/60 border border-white/10 text-zinc-200 hover:bg-black/75 disabled:opacity-40 disabled:hover:bg-black/60 transition flex items-center justify-center"
-                      aria-label={tr('下一张', 'Next')}
+                      aria-label={t.pg_main_aria_next}
                     >
                       <ChevronRight className="w-5 h-5" />
                     </button>
@@ -4147,24 +4117,24 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
 
                 <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <div className="text-xs font-bold text-zinc-200">{tr('生成信息', 'Generation Info')}</div>
+                  <div className="text-xs font-bold text-zinc-200">{t.pg_main_generation_info}</div>
                   <div className="mt-3 space-y-2 text-xs">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-zinc-500">{tr('分辨率', 'Resolution')}</span>
+                      <span className="text-zinc-500">{t.pg_main_resolution}</span>
                       <span className="text-zinc-200 font-bold">
                         {galleryPreviewResolution ? `${galleryPreviewResolution.w} × ${galleryPreviewResolution.h} px` : '-'}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-zinc-500">{tr('生成时间', 'Created At')}</span>
+                      <span className="text-zinc-500">{t.pg_main_created_at}</span>
                       <span className="text-zinc-200 font-bold">{createdAtLabel}</span>
                     </div>
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-zinc-500">{tr('类型', 'Type')}</span>
+                      <span className="text-zinc-500">{t.pg_main_type}</span>
                       <span className="text-zinc-200 font-bold">{typeLabel}</span>
                     </div>
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-zinc-500">{tr('生成模型', 'Model')}</span>
+                      <span className="text-zinc-500">{t.pg_main_model}</span>
                       <span className="text-zinc-200 font-bold">{modelLabel}</span>
                     </div>
                   </div>
@@ -4177,7 +4147,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                     className="w-full rounded-xl border border-white/10 bg-black/80 px-4 py-3 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:bg-indigo-600 hover:shadow-xl active:scale-[0.96] active:shadow-lg flex items-center justify-center gap-2"
                   >
                     <Wand2 className="w-4 h-4" />
-                    {tr('局部重绘 / 修改', 'Inpaint / Edit')}
+                    {t.pg_main_inpaint_edit}
                   </button>
 
                   <div className="grid grid-cols-2 gap-2">
@@ -4197,7 +4167,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                               }}
                               className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 font-bold text-zinc-200 hover:bg-white/10 disabled:opacity-60"
                             >
-                              {tr('单张', 'Single')}
+                              {t.pg_main_single}
                             </button>
                             <button
                               type="button"
@@ -4208,7 +4178,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                               }}
                               className="rounded-xl bg-orange-500 px-3 py-2 font-bold text-black hover:bg-orange-400 disabled:opacity-60"
                             >
-                              {tr('全部', 'All')}
+                              {t.pg_main_all}
                             </button>
                           </div>
                           <div className="absolute left-1/2 top-full h-3 w-3 -translate-x-1/2 -translate-y-1.5 rotate-45 border-b border-r border-white/10 bg-black/80" />
@@ -4223,7 +4193,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                         className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-zinc-200 transition-all duration-200 hover:bg-white/10 hover:border-white/20 active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
                       >
                         <Download className="w-4 h-4" />
-                        {isGalleryPreviewDownloading ? tr('下载中...', 'Downloading...') : (t.pi_gallery_preview_download_image || tr('下载图片', 'Download'))}
+                        {isGalleryPreviewDownloading ? t.pg_main_downloading : (t.pi_gallery_preview_download_image)}
                       </button>
                     </div>
                     <button
@@ -4233,7 +4203,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                       className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-zinc-200 transition-all duration-200 hover:bg-white/10 hover:border-white/20 active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
                     >
                       <FileDown className="w-4 h-4" />
-                      {isGalleryPreviewExportingPdf ? tr('导出中...', 'Exporting...') : (t.pi_gallery_preview_export_pdf || tr('导出 PDF', 'Export PDF'))}
+                      {isGalleryPreviewExportingPdf ? t.pg_main_exporting : (t.pi_gallery_preview_export_pdf)}
                     </button>
                   </div>
                 </div>
@@ -4258,18 +4228,18 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               type="button"
               onClick={closeGalleryInpaint}
               className="-ml-1 inline-flex items-center justify-center rounded-lg px-2 py-1 text-zinc-300 hover:bg-white/5 hover:text-white transition"
-              aria-label={tr('返回', 'Back')}
+              aria-label={t.ff_back}
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
-            <span>{galleryInpaint.step === 'compare' ? tr('重绘结果选择', 'Choose Result') : tr('局部重绘修改', 'Local Edit')}</span>
+            <span>{galleryInpaint.step === 'compare' ? t.pg_main_inpaint_choose_result : t.pg_main_inpaint_local_edit}</span>
           </div>
         }
         titleClassName="text-base"
         subtitle={
           galleryInpaint.step === 'compare'
-            ? tr('对比两张图片，选择继续修改或应用覆盖原图。', 'Compare two images, then continue editing or apply to replace the original.')
-            : tr('请在左侧框选需要修改的部分', 'Select the area to edit on the left')
+            ? t.pg_main_inpaint_compare_hint
+            : t.pg_main_inpaint_select_on_left
         }
         onClose={closeGalleryInpaint}
         widthClassName="max-w-none w-[1120px] max-w-[calc(100vw-3rem)]"
@@ -4285,12 +4255,12 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                       type="button"
                       onClick={() => setGalleryInpaint((prev) => ({ ...prev, selectedCompare: 'original' }))}
                       className={`relative flex-1 h-full rounded-2xl bg-black/40 overflow-hidden transition ${galleryInpaint.selectedCompare === 'original' ? 'border-2 border-indigo-500/70 shadow-lg shadow-indigo-600/10' : 'border border-white/10 hover:border-white/20'}`}
-                      aria-label={tr('选择原图', 'Select original')}
+                      aria-label={t.pg_main_aria_select_original}
                     >
-                      <img src={galleryPreviewImageUrl} alt={tr('原图', 'Original')} className="w-full h-full object-contain" draggable={false} />
-                      <div className="absolute left-3 top-3 rounded-full bg-black/60 px-3 py-1 text-[11px] font-bold text-white">{tr('原图', 'Original')}</div>
+                      <img src={galleryPreviewImageUrl} alt={t.pg_main_original} className="w-full h-full object-contain" draggable={false} />
+                      <div className="absolute left-3 top-3 rounded-full bg-black/60 px-3 py-1 text-[11px] font-bold text-white">{t.pg_main_original}</div>
                       {galleryInpaint.selectedCompare === 'original' ? (
-                        <div className="absolute right-3 top-3 rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-bold text-white">{tr('当前选中', 'Selected')}</div>
+                        <div className="absolute right-3 top-3 rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-bold text-white">{t.pg_main_selected}</div>
                       ) : null}
                     </button>
 
@@ -4298,12 +4268,12 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                       type="button"
                       onClick={() => setGalleryInpaint((prev) => ({ ...prev, selectedCompare: 'edited' }))}
                       className={`relative flex-1 h-full rounded-2xl bg-black/40 overflow-hidden transition ${galleryInpaint.selectedCompare === 'edited' ? 'border-2 border-indigo-500/70 shadow-lg shadow-indigo-600/10' : 'border border-white/10 hover:border-white/20'}`}
-                      aria-label={tr('选择修改后', 'Select edited')}
+                      aria-label={t.pg_main_aria_select_edited}
                     >
-                      <img src={galleryInpaint.resultUrl} alt={tr('修改后', 'Edited')} className="w-full h-full object-contain" draggable={false} />
-                      <div className="absolute left-3 top-3 rounded-full bg-black/60 px-3 py-1 text-[11px] font-bold text-white">{tr('修改后', 'Edited')}</div>
+                      <img src={galleryInpaint.resultUrl} alt={t.pg_main_edited} className="w-full h-full object-contain" draggable={false} />
+                      <div className="absolute left-3 top-3 rounded-full bg-black/60 px-3 py-1 text-[11px] font-bold text-white">{t.pg_main_edited}</div>
                       {galleryInpaint.selectedCompare === 'edited' ? (
-                        <div className="absolute right-3 top-3 rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-bold text-white">{tr('当前选中', 'Selected')}</div>
+                        <div className="absolute right-3 top-3 rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-bold text-white">{t.pg_main_selected}</div>
                       ) : null}
                     </button>
                   </div>
@@ -4320,7 +4290,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   <img
                     ref={galleryInpaintImgRef}
                     src={galleryInpaint.resultUrl || galleryPreviewImageUrl}
-                    alt={tr('预览图片', 'Preview image')}
+                    alt={t.pg_main_aria_preview_image}
                     className="w-full h-full object-contain"
                     draggable={false}
                   />
@@ -4394,7 +4364,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                         }}
                       >
                         <div className="inline-flex items-center rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-bold text-white shadow-sm">
-                          {tr('修改区域', 'Area')}
+                          {t.pg_main_area}
                         </div>
                       </div>
                     </>
@@ -4406,7 +4376,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                     <button
                       type="button"
                       className="h-9 w-9 rounded-xl bg-white/10 text-white hover:bg-white/15 transition inline-flex items-center justify-center"
-                      aria-label={tr('框选', 'Select')}
+                      aria-label={t.pg_main_aria_select_tool}
                     >
                       <PencilLine className="w-4 h-4" />
                     </button>
@@ -4415,7 +4385,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                       onClick={() => setGalleryInpaint((prev) => ({ ...prev, rect: null, error: null }))}
                       disabled={galleryInpaint.isGenerating}
                       className="h-9 w-9 rounded-xl bg-white/10 text-white hover:bg-white/15 transition inline-flex items-center justify-center disabled:opacity-60"
-                      aria-label={tr('清除选区', 'Clear selection')}
+                      aria-label={t.pg_main_aria_clear_selection}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -4428,37 +4398,37 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               {galleryInpaint.step === 'compare' ? (
                 <div className="p-6 flex flex-col min-h-0 flex-1">
                   <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-4 text-indigo-900">
-                    <div className="text-sm font-extrabold">{tr('生成完毕！', 'Done!')}</div>
+                    <div className="text-sm font-extrabold">{t.pg_main_inpaint_done}</div>
                     <div className="mt-2 text-xs leading-relaxed text-indigo-700">
-                      {tr('点击左侧图片选择要保留的版本，然后继续修改或直接应用。', 'Click an image on the left to select the version, then continue editing or apply it.')}
+                      {t.pg_main_inpaint_select_version_hint}
                     </div>
                   </div>
 
                   <div className="mt-5">
-                    <div className="text-xs font-bold text-zinc-500">{tr('当前版本', 'Current Version')}</div>
+                    <div className="text-xs font-bold text-zinc-500">{t.pg_main_inpaint_current_version}</div>
                     <div className="mt-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 flex items-center gap-3">
                       <div className="h-10 w-10 rounded-xl bg-indigo-600/10 flex items-center justify-center overflow-hidden">
                         <img
                           src={galleryInpaint.selectedCompare === 'edited' ? (galleryInpaint.resultUrl || galleryPreviewImageUrl) : galleryPreviewImageUrl}
-                          alt={tr('缩略图', 'Thumbnail')}
+                          alt={t.pg_main_aria_thumbnail}
                           className="h-full w-full object-cover"
                         />
                       </div>
                       <div className="min-w-0">
                         <div className="text-sm font-extrabold text-zinc-900">
-                          {galleryInpaint.selectedCompare === 'edited' ? tr('AI 重绘版本', 'AI Edited Version') : tr('原图版本', 'Original Version')}
+                          {galleryInpaint.selectedCompare === 'edited' ? t.pg_main_inpaint_ai_edited_version : t.pg_main_inpaint_original_version}
                         </div>
                         <div className="mt-0.5 text-[11px] text-zinc-500">
-                          {galleryInpaint.selectedCompare === 'edited' ? tr('已生成 1 个修改结果', '1 edited result generated') : tr('保留未修改版本', 'Keep unmodified version')}
+                          {galleryInpaint.selectedCompare === 'edited' ? t.pg_main_inpaint_one_result : t.pg_main_inpaint_keep_unmodified}
                         </div>
                       </div>
                     </div>
                   </div>
 
                   <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-amber-800">
-                    <div className="text-xs font-bold">{tr('提示', 'Tip')}</div>
+                    <div className="text-xs font-bold">{t.pg_main_tip}</div>
                     <div className="mt-2 text-xs leading-relaxed">
-                      {tr('点击“继续修改”将基于当前选中的版本进入下一轮修改。', 'Click “Continue editing” to start another edit based on the selected version.')}
+                      {t.pg_main_inpaint_tip_continue}
                     </div>
                   </div>
 
@@ -4478,7 +4448,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                       }
                       className="w-full rounded-xl border border-rose-400 bg-white px-4 py-3 text-sm font-extrabold text-rose-600 hover:bg-rose-50 transition"
                     >
-                      {tr('继续修改', 'Continue Editing')}
+                      {t.pg_main_btn_continue_editing}
                     </button>
                     <button
                       type="button"
@@ -4494,13 +4464,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                           await applyGalleryPreviewOverwrite(galleryInpaint.resultUrl);
                           closeGalleryInpaint();
                         } catch (err: any) {
-                          openGalleryAlert(String(err?.message || err || tr('应用失败，请重试。', 'Failed to apply. Please try again.')));
+                          openGalleryAlert(String(err?.message || err || t.pg_main_error_apply_failed));
                         }
                       }}
                       className="w-full rounded-xl bg-indigo-600 px-4 py-3 text-sm font-extrabold text-white hover:bg-indigo-500 disabled:opacity-60 transition inline-flex items-center justify-center gap-2"
                     >
                       <Check className="w-4 h-4" />
-                      {galleryInpaint.selectedCompare === 'original' ? tr('保留原图', 'Keep Original') : tr('应用并覆盖原图', 'Apply & Replace Original')}
+                      {galleryInpaint.selectedCompare === 'original' ? t.pg_main_btn_keep_original : t.pg_main_btn_apply_replace_original}
                     </button>
                   </div>
                 </div>
@@ -4508,28 +4478,28 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                 <div className="p-6 flex flex-col min-h-0 flex-1">
                   <div className="min-h-0 flex-1 overflow-y-auto pr-1">
                     <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm font-extrabold text-zinc-900">{t.pi_gallery_inpaint_prompt_label || tr('修改指令（Prompt）', 'Edit Prompt')}</div>
+                      <div className="text-sm font-extrabold text-zinc-900">{t.pi_gallery_inpaint_prompt_label}</div>
                       <button
                         type="button"
                         onClick={() => setGalleryInpaint((prev) => ({ ...prev, rect: null, error: null }))}
                         disabled={galleryInpaint.isGenerating}
                         className="text-xs font-bold text-zinc-500 hover:text-zinc-900 disabled:opacity-60 transition"
                       >
-                        {tr('清除全部选区', 'Clear Selection')}
+                        {t.pg_main_btn_clear_all_selection}
                       </button>
                     </div>
 
                     <textarea
                       value={galleryInpaint.prompt}
                       onChange={(e) => setGalleryInpaint((prev) => ({ ...prev, prompt: e.target.value }))}
-                      placeholder={t.pi_gallery_inpaint_prompt_placeholder || tr('例如：把选中区域的鞋带改成浅黄色，并增加质感，保持光影与原图一致。', 'E.g. Change the laces in the selected area to light yellow, add texture, keep lighting consistent.')}
+                      placeholder={t.pi_gallery_inpaint_prompt_placeholder}
                       className="mt-3 w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 outline-none focus:border-indigo-300 min-h-[140px] resize-none"
                     />
 
                     <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-amber-800">
-                      <div className="text-xs font-bold">{tr('提示', 'Tip')}</div>
+                      <div className="text-xs font-bold">{t.pg_main_tip}</div>
                       <div className="mt-2 text-xs leading-relaxed">
-                        {tr('描述得越具体越好（如颜色、材质、环境光等），生成的效果更接近自然。', 'Be specific (color, material, lighting, etc.) for better results.')}
+                        {t.pg_main_inpaint_prompt_hint}
                       </div>
                     </div>
 
@@ -4538,8 +4508,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
                   <div className="shrink-0 pt-6">
                     <div className="flex items-center justify-between text-xs text-zinc-500">
-                      <div>{tr('单张计费', 'Per image')}</div>
-                      <div className="font-bold text-indigo-600">{tr('极速模式', 'Fast Mode')}</div>
+                      <div>{t.pg_main_inpaint_per_image}</div>
+                      <div className="font-bold text-indigo-600">{t.pg_main_inpaint_fast_mode}</div>
                     </div>
 
                     <button
@@ -4551,12 +4521,12 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                       <span aria-hidden="true" className="min-w-0" />
                       <span className="inline-flex min-w-0 items-center justify-center gap-2 justify-self-center text-center">
                         <Zap className="h-4 w-4 shrink-0" />
-                        {galleryInpaint.isGenerating ? (t.pi_gallery_inpaint_generating || tr('生成中...', 'Generating...')) : tr('开始生成修改', 'Start Editing')}
+                        {galleryInpaint.isGenerating ? (t.pi_gallery_inpaint_generating) : t.pg_main_btn_start_editing}
                       </span>
                       <span className="justify-self-end self-center pr-0.5 text-right">
                         {!galleryInpaint.isGenerating && galleryInpaintEstimatedCost > 0 ? (
                           <span className="whitespace-nowrap text-[10px] font-semibold tabular-nums text-white/80">
-                            {`-${galleryInpaintEstimatedCost} ${tr('V点', 'V-points')}`}
+                            {`-${galleryInpaintEstimatedCost} ${t.pg_main_v_points}`}
                           </span>
                         ) : null}
                       </span>
@@ -4572,7 +4542,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
       <AppDialog
         isOpen={isTextSeparationHistoryPickerOpen}
-        title={tr('选择商品套图历史图片', 'Choose Product Gallery History')}
+        title={t.pg_main_dialog_choose_gallery_history_title}
         onClose={() => setIsTextSeparationHistoryPickerOpen(false)}
         widthClassName="max-w-6xl"
         footer={
@@ -4581,13 +4551,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             onClick={() => setIsTextSeparationHistoryPickerOpen(false)}
             className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
           >
-            {tr('关闭', 'Close')}
+            {t.pg_main_btn_close}
           </button>
         }
       >
         {galleryHistoryItems.length === 0 ? (
           <div className="flex h-72 items-center justify-center text-sm text-zinc-500">
-            {tr('暂无可用的商品套图历史图片', 'No Product Gallery history available')}
+            {t.pg_main_no_gallery_history}
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-4 max-h-[70vh] overflow-y-auto pr-1">
@@ -4601,7 +4571,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                       type="button"
                       onClick={() => {
                         setIsTextSeparationHistoryPickerOpen(false);
-                        selectTextSeparationSource(url, `${tr('历史图片', 'History Image')} ${item.createdAt}`, url);
+                        selectTextSeparationSource(url, `${t.pg_main_history_image} ${item.createdAt}`, url);
                       }}
                       disabled={isTextSeparationLoading}
                       className="block w-full disabled:opacity-70"
@@ -4616,18 +4586,18 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                           onClick={() => openGalleryImagePreview(url)}
                           className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-bold text-zinc-200 transition hover:bg-zinc-800"
                         >
-                          {tr('预览', 'Preview')}
+                          {t.pg_main_btn_preview}
                         </button>
                         <button
                           type="button"
                           onClick={() => {
                             setIsTextSeparationHistoryPickerOpen(false);
-                            selectTextSeparationSource(url, `${tr('历史图片', 'History Image')} ${item.createdAt}`, url);
+                            selectTextSeparationSource(url, `${t.pg_main_history_image} ${item.createdAt}`, url);
                           }}
                           disabled={isTextSeparationLoading}
                           className="rounded-xl bg-orange-500 px-3 py-2 text-xs font-bold text-black transition hover:bg-orange-400 disabled:opacity-60"
                         >
-                          {isTextSeparationLoading ? tr('处理中...', 'Processing...') : tr('文本分离', 'Text Separation')}
+                          {isTextSeparationLoading ? t.pg_main_processing : t.pg_main_text_separation_action}
                         </button>
                       </div>
                     </div>
@@ -4640,7 +4610,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
       <AppDialog
         isOpen={isGalleryBoardEditorOpen}
-        title={tr('画板编辑器', 'Board Editor')}
+        title={t.pg_main_dialog_board_editor_title}
         onClose={closeGalleryBoardEditor}
         widthClassName="max-w-[96rem]"
       >
@@ -4650,7 +4620,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             historyItems={galleryHistoryItems}
             productName={galleryProductName}
             sellingPoints={gallerySellingPoints}
-            tr={tr}
             initialTitle={galleryProductName}
             initialSubtitle={gallerySellingPoints.filter((item) => String(item || '').trim()).slice(0, 2).join(' / ')}
             initialLocalAssets={galleryBoardLocalAssets}
@@ -4729,7 +4698,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       >
         <div className={panelClassName('product_images_clothing_swap')}>
           <div className="rounded-2xl border border-white/5 bg-white/2 h-full flex items-center justify-center text-zinc-500">
-            <div>{tr('AI 换装（开发中）', 'AI Clothing Swap (In Development)')}</div>
+            <div>{t.pg_main_clothing_swap_in_dev}</div>
           </div>
         </div>
 
@@ -4797,9 +4766,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                           <div className="space-y-4">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <div className="text-xs font-medium uppercase tracking-wider text-zinc-500">{tr('当前处理图片', 'Current Image')}</div>
+                                <div className="text-xs font-medium uppercase tracking-wider text-zinc-500">{t.pg_main_current_image_label}</div>
                                 <div className="mt-1 truncate text-sm font-bold text-zinc-200">
-                                  {textSeparationUploadName || tr('最近上传', 'Latest upload')}
+                                  {textSeparationUploadName || t.pg_main_latest_upload}
                               </div>
                             </div>
                             <button
@@ -4824,7 +4793,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                               className="flex-1 rounded-xl border border-orange-500/40 bg-orange-500/10 px-4 py-3 text-sm font-bold text-orange-200 transition hover:bg-orange-500/20 disabled:border-white/10 disabled:bg-black/30 disabled:text-zinc-500"
                             >
                               <div className="flex items-center justify-center gap-2">
-                                {isTextSeparationLoading ? tr('处理中...', 'Processing...') : tr('开始文本分离', 'Start Text Separation')}
+                                {isTextSeparationLoading ? t.pg_main_processing : t.pg_main_btn_start_text_separation}
                                 {textSeparationEstimatedCost > 0 && !isTextSeparationLoading ? (
                                   <span className="rounded bg-black/20 px-1.5 py-0.5 text-[10px]">-{textSeparationEstimatedCost} V</span>
                                 ) : null}
@@ -4835,7 +4804,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                               onClick={() => openGalleryImagePreview(textSeparationUploadPreviewUrl)}
                               className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:bg-white/[0.04]"
                             >
-                              {tr('查看', 'View')}
+                              {t.pg_main_btn_view}
                             </button>
                           </div>
                         </div>
@@ -4852,7 +4821,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                               }`}
                             >
                                 <Upload className={`mb-4 h-8 w-8 ${isTextSeparationDragActive ? 'text-orange-400' : 'text-zinc-400'}`} />
-                              <div className="text-[15px] font-bold text-zinc-200">{tr('拖拽图片或点击选择', 'Choose one poster image')}</div>
+                              <div className="text-[15px] font-bold text-zinc-200">{t.pg_main_choose_poster_image}</div>
                               <div className="mt-2 text-[11px] uppercase tracking-widest text-zinc-500">JPG, PNG, WEBP (MAX 10MB)</div>
                             </button>
                           <button
@@ -4861,7 +4830,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                             disabled={isTextSeparationLoading}
                               className="w-full rounded-xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-3.5 text-[15px] font-bold text-zinc-400 transition hover:border-white/30 hover:bg-white/[0.05] hover:text-zinc-200 disabled:opacity-50"
                             >
-                            {tr('从商品套图历史记录选择', 'Choose from Product Gallery History')}
+                            {t.pg_main_btn_choose_from_history}
                           </button>
                         </div>
                       )}
@@ -4872,14 +4841,14 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   <div className="flex flex-1 min-w-0 flex-col">
                     <div className="mb-4 flex items-center gap-2 text-zinc-400">
                       <LayoutGrid className="h-4 w-4" />
-                      <div className="text-base font-bold">{tr('生成记录', 'Generation Records')}</div>
+                      <div className="text-base font-bold">{t.pg_main_generation_records}</div>
                     </div>
 
                     <div className="custom-scrollbar flex-1 overflow-y-auto px-4 py-6">
                       {textSeparationRecords.length === 0 ? (
                         <div className="flex h-full flex-col items-center justify-center gap-3 opacity-40">
                           <Plus className="h-5 w-5 text-zinc-500" />
-                          <p className="text-sm font-medium italic tracking-wide text-zinc-500">{tr('还没有生成记录', 'No generation records yet')}</p>
+                          <p className="text-sm font-medium italic tracking-wide text-zinc-500">{t.pg_main_no_generation_records}</p>
                         </div>
                       ) : (
                           <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
@@ -4920,7 +4889,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                                   <div className="mt-1 text-xs font-medium uppercase italic tracking-tighter text-zinc-500">{item.createdAt}</div>
                                 </div>
                                 <div className={`shrink-0 rounded px-2 py-0.5 text-xs font-black uppercase tracking-widest ${item.status === 'processing' ? 'bg-orange-400/10 text-orange-400' : 'bg-emerald-400/10 text-emerald-400'}`}>
-                                  {item.status === 'processing' ? tr('等待', 'Wait') : tr('完成', 'Done')}
+                                  {item.status === 'processing' ? t.pg_main_status_wait : t.pg_main_status_done}
                                 </div>
                               </div>
                           </button>
@@ -4935,9 +4904,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
                     <div className="max-w-xl">
                       <div className="mb-3 inline-block border border-white/10 px-2 py-0.5 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Workflow</div>
-                      <h2 className="text-lg font-bold tracking-tight text-zinc-100">{tr('使用指南', 'Quick Guide')}</h2>
+                      <h2 className="text-lg font-bold tracking-tight text-zinc-100">{t.pg_main_quick_guide_title}</h2>
                       <p className="mt-1 text-sm italic text-zinc-500">
-                        {tr('三步把带字海报变成可编辑、可重绘的创意资产。', 'Turn a text-heavy poster into an editable, repaintable creative asset in three steps.')}
+                        {t.pg_main_quick_guide_subtitle}
                       </p>
                     </div>
                   </div>
@@ -4946,21 +4915,21 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                   {[
                     {
                       step: '01',
-                      title: tr('上传原始海报', 'Upload'),
+                      title: t.pg_main_guide_step1_title,
                       img: '/ai-poster-editor-guide/origin.jpeg',
-                      desc: tr('系统自动提取可编辑文本框，并生成干净底图。', 'Extract editable text blocks and build a clean background.'),
+                      desc: t.pg_main_guide_step1_desc,
                     },
                     {
                       step: '02',
-                      title: tr('自由编辑并导出', 'Edit'),
+                      title: t.pg_main_guide_step2_title,
                       img: '/ai-poster-editor-guide/edited.png',
-                      desc: tr('调整文案、样式和排版，也可以一键导出为 PPTX。', 'Refine copy, styling, and layout, then export to PPTX.'),
+                      desc: t.pg_main_guide_step2_desc,
                     },
                     {
                       step: '03',
-                      title: tr('文本重绘释放创意', 'Repaint'),
+                      title: t.pg_main_guide_step3_title,
                       img: '/ai-poster-editor-guide/repainted.jpeg',
-                      desc: tr('AI 会在保留底图氛围的前提下，重绘成新的效果。', 'AI repaints the poster into a new visual direction.'),
+                      desc: t.pg_main_guide_step3_desc,
                     },
                       ].map((card) => (
                         <div key={card.step} className="space-y-5">
@@ -4983,7 +4952,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         <ImagesGalleryView
           panelClassName={panelClassName}
           t={t}
-          tr={tr}
           galleryFileInputRef={galleryFileInputRef}
           galleryImages={galleryImages}
           galleryPreviewUrls={galleryPreviewUrls}

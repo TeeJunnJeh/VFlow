@@ -96,7 +96,6 @@ const cloneGalleryBulkConfig = (value: GalleryBulkConfig): GalleryBulkConfig => 
 export type ImagesGalleryViewProps = {
   panelClassName: (view: ViewType) => string;
   t: any;
-  tr: (zh: string, en: string) => string;
 
   galleryFileInputRef: React.RefObject<HTMLInputElement | null>;
   galleryImages: File[];
@@ -415,7 +414,6 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
   const {
     panelClassName,
     t,
-    tr,
 
     galleryFileInputRef,
     galleryImages,
@@ -534,32 +532,32 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
   }> = [
     {
       outputType: 'white_bg',
-      title: tr('白底图', 'White Background'),
-      description: tr('适合主图、标准化电商展示。', 'Best for clean hero shots and catalog use.'),
+      title: t.pi_gallery_output_white_bg,
+      description: t.pg_img_white_bg_desc,
       accentClass: 'border-sky-400/30 bg-sky-500/8',
     },
     {
       outputType: 'scene',
-      title: tr('场景图', 'Scene'),
-      description: tr('适合带入使用环境与生活方式氛围。', 'Places the product into a contextual lifestyle scene.'),
+      title: t.pi_gallery_output_scene,
+      description: t.pg_img_scene_desc,
       accentClass: 'border-emerald-400/30 bg-emerald-500/8',
     },
     {
       outputType: 'selling_point',
-      title: tr('卖点图', 'Selling Point'),
-      description: tr('一张图聚焦一个核心卖点。', 'Keeps each image focused on one key benefit.'),
+      title: t.pi_gallery_output_selling_point,
+      description: t.pg_img_selling_point_desc,
       accentClass: 'border-amber-400/30 bg-amber-500/10',
     },
     {
       outputType: 'cover',
-      title: tr('封面图', 'Cover'),
-      description: tr('适合详情页首屏或合集封面。', 'Good for collection covers and top-of-page visuals.'),
+      title: t.pi_gallery_output_cover,
+      description: t.pg_img_cover_desc,
       accentClass: 'border-fuchsia-400/30 bg-fuchsia-500/10',
     },
     {
       outputType: 'poster',
-      title: tr('海报图', 'Poster'),
-      description: tr('适合促销、活动和长画幅传播。', 'Built for campaign posters and long-form promo placements.'),
+      title: t.pi_gallery_output_poster,
+      description: t.pg_img_poster_desc,
       accentClass: 'border-orange-400/30 bg-orange-500/10',
     },
   ];
@@ -594,12 +592,12 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
       const selection = galleryBulkConfig.typeSelections[card.outputType];
       const count = selection?.enabled ? Math.max(0, Math.round(Number(selection.count || 0))) : 0;
       if (count <= 0) return null;
-      return tr(`${card.title} ${count} 张`, `${card.title} ${count}`);
+      return `${card.title} ${count}${t.pg_img_count_unit ? ` ${t.pg_img_count_unit}` : ''}`.trim();
     })
     .filter(Boolean) as string[];
   const galleryBulkSummaryPrimary = galleryBulkSummaryItems.length > 0
     ? galleryBulkSummaryItems.join(' · ')
-    : tr('未启用任何批量出图类型', 'No batch output types enabled');
+    : t.pg_img_no_batch_types_enabled;
 
   const handleQuickBatchDialogApply = async () => {
     const applied = await handleApplyGalleryBulkConfig(cloneGalleryBulkConfig(galleryBulkDialogDraft));
@@ -612,23 +610,23 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     const common = [
       {
         key: 'visualFocus',
-        label: tr('视觉重点', 'Visual Focus'),
-        placeholder: tr('例如：突出材质、肤感、包装细节', 'e.g. emphasize texture, skin feel, packaging details'),
+        label: t.pg_img_visual_focus_label,
+        placeholder: t.pg_img_visual_focus_placeholder,
       },
       {
         key: 'compositionHint',
-        label: tr('构图补充', 'Composition Hint'),
-        placeholder: tr('例如：低机位、近景、留白偏右', 'e.g. low angle, close-up, whitespace on the right'),
+        label: t.pg_img_composition_hint_label,
+        placeholder: t.pg_img_composition_hint_placeholder,
       },
       {
         key: 'copyTone',
-        label: tr('文案语气', 'Copy Tone'),
-        placeholder: tr('例如：专业、温柔、种草感', 'e.g. professional, warm, social-proof tone'),
+        label: t.pg_img_copy_tone_label,
+        placeholder: t.pg_img_copy_tone_placeholder,
       },
       {
         key: 'negativeHints',
-        label: tr('避坑提示', 'Negative Hints'),
-        placeholder: tr('例如：不要悬浮道具、不要强烈镜面反射', 'e.g. avoid floating props, avoid strong mirror reflection'),
+        label: t.pg_img_negative_hints_label,
+        placeholder: t.pg_img_negative_hints_placeholder,
       },
     ];
 
@@ -637,69 +635,69 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
         ? [
             {
               key: 'sellingPointText',
-              label: tr('聚焦卖点', 'Focused Selling Point'),
-              placeholder: tr('例如：72h 持妆、防水不假面', 'e.g. 72h long-wear, waterproof, no cakey finish'),
+              label: t.pg_img_selling_point_focus_label,
+              placeholder: t.pg_img_selling_point_focus_placeholder,
             },
             {
               key: 'headlineFocus',
-              label: tr('标题焦点', 'Headline Focus'),
-              placeholder: tr('例如：更适合放大的利益点短句', 'e.g. short benefit statement for headline area'),
+              label: t.pg_img_headline_focus_label,
+              placeholder: t.pg_img_headline_focus_selling_placeholder,
             },
           ]
         : outputType === 'scene'
           ? [
               {
                 key: 'backgroundStyle',
-                label: tr('场景风格', 'Background Style'),
-                placeholder: tr('例如：厨房台面、露营草地、浴室石材', 'e.g. kitchen counter, picnic lawn, bathroom stone'),
+                label: t.pg_img_background_style_label,
+                placeholder: t.pg_img_background_style_placeholder,
               },
               {
                 key: 'displayAngle',
-                label: tr('展示角度', 'Display Angle'),
-                placeholder: tr('例如：45 度半俯视、平视近景', 'e.g. 45-degree top angle, eye-level close shot'),
+                label: t.pg_img_display_angle_label,
+                placeholder: t.pg_img_display_angle_scene_placeholder,
               },
             ]
           : outputType === 'cover'
             ? [
                 {
                   key: 'heroStyle',
-                  label: tr('主视觉风格', 'Hero Style'),
-                  placeholder: tr('例如：高质感、极简、品牌首图感', 'e.g. premium, minimal, hero-cover feel'),
+                  label: t.pg_img_hero_style_label,
+                  placeholder: t.pg_img_hero_style_placeholder,
                 },
                 {
                   key: 'headlineFocus',
-                  label: tr('标题焦点', 'Headline Focus'),
-                  placeholder: tr('例如：适合封面第一眼识别的信息', 'e.g. first-glance message for cover image'),
+                  label: t.pg_img_headline_focus_label,
+                  placeholder: t.pg_img_headline_focus_cover_placeholder,
                 },
               ]
             : outputType === 'poster'
               ? [
                   {
                     key: 'campaignAngle',
-                    label: tr('活动角度', 'Campaign Angle'),
-                    placeholder: tr('例如：节日促销、礼赠、明星单品', 'e.g. festival promo, gifting, hero product'),
+                    label: t.pg_img_campaign_angle_label,
+                    placeholder: t.pg_img_campaign_angle_placeholder,
                   },
                   {
                     key: 'promotionTone',
-                    label: tr('海报调性', 'Promotion Tone'),
-                    placeholder: tr('例如：强促销、轻奢、高端品牌感', 'e.g. hard sale, premium, luxury feel'),
+                    label: t.pg_img_promotion_tone_label,
+                    placeholder: t.pg_img_promotion_tone_placeholder,
                   },
                   {
                     key: 'copyBlockDensity',
-                    label: tr('文案区密度', 'Copy Block Density'),
-                    placeholder: tr('例如：大标题+副标题，或多块信息位', 'e.g. large headline + subheadline, or multi-block text zones'),
+                    label: t.pg_img_copy_block_density_label,
+                    placeholder: t.pg_img_copy_block_density_placeholder,
                   },
                 ]
               : [
                   {
                     key: 'displayAngle',
-                    label: tr('展示角度', 'Display Angle'),
-                    placeholder: tr('例如：正面、45 度、俯拍', 'e.g. front, 45-degree, top shot'),
+                    label: t.pg_img_display_angle_label,
+                    placeholder: t.pg_img_display_angle_white_placeholder,
                   },
                   {
                     key: 'backgroundStyle',
-                    label: tr('背景处理', 'Background Treatment'),
-                    placeholder: tr('例如：纯白、浅灰渐变、柔和阴影', 'e.g. pure white, light gray gradient, soft shadow'),
+                    label: t.pg_img_background_treatment_label,
+                    placeholder: t.pg_img_background_treatment_placeholder,
                   },
                 ];
 
@@ -726,7 +724,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 disabled={isGalleryAnalyzing}
                 className="px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 disabled:opacity-60 disabled:hover:bg-zinc-900/70 transition"
               >
-                {isGalleryAnalyzing ? tr('填写中...', 'Filling...') : tr('AI帮我填', 'AI Fill')}
+                {isGalleryAnalyzing ? t.pg_img_filling : t.pg_img_ai_fill}
               </button>
             </div>
 
@@ -766,16 +764,14 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   <>
                     <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-[11px] text-emerald-300 flex items-center justify-between gap-2">
                       <span>
-                        {tr(
-                          `已从历史记录恢复 ${galleryRestoredImagePaths.length} 张原始商品图`,
-                          `${galleryRestoredImagePaths.length} image(s) restored from history`
-                        )}
+                        {String(t.pg_img_restored_from_history || '')
+                          .replace('{count}', String(galleryRestoredImagePaths.length))}
                       </span>
                       <button
                         type="button"
                         onClick={() => setGalleryRestoredImagePaths([])}
                         className="text-emerald-400 hover:text-emerald-200 shrink-0"
-                        title={tr('清除', 'Clear')}
+                        title={t.pg_img_clear}
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -788,7 +784,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                             type="button"
                             onClick={() => setGalleryRestoredImagePaths((prev: string[]) => prev.filter((_, i) => i !== idx))}
                             className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 border border-white/10 text-zinc-200 hover:text-white hover:bg-black/80 transition flex items-center justify-center"
-                            title={tr('移除', 'Remove')}
+                            title={t.pg_img_remove}
                           >
                             <X className="w-4 h-4" />
                           </button>
@@ -799,7 +795,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                           type="button"
                           onClick={() => galleryFileInputRef.current?.click()}
                           className="group relative rounded-xl border border-dashed border-white/10 bg-black/20 text-zinc-500 hover:text-zinc-300 hover:border-white/20 transition flex items-center justify-center aspect-square"
-                          title={tr('上传新图片替换', 'Upload new images to replace')}
+                          title={t.pg_img_upload_replace}
                         >
                           <Plus className="w-6 h-6 transition-opacity duration-150 group-hover:opacity-0" />
                           <Upload className="absolute w-6 h-6 opacity-0 transition-opacity duration-150 group-hover:opacity-80" />
@@ -822,7 +818,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                     </div>
                     <div className="text-sm font-semibold">{t.pi_gallery_upload_title}</div>
                     <div className="text-[11px] mt-1">
-                      {tr('支持拖拽或点击上传，最多 3 张图片', 'Drag and drop or click to upload, up to 3 images')}
+                      {t.pg_img_drag_drop_hint}
                     </div>
                   </button>
                 ) : (
@@ -859,7 +855,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
           <div className="p-5">
             <div className="flex items-center justify-between">
-              <div className="text-sm font-bold text-zinc-200">{tr('商品信息', 'Product Info')}</div>
+              <div className="text-sm font-bold text-zinc-200">{t.pg_img_product_info}</div>
             </div>
 
             <div className="mt-3 grid grid-cols-1 gap-3">
@@ -925,7 +921,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
           </div>
 
           <div className="p-5">
-            <div className="text-sm font-bold text-zinc-200">{tr('爆款风格分析', 'Hot Style Analysis')}</div>
+            <div className="text-sm font-bold text-zinc-200">{t.pg_img_hot_style_analysis}</div>
 
             {hotStyleLoading ? (
               <div className="mt-3 h-28 rounded-xl border border-white/10 bg-white/5 flex flex-col items-center justify-center gap-3 text-zinc-400">
@@ -934,7 +930,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   <span className="w-2 h-2 rounded-full bg-zinc-400/70 animate-pulse [animation-delay:150ms]" />
                   <span className="w-2 h-2 rounded-full bg-zinc-400/70 animate-pulse [animation-delay:300ms]" />
                 </div>
-                <div className="text-xs">{tr('爆款风格生成中...', 'Analyzing styles...')}</div>
+                <div className="text-xs">{t.pg_img_hot_style_analyzing}</div>
               </div>
             ) : hotStyleItems.length === 0 ? (
               <>
@@ -944,23 +940,23 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   disabled={!(galleryImages.length > 0 && gallerySellingPoints.some((p: string) => String(p || '').trim()))}
                   className="mt-3 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-zinc-300 hover:bg-white/10 disabled:opacity-60 flex items-center justify-center gap-2"
                 >
-                  <Sparkles className="w-4 h-4" />{tr('爆款风格分析', 'Analyze Hot Styles')}
+                  <Sparkles className="w-4 h-4" />{t.pg_img_analyze_hot_styles}
                 </button>
                 {!(galleryImages.length > 0 && gallerySellingPoints.some((p: string) => String(p || '').trim())) && (
-                  <div className="mt-2 text-[11px] text-zinc-500">{tr('需上传图片并填写核心卖点', 'Upload images and fill selling points first')}</div>
+                  <div className="mt-2 text-[11px] text-zinc-500">{t.pg_img_upload_and_fill_first}</div>
                 )}
                 {hotStyleError ? <div className="mt-2 text-[11px] text-red-400">{hotStyleError}</div> : null}
               </>
             ) : (
               <>
                 <div className="mt-3 flex items-center justify-between">
-                  <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('风格建议', 'Style Ideas')}</div>
+                  <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pg_img_style_ideas}</div>
                   <button
                     type="button"
                     onClick={handleHotStyleAnalyze}
                     className="px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 flex items-center gap-2"
                   >
-                    <RotateCw className="w-4 h-4" />{tr('换一批风格', 'Regenerate')}
+                    <RotateCw className="w-4 h-4" />{t.pg_img_regenerate_styles}
                   </button>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-3">
@@ -975,7 +971,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                           ? 'border-orange-500'
                           : 'border-white/10 hover:border-white/20'
                           }`}
-                        title={isSelected ? tr('已选择，再次点击取消', 'Selected. Click again to unselect') : tr('点击选择', 'Click to select')}
+                        title={isSelected ? t.pg_img_selected_click_to_unselect : t.pg_img_click_to_select}
                       >
                         <div className="flex items-center gap-1 mb-2">
                           {s.tones.slice(0, 4).map((c: string, i: number) => (
@@ -1006,9 +1002,9 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
           >
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-bold text-zinc-200">{tr('模特资源', 'Model Resources')}</div>
+                <div className="text-sm font-bold text-zinc-200">{t.pg_img_model_resources}</div>
                 <div className="mt-1 text-[11px] text-zinc-500">
-                  {tr('每张模特卡保留姓名、照片和可选描述，供不同出图卡绑定。', 'Each model card stores a name, photo, and optional notes for output cards to bind.')}
+                  {t.pg_img_model_resources_desc}
                 </div>
               </div>
               <button
@@ -1019,7 +1015,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 }}
                 className="shrink-0 px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800"
               >
-                {tr('新增模特', 'Add Model')}
+                {t.pg_img_add_model}
               </button>
             </div>
 
@@ -1033,9 +1029,9 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   }}
                   className="w-full rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-left text-zinc-400 hover:border-orange-500/40 hover:text-zinc-200 transition"
                 >
-                  <div className="text-sm font-bold">{tr('暂无模特卡片，点击去创建', 'No model cards yet. Click to create one')}</div>
+                  <div className="text-sm font-bold">{t.pg_img_no_model_cards_cta}</div>
                   <div className="mt-1 text-[11px] text-zinc-500">
-                    {tr('模特照片为必填，信息描述可选。', 'Model photo is required and the info field is optional.')}
+                    {t.pg_img_model_photo_required_desc}
                   </div>
                 </button>
               ) : (
@@ -1053,13 +1049,13 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                             )
                           }
                           className="flex-1 bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
-                          placeholder={tr('例如：模特1', 'e.g. Model 1')}
+                          placeholder={t.pg_img_model_name_placeholder}
                         />
                         <button
                           type="button"
                           onClick={() => removeGalleryModelCard(card.id)}
                           className="w-9 h-9 rounded-xl border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 flex items-center justify-center"
-                          title={tr('删除模特卡', 'Delete model card')}
+                          title={t.pg_img_delete_model_card}
                         >
                           <X className="w-4 h-4" />
                         </button>
@@ -1079,7 +1075,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                               type="button"
                               onClick={() => clearGalleryModelCardImage(card.id)}
                               className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 border border-white/10 text-zinc-200 hover:text-white hover:bg-black/80 transition flex items-center justify-center"
-                              aria-label={tr('移除', 'Remove')}
+                              aria-label={t.pg_img_remove}
                             >
                               <X className="w-3.5 h-3.5" />
                             </button>
@@ -1091,10 +1087,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                             htmlFor={uploadInputId}
                             className="inline-flex px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 cursor-pointer"
                           >
-                            {previewSrc ? tr('更换照片', 'Replace Photo') : tr('上传照片', 'Upload Photo')}
+                            {previewSrc ? t.pg_img_replace_photo : t.pg_img_upload_photo}
                           </label>
                           <div className="mt-2 text-[11px] text-zinc-500">
-                            {tr('模特照片必填，用于商品出镜参考。', 'A model photo is required when the output needs a model reference.')}
+                            {t.pg_img_model_photo_required_note}
                           </div>
                           <input
                             id={uploadInputId}
@@ -1115,7 +1111,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                         }
                         rows={3}
                         className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
-                        placeholder={tr('可选：例如年龄、妆容、发型、服装风格、动作气质等。', 'Optional: e.g. age, makeup, hairstyle, outfit style, pose and mood.')}
+                        placeholder={t.pg_img_model_info_placeholder}
                       />
                     </div>
                   );
@@ -1130,9 +1126,9 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
           >
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-bold text-zinc-200">{tr('场景资源', 'Scene Resources')}</div>
+                <div className="text-sm font-bold text-zinc-200">{t.pg_img_scene_resources}</div>
                 <div className="mt-1 text-[11px] text-zinc-500">
-                  {tr('支持自定义场景，也支持从预设快速创建，再由出图卡按卡片名映射选择。', 'Create scenes from presets or customize them, then bind output cards by scene card name.')}
+                  {t.pg_img_scene_resources_desc}
                 </div>
               </div>
               <button
@@ -1143,7 +1139,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 }}
                 className="shrink-0 px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800"
               >
-                {tr('新增场景', 'Add Scene')}
+                {t.pg_img_add_scene}
               </button>
             </div>
 
@@ -1157,9 +1153,9 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   }}
                   className="w-full rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-left text-zinc-400 hover:border-orange-500/40 hover:text-zinc-200 transition"
                 >
-                  <div className="text-sm font-bold">{tr('暂无场景卡片，点击去创建', 'No scene cards yet. Click to create one')}</div>
+                  <div className="text-sm font-bold">{t.pg_img_no_scene_cards_cta}</div>
                   <div className="mt-1 text-[11px] text-zinc-500">
-                    {tr('可从预设开始，也可直接填写自己的主题、氛围和道具。', 'Start from a preset or directly fill your own theme, mood, and props.')}
+                    {t.pg_img_scene_preset_hint}
                   </div>
                 </button>
               ) : (
@@ -1174,24 +1170,24 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                           )
                         }
                         className="flex-1 bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
-                        placeholder={tr('例如：场景1', 'e.g. Scene 1')}
+                        placeholder={t.pg_img_scene_name_placeholder}
                       />
                       <button
                         type="button"
                         onClick={() => removeGallerySceneCard(card.id)}
                         className="w-9 h-9 rounded-xl border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 flex items-center justify-center"
-                        title={tr('删除场景卡', 'Delete scene card')}
+                        title={t.pg_img_delete_scene_card}
                       >
                         <X className="w-4 h-4" />
                       </button>
                     </div>
 
                     <div className="space-y-1">
-                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('预设场景', 'Preset Scene')}</div>
+                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pg_img_preset_scene}</div>
                       <DropdownSelect
                         value={String(card.presetId || 'custom')}
                         options={[
-                          { value: 'custom', label: tr('自定义', 'Custom') },
+                          { value: 'custom', label: t.pg_img_custom },
                           ...GALLERY_SCENE_PRESETS.map((item: any) => ({ value: item.id, label: item.name })),
                         ]}
                         onChange={(value) => {
@@ -1219,7 +1215,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
                     <div className="grid grid-cols-2 gap-3">
                       <label className="space-y-1">
-                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('场景主题', 'Scene Theme')}</div>
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pg_img_scene_theme}</div>
                         <input
                           type="text"
                           value={String(card.sceneConfig?.sceneTheme || '')}
@@ -1231,11 +1227,11 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                             )
                           }
                           className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
-                          placeholder={tr('例如：现代厨房台面', 'e.g. modern kitchen counter')}
+                          placeholder={t.pg_img_scene_theme_placeholder}
                         />
                       </label>
                       <label className="space-y-1">
-                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('氛围', 'Mood')}</div>
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pg_img_mood}</div>
                         <input
                           type="text"
                           value={String(card.sceneConfig?.mood || '')}
@@ -1247,13 +1243,13 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                             )
                           }
                           className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
-                          placeholder={tr('例如：清新、日常、轻奢', 'e.g. fresh, everyday, premium')}
+                          placeholder={t.pg_img_mood_placeholder}
                         />
                       </label>
                     </div>
 
                     <label className="space-y-1">
-                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('场景描述', 'Scene Description')}</div>
+                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pg_img_scene_description}</div>
                       <textarea
                         value={String(card.sceneConfig?.sceneDescription || '')}
                         onChange={(e) =>
@@ -1265,13 +1261,13 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                         }
                         rows={2}
                         className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
-                        placeholder={tr('描述环境、背景和商品所在位置。', 'Describe the environment, background, and where the product sits.')}
+                        placeholder={t.pg_img_scene_description_placeholder}
                       />
                     </label>
 
                     <div className="grid grid-cols-2 gap-3">
                       <label className="space-y-1">
-                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('道具', 'Props')}</div>
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pg_img_props}</div>
                         <input
                           type="text"
                           value={String(card.sceneConfig?.sceneProps || '')}
@@ -1283,11 +1279,11 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                             )
                           }
                           className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
-                          placeholder={tr('例如：玻璃杯、花束、毛巾', 'e.g. glass cup, flowers, towel')}
+                          placeholder={t.pg_img_props_placeholder}
                         />
                       </label>
                       <label className="space-y-1">
-                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('光线', 'Lighting')}</div>
+                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pg_img_lighting}</div>
                         <input
                           type="text"
                           value={String(card.sceneConfig?.lighting || '')}
@@ -1299,7 +1295,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                             )
                           }
                           className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
-                          placeholder={tr('例如：侧前方柔光', 'e.g. soft side-front light')}
+                          placeholder={t.pg_img_lighting_placeholder}
                         />
                       </label>
                     </div>
@@ -1334,8 +1330,8 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                     type="button"
                     onClick={() => setIsBasicsCollapsed((prev) => !prev)}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400 transition hover:border-white/20 hover:bg-white/10 hover:text-zinc-200"
-                    aria-label={isBasicsCollapsed ? tr('展开基础配置', 'Expand Basics') : tr('收起基础配置', 'Collapse Basics')}
-                    title={isBasicsCollapsed ? tr('展开基础配置', 'Expand Basics') : tr('收起基础配置', 'Collapse Basics')}
+                    aria-label={isBasicsCollapsed ? t.pg_img_expand_basics : t.pg_img_collapse_basics}
+                    title={isBasicsCollapsed ? t.pg_img_expand_basics : t.pg_img_collapse_basics}
                   >
                     <ChevronLeft className={`h-4 w-4 transition-transform ${isBasicsCollapsed ? '-rotate-90' : 'rotate-90'}`} />
                   </button>
@@ -1398,15 +1394,15 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-sm font-bold text-orange-200 transition hover:bg-orange-500/15"
               >
                 <Sparkles className="h-4 w-4" />
-                {tr('快速批量', 'Quick Batch')}
+                {t.pg_img_quick_batch}
               </button>
 
               <div className="hidden">
-                {tr('模特和场景统一在左侧资源区维护。这里的出图卡只负责选择映射关系，并补充当前卡片的辅助生成信息。', 'Model and scene resources are managed on the left. Output cards here only choose bindings and provide card-specific generation hints.')}
+                {t.pg_img_model_scene_maintained_left}
               </div>
 
               <div className="rounded-2xl border border-orange-500/20 bg-[linear-gradient(180deg,rgba(249,115,22,0.06),rgba(17,24,39,0.1))] p-4">
-                <div className="text-xs font-bold text-zinc-100">{tr('快速批量摘要', 'Quick Batch Summary')}</div>
+                <div className="text-xs font-bold text-zinc-100">{t.pg_img_quick_batch_summary}</div>
                 <div className="mt-3 rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
                   <div className="text-sm font-bold text-zinc-100">
                     {galleryBulkSummaryPrimary}
@@ -1425,7 +1421,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   }`}
                 >
                   <Sparkles className="h-3.5 w-3.5" />
-                  {tr('AI 推荐组合', 'AI Recommended Mix')}
+                  {t.pg_img_ai_recommended_mix}
                 </button>
                 <button
                   type="button"
@@ -1436,7 +1432,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-bold text-zinc-100 transition hover:bg-white/10 disabled:opacity-50"
                 >
                   <Wand2 className="h-3.5 w-3.5" />
-                  {isGalleryAiLayoutDesigning ? tr('设计中...', 'Designing...') : tr('AI帮我设计', 'AI Design For Me')}
+                  {isGalleryAiLayoutDesigning ? t.pg_img_designing : t.pg_img_ai_design_for_me}
                 </button>
                 <button
                   type="button"
@@ -1444,36 +1440,36 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   disabled={isGalleryAiLayoutDesigning || galleryAdvancedItemCount <= 0}
                   className="inline-flex items-center gap-1 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-[11px] font-bold text-zinc-300 transition hover:bg-white/5 disabled:opacity-50"
                 >
-                  {tr('高级设置', 'Advanced Settings')}
+                  {t.pg_img_advanced_settings}
                 </button>
               </div>
 
               <div>
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-xs font-bold text-zinc-200">{tr('高级编辑', 'Advanced Editing')}</div>
+                    <div className="text-xs font-bold text-zinc-200">{t.pg_img_advanced_editing}</div>
                     <div className="mt-1 text-[11px] leading-5 text-zinc-500">
                       {galleryAdvancedDirty
-                        ? tr('当前列表已经手动微调，以下设置会直接影响最终逐张出图。', 'This list has been manually tuned. Changes below directly affect each final output card.')
-                        : tr('当前列表来自快速批量或 AI 推荐，需要时再按张微调。', 'This list currently comes from Quick Batch or AI recommendations. Fine-tune only when needed.')}
+                        ? t.pg_img_advanced_editing_dirty_desc
+                        : t.pg_img_advanced_editing_clean_desc}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     {galleryAdvancedDirty ? (
                       <span className="rounded-full border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-orange-200">
-                        {tr('已微调', 'Adjusted')}
+                        {t.pg_img_adjusted}
                       </span>
                     ) : (
                       <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-400">
-                        {galleryOutputMode === 'ai' ? tr('AI推荐', 'AI Mix') : tr('批量默认', 'Batch Default')}
+                        {galleryOutputMode === 'ai' ? t.pg_img_ai_mix : t.pg_img_batch_default}
                       </span>
                     )}
                     <button
                       type="button"
                       onClick={() => setIsGalleryAdvancedEditingCollapsed((prev) => !prev)}
                       className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400 transition hover:border-white/20 hover:bg-white/10 hover:text-zinc-200"
-                      aria-label={isGalleryAdvancedEditingCollapsed ? tr('展开高级编辑', 'Expand Advanced Editing') : tr('收起高级编辑', 'Collapse Advanced Editing')}
-                      title={isGalleryAdvancedEditingCollapsed ? tr('展开高级编辑', 'Expand Advanced Editing') : tr('收起高级编辑', 'Collapse Advanced Editing')}
+                      aria-label={isGalleryAdvancedEditingCollapsed ? t.pg_img_expand_advanced_editing : t.pg_img_collapse_advanced_editing}
+                      title={isGalleryAdvancedEditingCollapsed ? t.pg_img_expand_advanced_editing : t.pg_img_collapse_advanced_editing}
                     >
                       <ChevronLeft className={`h-4 w-4 transition-transform ${isGalleryAdvancedEditingCollapsed ? '-rotate-90' : 'rotate-90'}`} />
                     </button>
@@ -1483,8 +1479,8 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 {isGalleryAdvancedEditingCollapsed ? (
                   <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-[11px] text-zinc-500">
                     {galleryAdvancedItemCount > 0
-                      ? tr(`已配置 ${galleryAdvancedItemCount} 条出图条目，展开后可按张调整。`, `${galleryAdvancedItemCount} output items configured. Expand to edit per card.`)
-                      : tr('当前还没有逐张出图条目。先用快速批量生成一组，再进入高级编辑。', 'No per-card output items yet. Generate a batch first, then open Advanced Editing.')}
+                      ? String(t.pg_img_output_items_configured || '').replace('{count}', String(galleryAdvancedItemCount))
+                      : t.pg_img_no_per_card_items}
                   </div>
                 ) : (
                   <div className="mt-3 space-y-3">
@@ -1503,7 +1499,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                               onChange={(e) => updateOutputItem(item.id, (current) => ({ ...current, enabled: e.target.checked }))}
                               className="accent-orange-500"
                             />
-                            <span className="font-bold">{tr('启用', 'Enabled')}</span>
+                            <span className="font-bold">{t.pg_img_enabled}</span>
                           </label>
 
                           <div className="flex items-center gap-2">
@@ -1513,7 +1509,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                               className="hidden"
                             >
                               <Sparkles className="w-3.5 h-3.5" />
-                              {galleryOptimizingItemIds[item.id] ? tr('优化中...', 'Optimizing...') : tr('AI优化', 'AI Optimize')}
+                              {galleryOptimizingItemIds[item.id] ? t.pg_img_optimizing : t.pg_img_ai_optimize}
                             </button>
 
                             <button
@@ -1626,16 +1622,16 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
                         {supportsResourceBinding ? (
                           <div className="w-full">
-                            <div className="hidden">{tr('资源映射', 'Resource Binding')}</div>
+                            <div className="hidden">{t.pg_img_resource_binding}</div>
                             <div className="grid grid-cols-2 gap-3">
                               <div className="space-y-1">
-                                <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('模特', 'Model')}</div>
+                                <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pg_img_model}</div>
                                 {galleryModelCards.length > 0 ? (
                                   <>
                                     <DropdownSelect
                                       value={String(item.modelCardId || '')}
                                       options={[
-                                        { value: '', label: tr('不使用模特', 'No Model') },
+                                        { value: '', label: t.pg_img_no_model },
                                         ...galleryModelCards.map((card) => ({ value: card.id, label: card.name || card.id })),
                                       ]}
                                       onChange={(value) => updateOutputItem(item.id, (current) => ({ ...current, modelCardId: String(value || '') || undefined }))}
@@ -1645,10 +1641,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                                     />
                                     <div className="hidden">
                                       {item.modelCardId && !selectedModelName
-                                        ? tr('已绑定的模特卡不存在，请重新选择。', 'The bound model card no longer exists. Please reselect it.')
+                                        ? t.pg_img_bound_model_missing
                                         : selectedModelName
-                                          ? tr(`当前映射：${selectedModelName}`, `Current binding: ${selectedModelName}`)
-                                          : tr('未绑定模特卡', 'No model card bound')}
+                                          ? `${t.pg_img_current_binding}: ${selectedModelName}`
+                                          : t.pg_img_no_model_bound}
                                     </div>
                                   </>
                                 ) : (
@@ -1660,19 +1656,19 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                                     }}
                                     className="w-full rounded-xl border border-dashed border-orange-500/30 bg-orange-500/5 px-3 py-2 text-xs font-bold text-orange-200 hover:bg-orange-500/10 transition"
                                   >
-                                    {tr('暂无模特卡，去创建', 'No model cards. Create one')}
+                                    {t.pg_img_no_model_cards_create}
                                   </button>
                                 )}
                               </div>
 
                               <div className="space-y-1">
-                                <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{tr('场景', 'Scene')}</div>
+                                <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pg_img_scene}</div>
                                 {gallerySceneCards.length > 0 ? (
                                   <>
                                     <DropdownSelect
                                       value={String(item.sceneCardId || '')}
                                       options={[
-                                        { value: '', label: tr('不使用场景', 'No Scene') },
+                                        { value: '', label: t.pg_img_no_scene },
                                         ...gallerySceneCards.map((card) => ({ value: card.id, label: card.name || card.id })),
                                       ]}
                                       onChange={(value) => updateOutputItem(item.id, (current) => ({ ...current, sceneCardId: String(value || '') || undefined }))}
@@ -1682,10 +1678,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                                     />
                                     <div className="hidden">
                                       {item.sceneCardId && !selectedSceneName
-                                        ? tr('已绑定的场景卡不存在，请重新选择。', 'The bound scene card no longer exists. Please reselect it.')
+                                        ? t.pg_img_bound_scene_missing
                                         : selectedSceneName
-                                          ? tr(`当前映射：${selectedSceneName}`, `Current binding: ${selectedSceneName}`)
-                                          : tr('未绑定场景卡', 'No scene card bound')}
+                                          ? `${t.pg_img_current_binding}: ${selectedSceneName}`
+                                          : t.pg_img_no_scene_bound}
                                     </div>
                                   </>
                                 ) : (
@@ -1697,7 +1693,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                                     }}
                                     className="w-full rounded-xl border border-dashed border-orange-500/30 bg-orange-500/5 px-3 py-2 text-xs font-bold text-orange-200 hover:bg-orange-500/10 transition"
                                   >
-                                    {tr('暂无场景卡，去创建', 'No scene cards. Create one')}
+                                    {t.pg_img_no_scene_cards_create}
                                   </button>
                                 )}
                               </div>
@@ -1751,7 +1747,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                             <div className="space-y-1">
                               <div className="flex items-center justify-between gap-2">
                                 <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">
-                                  {tr('构图描述', 'Layout')}
+                                  {t.pg_img_layout}
                                 </div>
                                 {totalVariants > 1 ? (
                                   <div className="flex items-center gap-1">
@@ -1760,8 +1756,8 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                                       onClick={() => goVariant(-1)}
                                       disabled={clampedIndex <= 0}
                                       className="h-6 w-6 rounded-md border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 flex items-center justify-center disabled:opacity-40"
-                                      aria-label={tr('上一份构图', 'Previous layout')}
-                                      title={tr('上一份构图', 'Previous layout')}
+                                      aria-label={t.pg_img_previous_layout}
+                                      title={t.pg_img_previous_layout}
                                     >
                                       <ChevronLeft className="h-3.5 w-3.5" />
                                     </button>
@@ -1773,8 +1769,8 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                                       onClick={() => goVariant(1)}
                                       disabled={clampedIndex >= totalVariants - 1}
                                       className="h-6 w-6 rounded-md border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 flex items-center justify-center disabled:opacity-40"
-                                      aria-label={tr('下一份构图', 'Next layout')}
-                                      title={tr('下一份构图', 'Next layout')}
+                                      aria-label={t.pg_img_next_layout}
+                                      title={t.pg_img_next_layout}
                                     >
                                       <ChevronLeft className="h-3.5 w-3.5 rotate-180" />
                                     </button>
@@ -1786,10 +1782,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                                 onChange={(e) => handleLayoutChange(e.target.value)}
                                 rows={3}
                                 className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
-                                placeholder={tr(
-                                  '例如：商品居中偏下，顶部留白放主标题；右侧留白放 3 条卖点 bullet；底部留白放品牌/规格信息（不要生成可读文字）。',
-                                  'E.g. Product centered lower; top whitespace for headline; right whitespace for bullet points; bottom whitespace for brand/specs (no readable text).'
-                                )}
+                                placeholder={t.pg_img_layout_placeholder}
                               />
                             </div>
                           );
@@ -1820,9 +1813,9 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
                         {false ? (
                           <div className="text-[11px] text-zinc-500 space-y-1">
-                            {item.title ? <div>{`${tr('方案', 'Title')}: ${String(item.title)}`}</div> : null}
-                            {item.copy?.headline ? <div>{`${tr('文案', 'Copy')}: ${String(item.copy?.headline)}`}</div> : null}
-                            {item.notes ? <div>{`${tr('备注', 'Notes')}: ${String(item.notes)}`}</div> : null}
+                            {item.title ? <div>{`${t.pg_img_title}: ${String(item.title)}`}</div> : null}
+                            {item.copy?.headline ? <div>{`${t.pg_img_copy}: ${String(item.copy?.headline)}`}</div> : null}
+                            {item.notes ? <div>{`${t.pg_img_notes}: ${String(item.notes)}`}</div> : null}
                           </div>
                         ) : null}
                       </div>
@@ -1839,7 +1832,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                       }
                       className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-zinc-200 hover:bg-white/10 transition"
                     >
-                      {tr('添加条目', 'Add Item')}
+                      {t.pg_img_add_item}
                     </button>
                   </div>
                 )}
@@ -1857,12 +1850,12 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 <span aria-hidden="true" className="min-w-0" />
                 <span className="inline-flex min-w-0 items-center justify-center gap-2 justify-self-center text-center">
                   <Wand2 className="h-4 w-4 shrink-0" />
-                  {isGalleryGenerating ? tr('生成中...', 'Generating...') : tr('开始生成', 'Generate')}
+                  {isGalleryGenerating ? t.pg_img_generating : t.pg_img_generate}
                 </span>
                 <span className="justify-self-end self-center pr-0.5 text-right">
                   {!isGalleryGenerating && galleryEstimatedCost > 0 ? (
                     <span className="whitespace-nowrap text-[10px] font-semibold tabular-nums text-black/75">
-                      {`-${galleryEstimatedCost} ${tr('V点', 'V-points')}`}
+                      {`-${galleryEstimatedCost} ${t.pg_img_v_points}`}
                     </span>
                   ) : null}
                 </span>
@@ -1886,7 +1879,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
         >
           <div className="flex items-center justify-between">
             <div className="text-sm font-bold text-zinc-200">
-              {galleryRightPanel === 'preview' ? tr('预览区', 'Preview') : tr('历史记录', 'History')}
+              {galleryRightPanel === 'preview' ? t.pg_img_preview_area : t.pg_img_history}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -1895,7 +1888,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 className="px-3 py-2 rounded-xl text-xs font-bold transition border border-orange-500/30 bg-orange-500/10 text-orange-300 hover:bg-orange-500/15 inline-flex items-center gap-2"
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
-                {tr('画板编辑', 'Board')}
+                {t.pg_img_board_edit}
               </button>
               <button
                 type="button"
@@ -1909,7 +1902,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   : 'bg-zinc-900/70 border-white/10 text-zinc-200 hover:bg-zinc-800'
                   }`}
               >
-                {tr('预览区', 'Preview')}
+                {t.pg_img_preview_area}
               </button>
               <button
                 type="button"
@@ -1923,7 +1916,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   : 'bg-zinc-900/70 border-white/10 text-zinc-200 hover:bg-zinc-800'
                   }`}
               >
-                {tr('历史记录', 'History')}
+                {t.pg_img_history}
               </button>
             </div>
           </div>
@@ -1935,7 +1928,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   <div className="w-full max-w-[560px] aspect-square rounded-2xl border border-white/10 bg-black/20 flex flex-col items-center justify-center text-zinc-500 gap-3">
                     <ImageIcon className="w-10 h-10 opacity-60" />
                     <div className="text-sm font-semibold text-zinc-400">
-                      {tr('等待生成...', 'Waiting for generation...')}
+                      {t.pg_img_waiting_for_generation}
                     </div>
                   </div>
                 </div>
@@ -1958,10 +1951,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                     const rightLabel = String(outputTypeLabel || '').trim() || (outputType ? outputType : item.requestId.slice(0, 8));
                     const statusLabel =
                       item.status === 'succeeded'
-                        ? tr('已完成', 'Done')
+                        ? t.pg_img_status_done
                         : item.status === 'failed'
-                          ? tr('失败', 'Failed')
-                          : tr('生成中', 'Generating');
+                          ? t.pg_img_status_failed
+                          : t.pg_img_status_generating;
                     const badgeTone =
                       item.status === 'succeeded'
                         ? 'bg-emerald-500/15 text-emerald-200 border-emerald-500/30'
@@ -1980,13 +1973,13 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                               type="button"
                               onClick={() => openGalleryImagePreview(item.imageUrl as string, { kind: 'preview_item', localId: item.localId })}
                               className="absolute inset-0 relative"
-                              title={tr('点击预览', 'Click to preview')}
+                              title={t.pg_img_click_to_preview}
                             >
                               <img src={item.imageUrl} className="w-full h-full object-cover" alt={item.requestId} />
                               <div className="absolute inset-0 opacity-0 transition-opacity duration-200 bg-black/40 flex items-center justify-center group-hover:opacity-100">
                                 <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-xs font-bold text-white">
                                   <Eye className="w-4 h-4" />
-                                  {tr('预览', 'Preview')}
+                                  {t.pg_img_preview}
                                 </div>
                               </div>
                             </button>
@@ -2001,7 +1994,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                             <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500 gap-2">
                               <ImageIcon className={`w-8 h-8 ${item.status === 'failed' ? 'opacity-50' : 'opacity-60 animate-pulse'}`} />
                               <div className="text-xs text-zinc-500 px-4 text-center">
-                                {item.error || (item.status === 'failed' ? tr('生成失败', 'Failed') : tr('等待生成...', 'Waiting...'))}
+                                {item.error || (item.status === 'failed' ? t.pg_img_generation_failed : t.pg_img_waiting)}
                               </div>
                             </div>
                           )}
@@ -2021,7 +2014,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
             <div className="flex-1 mt-4 rounded-2xl border border-dashed border-white/10 bg-black/10 overflow-y-auto custom-scroll">
               {galleryHistoryItems.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-zinc-600 text-sm">
-                  {tr('暂无历史记录', 'No history yet')}
+                  {t.pg_img_no_history}
                 </div>
               ) : (
                 <div className="p-4 space-y-3">
@@ -2032,7 +2025,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                       <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 overflow-hidden">
                         <div className="px-3 py-2 text-[11px] text-zinc-400 border-b border-white/10 bg-black/30 flex items-center justify-between">
                           <span>{item.createdAt}</span>
-                          <span className="text-zinc-500">{item.images.length} {tr('张', 'imgs')}</span>
+                          <span className="text-zinc-500">{item.images.length} {t.pg_img_imgs_unit}</span>
                         </div>
                         <div className="p-3 grid grid-cols-4 gap-2">
                           {item.images.slice(0, 4).map((url: string, idx: number) => {
@@ -2081,7 +2074,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                                   .filter(([, value]) => Boolean((value as any)?.enabled) && Number((value as any)?.count || 0) > 0)
                                   .map(([key]) => key);
                                 if (enabledKeys.length === 1) return enabledKeys[0];
-                                if (enabledKeys.length > 1) return tr('多种', 'Multiple');
+                                if (enabledKeys.length > 1) return t.pg_img_multiple_types;
                               }
 
                               return '';
@@ -2107,7 +2100,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                                 key={`${item.id}-${idx}`}
                                 onClick={() => openGalleryImagePreview(url, { kind: 'history_item', itemId: item.id, index: idx })}
                                 className="relative rounded-lg overflow-hidden border border-white/10 bg-black/30 aspect-square cursor-pointer"
-                                title={tr('点击预览', 'Click to preview')}
+                                title={t.pg_img_click_to_preview}
                               >
                                 <img src={url} className="w-full h-full object-cover" alt={`history-${item.id}-${idx}`} />
                                 {typeLabel ? (
@@ -2148,11 +2141,8 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     </div>
     <AppDialog
       isOpen={isQuickBatchDialogOpen}
-      title={tr('快速批量', 'Quick Batch')}
-      subtitle={tr(
-        '在这个弹窗里集中确定整批套图的类型、比例和资源绑定，应用后再回到底部做高级微调。',
-        'Set the full batch mix, ratio strategy, and resource bindings here, then return to fine-tune below if needed.'
-      )}
+      title={t.pg_img_quick_batch}
+      subtitle={t.pg_img_quick_batch_subtitle}
       onClose={closeQuickBatchDialog}
       widthClassName="max-w-4xl"
       overlayClassName="z-[170]"
@@ -2170,14 +2160,14 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 : 'border-orange-500/30 bg-orange-500/10 text-orange-200 hover:bg-orange-500/15'
             }`}
           >
-            {galleryOutputMode === 'ai' ? tr('重新 AI 推荐', 'Refresh AI Mix') : tr('AI 推荐组合', 'AI Recommended Mix')}
+            {galleryOutputMode === 'ai' ? t.pg_img_refresh_ai_mix : t.pg_img_ai_recommended_mix}
           </button>
           <button
             type="button"
             onClick={closeQuickBatchDialog}
             className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
           >
-            {tr('取消', 'Cancel')}
+            {t.pg_img_cancel}
           </button>
           <button
             type="button"
@@ -2186,7 +2176,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
             }}
             className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 text-black hover:bg-orange-400 transition"
           >
-            {tr('应用批量配置', 'Apply Batch Config')}
+            {t.pg_img_apply_batch_config}
           </button>
         </>
       }
@@ -2194,11 +2184,11 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
       <div className="space-y-5">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <label className="space-y-1">
-            <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">{tr('批量比例', 'Ratio Strategy')}</div>
+            <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">{t.pg_img_batch_ratio}</div>
             <DropdownSelect
               value={galleryBulkDialogDraft.ratioStrategy}
               options={[
-                { value: 'recommended', label: tr('按类型推荐', 'Recommended by Type') },
+                { value: 'recommended', label: t.pg_img_recommended_by_type },
                 { value: '1:1', label: '1:1' },
                 { value: '4:5', label: '4:5' },
                 { value: '9:16', label: '9:16' },
@@ -2216,7 +2206,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
           </label>
 
           <label className="space-y-1">
-            <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">{tr('批量分辨率', 'Resolution')}</div>
+            <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">{t.pg_img_batch_resolution}</div>
             <DropdownSelect
               value={galleryBulkDialogDraft.resolution}
               options={[
@@ -2239,12 +2229,12 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
           </label>
 
           <label className="space-y-1">
-            <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">{tr('资源绑定', 'Binding')}</div>
+            <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">{t.pg_img_binding}</div>
             <DropdownSelect
               value={galleryBulkDialogDraft.bindingStrategy}
               options={[
-                { value: 'auto_primary', label: tr('自动绑定默认模特/场景', 'Auto-bind Primary Model/Scene') },
-                { value: 'none', label: tr('不预绑定', 'Do Not Pre-bind') },
+                { value: 'auto_primary', label: t.pg_img_auto_bind_primary },
+                { value: 'none', label: t.pg_img_do_not_pre_bind },
               ]}
               onChange={(value) =>
                 setGalleryBulkDialogDraft((prev) => ({
@@ -2344,14 +2334,14 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-500">
                   <span>
                     {galleryBulkDialogDraft.ratioStrategy === 'recommended'
-                      ? tr('按类型推荐比例', 'Using recommended ratios')
-                      : tr(`统一比例 ${galleryBulkDialogDraft.ratioStrategy}`, `Unified ratio ${galleryBulkDialogDraft.ratioStrategy}`)}
+                      ? t.pg_img_using_recommended_ratios
+                      : `${t.pg_img_unified_ratio} ${galleryBulkDialogDraft.ratioStrategy}`}
                   </span>
                   {card.outputType === 'selling_point' ? (
                     <span>
                       {gallerySellingPoints.some((item) => String(item || '').trim())
-                        ? tr(`当前有效卖点 ${gallerySellingPoints.filter((item) => String(item || '').trim()).length} 条`, `${gallerySellingPoints.filter((item) => String(item || '').trim()).length} selling points detected`)
-                        : tr('未填写卖点时默认不生成卖点图', 'Selling-point images stay off until selling points are filled')}
+                        ? String(t.pg_img_selling_points_detected || '').replace('{count}', String(gallerySellingPoints.filter((item) => String(item || '').trim()).length))
+                        : t.pg_img_selling_points_none_note}
                     </span>
                   ) : null}
                 </div>
@@ -2362,12 +2352,12 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
         <div className="rounded-xl border border-white/10 bg-black/25 px-4 py-3">
           <div className="text-xs font-bold text-zinc-100">
-            {tr(`当前批量共 ${galleryBulkDialogPlannedCount} 张`, `${galleryBulkDialogPlannedCount} images in batch`)}
+            {String(t.pg_img_batch_total || '').replace('{count}', String(galleryBulkDialogPlannedCount))}
           </div>
           <div className="mt-1 text-[11px] leading-5 text-zinc-500">
             {galleryAdvancedDirty
-              ? tr('当前高级编辑已手动微调。应用新的批量配置时，会提示是否覆盖这些逐张调整。', 'Advanced edits already exist. Applying the new batch config will ask before overwriting those per-card changes.')
-              : tr('点击应用后会刷新下方高级编辑列表，但不会直接开始生成。', 'Applying will refresh the advanced list below, but will not generate yet.')}
+              ? t.pg_img_apply_batch_overwrite_note
+              : t.pg_img_apply_batch_refresh_note}
           </div>
         </div>
       </div>

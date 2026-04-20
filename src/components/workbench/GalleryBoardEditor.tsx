@@ -3,6 +3,7 @@ import { ChevronDown, Download, Folder, ImagePlus, Loader2, Plus, Replace, Trash
 import PptxGenJS from 'pptxgenjs';
 import { AppDialog } from '../common/AppDialog';
 import { assetsApi, type Asset as LibraryAsset, type AssetFolder } from '../../services/assets';
+import { useLanguage } from '../../context/LanguageContext';
 
 export type GalleryBoardAsset = {
   localId: string;
@@ -20,8 +21,6 @@ export type GalleryBoardHistoryItem = {
   };
   metadata?: Record<string, unknown>;
 };
-
-type TrFn = (zhText: string, enText: string) => string;
 
 type BoardImageLayer = {
   id: string;
@@ -130,7 +129,6 @@ export interface GalleryBoardEditorProps {
   historyItems?: GalleryBoardHistoryItem[];
   productName: string;
   sellingPoints: string[];
-  tr: TrFn;
   initialTemplateId?: string;
   initialTitle?: string;
   initialSubtitle?: string;
@@ -178,16 +176,16 @@ const CANVAS_SIZE_OPTIONS = [
 ] as const;
 
 const TEMPLATE_MODE_OPTIONS: Array<TemplateDefinition['imageCount']> = [1, 2, 3, 4];
-const TEMPLATE_MODE_LABELS: Record<TemplateDefinition['imageCount'], { zh: string; en: string }> = {
-  1: { zh: '1图', en: '1 Image' },
-  2: { zh: '2图', en: '2 Images' },
-  3: { zh: '3图', en: '3 Images' },
-  4: { zh: '4图', en: '4 Images' },
+const TEMPLATE_MODE_LABEL_KEYS: Record<TemplateDefinition['imageCount'], 'pg_board_mode_1image' | 'pg_board_mode_2images' | 'pg_board_mode_3images' | 'pg_board_mode_4images'> = {
+  1: 'pg_board_mode_1image',
+  2: 'pg_board_mode_2images',
+  3: 'pg_board_mode_3images',
+  4: 'pg_board_mode_4images',
 };
 const TEMPLATE_PREVIEW_BACKGROUND = '#111827';
 const LIBRARY_PICKER_TYPE_OPTIONS = [
-  { value: 'product', zh: '商品', en: 'Product' },
-  { value: 'scene', zh: '场景', en: 'Scene' },
+  { value: 'product', labelKey: 'pg_board_picker_product' as const },
+  { value: 'scene', labelKey: 'pg_board_picker_scene' as const },
 ] as const;
 
 const TEMPLATE_DEFINITIONS: TemplateDefinition[] = [
@@ -543,12 +541,12 @@ type ColorFieldProps = {
   label: string;
   value: string;
   fallback: string;
-  tr: TrFn;
   onChange: (next: string) => void;
   allowTransparent?: boolean;
 };
 
-const ColorField: React.FC<ColorFieldProps> = ({ label, value, fallback, tr, onChange, allowTransparent = false }) => {
+const ColorField: React.FC<ColorFieldProps> = ({ label, value, fallback, onChange, allowTransparent = false }) => {
+  const { t } = useLanguage();
   const state = useMemo(() => parseColorToState(value, fallback), [fallback, value]);
 
   return (
@@ -580,7 +578,7 @@ const ColorField: React.FC<ColorFieldProps> = ({ label, value, fallback, tr, onC
 
         <div className="mt-3 space-y-1">
           <div className="flex items-center justify-between text-[11px] text-zinc-500">
-            <span>{tr('透明度', 'Opacity')}</span>
+            <span>{t.pg_board_opacity}</span>
             <span>{Math.round(state.transparent ? 0 : state.alpha * 100)}%</span>
           </div>
           <input
@@ -607,7 +605,7 @@ const ColorField: React.FC<ColorFieldProps> = ({ label, value, fallback, tr, onC
             onClick={() => onChange('transparent')}
             className="mt-3 rounded-lg border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
           >
-            {tr('设为透明', 'Set Transparent')}
+            {t.pg_board_set_transparent}
           </button>
         ) : null}
       </div>
@@ -836,7 +834,6 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   historyItems = [],
   productName,
   sellingPoints,
-  tr,
   initialTemplateId,
   initialTitle,
   initialSubtitle,
@@ -847,6 +844,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   onLocalAssetsChange,
   onDraftChange,
 }) => {
+  const { t } = useLanguage();
   const layerIdSeedRef = useRef(0);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const boardRef = useRef<HTMLDivElement | null>(null);
@@ -981,7 +979,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
         setLibraryItems([]);
         setLibraryFolders([]);
         setLibraryBreadcrumb([]);
-        setLibraryError(String(error?.message || tr('加载素材库失败。', 'Failed to load library assets.')));
+        setLibraryError(String(error?.message || t.pg_board_library_load_failed));
       } finally {
         if (!cancelled) setLibraryLoading(false);
       }
@@ -991,7 +989,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [isLibraryPickerOpen, libraryAssetType, libraryCurrentFolderId, tr]);
+  }, [isLibraryPickerOpen, libraryAssetType, libraryCurrentFolderId, t]);
 
   useEffect(() => {
     const availableIds = new Set(mergedAssets.map((item) => item.localId));
@@ -1019,19 +1017,19 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     const titleText =
       String(initialTitle || '').trim() ||
       String(productName || '').trim() ||
-      tr('商品主标题', 'Product Headline');
+      t.pg_board_product_headline;
     const subtitleFallback = String(initialSubtitle || '').trim();
     const sellingPointTexts = Array.from({ length: template.imageCount }, (_, index) => {
       const current = String(sellingPoints[index] || '').trim();
       if (current) return current;
       if (index === 0 && subtitleFallback) return subtitleFallback;
-      return `${tr('卖点', 'Selling Point')} ${index + 1}`;
+      return `${t.pi_gallery_output_selling_point} ${index + 1}`;
     });
 
     const imageLayers: BoardLayer[] = template.slots.map((slot, index) => ({
       id: nextLayerId(),
       type: 'image' as const,
-      name: `${tr('图片', 'Image')} ${index + 1}`,
+      name: `${t.pg_board_image} ${index + 1}`,
       assetLocalId: assetIds[index] || null,
       x: slot.x,
       y: slot.y,
@@ -1057,7 +1055,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
         return {
           id: nextLayerId(),
           type: 'text',
-          name: `${tr('卖点', 'Selling Point')} ${index + 1}`,
+          name: `${t.pi_gallery_output_selling_point} ${index + 1}`,
           text: sellingPointTexts[index],
           x,
           y,
@@ -1080,7 +1078,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       {
         id: nextLayerId(),
         type: 'text',
-        name: tr('主标题', 'Title'),
+        name: t.pg_board_title,
         text: titleText,
         x: template.titleBox.x,
         y: template.titleBox.y,
@@ -1313,7 +1311,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   const appendImportedAsset = (nextAsset: GalleryBoardAsset) => {
     const imageUrl = String(nextAsset.imageUrl || '').trim();
     if (!imageUrl) {
-      onAlert?.(tr('当前素材没有可用图片地址。', 'The selected asset does not have a usable image URL.'));
+      onAlert?.(t.pg_board_no_usable_url);
       return false;
     }
 
@@ -1384,11 +1382,11 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
   const getOutputTypeLabel = (outputType: string) => {
     const cleaned = String(outputType || '').trim();
-    if (cleaned === 'white_bg') return tr('白底图', 'White Background');
-    if (cleaned === 'scene') return tr('场景图', 'Scene');
-    if (cleaned === 'selling_point') return tr('卖点图', 'Selling Point');
-    if (cleaned === 'cover') return tr('封面图', 'Cover');
-    if (cleaned === 'poster') return tr('海报图', 'Poster');
+    if (cleaned === 'white_bg') return t.pi_gallery_output_white_bg;
+    if (cleaned === 'scene') return t.pi_gallery_output_scene;
+    if (cleaned === 'selling_point') return t.pi_gallery_output_selling_point;
+    if (cleaned === 'cover') return t.pi_gallery_output_cover;
+    if (cleaned === 'poster') return t.pi_gallery_output_poster;
     return cleaned;
   };
 
@@ -1411,7 +1409,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   const importHistoryAsset = (historyItem: GalleryBoardHistoryItem, imageUrl: string, imageIndex: number) =>
     appendImportedAsset({
       localId: `history-${historyItem.id}-${imageIndex}`,
-      requestId: `${tr('历史图片', 'History Image')} ${historyItem.createdAt}`,
+      requestId: `${t.pg_board_history_image} ${historyItem.createdAt}`,
       imageUrl,
       layout: null,
     });
@@ -1475,8 +1473,8 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     const layer: BoardTextLayer = {
       id: nextLayerId(),
       type: 'text',
-      name: tr('新文字', 'New Text'),
-      text: tr('在右侧属性区修改这段文案', 'Edit this copy in the inspector on the right'),
+      name: t.pg_board_new_text,
+      text: t.pg_board_new_text_default,
       x: 80,
       y: 80,
       w: 360,
@@ -1503,7 +1501,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     const layer: BoardImageLayer = {
       id: nextLayerId(),
       type: 'image',
-      name: tr('新增图片', 'New Image'),
+      name: t.pg_board_new_image,
       assetLocalId,
       x: clamp(x ?? board.canvasWidth * 0.16, 0, Math.max(board.canvasWidth - 320, 0)),
       y: clamp(y ?? board.canvasHeight * 0.2, 0, Math.max(board.canvasHeight - 320, 0)),
@@ -1529,7 +1527,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
   const replaceSelectedImage = (assetLocalId: string) => {
     if (!selectedLayer || selectedLayer.type !== 'image') {
-      onAlert?.(tr('请先在画板上选中一个图片图层。', 'Select an image layer on the board first.'));
+      onAlert?.(t.pg_board_select_image_layer_first);
       return;
     }
 
@@ -1781,7 +1779,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     canvas.width = board.canvasWidth;
     canvas.height = board.canvasHeight;
     const context = canvas.getContext('2d');
-    if (!context) throw new Error(tr('导出失败', 'Export failed'));
+    if (!context) throw new Error(t.pg_board_export_failed);
 
     context.fillStyle = board.background || '#111111';
     context.fillRect(0, 0, canvas.width, canvas.height);
@@ -1899,7 +1897,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     try {
       const canvas = await renderBoardToCanvas();
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
-      if (!blob) throw new Error(tr('导出失败', 'Export failed'));
+      if (!blob) throw new Error(t.pg_board_export_failed);
 
       const safeProductName = String(productName || '')
         .trim()
@@ -1916,7 +1914,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       document.body.removeChild(anchor);
       URL.revokeObjectURL(url);
     } catch (error: any) {
-      const message = String(error?.message || error || tr('导出失败', 'Export failed'));
+      const message = String(error?.message || error || t.pg_board_export_failed);
       onAlert?.(message);
     } finally {
       setIsExportingPng(false);
@@ -1972,7 +1970,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
         canvas.width = Math.max(1, Math.round(frameWidth));
         canvas.height = Math.max(1, Math.round(frameHeight));
         const context = canvas.getContext('2d');
-        if (!context) throw new Error(tr('导出失败', 'Export failed'));
+        if (!context) throw new Error(t.pg_board_export_failed);
 
         context.save();
         context.globalAlpha = clamp(opacity, 0, 1);
@@ -2005,7 +2003,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
         canvas.width = Math.max(1, Math.round(layer.w));
         canvas.height = Math.max(1, Math.round(layer.h));
         const context = canvas.getContext('2d');
-        if (!context) throw new Error(tr('导出失败', 'Export failed'));
+        if (!context) throw new Error(t.pg_board_export_failed);
 
         context.save();
         context.globalAlpha = clamp(layer.opacity, 0, 1);
@@ -2064,7 +2062,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
           y: toPptCoord(board.backgroundImageY, yScale),
           w: toPptCoord(board.backgroundImageW, xScale),
           h: toPptCoord(board.backgroundImageH, yScale),
-          altText: tr('画板背景图', 'Board Background'),
+          altText: t.pg_board_board_background,
         });
       }
 
@@ -2131,7 +2129,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
       await pptx.writeFile({ fileName: `${safeProductName || 'product_gallery_board'}_${Date.now()}.pptx` });
     } catch (error: any) {
-      const message = String(error?.message || error || tr('导出失败', 'Export failed'));
+      const message = String(error?.message || error || t.pg_board_export_failed);
       onAlert?.(message);
     } finally {
       setIsExportingPptx(false);
@@ -2307,10 +2305,10 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
             >
               <div>
                 <div className="text-xs font-bold uppercase tracking-[0.24em] text-zinc-500">
-                  {tr('拼图模板', 'Templates')}
+                  {t.pg_board_templates}
                 </div>
                 <div className="mt-1 text-[11px] text-zinc-400">
-                  {tr('点击模板后，会把当前素材自动铺到画板。', 'Templates will seed the board with current assets.')}
+                  {t.pg_board_templates_hint}
                 </div>
               </div>
               <ChevronDown
@@ -2323,7 +2321,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                 <div className="grid grid-cols-4 gap-2">
                   {TEMPLATE_MODE_OPTIONS.map((mode) => {
                     const active = templateMode === mode;
-                    const label = TEMPLATE_MODE_LABELS[mode];
+                    const labelKey = TEMPLATE_MODE_LABEL_KEYS[mode];
                     return (
                       <button
                         key={mode}
@@ -2339,7 +2337,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                                 : 'border-white/10 bg-zinc-900/70 text-zinc-300 hover:bg-zinc-800')
                         }`}
                       >
-                        {tr(label.zh, label.en)}
+                        {t[labelKey]}
                       </button>
                     );
                   })}
@@ -2417,7 +2415,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                       isLightTheme ? 'border-slate-200 bg-white text-slate-500' : 'border-white/10 bg-black/20 text-zinc-500'
                     }`}
                   >
-                    {tr('该模式下暂无模板。', 'No templates in this mode yet.')}
+                    {t.pg_board_no_templates}
                   </div>
                 ) : null}
               </div>
@@ -2445,10 +2443,10 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-xs font-bold uppercase tracking-[0.24em] text-zinc-500">
-              {tr('自由画板', 'Board')}
+              {t.pg_board_freeboard}
             </div>
             <div className="mt-1 text-xs text-zinc-400">
-              {tr('先点选对象，再拖动或缩放；属性在右侧顶部修改。', 'Select a layer first, then drag or resize it. Edit its properties on the right.')}
+              {t.pg_board_board_hint}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -2458,13 +2456,13 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
               className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
             >
               <Type className="h-4 w-4" />
-              {tr('新增文字', 'Add Text')}
+              {t.pg_board_add_text}
             </button>
             <button
               type="button"
               onClick={() => setZoom((prev) => clamp(prev - 0.15, 0.6, 2))}
               className="rounded-xl border border-white/10 bg-zinc-900/70 p-2 text-zinc-200 transition hover:bg-zinc-800"
-              aria-label={tr('缩小画板', 'Zoom out')}
+              aria-label={t.pg_board_zoom_out}
             >
               <ZoomOut className="h-4 w-4" />
             </button>
@@ -2473,7 +2471,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
               type="button"
               onClick={() => setZoom((prev) => clamp(prev + 0.15, 0.6, 2))}
               className="rounded-xl border border-white/10 bg-zinc-900/70 p-2 text-zinc-200 transition hover:bg-zinc-800"
-              aria-label={tr('放大画板', 'Zoom in')}
+              aria-label={t.pg_board_zoom_in}
             >
               <ZoomIn className="h-4 w-4" />
             </button>
@@ -2489,7 +2487,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                 className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-xs font-bold text-black transition hover:bg-orange-400 disabled:opacity-60"
               >
                 <Download className="h-4 w-4" />
-                {isExportBusy ? tr('导出中...', 'Exporting...') : tr('导出', 'Export')}
+                {isExportBusy ? t.pg_board_exporting : t.pg_board_export}
                 <ChevronDown className={`h-4 w-4 transition ${isExportMenuOpen ? 'rotate-180' : ''}`} />
               </button>
 
@@ -2504,7 +2502,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                     disabled={isExportBusy}
                     className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-xs font-semibold text-zinc-100 transition hover:bg-white/5 disabled:opacity-50"
                   >
-                    <span>{tr('导出 PNG', 'Export PNG')}</span>
+                    <span>{t.pg_board_export_png}</span>
                     <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">PNG</span>
                   </button>
                   <button
@@ -2516,7 +2514,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                     disabled={isExportBusy}
                     className="flex w-full items-center justify-between gap-3 border-t border-white/10 px-3 py-2.5 text-left text-xs font-semibold text-zinc-100 transition hover:bg-white/5 disabled:opacity-50"
                   >
-                    <span>{tr('导出 PPTX', 'Export PPTX')}</span>
+                    <span>{t.pg_board_export_pptx}</span>
                     <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">PPTX</span>
                   </button>
                 </div>
@@ -2560,7 +2558,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                 >
                   <img
                     src={backgroundImageUrl}
-                    alt={tr('画板背景图', 'Board Background')}
+                    alt={t.pg_board_board_background}
                     className={`h-full w-full ${board.backgroundImageFit === 'contain' ? 'object-contain' : 'object-cover'}`}
                     draggable={false}
                   />
@@ -2643,7 +2641,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                           />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center bg-white/5 px-4 text-center text-xs text-zinc-500">
-                            {tr('从右侧拖入素材，或选中图片图层后执行替换。', 'Drag an asset here or replace the selected image layer from the asset panel.')}
+                            {t.pg_board_drop_asset_hint}
                           </div>
                         )}
                       </div>
@@ -2690,10 +2688,10 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
             >
               <div>
                 <div className="text-xs font-bold uppercase tracking-[0.24em] text-zinc-500">
-                  {tr('画板设置', 'Board Settings')}
+                  {t.pg_board_board_settings}
                 </div>
                 <div className="mt-1 text-xs text-zinc-400">
-                  {tr('支持修改画板比例、尺寸和背景底图。', 'Change canvas ratio, size, and background image here.')}
+                  {t.pg_board_board_settings_hint}
                 </div>
               </div>
               <ChevronDown
@@ -2705,7 +2703,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
               <div className="border-t border-white/10 px-4 pb-4 pt-4 space-y-3">
             <label className="space-y-1">
               <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                {tr('预设比例', 'Canvas Ratio')}
+                {t.pg_board_canvas_ratio}
               </div>
               <select
                 value={currentCanvasPresetId}
@@ -2720,14 +2718,14 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                     {item.label} ({item.width} x {item.height})
                   </option>
                 ))}
-                <option value="custom">{tr('自定义尺寸', 'Custom')}</option>
+                <option value="custom">{t.pg_board_custom_size}</option>
               </select>
             </label>
 
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1">
                 <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                  {tr('画板宽度', 'Canvas Width')}
+                  {t.pg_board_canvas_width}
                 </div>
                 <input
                   type="number"
@@ -2740,7 +2738,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
               </label>
               <label className="space-y-1">
                 <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                  {tr('画板高度', 'Canvas Height')}
+                  {t.pg_board_canvas_height}
                 </div>
                 <input
                   type="number"
@@ -2754,28 +2752,27 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
             </div>
 
             <ColorField
-              label={tr('画板底色', 'Board Color')}
+              label={t.pg_board_board_color}
               value={board.background}
               fallback="#111111"
-              tr={tr}
               onChange={(next) => setBoard((prev) => ({ ...prev, background: next }))}
             />
 
             <label className="space-y-1">
               <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                {tr('背景底图', 'Background Asset')}
+                {t.pg_board_background_asset}
               </div>
               <select
                 value={board.backgroundImageAssetLocalId || ''}
                 onChange={(event) => setBackgroundImage(event.target.value || null)}
                 className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
               >
-                <option value="">{tr('不使用底图', 'No Background Image')}</option>
+                <option value="">{t.pg_board_no_bg_image}</option>
                 {mergedAssets
                   .filter((item) => Boolean(String(item.imageUrl || '').trim()))
                   .map((asset, index) => (
                     <option key={asset.localId} value={asset.localId}>
-                      {tr('图片', 'Image')} {index + 1}
+                      {t.pg_board_image} {index + 1}
                     </option>
                   ))}
               </select>
@@ -2793,7 +2790,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                         : 'border-white/10 bg-zinc-900/70 text-zinc-200 hover:bg-zinc-800'
                     }`}
                   >
-                    {tr('选中底图', 'Select Background')}
+                    {t.pg_board_select_background}
                   </button>
                   <button
                     type="button"
@@ -2807,14 +2804,14 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                     }
                     className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
                   >
-                    {tr('重置铺满', 'Reset Fill')}
+                    {t.pg_board_reset_fill}
                   </button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <label className="space-y-1">
                     <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                      {tr('底图适配', 'Background Fit')}
+                      {t.pg_board_bg_fit}
                     </div>
                     <select
                       value={board.backgroundImageFit}
@@ -2826,13 +2823,13 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                       }
                       className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
                     >
-                      <option value="cover">{tr('铺满裁切', 'Cover')}</option>
-                      <option value="contain">{tr('完整显示', 'Contain')}</option>
+                      <option value="cover">{t.pg_board_fit_cover}</option>
+                      <option value="contain">{t.pg_board_fit_contain}</option>
                     </select>
                   </label>
                   <label className="space-y-1">
                     <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                      {tr('底图透明度', 'Background Opacity')}
+                      {t.pg_board_bg_opacity}
                     </div>
                     <input
                       type="number"
@@ -2852,7 +2849,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                 </div>
 
                 <div className="overflow-hidden rounded-xl border border-white/10 bg-black/30">
-                  <img src={backgroundImageUrl} alt={tr('背景预览', 'Background Preview')} className="h-24 w-full object-cover" />
+                  <img src={backgroundImageUrl} alt={t.pg_board_bg_preview} className="h-24 w-full object-cover" />
                 </div>
               </>
             ) : null}
@@ -2868,10 +2865,10 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
             >
               <div className="min-w-0">
                 <div className="text-xs font-bold uppercase tracking-[0.24em] text-zinc-500">
-                  {tr('选中对象属性', 'Selected Object')}
+                  {t.pg_board_selected_object}
                 </div>
                 <div className="mt-1 text-xs text-zinc-400">
-                  {tr('先在画板上选中对象，再在这里编辑位置、颜色、字体和大小。', 'Select a layer on the board first, then edit its position, color, font, and size here.')}
+                  {t.pg_board_selected_object_hint_top}
                 </div>
               </div>
               <ChevronDown
@@ -2883,7 +2880,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
               <div className="border-t border-white/10 px-4 pb-4 pt-4">
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <div className="text-xs font-bold uppercase tracking-[0.24em] text-zinc-500">
-                    {tr('属性面板', 'Inspector')}
+                    {t.pg_board_inspector}
                   </div>
                   {selectedLayer ? (
                     <button
@@ -2892,7 +2889,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                       className="inline-flex items-center gap-1 rounded-lg border border-red-500/20 bg-red-500/10 px-2 py-1 text-[11px] font-semibold text-red-200 transition hover:bg-red-500/15"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
-                      {tr('删除', 'Delete')}
+                      {t.pg_board_delete}
                     </button>
                   ) : null}
                 </div>
@@ -2900,7 +2897,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                 {isBackgroundSelected ? (
                   <div className="space-y-3">
               <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-300">
-                {tr('背景底图', 'Background Image')}
+                {t.pg_board_background_image}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -2944,7 +2941,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
               <label className="space-y-1">
                 <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                  {tr('底图适配', 'Background Fit')}
+                  {t.pg_board_bg_fit}
                 </div>
                 <select
                   value={board.backgroundImageFit}
@@ -2955,14 +2952,14 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                   }
                   className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
                 >
-                  <option value="cover">{tr('铺满裁切', 'Cover')}</option>
-                  <option value="contain">{tr('完整显示', 'Contain')}</option>
+                  <option value="cover">{t.pg_board_fit_cover}</option>
+                  <option value="contain">{t.pg_board_fit_contain}</option>
                 </select>
               </label>
 
               <label className="space-y-1">
                 <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                  {tr('底图透明度', 'Background Opacity')}
+                  {t.pg_board_bg_opacity}
                 </div>
                 <input
                   type="number"
@@ -2980,12 +2977,12 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                 ) : selectedLayer ? (
                   <div className="space-y-3">
               <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-300">
-                {selectedLayer.name} · {selectedLayer.type === 'image' ? tr('图片图层', 'Image Layer') : tr('文字图层', 'Text Layer')}
+                {selectedLayer.name} · {selectedLayer.type === 'image' ? t.pg_board_image_layer : t.pg_board_text_layer}
               </div>
 
               <label className="space-y-1">
                 <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                  {tr('图层名称', 'Layer Name')}
+                  {t.pg_board_layer_name}
                 </div>
                 <input
                   type="text"
@@ -3052,7 +3049,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
               <div className="space-y-1">
                 <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                  {tr('图层顺序', 'Layer Order')}
+                  {t.pg_board_layer_order}
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <button
@@ -3060,28 +3057,28 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                     onClick={() => moveSelectedLayer('back')}
                     className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
                   >
-                    {tr('置于底层', 'Send to Back')}
+                    {t.pg_board_send_to_back}
                   </button>
                   <button
                     type="button"
                     onClick={() => moveSelectedLayer('backward')}
                     className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
                   >
-                    {tr('下移一层', 'Send Backward')}
+                    {t.pg_board_send_backward}
                   </button>
                   <button
                     type="button"
                     onClick={() => moveSelectedLayer('forward')}
                     className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
                   >
-                    {tr('上移一层', 'Bring Forward')}
+                    {t.pg_board_bring_forward}
                   </button>
                   <button
                     type="button"
                     onClick={() => moveSelectedLayer('front')}
                     className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
                   >
-                    {tr('置于顶层', 'Bring to Front')}
+                    {t.pg_board_bring_to_front}
                   </button>
                 </div>
               </div>
@@ -3090,34 +3087,34 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                 <>
                   <label className="space-y-1">
                     <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                      {tr('图片来源', 'Image Source')}
+                      {t.pg_board_image_source}
                     </div>
                     <select
                       value={selectedLayer.assetLocalId || ''}
                       onChange={(event) => handleSelectedImageAssetChange(event.target.value || null)}
                       className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
                     >
-                      <option value="">{tr('未绑定图片', 'No Image')}</option>
+                      <option value="">{t.pg_board_no_image_bound}</option>
                       {mergedAssets
                         .filter((item) => Boolean(String(item.imageUrl || '').trim()))
                         .map((asset, index) => (
                           <option key={asset.localId} value={asset.localId}>
-                            {tr('图片', 'Image')} {index + 1}
+                            {t.pg_board_image} {index + 1}
                           </option>
                         ))}
                     </select>
                   </label>
                   <label className="space-y-1">
                     <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                      {tr('裁切方式', 'Image Fit')}
+                      {t.pg_board_image_fit}
                     </div>
                     <select
                       value={selectedLayer.fit}
                       onChange={(event) => updateSelectedImageLayer({ fit: event.target.value as BoardImageLayer['fit'] })}
                       className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
                     >
-                      <option value="cover">{tr('铺满裁切', 'Cover')}</option>
-                      <option value="contain">{tr('完整显示', 'Contain')}</option>
+                      <option value="cover">{t.pg_board_fit_cover}</option>
+                      <option value="contain">{t.pg_board_fit_contain}</option>
                     </select>
                   </label>
                   <div className="grid grid-cols-2 gap-3">
@@ -3128,7 +3125,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                         onChange={(event) => handleSelectedImageShowOriginalChange(event.target.checked)}
                         className="accent-orange-500"
                       />
-                      <span>{tr('显示原图', 'Show Original')}</span>
+                      <span>{t.pg_board_show_original}</span>
                     </label>
                     <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-zinc-200">
                       <input
@@ -3137,26 +3134,26 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                         onChange={(event) => updateSelectedImageLayer({ keepAspectRatio: event.target.checked })}
                         className="accent-orange-500"
                       />
-                      <span>{tr('等比例缩放', 'Keep Aspect Ratio')}</span>
+                      <span>{t.pg_board_keep_aspect}</span>
                     </label>
                   </div>
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                        {tr('图片裁剪', 'Image Crop')}
+                        {t.pg_board_image_crop}
                       </div>
                       <button
                         type="button"
                         onClick={resetSelectedImageCrop}
                         className="rounded-lg border border-white/10 bg-zinc-900/70 px-2 py-1 text-[10px] font-semibold text-zinc-200 transition hover:bg-zinc-800"
                       >
-                        {tr('重置裁剪', 'Reset Crop')}
+                        {t.pg_board_reset_crop}
                       </button>
                     </div>
 
                     <label className="space-y-1">
                       <div className="flex items-center justify-between text-[11px] text-zinc-500">
-                        <span>{tr('缩放', 'Zoom')}</span>
+                        <span>{t.pg_board_zoom}</span>
                         <span>{selectedLayer.cropScale.toFixed(2)}x</span>
                       </div>
                       <input
@@ -3172,7 +3169,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
                     <label className="space-y-1">
                       <div className="flex items-center justify-between text-[11px] text-zinc-500">
-                        <span>{tr('水平偏移', 'Horizontal Offset')}</span>
+                        <span>{t.pg_board_h_offset}</span>
                         <span>{Math.round(selectedLayer.cropOffsetX * 100)}%</span>
                       </div>
                       <input
@@ -3188,7 +3185,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
                     <label className="space-y-1">
                       <div className="flex items-center justify-between text-[11px] text-zinc-500">
-                        <span>{tr('垂直偏移', 'Vertical Offset')}</span>
+                        <span>{t.pg_board_v_offset}</span>
                         <span>{Math.round(selectedLayer.cropOffsetY * 100)}%</span>
                       </div>
                       <input
@@ -3205,7 +3202,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                   <div className="grid grid-cols-2 gap-3">
                     <label className="space-y-1">
                       <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                        {tr('圆角', 'Radius')}
+                        {t.pg_board_radius}
                       </div>
                       <input
                         type="number"
@@ -3216,7 +3213,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                     </label>
                     <label className="space-y-1">
                       <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                        {tr('透明度', 'Opacity')}
+                        {t.pg_board_opacity}
                       </div>
                       <input
                         type="number"
@@ -3234,7 +3231,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                 <>
                   <label className="space-y-1">
                     <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                      {tr('文字内容', 'Text')}
+                      {t.pg_board_text_content}
                     </div>
                     <textarea
                       rows={4}
@@ -3246,7 +3243,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                   <div className="grid grid-cols-2 gap-3">
                     <label className="space-y-1">
                       <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                        {tr('字体', 'Font')}
+                        {t.pg_board_font}
                       </div>
                       <select
                         value={selectedLayer.fontFamily}
@@ -3262,7 +3259,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                     </label>
                     <label className="space-y-1">
                       <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                        {tr('字号', 'Font Size')}
+                        {t.pg_board_font_size}
                       </div>
                       <input
                         type="number"
@@ -3280,7 +3277,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                     </label>
                     <label className="space-y-1">
                       <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                        {tr('字重', 'Weight')}
+                        {t.pg_board_weight}
                       </div>
                       <input
                         type="number"
@@ -3294,21 +3291,21 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                     </label>
                     <label className="space-y-1">
                       <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                        {tr('对齐', 'Align')}
+                        {t.pg_board_align}
                       </div>
                       <select
                         value={selectedLayer.align}
                         onChange={(event) => updateSelectedTextLayer({ align: event.target.value as BoardTextLayer['align'] })}
                         className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
                       >
-                        <option value="left">{tr('左对齐', 'Left')}</option>
-                        <option value="center">{tr('居中', 'Center')}</option>
-                        <option value="right">{tr('右对齐', 'Right')}</option>
+                        <option value="left">{t.pg_board_align_left}</option>
+                        <option value="center">{t.pg_board_align_center}</option>
+                        <option value="right">{t.pg_board_align_right}</option>
                       </select>
                     </label>
                     <label className="space-y-1">
                       <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                        {tr('行高', 'Line Height')}
+                        {t.pg_board_line_height}
                       </div>
                       <input
                         type="number"
@@ -3322,7 +3319,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                     </label>
                     <label className="space-y-1">
                       <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                        {tr('内边距', 'Padding')}
+                        {t.pg_board_padding}
                       </div>
                       <input
                         type="number"
@@ -3336,18 +3333,16 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                     </label>
                   </div>
                   <ColorField
-                    label={tr('文字颜色', 'Text Color')}
+                    label={t.pg_board_text_color}
                     value={selectedLayer.color}
                     fallback="#ffffff"
-                    tr={tr}
-                    onChange={(next) => updateSelectedTextLayer({ color: next })}
+                          onChange={(next) => updateSelectedTextLayer({ color: next })}
                   />
                   <ColorField
-                    label={tr('背景色', 'Background')}
+                    label={t.pg_board_bg_color}
                     value={selectedLayer.background}
                     fallback="#000000"
-                    tr={tr}
-                    allowTransparent
+                          allowTransparent
                     onChange={(next) => updateSelectedTextLayer({ background: next })}
                   />
                 </>
@@ -3355,7 +3350,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-500">
-                    {tr('请先在画板上选中一个对象，再在这里修改位置、大小、字体、颜色等属性。', 'Select a layer on the board to edit its properties here.')}
+                    {t.pg_board_select_object_first}
                   </div>
                 )}
 
@@ -3365,7 +3360,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                   className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
                 >
                   <Plus className="h-4 w-4" />
-                  {tr('新增文字图层', 'Add Text Layer')}
+                  {t.pg_board_add_text_layer}
                 </button>
               </div>
             ) : null}
@@ -3379,10 +3374,10 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
             >
               <div>
                 <div className="text-xs font-bold uppercase tracking-[0.24em] text-zinc-500">
-                  {tr('当前素材', 'Assets')}
+                  {t.pg_board_current_assets}
                 </div>
                 <div className="mt-1 text-xs text-zinc-400">
-                  {tr('支持拖入画板，也支持在这里上传本地图片；选中图片图层后可直接替换。', 'Drag assets onto the board, upload local images here, or replace the selected image layer.')}
+                  {t.pg_board_assets_hint}
                 </div>
               </div>
               <ChevronDown
@@ -3394,7 +3389,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
               <div className="border-t border-white/10 px-4 pb-4 pt-4">
                 <div className="space-y-3">
                   <div className="text-[11px] text-zinc-500">
-                    {tr('已选素材', 'Selected')} {selectedAssetLocalIds.length}
+                    {t.pg_board_selected_count} {selectedAssetLocalIds.length}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <input
@@ -3410,7 +3405,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                       onClick={() => uploadInputRef.current?.click()}
                       className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
                     >
-                      {tr('上传素材', 'Upload Images')}
+                      {t.pg_board_upload_images}
                     </button>
                     <button
                       type="button"
@@ -3418,14 +3413,14 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                       className="inline-flex items-center gap-2 rounded-xl border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs font-semibold text-orange-200 transition hover:bg-orange-500/15"
                     >
                       <Folder className="h-3.5 w-3.5" />
-                      {tr('从素材库导入', 'Import from Library')}
+                      {t.pg_board_import_library}
                     </button>
                     <button
                       type="button"
                       onClick={() => setIsHistoryPickerOpen(true)}
                       className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
                     >
-                      {tr('从历史记录导入', 'Import from History')}
+                      {t.pg_board_import_history}
                     </button>
                   </div>
                 </div>
@@ -3446,7 +3441,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                         >
                           <div className="mb-2 flex items-center justify-between gap-2 min-w-0">
                             <div className="truncate text-[11px] font-semibold text-zinc-200">
-                              {tr('图片', 'Image')} {index + 1}
+                              {t.pg_board_image} {index + 1}
                             </div>
                             <button
                               type="button"
@@ -3457,7 +3452,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                                   : 'border-white/10 bg-zinc-900/70 text-zinc-300 hover:bg-zinc-800'
                               }`}
                             >
-                              {isAssetSelected ? tr('已选中', 'Selected') : tr('选中排版', 'Select')}
+                              {isAssetSelected ? t.pg_board_selected : t.pg_board_select_layout}
                             </button>
                           </div>
 
@@ -3477,7 +3472,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                               <img src={imageUrl} alt={asset.requestId} className="h-24 w-full object-cover" />
                             ) : (
                               <div className="flex h-24 items-center justify-center text-xs text-zinc-500">
-                                {tr('当前素材没有可用图片地址', 'No valid image URL')}
+                                {t.pg_board_no_valid_url_short}
                               </div>
                             )}
                           </div>
@@ -3490,7 +3485,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                               className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-zinc-900/70 px-2.5 py-2 text-[11px] font-semibold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-40"
                             >
                               <ImagePlus className="h-3.5 w-3.5" />
-                              {tr('加入画板', 'Add to Board')}
+                              {t.pg_board_add_to_board}
                             </button>
                             <button
                               type="button"
@@ -3499,7 +3494,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                               className="inline-flex items-center justify-center gap-2 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2.5 py-2 text-[11px] font-semibold text-orange-200 transition hover:bg-orange-500/15 disabled:opacity-40"
                             >
                               <Replace className="h-3.5 w-3.5" />
-                              {tr('替换选中', 'Replace Selected')}
+                              {t.pg_board_replace_selected}
                             </button>
                             <button
                               type="button"
@@ -3507,7 +3502,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                               onClick={() => setBackgroundImage(asset.localId)}
                               className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-zinc-900/70 px-2.5 py-2 text-[11px] font-semibold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-40"
                             >
-                              {tr('设为背景', 'Set as Background')}
+                              {t.pg_board_set_as_background}
                             </button>
                           </div>
                         </div>
@@ -3515,7 +3510,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                     })
                   ) : (
                     <div className="col-span-2 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-500">
-                      {tr('当前还没有素材，可先上传本地图片，或从素材库、历史记录导入后再加入画板。', 'There are no assets yet. Upload local images or import from the library or history first, then add them to the board.')}
+                      {t.pg_board_no_assets}
                     </div>
                   )}
                 </div>
@@ -3528,8 +3523,8 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
       <AppDialog
         isOpen={isHistoryPickerOpen}
-        title={tr('从历史图片生成记录导入', 'Import from Image History')}
-        subtitle={tr('历史生成图导入后会进入右侧素材区，可继续加入画板、替换图层或设为背景。', 'Imported history images will appear in the asset panel for board placement, replacement, or background use.')}
+        title={t.pg_board_import_history_title}
+        subtitle={t.pg_board_import_history_subtitle}
         onClose={() => setIsHistoryPickerOpen(false)}
         widthClassName="max-w-6xl"
         contentClassName="overflow-hidden"
@@ -3539,14 +3534,14 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
             onClick={() => setIsHistoryPickerOpen(false)}
             className="rounded-xl border border-white/10 bg-zinc-900/70 px-4 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
           >
-            {tr('关闭', 'Close')}
+            {t.pg_board_close}
           </button>
         }
       >
         <div className="min-h-[320px] max-h-[72vh] overflow-y-auto custom-scroll pr-1">
           {historyImageEntries.length < 1 ? (
             <div className="flex h-72 items-center justify-center text-sm text-zinc-500">
-              {tr('暂无可导入的历史图片生成记录。', 'No image generation history is available yet.')}
+              {t.pg_board_no_history}
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -3575,7 +3570,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                           onClick={() => openBoardImagePreview(entry.imageUrl)}
                           className="rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
                         >
-                          {tr('预览', 'Preview')}
+                          {t.pg_board_preview}
                         </button>
                         <button
                           type="button"
@@ -3587,7 +3582,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                               : 'bg-orange-500 text-black hover:bg-orange-400'
                           }`}
                         >
-                          {isImported ? tr('已导入', 'Imported') : tr('导入', 'Import')}
+                          {isImported ? t.pg_board_imported : t.pg_board_import}
                         </button>
                       </div>
                     </div>
@@ -3601,8 +3596,8 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
       <AppDialog
         isOpen={isLibraryPickerOpen}
-        title={tr('从素材库导入', 'Import from Library')}
-        subtitle={tr('导入后会进入右侧素材区，可继续加入画板、替换图层或设为背景。', 'Imported assets will appear in the asset panel for board placement, replacement, or background use.')}
+        title={t.pg_board_import_library}
+        subtitle={t.pg_board_import_library_subtitle}
         onClose={closeLibraryPicker}
         widthClassName="max-w-5xl"
         contentClassName="overflow-hidden"
@@ -3612,7 +3607,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
             onClick={closeLibraryPicker}
             className="rounded-xl border border-white/10 bg-zinc-900/70 px-4 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
           >
-            {tr('关闭', 'Close')}
+            {t.pg_board_close}
           </button>
         }
       >
@@ -3635,7 +3630,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                         : 'border-white/10 bg-zinc-900/70 text-zinc-300 hover:bg-zinc-800'
                     }`}
                   >
-                    {tr(option.zh, option.en)}
+                    {t[option.labelKey]}
                   </button>
                 );
               })}
@@ -3647,7 +3642,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                 onClick={() => setLibraryCurrentFolderId(null)}
                 className={`transition hover:text-zinc-200 ${libraryCurrentFolderId === null ? 'text-zinc-200' : ''}`}
               >
-                {tr('根目录', 'Root')}
+                {t.pg_board_root}
               </button>
               {libraryBreadcrumb.map((folder) => (
                 <React.Fragment key={folder.id}>
@@ -3668,7 +3663,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
             {libraryLoading ? (
               <div className="flex h-56 items-center justify-center text-sm text-zinc-400">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {tr('素材加载中...', 'Loading library assets...')}
+                {t.pg_board_library_loading}
               </div>
             ) : libraryError ? (
               <div className="flex h-56 items-center justify-center text-sm text-red-300">
@@ -3676,7 +3671,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
               </div>
             ) : libraryItems.length < 1 && libraryFolders.length < 1 ? (
               <div className="flex h-56 items-center justify-center text-sm text-zinc-500">
-                {tr('当前目录下暂无可用素材。', 'No usable assets were found in this folder.')}
+                {t.pg_board_no_library_assets}
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -3708,13 +3703,13 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                           <img src={previewUrl} alt={asset.name} className="aspect-[4/5] w-full object-cover" />
                         ) : (
                           <div className="flex aspect-[4/5] items-center justify-center text-xs text-zinc-500">
-                            {tr('无预览', 'No Preview')}
+                            {t.pg_board_no_preview}
                           </div>
                         )}
                       </div>
                       <div className="mt-2 truncate text-xs font-semibold text-zinc-200">{asset.name || `asset-${asset.id}`}</div>
                       <div className="mt-1 text-[10px] text-zinc-500">
-                        {tr(asset.type === 'scene' ? '场景素材' : '商品素材', asset.type === 'scene' ? 'Scene Asset' : 'Product Asset')}
+                        {asset.type === 'scene' ? t.pg_board_scene_asset : t.pg_board_product_asset}
                       </div>
                       <button
                         type="button"
@@ -3726,7 +3721,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                             : 'border border-orange-500/30 bg-orange-500/10 text-orange-200 hover:bg-orange-500/15'
                         }`}
                       >
-                        {isImported ? tr('已导入', 'Imported') : tr('导入到素材区', 'Import')}
+                        {isImported ? t.pg_board_imported : t.pg_board_import_to_assets}
                       </button>
                     </div>
                   );
@@ -3739,7 +3734,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
       <AppDialog
         isOpen={Boolean(previewImageUrl)}
-        title={tr('图片预览', 'Image Preview')}
+        title={t.pg_board_image_preview}
         onClose={() => setPreviewImageUrl(null)}
         widthClassName="max-w-5xl"
         footer={
@@ -3748,14 +3743,14 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
             onClick={() => setPreviewImageUrl(null)}
             className="rounded-xl border border-white/10 bg-zinc-900/70 px-4 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
           >
-            {tr('关闭', 'Close')}
+            {t.pg_board_close}
           </button>
         }
       >
         {previewImageUrl ? (
           <div className="w-full flex items-center justify-center">
             <div className="relative inline-block overflow-hidden rounded-xl border border-white/10">
-              <img src={previewImageUrl} alt={tr('图片预览', 'Image Preview')} className="max-h-[70vh] w-auto object-contain" />
+              <img src={previewImageUrl} alt={t.pg_board_image_preview} className="max-h-[70vh] w-auto object-contain" />
             </div>
           </div>
         ) : null}

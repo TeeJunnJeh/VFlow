@@ -86,7 +86,7 @@ import {
 } from '../../utils/tiktokAuthPopup';
 
 const ENABLE_PROMPT_LAB = true;
-const ENABLE_STORYBOARD_PROMPT = false;
+const ENABLE_STORYBOARD_PROMPT = true;
 const WAIT_PROGRESS_SIM_DURATION_MS = 90_000;
 const WAIT_PROGRESS_MAX_BEFORE_HOLD = 90;
 const SCRIPT_PROGRESS_MAX_BEFORE_HOLD = 88;
@@ -4553,10 +4553,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   ) {
     const creativeCardPrompt = (cardText || '').trim() || buildCreativeCardPrompt(card);
     const masterScriptPrompt = (fullScript || '').trim() ? `[完整脚本]: ${(fullScript || '').trim()}` : '';
-    const shotPrompt = inputScripts.map((script) => {
-      const audioMarker = (soundSetting === 'on' && script.audio) ? `【音频|【[旁白]】${script.audio}】` : '';
-      return `${script.visual || ''} ${audioMarker}`.trim();
-    }).join(' ');
+    const shotPrompt = inputScripts.map((script, idx) => {
+      const audioMarker = (soundSetting === 'on' && script.audio) ? `【音频|旁白】${script.audio}` : '';
+      const typeLabel = script.type ? `(${script.type})` : '';
+      const durLabel = script.dur ? `${script.dur}s` : '';
+      const meta = [durLabel, typeLabel].filter(Boolean).join(' ');
+      return `[镜头${idx + 1}]${meta ? ` ${meta}` : ''} ${script.visual || ''} ${audioMarker}`.trim();
+    }).join('\n');
     const basePrompt = [masterScriptPrompt, creativeCardPrompt].filter(Boolean).join('\n\n');
     const storyboardSupplement = '[分镜补充要求]: 仅采用站立口播式出镜，人物始终站立并面向镜头，用手持商品进行展示与讲解；不要出现脚部穿戴、脚部特写、脚接触商品，避免把手误生成成脚。';
     const firstLastFrameAudioSupplement = selectedModel === 'kling' && klingGenerateMode === 'first_last_frame' && soundSetting === 'on'
@@ -5108,16 +5111,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     // 首帧图片：取队列中第一张图片（Kling 兼容）+ 收集所有图片路径（Seedance 多图参考）
     let resolvedImagePath: string | null = null;
     const allImagePaths: string[] = [];
-    const imageAssetsMeta: Array<{ path: string; material_type: string; seedance_asset_id?: string }> = [];
+    const imageAssetsMeta: Array<{ path: string; material_type: string; seedance_asset_id?: string; frame_role?: string | null }> = [];
     for (const imgAsset of imageAssetsInQueue) {
       const p = await resolveQueueAssetPath(imgAsset);
       if (p) {
         allImagePaths.push(p);
         if (!resolvedImagePath) resolvedImagePath = p;
         // Collect metadata for Seedance model-type assets (virtual human)
-        const metaEntry: { path: string; material_type: string; seedance_asset_id?: string } = {
+        const metaEntry: { path: string; material_type: string; seedance_asset_id?: string; frame_role?: string | null } = {
           path: p,
           material_type: imgAsset.materialType || 'product',
+          frame_role: imgAsset.frameRole === '首帧' ? 'first_frame'
+                    : imgAsset.frameRole === '尾帧' ? 'last_frame'
+                    : null,
         };
         if (imgAsset.materialType === 'model') {
           const seedanceId = imgAsset.seedanceAssetId;

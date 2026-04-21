@@ -274,6 +274,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [seedanceAdvancedOpen, setSeedanceAdvancedOpen] = useState(false);
   const [showSeedanceBrowser, setShowSeedanceBrowser] = useState(false);
   const [seedanceOptionsLoaded, setSeedanceOptionsLoaded] = useState(false);
+  const [seedanceCountrySearch, setSeedanceCountrySearch] = useState('');
+  const [seedanceCountryOpen, setSeedanceCountryOpen] = useState(false);
   const [seedanceHasMore, setSeedanceHasMore] = useState(false);
   const seedanceSentinelRef = useRef<HTMLDivElement | null>(null);
   const seedanceScrollRef = useRef<HTMLDivElement | null>(null);
@@ -3379,19 +3381,68 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                     </button>
                     {seedanceAdvancedOpen && (
                       <div className="flex flex-wrap items-center gap-3 mt-2 pt-2 border-t border-white/5">
-                        <select
-                          value={seedanceFilters.country || ''}
-                          onChange={(e) => {
-                            const f = { ...seedanceFilters, country: e.target.value || undefined, page: 1 };
-                            setSeedanceFilters(f);
-                            setSeedanceCharacters([]);
-                            void loadSeedanceCharacters(f);
-                          }}
-                          className="bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-orange-500/50"
-                        >
-                          <option value="">{t.assets_seedance_filter_all_country || '全部国家'}</option>
-                          {seedanceCountries.map((c) => <option key={c} value={c}>{c}</option>)}
-                        </select>
+                        {/* Country combobox */}
+                        <div className="relative">
+                          <div className="flex items-center gap-1.5 bg-zinc-800 border border-white/10 rounded-lg px-2.5 py-1.5 focus-within:border-orange-500/50 w-[140px]">
+                            <Search className="w-3 h-3 text-zinc-500 shrink-0" />
+                            <input
+                              value={seedanceCountrySearch}
+                              onChange={(e) => { setSeedanceCountrySearch(e.target.value); setSeedanceCountryOpen(true); }}
+                              onFocus={() => setSeedanceCountryOpen(true)}
+                              onBlur={() => setTimeout(() => setSeedanceCountryOpen(false), 150)}
+                              placeholder={seedanceFilters.country || t.assets_seedance_filter_all_country || '全部国家'}
+                              className="bg-transparent text-zinc-200 text-xs focus:outline-none w-full min-w-0 placeholder:text-zinc-400"
+                            />
+                            {seedanceFilters.country && (
+                              <button
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  const f = { ...seedanceFilters, country: undefined, page: 1 };
+                                  setSeedanceFilters(f);
+                                  setSeedanceCharacters([]);
+                                  setSeedanceCountrySearch('');
+                                  setSeedanceCountryOpen(false);
+                                  void loadSeedanceCharacters(f);
+                                }}
+                                className="text-zinc-500 hover:text-zinc-300 text-sm leading-none shrink-0"
+                              >×</button>
+                            )}
+                          </div>
+                          {seedanceCountryOpen && (
+                            <div className="absolute top-full mt-1 left-0 w-full bg-zinc-900 border border-white/10 rounded-lg shadow-xl z-50 max-h-48 overflow-y-auto">
+                              <button
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  const f = { ...seedanceFilters, country: undefined, page: 1 };
+                                  setSeedanceFilters(f);
+                                  setSeedanceCharacters([]);
+                                  setSeedanceCountrySearch('');
+                                  setSeedanceCountryOpen(false);
+                                  void loadSeedanceCharacters(f);
+                                }}
+                                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-zinc-800 ${!seedanceFilters.country ? 'text-orange-400' : 'text-zinc-400'}`}
+                              >{t.assets_seedance_filter_all_country || '全部国家'}</button>
+                              {seedanceCountries
+                                .filter((c) => !seedanceCountrySearch || c.includes(seedanceCountrySearch))
+                                .map((c) => (
+                                  <button
+                                    key={c}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      const f = { ...seedanceFilters, country: c, page: 1 };
+                                      setSeedanceFilters(f);
+                                      setSeedanceCharacters([]);
+                                      setSeedanceCountrySearch('');
+                                      setSeedanceCountryOpen(false);
+                                      void loadSeedanceCharacters(f);
+                                    }}
+                                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-zinc-800 ${seedanceFilters.country === c ? 'text-orange-400' : 'text-zinc-300'}`}
+                                  >{c}</button>
+                                ))
+                              }
+                            </div>
+                          )}
+                        </div>
                         <select
                           value={seedanceFilters.ethnicity || ''}
                           onChange={(e) => {
@@ -4313,19 +4364,68 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
                     {seedanceAdvancedOpen && (
                       <div className="flex flex-wrap items-center gap-3 mt-2 pt-2 border-t border-white/5">
-                        {/* Country */}
-                        <select
-                          value={seedanceFilters.country || ''}
-                          onChange={(e) => {
-                            const f = { ...seedanceFilters, country: e.target.value || undefined, page: 1 };
-                            setSeedanceFilters(f);
-                            void loadSeedanceCharacters(f);
-                          }}
-                          className="bg-zinc-800 border border-white/10 text-zinc-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-orange-500/50"
-                        >
-                          <option value="">{t.assets_seedance_filter_all_country || '全部国家'}</option>
-                          {seedanceCountries.map((c) => <option key={c} value={c}>{c}</option>)}
-                        </select>
+                        {/* Country combobox */}
+                        <div className="relative">
+                          <div className="flex items-center gap-1.5 bg-zinc-800 border border-white/10 rounded-lg px-2.5 py-1.5 focus-within:border-orange-500/50 w-[140px]">
+                            <Search className="w-3 h-3 text-zinc-500 shrink-0" />
+                            <input
+                              value={seedanceCountrySearch}
+                              onChange={(e) => { setSeedanceCountrySearch(e.target.value); setSeedanceCountryOpen(true); }}
+                              onFocus={() => setSeedanceCountryOpen(true)}
+                              onBlur={() => setTimeout(() => setSeedanceCountryOpen(false), 150)}
+                              placeholder={seedanceFilters.country || t.assets_seedance_filter_all_country || '全部国家'}
+                              className="bg-transparent text-zinc-200 text-xs focus:outline-none w-full min-w-0 placeholder:text-zinc-400"
+                            />
+                            {seedanceFilters.country && (
+                              <button
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  const f = { ...seedanceFilters, country: undefined, page: 1 };
+                                  setSeedanceFilters(f);
+                                  setSeedanceCharacters([]);
+                                  setSeedanceCountrySearch('');
+                                  setSeedanceCountryOpen(false);
+                                  void loadSeedanceCharacters(f);
+                                }}
+                                className="text-zinc-500 hover:text-zinc-300 text-sm leading-none shrink-0"
+                              >×</button>
+                            )}
+                          </div>
+                          {seedanceCountryOpen && (
+                            <div className="absolute top-full mt-1 left-0 w-full bg-zinc-900 border border-white/10 rounded-lg shadow-xl z-50 max-h-48 overflow-y-auto">
+                              <button
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  const f = { ...seedanceFilters, country: undefined, page: 1 };
+                                  setSeedanceFilters(f);
+                                  setSeedanceCharacters([]);
+                                  setSeedanceCountrySearch('');
+                                  setSeedanceCountryOpen(false);
+                                  void loadSeedanceCharacters(f);
+                                }}
+                                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-zinc-800 ${!seedanceFilters.country ? 'text-orange-400' : 'text-zinc-400'}`}
+                              >{t.assets_seedance_filter_all_country || '全部国家'}</button>
+                              {seedanceCountries
+                                .filter((c) => !seedanceCountrySearch || c.includes(seedanceCountrySearch))
+                                .map((c) => (
+                                  <button
+                                    key={c}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      const f = { ...seedanceFilters, country: c, page: 1 };
+                                      setSeedanceFilters(f);
+                                      setSeedanceCharacters([]);
+                                      setSeedanceCountrySearch('');
+                                      setSeedanceCountryOpen(false);
+                                      void loadSeedanceCharacters(f);
+                                    }}
+                                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-zinc-800 ${seedanceFilters.country === c ? 'text-orange-400' : 'text-zinc-300'}`}
+                                  >{c}</button>
+                                ))
+                              }
+                            </div>
+                          )}
+                        </div>
 
                         {/* Ethnicity */}
                         <select

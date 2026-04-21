@@ -61,6 +61,7 @@ import {
   type TransferStationItem,
 } from '../../utils/workbenchTransferStation';
 import { type ReplayReusePayload } from './ReplayScriptView';
+import ShotTimelineBar from './ShotTimelineBar';
 import {
   SeedanceReplayUploadPanel,
   type SeedanceReplayUploadAsset,
@@ -11997,6 +11998,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </button>
                   </div>
                 </div>
+                {isShotBreakdownOpen && scripts.length > 0 && (
+                  <ShotTimelineBar scripts={scripts} onUpdateScripts={updateScripts} t={t} />
+                )}
                 {isShotBreakdownOpen && (scripts.length === 0 ? (
                   (() => {
                     const currentPageFullScript = String(scriptPages[activeScriptPage]?.fullScript || '').trim();
@@ -12040,7 +12044,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   })()
                 ) : (
                   scripts.map((script, index) => (
-                    <div key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
+                    <div id={`shot-card-${script.id}`} key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
                       <div className="flex justify-between items-start mb-3">
                         <div className="flex items-center gap-2">
                           <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>

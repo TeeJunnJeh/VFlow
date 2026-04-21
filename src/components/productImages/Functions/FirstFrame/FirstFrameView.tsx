@@ -356,14 +356,12 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     clearProgressTimer();
     progressStartedAtRef.current = null;
 
-    setImages([]);
     setResults([]);
     setLastElapsedSeconds(null);
     setProgress(0);
     setError(null);
-    setPhase('upload');
-    setUploaderResetKey((prev) => prev + 1);
-  }, [clearProgressTimer]);
+    setPhase(images.length > 0 ? 'form' : 'upload');
+  }, [clearProgressTimer, images.length]);
 
   const buildFileName = useCallback((prefix: string, index: number, imageId: string) => {
     const safePrefix = prefix.trim() || 'ai_first_frame';
@@ -678,6 +676,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
             <FirstFrameForm
               images={images}
+              workspaceId={workspaceId}
               isSubmitting={isGenerating}
               onSubmit={handleGenerateFormSubmit}
               onReset={handleResetLayout}

@@ -28,6 +28,9 @@ import type { ViewType } from './types';
 const PRODUCT_IMAGES_SECTION_ANIMATION_MS = 300;
 const PRODUCT_IMAGES_SECTION_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
 const PRODUCT_IMAGES_LAST_VIEW_STORAGE_KEY = 'vflow_product_images_last_view';
+const PRODUCT_IMAGES_SUBNAV_MIN_WIDTH = 192;
+const PRODUCT_IMAGES_SUBNAV_MAX_WIDTH = 320;
+const PRODUCT_IMAGES_SUBNAV_LABEL_PADDING = 104;
 
 interface SidebarProps {
   activeView: ViewType;
@@ -82,6 +85,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
 
   const isProductImagesView = PRODUCT_IMAGE_VIEWS.includes(activeView);
   const [isProductImagesSectionOpen, setIsProductImagesSectionOpen] = React.useState(isProductImagesView);
+  const [productImagesSubnavWidth, setProductImagesSubnavWidth] = React.useState(PRODUCT_IMAGES_SUBNAV_MIN_WIDTH);
+  const productImageLabelRefs = React.useRef<Array<HTMLSpanElement | null>>([]);
 
   React.useEffect(() => {
     if (isProductImagesView) {
@@ -108,6 +113,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
     { view: 'product_images_gallery', label: tx('wb_nav_product_gallery', tr('AI 商品套图', 'AI Product Gallery')), icon: LayoutGrid },
     { view: 'product_images_text_separation', label: tx('wb_nav_product_text_separation', tr('AI 海报编辑', 'AI Poster Editor')), icon: PencilLine },
   ];
+
+  React.useLayoutEffect(() => {
+    const widestLabel = productImageLabelRefs.current.reduce((max, node) => {
+      if (!node) return max;
+      return Math.max(max, Math.ceil(node.scrollWidth || node.getBoundingClientRect().width || 0));
+    }, 0);
+    const nextWidth = Math.min(
+      PRODUCT_IMAGES_SUBNAV_MAX_WIDTH,
+      Math.max(PRODUCT_IMAGES_SUBNAV_MIN_WIDTH, widestLabel + PRODUCT_IMAGES_SUBNAV_LABEL_PADDING)
+    );
+    setProductImagesSubnavWidth(nextWidth);
+  }, [language, productImageOptions]);
 
   const InternalNav = ({ icon: Icon, view, label }: { icon: any; view: ViewType; label: string }) => (
     <button
@@ -256,14 +273,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
             : 'border-l border-transparent opacity-0'
         }`}
         style={{
-          width: isProductImagesSectionOpen ? '12rem' : '0rem',
+          width: isProductImagesSectionOpen ? `${productImagesSubnavWidth}px` : '0rem',
           transitionDuration: `${PRODUCT_IMAGES_SECTION_ANIMATION_MS}ms`,
           transitionTimingFunction: PRODUCT_IMAGES_SECTION_EASING,
         }}
         aria-hidden={!isProductImagesSectionOpen}
       >
         <div
-          className="w-48 px-3 py-6"
+          className="px-3 py-6"
+          style={{ width: `${productImagesSubnavWidth}px` }}
         >
           <div
             className={`flex flex-col gap-1 transition-opacity ${
@@ -286,7 +304,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
                   key={opt.view}
                   type="button"
                   onClick={() => setActiveView(opt.view)}
-                  className={`wb-product-subnav-item relative h-12 w-full rounded-xl flex items-center px-4 pl-9 text-left text-sm transition group ${
+                  className={`wb-product-subnav-item relative h-12 w-full rounded-xl flex items-center px-4 pl-9 text-left text-sm font-bold transition group ${
                     selected
                       ? 'wb-product-subnav-item--active text-violet-300 bg-violet-500/10'
                       : 'wb-product-subnav-item--inactive text-zinc-500 hover:text-violet-300'
@@ -297,7 +315,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
                 >
                   <ItemIcon className={`mr-3 h-4 w-4 shrink-0 ${selected ? 'text-violet-300' : 'text-zinc-400 group-hover:text-violet-300'}`} />
                   {selected ? <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-violet-400" /> : null}
-                  <span className="whitespace-nowrap">{opt.label}</span>
+                  <span
+                    ref={(node) => {
+                      productImageLabelRefs.current[productImageOptions.findIndex((item) => item.view === opt.view)] = node;
+                    }}
+                    className="whitespace-nowrap"
+                  >
+                    {opt.label}
+                  </span>
                 </button>
               );
             })}

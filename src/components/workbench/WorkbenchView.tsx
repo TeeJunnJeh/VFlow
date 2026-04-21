@@ -8632,7 +8632,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           }}
           disabled={locked}
           className={[
-            'w-full text-left rounded-2xl border p-3 transition flex items-center gap-4',
+            'wb-fast-model-card w-full text-left rounded-2xl border p-3 transition flex items-center gap-4',
             'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
             active
               ? 'border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10'

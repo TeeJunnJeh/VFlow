@@ -442,6 +442,13 @@ html.theme-light .wb-seedance-replay-added-badge {
   border-color: rgba(15, 23, 42, 0.35) !important;
 }
 
+/* Workbench: keep fast-mode model options as button, but restore selected orange fill in light mode */
+.theme-light button.wb-fast-model-card.border-orange-500\/70.bg-orange-500\/10 {
+  background-color: rgba(249, 115, 22, 0.10) !important;
+  border-color: rgba(249, 115, 22, 0.70) !important;
+  box-shadow: 0 10px 20px rgba(249, 115, 22, 0.10) !important;
+}
+
 /* Template icon square (w-12 h-12 bg-zinc-800/80) -> make pale */
 .theme-light .w-12.h-12[class*="bg-zinc-800"] { background-color: #ffffff !important; color: #0f172a !important; border-color: rgba(15,23,42,0.06) !important; }
 

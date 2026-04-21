@@ -29,6 +29,7 @@ type OpenClawKeyState = {
 export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDebugModeEnabled }) => {
   const { t } = useLanguage();
   const { user, updateUser, logout } = useAuth();
+  const isLightTheme = theme === 'light';
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [isEditingNickname, setIsEditingNickname] = useState(false);
   const [newNickname, setNewNickname] = useState(user?.name || '');
@@ -505,7 +506,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                               <div className="text-xs font-bold text-zinc-600 mb-1">LIMIT: {user?.plan === 'pro' ? '∞' : user?.plan === 'plus' ? 500 : 100} V</div>
                               <button
                                 onClick={() => setShowBilling(true)}
-                                className={`text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full border transition ${user?.isFrozen ? 'border-zinc-500/40 text-zinc-200 bg-zinc-700/60 hover:bg-zinc-700/80 shadow-none' : 'border-yellow-400/40 text-yellow-100 bg-yellow-500/20 hover:bg-yellow-500/30 shadow-[0_0_20px_rgba(250,204,21,0.20)] hover:shadow-[0_0_24px_rgba(250,204,21,0.30)]'}`}
+                                className={`text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full border transition ${
+                                  user?.isFrozen
+                                    ? 'border-zinc-500/40 text-zinc-200 bg-zinc-700/60 hover:bg-zinc-700/80 shadow-none'
+                                    : isLightTheme
+                                      ? 'border-amber-400/60 text-amber-900 bg-amber-100/85 hover:bg-amber-200/85 shadow-[0_0_20px_rgba(245,158,11,0.14)] hover:shadow-[0_0_24px_rgba(245,158,11,0.22)]'
+                                      : 'border-yellow-400/40 text-yellow-100 bg-yellow-500/20 hover:bg-yellow-500/30 shadow-[0_0_20px_rgba(250,204,21,0.20)] hover:shadow-[0_0_24px_rgba(250,204,21,0.30)]'
+                                }`}
                               >
                                 {t.profile_billing_title || '账单明细'}
                               </button>
@@ -540,7 +547,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                          </div>
                          <button
                            onClick={() => setShowBilling(false)}
-                           className="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border border-yellow-400/30 text-yellow-100/90 bg-yellow-500/10 hover:bg-yellow-500/20 transition"
+                          className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border transition ${
+                            isLightTheme
+                              ? 'border-amber-400/60 text-amber-900 bg-amber-100/80 hover:bg-amber-200/80'
+                              : 'border-yellow-400/30 text-yellow-100/90 bg-yellow-500/10 hover:bg-yellow-500/20'
+                          }`}
                          >
                            {t.profile_back || '返回'}
                          </button>
@@ -572,16 +583,22 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                                 </div>
                               ))
                             ) : (
-                              <div className="rounded-xl border border-yellow-400/30 bg-yellow-500/10 p-4 flex items-center justify-between">
+                              <div
+                                className={`rounded-xl border p-4 flex items-center justify-between ${
+                                  isLightTheme
+                                    ? 'border-amber-300/80 bg-amber-50/95'
+                                    : 'border-yellow-400/30 bg-yellow-500/10'
+                                }`}
+                              >
                                 <div className="flex flex-col">
-                                  <span className="text-sm font-semibold text-yellow-100">
+                                  <span className={`text-sm font-semibold ${isLightTheme ? 'text-amber-900' : 'text-yellow-100'}`}>
                                     {t.profile_billing_empty || '暂无消费记录'}
                                   </span>
-                                  <span className="text-[11px] text-yellow-100/60">
+                                  <span className={`text-[11px] ${isLightTheme ? 'text-amber-700/80' : 'text-yellow-100/60'}`}>
                                     {t.profile_billing_recent || 'recent'}
                                   </span>
                                 </div>
-                                <div className="text-lg font-black text-yellow-200">0</div>
+                                <div className={`text-lg font-black ${isLightTheme ? 'text-amber-700' : 'text-yellow-200'}`}>0</div>
                               </div>
                             )}
                           </div>

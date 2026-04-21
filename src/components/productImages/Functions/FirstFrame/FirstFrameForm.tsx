@@ -12,9 +12,13 @@ interface FirstFrameFormProps {
   isSubmitting?: boolean;
   onReset: () => void;
   defaultParams?: Partial<FirstFrameParams>;
+  workspaceId?: string;
 }
 
-const STORAGE_KEY = 'firstFrameParams';
+const buildStorageKey = (workspaceId?: string) => {
+  const normalized = String(workspaceId || '').trim();
+  return normalized ? `firstFrameParams:${normalized}` : 'firstFrameParams';
+};
 
 const FALLBACK_PARAMS: FirstFrameParams = {
   prompt: '',
@@ -29,8 +33,10 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   isSubmitting = false,
   onReset,
   defaultParams,
+  workspaceId,
 }) => {
   const { t, language } = useLanguage();
+  const storageKey = useMemo(() => buildStorageKey(workspaceId), [workspaceId]);
 
   const mergedDefaultParams = useMemo<FirstFrameParams>(
     () => ({
@@ -72,7 +78,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   const [formData, setFormData] = useState<FirstFrameParams>(() => {
     const baseDefaults: FirstFrameParams = { ...mergedDefaultParams };
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(storageKey);
       if (saved) {
         const parsed = JSON.parse(saved) as Partial<FirstFrameParams>;
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
@@ -87,19 +93,29 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    setFormData((prev) => ({
-      ...mergedDefaultParams,
-      ...prev,
-    }));
-  }, [mergedDefaultParams]);
+    let nextFormData: FirstFrameParams = { ...mergedDefaultParams };
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved) as Partial<FirstFrameParams>;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          nextFormData = { ...mergedDefaultParams, ...parsed };
+        }
+      }
+    } catch {
+      // Ignore corrupted local cache and fallback to defaults.
+    }
+    setFormData(nextFormData);
+    setErrors({});
+  }, [mergedDefaultParams, storageKey]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(formData));
+      localStorage.setItem(storageKey, JSON.stringify(formData));
     } catch {
       // Ignore localStorage write failures.
     }
-  }, [formData]);
+  }, [formData, storageKey]);
 
   useEffect(() => {
     let alive = true;

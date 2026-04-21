@@ -1786,7 +1786,7 @@ export const translations = {
     // --- NEW: ProductImagesView migration (174 keys) ---
     pg_main_clothing_swap_subtitle: "AI clothing swap is currently in development.",
     pg_main_smart_repair_subtitle: "Extensible smart-retouch workspace with three capability groups",
-    pg_main_gallery_title: "Product Gallery",
+    pg_main_gallery_title: "AI Product Gallery",
     pg_main_gallery_subtitle: "Generate e-commerce image sets from product info and scene settings",
     pg_main_text_separation_subtitle: "Upload a poster with text, automatically extract editable text blocks, and use text-to-image to quickly turn your inspiration into new visual concepts.",
     pg_main_notice: "Notice",
@@ -3716,7 +3716,7 @@ export const translations = {
     // --- NEW: ProductImagesView migration (174 keys) ---
     pg_main_clothing_swap_subtitle: "商品服饰智能换装功能开发中",
     pg_main_smart_repair_subtitle: "基于三类能力中心进行可扩展的智能修图",
-    pg_main_gallery_title: "商品套图",
+    pg_main_gallery_title: "AI 商品套图",
     pg_main_gallery_subtitle: "围绕商品信息与场景配置批量生成电商图",
     pg_main_text_separation_subtitle: "上传一张带字海报，自动提取可编辑文本框，并通过文本重绘把灵感快速变成新的视觉方案。",
     pg_main_notice: "提示",
@@ -5526,7 +5526,7 @@ export const translations = {
     // --- NEW: ProductImagesView migration (174 keys) ---
     pg_main_clothing_swap_subtitle: "Tukar pakaian produk AI sedang dalam pembangunan.",
     pg_main_smart_repair_subtitle: "Ruang kerja pembaikan imej pintar yang boleh dikembangkan dengan tiga kumpulan keupayaan",
-    pg_main_gallery_title: "Galeri Produk",
+    pg_main_gallery_title: "AI Galeri Produk",
     pg_main_gallery_subtitle: "Jana set imej e-dagang daripada info produk dan tetapan adegan",
     pg_main_text_separation_subtitle: "Muat naik poster dengan teks, ekstrak kotak teks yang boleh diedit secara automatik, dan gunakan lukis semula teks untuk mengubah inspirasi kepada konsep visual baharu dengan cepat.",
     pg_main_notice: "Notis",
@@ -7295,7 +7295,7 @@ export const translations = {
     // --- NEW: ProductImagesView migration (174 keys) ---
     pg_main_clothing_swap_subtitle: "Tính năng đổi trang phục AI đang được phát triển.",
     pg_main_smart_repair_subtitle: "Không gian sửa ảnh thông minh mở rộng với ba nhóm năng lực",
-    pg_main_gallery_title: "Bộ ảnh sản phẩm",
+    pg_main_gallery_title: "AI Bộ ảnh sản phẩm",
     pg_main_gallery_subtitle: "Tạo bộ ảnh thương mại điện tử từ thông tin sản phẩm và cài đặt bối cảnh",
     pg_main_text_separation_subtitle: "Tải lên một poster có chữ, tự động trích xuất các khối văn bản có thể chỉnh sửa, và dùng vẽ lại văn bản để nhanh chóng biến ý tưởng thành concept hình ảnh mới.",
     pg_main_notice: "Thông báo",
@@ -9062,7 +9062,7 @@ export const translations = {
     // --- NEW: ProductImagesView migration (174 keys) ---
     pg_main_clothing_swap_subtitle: "AI 의상 교체 기능은 현재 개발 중입니다.",
     pg_main_smart_repair_subtitle: "세 가지 기능 그룹으로 확장 가능한 스마트 보정 워크스페이스",
-    pg_main_gallery_title: "상품 화보",
+    pg_main_gallery_title: "AI 상품 화보",
     pg_main_gallery_subtitle: "상품 정보와 장면 설정을 기반으로 이커머스 이미지 세트를 생성",
     pg_main_text_separation_subtitle: "텍스트가 있는 포스터를 업로드하면 편집 가능한 텍스트 블록이 자동 추출되며, 텍스트 리페인트로 아이디어를 빠르게 새로운 비주얼 컨셉으로 전환합니다.",
     pg_main_notice: "알림",

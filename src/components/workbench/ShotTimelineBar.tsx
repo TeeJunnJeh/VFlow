@@ -27,6 +27,7 @@ const truncateVisual = (visual: string): string => {
 };
 
 const ShotTimelineBar = ({ scripts, onUpdateScripts, t }: ShotTimelineBarProps) => {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
   const [barWidthPx, setBarWidthPx] = useState(0);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
@@ -77,7 +78,11 @@ const ShotTimelineBar = ({ scripts, onUpdateScripts, t }: ShotTimelineBarProps) 
 
   const handleJumpToCard = useCallback((scriptId: number) => {
     const el = document.getElementById(`shot-card-${scriptId}`);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!el) return;
+    const wrap = wrapRef.current;
+    const offset = wrap ? wrap.getBoundingClientRect().height + 8 : 72;
+    el.style.scrollMarginTop = `${offset}px`;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
   const renumber = (list: ScriptItem[]): ScriptItem[] =>
@@ -201,7 +206,7 @@ const ShotTimelineBar = ({ scripts, onUpdateScripts, t }: ShotTimelineBarProps) 
   const dragTip = t.wb_shot_timeline_drag_tip || 'Drag to adjust adjacent shot durations';
 
   return (
-    <div className="sticky top-0 z-20 -mx-1 px-1 pt-6 pb-2 bg-zinc-950/90 backdrop-blur-xl border-b border-white/5">
+    <div ref={wrapRef} className="sticky top-0 z-20 -mx-1 px-1 pt-6 pb-2 bg-zinc-950/90 backdrop-blur-xl border-b border-white/5">
       <div
         ref={barRef}
         className="relative flex items-stretch rounded-md overflow-visible select-none"

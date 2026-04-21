@@ -40,6 +40,7 @@ import {
   buildFullScriptFallback,
   buildScriptEstimateStorageKey,
   buildScriptsFromShots,
+  durToTenths,
   formatScriptPageDisplayName,
   getScriptGenerationCooldownRemainingMs,
   hasCreativeCardContent,
@@ -48,6 +49,7 @@ import {
   parseScriptStringList,
   readLocalScriptEstimate,
   recordScriptGenerationCancelTimestamp,
+  tenthsToDur,
   useScriptGenerationProgress,
   writeLocalScriptEstimate,
   type ScriptCreativeCard,
@@ -6159,11 +6161,61 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const addScript = () => {
     const newId = scripts.length > 0 ? Math.max(...scripts.map(s => s.id)) + 1 : 1;
-    updateScripts([...scripts, { id: newId, shot: (scripts.length + 1).toString(), type: 'Medium', dur: '2s', visual: '', audio: '', audioTranslation: '' }]);
+    if (scripts.length === 0) {
+      updateScripts([{ id: newId, shot: '1', type: 'Medium', dur: '2s', visual: '', audio: '', audioTranslation: '' }]);
+      return;
+    }
+    // Preserve total duration: split the last shot in half (new shot takes the back half).
+    const lastIdx = scripts.length - 1;
+    const last = scripts[lastIdx];
+    const lastTenths = durToTenths(last.dur);
+    if (lastTenths < 2) {
+      // Last shot too short to split; append a 2s shot (total grows — unavoidable fallback).
+      openInfo(popupTitles.notice, t.wb_shot_timeline_insert_too_short || 'Current shot is too short to split');
+      return;
+    }
+    const frontTenths = Math.floor(lastTenths / 2);
+    const backTenths = lastTenths - frontTenths;
+    const next = scripts.map((s, i) => (i === lastIdx ? { ...s, dur: tenthsToDur(frontTenths) } : s));
+    next.push({
+      id: newId,
+      shot: (scripts.length + 1).toString(),
+      type: 'Medium',
+      dur: tenthsToDur(backTenths),
+      visual: '',
+      audio: '',
+      audioTranslation: '',
+    });
+    updateScripts(next);
   };
 
   const removeScript = (id: number) => {
-    const remaining = scripts.filter(s => s.id !== id).map((s, idx) => ({ ...s, shot: (idx + 1).toString() }));
+    const index = scripts.findIndex(s => s.id === id);
+    if (index < 0) return;
+    if (scripts.length === 1) {
+      updateScripts([]);
+      return;
+    }
+    // Preserve total duration: redistribute deleted shot's dur 50/50 to adjacent neighbors.
+    // Edge shots (first/last) give 100% to their single neighbor.
+    const deletedTenths = durToTenths(scripts[index].dur);
+    const leftShare = Math.floor(deletedTenths / 2);
+    const rightShare = deletedTenths - leftShare;
+    const isFirst = index === 0;
+    const isLast = index === scripts.length - 1;
+    const filtered = scripts.filter((_, i) => i !== index);
+    const redistributed = filtered.map((s, i) => {
+      if (isFirst) {
+        return i === 0 ? { ...s, dur: tenthsToDur(durToTenths(s.dur) + deletedTenths) } : s;
+      }
+      if (isLast) {
+        return i === filtered.length - 1 ? { ...s, dur: tenthsToDur(durToTenths(s.dur) + deletedTenths) } : s;
+      }
+      if (i === index - 1) return { ...s, dur: tenthsToDur(durToTenths(s.dur) + leftShare) };
+      if (i === index) return { ...s, dur: tenthsToDur(durToTenths(s.dur) + rightShare) };
+      return s;
+    });
+    const remaining = redistributed.map((s, idx) => ({ ...s, shot: (idx + 1).toString() }));
     updateScripts(remaining);
   };
 

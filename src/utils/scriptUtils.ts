@@ -50,6 +50,17 @@ export type ScriptCreativeCardLike = ScriptCreativeCard;
 
 const WB_SCRIPT_PAGE_DEFAULT_PREFIXES = new Set(['脚本', 'Script', 'Skrip', 'Kịch bản', '스크립트']);
 
+export const parseDurSeconds = (dur: string | number | null | undefined): number => {
+  if (dur == null) return 0;
+  const n = parseFloat(String(dur).replace('s', ''));
+  return Number.isFinite(n) ? n : 0;
+};
+
+export const durToTenths = (dur: string | number | null | undefined): number =>
+  Math.round(parseDurSeconds(dur) * 10);
+
+export const tenthsToDur = (n: number): string => `${n / 10}s`;
+
 export function formatScriptPageDisplayName(name: string | undefined, zeroBasedIndex: number, prefix: string): string {
   const trimmed = String(name || '').trim();
   if (!trimmed) return `${prefix} ${zeroBasedIndex + 1}`;

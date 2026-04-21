@@ -1,5 +1,10 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ScriptItem } from '../../utils/scriptUtils';
+import {
+  type ScriptItem,
+  parseDurSeconds,
+  durToTenths,
+  tenthsToDur,
+} from '../../utils/scriptUtils';
 import { translations } from '../../i18n/translations';
 
 type Translation = typeof translations['en'];
@@ -13,12 +18,10 @@ interface ShotTimelineBarProps {
 const SEGMENT_LABEL_MIN_PX = 56;
 const MIN_SHOT_DUR = 0.1;
 
-const parseDur = (s: string): number => {
-  const n = parseFloat(String(s).replace('s', ''));
-  return Number.isFinite(n) ? n : 0;
-};
-
+const parseDur = parseDurSeconds;
 const roundTenths = (n: number): number => Math.round(n * 10) / 10;
+const toTenths = durToTenths;
+const fromTenths = tenthsToDur;
 
 const truncateVisual = (visual: string): string => {
   const v = String(visual || '').trim();
@@ -27,6 +30,7 @@ const truncateVisual = (visual: string): string => {
 };
 
 const ShotTimelineBar = ({ scripts, onUpdateScripts, t }: ShotTimelineBarProps) => {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
   const [barWidthPx, setBarWidthPx] = useState(0);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
@@ -77,7 +81,11 @@ const ShotTimelineBar = ({ scripts, onUpdateScripts, t }: ShotTimelineBarProps) 
 
   const handleJumpToCard = useCallback((scriptId: number) => {
     const el = document.getElementById(`shot-card-${scriptId}`);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!el) return;
+    const wrap = wrapRef.current;
+    const offset = wrap ? wrap.getBoundingClientRect().height + 8 : 72;
+    el.style.scrollMarginTop = `${offset}px`;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
   const renumber = (list: ScriptItem[]): ScriptItem[] =>
@@ -96,10 +104,26 @@ const ShotTimelineBar = ({ scripts, onUpdateScripts, t }: ShotTimelineBarProps) 
     };
   };
 
-  const handleInsertAt = useCallback((index: number) => {
+  const handleInsertAt = useCallback((insertIndex: number, sourceIndex: number) => {
     const current = scriptsRef.current;
+    const src = current[sourceIndex];
+    if (!src) return;
+    const srcTenths = toTenths(src.dur);
+    if (srcTenths < 2) return;
+    const frontTenths = Math.floor(srcTenths / 2);
+    const backTenths = srcTenths - frontTenths;
+    const newShotTenths = insertIndex === sourceIndex ? frontTenths : backTenths;
+    const keepTenths = insertIndex === sourceIndex ? backTenths : frontTenths;
+
+    const newShot: ScriptItem = {
+      ...makeNewShot(current),
+      dur: fromTenths(newShotTenths),
+    };
+    const updatedSrc: ScriptItem = { ...src, dur: fromTenths(keepTenths) };
+
     const next = [...current];
-    next.splice(index, 0, makeNewShot(current));
+    next[sourceIndex] = updatedSrc;
+    next.splice(insertIndex, 0, newShot);
     onUpdateScriptsRef.current(renumber(next));
     setMenuIdx(null);
   }, []);
@@ -107,7 +131,32 @@ const ShotTimelineBar = ({ scripts, onUpdateScripts, t }: ShotTimelineBarProps) 
   const handleDeleteAt = useCallback((index: number) => {
     const current = scriptsRef.current;
     if (index < 0 || index >= current.length) return;
-    const next = current.filter((_, i) => i !== index);
+
+    if (current.length === 1) {
+      onUpdateScriptsRef.current([]);
+      setMenuIdx(null);
+      return;
+    }
+
+    const deletedTenths = toTenths(current[index].dur);
+    const leftShare = Math.floor(deletedTenths / 2);
+    const rightShare = deletedTenths - leftShare;
+    const isFirst = index === 0;
+    const isLast = index === current.length - 1;
+
+    const filtered = current.filter((_, i) => i !== index);
+    const next = filtered.map((s, i) => {
+      if (isFirst) {
+        return i === 0 ? { ...s, dur: fromTenths(toTenths(s.dur) + deletedTenths) } : s;
+      }
+      if (isLast) {
+        return i === filtered.length - 1 ? { ...s, dur: fromTenths(toTenths(s.dur) + deletedTenths) } : s;
+      }
+      if (i === index - 1) return { ...s, dur: fromTenths(toTenths(s.dur) + leftShare) };
+      if (i === index) return { ...s, dur: fromTenths(toTenths(s.dur) + rightShare) };
+      return s;
+    });
+
     onUpdateScriptsRef.current(renumber(next));
     setMenuIdx(null);
   }, []);
@@ -201,7 +250,7 @@ const ShotTimelineBar = ({ scripts, onUpdateScripts, t }: ShotTimelineBarProps) 
   const dragTip = t.wb_shot_timeline_drag_tip || 'Drag to adjust adjacent shot durations';
 
   return (
-    <div className="sticky top-0 z-20 -mx-1 px-1 pt-6 pb-2 bg-zinc-950/90 backdrop-blur-xl border-b border-white/5">
+    <div ref={wrapRef} className="sticky top-0 z-20 -mx-1 px-1 pt-6 pb-2 bg-zinc-950/90 backdrop-blur-xl border-b border-white/5">
       <div
         ref={barRef}
         className="relative flex items-stretch rounded-md overflow-visible select-none"
@@ -249,38 +298,51 @@ const ShotTimelineBar = ({ scripts, onUpdateScripts, t }: ShotTimelineBarProps) 
                     {tipText}
                   </div>
                 )}
-                {menuIdx === i && (
-                  <div
-                    data-shot-timeline-menu="1"
-                    onClick={(e) => e.stopPropagation()}
-                    onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                    className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 z-40 flex items-center gap-1 rounded-md border border-white/10 bg-zinc-900/95 px-1.5 py-1 shadow-xl"
-                  >
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); handleInsertAt(i); }}
-                      className="px-2 py-1 rounded text-[10px] text-zinc-200 hover:bg-white/10 hover:text-orange-300 transition whitespace-nowrap"
+                {menuIdx === i && (() => {
+                  const canSplit = toTenths(s.dur) >= 2;
+                  const tooShortTip = t.wb_shot_timeline_insert_too_short || 'Current shot is too short to split';
+                  const insertBtnClass = `px-2 py-1 rounded text-[10px] transition whitespace-nowrap ${
+                    canSplit
+                      ? 'text-zinc-200 hover:bg-white/10 hover:text-orange-300'
+                      : 'text-zinc-500 opacity-50 cursor-not-allowed'
+                  }`;
+                  return (
+                    <div
+                      data-shot-timeline-menu="1"
+                      onClick={(e) => e.stopPropagation()}
+                      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                      className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 z-40 flex items-center gap-1 rounded-md border border-white/10 bg-zinc-900/95 px-1.5 py-1 shadow-xl"
                     >
-                      {t.wb_shot_timeline_insert_before || 'Insert before'}
-                    </button>
-                    <span className="w-px h-3 bg-white/10" />
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); handleInsertAt(i + 1); }}
-                      className="px-2 py-1 rounded text-[10px] text-zinc-200 hover:bg-white/10 hover:text-orange-300 transition whitespace-nowrap"
-                    >
-                      {t.wb_shot_timeline_insert_after || 'Insert after'}
-                    </button>
-                    <span className="w-px h-3 bg-white/10" />
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); handleDeleteAt(i); }}
-                      className="px-2 py-1 rounded text-[10px] font-semibold bg-red-500/25 text-red-400 hover:bg-red-500/40 hover:text-red-300 transition whitespace-nowrap"
-                    >
-                      {t.wb_shot_timeline_delete || 'Delete'}
-                    </button>
-                  </div>
-                )}
+                      <button
+                        type="button"
+                        disabled={!canSplit}
+                        title={canSplit ? undefined : tooShortTip}
+                        onClick={(e) => { e.stopPropagation(); if (canSplit) handleInsertAt(i, i); }}
+                        className={insertBtnClass}
+                      >
+                        {t.wb_shot_timeline_insert_before || 'Insert before'}
+                      </button>
+                      <span className="w-px h-3 bg-white/10" />
+                      <button
+                        type="button"
+                        disabled={!canSplit}
+                        title={canSplit ? undefined : tooShortTip}
+                        onClick={(e) => { e.stopPropagation(); if (canSplit) handleInsertAt(i + 1, i); }}
+                        className={insertBtnClass}
+                      >
+                        {t.wb_shot_timeline_insert_after || 'Insert after'}
+                      </button>
+                      <span className="w-px h-3 bg-white/10" />
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleDeleteAt(i); }}
+                        className="px-2 py-1 rounded text-[10px] font-semibold bg-red-500/25 text-red-400 hover:bg-red-500/40 hover:text-red-300 transition whitespace-nowrap"
+                      >
+                        {t.wb_shot_timeline_delete || 'Delete'}
+                      </button>
+                    </div>
+                  );
+                })()}
               </div>
               {i < scripts.length - 1 && (
                 <div

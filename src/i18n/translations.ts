@@ -707,6 +707,7 @@ export const translations = {
     wb_shot_timeline_insert_before: "Insert before",
     wb_shot_timeline_insert_after: "Insert after",
     wb_shot_timeline_delete: "Delete",
+    wb_shot_timeline_insert_too_short: "Current shot is too short to split",
     wb_storyboard_hint_default_master: "Showing the full script plan by default. Click Expand to refine shot-by-shot.",
     wb_storyboard_disabled_hint: "Storyboard is temporarily disabled. The full script plan is used for generation.",
 
@@ -2653,6 +2654,7 @@ export const translations = {
     wb_shot_timeline_insert_before: "在前方插入",
     wb_shot_timeline_insert_after: "在后方插入",
     wb_shot_timeline_delete: "删除",
+    wb_shot_timeline_insert_too_short: "当前镜头过短，无法分裂",
     wb_storyboard_hint_default_master: "当前默认展示完整脚本方案。点击“展开分镜”进行镜头级精修。",
     wb_storyboard_disabled_hint: "分镜功能已临时关闭，当前仅使用完整脚本方案卡生成视频。",
 
@@ -4509,6 +4511,7 @@ export const translations = {
     wb_shot_timeline_insert_before: "Sisip di hadapan",
     wb_shot_timeline_insert_after: "Sisip di belakang",
     wb_shot_timeline_delete: "Padam",
+    wb_shot_timeline_insert_too_short: "Shot semasa terlalu pendek untuk dibahagi",
     wb_storyboard_hint_default_master: "Memaparkan skrip penuh secara lalai. Klik Kembangkan untuk perhalusi setiap shot.",
     wb_storyboard_disabled_hint: "Storyboard dinyahaktifkan buat sementara. Skrip penuh digunakan untuk penjanaan.",
 
@@ -6279,6 +6282,7 @@ export const translations = {
     wb_shot_timeline_insert_before: "Chèn phía trước",
     wb_shot_timeline_insert_after: "Chèn phía sau",
     wb_shot_timeline_delete: "Xóa",
+    wb_shot_timeline_insert_too_short: "Cảnh hiện tại quá ngắn để chia đôi",
     wb_storyboard_hint_default_master: "Mặc định hiển thị kịch bản đầy đủ. Bấm Mở rộng để tinh chỉnh từng cảnh.",
     wb_storyboard_disabled_hint: "Storyboard tạm thời bị tắt. Kịch bản đầy đủ được dùng để tạo.",
 
@@ -8091,6 +8095,7 @@ export const translations = {
     wb_shot_timeline_insert_before: "앞에 삽입",
     wb_shot_timeline_insert_after: "뒤에 삽입",
     wb_shot_timeline_delete: "삭제",
+    wb_shot_timeline_insert_too_short: "현재 샷이 너무 짧아 분할할 수 없습니다",
     wb_storyboard_hint_default_master: "기본으로 전체 스크립트를 표시합니다. 펼치기를 눌러 샷 단위로 수정하세요.",
     wb_storyboard_disabled_hint: "스토리보드가 일시적으로 비활성화되었습니다. 전체 스크립트로 생성합니다.",
 

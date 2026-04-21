@@ -11997,7 +11997,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </button>
                   </div>
                 </div>
-                {scripts.length === 0 ? (
+                {isShotBreakdownOpen && (scripts.length === 0 ? (
                   (() => {
                     const currentPageFullScript = String(scriptPages[activeScriptPage]?.fullScript || '').trim();
                     if (currentPageFullScript) {
@@ -12155,74 +12155,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       </div>
                     </div>
                   ))
-                )}
+                ))}
                 {isShotBreakdownOpen && (
                   <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
                 )}
               </>
             ) : (
-              <>
-                <div className="flex items-center justify-between rounded-xl border border-dashed border-white/10 bg-black/20 px-3 py-3">
-                  <span className="text-[11px] text-zinc-500">{t.wb_storyboard_master_mode_hint}</span>
-                  <button
-                    type="button"
-                    onClick={() => setEnableStoryboardEditor(true)}
-                    className="text-[10px] px-2.5 py-1 rounded border border-orange-500/40 text-orange-400 hover:bg-orange-500/10 transition whitespace-nowrap"
-                  >
-                    {t.wb_enable_storyboard}
-                  </button>
-                </div>
-                {scripts.length === 0 ? null : (
-                  scripts.map((script, index) => (
-                    <div key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex items-center gap-2">
-                          <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
-                          <select
-                            value={script.type}
-                            onChange={(e) => handleScriptTypeChange(script.id, e.target.value)}
-                            className="text-[10px] text-zinc-300 border border-white/10 px-1.5 py-0.5 rounded bg-black/40 focus:outline-none focus:border-orange-500"
-                            title={t.wb_shot_type_label || '镜头类型'}
-                          >
-                            {shotTypeOptions.map((option) => (
-                              <option key={option.value} value={option.value} className="bg-black text-zinc-100">
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                          <input type="number" min={0.1} step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s', ''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
-                          <span className="text-[10px] text-zinc-500">s</span>
-                        </div>
-                        <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
-                      </div>
-                      <div className="grid grid-cols-1 gap-3">
-                        <div className="flex flex-col gap-1.5">
-                          <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_visual}</p>
-                          <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll" value={script.visual} onChange={(e) => { const ns = [...scripts]; ns[index].visual = e.target.value; updateScripts(ns); }} />
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                          <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
-                          <input
-                            type="text"
-                            disabled={soundSetting === 'off'}
-                            className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
-                            value={soundSetting === 'off' ? '已关闭音频' : script.audio}
-                            onChange={(e) => {
-                              if (soundSetting === 'off') return;
-                              const ns = [...scripts];
-                              ns[index].audio = e.target.value;
-                              updateScripts(ns);
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-                {isShotBreakdownOpen && (
-                  <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
-                )}
-              </>
+              <div className="flex items-center justify-between rounded-xl border border-dashed border-white/10 bg-black/20 px-3 py-3">
+                <span className="text-[11px] text-zinc-500">{t.wb_storyboard_master_mode_hint}</span>
+                <button
+                  type="button"
+                  onClick={() => setEnableStoryboardEditor(true)}
+                  className="text-[10px] px-2.5 py-1 rounded border border-orange-500/40 text-orange-400 hover:bg-orange-500/10 transition whitespace-nowrap"
+                >
+                  {t.wb_enable_storyboard}
+                </button>
+              </div>
             )}
           </div>
         </div>

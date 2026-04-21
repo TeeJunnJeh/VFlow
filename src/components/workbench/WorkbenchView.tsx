@@ -4628,7 +4628,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return `[镜头${idx + 1}]${meta ? ` ${meta}` : ''} ${script.visual || ''} ${audioMarker}`.trim();
     }).join('\n');
     const basePrompt = [masterScriptPrompt, creativeCardPrompt].filter(Boolean).join('\n\n');
-    const storyboardSupplement = '[分镜补充要求]: 仅采用站立口播式出镜，人物始终站立并面向镜头，用手持商品进行展示与讲解；不要出现脚部穿戴、脚部特写、脚接触商品，避免把手误生成成脚。';
+    const storyboardSupplement = '[分镜补充要求]: 不要出现从手部特写到脚部穿戴/特写/接触商品的渐进过渡，以避免把手误生成成脚。';
     const firstLastFrameAudioSupplement = selectedModel === 'kling' && klingGenerateMode === 'first_last_frame' && soundSetting === 'on'
       ? '【音频|【[旁白]】全程保留清晰自然的人声口播讲解与轻微环境声，不要输出静音视频；口播需与站立手持展示动作一致，语气自然，避免无声片段。】'
       : '';

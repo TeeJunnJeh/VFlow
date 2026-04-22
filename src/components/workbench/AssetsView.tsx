@@ -9,6 +9,7 @@ import { videoApi } from '../../services/video';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { getSubjectGuideContent } from './subjectGuideContent';
 import { addTransferStationItems } from '../../utils/workbenchTransferStation';
+import { formatCreditAmount } from '../../utils/credits';
 
 type AssetType = 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script' | 'subject';
 type PlazaCategory = 'model' | 'product' | 'scene' | 'motion' | 'audio';
@@ -1212,7 +1213,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       }
 
       if (charged > 0) {
-        openInfo(t.assets_confirm_title || 'Notice', `${t.assets_plaza_collect_success_paid || 'Collect success, V-points deducted'}: -${charged}`);
+        openInfo(t.assets_confirm_title || 'Notice', `${t.assets_plaza_collect_success_paid || 'Collect success, V-points deducted'}: -${formatCreditAmount(charged)}`);
       } else {
         openInfo(t.assets_confirm_title || 'Notice', t.assets_plaza_collect_success_free || 'Collect success (free quota used)');
       }

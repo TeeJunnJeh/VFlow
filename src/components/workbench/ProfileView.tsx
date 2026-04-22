@@ -11,6 +11,7 @@ import { AppDialog } from '../common/AppDialog';
 import { getWorkbenchPreferences, setWorkbenchPreferences, type WorkbenchPreferences } from '../../utils/preferences';
 import { isStrongPassword } from '../../utils/passwordRules';
 import { normalizeThemeMode, type ThemeMode } from '../../utils/theme';
+import { formatCreditAmount, formatSignedCreditAmount } from '../../utils/credits';
 
 interface ProfileViewProps {
   theme: ThemeMode;
@@ -504,7 +505,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                             <div className="space-y-1">
                                 <div className="text-xs font-bold text-zinc-500 uppercase tracking-widest">{t.profile_balance || 'Balance'}</div>
                                 <div className={`text-4xl font-black italic tracking-tighter ${user?.isFrozen ? 'text-zinc-300' : 'text-white'}`}>
-                                    {user?.plan === 'pro' ? '∞' : (user?.credits || 0)} <span className="text-[10px] not-italic text-zinc-500 font-bold uppercase ml-1">{t.v_points || 'V-Points'}</span>
+                                    {user?.plan === 'pro' ? '∞' : formatCreditAmount(user?.credits || 0)} <span className="text-[10px] not-italic text-zinc-500 font-bold uppercase ml-1">{t.v_points || 'V-Points'}</span>
                                 </div>
                             </div>
                                 {user?.isFrozen ? (
@@ -588,8 +589,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                                       {tx.created_at ? new Date(tx.created_at).toLocaleString() : ''}
                                     </span>
                                   </div>
-                                  <div className={`text-base font-black ${tx.amount > 0 ? 'text-emerald-400' : 'text-orange-400'}`}>
-                                    {tx.amount > 0 ? '+' : ''}{tx.amount}
+                                  <div className={`text-base font-black ${Number(tx.amount || 0) > 0 ? 'text-emerald-400' : 'text-orange-400'}`}>
+                                    {formatSignedCreditAmount(tx.amount)}
                                   </div>
                                 </div>
                               ))

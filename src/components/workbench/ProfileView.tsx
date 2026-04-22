@@ -66,6 +66,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
     return `${minutes}分钟`;
   })();
 
+  const localizedFreezeRemainingLabel = (() => {
+    const total = Math.max(0, Number(user?.frozenRemainingSeconds || 0));
+    if (!total) return (t.profile_freeze_remaining_minutes || '{minutes} min').replace('{minutes}', '0');
+    const days = Math.floor(total / 86400);
+    const hours = Math.floor((total % 86400) / 3600);
+    const minutes = Math.max(1, Math.ceil((total % 3600) / 60));
+    if (days > 0) return (t.profile_freeze_remaining_days || '{days}d {hours}h').replace('{days}', String(days)).replace('{hours}', String(hours));
+    if (hours > 0) return (t.profile_freeze_remaining_hours || '{hours}h {minutes}m').replace('{hours}', String(hours)).replace('{minutes}', String(minutes));
+    return (t.profile_freeze_remaining_minutes || '{minutes} min').replace('{minutes}', String(minutes));
+  })();
+
   const buildPrefsDraft = (): WorkbenchPreferences => {
     const stored = getWorkbenchPreferences(user?.id ?? null);
     const creationMode = stored.creationMode === 'replay' ? 'replay' : 'fast';
@@ -115,10 +126,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
     authApi
       .getInviteSummary()
       .then((data) => { if (mounted) setInviteSummary(data); })
-      .catch((err: any) => { if (mounted) setInviteError(err?.message || 'Failed to load invite summary'); })
+      .catch((err: any) => { if (mounted) setInviteError(err?.message || t.profile_invite_load_failed || 'Failed to load invite summary'); })
       .finally(() => { if (mounted) setInviteLoading(false); });
     return () => { mounted = false; };
-  }, [isPreferencesExpanded]);
+  }, [isPreferencesExpanded, t.profile_invite_load_failed]);
 
   const inviteShareLink = useMemo(() => {
     if (!inviteSummary) return '';
@@ -212,7 +223,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
         updatedAt: resp.data?.updated_at || null,
       });
     } catch (err: any) {
-      openInfo(t.profile_error || 'Error', err?.message || 'Failed to load OpenClaw key status');
+      openInfo(t.profile_error || 'Error', err?.message || t.profile_openclaw_load_failed || 'Failed to load OpenClaw key status');
     }
   };
 
@@ -236,7 +247,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
       } catch (err: any) {
         if (cancelled) return;
         setBillingItems([]);
-        setBillingError(err?.message || 'Failed to load billing');
+        setBillingError(err?.message || t.profile_billing_load_failed || 'Failed to load billing');
       } finally {
         if (!cancelled) setBillingLoading(false);
       }
@@ -246,7 +257,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
     return () => {
       cancelled = true;
     };
-  }, [showBilling]);
+  }, [showBilling, t.profile_billing_load_failed]);
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -254,7 +265,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
       try {
         const res = await authApi.updateProfile({ avatar: file });
         if (res.data?.avatar) updateUser({ avatar: res.data.avatar });
-      } catch (err) { openInfo('Error', 'Failed to upload'); }
+      } catch (err) { openInfo(t.profile_error || 'Error', t.profile_avatar_upload_failed || 'Failed to upload'); }
     }
   };
 
@@ -264,7 +275,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
           try {
             const res = await authApi.updateProfile({ name: newNickname.trim() });
             updateUser({ name: res.data.name });
-          } catch (e) { openInfo('Error', 'Error updating name'); }
+          } catch (e) { openInfo(t.profile_error || 'Error', t.profile_name_update_failed || 'Error updating name'); }
      }
   };
 
@@ -273,7 +284,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
       await authApi.updateProfile({ avatarClear: true });
       updateUser({ avatar: '' });
     } catch (err) {
-      openInfo('Error', 'Failed to reset avatar');
+      openInfo(t.profile_error || 'Error', t.profile_avatar_reset_failed || 'Failed to reset avatar');
     }
   };
 
@@ -331,7 +342,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
         openInfo(t.profile_success || 'Success', t.profile_openclaw_regenerate_success || '密钥已更新并复制到剪贴板');
       }
     } catch (err: any) {
-      openInfo(t.profile_error || 'Error', err?.message || 'Failed to regenerate key');
+      openInfo(t.profile_error || 'Error', err?.message || t.profile_openclaw_regenerate_failed || 'Failed to regenerate key');
     } finally {
       setIsOpenClawLoading(false);
     }
@@ -343,7 +354,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
       await authApi.toggleOpenClawKey(!openClawStatus.enabled);
       await loadOpenClawStatus();
     } catch (err: any) {
-      openInfo(t.profile_error || 'Error', err?.message || 'Failed to toggle key status');
+      openInfo(t.profile_error || 'Error', err?.message || t.profile_openclaw_toggle_failed || 'Failed to toggle key status');
     } finally {
       setIsOpenClawLoading(false);
     }
@@ -362,7 +373,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
       await navigator.clipboard.writeText(fullKey);
       openInfo(t.profile_success || 'Success', t.profile_openclaw_copy_success || '密钥已复制');
     } catch (err: any) {
-      openInfo(t.profile_error || 'Error', err?.message || 'Failed to copy key');
+      openInfo(t.profile_error || 'Error', err?.message || t.profile_openclaw_copy_failed || 'Failed to copy key');
     } finally {
       setIsOpenClawLoading(false);
     }
@@ -399,7 +410,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                         else if (res.data.tier === 'ENTERPRISE') resolvedPlan = 'pro'; 
                         updateUser({ plan: resolvedPlan, credits: res.data.balance }); 
                       } catch (err) { 
-                        openInfo('Error', 'Failed to update plan via debug'); 
+                        openInfo(t.profile_error || 'Error', t.profile_debug_update_plan_failed || 'Failed to update plan via debug'); 
                       } 
                     }} 
                     className={`px-2 py-0.5 rounded text-[9px] font-bold border transition ${user?.plan === p ? 'bg-orange-500/20 border-orange-500/50 text-orange-500' : 'bg-transparent border-white/5 text-zinc-500 hover:text-white'}`}
@@ -421,7 +432,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                         const res = await authApi.updateProfile({ credits: val }); 
                         updateUser({ credits: res.data.balance }); 
                       } catch (err) { 
-                        openInfo('Error', 'Failed to update credits via debug'); 
+                        openInfo(t.profile_error || 'Error', t.profile_debug_update_credits_failed || 'Failed to update credits via debug'); 
                       } 
                     } 
                   }} 
@@ -463,7 +474,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                             <input type="text" value={newNickname} onChange={(e) => setNewNickname(e.target.value)} onBlur={handleUpdateName} onKeyDown={(e) => { if(e.key === 'Enter') handleUpdateName(); if(e.key === 'Escape') setIsEditingNickname(false); }} autoFocus className="text-xl font-bold text-white bg-white/5 border border-orange-500/50 rounded-lg px-2 py-1 outline-none text-center w-full" />
                         ) : (
                             <div className="flex items-center justify-center gap-2 group cursor-pointer" onClick={() => setIsEditingNickname(true)}>
-                                <h2 className="text-2xl font-bold text-white tracking-tight break-words max-w-full">{user?.name || 'User'}</h2>
+                                <h2 className="text-2xl font-bold text-white tracking-tight break-words max-w-full">{user?.name || t.profile_guest_name || 'User'}</h2>
                                 <Edit3 className="w-3 h-3 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
                             </div>
                         )}
@@ -498,12 +509,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                             </div>
                                 {user?.isFrozen ? (
                                   <div className="inline-flex items-center gap-2 rounded-full border border-zinc-500/40 bg-zinc-700/70 px-3 py-1 text-[11px] font-semibold text-zinc-200">
-                                    <span>已冻结</span>
-                                    <span className="text-zinc-400">剩余 {freezeRemainingLabel}</span>
+                                    <span>{t.profile_frozen_badge || 'Frozen'}</span>
+                                    <span className="text-zinc-400">{(t.profile_frozen_remaining || 'Remaining {time}').replace('{time}', localizedFreezeRemainingLabel)}</span>
                                   </div>
                                 ) : null}
                             <div className="flex items-center gap-3">
-                              <div className="text-xs font-bold text-zinc-600 mb-1">LIMIT: {user?.plan === 'pro' ? '∞' : user?.plan === 'plus' ? 500 : 100} V</div>
+                              <div className="text-xs font-bold text-zinc-600 mb-1">{(t.profile_credit_limit || 'Limit: {limit} V').replace('{limit}', String(user?.plan === 'pro' ? '∞' : user?.plan === 'plus' ? 500 : 100))}</div>
                               <button
                                 onClick={() => setShowBilling(true)}
                                 className={`text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full border transition ${
@@ -525,7 +536,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                         </div>
                         {user?.isFrozen ? (
                           <div className="text-xs text-zinc-400 leading-relaxed">
-                            账号冻结期间无法消耗 V 点进行生成或收集。冻结剩余时长：{freezeRemainingLabel}。
+                            {(t.profile_frozen_desc || 'During account freeze, V-points cannot be used for generation or collection. Remaining freeze time: {time}.').replace('{time}', localizedFreezeRemainingLabel)}
                           </div>
                         ) : null}
                      </div>
@@ -559,7 +570,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
 
                        <div className="flex-1 bg-white/2 rounded-2xl p-6 border border-white/5 shadow-inner overflow-y-auto">
                          {billingLoading && (
-                           <div className="text-xs text-zinc-500">Loading...</div>
+                           <div className="text-xs text-zinc-500">{t.profile_loading || 'Loading...'}</div>
                          )}
                          {!billingLoading && billingError && (
                            <div className="text-xs text-red-400">{billingError}</div>
@@ -648,7 +659,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                       <div className="flex items-center gap-4">
                         <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/key:text-orange-500 transition-colors"><KeyRound className="w-6 h-6" /></div>
                         <div className="text-left">
-                          <div className="text-base font-bold text-white">{t.profile_openclaw_title || 'OpenClaw Key'}</div>
+                          <div className="text-base font-bold text-white">{t.profile_openclaw_title}</div>
                           <div className="text-xs text-zinc-600 mt-0.5">{openClawStatus.enabled ? (t.profile_openclaw_status_enabled || 'Enabled') : (t.profile_openclaw_status_disabled || 'Disabled')} · {openClawStatus.hasKey ? openClawStatus.maskedKey : (t.profile_openclaw_not_generated || 'Not Generated')}</div>
                         </div>
                       </div>
@@ -660,7 +671,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                           <div className="w-12 h-12 rounded-xl bg-red-500/10 flex items-center justify-center text-red-500"><LogOut className="w-6 h-6" /></div>
                           <div className="text-left">
                               <div className="text-base font-bold text-red-500">{t.sign_out}</div>
-                              <div className="text-xs text-red-500/60 mt-0.5">{t.sign_out_subtitle || 'Sign out of current account'}</div>
+                              <div className="text-xs text-red-500/60 mt-0.5">{t.sign_out_subtitle}</div>
                           </div>
                       </div>
                   </button>
@@ -674,11 +685,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                      {/* 商品图片生成 */}
                      <section className="space-y-4">
                        <h3 className="text-sm font-bold text-zinc-200 flex items-center gap-2 uppercase tracking-wider">
-                         <Gem className="w-4 h-4 text-orange-500" /> 商品图片生成
+                         <Gem className="w-4 h-4 text-orange-500" /> {t.profile_image_generation_title}
                        </h3>
                        <div className="bg-white/2 border border-white/5 rounded-2xl p-6">
                          <div className="text-xs text-zinc-600 italic">
-                           暂无专属配置，后续将支持默认比例与风格预设。
+                          {t.profile_image_generation_desc}
                          </div>
                        </div>
                      </section>
@@ -686,7 +697,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                      {/* 视频生成 */}
                      <section className="space-y-4">
                        <h3 className="text-sm font-bold text-zinc-200 flex items-center gap-2 uppercase tracking-wider">
-                         <Zap className="w-4 h-4 text-orange-500" /> 视频生成
+                         <Zap className="w-4 h-4 text-orange-500" /> {t.profile_video_generation_title}
                        </h3>
                        <div className="bg-white/2 border border-white/5 rounded-2xl p-8">
                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -845,7 +856,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
 
                          <div className="mt-8 pt-6 border-t border-white/5 flex items-center justify-between">
                            <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
-                             高级设置
+                            {t.profile_advanced_settings}
                            </div>
                            <button
                              className="bg-red-500/10 text-red-300 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-red-500/20 hover:bg-red-500/15 hover:border-red-500/30 disabled:opacity-60 transition"
@@ -1007,7 +1018,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
          </AppDialog>
        )}
        {isInfoOpen && (
-         <AppDialog isOpen={isInfoOpen} title={infoTitle || 'Notice'} onClose={() => setIsInfoOpen(false)} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>OK</button></>}>
+        <AppDialog isOpen={isInfoOpen} title={infoTitle || t.profile_notice} onClose={() => setIsInfoOpen(false)} footer={<><button className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700" onClick={() => setIsInfoOpen(false)}>{t.profile_ok}</button></>}>
            <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
          </AppDialog>
        )}

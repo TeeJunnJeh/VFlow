@@ -10298,6 +10298,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           )}
         </div>
         <div className="flex items-center gap-3">
+          <a
+            href="/privacy-policy"
+            className="flex items-center px-2 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
+            title={t.login_agreement_privacy || '隐私政策'}
+          >
+            <span className="text-[11px] font-bold">{t.login_agreement_privacy || '隐私政策'}</span>
+          </a>
+          <a
+            href="/terms-of-service"
+            className="flex items-center px-2 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
+            title={t.login_agreement_user || '服务条款'}
+          >
+            <span className="text-[11px] font-bold">{t.login_agreement_user || '服务条款'}</span>
+          </a>
           <div className="relative">
             <button
               ref={taskQueueButtonRef}

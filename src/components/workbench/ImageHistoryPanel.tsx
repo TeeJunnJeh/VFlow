@@ -11,10 +11,7 @@ import {
 import { addTransferStationItems } from '../../utils/workbenchTransferStation';
 import {
   deleteImageHistoryItem,
-  ensureImageHistoryLoaded,
-  readAllImageHistory,
-  readImageHistoryFavorites,
-  refreshImageHistory,
+  getImageHistoryPage,
   subscribeImageHistory,
   toggleImageHistoryFavorite,
   type ImageHistoryFeatureType,
@@ -58,25 +55,28 @@ interface UnifiedImageHistoryItem {
   isFavorited: boolean;
 }
 
+const HISTORY_PAGE_SIZE = 16;
+
 type ApplyModel = 'sora2' | 'sora2pro' | 'seedance2.0';
 
 const FIRST_FRAME_TRANSFER_KEY = 'vflow_apply_first_frame';
 const GALLERY_RESTORE_KEY = 'vflow_gallery_restore_settings';
 
-const readFavorites = (): Set<string> => readImageHistoryFavorites();
+const toUnifiedHistoryItem = (item: ImageHistoryItem): UnifiedImageHistoryItem => ({
+  id: item.id,
+  source: item.featureType,
+  createdAt: item.createdAt,
+  createdAtMs: item.createdAtMs,
+  images: item.images,
+  settings: item.featureType === 'gallery' ? (item.settings as GallerySettings | undefined) : undefined,
+  metadata: item.metadata,
+  isFavorited: item.isFavorited === true,
+});
 
-const loadUnifiedHistory = (): UnifiedImageHistoryItem[] => {
-  const favorites = readFavorites();
-  return readAllImageHistory().map((item: ImageHistoryItem) => ({
-    id: item.id,
-    source: item.featureType,
-    createdAt: item.createdAt,
-    createdAtMs: item.createdAtMs,
-    images: item.images,
-    settings: item.featureType === 'gallery' ? (item.settings as GallerySettings | undefined) : undefined,
-    metadata: item.metadata,
-    isFavorited: favorites.has(item.id),
-  }));
+const getErrorMessage = (err: unknown, fallback: string) => {
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === 'string' && err.trim()) return err;
+  return fallback;
 };
 
 const formatI18n = (template: string | undefined, vars: Record<string, string | number>) => {
@@ -136,7 +136,12 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
   const { user } = useAuth();
 
   const [items, setItems] = useState<UnifiedImageHistoryItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalResults, setTotalResults] = useState(0);
   const [settingsItem, setSettingsItem] = useState<UnifiedImageHistoryItem | null>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<UnifiedImageHistoryItem | null>(null);
@@ -179,34 +184,70 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
     }
   }, []);
 
-  const reload = useCallback(async () => {
-    await ensureImageHistoryLoaded();
-    await refreshImageHistory();
-    setItems(loadUnifiedHistory());
-  }, []);
+  const loadPage = useCallback(async (requestedPage: number) => {
+    if (!user?.id) {
+      setItems([]);
+      setError(null);
+      setIsLoading(false);
+      setCurrentPage(1);
+      setTotalPages(1);
+      setTotalResults(0);
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await getImageHistoryPage({
+        page: requestedPage,
+        pageSize: HISTORY_PAGE_SIZE,
+        onlyFavorites: showOnlyFavorites,
+      });
+
+      setItems((data.items || []).map(toUnifiedHistoryItem));
+      setTotalResults(Number(data.pagination?.total || 0));
+      setTotalPages(Math.max(1, Number(data.pagination?.total_pages || 1)));
+      if (data.pagination?.page && data.pagination.page !== requestedPage) {
+        setCurrentPage(data.pagination.page);
+      }
+    } catch (e) {
+      setError(getErrorMessage(e, t.hist_load_failed || 'Failed to load history'));
+      setItems([]);
+      setTotalPages(1);
+      setTotalResults(0);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [showOnlyFavorites, t.hist_load_failed, user?.id]);
 
   useEffect(() => {
-    void reload();
+    void loadPage(currentPage);
+  }, [currentPage, loadPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [showOnlyFavorites]);
+
+  useEffect(() => {
     return subscribeImageHistory(() => {
-      void reload();
+      void loadPage(currentPage);
     });
-  }, [reload]);
+  }, [currentPage, loadPage]);
 
   const displayed = useMemo(() => {
-    if (!showOnlyFavorites) return items;
-    return items.filter((item) => item.isFavorited);
-  }, [items, showOnlyFavorites]);
+    return items;
+  }, [items]);
 
   const toggleFavorite = async (id: string) => {
     await toggleImageHistoryFavorite(id);
-    await reload();
+    await loadPage(currentPage);
   };
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     await deleteImageHistoryItem(deleteTarget.id);
     setDeleteTarget(null);
-    await reload();
+    await loadPage(currentPage);
   };
 
   const openApplyDialog = (item: UnifiedImageHistoryItem) => {
@@ -357,14 +398,14 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex items-center gap-3 mb-4 px-1">
+      <div className="flex items-center justify-between mb-4 px-1">
         <button
           type="button"
           onClick={() => setShowOnlyFavorites((value) => !value)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
             showOnlyFavorites
-              ? 'bg-amber-500/10 border-amber-500/40 text-amber-300'
-              : 'bg-white/5 border-white/10 text-zinc-400 hover:text-zinc-200'
+              ? 'bg-amber-500/10 text-amber-500'
+              : 'bg-white/[0.02] text-zinc-500 hover:text-zinc-300 hover:bg-white/5'
           }`}
         >
           <Star className="w-3.5 h-3.5" fill={showOnlyFavorites ? 'currentColor' : 'none'} />
@@ -372,21 +413,36 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
         </button>
       </div>
 
-      {displayed.length === 0 ? (
+      {isLoading ? (
+        <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm">
+          {t.hist_loading || 'Loading...'}
+        </div>
+      ) : error ? (
         <div className="flex-1 flex items-center justify-center">
-          <div className="text-center text-zinc-500">
-            <ImageIcon className="w-12 h-12 mx-auto mb-4 opacity-20" />
-            <p>{t.hist_img_empty}</p>
+          <div className="text-center text-zinc-500 max-w-md px-4">
+            <p className="mb-3">{error}</p>
+            <button
+              type="button"
+              onClick={() => void loadPage(currentPage)}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10"
+            >
+              {t.hist_refresh || 'Refresh'}
+            </button>
           </div>
+        </div>
+      ) : displayed.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-zinc-500">
+          <ImageIcon className="w-12 h-12 mx-auto mb-4 opacity-20" />
+          <p>{t.hist_img_empty || t.hist_empty}</p>
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto custom-scroll">
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
             {displayed.map((item) => (
-              <div key={item.id} className="rounded-2xl border border-white/5 bg-white/[0.02] overflow-hidden hover:border-white/10 transition group">
-                <div className="px-4 py-2.5 border-b border-white/5 bg-black/20 flex items-center justify-between">
+              <div key={item.id} className="group relative flex flex-col rounded-2xl overflow-hidden bg-white/[0.02] hover:bg-white/[0.04] transition-all duration-300 hover:-translate-y-1 shadow-sm hover:shadow-xl">
+                <div className="px-5 py-4 pb-3 flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${getSourceBadgeClass(item.source)}`}>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${getSourceBadgeClass(item.source)}`}>
                       {getSourceLabel(item.source)}
                     </span>
                     <span className="text-[11px] text-zinc-500">{formatHistoryTime(item.createdAt)}</span>
@@ -394,15 +450,15 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
                   <span className="text-[11px] text-zinc-600">{formatI18n(t.hist_img_count, { count: item.images.length })}</span>
                 </div>
 
-                <div className="p-3 grid grid-cols-4 gap-1.5">
+                <div className="px-5 pt-1 pb-3 grid grid-cols-4 gap-2">
                   {item.images.slice(0, 4).map((url, index) => (
-                    <div key={`${item.id}-${index}`} className="relative group/img rounded-lg overflow-hidden border border-white/10 bg-black/30 aspect-square">
+                    <div key={`${item.id}-${index}`} className="relative group/img rounded-xl overflow-hidden bg-black/40 aspect-square shadow-inner">
                       <button
                         type="button"
                         onClick={() => setPreviewImageUrl(url)}
                         className="w-full h-full cursor-pointer"
                       >
-                        <img src={url} className="w-full h-full object-cover" alt="" loading="lazy" />
+                        <img src={url} className="w-full h-full object-cover opacity-90 group-hover/img:opacity-100 transition-opacity" alt="" loading="lazy" />
                       </button>
                       <button
                         type="button"
@@ -410,7 +466,7 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
                           event.stopPropagation();
                           downloadImage(url, index);
                         }}
-                        className="absolute bottom-1 right-1 w-6 h-6 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
+                        className="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-all hover:scale-110"
                         title={t.hist_img_download}
                       >
                         <Download className="w-3 h-3 text-white" />
@@ -418,83 +474,114 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
                     </div>
                   ))}
                   {item.images.length > 4 && (
-                    <div className="rounded-lg border border-white/10 bg-black/30 aspect-square flex items-center justify-center text-zinc-500 text-xs font-bold">
+                    <div className="rounded-xl bg-black/40 shadow-inner aspect-square flex items-center justify-center text-zinc-500 text-xs font-bold">
                       +{item.images.length - 4}
                     </div>
                   )}
                 </div>
 
                 {canViewSettings(item) && item.settings && (
-                  <div className="px-3 pb-1 flex flex-wrap gap-1.5">
-                    <span className="text-[10px] bg-zinc-800/80 text-zinc-400 px-1.5 py-0.5 rounded">{SCENE_LABELS[item.settings.targetScene] || item.settings.targetScene}</span>
-                    <span className="text-[10px] bg-zinc-800/80 text-zinc-400 px-1.5 py-0.5 rounded">{STYLE_LABELS[item.settings.style] || item.settings.style}</span>
-                    <span className="text-[10px] bg-zinc-800/80 text-zinc-400 px-1.5 py-0.5 rounded">{item.settings.aspectRatio}</span>
-                    <span className="text-[10px] bg-zinc-800/80 text-zinc-400 px-1.5 py-0.5 rounded">{item.settings.resolution?.toUpperCase()}</span>
+                  <div className="px-5 pb-2 flex flex-wrap gap-1.5 mt-auto">
+                    <span className="text-[10px] bg-white/5 text-zinc-400 px-2 py-0.5 rounded-md">{SCENE_LABELS[item.settings.targetScene] || item.settings.targetScene}</span>
+                    <span className="text-[10px] bg-white/5 text-zinc-400 px-2 py-0.5 rounded-md">{STYLE_LABELS[item.settings.style] || item.settings.style}</span>
+                    <span className="text-[10px] bg-white/5 text-zinc-400 px-2 py-0.5 rounded-md">{item.settings.aspectRatio}</span>
+                    <span className="text-[10px] bg-white/5 text-zinc-400 px-2 py-0.5 rounded-md">{item.settings.resolution?.toUpperCase()}</span>
                   </div>
                 )}
 
-                <div className="px-3 py-2.5 border-t border-white/5 flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => toggleFavorite(item.id)}
-                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] border border-white/10 bg-white/5 hover:bg-white/10 transition"
-                    title={item.isFavorited ? t.hist_favorite_remove_title : t.hist_favorite_add_title}
-                  >
-                    <Star className="w-3.5 h-3.5" fill={item.isFavorited ? 'currentColor' : 'none'} strokeWidth={item.isFavorited ? 0 : 2} style={item.isFavorited ? { color: '#f59e0b' } : undefined} />
-                  </button>
-
-                  {canViewSettings(item) && (
+                <div className="px-5 py-4 pt-3 flex items-center justify-between opacity-60 group-hover:opacity-100 transition-opacity mt-auto">
+                  <div className="flex items-center gap-2 flex-wrap flex-1">
                     <button
                       type="button"
-                      onClick={() => setSettingsItem(item)}
-                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-zinc-300 border border-white/10 bg-white/5 hover:bg-white/10 transition"
+                      onClick={() => toggleFavorite(item.id)}
+                      className="flex items-center justify-center w-7 h-7 rounded-lg text-zinc-400 bg-white/5 hover:bg-white/10 hover:text-zinc-200 transition"
+                      title={item.isFavorited ? t.hist_favorite_remove_title : t.hist_favorite_add_title}
                     >
-                      <Settings2 className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">{t.hist_img_view_settings}</span>
+                      <Star className="w-3.5 h-3.5" fill={item.isFavorited ? 'currentColor' : 'none'} strokeWidth={item.isFavorited ? 0 : 2} style={item.isFavorited ? { color: '#f59e0b' } : undefined} />
                     </button>
-                  )}
 
-                  {canApplyToWorkbench(item) && (
+                    {canViewSettings(item) && (
+                      <button
+                        type="button"
+                        onClick={() => setSettingsItem(item)}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] text-zinc-400 bg-white/5 hover:bg-white/10 hover:text-zinc-200 transition"
+                      >
+                        <Settings2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">{t.hist_img_view_settings}</span>
+                      </button>
+                    )}
+
+                    {canApplyToWorkbench(item) && (
+                      <button
+                        type="button"
+                        onClick={() => openApplyDialog(item)}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 transition"
+                      >
+                        <Wand2 className="w-3.5 h-3.5" />
+                        <span>{t.hist_img_apply_to_workbench}</span>
+                      </button>
+                    )}
+
+                    {canRegenerate(item) && (
+                      <button
+                        type="button"
+                        onClick={() => handleRegenerate(item)}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 transition"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>{t.hist_img_regenerate}</span>
+                      </button>
+                    )}
+
                     <button
                       type="button"
-                      onClick={() => openApplyDialog(item)}
-                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-orange-300 border border-orange-500/20 bg-orange-500/10 hover:bg-orange-500/20 transition"
+                      onClick={() => downloadAllImages(item.images)}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 transition"
                     >
-                      <Wand2 className="w-3.5 h-3.5" />
-                      <span>{t.hist_img_apply_to_workbench}</span>
+                      <Download className="w-3.5 h-3.5" />
+                      <span>{t.hist_img_download_all}</span>
                     </button>
-                  )}
-
-                  {canRegenerate(item) && (
-                    <button
-                      type="button"
-                      onClick={() => handleRegenerate(item)}
-                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-sky-300 border border-sky-500/20 bg-sky-500/10 hover:bg-sky-500/20 transition"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>{t.hist_img_regenerate}</span>
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => downloadAllImages(item.images)}
-                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-emerald-300 border border-emerald-500/20 bg-emerald-500/10 hover:bg-emerald-500/20 transition"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>{t.hist_img_download_all}</span>
-                  </button>
+                  </div>
 
                   <button
                     type="button"
                     onClick={() => setDeleteTarget(item)}
-                    className="ml-auto flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-zinc-500 border border-white/5 bg-white/[0.02] hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/20 transition"
+                    className="flex shrink-0 items-center justify-center w-7 h-7 rounded-lg text-zinc-500 bg-white/[0.03] hover:bg-red-500/10 hover:text-red-400 transition ml-2"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {!isLoading && !error && displayed.length > 0 && (
+        <div className="mt-4 flex items-center justify-between text-xs text-zinc-500 px-1">
+          <span>
+            {formatI18n(t.hist_page_total || 'Total {{count}} items', { count: totalResults })}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+              disabled={currentPage <= 1}
+              className="px-2.5 py-1 rounded border border-white/10 bg-white/5 text-zinc-300 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {t.hist_page_prev || 'Prev'}
+            </button>
+            <span className="text-zinc-400">
+              {currentPage} / {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+              disabled={currentPage >= totalPages}
+              className="px-2.5 py-1 rounded border border-white/10 bg-white/5 text-zinc-300 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {t.hist_page_next || 'Next'}
+            </button>
           </div>
         </div>
       )}

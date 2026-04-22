@@ -12,10 +12,23 @@ export interface ImageHistoryItem {
   images: string[];
   settings?: Record<string, any>;
   metadata?: Record<string, any>;
+  isFavorited?: boolean;
   workspaceId?: string;
   workspaceOrder?: number;
   legacySource?: 'first_frame_v1' | 'gallery_v1' | 'text_separation_v1' | 'image_history_v2';
   version: 2;
+}
+
+export interface ImageHistoryPagination {
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+}
+
+export interface ImageHistoryListResponse {
+  items: ImageHistoryItem[];
+  pagination: ImageHistoryPagination;
 }
 
 interface CachedImageHistoryItem extends ImageHistoryItem {
@@ -347,6 +360,43 @@ const fetchHistoryList = async (params?: {
   return dedupeAndSort(items);
 };
 
+const normalizePagination = (pagination: any, fallbackCount: number): ImageHistoryPagination => {
+  const page = Math.max(1, Number(pagination?.page || 1));
+  const pageSize = Math.max(1, Number(pagination?.page_size || fallbackCount || 1));
+  const total = Math.max(0, Number(pagination?.total || fallbackCount || 0));
+  const totalPages = Math.max(1, Number(pagination?.total_pages || Math.ceil(total / pageSize) || 1));
+  return {
+    page,
+    page_size: pageSize,
+    total,
+    total_pages: totalPages,
+  };
+};
+
+const fetchHistoryPage = async (params?: {
+  featureType?: ImageHistoryFeatureType;
+  onlyFavorites?: boolean;
+  page?: number;
+  pageSize?: number;
+}): Promise<{ items: CachedImageHistoryItem[]; pagination: ImageHistoryPagination }> => {
+  const query = new URLSearchParams();
+  if (params?.featureType) query.set('feature_type', params.featureType);
+  if (params?.onlyFavorites) query.set('only_favorites', '1');
+  if (params?.page && params.page > 0) query.set('page', String(Math.floor(params.page)));
+  if (params?.pageSize && params.pageSize > 0) query.set('page_size', String(Math.floor(params.pageSize)));
+
+  const url = `${IMAGE_HISTORY_API_BASE}/${query.toString() ? `?${query.toString()}` : ''}`;
+  const json = await apiRequest<any>(url);
+  const items = (json?.data?.items || [])
+    .map((item: BackendImageHistoryItem) => normalizeBackendItem(item))
+    .filter(Boolean) as CachedImageHistoryItem[];
+
+  return {
+    items: dedupeAndSort(items),
+    pagination: normalizePagination(json?.data?.pagination, items.length),
+  };
+};
+
 const ensureBackendMigration = async (): Promise<void> => {
   if (!isBrowser()) return;
   if (window.localStorage.getItem(BACKEND_MIGRATION_FLAG) === '1') return;
@@ -419,6 +469,21 @@ export const ensureImageHistoryLoaded = async (): Promise<ImageHistoryItem[]> =>
   }
   const items = await loadingPromise.catch(() => cachedItems);
   return items.map(({ isFavorited: _ignored, ...rest }) => rest);
+};
+
+export const getImageHistoryPage = async (params?: {
+  featureType?: ImageHistoryFeatureType;
+  onlyFavorites?: boolean;
+  page?: number;
+  pageSize?: number;
+}): Promise<ImageHistoryListResponse> => {
+  await ensureBackendMigration();
+  const { items, pagination } = await fetchHistoryPage(params);
+  updateCache(items);
+  return {
+    items: items.map(({ isFavorited: _ignored, ...rest }) => rest),
+    pagination,
+  };
 };
 
 export const readAllImageHistory = (): ImageHistoryItem[] =>

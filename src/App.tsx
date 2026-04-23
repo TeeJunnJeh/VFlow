@@ -383,7 +383,11 @@ const AnimatedRoutes = () => {
                 <Routes location={location} key={location.pathname}>
                     <Route
                         path="/"
-                        element={<Navigate to="/app" replace />}
+                        element={
+                            <GuestRoute>
+                                <LandingPage />
+                            </GuestRoute>
+                        }
                     />
                     <Route path="/login" element={<LoginPage />} />
                     <Route

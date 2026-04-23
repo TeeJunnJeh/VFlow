@@ -4,6 +4,7 @@ import { videoApi } from '../services/video';
 import { clearDebugModeEnabled } from '../services/debugMode';
 import { debugLog, debugWarn, debugError } from '../services/debugMode';
 import { normalizeThemeMode, type ThemeMode } from '../utils/theme';
+import { roundCreditTenths } from '../utils/credits';
 
 interface User {
   account: string,
@@ -12,6 +13,7 @@ interface User {
   avatar: string;
   plan: 'free' | 'plus' | 'pro';
   credits?: number; // remaining generation credits (v点)
+  creditTenths?: number;
   theme?: ThemeMode;
   hasPassword?: boolean;
   token?: string;
@@ -87,7 +89,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 name: backendUser.nickname || backendUser.username || backendUser.phone || 'User',
                 avatar: normalizeAvatar(backendUser.avatar),
                 plan: plan,
-                credits: backendUser.balance,
+                credits: roundCreditTenths(Number(backendUser.balance ?? 0)),
+                creditTenths: Number(backendUser.balance_credit_tenths ?? 0),
                 theme: normalizeThemeMode(backendUser.theme, 'dark'),
                 hasPassword: backendUser.has_password === true,
                 token: undefined, // We rely on Cookie Session, no JWT token needed in state
@@ -172,7 +175,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       name: serverData?.nickname || serverData?.data?.nickname || serverData?.data?.username || serverData?.username || identifier,
       avatar: normalizeAvatar(serverData?.avatar || serverData?.data?.avatar || ''),
       plan: resolvedPlan,
-      credits: serverData?.credits ?? serverData?.data?.balance ?? defaultCredits,
+      credits: roundCreditTenths(Number(serverData?.credits ?? serverData?.data?.balance ?? defaultCredits)),
+      creditTenths: Number(serverData?.credit_tenths ?? serverData?.data?.balance_credit_tenths ?? 0),
       theme: normalizeThemeMode(serverData?.theme || serverData?.data?.theme, 'dark'),
       hasPassword: (serverData?.has_password ?? serverData?.data?.has_password) === true,
       token: token,
@@ -232,6 +236,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         nextPatch.theme = normalizeThemeMode((nextPatch as any).theme, prev?.theme || 'dark');
       }
 
+      if ('credits' in nextPatch && nextPatch.credits !== undefined) {
+        nextPatch.credits = roundCreditTenths(Number(nextPatch.credits || 0));
+      }
       const updated = { ...(prev as User || {}), ...nextPatch } as User;
       try {
         localStorage.setItem('vflow_ai_user', JSON.stringify(updated));
@@ -245,7 +252,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const updateCredits = (delta: number) => {
     setUser(prev => {
       if (!prev) return prev;
-      const newCredits = (prev.credits || 0) + delta;
+      const newCredits = roundCreditTenths((prev.credits || 0) + delta);
       const updated = { ...prev, credits: newCredits } as User;
       try { localStorage.setItem('vflow_ai_user', JSON.stringify(updated)); } catch (e) { debugError(e); }
       return updated;

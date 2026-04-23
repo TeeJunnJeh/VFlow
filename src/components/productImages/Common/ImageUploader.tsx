@@ -3,6 +3,7 @@
  */
 
 import React, { useCallback, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Upload, X } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
 
@@ -289,9 +290,9 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
         </div>
       )}
 
-      {previewVariant === 'first-frame' && previewingFile && previewingImage && (
+      {previewVariant === 'first-frame' && previewingFile && previewingImage && typeof document !== 'undefined' && createPortal(
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
           onClick={() => setPreviewingIndex(null)}
         >
           <div className="relative max-h-screen max-w-5xl" onClick={(e) => e.stopPropagation()}>
@@ -311,7 +312,8 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
               <X className="h-5 w-5" />
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

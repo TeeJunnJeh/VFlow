@@ -5,6 +5,7 @@ import { DropdownSelect } from '../../../common/DropdownSelect';
 import { billingApi } from '../../../../services/billing';
 import { productImagesApi } from '../../../../services/productImagesApi';
 import type { FirstFrameParams } from '../../../../types/productImages';
+import { formatCreditAmount, roundCreditTenths } from '../../../../utils/credits';
 
 interface FirstFrameFormProps {
   images: File[];
@@ -143,7 +144,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
     const rate = Number(imageModelRates[modelKey] || 0);
     const units = Math.max(1, Number(formData.outputCount || 1));
     if (!Number.isFinite(rate) || rate <= 0) return 0;
-    return Math.max(0, Math.round(rate * units));
+    return Math.max(0, roundCreditTenths(rate * units));
   }, [formData.model, formData.outputCount, imageModelRates]);
 
   const validateForm = (): boolean => {
@@ -302,7 +303,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
             <span className="justify-self-end self-center text-right">
               {estimatedCost > 0 ? (
                 <span className="ff-generate-cost whitespace-nowrap text-[10px] font-semibold tabular-nums text-orange-100/80">
-                  {`-${estimatedCost} ${t.v_points || 'V点'}`}
+                  {`-${formatCreditAmount(estimatedCost)} ${t.v_points || 'V点'}`}
                 </span>
               ) : null}
             </span>

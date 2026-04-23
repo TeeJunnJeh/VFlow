@@ -8,6 +8,7 @@ import type { ProductImageResult, SmartRepairParams, SmartRepairSubpage, SmartRe
 import { notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
 import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../../../utils/loadingTheme';
 import { useRequireAuth } from '../../../../utils/useRequireAuth';
+import { formatCreditAmount, roundCreditTenths } from '../../../../utils/credits';
 
 type Phase = 'setup' | 'generating' | 'result' | 'error';
 
@@ -326,7 +327,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   }, []);
 
   const estimatedCost = useMemo(
-    () => Math.max(0, Math.round((Number.isFinite(smartRepairModelRate) ? smartRepairModelRate : 0) * Math.max(1, Number(outputCount || 1)))),
+    () => Math.max(0, roundCreditTenths((Number.isFinite(smartRepairModelRate) ? smartRepairModelRate : 0) * Math.max(1, Number(outputCount || 1)))),
     [outputCount, smartRepairModelRate]
   );
 
@@ -802,7 +803,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                       {tr('步骤 5: 开始修复', 'Step 5: Start Repair')}
                       {estimatedCost > 0 ? (
                         <span className="ml-1 text-[10px] font-semibold text-black/75 whitespace-nowrap">
-                          {`-${estimatedCost} ${tr('V点', 'V-points')}`}
+                          {`-${formatCreditAmount(estimatedCost)} ${tr('V点', 'V-points')}`}
                         </span>
                       ) : null}
                     </button>

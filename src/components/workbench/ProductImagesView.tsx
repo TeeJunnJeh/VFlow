@@ -15,6 +15,7 @@ import { notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHisto
 import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../utils/loadingTheme';
 import { saveBlobWithPickerFallback } from '../../utils/browserDownload';
 import { useRequireAuth } from '../../utils/useRequireAuth';
+import { formatCreditAmount, roundCreditTenths } from '../../utils/credits';
 
 interface ProductImagesViewProps {
   activeView: ViewType;
@@ -989,7 +990,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const textSeparationEstimatedCost = useMemo(() => {
     const rate = Number(imageModelRates['gemini-3-pro-image-preview'] || 0);
     if (!Number.isFinite(rate) || rate <= 0) return 0;
-    return Math.max(0, Math.round(rate));
+    return Math.max(0, roundCreditTenths(rate));
   }, [imageModelRates]);
 
   const galleryPlannedImageCount = useMemo(() => {
@@ -1040,13 +1041,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const galleryEstimatedCost = useMemo(() => {
     const rate = Number(imageModelRates['gemini-3-pro-image-preview'] || 0);
     if (!Number.isFinite(rate) || rate <= 0 || galleryPlannedImageCount <= 0) return 0;
-    return Math.max(0, Math.round(rate * galleryPlannedImageCount));
+    return Math.max(0, roundCreditTenths(rate * galleryPlannedImageCount));
   }, [imageModelRates, galleryPlannedImageCount]);
 
   const galleryInpaintEstimatedCost = useMemo(() => {
     const rate = Number(imageModelRates['gemini-3-pro-image-preview'] || 0);
     if (!Number.isFinite(rate) || rate <= 0) return 0;
-    return Math.max(0, Math.round(rate));
+    return Math.max(0, roundCreditTenths(rate));
   }, [imageModelRates]);
 
   const galleryHistoryAllKeys = useMemo(
@@ -4366,7 +4367,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                       <span className="justify-self-end self-center pr-0.5 text-right">
                         {!galleryInpaint.isGenerating && galleryInpaintEstimatedCost > 0 ? (
                           <span className="whitespace-nowrap text-[10px] font-semibold tabular-nums text-white/80">
-                            {`-${galleryInpaintEstimatedCost} ${t.pg_main_v_points}`}
+                            {`-${formatCreditAmount(galleryInpaintEstimatedCost)} ${t.pg_main_v_points}`}
                           </span>
                         ) : null}
                       </span>
@@ -4935,7 +4936,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                               <div className="flex items-center justify-center gap-2">
                                 {isTextSeparationLoading ? t.pg_main_processing : t.pg_main_btn_start_text_separation}
                                 {textSeparationEstimatedCost > 0 && !isTextSeparationLoading ? (
-                                  <span className="rounded bg-black/20 px-1.5 py-0.5 text-[10px]">-{textSeparationEstimatedCost} V</span>
+                                  <span className="rounded bg-black/20 px-1.5 py-0.5 text-[10px]">-{formatCreditAmount(textSeparationEstimatedCost)} V</span>
                                 ) : null}
                               </div>
                             </button>

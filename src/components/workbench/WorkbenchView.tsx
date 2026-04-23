@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder,
   Wand2, Loader2, Clapperboard, ArrowRight, BookmarkPlus, FolderOpen,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift, ImagePlus, Users, Image as ImageIcon,
-  SlidersHorizontal, Music, Languages, HelpCircle, AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ChevronsDown, Library
+  SlidersHorizontal, Music, Languages, HelpCircle, AlertCircle, ChevronDown, ChevronUp, ChevronsDown, Library
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -16,6 +16,7 @@ import { videoApi, VideoApiError, type GeneratePreviewData } from '../../service
 import { assetsApi, subjectGroupApi, type Asset as LibraryAsset, type AssetFolder, type SubjectGroup } from '../../services/assets';
 import { tiktokApi } from '../../services/tiktok';
 import { billingApi } from '../../services/billing';
+import { formatCreditAmount, roundCreditTenths } from '../../utils/credits';
 import { getDebugModeEnabled } from '../../services/debugMode';
 import {
   PromptLabWindow,
@@ -126,6 +127,7 @@ const formatAssetSize = (sizeBytes?: number | null) => {
 type BillingPricingModelEntry = {
   display_name?: string;
   rate?: number;
+  rate_credit_tenths?: number;
   rate_label?: string;
   unit?: string;
 };
@@ -1275,8 +1277,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [scripts, setScripts] = useState<ScriptItem[]>(buildDemoScripts);
   const [scriptPages, setScriptPages] = useState<ScriptPage[]>(() => ([{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: buildDemoScripts() }]));
   const [activeScriptPage, setActiveScriptPage] = useState(0);
-  const [scriptGridPageStart, setScriptGridPageStart] = useState(0);
-  const [isScriptGridDialogOpen, setIsScriptGridDialogOpen] = useState(false);
   const [isScriptSaveDialogOpen, setIsScriptSaveDialogOpen] = useState(false);
   const [scriptSaveNameDraft, setScriptSaveNameDraft] = useState('');
   const scriptPagesRef = useRef<ScriptPage[]>([]);
@@ -3532,7 +3532,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const formatVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined) => {
     const rate = Number(entry?.rate ?? 0);
     if (!Number.isFinite(rate) || rate <= 0) return '-';
-    return `${rate}${t.wb_vpoints_per_sec || ''}`;
+    return `${formatCreditAmount(rate)}${t.wb_vpoints_per_sec || ''}`;
   };
   const formatApproxVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined) => {
     const label = formatVideoRateLabel(entry);
@@ -3552,17 +3552,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         const duration = Number(item.duration || 0);
         return sum + (Number.isFinite(duration) && duration > 0 ? duration : genDuration);
       }, 0);
-      return Math.max(0, Math.round(rate * totalScriptSeconds * queuedRenderableAssetCount));
+      return Math.max(0, roundCreditTenths(rate * totalScriptSeconds * queuedRenderableAssetCount));
     }
 
     const scriptCount = Math.max(1, Number(scriptVariantCount) || 1);
-    return Math.max(0, Math.round(rate * Math.max(1, Number(genDuration) || 0) * scriptCount));
+    return Math.max(0, roundCreditTenths(rate * Math.max(1, Number(genDuration) || 0) * scriptCount));
   }, [genDuration, queuedRenderableAssetCount, reuseQueueEnabled, scriptQueue, scriptVariantCount, selectedVideoPricing]);
 
   const estimatedImageCost = useMemo(() => {
     const rate = Number(selectedImagePricing?.rate ?? 0);
     if (!Number.isFinite(rate) || rate <= 0) return 0;
-    return Math.max(0, Math.round(rate * Math.max(1, Math.min(4, Number(aiOptimizeCount) || 1))));
+    return Math.max(0, roundCreditTenths(rate * Math.max(1, Math.min(4, Number(aiOptimizeCount) || 1))));
   }, [aiOptimizeCount, selectedImagePricing]);
 
   const estimatedBatchVideoCost = useMemo(() => {
@@ -3582,12 +3582,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return sum + (Number.isFinite(s) && s > 0 ? s : Math.max(1, Number(genDuration) || 0));
     }, 0);
 
-    return Math.max(0, Math.round(rate * totalSeconds));
+    return Math.max(0, roundCreditTenths(rate * totalSeconds));
   }, [batchGenerateSlots, enableStoryboardEditor, genDuration, scriptPages, selectedVideoPricing]);
 
-  const estimatedVideoCostLabel = estimatedVideoCost > 0 && !isSeedanceModel(selectedModel) ? `-${estimatedVideoCost} ${t.v_points || 'V点'}` : '';
-  const estimatedImageCostLabel = estimatedImageCost > 0 ? `-${estimatedImageCost} ${t.v_points || 'V点'}` : '';
-  const estimatedBatchVideoCostLabel = estimatedBatchVideoCost > 0 ? `-${estimatedBatchVideoCost} ${t.v_points || 'V点'}` : '';
+  const estimatedVideoCostLabel = estimatedVideoCost > 0 && !isSeedanceModel(selectedModel) ? `-${formatCreditAmount(estimatedVideoCost)} ${t.v_points || 'V点'}` : '';
+  const estimatedImageCostLabel = estimatedImageCost > 0 ? `-${formatCreditAmount(estimatedImageCost)} ${t.v_points || 'V点'}` : '';
+  const estimatedBatchVideoCostLabel = estimatedBatchVideoCost > 0 ? `-${formatCreditAmount(estimatedBatchVideoCost)} ${t.v_points || 'V点'}` : '';
   const hasCurrentAsset = Boolean(uploadedFile || selectedAssetUrl || selectedFileObj);
   const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
   const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
@@ -3596,33 +3596,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const videoFormats = VIDEO_EXTS.join('/');
   const formatHint = `图片(${imageFormats}) 视频(${videoFormats}) · ≤1GB`;
   const isBatchDebugMode = reuseQueueEnabled && hasAnyReuseQueue;
-  const SCRIPT_GRID_PAGE_SIZE = 4;
-  const scriptGridMaxStart = scriptPages.length <= SCRIPT_GRID_PAGE_SIZE
-    ? 0
-    : Math.floor((scriptPages.length - 1) / SCRIPT_GRID_PAGE_SIZE) * SCRIPT_GRID_PAGE_SIZE;
-  const visibleScriptPages = useMemo(
-    () => scriptPages.slice(scriptGridPageStart, scriptGridPageStart + SCRIPT_GRID_PAGE_SIZE),
-    [scriptGridPageStart, scriptPages]
-  );
-  useEffect(() => {
-    console.log('[WB][ScriptGrid] visibleScriptPages updated', {
-      scriptGridPageStart,
-      pageSize: SCRIPT_GRID_PAGE_SIZE,
-      totalPages: scriptPages.length,
-      visibleCount: visibleScriptPages.length,
-      visible: visibleScriptPages.map((p) => ({
-        id: p.id,
-        name: p.name,
-        scriptsCount: Array.isArray(p.scripts) ? p.scripts.length : 0,
-        hasFullScript: Boolean(String(p.fullScript || '').trim()),
-        hasCreativeCardText: Boolean(String(p.creativeCardText || '').trim()),
-      })),
-    });
-  }, [SCRIPT_GRID_PAGE_SIZE, scriptGridPageStart, scriptPages.length, visibleScriptPages]);
-  const canSlideScriptGridPrev = scriptGridPageStart > 0;
-  const canSlideScriptGridNext = scriptGridPageStart < scriptGridMaxStart;
-  const scriptPlanCardClass = 'w-[calc((100%-36px)/4)] min-w-[220px] flex-shrink-0 rounded-2xl border p-4 text-left transition h-[360px] flex flex-col gap-3';
-  const scriptPlanCardBodyClass = 'min-h-0 rounded-xl border px-3 py-3 text-[11px] leading-6 whitespace-pre-wrap break-words flex-1 overflow-y-auto';
+  const scriptPlanCardClass = 'aspect-[5/4] w-full rounded-xl border p-3 text-left transition duration-200 transform-gpu hover:-translate-y-0.5 hover:shadow-lg hover:shadow-orange-500/10 active:translate-y-0 active:scale-[0.99] flex flex-col gap-2';
+  const scriptPlanCardBodyClass = 'min-h-0 rounded-lg border px-3 py-2 text-[11px] leading-5 whitespace-pre-wrap break-words flex-1 overflow-hidden';
   const materialTypeLabelMap: Record<AssetLibraryTab, string> = {
     product: t.assets_tab_images || '图片',
     model: t.assets_tab_virtual_models || '虚拟模特',
@@ -4481,11 +4456,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const activeCreativeCardText = activeScriptPlan?.creativeCardText || '';
   const activeGuideStep = isGuideOpen ? guideSteps[guideStepIndex] : null;
   const isGuideFocused = (key: GuideStepKey) => activeGuideStep?.key === key;
-  const getGuideFocusClass = (key: GuideStepKey) => (
-    isGuideFocused(key)
-      ? 'relative z-[85] ring-2 ring-orange-400/80 ring-offset-2 ring-offset-black/60 shadow-[0_0_24px_rgba(251,146,60,0.35)] rounded-xl'
-      : ''
-  );
+  const getGuideFocusClass = (key: GuideStepKey) => {
+    if (!isGuideOpen) return '';
+    return isGuideFocused(key)
+      ? 'relative z-[85] pointer-events-auto opacity-100 blur-0 rounded-md outline outline-2 outline-orange-300/80 outline-offset-4 transition-[filter,opacity] duration-200'
+      : 'pointer-events-none blur-[1.5px] opacity-45 transition-[filter,opacity] duration-200';
+  };
 
   const getGuideTargetElement = useCallback(() => {
     const map: Record<GuideStepKey, React.RefObject<HTMLDivElement | null>> = {
@@ -4504,6 +4480,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const viewportPadding = 12;
     const panelWidth = Math.min(420, window.innerWidth - viewportPadding * 2);
     const panelHeight = 330;
+    const activeKey = guideSteps[guideStepIndex]?.key;
 
     if (!target) {
       setGuidePanelStyle({
@@ -4515,13 +4492,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
 
     const rect = target.getBoundingClientRect();
-    let left = rect.right + 16;
-    if (left + panelWidth > window.innerWidth - viewportPadding) {
-      left = rect.left - panelWidth - 16;
-    }
-    if (left < viewportPadding) {
-      left = Math.max(viewportPadding, Math.round((window.innerWidth - panelWidth) / 2));
-    }
+    const gap = activeKey === 'preview' ? 64 : 20;
+    const preferredLeft = activeKey === 'preview'
+      ? rect.left - panelWidth - gap
+      : rect.right + gap;
+    const left = Math.min(
+      Math.max(viewportPadding, preferredLeft),
+      Math.max(viewportPadding, window.innerWidth - panelWidth - viewportPadding)
+    );
 
     let top = rect.top;
     if (top + panelHeight > window.innerHeight - viewportPadding) {
@@ -4536,31 +4514,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       left: `${Math.round(left)}px`,
       top: `${Math.round(top)}px`,
     });
-  }, [getGuideTargetElement]);
+  }, [getGuideTargetElement, guideStepIndex, guideSteps]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isGuideOpen) return;
     const target = getGuideTargetElement();
     if (target) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+      target.scrollIntoView({
+        behavior: 'auto',
+        block: guideSteps[guideStepIndex]?.key === 'config' ? 'start' : 'nearest',
+        inline: 'nearest',
+      });
     }
 
-    const timer = window.setTimeout(() => {
-      updateGuidePanelPosition();
-    }, 260);
-
-    const onViewportChange = () => {
-      updateGuidePanelPosition();
-    };
-
-    window.addEventListener('scroll', onViewportChange, true);
-    window.addEventListener('resize', onViewportChange);
-
-    return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener('scroll', onViewportChange, true);
-      window.removeEventListener('resize', onViewportChange);
-    };
+    updateGuidePanelPosition();
+    return undefined;
   }, [guideStepIndex, isGuideOpen, getGuideTargetElement, updateGuidePanelPosition]);
 
   const extractUploadedAssetPath = (uploadResp: any): string | null => {
@@ -4598,7 +4566,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setScriptPages([defaultPage]);
     setActiveScriptPage(0);
     setScripts([]);
-    setScriptGridPageStart(0);
     setIsShotBreakdownOpen(false);
   }, [t.wb_script_page_prefix]);
 
@@ -6056,6 +6023,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     });
   };
 
+  const addScriptPage = () => {
+    const nextIndex = scriptPages.length;
+    const nextPage: ScriptPage = {
+      id: `page-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      name: `${t.wb_script_page_prefix} ${nextIndex + 1}`,
+      scripts: [],
+      fullScript: '',
+      creativeCardText: '',
+    };
+
+    setScriptPages((prev) => {
+      const next = [...prev];
+      if (activeScriptPage >= 0 && activeScriptPage < next.length) {
+        next[activeScriptPage] = { ...next[activeScriptPage], scripts };
+      }
+      return [...next, nextPage];
+    });
+    setActiveScriptPage(nextIndex);
+    setScripts([]);
+    setIsShotBreakdownOpen(false);
+  };
+
   const updateActiveScriptPageMeta = (updater: (page: ScriptPage) => ScriptPage) => {
     setScriptPages((prev) => {
       if (activeScriptPage < 0 || activeScriptPage >= prev.length) return prev;
@@ -6076,6 +6065,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     updateActiveScriptPageMeta((page) => ({
       ...page,
       creativeCardText: value,
+    }));
+  };
+
+  const updateActiveScriptPageName = (value: string) => {
+    updateActiveScriptPageMeta((page) => ({
+      ...page,
+      name: value,
     }));
   };
 
@@ -6225,31 +6221,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const addScript = () => {
     const newId = scripts.length > 0 ? Math.max(...scripts.map(s => s.id)) + 1 : 1;
-    if (scripts.length === 0) {
-      updateScripts([{ id: newId, shot: '1', type: 'Medium', dur: '2s', visual: '', audio: '', audioTranslation: '' }]);
-      return;
-    }
-    // Preserve total duration: split the last shot in half (new shot takes the back half).
-    const lastIdx = scripts.length - 1;
-    const last = scripts[lastIdx];
-    const lastTenths = durToTenths(last.dur);
-    if (lastTenths < 2) {
-      // Last shot too short to split; append a 2s shot (total grows — unavoidable fallback).
-      openInfo(popupTitles.notice, t.wb_shot_timeline_insert_too_short || 'Current shot is too short to split');
-      return;
-    }
-    const frontTenths = Math.floor(lastTenths / 2);
-    const backTenths = lastTenths - frontTenths;
-    const next = scripts.map((s, i) => (i === lastIdx ? { ...s, dur: tenthsToDur(frontTenths) } : s));
-    next.push({
+    const next = [...scripts, {
       id: newId,
       shot: (scripts.length + 1).toString(),
       type: 'Medium',
-      dur: tenthsToDur(backTenths),
+      dur: '1s',
       visual: '',
       audio: '',
       audioTranslation: '',
-    });
+    }];
     updateScripts(next);
   };
 
@@ -6683,7 +6663,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               ) : null}
               {!hideMaterialTypeSelect ? (
                 <select
-                  className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
+                  className="wb-workbench-field wb-workbench-field--compact cursor-pointer appearance-none shadow-sm"
                   value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product')}
                   onChange={(e) => {
                     const newType = e.target.value as AssetLibraryTab;
@@ -6699,7 +6679,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   }}
                   style={{
                     backgroundImage:
-                      'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")',
+                      'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%230f172a\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")',
                     backgroundRepeat: 'no-repeat',
                     backgroundPosition: 'right 6px center',
                   }}
@@ -7918,35 +7898,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setIsShotBreakdownOpen(false);
   };
 
-  const getScriptGridMaxStart = (length: number, pageSize: number) => {
-    if (length <= pageSize) return 0;
-    return Math.floor((length - 1) / pageSize) * pageSize;
-  };
-
-  useEffect(() => {
-    setScriptGridPageStart((prev) => Math.min(prev, getScriptGridMaxStart(scriptPages.length, SCRIPT_GRID_PAGE_SIZE)));
-  }, [scriptPages.length]);
-
-  useEffect(() => {
-    setScriptGridPageStart((prev) => {
-      if (activeScriptPage < prev || activeScriptPage >= prev + SCRIPT_GRID_PAGE_SIZE) {
-        return Math.min(
-          Math.max(0, Math.floor(activeScriptPage / SCRIPT_GRID_PAGE_SIZE) * SCRIPT_GRID_PAGE_SIZE),
-          getScriptGridMaxStart(scriptPages.length, SCRIPT_GRID_PAGE_SIZE)
-        );
-      }
-      return prev;
-    });
-  }, [activeScriptPage, scriptPages.length]);
-
-  const handleScriptGridSlidePrev = () => {
-    setScriptGridPageStart((prev) => Math.max(0, prev - SCRIPT_GRID_PAGE_SIZE));
-  };
-
-  const handleScriptGridSlideNext = () => {
-    setScriptGridPageStart((prev) => Math.min(getScriptGridMaxStart(scriptPages.length, SCRIPT_GRID_PAGE_SIZE), prev + SCRIPT_GRID_PAGE_SIZE));
-  };
-
   useEffect(() => {
     if (activeScriptPage >= scriptPages.length && scriptPages.length > 0) {
       const lastIndex = scriptPages.length - 1;
@@ -8587,6 +8538,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         <div className="mt-1 text-[10px] leading-relaxed text-zinc-200/80">{desc}</div>
       </div>
     );
+    const creationModeIndex = creationMode === 'replay' ? 1 : 0;
+    const audioModeIndex = soundSetting === 'off' ? 1 : 0;
+    const klingModeIndex = klingGenerateMode === 'subject' ? 1 : klingGenerateMode === 'first_last_frame' ? 2 : 0;
+    const boundaryModelIndex = imageGenModel === 'flux-2-flex' ? 1 : imageGenModel === 'gpt-image-1.5' ? 2 : 0;
 
     const legacyModelSelector = (
       <div className="flex flex-col gap-3">
@@ -8757,7 +8712,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const modelSelector = (
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2 mb-1">
-          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+          <h2 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
             <Wand2 className="w-3 h-3" /> {t.wb_creation_mode_title}
           </h2>
           <button
@@ -8787,17 +8742,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               ].join(' ')}
             >
               <div>
-                <div className="creation-mode-toggle mx-3 rounded-2xl bg-white/5 border border-white/10 p-1 flex items-center gap-1">
+                <div className="wb-mode-toggle grid-cols-2">
+                  <span
+                    className="wb-mode-thumb w-1/2"
+                    style={{ transform: `translateX(${creationModeIndex * 100}%)` }}
+                  />
                   <button
                     type="button"
                     onClick={() => handleSetCreationMode('fast')}
                     aria-pressed={creationMode === 'fast'}
                     className={[
-                      'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
+                      'relative z-10 rounded-lg py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
                       'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
                       creationMode === 'fast'
-                        ? 'bg-white text-zinc-900 shadow-md'
-                        : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
+                        ? 'text-orange-200'
+                        : 'bg-transparent text-zinc-500 hover:text-orange-300',
                     ].join(' ')}
                   >
                     <Zap className={creationMode === 'fast' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
@@ -8808,11 +8767,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     onClick={() => handleSetCreationMode('replay')}
                     aria-pressed={creationMode === 'replay'}
                     className={[
-                      'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
+                      'relative z-10 rounded-lg py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
                       'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
                       creationMode === 'replay'
-                        ? 'bg-white text-zinc-900 shadow-md'
-                        : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
+                        ? 'text-orange-200'
+                        : 'bg-transparent text-zinc-500 hover:text-orange-300',
                     ].join(' ')}
                   >
                     <Layers className={creationMode === 'replay' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
@@ -8822,7 +8781,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
 
               {creationMode === 'fast' ? (
-                <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
+                <div className="space-y-3">
                   <div className="mb-3">
                     <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
                       <ArrowRight className="w-3 h-3 text-zinc-500" />
@@ -8832,7 +8791,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
                 </div>
               ) : (
-                <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
+                <div className="space-y-3">
                   <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-2">
                     <ArrowRight className="w-3 h-3 text-zinc-500" />
                     {t.wb_render_power_title}
@@ -8884,10 +8843,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     );
 
     const renderLeftColumnSettings = () => (
-      <div ref={configSectionRef} className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${getGuideFocusClass('config')}`}>
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-            <Gift className="w-3 h-3 shrink-0" /> {t.wb_product_info_title || 'Product Info'}
+      <div ref={configSectionRef} className={`wb-config-form flex flex-col gap-3 flex-1 scroll-mt-4 transition-opacity duration-500 ${getGuideFocusClass('config')}`}>
+        <div className="flex items-center justify-between gap-2 border-t border-white/10 pt-4">
+          <h2 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+            <Gift className="w-4 h-4 shrink-0" /> {t.wb_product_info_title || 'Product Info'}
           </h2>
           <button
             type="button"
@@ -8917,9 +8876,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         )}
 
         <div className="flex flex-col gap-4">
-          <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
+          <div className="flex flex-col gap-4">
             <div ref={videoTypeFieldRef}>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+              <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">
                 {t.wb_field_product_name_label}
                 <span className="ml-1 text-red-400">*</span>
               </label>
@@ -8934,15 +8893,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   }
                 }}
                 placeholder={t.wb_field_product_name_placeholder}
-                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition"
+                className="wb-workbench-field"
               />
               {requiredErrors.productName && (
-                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.productName}</div>
+                <div className="mt-1 text-[12px] text-red-400 font-medium">{requiredErrors.productName}</div>
               )}
             </div>
 
             <div ref={productCategoryFieldRef}>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+              <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">
                 {t.wb_field_product_category_label}
                 <span className="ml-1 text-red-400">*</span>
               </label>
@@ -8963,18 +8922,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     setRequiredErrors((prev) => ({ ...prev, productCategory: undefined }));
                   }
                 }}
-                buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                buttonClassName="wb-workbench-field cursor-pointer text-left"
                 labelClassName=""
                 iconClassName="w-3 h-3 text-zinc-500"
                 optionClassName="text-xs"
               />
               {requiredErrors.productCategory && (
-                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.productCategory}</div>
+                <div className="mt-1 text-[12px] text-red-400 font-medium">{requiredErrors.productCategory}</div>
               )}
             </div>
 
             <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+              <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">
                 {t.wb_field_core_selling_points_label}
                 <span className="ml-1 text-red-400">*</span>
               </label>
@@ -8989,15 +8948,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   }
                 }}
                 placeholder={t.wb_field_core_selling_points_placeholder}
-                className="w-full h-[96px] overflow-y-auto custom-scroll bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition resize-none"
+                className="wb-workbench-field h-[96px] overflow-y-auto custom-scroll resize-none"
               />
               {requiredErrors.coreSellingPoints && (
-                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.coreSellingPoints}</div>
+                <div className="mt-1 text-[12px] text-red-400 font-medium">{requiredErrors.coreSellingPoints}</div>
               )}
             </div>
 
             <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_target_audience_label}</label>
+              <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_target_audience_label}</label>
               <input
                 value={targetAudience}
                 onChange={(e) => {
@@ -9005,28 +8964,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   setProductInfoTouched((prev) => ({ ...prev, audience: true }));
                 }}
                 placeholder={t.wb_field_target_audience_placeholder}
-                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition"
+                className="wb-workbench-field"
               />
             </div>
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-4 mt-2">
-          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-            <SlidersHorizontal className="w-3 h-3" /> {t.wb_generation_settings_title}
+        <div className="flex items-center justify-between gap-4 border-t border-white/10 pt-4 mt-2">
+          <h2 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+            <SlidersHorizontal className="w-4 h-4" /> {t.wb_generation_settings_title}
           </h2>
         </div>
 
         <div className="flex flex-col gap-4">
-          <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
+          <div className="flex flex-col gap-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_delivery_region_label}</label>
+                <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_delivery_region_label}</label>
                 <DropdownSelect
                   value={deliveryRegion}
                   options={DELIVERY_REGION_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
                   onChange={setDeliveryRegion}
-                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  buttonClassName="wb-workbench-field cursor-pointer text-left"
                   labelClassName=""
                   iconClassName="w-3 h-3 text-zinc-500"
                   optionClassName="text-xs"
@@ -9034,12 +8993,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
 
               <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_video_language_label}</label>
+                <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_video_language_label}</label>
                 <DropdownSelect
                   value={targetLanguage}
                   options={TARGET_LANGUAGE_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
                   onChange={setTargetLanguage}
-                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  buttonClassName="wb-workbench-field cursor-pointer text-left"
                   labelClassName=""
                   iconClassName="w-3 h-3 text-zinc-500"
                   optionClassName="text-xs"
@@ -9049,7 +9008,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
             <div className="flex flex-col gap-4">
               <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+                <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">
                   {t.wb_field_video_type_label}
                   <span className="ml-1 text-red-400">*</span>
                 </label>
@@ -9071,19 +9030,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       setRequiredErrors((prev) => ({ ...prev, videoType: undefined }));
                     }
                   }}
-                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  buttonClassName="wb-workbench-field cursor-pointer text-left"
                   labelClassName=""
                   iconClassName="w-3 h-3 text-zinc-500"
                   optionClassName="text-xs"
                 />
                 {requiredErrors.videoType && (
-                  <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.videoType}</div>
+                  <div className="mt-1 text-[12px] text-red-400 font-medium">{requiredErrors.videoType}</div>
                 )}
               </div>
 
               {!(selectedModel === 'kling' && klingGenerateMode === 'first_frame') && (
                 <div>
-                  <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.aspect_ratio}</label>
+                  <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">{t.aspect_ratio}</label>
                   <DropdownSelect
                     value={aspectRatio}
                     options={selectedModel === 'seedance2.0'
@@ -9103,7 +9062,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           : []),
                       ]}
                     onChange={(v) => setAspectRatio(normalizeWorkbenchAspectRatio(v))}
-                    buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                    buttonClassName="wb-workbench-field cursor-pointer text-left"
                     labelClassName=""
                     iconClassName="w-3 h-3 text-zinc-500"
                     optionClassName="text-xs"
@@ -9113,7 +9072,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
 
             <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_additional_requirements_label}</label>
+              <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_additional_requirements_label}</label>
               <textarea
                 readOnly={!hasCurrentAsset}
                 onFocus={() => {
@@ -9122,7 +9081,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 onClick={() => {
                   if (!hasCurrentAsset) openInfo(popupTitles.notice, t.wb_additional_requirements_need_asset);
                 }}
-                className={`w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-y min-h-[80px] ${!hasCurrentAsset ? 'text-zinc-500 opacity-60' : 'text-zinc-300 focus:border-orange-500 focus:outline-none'}`}
+                className={`wb-workbench-field wb-workbench-field--textarea resize-y min-h-[80px] ${!hasCurrentAsset ? 'opacity-60 cursor-not-allowed' : ''}`}
                 placeholder={t.wb_field_additional_requirements_placeholder}
                 value={genPrompt}
                 onChange={(e) => {
@@ -9137,7 +9096,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 {selectedModel === 'kling' || selectedModel === 'seedance2.0' ? (
                   <div className="flex flex-col gap-3">
                     <div className="flex justify-between items-center">
-                      <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_config_duration}</label>
+                      <label className="text-[12px] text-zinc-500 font-bold block uppercase">{t.wb_config_duration}</label>
                       <span className="text-[12px] font-bold text-orange-400">{genDuration}s</span>
                     </div>
                     <input
@@ -9147,12 +9106,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       step={1}
                       value={genDuration}
                       onChange={(e) => setGenDuration(normalizeDurationForModel(Number(e.target.value), selectedModel))}
-                      className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                      className="wb-range w-full h-2 rounded-lg cursor-pointer accent-orange-500"
                     />
                   </div>
                 ) : (
                   <>
-                    <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
+                    <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
                     <DropdownSelect
                       value={String(genDuration)}
                       options={selectedModel === 'sora2' || selectedModel === 'sora2pro'
@@ -9167,7 +9126,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           { value: '15', label: '15s' },
                         ]}
                       onChange={(v) => setGenDuration(normalizeDurationForModel(Number(v), selectedModel))}
-                      buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                      buttonClassName="wb-workbench-field cursor-pointer text-left"
                       labelClassName=""
                       iconClassName="w-3 h-3 text-zinc-500"
                       optionClassName="text-xs"
@@ -9177,10 +9136,40 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
 
               <div ref={audioConfigSectionRef}>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_audio}</label>
-                <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
-                  <button onClick={() => setSoundSetting('on')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'on' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_on}</button>
-                  <button onClick={() => setSoundSetting('off')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'off' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_off}</button>
+                <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_audio}</label>
+                <div className="wb-mode-toggle grid-cols-2">
+                  <span
+                    className="wb-mode-thumb w-1/2"
+                    style={{ transform: `translateX(${audioModeIndex * 100}%)` }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setSoundSetting('on')}
+                    aria-pressed={soundSetting === 'on'}
+                    className={[
+                      'relative z-10 rounded-lg py-2 text-[11px] font-bold transition',
+                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                      soundSetting === 'on'
+                        ? 'text-orange-200'
+                        : 'bg-transparent text-zinc-500 hover:text-orange-300',
+                    ].join(' ')}
+                  >
+                    {t.wb_config_audio_on}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSoundSetting('off')}
+                    aria-pressed={soundSetting === 'off'}
+                    className={[
+                      'relative z-10 rounded-lg py-2 text-[11px] font-bold transition',
+                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                      soundSetting === 'off'
+                        ? 'text-orange-200'
+                        : 'bg-transparent text-zinc-500 hover:text-orange-300',
+                    ].join(' ')}
+                  >
+                    {t.wb_config_audio_off}
+                  </button>
                 </div>
                 {soundSetting === 'off' && (
                   <div className="mt-2 space-y-2">
@@ -9246,7 +9235,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_reference_script_label || '参考脚本（来自视频解析）'}</label>
+              <label className="text-[12px] text-zinc-500 font-bold block uppercase">{t.wb_reference_script_label || '参考脚本（来自视频解析）'}</label>
               <textarea
                 value={referenceScript}
                 onChange={(e) => {
@@ -9255,11 +9244,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 }}
                 rows={4}
                 placeholder={t.wb_reference_script_placeholder || '粘贴或使用“视频解析反向生成脚本”应用到工作台后的参考脚本'}
-                className="w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-y min-h-[86px] text-zinc-300 focus:border-orange-500 focus:outline-none"
+                className="wb-workbench-field wb-workbench-field--textarea resize-y min-h-[86px]"
               />
-              <div className="text-[10px] text-zinc-500">{t.wb_reference_script_hint || '该内容将作为风格参考一并输入脚本模型，帮助生成更接近参考风格的新脚本。'}</div>
+              <div className="text-[11px] text-zinc-500">{t.wb_reference_script_hint || '该内容将作为风格参考一并输入脚本模型，帮助生成更接近参考风格的新脚本。'}</div>
               {!isReferenceScriptFresh && referenceScript.trim() && (
-                <div className="text-[10px] text-amber-300 font-medium">
+                <div className="text-[11px] text-amber-300 font-medium">
                   当前参考脚本对应的是旧商品信息，生成脚本时将自动忽略它。
                 </div>
               )}
@@ -9269,7 +9258,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
             <div className="flex flex-col gap-3">
               <div className="flex justify-between items-center">
-                <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_script_count_label}</label>
+                <label className="text-[12px] text-zinc-500 font-bold block uppercase">{t.wb_script_count_label}</label>
                 <span className="text-[12px] font-bold text-orange-400">{scriptVariantCount} {t.wb_script_count_unit}</span>
               </div>
               <input
@@ -9278,7 +9267,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 max={10}
                 value={scriptVariantCount}
                 onChange={(e) => setScriptVariantCount(Number(e.target.value))}
-                className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                className="wb-range w-full h-2 rounded-lg cursor-pointer accent-orange-500"
               />
             </div>
           </div>
@@ -9288,15 +9277,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     );
 
     return (
-      <div className="w-full flex flex-col gap-6 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
+      <div className="w-full flex flex-col gap-6 h-full overflow-y-auto overflow-x-visible custom-scroll px-2 py-2">
         <div ref={modeSectionRef} className={getGuideFocusClass('mode')}>
           {modelSelector}
         </div>
         {false && legacyModelSelector}
         {/* Upload Section */}
-        <div ref={uploadSectionRef} className={`flex flex-col gap-3 ${getGuideFocusClass('upload')}`}>
+        <div ref={uploadSectionRef} className={`flex flex-col gap-3 border-t border-white/10 pt-4 ${getGuideFocusClass('upload')}`}>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
+            <h2 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-4 h-4" /> {t.wb_upload_title}</h2>
             {isSeedanceReplayMode && (
               <button
                 type="button"
@@ -9324,11 +9313,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           ) : (
             <div className="flex flex-col gap-3">
               {isKlingOmniMode && (
-                <div className="grid grid-cols-3 gap-2">
+                <div className="wb-mode-toggle grid-cols-3">
+                  <span
+                    className="wb-mode-thumb w-1/3"
+                    style={{ transform: `translateX(${klingModeIndex * 100}%)` }}
+                  />
                   <button
                     type="button"
                     onClick={() => handleKlingGenerateModeChange('first_frame')}
-                    className={`relative flex items-center justify-center overflow-visible rounded-xl border px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'first_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                    aria-pressed={klingGenerateMode === 'first_frame'}
+                    className={`relative z-10 flex items-center justify-center overflow-visible rounded-md border border-transparent px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'first_frame' ? 'text-orange-200' : 'text-zinc-300 hover:text-orange-300'}`}
                   >
                     <div className="flex items-center justify-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_first_frame}</span>
@@ -9345,13 +9339,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <button
                     type="button"
                     onClick={() => handleKlingGenerateModeChange('subject')}
-                    className={`relative flex items-center justify-center overflow-visible rounded-xl border px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'subject' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                    aria-pressed={klingGenerateMode === 'subject'}
+                    className={`relative z-10 flex items-center justify-center overflow-visible rounded-md border border-transparent px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'subject' ? 'text-orange-200' : 'text-zinc-300 hover:text-orange-300'}`}
                   >
                     <div className="flex items-center justify-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_subject}</span>
                       <span className="relative z-10 inline-flex items-center group/info hover:z-20">
                         <Info className="h-3 w-3 text-zinc-400" />
-                        <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 ml-6 w-44 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
+                        <span className="pointer-events-none absolute bottom-full right-0 z-20 mb-1 w-52 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
                           <span className="block">{t.wb_material_requirement_title}</span>
                           <span className="block">{t.wb_kling_subject_requirement}</span>
                           <span className="mt-1 block text-zinc-300">{t.wb_kling_subject_requirement_note}</span>
@@ -9363,7 +9358,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <button
                     type="button"
                     onClick={() => handleKlingGenerateModeChange('first_last_frame')}
-                    className={`relative flex items-center justify-center overflow-visible rounded-xl border px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'first_last_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                    aria-pressed={klingGenerateMode === 'first_last_frame'}
+                    className={`relative z-10 flex items-center justify-center overflow-visible rounded-md border border-transparent px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'first_last_frame' ? 'text-orange-200' : 'text-zinc-300 hover:text-orange-300'}`}
                   >
                     <div className="flex items-center justify-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_first_last_frame || 'First + Last Frame Mode'}</span>
@@ -9406,44 +9402,48 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 onDragEnter={undefined}
                 onDragLeave={undefined}
                 onDrop={undefined}
-                className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors min-h-32 relative group ${uploadDisplayAssets.length > 0 ? 'border-none' : ''} ${isKlingOmniMode ? 'border-none' : (isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50')}`}
+                className={`rounded-xl transition-colors min-h-32 relative group ${isKlingOmniMode || uploadDisplayAssets.length === 0
+                  ? 'p-0 border-none bg-transparent'
+                  : `glass-panel p-1 border-2 border-dashed ${uploadDisplayAssets.length > 0 ? 'border-none' : ''} ${isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50'}`
+                  }`}
               >
                 {!isKlingOmniMode && isDragUploadActive && (
                   <div className="absolute inset-1 rounded-lg border border-dashed border-orange-500/60 bg-orange-500/10 pointer-events-none" />
                 )}
                 <input type="file" ref={fileInputRef} className="hidden" accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.mkv,.webm,.avi" multiple onChange={handleWorkbenchUpload} />
                 {!isKlingOmniMode && uploadDisplayAssets.length === 0 ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
+                  <div className="absolute inset-0 z-10">
                     <button
                       type="button"
                       onClick={openAssetLibraryPicker}
-                      className="wb-upload-library-btn inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-bold text-zinc-100 transition hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-200"
+                      className="wb-upload-library-btn group flex h-full w-full items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-2 text-sm font-bold text-zinc-200 transition hover:border-orange-400/60 hover:bg-orange-500/10 hover:text-orange-200"
                     >
-                      <FolderOpen className="w-3.5 h-3.5" />
-                      {t.wb_btn_choose_from_library || '从素材库选择'}
+                      <FolderOpen className="h-5 w-5 text-zinc-400 transition group-hover:text-orange-300" />
+                      <span>{t.wb_btn_choose_from_library || '从素材库选择'}</span>
                     </button>
-                    <p className="mt-2 text-[10px] text-zinc-500">
-                      {t.wb_upload_library_hint || '可在素材库弹窗中本地上传并自动保存到素材库'}
-                    </p>
                   </div>
                 ) : (
-                  <div className="rounded-lg bg-zinc-900/80 p-2">
+                  <div className={isKlingOmniMode ? '' : 'rounded-lg bg-zinc-900/80 p-2'}>
                     {isKlingOmniMode ? (
                       klingGenerateMode === 'first_last_frame' ? (
                         klingPrimarySlotAsset && klingTailSlotAsset ? (
-                          <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scroll pr-1">
-                            <div className="rounded-xl border border-white/10 bg-black/25 p-2">
+                          <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto bg-transparent custom-scroll pr-1">
+                            <div className="rounded-xl border border-white/10 bg-black/25 p-1">
                               <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">{t.wb_label_first_frame_short || t.wb_label_first_frame || 'First'}</div>
                               {renderUploadAssetCard(klingPrimarySlotAsset)}
                             </div>
-                            <div className="rounded-xl border border-white/10 bg-black/25 p-2">
+                            <div className="rounded-xl border border-white/10 bg-black/25 p-1">
                               <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">{t.wb_label_tail_frame || 'Tail Frame'}</div>
                               {renderUploadAssetCard(klingTailSlotAsset)}
                             </div>
                           </div>
                         ) : (
                           <div className="flex flex-col gap-2">
-                            <div className="flex gap-1.5 flex-wrap">
+                            <div className="wb-mode-toggle grid-cols-3 border border-white/10 bg-white shadow-sm shadow-black/10">
+                              <span
+                                className="wb-mode-thumb w-1/3"
+                                style={{ transform: `translateX(${boundaryModelIndex * 100}%)` }}
+                              />
                               {([
                                 { id: 'flux-2-pro', label: 'Flux 2 Pro' },
                                 { id: 'flux-2-flex', label: 'Flux 2 Flex' },
@@ -9453,7 +9453,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                   key={m.id}
                                   type="button"
                                   onClick={() => setImageGenModel(m.id)}
-                                  className={`rounded-md px-2 py-1 text-[10px] font-bold transition border ${imageGenModel === m.id ? 'border-orange-400/60 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10'}`}
+                                  aria-pressed={imageGenModel === m.id}
+                                  className={`relative z-10 rounded-lg px-2 py-1.5 text-[10px] font-bold transition ${imageGenModel === m.id ? 'text-orange-200' : 'bg-transparent text-zinc-500 hover:text-orange-500'}`}
                                 >
                                   {m.label}
                                 </button>
@@ -9604,7 +9605,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               {!(isKlingOmniMode && (klingGenerateMode === 'first_frame' || klingGenerateMode === 'first_last_frame')) ? (
                                 <div className="absolute top-1 left-1 z-10" onClick={(e) => e.stopPropagation()}>
                                   <select
-                                    className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
+                                    className="wb-workbench-field wb-workbench-field--compact cursor-pointer appearance-none shadow-sm"
                                     value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product')}
                                     onChange={(e) => {
                                       const newType = e.target.value as AssetLibraryTab;
@@ -9620,7 +9621,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                     }}
                                     style={{
                                       backgroundImage:
-                                        'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")',
+                                        'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%230f172a\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")',
                                       backgroundRepeat: 'no-repeat',
                                       backgroundPosition: 'right 6px center',
                                     }}
@@ -9720,18 +9721,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <div className={`grid gap-2 grid-cols-1`}>
                 <button
                   type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openAssetLibraryPicker();
-                  }}
-                  className="wb-upload-library-btn rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
-                >
-                  {t.wb_btn_choose_from_library || '从素材库选择'}
-                </button>
-                <button
-                  type="button"
                   onClick={openAiOptimizeDialog}
-                  className={`${isKlingOmniMode ? 'col-span-2' : 'col-span-2'} w-full rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-[10px] font-bold text-orange-200 hover:bg-orange-500/20`}
+                  className="w-full rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-xs font-bold text-orange-200 hover:bg-orange-500/20"
                 >
                   <span className="inline-flex items-center justify-center gap-1.5">
                     <ImagePlus className="w-3.5 h-3.5" />
@@ -9746,7 +9737,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       void handleGenerateKlingBoundaryFrames();
                     }}
                     disabled={isGeneratingKlingBoundaryFrames}
-                    className={`rounded-lg border px-3 py-2 text-[10px] font-bold transition ${isGeneratingKlingBoundaryFrames ? 'border-orange-500/30 bg-orange-500/10 text-orange-300/70' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+                    className={`w-full rounded-lg border px-3 py-2 text-xs font-bold transition ${isGeneratingKlingBoundaryFrames ? 'border-orange-500/30 bg-orange-500/10 text-orange-300/70' : 'border-orange-500/40 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
                   >
                     {isGeneratingKlingBoundaryFrames
                       ? (t.wb_kling_boundary_frames_generating || t.wb_generating || 'Generating...')
@@ -9796,8 +9787,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-2">
-                    <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> {t.wb_reuse_queue}</h2>
+                  <div className="flex items-center justify-between gap-2 border-t border-white/10 pt-4">
+                    <h2 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-4 h-4" /> {t.wb_reuse_queue}</h2>
                     <button
                       type="button"
                       onClick={() => setReuseQueueEnabled((prev) => !prev)}
@@ -9992,7 +9983,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   return (
-    <div className="relative flex flex-col h-full z-10 rounded-3xl overflow-hidden border border-white/10 bg-zinc-950/80 shadow-2xl backdrop-blur-xl">
+    <div className={`relative flex flex-col h-full overflow-hidden border border-white/10 bg-zinc-950/80 shadow-2xl backdrop-blur-xl ${isGuideOpen ? 'z-[80]' : 'z-10'}`}>
       <header className="flex justify-between items-center px-8 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm shrink-0 relative z-50">
         <div className="flex items-center gap-4">
           <div className="relative">
@@ -10249,27 +10240,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             />
           ) : (
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={canGoToPrevProject ? goToPrevProject : undefined}
-                aria-disabled={!canGoToPrevProject}
-                className={`p-1 rounded transition ${canGoToPrevProject ? 'text-zinc-400 hover:text-white hover:bg-white/10' : 'text-zinc-400 opacity-35 cursor-not-allowed'}`}
-                title="上一项目"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
               <h1 className="text-xl font-bold tracking-tight text-white cursor-text" onClick={beginHeaderRename}>
                 {currentProject?.name || DEFAULT_PROJECT_NAME}
               </h1>
-              <button
-                type="button"
-                onClick={canGoToNextProject ? goToNextProject : undefined}
-                aria-disabled={!canGoToNextProject}
-                className={`p-1 rounded transition ${canGoToNextProject ? 'text-zinc-400 hover:text-white hover:bg-white/10' : 'text-zinc-400 opacity-35 cursor-not-allowed'}`}
-                title="下一项目"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
             </div>
           )}
           {ENABLE_PROMPT_LAB && (
@@ -10279,8 +10252,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 className="flex items-center gap-1.5 px-2 py-1 rounded border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
                 title="查看/编辑内置 prompts（临时功能）"
               >
-                <FileJson className="w-3.5 h-3.5" />
-                <span className="text-[10px] font-bold">Prompt</span>
+                <FileJson className="w-4 h-4" />
+                <span className="text-[12px] font-bold">Prompt</span>
               </button>
               <button
                 type="button"
@@ -10291,13 +10264,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 className="flex items-center gap-1.5 px-2 py-1 rounded border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 transition"
                 title={t.wb_guide_button_title}
               >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span className="text-[10px] font-bold">{t.wb_guide_button_label}</span>
+                <Sparkles className="w-4 h-4" />
+                <span className="text-[12px] font-bold">{t.wb_guide_button_label}</span>
               </button>
             </>
           )}
         </div>
         <div className="flex items-center gap-3">
+          <a
+            href="/privacy-policy"
+            className="flex items-center px-2 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
+            title={t.login_agreement_privacy || '隐私政策'}
+          >
+            <span className="text-[11px] font-bold">{t.login_agreement_privacy || '隐私政策'}</span>
+          </a>
+          <a
+            href="/terms-of-service"
+            className="flex items-center px-2 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
+            title={t.login_agreement_user || '服务条款'}
+          >
+            <span className="text-[11px] font-bold">{t.login_agreement_user || '服务条款'}</span>
+          </a>
           <div className="relative">
             <button
               ref={taskQueueButtonRef}
@@ -10487,7 +10474,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       {isGuideOpen && (
         <>
-          <div className="fixed inset-0 z-[70] bg-black/35 backdrop-blur-[1px]" onClick={() => setIsGuideOpen(false)} />
           <div
             className="fixed z-[90] rounded-2xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/60 p-4"
             style={guidePanelStyle}
@@ -10508,30 +10494,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
 
             <div className="mt-3 rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-3">
-              <div className="text-sm font-bold text-orange-200">{activeGuideStep?.title}</div>
+              <div className="text-sm font-bold text-orange-400">{activeGuideStep?.title}</div>
               <div className="mt-2 text-sm text-zinc-100">{activeGuideStep?.description}</div>
             </div>
 
-            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {guideSteps.map((step, index) => (
-                <button
-                  key={step.key}
-                  type="button"
-                  onClick={() => setGuideStepIndex(index)}
-                  className={`text-left rounded-lg border px-3 py-2 text-xs transition ${guideStepIndex === index ? 'border-orange-500/70 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-black/40 text-zinc-300 hover:bg-white/5'}`}
-                >
-                  {index + 1}. {step.title}
-                </button>
-              ))}
-            </div>
-
             <div className="mt-4 flex justify-end gap-2">
-              <button
-                className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                onClick={() => setIsGuideOpen(false)}
-              >
-                {t.wb_guide_close}
-              </button>
               <button
                 className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={guideStepIndex <= 0}
@@ -10886,68 +10853,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         </AppDialog>
       )}
 
-      {isScriptGridDialogOpen && (
-        <AppDialog
-          isOpen={isScriptGridDialogOpen}
-          title={t.wb_script_grid_title || 'Script Variants'}
-          onClose={() => setIsScriptGridDialogOpen(false)}
-          widthClassName="max-w-[min(96vw,1320px)]"
-        >
-          <div className="max-h-[72vh] overflow-x-auto overflow-y-hidden custom-scroll pr-1 pb-2">
-            <div className="flex flex-nowrap gap-3">
-              {scriptPages.map((page, index) => {
-                const active = index === activeScriptPage;
-                const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim()
-                  || (t.wb_script_grid_card_empty || 'No script content yet');
-                return (
-                  <div key={page.id} className="relative group/scriptcard">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleScriptPageChange(index);
-                        setIsScriptGridDialogOpen(false);
-                      }}
-                      className={`${scriptPlanCardClass} ${active ? 'border-orange-500/70 bg-orange-500/10 ring-1 ring-orange-500/35' : 'border-white/10 bg-black/25 hover:border-orange-500/35 hover:bg-white/5'}`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            {page.sourceLabel && (
-                              <span className="rounded border border-sky-400/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-200">
-                                {page.sourceLabel}
-                              </span>
-                            )}
-                          </div>
-                          <div className={`text-[12px] font-bold leading-5 ${active ? 'text-orange-400' : 'text-zinc-100'}`}>
-                            {formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix)}
-                          </div>
-                        </div>
-                        <span className={`shrink-0 text-[10px] ${active ? 'text-orange-400' : 'text-zinc-500'}`}>
-                          {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
-                        </span>
-                      </div>
-                      <div className={`${scriptPlanCardBodyClass} mt-1 ${active ? 'border-orange-400/30 bg-black/15 text-orange-100/90' : 'border-white/10 bg-black/20 text-zinc-300'}`}>
-                        {previewText}
-                      </div>
-                    </button>
-                    {scriptPages.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); removeScriptPage(index); }}
-                        className="absolute -top-1.5 -right-1.5 z-10 hidden group-hover/scriptcard:flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-zinc-900 text-zinc-400 transition hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-300"
-                        title={t.wb_delete || 'Delete'}
-                      >
-                        <Trash2 className="h-2.5 w-2.5" />
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </AppDialog>
-      )}
-
       {isScriptSaveDialogOpen && (
         <AppDialog
           isOpen={isScriptSaveDialogOpen}
@@ -11167,7 +11072,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   max={100}
                   value={aiOptimizeStyleStrength}
                   onChange={(e) => setAiOptimizeStyleStrength(Number(e.target.value))}
-                  className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                  className="wb-range w-full h-2 rounded-lg cursor-pointer accent-orange-500"
                 />
               </div>
               <div className="space-y-2">
@@ -11817,7 +11722,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         </div>
       </AppDialog>
 
-      <div ref={workspaceRowRef} className="flex-1 flex overflow-hidden p-6 gap-6" style={rowStyle}>
+      <div ref={workspaceRowRef} className="flex-1 flex overflow-hidden p-8 gap-6" style={rowStyle}>
         <div style={{ width: leftColumnWidth }} className="shrink-0 h-full min-w-[260px] max-w-[640px]">
           {renderLeftColumn()}
         </div>
@@ -11847,8 +11752,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             <div className="flex justify-between items-center shrink-0 min-h-[32px] gap-3">
               <div className="flex items-center gap-3">
                 <div className="relative group/scripts-title">
-                  <h2 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2" title={t.wb_col_scripts}>
-                    <Clapperboard className="w-3 h-3" />
+                  <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2" title={t.wb_col_scripts}>
+                    <Clapperboard className="w-4 h-4" />
                     {!isScriptsHeaderCompact && <span>{t.wb_col_scripts}</span>}
                   </h2>
                   {isScriptsHeaderCompact && (
@@ -11859,34 +11764,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </div>
                 <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{genDuration}s</div>
                 <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
-                  <div className="relative group/save-btn">
-                    <button
-                        onClick={openScriptSaveDialog}
-                        disabled={isSavingScriptAsset}
-                        className={`flex items-center gap-1.5 px-2 py-1 rounded transition ${isSavingScriptAsset ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
-                        title={t.wb_script_save_to_library || '保存到素材库'}
-                    >
-                      {isSavingScriptAsset ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BookmarkPlus className="w-3.5 h-3.5" />}
-                      {!isScriptsHeaderCompact && (
-                        <span className="text-[10px] font-medium">{t.wb_script_save_to_library || '保存到素材库'}</span>
-                      )}
-                    </button>
-                    {isScriptsHeaderCompact && (
-                      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/save-btn:opacity-100">
-                        {t.wb_script_save_to_library || '保存到素材库'}
-                      </span>
-                    )}
-                  </div>
-
                   <div className="relative group/import-btn">
                     <button
                         onClick={openScriptLibraryPicker}
-                        className="flex items-center gap-1.5 px-2 py-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition"
+                        className={`h-9 ${isScriptsHeaderCompact ? 'px-2' : 'px-3'} rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition inline-flex items-center gap-2`}
                         title={t.wb_script_import_from_library || '从素材库导入'}
                     >
-                      <FolderOpen className="w-3.5 h-3.5" />
+                      <FolderOpen className="w-4 h-4" />
                       {!isScriptsHeaderCompact && (
-                        <span className="text-[10px] font-medium">{t.wb_script_import_from_library || '从素材库导入'}</span>
+                        <span>{t.wb_script_import_from_library || '从素材库导入'}</span>
                       )}
                     </button>
                     {isScriptsHeaderCompact && (
@@ -11950,45 +11836,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
           <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
             {scriptPages.length > 0 && (
-              <div className="shrink-0 rounded-xl border border-white/10 bg-black/20 p-2.5">
+              <div className="shrink-0 rounded-xl border border-white/10 bg-transparent p-2.5">
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">
-                    {t.wb_script_grid_title || 'Script Variants'}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={handleScriptGridSlidePrev}
-                      disabled={!canSlideScriptGridPrev}
-                      className={`h-6 w-6 rounded border transition flex items-center justify-center ${canSlideScriptGridPrev ? 'border-white/15 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5' : 'border-white/10 text-zinc-600 cursor-not-allowed'}`}
-                      aria-label={(t as any).wb_previous || 'Previous'}
-                    >
-                      <ChevronLeft className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleScriptGridSlideNext}
-                      disabled={!canSlideScriptGridNext}
-                      className={`h-6 w-6 rounded border transition flex items-center justify-center ${canSlideScriptGridNext ? 'border-white/15 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5' : 'border-white/10 text-zinc-600 cursor-not-allowed'}`}
-                      aria-label={(t as any).wb_next || 'Next'}
-                    >
-                      <ChevronRight className="h-3.5 w-3.5" />
-                    </button>
-                    <span className="px-1 text-[10px] tabular-nums text-zinc-500">
-                      {scriptPages.length === 0 ? '-' : `${scriptGridPageStart + 1}-${Math.min(scriptGridPageStart + SCRIPT_GRID_PAGE_SIZE, scriptPages.length)}`}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setIsScriptGridDialogOpen(true)}
-                      className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5 transition"
-                    >
-                      {(language === 'zh' ? '查看全部' : 'View All')} ({scriptPages.length})
-                    </button>
+                  <div className="text-[12px] font-bold uppercase tracking-wider text-zinc-300">
+                    {t.wb_script_grid_title || 'Script Plans'}
                   </div>
                 </div>
-                <div className="flex gap-3 overflow-x-auto overflow-y-hidden custom-scroll pb-1">
-                  {visibleScriptPages.map((page, offset) => {
-                    const index = scriptGridPageStart + offset;
+                <div className="grid max-h-[300px] grid-cols-3 gap-3 overflow-y-auto overflow-x-hidden custom-scroll px-1 py-2">
+                  {scriptPages.map((page, index) => {
                     const active = index === activeScriptPage;
                     const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim()
                       || (t.wb_script_grid_card_empty || 'No script content yet');
@@ -12000,20 +11855,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           className={`${scriptPlanCardClass} ${active ? 'border-orange-500/70 bg-orange-500/10 ring-1 ring-orange-500/35' : 'border-white/10 bg-black/30 hover:border-white/25 hover:bg-white/5'}`}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                {page.sourceLabel && (
-                                  <span className="rounded border border-sky-400/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-200">
-                                    {page.sourceLabel}
-                                  </span>
-                                )}
-                              </div>
-                              <div className={`text-[12px] font-bold leading-5 ${active ? 'text-orange-400' : 'text-zinc-100'}`}>
+                            <div className="min-w-0 flex-1">
+                              <div className={`truncate text-[12px] font-bold leading-5 ${active ? 'text-orange-400' : 'text-zinc-100'}`}>
                                 {formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix)}
                               </div>
                             </div>
-                            <span className={`shrink-0 text-[9px] ${active ? 'text-orange-400 font-bold' : 'text-zinc-500'}`}>
-                              {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
+                            <span className={`shrink-0 text-[12px] ${active ? 'text-orange-400 font-bold' : 'text-zinc-500'}`}>
+                              {`${page.scripts.length} ${t.wb_shot || 'Shot'}`}
                             </span>
                           </div>
                           <div className={`${scriptPlanCardBodyClass} ${active ? 'border-orange-400/30 bg-black/15 text-orange-100/90' : 'border-white/10 bg-black/20 text-zinc-300'}`}>
@@ -12024,26 +11872,31 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); removeScriptPage(index); }}
-                            className="absolute -top-1.5 -right-1.5 z-10 hidden group-hover/scriptcard:flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-zinc-900 text-zinc-400 transition hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-300"
+                            className="absolute -top-1.5 -right-1.5 z-10 hidden group-hover/scriptcard:flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-zinc-900 text-zinc-400 transition hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-300"
                             title={t.wb_delete || 'Delete'}
                           >
-                            <Trash2 className="h-2.5 w-2.5" />
+                            <Trash2 className="h-3 w-3" />
                           </button>
                         )}
                       </div>
                     );
                   })}
+                  <button
+                    type="button"
+                    onClick={addScriptPage}
+                    className={`${scriptPlanCardClass} items-center justify-center border-dashed border-white/15 bg-black/20 text-zinc-500 hover:border-orange-500/45 hover:bg-orange-500/10 hover:text-orange-300`}
+                    aria-label={language === 'zh' ? '新增脚本方案' : 'Add script plan'}
+                  >
+                    <Plus className="h-7 w-7" />
+                  </button>
                 </div>
               </div>
             )}
 
             {activeScriptPlan && (
-              <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-2xl relative overflow-hidden">
-                {/* 装饰性背景光晕：极微弱的紫色透出 */}
+              <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-lg relative overflow-hidden">
                 <div className="absolute -top-20 -right-20 w-72 h-72 bg-purple-500/10 rounded-full blur-[100px] pointer-events-none" />
-
-                {/* 头部 */}
-                <div className={`flex items-center justify-between gap-3 relative z-10 mb-6 pb-4 ${isLightTheme ? 'border-b border-slate-300/80' : 'border-b border-white/10'}`}>
+                <div className="flex items-center justify-between gap-3 relative z-10 mb-4">
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.15)]">
                       <Sparkles className="w-4 h-4 text-purple-400" />
@@ -12051,26 +11904,25 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     <div>
                       <div className={`flex flex-wrap items-center gap-2 text-[13px] font-black tracking-wider ${isLightTheme ? 'text-slate-900' : 'text-zinc-100'}`}>
                         <span>{t.wb_script_plan_card_title || 'Script plan'}</span>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-normal tracking-normal ${isLightTheme
-                          ? 'border border-purple-300 bg-purple-100 text-purple-800'
-                          : 'border border-purple-500/30 bg-purple-500/20 text-purple-200'
-                          }`}>
-                          {t.wb_script_plan_card_badge || 'Kling prompt'}
-                        </span>
-                        {activeScriptPlan?.sourceLabel && (
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-normal tracking-normal ${isLightTheme
-                            ? 'border border-sky-300 bg-sky-100 text-sky-700'
-                            : 'border border-sky-400/30 bg-sky-500/20 text-sky-200'
-                            }`}>
-                            {activeScriptPlan.sourceLabel}
-                          </span>
-                        )}
                       </div>
-                      <div className={`text-[10px] mt-0.5 font-medium ${isLightTheme ? 'text-slate-600' : 'text-zinc-500'}`}>
-                        {formatScriptPageDisplayName(activeScriptPlan?.name, activeScriptPage, t.wb_script_page_prefix)}
-                      </div>
+                      <input
+                        value={activeScriptPlan?.name || ''}
+                        onChange={(e) => updateActiveScriptPageName(e.target.value)}
+                        placeholder={formatScriptPageDisplayName(activeScriptPlan?.name, activeScriptPage, t.wb_script_page_prefix)}
+                        className={`mt-1 box-border w-[280px] max-w-full rounded-md border border-transparent bg-transparent px-2 py-0.5 text-[12px] font-medium outline-none transition focus:border-orange-500/40 focus:bg-black/15 ${isLightTheme ? 'text-slate-600 placeholder:text-slate-400 focus:bg-white' : 'text-zinc-500 placeholder:text-zinc-600'}`}
+                      />
                     </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={openScriptSaveDialog}
+                    disabled={isSavingScriptAsset}
+                    className={`h-9 shrink-0 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-bold text-zinc-200 transition inline-flex items-center gap-2 ${isSavingScriptAsset ? 'cursor-not-allowed opacity-60' : 'hover:bg-white/10 hover:border-white/20'}`}
+                    title={t.wb_script_save_to_library || '保存到素材库'}
+                  >
+                    {isSavingScriptAsset ? <Loader2 className="w-4 h-4 animate-spin" /> : <BookmarkPlus className="w-4 h-4" />}
+                    <span>{t.wb_script_save_to_library || '保存到素材库'}</span>
+                  </button>
                 </div>
 
                 <div className="space-y-1.5 relative z-10">
@@ -12096,19 +11948,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             {enableStoryboardEditor ? (
               <>
                 <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                  <div className="text-[10px] text-zinc-400 uppercase tracking-widest">分镜结构（可编辑）</div>
+                  <div className="text-[12px] text-zinc-400 uppercase tracking-widest">分镜结构（可编辑）</div>
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => setIsShotBreakdownOpen((prev) => !prev)}
-                      className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
+                      className="text-[12px] px-2 py-1 rounded border text-zinc-300 hover:border-red-500/40 transition"
                     >
-                      {isShotBreakdownOpen ? '收起分镜' : '展开分镜'}
+                      <ChevronDown
+                        className={[
+                          'h-4 w-4 transition-transform duration-200',
+                          isShotBreakdownOpen ? 'rotate-180' : '',
+                        ].join(' ')}
+                      />
                     </button>
                     <button
                       type="button"
                       onClick={() => { setEnableStoryboardEditor(false); setIsShotBreakdownOpen(false); }}
-                      className="text-[10px] px-2 py-1 rounded border border-zinc-700 text-zinc-500 hover:text-red-400 hover:border-red-500/40 transition"
+                      className="text-[12px] px-2 py-1 rounded border text-zinc-500 hover:text-red-400 hover:border-red-500/40 transition"
                     >
                       关闭分镜
                     </button>
@@ -12118,46 +11975,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <ShotTimelineBar scripts={scripts} onUpdateScripts={updateScripts} t={t} />
                 )}
                 {isShotBreakdownOpen && (scripts.length === 0 ? (
-                  (() => {
-                    const currentPageFullScript = String(scriptPages[activeScriptPage]?.fullScript || '').trim();
-                    if (currentPageFullScript) {
-                      return (
-                        <div className="h-64 flex flex-col items-center justify-center text-zinc-500 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20 gap-3 px-6 text-center">
-                          <FileJson className="w-10 h-10 opacity-50" />
-                          <p className="text-xs text-zinc-400">
-                            分镜尚未生成
-                          </p>
-                          <p className="text-[10px] text-zinc-600 max-w-xs">
-                            当前脚本只有整片方案。点击下方按钮在此基础上拆分镜头。
-                          </p>
-                          <button
-                            type="button"
-                            onClick={handleGenerateShotsOnly}
-                            disabled={isGeneratingShotsOnly}
-                            className={`flex items-center gap-2 text-[11px] px-3 py-1.5 rounded border transition ${isGeneratingShotsOnly ? 'border-white/10 text-zinc-500 cursor-not-allowed' : 'border-orange-500/40 text-orange-400 hover:bg-orange-500/10'}`}
-                          >
-                            {isGeneratingShotsOnly ? (
-                              <>
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                <span>生成分镜中...</span>
-                              </>
-                            ) : (
-                              <>
-                                <Plus className="w-3.5 h-3.5" />
-                                <span>补生成分镜</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      );
-                    }
-                    return (
-                      <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
-                        <FileJson className="w-10 h-10 mb-2 opacity-50" />
-                        <p className="text-xs">No scripts yet.</p>
-                      </div>
-                    );
-                  })()
+                  <button
+                    type="button"
+                    onClick={addScript}
+                    className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span className="text-xs font-bold">{t.wb_btn_add_shot}</span>
+                  </button>
                 ) : (
                   scripts.map((script, index) => (
                     <div id={`shot-card-${script.id}`} key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
@@ -12276,17 +12101,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </div>
                   ))
                 ))}
-                {isShotBreakdownOpen && (
+                {isShotBreakdownOpen && scripts.length > 0 && (
                   <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
                 )}
               </>
             ) : (
               <div className="flex items-center justify-between rounded-xl border border-dashed border-white/10 bg-black/20 px-3 py-3">
-                <span className="text-[11px] text-zinc-500">{t.wb_storyboard_master_mode_hint}</span>
+                <span className="text-[12px] text-zinc-500">{t.wb_storyboard_master_mode_hint}</span>
                 <button
                   type="button"
-                  onClick={() => setEnableStoryboardEditor(true)}
-                  className="text-[10px] px-2.5 py-1 rounded border border-orange-500/40 text-orange-400 hover:bg-orange-500/10 transition whitespace-nowrap"
+                  onClick={() => {
+                    setEnableStoryboardEditor(true);
+                    setIsShotBreakdownOpen(true);
+                  }}
+                  className="text-[12px] px-2.5 py-1 rounded border border-orange-500/40 text-orange-400 hover:bg-orange-500/10 transition whitespace-nowrap"
                 >
                   {t.wb_enable_storyboard}
                 </button>
@@ -12308,9 +12136,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
         {/* Right Column: Preview & Results */}
         <div ref={previewSectionRef} style={{ flex: 1 - scriptPreviewRatio }} className={`flex flex-col gap-3 shrink-0 h-full ${getGuideFocusClass('preview')}`}>
-          <div className="flex justify-between items-end shrink-0 h-[32px]">
-            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-3 h-3" /> {t.wb_col_preview}</h2>
-          </div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <h2 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-4 h-4" /> {t.wb_col_preview}</h2>
+          <button
+              onClick={handlePublishToTikTok}
+              disabled={!generatedVideoUrl || isPostingTikTok}
+              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border border-white/10 ${(!generatedVideoUrl || isPostingTikTok) ? 'opacity-40 cursor-not-allowed text-zinc-500' : 'text-white bg-gradient-to-r from-purple-600 to-orange-500 hover:brightness-110'}`}
+            >
+              {isPostingTikTok ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+              {isPostingTikTok ? t.wb_tiktok_uploading : t.wb_btn_tiktok_draft}
+          </button>
+        </div>
           {/* Video Player */}
           <div className="glass-panel flex-1 rounded-2xl p-1 relative flex flex-col overflow-hidden">
             <div className="flex-1 bg-black rounded-xl relative overflow-hidden group flex items-center justify-center">
@@ -12391,18 +12227,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </button>
               </div>
             </div>
-          </div>
-
-          <div className="glass-panel rounded-2xl p-3 border border-white/5 flex items-center justify-between">
-            <div className="text-[10px] text-zinc-500 uppercase tracking-widest">{t.wb_tiktok_draft_title}</div>
-            <button
-              onClick={handlePublishToTikTok}
-              disabled={!generatedVideoUrl || isPostingTikTok}
-              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border border-white/10 ${(!generatedVideoUrl || isPostingTikTok) ? 'opacity-40 cursor-not-allowed text-zinc-500' : 'text-white bg-gradient-to-r from-purple-600 to-orange-500 hover:brightness-110'}`}
-            >
-              {isPostingTikTok ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-              {isPostingTikTok ? t.wb_tiktok_uploading : t.wb_btn_tiktok_draft}
-            </button>
           </div>
 
           <div className="glass-panel rounded-2xl p-4 border border-white/5 max-h-56 overflow-y-auto custom-scroll">

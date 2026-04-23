@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
+import { formatCreditAmount, formatSignedCreditAmount } from '../../utils/credits';
 
 export const BillingView: React.FC = () => {
   const { t } = useLanguage();
@@ -209,6 +210,7 @@ export const BillingView: React.FC = () => {
     const hasVideoInputKnown = typeof hasVideoInputRaw === 'boolean' || String(hasVideoInputRaw || '').trim() !== '';
     const costRaw = Math.abs(Number(tx?.amount || 0)) || Number((meta as any).actual_cost || (meta as any).cost || 0);
     const cost = Number.isFinite(costRaw) ? Math.max(0, costRaw) : 0;
+    const costLabel = formatCreditAmount(cost);
     const isSeedanceDelayed = billingType === 'seedance_delayed' || totalTokens > 0;
     if (isSeedanceDelayed) {
       const detailParts = [
@@ -219,7 +221,7 @@ export const BillingView: React.FC = () => {
           ? `${t.billing_meta_video_input || 'Video Input'}: ${hasVideoInput ? (t.billing_video_input_with || 'With') : (t.billing_video_input_without || 'Without')}`
           : '',
         totalTokens > 0 ? `${t.billing_meta_total_tokens || 'Total Tokens'}: ${totalTokens}` : '',
-        cost > 0 ? `${t.billing_meta_actual_cost || t.billing_meta_cost || 'Actual Cost'}: ${cost} ${creditName}` : '',
+        cost > 0 ? `${t.billing_meta_actual_cost || t.billing_meta_cost || 'Actual Cost'}: ${costLabel} ${creditName}` : '',
       ].filter(Boolean);
       return detailParts.join(' | ');
     }
@@ -229,7 +231,7 @@ export const BillingView: React.FC = () => {
       rateLabel ? `${t.billing_meta_rate || 'Rate'}: ${rateLabel}` : '',
       videoCountLabel ? `${t.billing_meta_count || 'Count'}: ${videoCountLabel}` : '',
       billedUnitsLabel ? `${t.billing_meta_unit || 'Billed'}: ${billedUnitsLabel}` : '',
-      cost > 0 ? `${t.billing_meta_cost || 'Cost'}: ${cost} ${creditName}` : '',
+      cost > 0 ? `${t.billing_meta_cost || 'Cost'}: ${costLabel} ${creditName}` : '',
     ].filter(Boolean);
     return detailParts.join(' | ');
   };
@@ -265,7 +267,7 @@ export const BillingView: React.FC = () => {
             {planMeta.name || overview?.tier_label || 'Plan'}
           </div>
           <div className="px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/40 text-xs text-orange-400 font-semibold">
-            {t.billing_balance_label || 'Balance'}: {balance} {t.billing_credit_unit || 'credits'}
+            {t.billing_balance_label || 'Balance'}: {formatCreditAmount(balance)} {t.billing_credit_unit || 'credits'}
           </div>
           <LanguageSwitcher />
         </div>
@@ -324,10 +326,10 @@ export const BillingView: React.FC = () => {
                     <td className="px-4 py-2 text-zinc-300">{getTxTypeLabel(tx)}</td>
                     <td
                       className={`px-4 py-2 font-medium ${
-                        tx.amount >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                        Number(tx.amount || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'
                       }`}
                     >
-                      {tx.amount > 0 ? `+${tx.amount}` : tx.amount}
+                      {formatSignedCreditAmount(tx.amount)}
                     </td>
                     <td className="px-4 py-2 text-zinc-400">
                       <div>{getTxDescriptionLabel(tx)}</div>

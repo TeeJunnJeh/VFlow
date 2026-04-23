@@ -865,7 +865,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     observer.observe(sentinel);
     return () => observer.disconnect();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, activeAssetTab, loadSeedanceCharactersAppend]);
+  }, [viewMode, activeAssetTab, seedanceHasMore, loadSeedanceCharactersAppend]);
 
   // ResizeObserver to track the first card's rendered height for top-spacer calculation.
   // Re-runs when the first card id changes (i.e. when items are dropped from the front).

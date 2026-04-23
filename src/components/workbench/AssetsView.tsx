@@ -860,7 +860,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
         setSeedanceFilters(nextFilters);
         void loadSeedanceCharactersAppend(nextFilters);
       },
-      { root: seedanceScrollRef.current, threshold: 1.0 }
+      { root: seedanceScrollRef.current, threshold: 0.01, rootMargin: '600px' }
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
@@ -3644,7 +3644,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           : window.matchMedia('(min-width: 640px)').matches ? 4 : 3
                       )) * (seedanceCardHeightRef.current + 12)}px` }} />
                     )}
-                    {seedanceCharacters.map((char) => (
+                    {seedanceCharacters.map((char, idx) => (
                       <div
                         key={char.id}
                         className="group relative bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-purple-500/40 transition cursor-pointer"
@@ -3661,10 +3661,14 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       >
                         <div className="aspect-[3/4] bg-zinc-800 overflow-hidden">
                           <img
-                            src={char.image_url}
+                            src={char.image_thumb_url || char.image_url}
                             alt={char.title}
+                            width={160}
+                            height={213}
                             className="w-full h-full object-cover transition-opacity duration-300"
                             loading="lazy"
+                            decoding="async"
+                            {...({ fetchpriority: idx < 12 ? 'high' : 'low' } as any)}
                             style={{ opacity: 0 }}
                             onLoad={(e) => { (e.target as HTMLImageElement).style.opacity = '1'; }}
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -4656,7 +4660,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                   </div>
                 ) : (
                   <div data-seedance-grid className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
-                    {seedanceCharacters.map((char) => (
+                    {seedanceCharacters.map((char, idx) => (
                       <div
                         key={char.id}
                         className="group relative bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-purple-500/40 transition cursor-pointer"
@@ -4673,10 +4677,14 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       >
                         <div className="aspect-[3/4] bg-zinc-800 overflow-hidden">
                           <img
-                            src={char.image_url}
+                            src={char.image_thumb_url || char.image_url}
                             alt={char.title}
+                            width={160}
+                            height={213}
                             className="w-full h-full object-cover transition-opacity duration-300"
                             loading="lazy"
+                            decoding="async"
+                            {...({ fetchpriority: idx < 12 ? 'high' : 'low' } as any)}
                             style={{ opacity: 0 }}
                             onLoad={(e) => { (e.target as HTMLImageElement).style.opacity = '1'; }}
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}

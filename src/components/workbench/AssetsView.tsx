@@ -289,6 +289,10 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [seedanceDroppedCount, setSeedanceDroppedCount] = useState(0);
   const seedanceCharsCountRef = useRef(0);   // current array length, avoids stale closure in append
   const seedanceCardHeightRef = useRef(210); // measured card height (px) for spacer calc
+  // Error state — when true, infinite-scroll observer stops firing until user clicks retry
+  const [seedanceError, setSeedanceError] = useState<string | null>(null);
+  const seedanceErrorRef = useRef(false);
+  const seedanceLastLoadAtRef = useRef(0); // timestamp of last successful append, for throttling
 
   // New script dialog
   const [isNewScriptDialogOpen, setIsNewScriptDialogOpen] = useState(false);
@@ -720,7 +724,10 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   }, [activeAssetTab, viewMode]);
 
   const loadSeedanceCharacters = useCallback(async (filters?: SeedanceCharacterFilters) => {
+    if (seedanceLoadingRef.current) return; // sync guard
     seedanceLoadingRef.current = true;
+    seedanceErrorRef.current = false;
+    setSeedanceError(null);
     setSeedanceLoading(true);
     try {
       const f = filters || seedanceFilters;
@@ -736,16 +743,24 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       seedancePageRef.current = resp.data.page;
       seedanceHasMoreRef.current = hasMore;
       if (filters) seedanceFiltersRef.current = filters;
+      seedanceLastLoadAtRef.current = Date.now();
     } catch (err) {
       console.error('Failed to load seedance characters', err);
+      // Stop observer immediately and surface the error to the user
+      seedanceHasMoreRef.current = false;
+      setSeedanceHasMore(false);
+      seedanceErrorRef.current = true;
+      const msg = err instanceof Error ? err.message : String(err);
+      setSeedanceError(msg || ((t as any).assets_seedance_load_failed || '加载失败，请重试'));
     } finally {
       seedanceLoadingRef.current = false;
       setSeedanceLoading(false);
     }
-  }, [seedanceFilters]);
+  }, [seedanceFilters, t]);
 
   const loadSeedanceCharactersAppend = useCallback(async (filters: SeedanceCharacterFilters) => {
     if (seedanceLoadingRef.current) return; // sync guard — prevents concurrent calls
+    if (seedanceErrorRef.current) return;   // halt if previous request failed
     seedanceLoadingRef.current = true;
     setSeedanceLoading(true);
     try {
@@ -771,8 +786,15 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       seedancePageRef.current = resp.data.page;
       seedanceHasMoreRef.current = hasMore;
       seedanceFiltersRef.current = filters;
+      seedanceLastLoadAtRef.current = Date.now();
     } catch (err) {
       console.error('Failed to load seedance characters (append)', err);
+      // Halt observer and show error so it stops hammering the API
+      seedanceHasMoreRef.current = false;
+      setSeedanceHasMore(false);
+      seedanceErrorRef.current = true;
+      const msg = err instanceof Error ? err.message : String(err);
+      setSeedanceError(msg || ((t as any).assets_seedance_load_failed || '加载失败，请重试'));
     } finally {
       seedanceLoadingRef.current = false;
       setSeedanceLoading(false);
@@ -803,9 +825,17 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     if (viewMode === 'plaza' && activeAssetTab === 'model') {
       void loadSeedanceOptions();
       const fresh: SeedanceCharacterFilters = { page_size: 24, search_mode: seedanceSearchMode, page: 1 };
+      // Full state reset — prevent residual hasMore/page/dropped from previous session
       setSeedanceFilters(fresh);
       seedanceFiltersRef.current = fresh;
       setSeedanceCharacters([]);
+      seedanceCharsCountRef.current = 0;
+      setSeedanceDroppedCount(0);
+      setSeedanceHasMore(false);
+      seedanceHasMoreRef.current = false;
+      seedancePageRef.current = 1;
+      seedanceErrorRef.current = false;
+      setSeedanceError(null);
       void loadSeedanceCharacters(fresh);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -819,14 +849,18 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     if (!sentinel) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting && seedanceHasMoreRef.current && !seedanceLoadingRef.current) {
-          const nextFilters = { ...seedanceFiltersRef.current, page: seedancePageRef.current + 1 };
-          seedanceFiltersRef.current = nextFilters;
-          setSeedanceFilters(nextFilters);
-          void loadSeedanceCharactersAppend(nextFilters);
-        }
+        if (!entries[0]?.isIntersecting) return;
+        if (!seedanceHasMoreRef.current) return;
+        if (seedanceLoadingRef.current) return;
+        if (seedanceErrorRef.current) return;
+        // Throttle: require at least 400ms gap between successful loads
+        if (Date.now() - seedanceLastLoadAtRef.current < 400) return;
+        const nextFilters = { ...seedanceFiltersRef.current, page: seedancePageRef.current + 1 };
+        seedanceFiltersRef.current = nextFilters;
+        setSeedanceFilters(nextFilters);
+        void loadSeedanceCharactersAppend(nextFilters);
       },
-      { root: seedanceScrollRef.current, threshold: 0.1 }
+      { root: seedanceScrollRef.current, threshold: 1.0 }
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
@@ -2788,7 +2822,24 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                   )}
                   {activeAssetTab === 'model' && (
                     <button
-                      onClick={() => { setShowSeedanceBrowser(true); void loadSeedanceOptions(); void loadSeedanceCharacters(); }}
+                      onClick={() => {
+                        setShowSeedanceBrowser(true);
+                        void loadSeedanceOptions();
+                        // Full reset before opening — prevents inheriting state from previous plaza/library session
+                        const fresh: SeedanceCharacterFilters = { page_size: 24, search_mode: 'default', page: 1 };
+                        setSeedanceSearchMode('default');
+                        setSeedanceFilters(fresh);
+                        seedanceFiltersRef.current = fresh;
+                        setSeedanceCharacters([]);
+                        seedanceCharsCountRef.current = 0;
+                        setSeedanceDroppedCount(0);
+                        setSeedanceHasMore(false);
+                        seedanceHasMoreRef.current = false;
+                        seedancePageRef.current = 1;
+                        seedanceErrorRef.current = false;
+                        setSeedanceError(null);
+                        void loadSeedanceCharacters(fresh);
+                      }}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition shrink-0"
                     >
                       <Plus className="w-3.5 h-3.5" /> {t.assets_add_from_model_library || '从模特库添加'}
@@ -3634,13 +3685,37 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                     ))}
                   </div>
                 )}
-                {/* Infinite scroll sentinel */}
-                {seedanceHasMore && (
+                {/* Error banner with retry — replaces sentinel when an error occurred */}
+                {seedanceError && (
+                  <div className="flex items-center justify-center gap-3 py-6 text-xs text-zinc-300">
+                    <span className="text-red-400">{seedanceError}</span>
+                    <button
+                      onClick={() => {
+                        seedanceErrorRef.current = false;
+                        setSeedanceError(null);
+                        // Retry the last requested page
+                        const retryFilters = { ...seedanceFiltersRef.current, page: seedancePageRef.current + 1 };
+                        if (seedanceCharsCountRef.current === 0) {
+                          // Initial load failed — retry page 1
+                          const fresh = { ...seedanceFiltersRef.current, page: 1 };
+                          void loadSeedanceCharacters(fresh);
+                        } else {
+                          void loadSeedanceCharactersAppend(retryFilters);
+                        }
+                      }}
+                      className="px-3 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-white/10"
+                    >
+                      {(t as any).assets_seedance_retry || '重试'}
+                    </button>
+                  </div>
+                )}
+                {/* Infinite scroll sentinel — only render when there's more AND no error */}
+                {seedanceHasMore && !seedanceError && (
                   <div ref={seedanceSentinelRef} className="flex items-center justify-center py-6">
                     <Loader2 className="w-5 h-5 animate-spin text-zinc-500" />
                   </div>
                 )}
-                {!seedanceHasMore && seedanceCharacters.length > 0 && (
+                {!seedanceHasMore && !seedanceError && seedanceCharacters.length > 0 && (
                   <div className="text-center text-zinc-600 text-xs py-4">
                     {t.assets_seedance_no_more || '已加载全部模特'}
                   </div>
@@ -4621,6 +4696,22 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+                {/* Error banner with retry */}
+                {seedanceError && (
+                  <div className="flex items-center justify-center gap-3 py-6 text-xs text-zinc-300">
+                    <span className="text-red-400">{seedanceError}</span>
+                    <button
+                      onClick={() => {
+                        seedanceErrorRef.current = false;
+                        setSeedanceError(null);
+                        void loadSeedanceCharacters(seedanceFilters);
+                      }}
+                      className="px-3 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-white/10"
+                    >
+                      {(t as any).assets_seedance_retry || '重试'}
+                    </button>
                   </div>
                 )}
               </div>

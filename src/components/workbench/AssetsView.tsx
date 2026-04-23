@@ -3655,7 +3655,11 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                             void loadData();
                             openInfo(t.assets_confirm_title || 'OK', t.assets_seedance_collected || `已添加「${char.title}」到虚拟模特`);
                           } catch (err) {
-                            openInfo(t.assets_confirm_title || 'Error', String(err instanceof Error ? err.message : err));
+                            const isUnauth = (err as any)?.status === 401;
+                            const msg = isUnauth
+                              ? ((t as any).assets_seedance_login_required || '请先登录后再添加模特')
+                              : String(err instanceof Error ? err.message : err);
+                            openInfo(t.assets_confirm_title || (isUnauth ? 'Notice' : 'Error'), msg);
                           }
                         }}
                       >
@@ -4670,7 +4674,11 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                             void loadData();
                             openInfo(t.assets_confirm_title || 'OK', t.assets_seedance_collected || `已添加「${char.title}」到虚拟模特`);
                           } catch (err) {
-                            openInfo(t.assets_confirm_title || 'Error', String(err instanceof Error ? err.message : err));
+                            const isUnauth = (err as any)?.status === 401;
+                            const msg = isUnauth
+                              ? ((t as any).assets_seedance_login_required || '请先登录后再添加模特')
+                              : String(err instanceof Error ? err.message : err);
+                            openInfo(t.assets_confirm_title || (isUnauth ? 'Notice' : 'Error'), msg);
                           }
                         }}
                       >

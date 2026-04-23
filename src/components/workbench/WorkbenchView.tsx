@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import {
-  UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder,
+  UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder, Eye,
   Wand2, Loader2, Clapperboard, ArrowRight, BookmarkPlus, FolderOpen,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift, ImagePlus, Users, Image as ImageIcon,
@@ -275,6 +275,7 @@ type SeedanceReplayLibraryIntent = {
 
 type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion' | 'audio' | 'script' | 'subject';
 type AssetLibraryPickMode = 'default' | 'background_audio' | 'script_import';
+type KlingLibraryUploadTarget = 'default' | 'primary' | 'reference';
 type AiOptimizeResolution = 'sd' | 'hd' | 'uhd';
 type WaitProgressPhase = 'idle' | 'simulating' | 'holding' | 'finishing' | 'done';
 
@@ -869,6 +870,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [assetLibraryError, setAssetLibraryError] = useState<string | null>(null);
   const [assetLibrarySubjects, setAssetLibrarySubjects] = useState<SubjectGroup[]>([]);
   const [seedanceReplayLibraryIntent, setSeedanceReplayLibraryIntent] = useState<SeedanceReplayLibraryIntent | null>(null);
+  const [klingLibraryUploadTarget, setKlingLibraryUploadTarget] = useState<KlingLibraryUploadTarget>('default');
   const [draggingWorkbenchAssetId, setDraggingWorkbenchAssetId] = useState<string | null>(null);
   const [transferStationItems, setTransferStationItems] = useState<TransferStationItem[]>([]);
   const [isTransferStationOpen, setIsTransferStationOpen] = useState(false);
@@ -2933,12 +2935,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     void reloadAssetLibraryItems();
   }, [isAssetLibraryOpen, reloadAssetLibraryItems]);
 
-  const openAssetLibraryPicker = () => {
+  const openAssetLibraryPicker = (target: KlingLibraryUploadTarget = 'default') => {
+    setKlingLibraryUploadTarget(target);
     setSeedanceReplayLibraryIntent(null);
-    // Kling subject mode: show subject tab only
+    // Kling subject mode: primary slot opens subject tab, reference slot opens regular assets.
     if (selectedModel === 'kling' && klingGenerateMode === 'subject') {
       setAssetLibraryPickMode('default');
-      setAssetLibraryTab('subject');
+      setAssetLibraryTab(target === 'primary' ? 'subject' : 'product');
       setAssetLibraryCurrentFolderId(null);
       setIsAssetLibraryOpen(true);
       return;
@@ -2950,6 +2953,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const openBackgroundAudioPicker = () => {
+    setKlingLibraryUploadTarget('default');
     setSeedanceReplayLibraryIntent(null);
     setAssetLibraryPickMode('background_audio');
     setAssetLibraryTab('audio');
@@ -2959,6 +2963,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const openScriptLibraryPicker = useCallback(() => {
+    setKlingLibraryUploadTarget('default');
     setSeedanceReplayLibraryIntent(null);
     setAssetLibraryPickMode('script_import');
     setAssetLibraryTab('script');
@@ -3325,6 +3330,25 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const assetUrl = queuedAsset?.assetUrl || null;
     if (!queuedAsset || !assetUrl) return null;
 
+    if (
+      selectedModel === 'kling'
+      && klingGenerateMode === 'first_frame'
+      && queuedAsset.mediaKind === 'image'
+      && queuedAsset.source === 'preference'
+    ) {
+      const currentReferenceCount = normalizeQueueSourcesForKlingMode(
+        assetQueue.filter((item) => item.mediaKind === 'image'),
+        klingGenerateMode
+      ).filter((item) => item.source === 'preference').length;
+      if (currentReferenceCount >= 6) {
+        openInfo(
+          popupTitles.notice,
+          t.wb_kling_reference_slot_first_frame_max || '最多6张'
+        );
+        return null;
+      }
+    }
+
     if (options?.forceFirstFrame && selectedModel === 'kling' && klingGenerateMode !== 'first_frame') {
       setKlingGenerateMode('first_frame');
     }
@@ -3377,6 +3401,58 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setIsAssetLibraryOpen(false);
       setAssetLibraryPickMode('default');
       setIsBackgroundAudioSourceOpen(false);
+      return true;
+    }
+
+    if (selectedModel === 'kling' && assetLibraryPickMode === 'default' && klingLibraryUploadTarget !== 'default') {
+      const queuedAsset = buildQueuedAssetFromLibrary(asset, { preferLastModeRouting: true });
+      if (!queuedAsset || queuedAsset.mediaKind !== 'image') {
+        openInfo(popupTitles.notice, t.wb_popup_only_image_first_frame || '仅支持图片素材');
+        return false;
+      }
+
+      if (klingLibraryUploadTarget === 'primary') {
+        const primarySource: QueuedAsset['source'] = klingGenerateMode === 'subject' ? 'subject' : 'product';
+        if (primarySource === 'subject' && !canBeKlingSubject(queuedAsset)) {
+          handleInvalidKlingSubjectTarget(queuedAsset);
+          return false;
+        }
+        const nextPrimary: QueuedAsset = {
+          ...queuedAsset,
+          source: primarySource,
+          isPrimaryFrame: primarySource === 'product',
+        };
+        setAssetQueue((prev) => {
+          const withoutExistingPrimary = prev.filter((item) => !(item.mediaKind === 'image' && item.source === primarySource));
+          return normalizeQueueSourcesForKlingMode([...withoutExistingPrimary, nextPrimary], klingGenerateMode);
+        });
+        applyWorkbenchAssetSelection(nextPrimary);
+        setLastUploadedUrl(nextPrimary.assetUrl || null);
+        return true;
+      }
+
+      if (klingGenerateMode === 'first_frame') {
+        const currentReferenceCount = normalizeQueueSourcesForKlingMode(
+          assetQueue.filter((item) => item.mediaKind === 'image'),
+          klingGenerateMode
+        ).filter((item) => item.source === 'preference').length;
+        if (currentReferenceCount >= 6) {
+          openInfo(
+            popupTitles.notice,
+            t.wb_kling_reference_slot_first_frame_max || '最多6张'
+          );
+          return false;
+        }
+      }
+
+      const nextReference: QueuedAsset = {
+        ...queuedAsset,
+        source: 'preference',
+        isPrimaryFrame: false,
+      };
+      setAssetQueue((prev) => normalizeQueueSourcesForKlingMode([...prev, nextReference], klingGenerateMode));
+      applyWorkbenchAssetSelection(nextReference);
+      setLastUploadedUrl(nextReference.assetUrl || null);
       return true;
     }
 
@@ -4399,6 +4475,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         )));
       }
       return;
+    }
+
+    if (isKlingOmniMode && klingGenerateMode === 'first_frame') {
+      const normalizedImages = normalizeQueueSourcesForKlingMode(
+        assetQueue.filter((item) => item.mediaKind === 'image'),
+        klingGenerateMode
+      );
+      const referenceCount = normalizedImages.filter((item) => item.source === 'preference').length;
+      const targetIsAlreadyReference = normalizedImages.some((item) => item.id === assetId && item.source === 'preference');
+      if (!targetIsAlreadyReference && referenceCount >= 6) {
+        openInfo(
+          popupTitles.notice,
+          t.wb_kling_reference_slot_first_frame_max || '最多6张'
+        );
+        return;
+      }
     }
 
     setAssetQueue((prev) => {
@@ -6646,42 +6738,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     () => uploadDisplayAssets.filter((asset) => asset.id !== klingPrimarySlotAsset?.id && asset.id !== klingTailSlotAsset?.id),
     [uploadDisplayAssets, klingPrimarySlotAsset, klingTailSlotAsset]
   );
-  const klingPrimarySlotHint = klingPrimarySlotAsset ? (
-    <span className="inline-flex items-center gap-1 text-[10px] font-medium normal-case tracking-normal text-green-400">
-      1/1
-      <CheckCircle className="h-3 w-3" />
-    </span>
-  ) : (
-    <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">
-      {klingGenerateMode === 'subject'
-        ? (t.wb_kling_primary_slot_subject_required || '必传1个主体')
-        : (t.wb_kling_primary_slot_first_frame_required || '必传1张')}
-    </span>
-  );
   const klingReferenceLimit = klingGenerateMode === 'subject' ? 3 : 6;
   const isKlingReferenceOverflow = klingReferenceSlotAssets.length > klingReferenceLimit;
-  const klingReferenceSlotHint = klingReferenceSlotAssets.length > 0 ? (
-    <span className={`inline-flex items-center gap-1 text-[10px] font-medium normal-case tracking-normal ${isKlingReferenceOverflow ? 'text-red-400' : 'text-green-400'}`}>
-      {klingReferenceSlotAssets.length}/{klingReferenceLimit}
-      {!isKlingReferenceOverflow ? <CheckCircle className="h-3 w-3" /> : null}
-      {isKlingReferenceOverflow ? (
-        <span>
-          {klingGenerateMode === 'subject'
-            ? (t.wb_kling_reference_slot_subject_max || '最多3张')
-            : (t.wb_kling_reference_slot_first_frame_max || '最多6张')}
-        </span>
-      ) : null}
-    </span>
-  ) : (
-    <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">
-      {klingGenerateMode === 'subject'
-        ? (t.wb_kling_reference_slot_subject_range || '1~3张')
-        : (t.wb_kling_reference_slot_first_frame_optional || '可选 · ≤6张')}
-    </span>
-  );
+  const klingPrimaryCountLabel = `${klingPrimarySlotAsset ? 1 : 0}/1`;
+  const klingReferenceCountLabel = `${klingReferenceSlotAssets.length}/${klingReferenceLimit}`;
   const renderUploadAssetCard = useCallback((asset: QueuedAsset, compact = false) => {
     const inQueue = assetQueue.find((item) => item.id === asset.id);
     const selected = selectedQueueAssetId ? selectedQueueAssetId === asset.id : uploadedFile === asset.previewUrl;
+    const isKlingFirstFrameCard = isKlingOmniMode && klingGenerateMode === 'first_frame';
     const highlighted = isKlingOmniMode
       ? (klingGenerateMode === 'subject'
         ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
@@ -6704,6 +6768,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         onDragEnd={clearWorkbenchDragState}
         onClick={(e) => {
           e.stopPropagation();
+          if (isKlingFirstFrameCard) return;
           if (inQueue) {
             selectAssetFromQueue(inQueue);
             return;
@@ -6720,6 +6785,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           if (e.key !== 'Enter' && e.key !== ' ') return;
           e.preventDefault();
           e.stopPropagation();
+          if (isKlingFirstFrameCard) return;
           if (inQueue) {
             selectAssetFromQueue(inQueue);
             return;
@@ -6732,7 +6798,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           setCurrentMaterialType(asset.materialType || null);
           setSelectedQueueAssetId(null);
         }}
-        className={`relative w-full rounded-md overflow-hidden border text-left transition ${selected ? 'border-orange-500/70 ring-1 ring-orange-500/50' : 'border-white/10 hover:border-white/20'}`}
+        className={`group relative w-full rounded-md overflow-hidden border text-left transition ${selected ? 'border-orange-500/70 ring-1 ring-orange-500/50' : 'border-white/10 hover:border-white/20'}`}
       >
         {asset.previewUrl ? (asset.mediaKind === 'video' ? (
           <video src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" muted playsInline />
@@ -6790,7 +6856,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
           );
         })()}
-        <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
+        {!isKlingFirstFrameCard ? (
+          <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
           {!isKlingOmniMode && asset.mediaKind === 'image' && (
             <button
               type="button"
@@ -6828,7 +6895,31 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </button>
           )}
           <button onClick={(e) => removeUpload(e, asset.id)} className="p-1 bg-black/50 hover:bg-red-500 rounded text-white transition"><X className="w-2.5 h-2.5" /></button>
-        </div>
+          </div>
+        ) : null}
+        {isKlingFirstFrameCard ? (
+          <div className="absolute inset-x-0 bottom-0 z-20 flex items-center justify-center gap-1.5 bg-gradient-to-t from-black/65 to-transparent py-2 opacity-0 transition group-hover:opacity-100">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSeedanceReplayPreviewAsset(inQueue || asset);
+              }}
+              className="flex h-6 w-6 items-center justify-center rounded-md border border-white/20 bg-black/40 text-zinc-200 transition hover:bg-white/15"
+              aria-label="Preview Asset"
+            >
+              <Eye className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => removeUpload(e, asset.id)}
+              className="flex h-6 w-6 items-center justify-center rounded-md border border-red-500/30 bg-red-500/20 text-red-200 transition hover:bg-red-500 hover:text-white"
+              aria-label="Delete"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : null}
         <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-10">
           <p className="text-[9px] text-white truncate drop-shadow-md">{asset.name}</p>
         </div>
@@ -6846,6 +6937,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     removeUpload,
     selectedAssetSource,
     selectedQueueAssetId,
+    setSeedanceReplayPreviewAsset,
     t.wb_ready,
     uploadedFile,
   ]);
@@ -9511,7 +9603,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <div className="absolute inset-0 z-10">
                     <button
                       type="button"
-                      onClick={openAssetLibraryPicker}
+                      onClick={() => openAssetLibraryPicker()}
                       className="wb-upload-library-btn group flex h-full w-full items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-2 text-sm font-bold text-zinc-200 transition hover:border-orange-400/60 hover:bg-orange-500/10 hover:text-orange-200"
                     >
                       <FolderOpen className="h-5 w-5 text-zinc-400 transition group-hover:text-orange-300" />
@@ -9558,7 +9650,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             </div>
                             <div
                               className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
-                              onClick={openAssetLibraryPicker}
+                              onClick={() => openAssetLibraryPicker()}
                             >
                               <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
                                 <span>{t.wb_label_reference_image || '参考图'}</span>
@@ -9580,8 +9672,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       ) : (
                         <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scroll pr-1">
                           <div
-                            className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
-                            onClick={openAssetLibraryPicker}
+                            className="relative rounded-xl border border-white/10 bg-black/25 p-2"
                             onDragOver={(e) => {
                               if (!draggingWorkbenchAssetId) return;
                               e.preventDefault();
@@ -9596,16 +9687,32 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             }}
                           >
                             <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
-                              <span>{klingGenerateMode === 'subject' ? (t.wb_label_subject_image || 'Subject') : (t.wb_label_first_frame || 'First Frame')}</span>
-                              {klingPrimarySlotHint}
+                              <span className="inline-flex items-center gap-1">
+                                {klingGenerateMode === 'subject' ? (t.wb_label_subject_image || 'Subject') : (t.wb_label_first_frame || 'First Frame')}
+                                {klingGenerateMode === 'first_frame' ? (
+                                  <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-400">
+                                    {klingPrimaryCountLabel}
+                                  </span>
+                                ) : null}
+                              </span>
+                              <button
+                                type="button"
+                                className="flex h-6 w-6 items-center justify-center rounded-md border border-white/20 bg-black/55 text-zinc-200 transition hover:border-orange-400/70 hover:bg-orange-500/20 hover:text-orange-200"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openAssetLibraryPicker('primary');
+                                }}
+                                aria-label={t.wb_upload_click || 'Click to Upload'}
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                              </button>
                             </div>
                             {klingPrimarySlotAsset ? renderUploadAssetCard(klingPrimarySlotAsset) : (
                               <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20" />
                             )}
                           </div>
                           <div
-                            className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
-                            onClick={openAssetLibraryPicker}
+                            className="relative rounded-xl border border-white/10 bg-black/25 p-2"
                             onDragOver={(e) => {
                               if (!draggingWorkbenchAssetId) return;
                               e.preventDefault();
@@ -9620,8 +9727,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             }}
                           >
                             <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
-                              <span>{t.wb_label_reference_image || 'Reference'}</span>
-                              {klingReferenceSlotHint}
+                              <span className="inline-flex items-center gap-1.5">
+                                <span>{t.wb_label_reference_image || 'Reference'}</span>
+                                <span className={`text-[10px] font-medium normal-case tracking-normal ${isKlingReferenceOverflow ? 'text-red-400' : 'text-zinc-400'}`}>
+                                  {klingReferenceCountLabel}
+                                </span>
+                              </span>
+                              <button
+                                type="button"
+                                className="flex h-6 w-6 items-center justify-center rounded-md border border-white/20 bg-black/55 text-zinc-200 transition hover:border-orange-400/70 hover:bg-orange-500/20 hover:text-orange-200"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openAssetLibraryPicker('reference');
+                                }}
+                                aria-label={t.wb_upload_click || 'Click to Upload'}
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                              </button>
                             </div>
                             {klingReferenceSlotAssets.length > 0 ? (
                               <div className="flex flex-col gap-2 max-h-60 overflow-y-auto custom-scroll pr-1">

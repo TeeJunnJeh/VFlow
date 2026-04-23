@@ -861,9 +861,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [assetLibraryCurrentFolderId, setAssetLibraryCurrentFolderId] = useState<string | null>(null);
   const [assetLibraryLoading, setAssetLibraryLoading] = useState(false);
   const [isAssetLibraryUploading, setIsAssetLibraryUploading] = useState(false);
-  const [assetLibraryUploadSuccessVisible, setAssetLibraryUploadSuccessVisible] = useState(false);
-  const [assetLibraryUploadSuccessFading, setAssetLibraryUploadSuccessFading] = useState(false);
-  const assetLibraryUploadSuccessTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const [assetLibraryUploadSummaryToast, setAssetLibraryUploadSummaryToast] = useState<{ uploadedCount: number; addedCount: number } | null>(null);
+  const assetLibraryUploadSummaryToastTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const [assetLibraryHoverAssetId, setAssetLibraryHoverAssetId] = useState<string | null>(null);
   const [assetLibraryHoverClickedAssetId, setAssetLibraryHoverClickedAssetId] = useState<string | null>(null);
   const [assetLibraryError, setAssetLibraryError] = useState<string | null>(null);
@@ -1235,12 +1234,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const isInfoOpenRef = useRef(false);
   const [infoTitle, setInfoTitle] = useState('');
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
-  const openInfo = (title: string, message: string | null = null) => {
+  const isBatchAutoAddInfoQueueingRef = useRef(false);
+  const batchAutoAddInfoQueueRef = useRef<Array<{ title: string; message: string | null }>>([]);
+  const openInfoDirect = (title: string, message: string | null = null) => {
     setInfoTitle(title || '');
     setInfoMessage(message || null);
+    isInfoOpenRef.current = true;
     setIsInfoOpen(true);
+  };
+  const openInfo = (title: string, message: string | null = null) => {
+    if (isBatchAutoAddInfoQueueingRef.current && title === popupTitles.notice) {
+      const payload = { title: title || '', message: message || null };
+      if (isInfoOpenRef.current) {
+        batchAutoAddInfoQueueRef.current.push(payload);
+      } else {
+        openInfoDirect(payload.title, payload.message);
+      }
+      return;
+    }
+    openInfoDirect(title, message);
   };
 
   // ─── ErrorModal 状态（结构化错误弹窗） ───
@@ -1866,6 +1881,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const closeInfoDialog = () => {
+    if (batchAutoAddInfoQueueRef.current.length > 0) {
+      const next = batchAutoAddInfoQueueRef.current.shift();
+      if (next) {
+        openInfoDirect(next.title, next.message);
+        return;
+      }
+    }
+    isInfoOpenRef.current = false;
     setIsInfoOpen(false);
     if (renameRetryState) {
       setProjectMenuOpen(true);
@@ -2933,6 +2956,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!isAssetLibraryOpen) return;
     void reloadAssetLibraryItems();
   }, [isAssetLibraryOpen, reloadAssetLibraryItems]);
+  useEffect(() => {
+    if (isAssetLibraryOpen) return;
+    setAssetLibraryUploadSummaryToast(null);
+    if (assetLibraryUploadSummaryToastTimerRef.current) {
+      window.clearTimeout(assetLibraryUploadSummaryToastTimerRef.current);
+      assetLibraryUploadSummaryToastTimerRef.current = null;
+    }
+  }, [isAssetLibraryOpen]);
 
   const openAssetLibraryPicker = (target: KlingLibraryUploadTarget = 'default') => {
     setKlingLibraryUploadTarget(target);
@@ -3012,6 +3043,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     input.accept = getAssetLibraryUploadAccept(assetLibraryTab);
     input.click();
   }, [assetLibraryTab, getAssetLibraryUploadAccept, isAssetLibraryUploading]);
+  const [pendingSeedanceAutoAddPayload, setPendingSeedanceAutoAddPayload] = useState<{
+    ids: string[];
+    tab: AssetLibraryTab;
+    folderId: string | null;
+  } | null>(null);
 
   const handleAssetLibraryLocalUploadChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -3019,6 +3055,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     setIsAssetLibraryUploading(true);
     const failedMessages: string[] = [];
+    const successfulUploadedAssetIds: string[] = [];
     let successCount = 0;
 
     try {
@@ -3060,7 +3097,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             }
           } else {
             // eslint-disable-next-line no-await-in-loop
-            await assetsApi.uploadAsset(file, assetLibraryTab, assetLibraryCurrentFolderId);
+            const uploadResp = await assetsApi.uploadAsset(file, assetLibraryTab, assetLibraryCurrentFolderId);
+            const rawUploaded = (uploadResp as any)?.data || uploadResp;
+            const uploadedId = rawUploaded?.id;
+            if (uploadedId != null) successfulUploadedAssetIds.push(String(uploadedId));
           }
           successCount += 1;
         } catch (err: any) {
@@ -3069,21 +3109,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
 
       await reloadAssetLibraryItems();
+      const shouldAutoAddForSeedance = creationMode === 'replay' && selectedModel === 'seedance2.0';
+      if (shouldAutoAddForSeedance && assetLibraryPickMode === 'default' && successfulUploadedAssetIds.length > 0 && user) {
+        setPendingSeedanceAutoAddPayload({
+          ids: successfulUploadedAssetIds,
+          tab: assetLibraryTab,
+          folderId: assetLibraryCurrentFolderId,
+        });
+      } else if (successCount > 0) {
+        setAssetLibraryUploadSummaryToast({ uploadedCount: successCount, addedCount: 0 });
+        if (assetLibraryUploadSummaryToastTimerRef.current) {
+          window.clearTimeout(assetLibraryUploadSummaryToastTimerRef.current);
+        }
+        assetLibraryUploadSummaryToastTimerRef.current = window.setTimeout(() => {
+          setAssetLibraryUploadSummaryToast(null);
+          assetLibraryUploadSummaryToastTimerRef.current = null;
+        }, 5000);
+      }
 
       if (successCount > 0 && failedMessages.length === 0) {
-        if (assetLibraryUploadSuccessTimerRef.current) {
-          window.clearTimeout(assetLibraryUploadSuccessTimerRef.current);
-          assetLibraryUploadSuccessTimerRef.current = null;
-        }
-
-        setAssetLibraryUploadSuccessVisible(true);
-        setAssetLibraryUploadSuccessFading(false);
-        window.requestAnimationFrame(() => setAssetLibraryUploadSuccessFading(true));
-        assetLibraryUploadSuccessTimerRef.current = window.setTimeout(() => {
-          setAssetLibraryUploadSuccessVisible(false);
-          setAssetLibraryUploadSuccessFading(false);
-          assetLibraryUploadSuccessTimerRef.current = null;
-        }, 2000);
+        // Keep silent on full success; upload summary toast handles feedback.
       } else if (successCount > 0) {
         openInfo(
           popupTitles.notice,
@@ -3110,6 +3155,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     popupTitles.success,
     probeAssetLibraryMediaMeta,
     reloadAssetLibraryItems,
+    assetLibraryPickMode,
+    creationMode,
+    selectedModel,
+    assetLibraryCurrentFolderId,
+    setPendingSeedanceAutoAddPayload,
     user,
     (t as any).assets_upload_success_count,
   ]);
@@ -3118,7 +3168,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (targetMediaKind === 'image') {
       return {
         targetMediaKind: 'image',
-        allowedTabs: ['model', 'product'],
+        allowedTabs: ['product'],
         preferredTab: 'product',
       };
     }
@@ -3542,6 +3592,51 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const queued = queueLibraryAssetIntoWorkbench(asset);
     return Boolean(queued);
   };
+  useEffect(() => {
+    if (!pendingSeedanceAutoAddPayload || pendingSeedanceAutoAddPayload.ids.length === 0) return;
+    let cancelled = false;
+    const run = async () => {
+      isBatchAutoAddInfoQueueingRef.current = true;
+      batchAutoAddInfoQueueRef.current = [];
+      try {
+        const latestAssets = await assetsApi.getAssets({
+          type: pendingSeedanceAutoAddPayload.tab,
+          folderId: pendingSeedanceAutoAddPayload.folderId,
+        });
+        if (cancelled) return;
+        const assetMap = new Map(latestAssets.map((asset) => [String(asset.id), asset]));
+        let addedCount = 0;
+        pendingSeedanceAutoAddPayload.ids.forEach((id) => {
+          const matched = assetMap.get(id);
+          if (matched && selectAssetFromLibraryPopup(matched)) {
+            addedCount += 1;
+          }
+        });
+        setAssetLibraryUploadSummaryToast({
+          uploadedCount: pendingSeedanceAutoAddPayload.ids.length,
+          addedCount,
+        });
+        if (assetLibraryUploadSummaryToastTimerRef.current) {
+          window.clearTimeout(assetLibraryUploadSummaryToastTimerRef.current);
+        }
+        assetLibraryUploadSummaryToastTimerRef.current = window.setTimeout(() => {
+          setAssetLibraryUploadSummaryToast(null);
+          assetLibraryUploadSummaryToastTimerRef.current = null;
+        }, 5000);
+      } finally {
+        isBatchAutoAddInfoQueueingRef.current = false;
+        if (!isInfoOpenRef.current && batchAutoAddInfoQueueRef.current.length > 0) {
+          const next = batchAutoAddInfoQueueRef.current.shift();
+          if (next) openInfoDirect(next.title, next.message);
+        }
+        if (!cancelled) setPendingSeedanceAutoAddPayload(null);
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingSeedanceAutoAddPayload, selectAssetFromLibraryPopup]);
 
   const selectSubjectFromLibraryPopup = (subject: SubjectGroup) => {
     if (!subject.primary_asset) {
@@ -8554,6 +8649,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setSeedanceReplayFocusTarget(null);
     }
   }, [isSeedanceReplayMode, seedanceReplayValidation.hasBlockingIssues]);
+  useEffect(() => () => {
+    if (assetLibraryUploadSummaryToastTimerRef.current) {
+      window.clearTimeout(assetLibraryUploadSummaryToastTimerRef.current);
+      assetLibraryUploadSummaryToastTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     setGenDuration((prev) => normalizeDurationForModel(prev, selectedModel));
@@ -11291,30 +11392,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <div className="flex items-center justify-between gap-3 px-1">
                 <div className="text-xs text-zinc-400">{t.wb_audio_picker_hint || '仅显示音频素材'}</div>
                 <div className="flex items-center gap-2">
-                  {assetLibraryTab !== 'subject' && (
+                  {assetLibraryTab !== 'subject' && !(isSeedanceReplayMode && assetLibraryTab === 'model') && (
                     <button
                       type="button"
                       onClick={triggerAssetLibraryLocalUpload}
                       disabled={isAssetLibraryUploading}
                       className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading
                         ? 'cursor-not-allowed border-white/10 bg-white/5 text-zinc-200/70'
-                        : assetLibraryUploadSuccessVisible
-                          ? 'border-transparent bg-transparent text-emerald-200'
-                          : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
+                        : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
                         }`}
                     >
-                      {isAssetLibraryUploading ? (
-                        (t as any).wb_uploading || '上传中...'
-                      ) : assetLibraryUploadSuccessVisible ? (
-                        <span
-                          className={`inline-flex items-center justify-center gap-1.5 text-emerald-200 transition-opacity duration-[2000ms] ${assetLibraryUploadSuccessFading ? 'opacity-0' : 'opacity-100'}`}
-                          aria-label={language === 'zh' ? '上传成功' : 'Upload succeeded'}
-                        >
-                          <CheckCircle className="h-4 w-4" />
-                        </span>
-                      ) : (
-                        (t as any).wb_btn_upload_to_library || '上传素材'
-                      )}
+                      {isAssetLibraryUploading
+                        ? ((t as any).wb_uploading || '上传中...')
+                        : ((t as any).wb_btn_upload_to_library || '上传素材')}
                     </button>
                   )}
                   <button
@@ -11344,30 +11434,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   ))}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  {assetLibraryTab !== 'subject' && (
+                  {assetLibraryTab !== 'subject' && !(isSeedanceReplayMode && assetLibraryTab === 'model') && (
                     <button
                       type="button"
                       onClick={triggerAssetLibraryLocalUpload}
                       disabled={isAssetLibraryUploading}
                       className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading
                         ? 'cursor-not-allowed border-white/10 bg-white/5 text-zinc-200/70'
-                        : assetLibraryUploadSuccessVisible
-                          ? 'border-transparent bg-transparent text-emerald-200'
-                          : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
+                        : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
                         }`}
                     >
-                      {isAssetLibraryUploading ? (
-                        (t as any).wb_uploading || '上传中...'
-                      ) : assetLibraryUploadSuccessVisible ? (
-                        <span
-                          className={`inline-flex items-center justify-center gap-1.5 text-emerald-200 transition-opacity duration-[2000ms] ${assetLibraryUploadSuccessFading ? 'opacity-0' : 'opacity-100'}`}
-                          aria-label={language === 'zh' ? '上传成功' : 'Upload succeeded'}
-                        >
-                          <CheckCircle className="h-4 w-4" />
-                        </span>
-                      ) : (
-                        (t as any).wb_btn_upload_to_library || '上传素材'
-                      )}
+                      {isAssetLibraryUploading
+                        ? ((t as any).wb_uploading || '上传中...')
+                        : ((t as any).wb_btn_upload_to_library || '上传素材')}
                     </button>
                   )}
                   <button
@@ -11378,6 +11457,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     {(t as any).wb_btn_manage_assets_library || '前往素材库'}
                   </button>
                 </div>
+              </div>
+            )}
+            {assetLibraryUploadSummaryToast && (
+              <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-4 text-xs font-normal text-emerald-400/85">
+                {formatMessage(
+                  (t as any).wb_upload_library_summary_toast || 'Successfully uploaded and saved {uploadedCount} assets to library, and added {addedCount} assets to the current material area.',
+                  {
+                    uploadedCount: assetLibraryUploadSummaryToast.uploadedCount,
+                    addedCount: assetLibraryUploadSummaryToast.addedCount,
+                  }
+                )}
               </div>
             )}
             {assetLibraryTab !== 'subject' && (
@@ -11455,30 +11545,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         ? (t.wb_script_library_empty || '暂无脚本素材')
                         : '暂无素材'}
                   </div>
-                  <button
-                    type="button"
-                    onClick={triggerAssetLibraryLocalUpload}
-                    disabled={isAssetLibraryUploading}
-                    className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading
-                      ? 'cursor-not-allowed border-white/10 bg-white/5 text-zinc-200/70'
-                      : assetLibraryUploadSuccessVisible
-                        ? 'border-transparent bg-transparent text-emerald-200'
-                        : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
-                      }`}
-                  >
-                    {isAssetLibraryUploading ? (
-                      (t as any).wb_uploading || '上传中...'
-                    ) : assetLibraryUploadSuccessVisible ? (
-                      <span
-                        className={`inline-flex items-center justify-center gap-1.5 text-emerald-200 transition-opacity duration-[2000ms] ${assetLibraryUploadSuccessFading ? 'opacity-0' : 'opacity-100'}`}
-                        aria-label={language === 'zh' ? '上传成功' : 'Upload succeeded'}
-                      >
-                        <CheckCircle className="h-4 w-4" />
-                      </span>
-                    ) : (
-                      (t as any).wb_btn_upload_to_library || '上传素材'
-                    )}
-                  </button>
                 </div>
               ) : (
                 <div className="grid grid-cols-6 gap-2">

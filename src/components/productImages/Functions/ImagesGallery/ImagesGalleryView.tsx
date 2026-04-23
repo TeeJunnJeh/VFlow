@@ -94,6 +94,7 @@ const cloneGalleryBulkConfig = (value: GalleryBulkConfig): GalleryBulkConfig => 
 });
 
 export type ImagesGalleryViewProps = {
+  isVisible: boolean;
   panelClassName: (view: ViewType) => string;
   t: any;
 
@@ -352,6 +353,12 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
   const [guideStepIndex, setGuideStepIndex] = useState(0);
   const [guidePanelStyle, setGuidePanelStyle] = useState<React.CSSProperties>({});
   const [guideHighlightStyle, setGuideHighlightStyle] = useState<React.CSSProperties>({});
+  const isVisible = props.isVisible;
+  const isVisibleRef = useRef(isVisible);
+
+  useEffect(() => {
+    isVisibleRef.current = isVisible;
+  }, [isVisible]);
 
   type GuideStepKey = 'left' | 'middle' | 'generate' | 'right';
   const guideSteps = useMemo<Array<{ key: GuideStepKey; title: string; description: string }>>(
@@ -440,6 +447,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
   useEffect(() => {
     const handler = () => {
+      if (!isVisibleRef.current) return;
       setGuideStepIndex(0);
       setIsGuideOpen(true);
     };
@@ -448,6 +456,12 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
   }, []);
 
   useEffect(() => {
+    if (isVisible) return;
+    setIsGuideOpen(false);
+  }, [isVisible]);
+
+  useEffect(() => {
+    if (!isVisible) return;
     if (isGuideOpen) return;
     try {
       if (window.localStorage.getItem(galleryGuideSeenKey) === '1') return;
@@ -458,7 +472,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
       setIsGuideOpen(true);
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [galleryGuideSeenKey, isGuideOpen]);
+  }, [galleryGuideSeenKey, isGuideOpen, isVisible]);
 
   useEffect(() => {
     if (!isGuideOpen) return;

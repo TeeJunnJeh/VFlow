@@ -41,6 +41,7 @@ import {
   buildFullScriptFallback,
   buildScriptEstimateStorageKey,
   buildScriptsFromShots,
+  distributeTenthsProportional,
   durToTenths,
   formatScriptPageDisplayName,
   getScriptGenerationCooldownRemainingMs,
@@ -6044,19 +6045,42 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const handleDurationChange = (id: number, newValue: string) => {
     const raw = newValue.trim();
-    const newScripts = scripts.map(s => {
-      if (s.id !== id) return s;
+    if (!raw) return;
+    const num = Number(raw);
+    if (!Number.isFinite(num)) return;
 
-      if (!raw) return s;
+    const idx = scripts.findIndex(s => s.id === id);
+    if (idx < 0) return;
 
-      const num = Number(raw);
-      if (!Number.isFinite(num)) return s;
+    const n = scripts.length;
+    const minFloor = 1; // 0.1s in tenths
+    const targetTenths = Math.max(n * minFloor, Math.round((Number(genDuration) || 1) * 10));
 
-      const clamped = Math.max(0.1, num);
-      const rounded = Math.round(clamped * 10) / 10;
-      return { ...s, dur: `${rounded}s` };
+    // 单镜头：锁定为 genDuration，保持 sum == genDuration
+    if (n === 1) {
+      updateScripts([{ ...scripts[0], dur: tenthsToDur(targetTenths) }]);
+      return;
+    }
+
+    // 把被改镜头 clamp 到 [0.1s, genDuration - 其它镜头最小占用]
+    const othersMinSum = (n - 1) * minFloor;
+    const maxNewTenths = Math.max(minFloor, targetTenths - othersMinSum);
+    const rawNewTenths = Math.round(Math.max(0.1, num) * 10);
+    const newDurTenths = Math.min(Math.max(rawNewTenths, minFloor), maxNewTenths);
+
+    // 剩余 targetTenths - newDurTenths 按原比例分给其他镜头
+    const otherWeights = scripts.filter((_, i) => i !== idx).map(s => durToTenths(s.dur));
+    const otherTargetTotal = targetTenths - newDurTenths;
+    const distributedOthers = distributeTenthsProportional(otherWeights, otherTargetTotal, minFloor);
+
+    let j = 0;
+    const next = scripts.map((s, i) => {
+      if (i === idx) return { ...s, dur: tenthsToDur(newDurTenths) };
+      const d = distributedOthers[j];
+      j += 1;
+      return { ...s, dur: tenthsToDur(d) };
     });
-    setScripts(newScripts);
+    updateScripts(next);
   };
 
   const handleScriptTypeChange = (id: number, newType: string) => {
@@ -6099,6 +6123,52 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return next;
     });
   };
+
+  // 不变量：只要开着分镜编辑器，每一页分镜的 Σdur 必须恒等于 genDuration。
+  // addScript / removeScript / handleDurationChange / ShotTimelineBar 里
+  // insert / delete / drag 经过前面改造后全部输出严格对齐状态，对普通编辑都是 no-op。
+  // 会真正触发 rescale 的只有：
+  //   1) 用户改 genDuration 滑块 / 下拉；
+  //   2) 切换 scriptPage（旧对齐的目标总时长已变）；
+  //   3) LLM 脚本生成返回 Σdur drift；
+  //   4) 工作区 / 模板恢复出来 Σdur 与 genDuration 不符。
+  useEffect(() => {
+    if (!enableStoryboardEditor) return;
+    const rescalePageScripts = (pageScripts: ScriptItem[]): ScriptItem[] => {
+      if (!pageScripts || pageScripts.length === 0) return pageScripts;
+      const pageTarget = Math.max(pageScripts.length, Math.round((Number(genDuration) || 1) * 10));
+      const currentTenths = pageScripts.reduce((sum, s) => sum + durToTenths(s.dur), 0);
+      if (currentTenths === pageTarget) return pageScripts;
+      const weights = pageScripts.map((s) => durToTenths(s.dur));
+      const distributed = distributeTenthsProportional(weights, pageTarget, 1);
+      return pageScripts.map((s, i) => ({ ...s, dur: tenthsToDur(distributed[i]) }));
+    };
+
+    const newActiveScripts = rescalePageScripts(scripts);
+    const activeChanged = newActiveScripts !== scripts;
+    if (activeChanged) setScripts(newActiveScripts);
+
+    setScriptPages((prev) => {
+      let changed = false;
+      const next = prev.map((page, i) => {
+        if (i === activeScriptPage) {
+          if (activeChanged) {
+            changed = true;
+            return { ...page, scripts: newActiveScripts };
+          }
+          return page;
+        }
+        const original = page.scripts || [];
+        const rescaled = rescalePageScripts(original);
+        if (rescaled !== original) {
+          changed = true;
+          return { ...page, scripts: rescaled };
+        }
+        return page;
+      });
+      return changed ? next : prev;
+    });
+  }, [genDuration, enableStoryboardEditor, scripts, scriptPages, activeScriptPage]);
 
   const removeScriptPage = (index: number) => {
     if (scriptPages.length <= 1) return;
@@ -6313,15 +6383,41 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const addScript = () => {
     const newId = scripts.length > 0 ? Math.max(...scripts.map(s => s.id)) + 1 : 1;
-    const next = [...scripts, {
+    // 空状态：第一个镜头直接等于用户所选 genDuration，让总时长立刻对齐
+    if (scripts.length === 0) {
+      const targetTenths = Math.max(1, Math.round((Number(genDuration) || 1) * 10));
+      updateScripts([{
+        id: newId,
+        shot: '1',
+        type: 'Medium',
+        dur: tenthsToDur(targetTenths),
+        visual: '',
+        audio: '',
+        audioTranslation: '',
+      }]);
+      return;
+    }
+    // 非空：对最后一个镜头做「对半分裂」，保持总时长不变
+    const lastIdx = scripts.length - 1;
+    const lastTenths = durToTenths(scripts[lastIdx].dur);
+    if (lastTenths < 2) {
+      openInfo(popupTitles.notice, t.wb_shot_timeline_insert_too_short || '当前镜头过短，无法分裂');
+      return;
+    }
+    const frontTenths = Math.floor(lastTenths / 2);
+    const backTenths = lastTenths - frontTenths;
+    const next = scripts.map((s, i) =>
+      i === lastIdx ? { ...s, dur: tenthsToDur(frontTenths) } : s
+    );
+    next.push({
       id: newId,
       shot: (scripts.length + 1).toString(),
       type: 'Medium',
-      dur: '1s',
+      dur: tenthsToDur(backTenths),
       visual: '',
       audio: '',
       audioTranslation: '',
-    }];
+    });
     updateScripts(next);
   };
 

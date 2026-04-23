@@ -756,6 +756,7 @@ export interface SeedanceCharacter {
   score: number;
   title: string;
   image_url: string;
+  image_thumb_url?: string;
   image_variant_url?: string;
 }
 
@@ -844,6 +845,7 @@ export const seedanceApi = {
         ...c,
         id: String(c.id),
         image_url: toDisplayUrl(c.image_url),
+        image_thumb_url: c.image_thumb_url ? toDisplayUrl(c.image_thumb_url) : '',
         image_variant_url: c.image_variant_url ? toDisplayUrl(c.image_variant_url) : '',
       }));
     }

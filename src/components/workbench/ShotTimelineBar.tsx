@@ -108,9 +108,25 @@ const ShotTimelineBar = ({ scripts, onUpdateScripts, t }: ShotTimelineBarProps) 
     const current = scriptsRef.current;
     const src = current[sourceIndex];
     if (!src) return;
-    const newShot: ScriptItem = makeNewShot(current);
+    const srcTenths = toTenths(src.dur);
+    // 源段不足 0.2s 无法对半分裂（按钮层面已 disabled，这里兜底）
+    if (srcTenths < 2) return;
+
+    const frontTenths = Math.floor(srcTenths / 2);
+    const backTenths = srcTenths - frontTenths;
+    // insertIndex === sourceIndex     → 新镜头置于源前，新镜头占前半，源保留后半
+    // insertIndex === sourceIndex + 1 → 新镜头置于源后，新镜头占后半，源保留前半
+    const newShotTenths = insertIndex === sourceIndex ? frontTenths : backTenths;
+    const keepTenths = insertIndex === sourceIndex ? backTenths : frontTenths;
+
+    const newShot: ScriptItem = {
+      ...makeNewShot(current),
+      dur: fromTenths(newShotTenths),
+    };
+    const updatedSrc: ScriptItem = { ...src, dur: fromTenths(keepTenths) };
 
     const next = [...current];
+    next[sourceIndex] = updatedSrc;
     next.splice(insertIndex, 0, newShot);
     onUpdateScriptsRef.current(renumber(next));
     setMenuIdx(null);
@@ -287,7 +303,12 @@ const ShotTimelineBar = ({ scripts, onUpdateScripts, t }: ShotTimelineBarProps) 
                   </div>
                 )}
                 {menuIdx === i && (() => {
-                  const insertBtnClass = 'px-2 py-1 rounded text-[10px] text-zinc-200 transition hover:bg-white/10 hover:text-orange-300 whitespace-nowrap';
+                  const srcTenths = toTenths(s.dur);
+                  const canSplit = srcTenths >= 2;
+                  const tooShortTip = t.wb_shot_timeline_insert_too_short || 'Current shot is too short to split';
+                  const insertBtnClass = canSplit
+                    ? 'px-2 py-1 rounded text-[10px] text-zinc-200 transition hover:bg-white/10 hover:text-orange-300 whitespace-nowrap'
+                    : 'px-2 py-1 rounded text-[10px] text-zinc-400 opacity-40 cursor-not-allowed whitespace-nowrap';
                   return (
                     <div
                       data-shot-timeline-menu="1"
@@ -297,6 +318,8 @@ const ShotTimelineBar = ({ scripts, onUpdateScripts, t }: ShotTimelineBarProps) 
                     >
                       <button
                         type="button"
+                        disabled={!canSplit}
+                        title={canSplit ? undefined : tooShortTip}
                         onClick={(e) => { e.stopPropagation(); handleInsertAt(i, i); }}
                         className={insertBtnClass}
                       >
@@ -305,6 +328,8 @@ const ShotTimelineBar = ({ scripts, onUpdateScripts, t }: ShotTimelineBarProps) 
                       <span className="w-px h-3 bg-white/10" />
                       <button
                         type="button"
+                        disabled={!canSplit}
+                        title={canSplit ? undefined : tooShortTip}
                         onClick={(e) => { e.stopPropagation(); handleInsertAt(i + 1, i); }}
                         className={insertBtnClass}
                       >

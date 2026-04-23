@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Eye, Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download, FileDown, ChevronLeft, ChevronRight, LayoutGrid, ArrowLeft, PencilLine, Trash2, Zap, Check, Shirt, Wrench, Clapperboard, Folder } from 'lucide-react';
 import type { ViewType } from './types';
 import { useLanguage } from '../../context/LanguageContext';
@@ -5091,6 +5091,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         </div>
 
         <ImagesGalleryView
+          isVisible={currentValue === 'product_images_gallery'}
           panelClassName={panelClassName}
           t={t}
           galleryFileInputRef={galleryFileInputRef}

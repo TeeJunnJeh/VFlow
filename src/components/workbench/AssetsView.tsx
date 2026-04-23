@@ -279,6 +279,11 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [seedanceHasMore, setSeedanceHasMore] = useState(false);
   const seedanceSentinelRef = useRef<HTMLDivElement | null>(null);
   const seedanceScrollRef = useRef<HTMLDivElement | null>(null);
+  // Refs for IntersectionObserver callback — always hold latest values without re-registering observer
+  const seedanceLoadingRef = useRef(false);
+  const seedanceHasMoreRef = useRef(false);
+  const seedancePageRef = useRef(1);
+  const seedanceFiltersRef = useRef<SeedanceCharacterFilters>({ page_size: 24, search_mode: 'default' });
 
   // New script dialog
   const [isNewScriptDialogOpen, setIsNewScriptDialogOpen] = useState(false);
@@ -710,33 +715,47 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   }, [activeAssetTab, viewMode]);
 
   const loadSeedanceCharacters = useCallback(async (filters?: SeedanceCharacterFilters) => {
+    seedanceLoadingRef.current = true;
     setSeedanceLoading(true);
     try {
-      const resp = await seedanceApi.getCharacters(filters || seedanceFilters);
+      const f = filters || seedanceFilters;
+      const resp = await seedanceApi.getCharacters(f);
       setSeedanceCharacters(resp.data.results);
       setSeedanceTotalCount(resp.data.count);
+      const ps = f.page_size || 24;
+      const hasMore = resp.data.page * ps < resp.data.count;
       setSeedancePage(resp.data.page);
-      const ps = (filters || seedanceFilters).page_size || 24;
-      setSeedanceHasMore(resp.data.page * ps < resp.data.count);
+      setSeedanceHasMore(hasMore);
+      seedancePageRef.current = resp.data.page;
+      seedanceHasMoreRef.current = hasMore;
+      if (filters) seedanceFiltersRef.current = filters;
     } catch (err) {
       console.error('Failed to load seedance characters', err);
     } finally {
+      seedanceLoadingRef.current = false;
       setSeedanceLoading(false);
     }
   }, [seedanceFilters]);
 
   const loadSeedanceCharactersAppend = useCallback(async (filters: SeedanceCharacterFilters) => {
+    if (seedanceLoadingRef.current) return; // sync guard — prevents concurrent calls
+    seedanceLoadingRef.current = true;
     setSeedanceLoading(true);
     try {
       const resp = await seedanceApi.getCharacters(filters);
       setSeedanceCharacters(prev => [...prev, ...resp.data.results]);
       setSeedanceTotalCount(resp.data.count);
-      setSeedancePage(resp.data.page);
       const ps = filters.page_size || 24;
-      setSeedanceHasMore(resp.data.page * ps < resp.data.count);
+      const hasMore = resp.data.page * ps < resp.data.count;
+      setSeedancePage(resp.data.page);
+      setSeedanceHasMore(hasMore);
+      seedancePageRef.current = resp.data.page;
+      seedanceHasMoreRef.current = hasMore;
+      seedanceFiltersRef.current = filters;
     } catch (err) {
       console.error('Failed to load seedance characters (append)', err);
     } finally {
+      seedanceLoadingRef.current = false;
       setSeedanceLoading(false);
     }
   }, []);
@@ -766,6 +785,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       void loadSeedanceOptions();
       const fresh: SeedanceCharacterFilters = { page_size: 24, search_mode: seedanceSearchMode, page: 1 };
       setSeedanceFilters(fresh);
+      seedanceFiltersRef.current = fresh;
       setSeedanceCharacters([]);
       void loadSeedanceCharacters(fresh);
     }
@@ -773,15 +793,16 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   }, [viewMode, activeAssetTab]);
 
   // IntersectionObserver for seedance infinite scroll in plaza model tab
+  // Registered ONCE per tab entry — reads latest values via refs to avoid re-registration storm
   useEffect(() => {
     if (viewMode !== 'plaza' || activeAssetTab !== 'model') return;
     const sentinel = seedanceSentinelRef.current;
     if (!sentinel) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting && seedanceHasMore && !seedanceLoading) {
-          const nextPage = seedancePage + 1;
-          const nextFilters = { ...seedanceFilters, page: nextPage };
+        if (entries[0]?.isIntersecting && seedanceHasMoreRef.current && !seedanceLoadingRef.current) {
+          const nextFilters = { ...seedanceFiltersRef.current, page: seedancePageRef.current + 1 };
+          seedanceFiltersRef.current = nextFilters;
           setSeedanceFilters(nextFilters);
           void loadSeedanceCharactersAppend(nextFilters);
         }
@@ -790,7 +811,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [viewMode, activeAssetTab, seedanceHasMore, seedanceLoading, seedancePage, seedanceFilters, loadSeedanceCharactersAppend]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, activeAssetTab, loadSeedanceCharactersAppend]);
 
   useEffect(() => {
     if (viewMode === 'library') {

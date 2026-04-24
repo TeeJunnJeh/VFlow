@@ -211,10 +211,9 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
 };
 
 export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projectId, embedded = false }) => {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const { requireAuth } = useRequireAuth();
   const isZh = language === 'zh';
-  const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
 
   const [phase, setPhase] = useState<Phase>('setup');
   const [sourceImage, setSourceImage] = useState<File | null>(null);
@@ -236,10 +235,10 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   const [loadingBackgroundSrc, setLoadingBackgroundSrc] = useState<string>('');
   const [smartRepairModelRate, setSmartRepairModelRate] = useState<number>(0);
 
-  const subpageOptions: Array<{ key: SmartRepairSubpage; zh: string; en: string }> = [
-    { key: 'fashion_model', zh: '服装/模特', en: 'Fashion/Model' },
-    { key: 'product_object', zh: '商品/物品', en: 'Product/Object' },
-    { key: 'other', zh: '其他', en: 'Other' },
+  const subpageOptions: Array<{ key: SmartRepairSubpage; label: string }> = [
+    { key: 'fashion_model', label: t.sr_subpage_fashion_model_name },
+    { key: 'product_object', label: t.sr_subpage_product_object_name },
+    { key: 'other', label: t.sr_subpage_other_name },
   ];
 
   const currentTools = activeSubpage ? TOOL_MATRIX[activeSubpage] : [];
@@ -355,7 +354,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     if (!activeSubpage || !activeToolCode) {
       setError({
         code: 'NO_FUNCTION',
-        message: tr('请先选择功能', 'Please select a function first'),
+        message: t.sr_no_function_msg,
         severity: 'warning',
       });
       return;
@@ -364,7 +363,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     if (!sourceImage) {
       setError({
         code: 'NO_SOURCE_IMAGE',
-        message: tr('请先上传待修复图片', 'Please upload a source image first'),
+        message: t.sr_no_source_msg,
         severity: 'warning',
       });
       return;
@@ -373,7 +372,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     if (!prompt.trim()) {
       setError({
         code: 'NO_PROMPT',
-        message: tr('请填写修复说明', 'Please provide repair instructions'),
+        message: t.sr_no_prompt_msg,
         severity: 'warning',
       });
       return;
@@ -409,17 +408,17 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
 
       setError({
         code: 'SMART_REPAIR_EMPTY',
-        message: tr('修复完成但未返回图片，请重试', 'Repair finished but no image was returned. Please retry.'),
+        message: t.sr_empty_result_msg,
         severity: 'error',
       });
       setPhase('error');
     } catch (err) {
-      const message = err instanceof Error ? err.message : tr('未知错误', 'Unknown error');
+      const message = err instanceof Error ? err.message : t.ff_unknown_error;
       setError({
         code: 'SMART_REPAIR_FAILED',
         message,
         severity: 'error',
-        suggestion: tr('请检查网络后重试，或简化修复指令', 'Please retry and simplify repair instructions if needed.'),
+        suggestion: t.sr_retry_suggestion,
       });
       setPhase('error');
     }
@@ -445,7 +444,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     } catch {
       setError({
         code: 'DOWNLOAD_FAILED',
-        message: tr('下载失败，请重试', 'Download failed. Please retry.'),
+        message: t.ff_error_download_failed,
         severity: 'error',
       });
     }
@@ -460,17 +459,17 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
               <button
                 onClick={onBack}
                 className="p-2 hover:bg-zinc-800 rounded-lg transition"
-                title={tr('返回', 'Back')}
+                title={t.ff_back}
               >
                 <ChevronLeft className="w-6 h-6 text-zinc-400" />
               </button>
             )}
             <div>
               <h1 className="text-2xl font-bold text-white mb-1">
-                {tr('AI智能修复', 'AI Smart Repair')}
+                {t.sr_title}
               </h1>
               <p className="text-zinc-400 text-sm">
-                {tr('基于三类能力中心进行可扩展的智能修图', 'Extensible smart-retouch workspace with three capability groups')}
+                {t.sr_subtitle}
               </p>
             </div>
           </div>
@@ -480,10 +479,10 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
           {phase === 'setup' && !activeSubpage && (
             <div>
               <h2 className="text-lg font-semibold text-white mb-2">
-                {tr('步骤 1: 选择子模块', 'Step 1: Select Submodule')}
+                {t.sr_step1_select_submodule}
               </h2>
               <p className="text-sm text-zinc-400 mb-6">
-                {tr('选择相应的子模块，查看可用功能并开始编辑。', 'Choose a submodule to view available functions and start editing.')}
+                {t.sr_step1_select_submodule_hint}
               </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {subpageOptions.map((item) => {
@@ -501,15 +500,15 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                       }}
                       className="rounded-2xl border border-white/10 bg-black/20 p-5 text-left hover:border-orange-400/60 hover:bg-orange-500/5 transition group"
                     >
-                      <div className="text-base font-semibold text-zinc-100">{isZh ? item.zh : item.en}</div>
+                      <div className="text-base font-semibold text-zinc-100">{item.label}</div>
                       <div className="text-xs text-zinc-500 mt-2">
-                        {item.key === 'fashion_model' && tr('人像与服装相关智能编辑能力', 'Model and fashion editing capabilities')}
-                        {item.key === 'product_object' && tr('商品主图与细节图修复增强能力', 'Product image repair and enhancement capabilities')}
-                        {item.key === 'other' && tr('通用图像修复与风格化能力', 'General image retouch and stylization capabilities')}
+                        {item.key === 'fashion_model' && t.sr_subpage_fashion_model_desc}
+                        {item.key === 'product_object' && t.sr_subpage_product_object_desc}
+                        {item.key === 'other' && t.sr_subpage_other_desc}
                       </div>
                       <div className="mt-4 pt-4 border-t border-white/10">
                         <div className="text-xs text-zinc-400 mb-2">
-                          {tr('包含功能：', 'Available Functions:')} ({toolsInModule.length})
+                          {t.sr_available_functions} ({toolsInModule.length})
                         </div>
                         <div className="flex flex-wrap gap-2">
                           {toolsInModule.map((tool) => (
@@ -546,17 +545,17 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                     className="inline-flex items-center gap-2 text-xs text-zinc-400 hover:text-zinc-200 mb-2"
                   >
                     <ArrowLeft className="w-4 h-4" />
-                    {tr('返回子模块选择', 'Back to submodule selection')}
+                    {t.sr_back_to_submodule}
                   </button>
                   <h2 className="text-lg font-semibold text-white">
-                    {isZh ? subpageOptions.find((s) => s.key === activeSubpage)?.zh : subpageOptions.find((s) => s.key === activeSubpage)?.en}
+                    {subpageOptions.find((s) => s.key === activeSubpage)?.label}
                   </h2>
                 </div>
               </div>
 
               {/* Tool Selector Tabs */}
               <div className="bg-black/30 rounded-xl p-4 border border-white/10">
-                <div className="text-xs text-zinc-400 mb-3">{tr('步骤 1: 选择功能', 'Step 1: Select Function')}</div>
+                <div className="text-xs text-zinc-400 mb-3">{t.sr_step1_select_function}</div>
                 <div className="flex gap-2 flex-wrap">
                   {currentTools.map((tool) => {
                     const selected = !!activeToolCode && tool.code === activeToolCode;
@@ -583,7 +582,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
 
               {/* Function Cards Gallery - Show all tools with before/after examples */}
               <div>
-                <div className="text-sm font-semibold text-zinc-200 mb-4">{tr('步骤 2: 功能示例', 'Step 2: Function Showcase')}</div>
+                <div className="text-sm font-semibold text-zinc-200 mb-4">{t.sr_step2_function_showcase}</div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {currentTools.map((tool) => {
                     const selected = !!activeToolCode && tool.code === activeToolCode;
@@ -613,7 +612,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                               }}
                             />
                             <div className="absolute top-1 left-1 bg-black/60 px-2 py-0.5 rounded text-xs text-zinc-300">
-                              {tr('前', 'Before')}
+                              {t.sr_before}
                             </div>
                           </div>
                           <div className="aspect-square overflow-hidden bg-black/50 relative">
@@ -626,7 +625,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                               }}
                             />
                             <div className="absolute top-1 right-1 bg-orange-500/80 px-2 py-0.5 rounded text-xs text-white font-semibold">
-                              {tr('后', 'After')}
+                              {t.sr_after}
                             </div>
                           </div>
                         </div>
@@ -650,9 +649,9 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                 {/* Main Content - Only show when tool is selected */}
                 {!activeToolCode && (
                   <div className="rounded-xl border border-dashed border-white/10 bg-black/20 p-6 text-center">
-                    <div className="text-sm text-zinc-500 mb-2">{tr('💡 提示', '💡 Tip')}</div>
+                    <div className="text-sm text-zinc-500 mb-2">{t.sr_tip_label}</div>
                     <p className="text-sm text-zinc-400">
-                      {tr('请从上方功能列表中选择一个功能开始。', 'Please select a function from the list above to begin.')}
+                      {t.sr_tip_select_function}
                     </p>
                   </div>
                 )}
@@ -672,7 +671,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                   {/* Upload Section - Two Column */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <div className="text-sm font-semibold text-zinc-200 mb-3">{tr('步骤 3: 上传原图', 'Step 3: Upload Source')}</div>
+                      <div className="text-sm font-semibold text-zinc-200 mb-3">{t.sr_step3_upload_source}</div>
                       {!sourceImage ? (
                         <ImageUploader
                           maxFiles={1}
@@ -692,14 +691,14 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                             onClick={() => setSourceImage(null)}
                             className="mt-2 text-xs text-zinc-400 hover:text-zinc-200 underline"
                           >
-                            {tr('更换图片', 'Change')}
+                            {t.sr_change_image}
                           </button>
                         </div>
                       )}
                     </div>
 
                     <div>
-                      <div className="text-sm font-semibold text-zinc-200 mb-3">{tr('参考图 (可选)', 'Reference (Optional)')}</div>
+                      <div className="text-sm font-semibold text-zinc-200 mb-3">{t.sr_reference_optional}</div>
                       <ImageUploader
                         maxFiles={1}
                         onFilesSelected={(files) => setReferenceImage(files[0] || null)}
@@ -718,7 +717,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                             onClick={() => setReferenceImage(null)}
                             className="mt-2 text-xs text-zinc-400 hover:text-zinc-200 underline"
                           >
-                            {tr('移除参考图', 'Remove')}
+                            {t.sr_remove_reference}
                           </button>
                         </div>
                       )}
@@ -727,33 +726,33 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
 
                   {/* Repair Instructions */}
                   <div>
-                    <div className="text-sm font-semibold text-zinc-200 mb-3">{tr('步骤 4: 修复说明', 'Step 4: Repair Instructions')}</div>
+                    <div className="text-sm font-semibold text-zinc-200 mb-3">{t.sr_step4_repair_instructions}</div>
                     <textarea
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
                       rows={5}
                       className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm text-zinc-200 outline-none focus:border-orange-400/50"
-                      placeholder={tr('例如：去除杯身水印，保留材质高光和边缘细节', 'E.g. Remove watermark while preserving highlights')}
+                      placeholder={t.sr_prompt_placeholder}
                     />
                   </div>
 
                   {/* Parameters - Three Column */}
                   <div className="grid grid-cols-3 gap-3">
                     <div>
-                      <div className="text-xs text-zinc-400 mb-2 font-medium">{tr('强度', 'Strength')}</div>
+                      <div className="text-xs text-zinc-400 mb-2 font-medium">{t.sr_strength}</div>
                       <select
                         value={strength}
                         onChange={(e) => setStrength(e.target.value as SmartRepairParams['strength'])}
                         className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:border-orange-400/50"
                       >
-                        <option value="light">{tr('轻度', 'Light')}</option>
-                        <option value="medium">{tr('中度', 'Medium')}</option>
-                        <option value="strong">{tr('强力', 'Strong')}</option>
+                        <option value="light">{t.sr_strength_light}</option>
+                        <option value="medium">{t.sr_strength_medium}</option>
+                        <option value="strong">{t.sr_strength_strong}</option>
                       </select>
                     </div>
 
                     <div>
-                      <div className="text-xs text-zinc-400 mb-2 font-medium">{tr('比例', 'Aspect')}</div>
+                      <div className="text-xs text-zinc-400 mb-2 font-medium">{t.sr_aspect}</div>
                       <select
                         value={aspectRatio}
                         onChange={(e) => setAspectRatio(e.target.value as SmartRepairParams['aspectRatio'])}
@@ -767,7 +766,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                     </div>
 
                     <div>
-                      <div className="text-xs text-zinc-400 mb-2 font-medium">{tr('张数', 'Count')}</div>
+                      <div className="text-xs text-zinc-400 mb-2 font-medium">{t.sr_count}</div>
                       <select
                         value={outputCount}
                         onChange={(e) => setOutputCount(Number(e.target.value) as SmartRepairParams['outputCount'])}
@@ -792,7 +791,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                       }}
                       className="px-4 py-2 text-sm bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition"
                     >
-                      {tr('清空输入', 'Clear')}
+                      {t.sr_clear_input}
                     </button>
                     <button
                       onClick={handleGenerate}
@@ -800,10 +799,10 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                       disabled={!sourceImage}
                     >
                       <Sparkles className="w-4 h-4" />
-                      {tr('步骤 5: 开始修复', 'Step 5: Start Repair')}
+                      {t.sr_step5_start_repair}
                       {estimatedCost > 0 ? (
                         <span className="ml-1 text-[10px] font-semibold text-black/75 whitespace-nowrap">
-                          {`-${formatCreditAmount(estimatedCost)} ${tr('V点', 'V-points')}`}
+                          {`-${formatCreditAmount(estimatedCost)} ${t.v_points}`}
                         </span>
                       ) : null}
                     </button>
@@ -819,9 +818,9 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
               <LoadingProgress
                 progress={progress}
                 estimatedTime={35}
-                currentStep={tr('智能修复生成中', 'Generating smart-repair images')}
+                currentStep={t.sr_loading_current_step}
                 totalSteps={3}
-                title={tr('正在进行智能修复...', 'Performing smart repair...')}
+                title={t.sr_loading_title}
                 theme={loadingTheme}
                 backgroundImageSrc={loadingBackgroundSrc}
                 onCancel={() => setPhase('setup')}
@@ -833,22 +832,22 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
             <div>
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <h2 className="text-xl font-bold text-white">{tr('生成结果', 'Generation Results')}</h2>
-                  <p className="text-sm text-zinc-400 mt-1">{results.length} {tr('张图片已生成', 'images generated')}</p>
+                  <h2 className="text-xl font-bold text-white">{t.sr_generation_results}</h2>
+                  <p className="text-sm text-zinc-400 mt-1">{results.length} {t.sr_images_generated}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setPhase('setup')}
                     className="px-4 py-2 text-sm bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition"
                   >
-                    {tr('调整参数', 'Adjust Params')}
+                    {t.sr_adjust_params}
                   </button>
                   <button
                     onClick={resetToStart}
                     className="px-4 py-2 text-sm bg-white/10 text-zinc-200 rounded-lg hover:bg-white/20 transition inline-flex items-center gap-2"
                   >
                     <Home className="w-4 h-4" />
-                    {tr('回到开头', 'Back To Start')}
+                    {t.sr_back_to_start}
                   </button>
                 </div>
               </div>
@@ -863,7 +862,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                         className="w-full px-3 py-2 text-sm bg-orange-500 text-black font-semibold rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2"
                       >
                         <Download className="w-4 h-4" />
-                        {tr('下载', 'Download')}
+                        {t.sr_download}
                       </button>
                     </div>
                   </div>
@@ -875,9 +874,9 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
           <div className="mt-10 border-t border-white/10 pt-8">
             <div className="flex items-center justify-between gap-3 mb-6">
               <div>
-                <h3 className="text-lg font-bold text-white">{tr('最近生成', 'Recent Generations')}</h3>
+                <h3 className="text-lg font-bold text-white">{t.sr_recent_generations}</h3>
                 <p className="text-sm text-zinc-400 mt-1">
-                  {tr('已保存的修复结果 • ', 'Saved results • ')}
+                  {t.sr_saved_results_prefix}
                   <span className="text-zinc-300">{historyItems.length}</span>
                 </p>
               </div>
@@ -886,7 +885,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
             {historyItems.length === 0 ? (
               <div className="rounded-xl border border-dashed border-white/10 bg-black/20 p-8 text-center">
                 <p className="text-sm text-zinc-500">
-                  {tr('暂无历史记录，生成成功后会出现在这里。', 'No history yet. Successful generations will appear here.')}
+                  {t.sr_empty_history}
                 </p>
               </div>
             ) : (
@@ -903,7 +902,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                     <div className="p-3">
                       <div className="flex items-center justify-between gap-2 mb-2">
                         <div className="text-xs text-zinc-400">{new Date(item.createdAt).toLocaleDateString()}</div>
-                        <div className="text-xs bg-zinc-800/50 text-zinc-300 px-2 py-1 rounded">{item.outputImages.length} {tr('张', 'images')}</div>
+                        <div className="text-xs bg-zinc-800/50 text-zinc-300 px-2 py-1 rounded">{item.outputImages.length} {t.sr_images_unit}</div>
                       </div>
                       <div className="flex items-center gap-2">
                         <button
@@ -911,7 +910,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                           onClick={() => restoreHistoryItem(item)}
                           className="flex-1 px-3 py-2 text-xs bg-white/10 text-zinc-200 rounded-lg hover:bg-orange-500/20 hover:text-orange-200 transition"
                         >
-                          {tr('查看', 'View')}
+                          {t.sr_view}
                         </button>
                         <button
                           type="button"

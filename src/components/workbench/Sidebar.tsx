@@ -66,9 +66,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
   const { t, language } = useLanguage();
   const { user, updateUser } = useAuth();
   const navigate = useNavigate();
-  const isZh = language === 'zh';
-  const tx = (key: string, fallback: string) => ((t as any)[key] as string) || fallback;
-  const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
   const nextTheme: ThemeMode = theme === 'light' ? 'dark' : 'light';
 
   const handleCycleTheme = React.useCallback(() => {
@@ -80,8 +77,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
   }, [nextTheme, setTheme, updateUser]);
 
   const themeButtonLabel = nextTheme === 'light'
-    ? tr('切换到日间', 'Switch to light')
-    : tr('切换到夜间', 'Switch to dark');
+    ? t.sidebar_switch_to_light
+    : t.sidebar_switch_to_dark;
 
   const isProductImagesView = PRODUCT_IMAGE_VIEWS.includes(activeView);
   const [isProductImagesSectionOpen, setIsProductImagesSectionOpen] = React.useState(isProductImagesView);
@@ -107,11 +104,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
   }, [setActiveView]);
 
   const productImageOptions: Array<{ view: ViewType; label: string; icon: any }> = [
-    { view: 'product_images_clothing_swap', label: tx('wb_nav_product_clothing_swap', tr('AI 换装', 'AI Clothing Swap')), icon: Shirt },
-    { view: 'product_images_first_frame', label: tx('wb_nav_product_first_frame', tr('AI 首帧图', 'AI First Frame')), icon: Clapperboard },
-    { view: 'product_images_smart_repair', label: tx('wb_nav_product_smart_repair', tr('AI 智能修复', 'AI Smart Repair')), icon: Wrench },
-    { view: 'product_images_gallery', label: tx('wb_nav_product_gallery', tr('AI 商品套图', 'AI Product Gallery')), icon: LayoutGrid },
-    { view: 'product_images_text_separation', label: tx('wb_nav_product_text_separation', tr('AI 海报编辑', 'AI Poster Editor')), icon: PencilLine },
+    { view: 'product_images_clothing_swap', label: t.wb_nav_product_clothing_swap, icon: Shirt },
+    { view: 'product_images_first_frame', label: t.wb_nav_product_first_frame, icon: Clapperboard },
+    { view: 'product_images_smart_repair', label: t.wb_nav_product_smart_repair, icon: Wrench },
+    { view: 'product_images_gallery', label: t.wb_nav_product_gallery, icon: LayoutGrid },
+    { view: 'product_images_text_separation', label: t.wb_nav_product_text_separation, icon: PencilLine },
   ];
 
   React.useLayoutEffect(() => {
@@ -165,14 +162,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
         }`}
         aria-expanded={isProductImagesSectionOpen}
         aria-controls="product-images-subnav"
-        title={tx('wb_nav_product_images', tr('商品图片生成', 'Product Images'))}
+        title={t.wb_nav_product_images}
       >
         <div className={`transition-colors ${active ? 'text-orange-500' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
           <ImageIcon className={`w-5 h-5 transition-all ${active ? 'stroke-[2.5px]' : ''}`} />
         </div>
         {active && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />}
         <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
-          {tx('wb_nav_product_images', tr('商品图片生成', 'Product Images'))}
+          {t.wb_nav_product_images}
         </div>
       </button>
     );
@@ -294,7 +291,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
               transitionTimingFunction: PRODUCT_IMAGES_SECTION_EASING,
             }}
             role="menu"
-            aria-label={tx('wb_nav_product_images', tr('商品图片生成', 'Product Images'))}
+            aria-label={t.wb_nav_product_images}
           >
             {productImageOptions.map((opt) => {
               const selected = activeView === opt.view;

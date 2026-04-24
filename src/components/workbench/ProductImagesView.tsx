@@ -3,7 +3,7 @@ import { Eye, Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, Rotat
 import type { ViewType } from './types';
 import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
-import { FirstFrameView, ImagesGalleryView, SmartRepairView } from '../productImages';
+import { ClothingSwapView, FirstFrameView, ImagesGalleryView, SmartRepairView } from '../productImages';
 import { AppDialog } from '../common/AppDialog';
 import TextSeparationDemoView, { type TextSeparationBlock } from './TextSeparationDemoView';
 import GalleryBoardEditor, { type GalleryBoardAsset, type GalleryBoardDraft } from './GalleryBoardEditor';
@@ -785,6 +785,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const currentValue: ViewType = isProductView ? activeView : 'product_images_first_frame';
   const panelClassName = (view: ViewType) => (currentValue === view ? 'block' : 'hidden');
   const [firstFrameHeaderActionsContainer, setFirstFrameHeaderActionsContainer] = useState<HTMLDivElement | null>(null);
+  const [clothingSwapHeaderActionsContainer, setClothingSwapHeaderActionsContainer] = useState<HTMLDivElement | null>(null);
 
   const currentHeader = useMemo(() => {
     switch (currentValue) {
@@ -4827,6 +4828,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       )}
           <LanguageSwitcher />
           {currentValue === 'product_images_first_frame' && <div ref={setFirstFrameHeaderActionsContainer} className="flex items-center gap-3" />}
+          {currentValue === 'product_images_clothing_swap' && <div ref={setClothingSwapHeaderActionsContainer} className="flex items-center gap-3" />}
         </div>
       </header>
 
@@ -4834,13 +4836,17 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         className={
           currentValue === 'product_images_gallery'
             ? 'flex-1 overflow-hidden p-0'
-            : 'flex-1 overflow-y-auto custom-scroll px-10 py-6'
+            : currentValue === 'product_images_clothing_swap'
+              ? 'flex-1 overflow-hidden px-10 py-6'
+              : 'flex-1 overflow-y-auto custom-scroll px-10 py-6'
         }
       >
-        <div className={panelClassName('product_images_clothing_swap')}>
-          <div className="rounded-2xl border border-white/5 bg-white/2 h-full flex items-center justify-center text-zinc-500">
-            <div>{t.pg_main_clothing_swap_in_dev}</div>
-          </div>
+        <div className={currentValue === 'product_images_clothing_swap' ? 'block h-full' : 'hidden'}>
+          <ClothingSwapView
+            embedded
+            isVisible={currentValue === 'product_images_clothing_swap'}
+            headerActionsContainer={clothingSwapHeaderActionsContainer}
+          />
         </div>
 
         <div className={currentValue === 'product_images_first_frame' ? 'block h-full' : 'hidden'}>

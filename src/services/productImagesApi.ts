@@ -6,6 +6,8 @@ import type {
   GenerationStatusResponse,
   ProductImageResult,
   SmartRepairParams,
+  ClothingSwapParams,
+  ClothingSwapResult,
 } from '../types/productImages';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
@@ -322,6 +324,89 @@ export const productImagesApi = {
       progress: 100,
       outputImages,
       completedAt: new Date().toISOString(),
+    };
+  },
+
+  async generateClothingSwap(
+    modelImage: File,
+    garmentImage: File,
+    params: ClothingSwapParams,
+    options?: {
+      projectId?: string;
+      workspaceId?: string;
+      clientHistoryId?: string;
+    }
+  ): Promise<ClothingSwapResult> {
+    if (!modelImage) {
+      throw new Error('Please upload a model image first');
+    }
+    if (!garmentImage) {
+      throw new Error('Please upload a garment image first');
+    }
+
+    const [modelImagePath, garmentImagePath] = await Promise.all([
+      uploadTempImage(modelImage),
+      uploadTempImage(garmentImage),
+    ]);
+
+    const payload: Record<string, unknown> = {
+      model_image_path: modelImagePath,
+      garment_image_path: garmentImagePath,
+      category: params.category || 'Top',
+      target_color: params.targetColor || 'Original',
+      background: params.background || 'model',
+      aspect_ratio: params.aspectRatio || '1:1',
+      output_count: params.outputCount || 1,
+    };
+    if (options?.projectId) payload.project_id = options.projectId;
+    if (options?.workspaceId) payload.workspace_id = options.workspaceId;
+    if (options?.clientHistoryId) payload.client_history_id = options.clientHistoryId;
+
+    const response = await fetch(`${PROJECTS_API_BASE}/generate_clothing_swap`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCookie('csrftoken') || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Failed to generate clothing-swap image');
+    }
+
+    const data = await response.json();
+    const rawUrls = Array.isArray(data?.data?.image_urls) ? data.data.image_urls : [];
+    const primaryUrl = String(data?.data?.image_url || rawUrls[0] || '').trim();
+    if (!primaryUrl && rawUrls.length === 0) {
+      throw new Error('Generation succeeded but image_url was missing');
+    }
+
+    const displayUrls = (rawUrls.length > 0 ? rawUrls : [primaryUrl])
+      .map((u: unknown) => toDisplayUrl(String(u || '').trim()))
+      .filter(Boolean);
+    const displayPrimary = displayUrls[0] || toDisplayUrl(primaryUrl);
+
+    const outputImages: ProductImageResult[] = displayUrls.map((url: string, index: number) => ({
+      id: `clothing-swap-${Date.now()}-${index}`,
+      imageUrl: url,
+      downloadUrl: url,
+      format: 'png',
+    }));
+
+    return {
+      imageUrl: displayPrimary,
+      imageUrls: displayUrls,
+      downloadUrl: displayPrimary,
+      outputImages,
+      feedback: String(data?.data?.feedback || '').trim(),
+      taskId: data?.data?.task_id,
+      projectId: String(data?.data?.project_id || '').trim() || undefined,
+      cost: typeof data?.data?.cost === 'number' ? data.data.cost : undefined,
+      balance: typeof data?.data?.balance === 'number' ? data.data.balance : undefined,
+      model: String(data?.data?.model || '').trim() || undefined,
     };
   },
 

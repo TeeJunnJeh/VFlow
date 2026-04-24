@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { authApi } from '../services/auth';
 import { videoApi } from '../services/video';
 import { clearDebugModeEnabled } from '../services/debugMode';
@@ -24,6 +25,8 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
+  theme: ThemeMode;
+  setTheme: (t: ThemeMode) => void;
   login: (identifier: string, serverData?: any) => Promise<void>;
   updateUser: (patch: Partial<User>) => void;
   updateCredits: (delta: number) => void;
@@ -35,6 +38,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const WORKBENCH_PROJECT_STORE_KEY_PREFIX = 'vflow_workbench_projects_v1';
+const GUEST_THEME_KEY = 'vflow_guest_theme';
 
 const getWorkbenchProjectStoreKey = (userId?: string | number | null) => {
   const normalized = userId === null || userId === undefined || userId === '' ? 'guest' : String(userId);
@@ -42,11 +46,58 @@ const getWorkbenchProjectStoreKey = (userId?: string | number | null) => {
 };
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+  const location = useLocation();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [theme, setThemeState] = useState<ThemeMode>('dark');
   // Distinguishes an explicit in-session login (true) from a session restore via /api/auth/me/ (false).
   // Consumers read this once to trigger post-login UX like the invite reward popup.
   const [justLoggedIn, setJustLoggedIn] = useState(false);
+
+  // Apply theme to document root
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const root = document.documentElement;
+
+    // Hardcoded Dark-Only Pages (Login & Landing)
+    const isDarkOnlyPage = 
+      location.pathname === '/' || 
+      location.pathname === '/login' ||
+      location.pathname === '/login/';
+
+    if (isDarkOnlyPage) {
+      root.classList.remove('theme-light');
+      root.classList.remove('theme-dim');
+      return;
+    }
+
+    root.classList.toggle('theme-light', theme === 'light');
+    root.classList.remove('theme-dim'); // Default fallback
+  }, [theme, location.pathname]);
+
+  // Sync theme when user changes
+  useEffect(() => {
+    if (user?.theme) {
+      setThemeState(normalizeThemeMode(user.theme, 'dark'));
+    } else {
+      // Guest: fallback to localStorage
+      try {
+        const saved = localStorage.getItem(GUEST_THEME_KEY) as ThemeMode;
+        if (saved === 'light' || saved === 'dark') {
+          setThemeState(saved);
+        }
+      } catch { /* ignore */ }
+    }
+  }, [user?.id, user?.theme]);
+
+  const setTheme = (t: ThemeMode) => {
+    setThemeState(t);
+    if (!user) {
+      try {
+        localStorage.setItem(GUEST_THEME_KEY, t);
+      } catch { /* ignore */ }
+    }
+  };
 
   const toDisplayUrl = (pathOrUrl: string | null | undefined): string => {
     if (!pathOrUrl) return '';
@@ -228,6 +279,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const updateUser = (patch: Partial<User>) => {
     setUser(prev => {
+      if (!prev) return null;
+
       const nextPatch: Partial<User> = { ...patch };
       if ('avatar' in nextPatch) {
         nextPatch.avatar = normalizeAvatar((nextPatch as any).avatar);
@@ -239,7 +292,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if ('credits' in nextPatch && nextPatch.credits !== undefined) {
         nextPatch.credits = roundCreditTenths(Number(nextPatch.credits || 0));
       }
-      const updated = { ...(prev as User || {}), ...nextPatch } as User;
+      const updated = { ...prev, ...nextPatch } as User;
       try {
         localStorage.setItem('vflow_ai_user', JSON.stringify(updated));
       } catch (e) {
@@ -260,7 +313,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, updateUser, updateCredits, logout, isLoading, justLoggedIn, consumeJustLoggedIn }}>
+    <AuthContext.Provider value={{ user, theme, setTheme, login, updateUser, updateCredits, logout, isLoading, justLoggedIn, consumeJustLoggedIn }}>
       {children}
     </AuthContext.Provider>
   );

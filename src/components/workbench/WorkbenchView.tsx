@@ -1136,7 +1136,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
   }, [coreSellingPoints, productCategory, productName, targetAudience]);
 
-  const LEFT_COLUMN_MIN_WIDTH = 260;
+  const LEFT_COLUMN_MIN_WIDTH = 390;
   const SCRIPT_COLUMN_MIN_WIDTH = 350;
   const PREVIEW_COLUMN_MIN_WIDTH = 260;
   const LEFT_COLUMN_RATIO_KEY = `vflow_workbench_layout_ratio_v1_${user?.id ?? 'guest'}`;

@@ -166,7 +166,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
         }`}
         aria-expanded={isProductImagesSectionOpen}
         aria-controls="product-images-subnav"
-        title={t.wb_nav_product_images}
       >
         <div className={`transition-colors ${active ? 'text-orange-500' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
           <ImageIcon className={`w-5 h-5 transition-all ${active ? 'stroke-[2.5px]' : ''}`} />

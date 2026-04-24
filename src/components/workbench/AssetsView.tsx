@@ -270,7 +270,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [seedanceEthnicities, setSeedanceEthnicities] = useState<string[]>([]);
   const [seedanceCulturalBranches, setSeedanceCulturalBranches] = useState<string[]>([]);
   const [seedanceSkinTones, setSeedanceSkinTones] = useState<string[]>([]);
-  const [seedanceSearchMode, setSeedanceSearchMode] = useState<SeedanceSearchMode>('default');
+  const [seedanceSearchMode, setSeedanceSearchMode] = useState<SeedanceSearchMode>('fuzzy');
   const [seedanceFilters, setSeedanceFilters] = useState<SeedanceCharacterFilters>({ page_size: 24, search_mode: 'default' });
   const [seedanceAdvancedOpen, setSeedanceAdvancedOpen] = useState(false);
   const [showSeedanceBrowser, setShowSeedanceBrowser] = useState(false);
@@ -836,7 +836,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       seedancePageRef.current = 1;
       seedanceErrorRef.current = false;
       setSeedanceError(null);
-      void loadSeedanceCharacters(fresh);
+      // fuzzy mode requires user input first; default mode auto-loads
+      if (seedanceSearchMode !== 'fuzzy') void loadSeedanceCharacters(fresh);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, activeAssetTab]);
@@ -2826,8 +2827,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                         setShowSeedanceBrowser(true);
                         void loadSeedanceOptions();
                         // Full reset before opening — prevents inheriting state from previous plaza/library session
-                        const fresh: SeedanceCharacterFilters = { page_size: 24, search_mode: 'default', page: 1 };
-                        setSeedanceSearchMode('default');
+                        const fresh: SeedanceCharacterFilters = { page_size: 24, search_mode: 'fuzzy', page: 1 };
+                        setSeedanceSearchMode('fuzzy');
                         setSeedanceFilters(fresh);
                         seedanceFiltersRef.current = fresh;
                         setSeedanceCharacters([]);
@@ -2838,7 +2839,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                         seedancePageRef.current = 1;
                         seedanceErrorRef.current = false;
                         setSeedanceError(null);
-                        void loadSeedanceCharacters(fresh);
+                        // fuzzy mode: wait for user input, no auto-load
                       }}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition shrink-0"
                     >
@@ -3301,7 +3302,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               <div ref={seedanceScrollRef} className="flex-1 overflow-y-auto custom-scroll">
               {/* Search Mode Tabs */}
               <div className="flex items-center gap-1 mb-3">
-                {(['default', 'fuzzy'] as SeedanceSearchMode[]).map((mode) => {
+                {(['fuzzy', 'default'] as SeedanceSearchMode[]).map((mode) => {
                   const labels: Record<SeedanceSearchMode, string> = {
                     default: t.assets_seedance_tab_default || '条件查询',
                     fuzzy: t.assets_seedance_tab_fuzzy || '模糊查询',
@@ -3346,7 +3347,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           value={seedanceFilters.search_appearance || ''}
                           onChange={(e) => setSeedanceFilters((prev) => ({ ...prev, search_appearance: e.target.value }))}
                           onKeyDown={(e) => { if (e.key === 'Enter') { setSeedanceCharacters([]); void loadSeedanceCharacters(seedanceFilters); } }}
-                          placeholder={t.assets_seedance_fuzzy_appearance_placeholder || '如 "大眼 双眼皮" 或 "厚唇 暖白皮 卷发"'}
+                          placeholder={t.assets_seedance_fuzzy_appearance_placeholder || '如 "中国 傣族 黄种人" 或 "大眼 厚唇 卷发"'}
                           className="w-full bg-zinc-800 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-orange-500/50"
                         />
                       </div>
@@ -3355,7 +3356,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       </p>
                       <div className="flex flex-wrap items-center gap-1 mt-1.5">
                         <span className="text-[10px] text-zinc-500">{t.assets_seedance_fuzzy_try || '试试：'}</span>
-                        {(t.assets_seedance_fuzzy_appearance_chips || '大眼,双眼皮,厚唇,暖白皮,卷发,络腮胡,高大魁梧,圆形脸').split(',').map((chip) => (
+                        {(t.assets_seedance_fuzzy_appearance_chips || '如 "中国 傣族 黄种人" 或 "大眼 厚唇 卷发"').split(',').map((chip) => (
                           <button
                             key={chip}
                             onClick={() => {
@@ -4314,7 +4315,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
               {/* Search Mode Tabs: 默认查询 | 模糊查询 */}
               <div className="flex items-center gap-1 px-6 pt-3 pb-0">
-                {(['default', 'fuzzy'] as SeedanceSearchMode[]).map((mode) => {
+                {(['fuzzy', 'default'] as SeedanceSearchMode[]).map((mode) => {
                   const labels: Record<SeedanceSearchMode, string> = {
                     default: t.assets_seedance_tab_default || '条件查询',
                     fuzzy: t.assets_seedance_tab_fuzzy || '模糊查询',
@@ -4362,7 +4363,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           value={seedanceFilters.search_appearance || ''}
                           onChange={(e) => setSeedanceFilters((prev) => ({ ...prev, search_appearance: e.target.value }))}
                           onKeyDown={(e) => { if (e.key === 'Enter') void loadSeedanceCharacters(seedanceFilters); }}
-                          placeholder={t.assets_seedance_fuzzy_appearance_placeholder || '如 "大眼 双眼皮" 或 "厚唇 暖白皮 卷发"'}
+                          placeholder={t.assets_seedance_fuzzy_appearance_placeholder || ' 如 "中国 傣族 黄种人" 或 "大眼 厚唇 卷发"'}
                           className="w-full bg-zinc-800 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-orange-500/50"
                         />
                       </div>
@@ -4371,7 +4372,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       </p>
                       <div className="flex flex-wrap items-center gap-1 mt-1.5">
                         <span className="text-[10px] text-zinc-500">{t.assets_seedance_fuzzy_try || '试试：'}</span>
-                        {(t.assets_seedance_fuzzy_appearance_chips || '大眼,双眼皮,厚唇,暖白皮,卷发,络腮胡,高大魁梧,圆形脸').split(',').map((chip) => (
+                        {(t.assets_seedance_fuzzy_appearance_chips || '如 "中国 傣族 黄种人" 或 "大眼 厚唇 卷发"').split(',').map((chip) => (
                           <button
                             key={chip}
                             onClick={() => {

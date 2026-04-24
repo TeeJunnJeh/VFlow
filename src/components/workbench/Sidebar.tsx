@@ -71,10 +71,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
   const handleCycleTheme = React.useCallback(() => {
     setTheme(nextTheme);
     updateUser({ theme: nextTheme });
-    void authApi.updateProfile({ theme: nextTheme }).catch((err) => {
-      console.error('Failed to persist sidebar theme switch', err);
-    });
-  }, [nextTheme, setTheme, updateUser]);
+    
+    // 仅在用户登录时才尝试同步到后端
+    if (user) {
+      void authApi.updateProfile({ theme: nextTheme }).catch((err) => {
+        console.error('Failed to persist sidebar theme switch', err);
+      });
+    }
+  }, [nextTheme, setTheme, updateUser, user]);
 
   const themeButtonLabel = nextTheme === 'light'
     ? t.sidebar_switch_to_light

@@ -74,11 +74,10 @@ const getDisplayUrl = (path: string | null): string | null => {
 };
 
 const Workbench = () => {
-  const { user, justLoggedIn, consumeJustLoggedIn } = useAuth();
+  const { user, theme, setTheme, justLoggedIn, consumeJustLoggedIn } = useAuth();
 
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
-  const [theme, setTheme] = useState<ThemeMode>(normalizeThemeMode(user?.theme, 'dark'));
   const [isInviteRewardOpen, setIsInviteRewardOpen] = useState(false);
 
   // Post-login reward popup: triggered only when the user has just logged in in this session,
@@ -131,11 +130,6 @@ const Workbench = () => {
 
   // --- Effects ---
   useEffect(() => {
-    if (!user?.theme) return;
-    setTheme((prev) => normalizeThemeMode(user.theme, prev));
-  }, [user?.theme]);
-
-  useEffect(() => {
     let mounted = true;
     const syncDebugMode = async () => {
       try {
@@ -158,17 +152,6 @@ const Workbench = () => {
       mounted = false;
     };
   }, [user?.id]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const root = document.documentElement;
-    root.classList.toggle('theme-light', theme === 'light');
-    root.classList.remove('theme-dim');
-    return () => {
-      root.classList.remove('theme-dim');
-    };
-  }, [theme]);
 
   useEffect(() => {
     if (user?.id) loadTemplates();

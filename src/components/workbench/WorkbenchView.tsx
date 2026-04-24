@@ -2969,10 +2969,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const openAssetLibraryPicker = (target: KlingLibraryUploadTarget = 'default') => {
     setKlingLibraryUploadTarget(target);
     setSeedanceReplayLibraryIntent(null);
-    // Kling subject mode: primary slot opens subject tab, reference slot opens regular assets.
-    if (selectedModel === 'kling' && klingGenerateMode === 'subject') {
+    if (selectedModel === 'kling') {
       setAssetLibraryPickMode('default');
-      setAssetLibraryTab(target === 'primary' ? 'subject' : 'product');
+      setAssetLibraryTab(klingGenerateMode === 'subject' && target === 'primary' ? 'subject' : 'product');
       setAssetLibraryCurrentFolderId(null);
       setIsAssetLibraryOpen(true);
       return;
@@ -3789,6 +3788,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const subjectAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => ([
     { value: 'subject', label: materialTypeLabelMap.subject },
   ]), [materialTypeLabelMap]);
+  const klingAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => ([
+    { value: 'product', label: materialTypeLabelMap.product },
+    { value: 'model', label: materialTypeLabelMap.model },
+  ]), [materialTypeLabelMap.model, materialTypeLabelMap.product]);
   const seedanceReplayAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => (
     seedanceReplayLibraryIntent
       ? seedanceReplayLibraryIntent.allowedTabs.map((tab) => ({ value: tab, label: materialTypeLabelMap[tab] }))
@@ -3799,9 +3802,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   ]), [materialTypeLabelMap.script]);
   const assetLibraryVisibleTabs = assetLibraryPickMode === 'script_import'
     ? scriptImportAssetLibraryTabs
+    : isKlingOmniMode
+      && assetLibraryPickMode === 'default'
+      && klingGenerateMode === 'subject'
+      && klingLibraryUploadTarget === 'primary'
+      ? subjectAssetLibraryTabs
+    : isKlingOmniMode && assetLibraryPickMode === 'default'
+      ? klingAssetLibraryTabs
     : assetLibraryTab === 'subject'
       ? subjectAssetLibraryTabs
       : (seedanceReplayLibraryIntent ? seedanceReplayAssetLibraryTabs : defaultAssetLibraryTabs);
+  const shouldHideAssetLibraryLocalUpload = assetLibraryTab === 'model';
   const isSeedanceReplayMode = creationMode === 'replay' && selectedModel === 'seedance2.0';
   const uploadDisplayAssets: QueuedAsset[] = useMemo(() => {
     if (assetQueue.length > 0) return assetQueue;
@@ -3884,6 +3895,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     return false;
   }, [normalizeSeedanceAssetUrl, seedanceReplaySelectedAssetSignatures]);
+
+  const klingSelectedAssetSignatures = useMemo(() => {
+    const signatures = new Set<string>();
+    uploadDisplayAssets.forEach((asset) => {
+      const assetId = String(asset.assetId || asset.id || '').trim();
+      if (assetId) signatures.add(`id:${assetId}`);
+
+      const normalizedUrl = normalizeSeedanceAssetUrl(asset.assetUrl || asset.uploadedPath || asset.previewUrl || '');
+      if (normalizedUrl) signatures.add(`url:${normalizedUrl}`);
+    });
+    return signatures;
+  }, [normalizeSeedanceAssetUrl, uploadDisplayAssets]);
+
+  const isKlingAssetAlreadyAdded = useCallback((asset: LibraryAsset) => {
+    const assetId = String(asset.id || '').trim();
+    if (assetId && klingSelectedAssetSignatures.has(`id:${assetId}`)) return true;
+
+    const normalizedUrl = normalizeSeedanceAssetUrl(asset.file_url);
+    if (normalizedUrl && klingSelectedAssetSignatures.has(`url:${normalizedUrl}`)) return true;
+
+    return false;
+  }, [klingSelectedAssetSignatures, normalizeSeedanceAssetUrl]);
 
   const seedanceReplayValidation = useMemo(
     () => buildSeedanceReplayValidationSummary(uploadDisplayAssets, t),
@@ -4490,7 +4523,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return { ...item, source: 'preference', isPrimaryFrame: false };
     });
     const sorted = sortKlingQueueAssets(normalized);
-    if (mode === 'first_frame' || mode === 'first_last_frame') {
+    if (mode === 'first_last_frame') {
       return sorted.map((item) => (item.mediaKind === 'image' ? { ...item, materialType: 'product' as const } : item));
     }
     return sorted;
@@ -6840,7 +6873,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const renderUploadAssetCard = useCallback((asset: QueuedAsset, compact = false) => {
     const inQueue = assetQueue.find((item) => item.id === asset.id);
     const selected = selectedQueueAssetId ? selectedQueueAssetId === asset.id : uploadedFile === asset.previewUrl;
-    const isKlingFirstFrameCard = isKlingOmniMode && klingGenerateMode === 'first_frame';
+    const isKlingPreviewCard = isKlingOmniMode && (klingGenerateMode === 'first_frame' || klingGenerateMode === 'subject');
     const highlighted = isKlingOmniMode
       ? (klingGenerateMode === 'subject'
         ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
@@ -6863,7 +6896,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         onDragEnd={clearWorkbenchDragState}
         onClick={(e) => {
           e.stopPropagation();
-          if (isKlingFirstFrameCard) return;
+          if (isKlingPreviewCard) {
+            setSeedanceReplayPreviewAsset(inQueue || asset);
+            return;
+          }
           if (inQueue) {
             selectAssetFromQueue(inQueue);
             return;
@@ -6880,7 +6916,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           if (e.key !== 'Enter' && e.key !== ' ') return;
           e.preventDefault();
           e.stopPropagation();
-          if (isKlingFirstFrameCard) return;
+          if (isKlingPreviewCard) {
+            setSeedanceReplayPreviewAsset(inQueue || asset);
+            return;
+          }
           if (inQueue) {
             selectAssetFromQueue(inQueue);
             return;
@@ -6893,18 +6932,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           setCurrentMaterialType(asset.materialType || null);
           setSelectedQueueAssetId(null);
         }}
-        className={`group relative w-full rounded-md overflow-hidden border text-left transition ${selected ? 'border-orange-500/70 ring-1 ring-orange-500/50' : 'border-white/10 hover:border-white/20'}`}
+        className={`group/upload-asset relative w-full rounded-md overflow-visible border text-left transition ${selected ? 'border-orange-500/70 ring-1 ring-orange-500/50' : 'border-white/10 hover:border-white/20'}`}
       >
         {asset.previewUrl ? (asset.mediaKind === 'video' ? (
           <video src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" muted playsInline />
         ) : (
-          <img src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" alt={asset.name} />
+          <img src={asset.previewUrl} className="w-full h-auto max-h-[240px] rounded-md object-contain bg-black/40 opacity-80" alt={asset.name} />
         )) : (
-          <div className="w-full h-24 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
+          <div className="w-full h-24 rounded-md flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
         )}
         {(() => {
           const hideMaterialTypeSelect =
-            isKlingOmniMode && (klingGenerateMode === 'first_frame' || klingGenerateMode === 'first_last_frame');
+            isKlingOmniMode && klingGenerateMode === 'first_last_frame';
+          const useKlingImageTagOnly =
+            isKlingOmniMode
+            && (klingGenerateMode === 'first_frame' || klingGenerateMode === 'subject')
+            && asset.mediaKind === 'image';
           const showSubjectBadge =
             isKlingOmniMode &&
             klingGenerateMode === 'subject' &&
@@ -6919,11 +6962,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </span>
               ) : null}
               {!hideMaterialTypeSelect ? (
-                <select
-                  className="wb-workbench-field wb-workbench-field--compact cursor-pointer appearance-none shadow-sm"
-                  value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product')}
-                  onChange={(e) => {
-                    const newType = e.target.value as AssetLibraryTab;
+                <DropdownSelect
+                  value={(() => {
+                    const fallback = asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product';
+                    const current = asset.materialType || fallback;
+                    if (!useKlingImageTagOnly) return current;
+                    return (current === 'product' || current === 'model' || current === 'scene') ? current : 'product';
+                  })()}
+                  options={[
+                    { value: 'product', label: t.assets_tab_products || '商品' },
+                    { value: 'model', label: materialTypeLabelMap['model'] },
+                    { value: 'scene', label: materialTypeLabelMap['scene'] },
+                    ...(useKlingImageTagOnly ? [] : [
+                      { value: 'motion', label: materialTypeLabelMap['motion'] },
+                      { value: 'audio', label: materialTypeLabelMap['audio'] },
+                    ]),
+                  ]}
+                  onChange={(value) => {
+                    const newType = value as AssetLibraryTab;
                     setAssetQueue((prev) => {
                       const next = prev.map((item): QueuedAsset =>
                         item.id === asset.id ? { ...item, materialType: newType } : item
@@ -6934,24 +6990,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       setCurrentMaterialType(newType);
                     }
                   }}
-                  style={{
-                    backgroundImage:
-                      'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%230f172a\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")',
-                    backgroundRepeat: 'no-repeat',
-                    backgroundPosition: 'right 6px center',
-                  }}
-                >
-                  <option value="product">{materialTypeLabelMap['product']}</option>
-                  <option value="model">{materialTypeLabelMap['model']}</option>
-                  <option value="scene">{materialTypeLabelMap['scene']}</option>
-                  <option value="motion">{materialTypeLabelMap['motion']}</option>
-                  <option value="audio">{materialTypeLabelMap['audio']}</option>
-                </select>
+                  buttonClassName="min-w-[72px] rounded-md border border-white/20 bg-black/55 px-2 py-1 text-[10px] font-semibold text-zinc-100 shadow-sm backdrop-blur-sm hover:border-white/35 hover:bg-black/65"
+                  labelClassName="text-[10px] text-zinc-100"
+                  iconClassName="h-3 w-3 text-zinc-300"
+                  menuClassName="w-[120px] border-white/20 bg-zinc-950/95 z-[260]"
+                  optionClassName="text-[11px] font-medium text-zinc-100 hover:bg-white/10"
+                  renderInPortal
+                />
               ) : null}
             </div>
           );
         })()}
-        {!isKlingFirstFrameCard ? (
+        {!isKlingPreviewCard ? (
           <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
           {!isKlingOmniMode && asset.mediaKind === 'image' && (
             <button
@@ -6992,19 +7042,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           <button onClick={(e) => removeUpload(e, asset.id)} className="p-1 bg-black/50 hover:bg-red-500 rounded text-white transition"><X className="w-2.5 h-2.5" /></button>
           </div>
         ) : null}
-        {isKlingFirstFrameCard ? (
-          <div className="absolute inset-x-0 bottom-0 z-20 flex items-center justify-center gap-1.5 bg-gradient-to-t from-black/65 to-transparent py-2 opacity-0 transition group-hover:opacity-100">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setSeedanceReplayPreviewAsset(inQueue || asset);
-              }}
-              className="flex h-6 w-6 items-center justify-center rounded-md border border-white/20 bg-black/40 text-zinc-200 transition hover:bg-white/15"
-              aria-label="Preview Asset"
-            >
-              <Eye className="h-3.5 w-3.5" />
-            </button>
+        {isKlingPreviewCard ? (
+          <div className="absolute top-1 right-1 z-10">
             <button
               type="button"
               onClick={(e) => removeUpload(e, asset.id)}
@@ -7015,9 +7054,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </button>
           </div>
         ) : null}
-        <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-10">
-          <p className="text-[9px] text-white truncate drop-shadow-md">{asset.name}</p>
-        </div>
+        {!isKlingPreviewCard ? (
+          <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-10">
+            <p className="text-[9px] text-white truncate drop-shadow-md">{asset.name}</p>
+          </div>
+        ) : null}
       </div>
     );
   }, [
@@ -7033,7 +7074,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     selectedAssetSource,
     selectedQueueAssetId,
     setSeedanceReplayPreviewAsset,
-    t.wb_ready,
     uploadedFile,
   ]);
 
@@ -9749,23 +9789,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                 </button>
                               ))}
                             </div>
-                            <div
-                              className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
-                              onClick={() => openAssetLibraryPicker()}
-                            >
+                            <div className="rounded-xl border border-white/10 bg-black/25 p-2">
                               <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
                                 <span>{t.wb_label_reference_image || '参考图'}</span>
-                                <UploadCloud className="w-3.5 h-3.5 text-zinc-500" />
+                                <button
+                                  type="button"
+                                  className="flex h-6 w-6 items-center justify-center rounded-md border border-white/20 bg-black/55 text-zinc-200 transition hover:border-orange-400/70 hover:bg-orange-500/20 hover:text-orange-200"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openAssetLibraryPicker('reference');
+                                  }}
+                                  aria-label={t.wb_upload_click || 'Click to Upload'}
+                                >
+                                  <Plus className="h-3.5 w-3.5" />
+                                </button>
                               </div>
                               {klingReferenceSlotAssets.length > 0 ? (
                                 <div className="flex flex-col gap-2 max-h-60 overflow-y-auto custom-scroll pr-1">
                                   {klingReferenceSlotAssets.map((asset) => renderUploadAssetCard(asset))}
                                 </div>
                               ) : (
-                                <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20 flex flex-col items-center justify-center gap-2">
-                                  <UploadCloud className="w-5 h-5 text-zinc-600" />
-                                  <span className="text-[10px] text-zinc-500">{t.wb_kling_reference_upload_hint || 'Click to upload a product reference image'}</span>
-                                </div>
+                                <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20" />
                               )}
                             </div>
                           </div>
@@ -11488,7 +11532,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <div className="flex items-center justify-between gap-3 px-1">
                 <div className="text-xs text-zinc-400">{t.wb_audio_picker_hint || '仅显示音频素材'}</div>
                 <div className="flex items-center gap-2">
-                  {assetLibraryTab !== 'subject' && !(isSeedanceReplayMode && assetLibraryTab === 'model') && (
+                  {!shouldHideAssetLibraryLocalUpload && assetLibraryTab !== 'subject' && (
                     <button
                       type="button"
                       onClick={triggerAssetLibraryLocalUpload}
@@ -11530,7 +11574,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   ))}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  {assetLibraryTab !== 'subject' && !(isSeedanceReplayMode && assetLibraryTab === 'model') && (
+                  {!shouldHideAssetLibraryLocalUpload && assetLibraryTab !== 'subject' && (
                     <button
                       type="button"
                       onClick={triggerAssetLibraryLocalUpload}
@@ -11665,6 +11709,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       && assetLibraryPickMode === 'default'
                       && isSeedanceReplayAssetAlreadyAdded(asset)
                     );
+                    const alreadyAddedInKling = (
+                      isKlingOmniMode
+                      && assetLibraryPickMode === 'default'
+                      && isKlingAssetAlreadyAdded(asset)
+                    );
+                    const alreadyAddedInLibrary = alreadyAddedInSeedance || alreadyAddedInKling;
 
                     return (
                       <button
@@ -11679,12 +11729,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           setAssetLibraryHoverClickedAssetId((prev) => (prev === asset.id ? null : prev));
                         }}
                         onClick={() => {
-                          if (alreadyAddedInSeedance) return;
+                          if (alreadyAddedInLibrary) return;
                           const ok = selectAssetFromLibraryPopup(asset);
                           if (ok) setAssetLibraryHoverClickedAssetId(asset.id);
                         }}
-                        className={`group text-left rounded-lg border bg-black/30 p-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30 ${alreadyAddedInSeedance ? 'border-emerald-400/70 ring-1 ring-emerald-400/35' : 'border-white/10 hover:border-orange-500/50 hover:bg-white/5'}`}
-                        title={alreadyAddedInSeedance ? (t.wb_seedance_replay_notice_duplicate_asset || 'This asset has already been added.') : undefined}
+                        className={`group text-left rounded-lg border bg-black/30 p-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30 ${alreadyAddedInLibrary ? 'border-emerald-400/70 ring-1 ring-emerald-400/35' : 'border-white/10 hover:border-orange-500/50 hover:bg-white/5'}`}
+                        title={alreadyAddedInLibrary ? (t.wb_seedance_replay_notice_duplicate_asset || 'This asset has already been added.') : undefined}
                       >
                         <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
                           {isKlingOmniMode && hasSubjectOtherViews(asset) && (
@@ -11692,7 +11742,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               <Layers3 className="w-3.5 h-3.5" />
                             </div>
                           )}
-                          {alreadyAddedInSeedance && (
+                          {alreadyAddedInLibrary && (
                             <div className="wb-seedance-replay-added-badge absolute left-1.5 top-1.5 z-10 rounded-full border border-emerald-500/20 bg-emerald-500/5 px-1.5 py-0.5 text-[9px] font-bold text-emerald-400/85">
                               {t.wb_seedance_replay_added_badge || '已添加'}
                             </div>
@@ -11712,7 +11762,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} />
                           )}
 
-                          {!alreadyAddedInSeedance ? (
+                          {!alreadyAddedInLibrary ? (
                             <>
                               <div
                                 className={`pointer-events-none absolute inset-0 bg-black/45 transition-opacity duration-200 ${assetLibraryHoverAssetId === asset.id ? 'opacity-100' : 'opacity-0'}`}

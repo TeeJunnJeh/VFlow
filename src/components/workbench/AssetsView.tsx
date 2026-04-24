@@ -270,7 +270,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [seedanceEthnicities, setSeedanceEthnicities] = useState<string[]>([]);
   const [seedanceCulturalBranches, setSeedanceCulturalBranches] = useState<string[]>([]);
   const [seedanceSkinTones, setSeedanceSkinTones] = useState<string[]>([]);
-  const [seedanceSearchMode, setSeedanceSearchMode] = useState<SeedanceSearchMode>('default');
+  const [seedanceSearchMode, setSeedanceSearchMode] = useState<SeedanceSearchMode>('fuzzy');
   const [seedanceFilters, setSeedanceFilters] = useState<SeedanceCharacterFilters>({ page_size: 24, search_mode: 'default' });
   const [seedanceAdvancedOpen, setSeedanceAdvancedOpen] = useState(false);
   const [showSeedanceBrowser, setShowSeedanceBrowser] = useState(false);
@@ -285,10 +285,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const seedanceHasMoreRef = useRef(false);
   const seedancePageRef = useRef(1);
   const seedanceFiltersRef = useRef<SeedanceCharacterFilters>({ page_size: 24, search_mode: 'default' });
-  // Virtual DOM window — tracks how many items were trimmed from the front of the list
-  const [seedanceDroppedCount, setSeedanceDroppedCount] = useState(0);
   const seedanceCharsCountRef = useRef(0);   // current array length, avoids stale closure in append
-  const seedanceCardHeightRef = useRef(210); // measured card height (px) for spacer calc
   // Error state — when true, infinite-scroll observer stops firing until user clicks retry
   const [seedanceError, setSeedanceError] = useState<string | null>(null);
   const seedanceErrorRef = useRef(false);
@@ -734,7 +731,6 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       const resp = await seedanceApi.getCharacters(f);
       setSeedanceCharacters(resp.data.results);
       seedanceCharsCountRef.current = resp.data.results.length;
-      setSeedanceDroppedCount(0);
       setSeedanceTotalCount(resp.data.count);
       const ps = f.page_size || 24;
       const hasMore = resp.data.page * ps < resp.data.count;
@@ -766,18 +762,10 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     try {
       const resp = await seedanceApi.getCharacters(filters);
       const newItems = resp.data.results;
-      // Sliding window: keep at most 192 items (8 pages) in DOM to cap memory
-      const prevCount = seedanceCharsCountRef.current;
-      const combinedCount = prevCount + newItems.length;
-      const toDrop = combinedCount > 192
-        ? Math.ceil((combinedCount - 192) / 24) * 24
-        : 0;
-      setSeedanceCharacters(prev => {
-        const arr = [...prev, ...newItems];
-        return toDrop > 0 ? arr.slice(toDrop) : arr;
-      });
-      seedanceCharsCountRef.current = combinedCount - toDrop;
-      if (toDrop > 0) setSeedanceDroppedCount(c => c + toDrop);
+      
+      setSeedanceCharacters(prev => [...prev, ...newItems]);
+      seedanceCharsCountRef.current = seedanceCharsCountRef.current + newItems.length;
+      
       setSeedanceTotalCount(resp.data.count);
       const ps = filters.page_size || 24;
       const hasMore = resp.data.page * ps < resp.data.count;
@@ -825,18 +813,18 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     if (viewMode === 'plaza' && activeAssetTab === 'model') {
       void loadSeedanceOptions();
       const fresh: SeedanceCharacterFilters = { page_size: 24, search_mode: seedanceSearchMode, page: 1 };
-      // Full state reset — prevent residual hasMore/page/dropped from previous session
+      // Full state reset — prevent residual hasMore/page from previous session
       setSeedanceFilters(fresh);
       seedanceFiltersRef.current = fresh;
       setSeedanceCharacters([]);
       seedanceCharsCountRef.current = 0;
-      setSeedanceDroppedCount(0);
       setSeedanceHasMore(false);
       seedanceHasMoreRef.current = false;
       seedancePageRef.current = 1;
       seedanceErrorRef.current = false;
       setSeedanceError(null);
-      void loadSeedanceCharacters(fresh);
+      // fuzzy mode requires user input first; default mode auto-loads
+      if (seedanceSearchMode !== 'fuzzy') void loadSeedanceCharacters(fresh);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, activeAssetTab]);
@@ -865,22 +853,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     observer.observe(sentinel);
     return () => observer.disconnect();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, activeAssetTab, seedanceHasMore, loadSeedanceCharactersAppend]);
-
-  // ResizeObserver to track the first card's rendered height for top-spacer calculation.
-  // Re-runs when the first card id changes (i.e. when items are dropped from the front).
-  useEffect(() => {
-    const grid = seedanceScrollRef.current?.querySelector<HTMLElement>('[data-seedance-grid]');
-    if (!grid) return;
-    const firstCard = grid.firstElementChild as HTMLElement | null;
-    if (!firstCard) return;
-    const ro = new ResizeObserver(() => {
-      if (firstCard.offsetHeight > 0) seedanceCardHeightRef.current = firstCard.offsetHeight;
-    });
-    ro.observe(firstCard);
-    return () => ro.disconnect();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seedanceCharacters[0]?.id]);
+  }, [viewMode, activeAssetTab, seedanceHasMore, seedanceLoading, loadSeedanceCharactersAppend]);
 
   useEffect(() => {
     if (viewMode === 'library') {
@@ -2826,19 +2799,18 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                         setShowSeedanceBrowser(true);
                         void loadSeedanceOptions();
                         // Full reset before opening — prevents inheriting state from previous plaza/library session
-                        const fresh: SeedanceCharacterFilters = { page_size: 24, search_mode: 'default', page: 1 };
-                        setSeedanceSearchMode('default');
+                        const fresh: SeedanceCharacterFilters = { page_size: 24, search_mode: 'fuzzy', page: 1 };
+                        setSeedanceSearchMode('fuzzy');
                         setSeedanceFilters(fresh);
                         seedanceFiltersRef.current = fresh;
                         setSeedanceCharacters([]);
                         seedanceCharsCountRef.current = 0;
-                        setSeedanceDroppedCount(0);
                         setSeedanceHasMore(false);
                         seedanceHasMoreRef.current = false;
                         seedancePageRef.current = 1;
                         seedanceErrorRef.current = false;
                         setSeedanceError(null);
-                        void loadSeedanceCharacters(fresh);
+                        // fuzzy mode: wait for user input, no auto-load
                       }}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition shrink-0"
                     >
@@ -3301,7 +3273,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               <div ref={seedanceScrollRef} className="flex-1 overflow-y-auto custom-scroll">
               {/* Search Mode Tabs */}
               <div className="flex items-center gap-1 mb-3">
-                {(['default', 'fuzzy'] as SeedanceSearchMode[]).map((mode) => {
+                {(['fuzzy', 'default'] as SeedanceSearchMode[]).map((mode) => {
                   const labels: Record<SeedanceSearchMode, string> = {
                     default: t.assets_seedance_tab_default || '条件查询',
                     fuzzy: t.assets_seedance_tab_fuzzy || '模糊查询',
@@ -3346,7 +3318,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           value={seedanceFilters.search_appearance || ''}
                           onChange={(e) => setSeedanceFilters((prev) => ({ ...prev, search_appearance: e.target.value }))}
                           onKeyDown={(e) => { if (e.key === 'Enter') { setSeedanceCharacters([]); void loadSeedanceCharacters(seedanceFilters); } }}
-                          placeholder={t.assets_seedance_fuzzy_appearance_placeholder || '如 "大眼 双眼皮" 或 "厚唇 暖白皮 卷发"'}
+                          placeholder={t.assets_seedance_fuzzy_appearance_placeholder || '如 "中国 傣族 黄种人" 或 "大眼 厚唇 卷发"'}
                           className="w-full bg-zinc-800 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-orange-500/50"
                         />
                       </div>
@@ -3355,7 +3327,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       </p>
                       <div className="flex flex-wrap items-center gap-1 mt-1.5">
                         <span className="text-[10px] text-zinc-500">{t.assets_seedance_fuzzy_try || '试试：'}</span>
-                        {(t.assets_seedance_fuzzy_appearance_chips || '大眼,双眼皮,厚唇,暖白皮,卷发,络腮胡,高大魁梧,圆形脸').split(',').map((chip) => (
+                        {(t.assets_seedance_fuzzy_appearance_chips || '如 "中国 傣族 黄种人" 或 "大眼 厚唇 卷发"').split(',').map((chip) => (
                           <button
                             key={chip}
                             onClick={() => {
@@ -3635,20 +3607,10 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                   </div>
                 ) : (
                   <div data-seedance-grid className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
-                    {/* Top spacer compensates for items trimmed from the front of the virtual window */}
-                    {seedanceDroppedCount > 0 && (
-                      <div style={{ gridColumn: '1 / -1', height: `${Math.ceil(seedanceDroppedCount / (
-                        window.matchMedia('(min-width: 1280px)').matches ? 8
-                          : window.matchMedia('(min-width: 1024px)').matches ? 6
-                          : window.matchMedia('(min-width: 768px)').matches ? 5
-                          : window.matchMedia('(min-width: 640px)').matches ? 4 : 3
-                      )) * (seedanceCardHeightRef.current + 12)}px` }} />
-                    )}
                     {seedanceCharacters.map((char) => (
                       <div
                         key={char.id}
                         className="group relative bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-purple-500/40 transition cursor-pointer"
-                        style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 110px 200px' } as React.CSSProperties}
                         onClick={async () => {
                           try {
                             await seedanceApi.collectCharacter(char.id, currentFolderId);
@@ -3716,11 +3678,15 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                     </button>
                   </div>
                 )}
-                {/* Infinite scroll sentinel — only render when there's more AND no error */}
-                {seedanceHasMore && !seedanceError && (
-                  <div ref={seedanceSentinelRef} className="flex items-center justify-center py-6">
+                {/* Append loading spinner — shown while fetching next page */}
+                {seedanceLoading && seedanceCharacters.length > 0 && (
+                  <div className="flex items-center justify-center py-6">
                     <Loader2 className="w-5 h-5 animate-spin text-zinc-500" />
                   </div>
+                )}
+                {/* Infinite scroll sentinel — invisible trigger; unmounted while loading so observer re-fires on remount */}
+                {seedanceHasMore && !seedanceError && !seedanceLoading && (
+                  <div ref={seedanceSentinelRef} className="h-1" />
                 )}
                 {!seedanceHasMore && !seedanceError && seedanceCharacters.length > 0 && (
                   <div className="text-center text-zinc-600 text-xs py-4">
@@ -4314,7 +4280,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
               {/* Search Mode Tabs: 默认查询 | 模糊查询 */}
               <div className="flex items-center gap-1 px-6 pt-3 pb-0">
-                {(['default', 'fuzzy'] as SeedanceSearchMode[]).map((mode) => {
+                {(['fuzzy', 'default'] as SeedanceSearchMode[]).map((mode) => {
                   const labels: Record<SeedanceSearchMode, string> = {
                     default: t.assets_seedance_tab_default || '条件查询',
                     fuzzy: t.assets_seedance_tab_fuzzy || '模糊查询',
@@ -4362,7 +4328,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           value={seedanceFilters.search_appearance || ''}
                           onChange={(e) => setSeedanceFilters((prev) => ({ ...prev, search_appearance: e.target.value }))}
                           onKeyDown={(e) => { if (e.key === 'Enter') void loadSeedanceCharacters(seedanceFilters); }}
-                          placeholder={t.assets_seedance_fuzzy_appearance_placeholder || '如 "大眼 双眼皮" 或 "厚唇 暖白皮 卷发"'}
+                          placeholder={t.assets_seedance_fuzzy_appearance_placeholder || ' 如 "中国 傣族 黄种人" 或 "大眼 厚唇 卷发"'}
                           className="w-full bg-zinc-800 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-orange-500/50"
                         />
                       </div>
@@ -4371,7 +4337,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       </p>
                       <div className="flex flex-wrap items-center gap-1 mt-1.5">
                         <span className="text-[10px] text-zinc-500">{t.assets_seedance_fuzzy_try || '试试：'}</span>
-                        {(t.assets_seedance_fuzzy_appearance_chips || '大眼,双眼皮,厚唇,暖白皮,卷发,络腮胡,高大魁梧,圆形脸').split(',').map((chip) => (
+                        {(t.assets_seedance_fuzzy_appearance_chips || '如 "中国 傣族 黄种人" 或 "大眼 厚唇 卷发"').split(',').map((chip) => (
                           <button
                             key={chip}
                             onClick={() => {
@@ -4667,7 +4633,6 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       <div
                         key={char.id}
                         className="group relative bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-purple-500/40 transition cursor-pointer"
-                        style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 110px 200px' } as React.CSSProperties}
                         onClick={async () => {
                           try {
                             await seedanceApi.collectCharacter(char.id, currentFolderId);

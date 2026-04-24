@@ -1,6 +1,6 @@
 import { apiRequest } from '../services/apiClient';
 
-export type ImageHistoryFeatureType = 'first_frame' | 'gallery' | 'text_separation' | 'smart_repair';
+export type ImageHistoryFeatureType = 'first_frame' | 'gallery' | 'text_separation' | 'smart_repair' | 'clothing_swap';
 export type ImageHistoryStatus = 'succeeded' | 'processing' | 'failed';
 
 export interface ImageHistoryItem {
@@ -97,7 +97,7 @@ const normalizeObject = (value: any): Record<string, any> | undefined => (
 
 const normalizeFeatureType = (value: any): ImageHistoryFeatureType | null => {
   const raw = String(value || '').trim();
-  if (raw === 'first_frame' || raw === 'gallery' || raw === 'text_separation' || raw === 'smart_repair') {
+  if (raw === 'first_frame' || raw === 'gallery' || raw === 'text_separation' || raw === 'smart_repair' || raw === 'clothing_swap') {
     return raw;
   }
   return null;

@@ -117,6 +117,59 @@ export interface SmartRepairParams {
   toolCode?: SmartRepairToolCode;
 }
 
+// ==================== AI 换装 (ClothingSwap) 相关类型 ====================
+
+export type ClothingSwapCategory = 'Top' | 'Bottom' | 'Full Body';
+
+export type ClothingSwapColor =
+  | 'Original'
+  | 'Red'
+  | 'Orange'
+  | 'Yellow'
+  | 'Green'
+  | 'Blue'
+  | 'Purple'
+  | 'Pink'
+  | 'Black'
+  | 'White';
+
+export type ClothingSwapBackground = 'model' | 'runway' | 'street' | 'white_wall';
+
+export type ClothingSwapAspectRatio =
+  | '1:1'
+  | '2:3'
+  | '3:2'
+  | '3:4'
+  | '4:3'
+  | '4:5'
+  | '5:4'
+  | '9:16'
+  | '16:9'
+  | '21:9';
+
+export type ClothingSwapOutputCount = 1 | 2 | 3 | 4;
+
+export interface ClothingSwapParams {
+  category: ClothingSwapCategory;
+  targetColor?: ClothingSwapColor;
+  background?: ClothingSwapBackground;
+  aspectRatio?: ClothingSwapAspectRatio;
+  outputCount?: ClothingSwapOutputCount;
+}
+
+export interface ClothingSwapResult {
+  imageUrl: string;
+  imageUrls: string[];
+  downloadUrl: string;
+  feedback?: string;
+  taskId?: number | string;
+  projectId?: string;
+  cost?: number;
+  balance?: number;
+  model?: string;
+  outputImages: ProductImageResult[];
+}
+
 // ==================== 生成任务相关类型 ====================
 
 export interface ProductImageGenerationRequest {

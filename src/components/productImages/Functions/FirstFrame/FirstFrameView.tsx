@@ -317,7 +317,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
         severity: 'error',
         suggestion: t.ff_error_suggestion_clear_front_image,
       });
-      setPhase('error');
+      setPhase(images.length > 0 ? 'form' : 'upload');
     } catch (err) {
       if (generationSeqRef.current !== runSeq) return;
 
@@ -329,7 +329,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
         severity: 'error',
         suggestion: t.ff_error_suggestion_check_network,
       });
-      setPhase('error');
+      setPhase(images.length > 0 ? 'form' : 'upload');
     }
   };
 
@@ -455,7 +455,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
   const handleErrorRetry = () => {
     setError(null);
-    if (phase === 'error') {
+    if (phase !== 'generating' && phase !== 'result') {
       setPhase(images.length > 0 ? 'form' : 'upload');
     }
   };
@@ -628,8 +628,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
   return (
     <>
-      {phase !== 'error' && (
-        <div ref={containerRef} className="relative flex h-full min-h-0 items-stretch overflow-hidden">
+      <div ref={containerRef} className="relative flex h-full min-h-0 items-stretch overflow-hidden">
           <section
             className="mr-3 h-full shrink-0 rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100"
             style={{ width: `${leftWidth}px`, minWidth: `${FIRST_FRAME_PANEL_MIN_WIDTH}px` }}
@@ -807,19 +806,8 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
             )}
           </section>
         </div>
-      )}
 
-      {phase === 'error' && error && (
-        <ErrorDialog
-          isOpen={true}
-          error={error}
-          onClose={() => setPhase(images.length > 0 ? 'form' : 'upload')}
-          onRetry={handleErrorRetry}
-          showRetry={true}
-        />
-      )}
-
-      {error && phase !== 'error' && (
+      {error && phase !== 'generating' && (
         <ErrorDialog
           isOpen={!!error}
           error={error}

@@ -55,15 +55,20 @@ export const InviteCodeField: React.FC<InviteCodeFieldProps> = ({ value, onChang
 
   if (!expanded) {
     return (
-      <button
-        type="button"
-        onClick={() => setExpanded(true)}
-        disabled={disabled}
-        className="text-xs text-zinc-400 hover:text-violet-300 transition font-bold flex items-center gap-1 disabled:opacity-40"
-      >
-        <ChevronRight size={12} />
-        {entryLabel || t.invite_code_field_entry}
-      </button>
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          disabled={disabled}
+          className="text-xs text-zinc-400 hover:text-violet-300 transition font-bold flex items-center gap-1 disabled:opacity-40"
+        >
+          <ChevronRight size={12} />
+          {entryLabel || t.invite_code_field_entry}
+        </button>
+        <span className="text-[11px] text-zinc-500">
+          {t.invite_code_field_bonus_hint}
+        </span>
+      </div>
     );
   }
 

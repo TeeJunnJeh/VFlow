@@ -886,11 +886,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                                <div className="w-10 h-10 rounded-lg bg-violet-500/25 flex items-center justify-center shrink-0">
                                  <Gift className="w-5 h-5 text-violet-200" />
                                </div>
-                               <div className="text-xs text-zinc-200 leading-relaxed">
-                                 {t.invite_reward_progress
-                                   .replace('{invited}', String(inviteSummary.invited_count ?? 0))
-                                   .replace('{cap}', String(inviteSummary.cap ?? 10))
-                                   .replace('{earned}', String(inviteSummary.total_reward_earned ?? 0))}
+                               <div className="text-xs text-zinc-200 leading-relaxed space-y-1">
+                                 <div>
+                                   {t.invite_reward_progress
+                                     .replace('{invited}', String(inviteSummary.invited_count ?? 0))
+                                     .replace('{cap}', String(inviteSummary.cap ?? 10))
+                                     .replace('{earned}', String(inviteSummary.total_reward_earned ?? 0))}
+                                 </div>
+                                 <div className="text-[11px] text-violet-200/90">
+                                   {t.invite_reward_invitee_bonus_hint.replace(
+                                     '{amount}',
+                                     String(inviteSummary.invitee_reward ?? inviteSummary.reward_per_invite ?? 0),
+                                   )}
+                                 </div>
                                </div>
                              </div>
 

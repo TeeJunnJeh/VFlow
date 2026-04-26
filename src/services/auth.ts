@@ -40,6 +40,7 @@ export type InviteSummary = {
   invited_count: number;
   cap: number;
   reward_per_invite: number;
+  invitee_reward: number;
   is_capped: boolean;
   total_reward_earned: number;
 };

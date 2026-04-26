@@ -3746,7 +3746,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const estimatedVideoCostLabel = hasScriptPageBatchGeneratePlan && isSeedanceModel(selectedModel)
     ? (t.wb_usage_based_billing || '按量付费')
-    : (estimatedVideoCost > 0 ? `-${formatCreditAmount(estimatedVideoCost)} ${t.v_points || 'V点'}` : '');
+    : (estimatedVideoCost > 0 ? `${formatCreditAmount(estimatedVideoCost)} ${t.v_points || 'V点'}` : '');
   const estimatedImageCostLabel = estimatedImageCost > 0 ? `-${formatCreditAmount(estimatedImageCost)} ${t.v_points || 'V点'}` : '';
   const hasCurrentAsset = Boolean(uploadedFile || selectedAssetUrl || selectedFileObj);
   const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
@@ -11889,7 +11889,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           </span>
                         ) : pageBatchCost > 0 ? (
                           <span className="text-[10px] font-semibold text-zinc-400">
-                            -{formatCreditAmount(pageBatchCost)} {t.v_points || 'V点'}
+                            {formatCreditAmount(pageBatchCost)} {t.v_points || 'V点'}
                           </span>
                         ) : null}
                         <label className="flex items-center gap-2 text-[11px] font-bold text-zinc-500">

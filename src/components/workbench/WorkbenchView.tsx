@@ -1300,25 +1300,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const scriptPagesRef = useRef<ScriptPage[]>([]);
   const [isShotBreakdownOpen, setIsShotBreakdownOpen] = useState(false);
   const [enableStoryboardEditor, setEnableStoryboardEditor] = useState(false);
+  const [storyboardEditorEnabledByPage, setStoryboardEditorEnabledByPage] = useState<Record<string, boolean>>({});
+  const [shotBreakdownOpenByPage, setShotBreakdownOpenByPage] = useState<Record<string, boolean>>({});
   const [isGeneratingShotsOnly, setIsGeneratingShotsOnly] = useState(false);
-
-  const [isBatchGenerateOpen, setIsBatchGenerateOpen] = useState(false);
-  const [batchGenerateCount, setBatchGenerateCount] = useState(2);
-  const [batchGenerateSlots, setBatchGenerateSlots] = useState<Array<{ slotId: string; scriptPageId: string | null }>>(() =>
-    Array.from({ length: 2 }, (_, idx) => ({ slotId: `slot-${idx + 1}`, scriptPageId: null }))
-  );
-  const batchGenerateDragRef = useRef<{ kind: 'script' | 'slot'; scriptPageId: string; slotId?: string } | null>(null);
-
-  useEffect(() => {
-    setBatchGenerateSlots((prev) => {
-      const nextCount = Math.max(1, Math.min(5, Math.floor(Number(batchGenerateCount) || 1)));
-      const existing = prev.slice(0, nextCount);
-      while (existing.length < nextCount) {
-        existing.push({ slotId: `slot-${existing.length + 1}`, scriptPageId: null });
-      }
-      return existing;
-    });
-  }, [batchGenerateCount]);
+  const [batchGenerateCountsByPage, setBatchGenerateCountsByPage] = useState<Record<string, number>>({});
 
   const [assetQueue, setAssetQueue] = useState<QueuedAsset[]>([]);
   const [scriptQueue, setScriptQueue] = useState<QueuedScript[]>([]);
@@ -1827,6 +1812,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setScriptPages(restoredScriptPages);
     setActiveScriptPage(restoredActivePage);
     setScripts(restoredScriptPages[restoredActivePage]?.scripts || (Array.isArray(workspace.scripts) ? workspace.scripts : []));
+    setBatchGenerateCountsByPage({});
     setAssetQueue(restoredAssetQueue);
     setScriptQueue(Array.isArray(workspace.scriptQueue) ? workspace.scriptQueue : []);
     setGeneratedVideoUrl(workspace.generatedVideoUrl || null);
@@ -3700,6 +3686,40 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const expectedBatchCount = isReuseReady ? assetQueue.length * scriptQueue.length : 0;
   const selectedVideoPricing = getVideoModelPricingEntry(billingPricing, selectedModel, creationMode);
   const selectedImagePricing = getImageModelPricingEntry(billingPricing, imageGenModel);
+  const normalizeBatchGenerateCount = (value: unknown) => {
+    const n = Math.floor(Number(value) || 0);
+    return Number.isFinite(n) ? Math.max(0, n) : 0;
+  };
+  const getScriptPageBatchGenerateCount = (pageId: string, pageIndex: number) => (
+    Object.prototype.hasOwnProperty.call(batchGenerateCountsByPage, pageId)
+      ? normalizeBatchGenerateCount(batchGenerateCountsByPage[pageId])
+      : (pageIndex === 0 ? 1 : 0)
+  );
+  const getPageScriptDuration = (page: ScriptPage, pageIndex: number, storyboardEnabled: boolean) => {
+    if (!storyboardEnabled) return Math.max(1, Number(genDuration) || 0);
+    const pageScripts = pageIndex === activeScriptPage ? scripts : (page.scripts || []);
+    const total = pageScripts.reduce((sum, item) => sum + (parseFloat(String(item.dur || '').replace('s', '')) || 0), 0);
+    return Number.isFinite(total) && total > 0 ? total : Math.max(1, Number(genDuration) || 0);
+  };
+  const scriptPageBatchGenerateItems = useMemo(() => (
+    scriptPages
+      .map((page, pageIndex) => {
+        const count = getScriptPageBatchGenerateCount(page.id, pageIndex);
+        const storyboardEnabled = storyboardEditorEnabledByPage[page.id] ?? (pageIndex === activeScriptPage ? enableStoryboardEditor : false);
+        const pageScripts = pageIndex === activeScriptPage ? scripts : (page.scripts || []);
+        return {
+          page: { ...page, scripts: pageScripts },
+          pageIndex,
+          count,
+          storyboardEnabled,
+          duration: getPageScriptDuration({ ...page, scripts: pageScripts }, pageIndex, storyboardEnabled),
+        };
+      })
+      .filter((item) => item.count > 0)
+  ), [activeScriptPage, batchGenerateCountsByPage, enableStoryboardEditor, genDuration, scriptPages, scripts, storyboardEditorEnabledByPage]);
+  const scriptPageBatchGenerateTotalCount = scriptPageBatchGenerateItems.reduce((sum, item) => sum + item.count, 0);
+  const hasScriptPageBatchGeneratePlan = scriptPageBatchGenerateTotalCount > 0;
+  const scriptPageBatchGenerateTotalSeconds = scriptPageBatchGenerateItems.reduce((sum, item) => sum + item.duration * item.count, 0);
   const formatVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined) => {
     const rate = Number(entry?.rate ?? 0);
     if (!Number.isFinite(rate) || rate <= 0) return '-';
@@ -3710,25 +3730,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (label === '-') return label;
     return `${t.wb_rate_approx_prefix || 'Approx. '}${label}`;
   };
-  const queuedRenderableAssetCount = assetQueue.length === 0
-    ? 0
-    : Math.max(1, assetQueue.filter((asset) => asset.mediaKind !== 'audio').length);
   const estimatedVideoCost = useMemo(() => {
     const rate = Number(selectedVideoPricing?.rate ?? 0);
     if (!Number.isFinite(rate) || rate <= 0) return 0;
 
-    if (reuseQueueEnabled) {
-      if (queuedRenderableAssetCount <= 0 || scriptQueue.length <= 0) return 0;
-      const totalScriptSeconds = scriptQueue.reduce((sum, item) => {
-        const duration = Number(item.duration || 0);
-        return sum + (Number.isFinite(duration) && duration > 0 ? duration : genDuration);
-      }, 0);
-      return Math.max(0, roundCreditTenths(rate * totalScriptSeconds * queuedRenderableAssetCount));
-    }
-
-    const scriptCount = Math.max(1, Number(scriptVariantCount) || 1);
-    return Math.max(0, roundCreditTenths(rate * Math.max(1, Number(genDuration) || 0) * scriptCount));
-  }, [genDuration, queuedRenderableAssetCount, reuseQueueEnabled, scriptQueue, scriptVariantCount, selectedVideoPricing]);
+    if (!hasScriptPageBatchGeneratePlan) return 0;
+    return Math.max(0, roundCreditTenths(rate * scriptPageBatchGenerateTotalSeconds));
+  }, [hasScriptPageBatchGeneratePlan, scriptPageBatchGenerateTotalSeconds, selectedVideoPricing]);
 
   const estimatedImageCost = useMemo(() => {
     const rate = Number(selectedImagePricing?.rate ?? 0);
@@ -3736,29 +3744,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return Math.max(0, roundCreditTenths(rate * Math.max(1, Math.min(4, Number(aiOptimizeCount) || 1))));
   }, [aiOptimizeCount, selectedImagePricing]);
 
-  const estimatedBatchVideoCost = useMemo(() => {
-    const rate = Number(selectedVideoPricing?.rate ?? 0);
-    if (!Number.isFinite(rate) || rate <= 0) return 0;
-
-    const selectedIds = batchGenerateSlots
-      .map((slot) => String(slot.scriptPageId || '').trim())
-      .filter(Boolean);
-    if (selectedIds.length === 0) return 0;
-
-    const totalSeconds = selectedIds.reduce((sum, id) => {
-      const page = scriptPages.find((p) => p.id === id);
-      if (!page) return sum;
-      if (!enableStoryboardEditor) return sum + Math.max(1, Number(genDuration) || 0);
-      const s = (page.scripts || []).reduce((total, it) => total + (parseFloat(String(it.dur || '').replace('s', '')) || 0), 0);
-      return sum + (Number.isFinite(s) && s > 0 ? s : Math.max(1, Number(genDuration) || 0));
-    }, 0);
-
-    return Math.max(0, roundCreditTenths(rate * totalSeconds));
-  }, [batchGenerateSlots, enableStoryboardEditor, genDuration, scriptPages, selectedVideoPricing]);
-
-  const estimatedVideoCostLabel = estimatedVideoCost > 0 && !isSeedanceModel(selectedModel) ? `-${formatCreditAmount(estimatedVideoCost)} ${t.v_points || 'V点'}` : '';
+  const estimatedVideoCostLabel = hasScriptPageBatchGeneratePlan && isSeedanceModel(selectedModel)
+    ? (t.wb_usage_based_billing || '按量付费')
+    : (estimatedVideoCost > 0 ? `-${formatCreditAmount(estimatedVideoCost)} ${t.v_points || 'V点'}` : '');
   const estimatedImageCostLabel = estimatedImageCost > 0 ? `-${formatCreditAmount(estimatedImageCost)} ${t.v_points || 'V点'}` : '';
-  const estimatedBatchVideoCostLabel = estimatedBatchVideoCost > 0 ? `-${formatCreditAmount(estimatedBatchVideoCost)} ${t.v_points || 'V点'}` : '';
   const hasCurrentAsset = Boolean(uploadedFile || selectedAssetUrl || selectedFileObj);
   const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
   const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
@@ -3767,8 +3756,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const videoFormats = VIDEO_EXTS.join('/');
   const formatHint = `图片(${imageFormats}) 视频(${videoFormats}) · ≤1GB`;
   const isBatchDebugMode = reuseQueueEnabled && hasAnyReuseQueue;
-  const scriptPlanCardClass = 'aspect-[5/4] w-full rounded-xl border p-3 text-left transition duration-200 transform-gpu hover:-translate-y-0.5 hover:shadow-lg hover:shadow-orange-500/10 active:translate-y-0 active:scale-[0.99] flex flex-col gap-2';
-  const scriptPlanCardBodyClass = 'min-h-0 rounded-lg border px-3 py-2 text-[11px] leading-5 whitespace-pre-wrap break-words flex-1 overflow-hidden';
   const materialTypeLabelMap: Record<AssetLibraryTab, string> = {
     product: t.assets_tab_images || '图片',
     model: t.assets_tab_virtual_models || '虚拟模特',
@@ -6171,22 +6158,63 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
   };
 
-  const handleDurationChange = (id: number, newValue: string) => {
+  const getScriptsForPageEdit = (pageIndex: number): ScriptItem[] => (
+    pageIndex === activeScriptPage ? scripts : (scriptPages[pageIndex]?.scripts || [])
+  );
+
+  const updateScriptPageMetaAt = (pageIndex: number, updater: (page: ScriptPage) => ScriptPage) => {
+    setScriptPages((prev) => {
+      if (pageIndex < 0 || pageIndex >= prev.length) return prev;
+      const next = [...prev];
+      next[pageIndex] = updater(next[pageIndex]);
+      return next;
+    });
+  };
+
+  const updateScriptPageScriptsAt = (pageIndex: number, newScripts: ScriptItem[]) => {
+    isDemoScriptsRef.current = false;
+    if (pageIndex === activeScriptPage) {
+      setScripts(newScripts);
+    }
+    setScriptPages((prev) => {
+      if (pageIndex < 0 || pageIndex >= prev.length) return prev;
+      const next = [...prev];
+      next[pageIndex] = { ...next[pageIndex], scripts: newScripts };
+      return next;
+    });
+  };
+
+  const updateScriptPageNameAt = (pageIndex: number, value: string) => {
+    updateScriptPageMetaAt(pageIndex, (page) => ({
+      ...page,
+      name: value,
+    }));
+  };
+
+  const updateScriptPageCreativeCardTextAt = (pageIndex: number, value: string) => {
+    updateScriptPageMetaAt(pageIndex, (page) => ({
+      ...page,
+      creativeCardText: value,
+    }));
+  };
+
+  const handleDurationChangeForPage = (pageIndex: number, id: number, newValue: string) => {
     const raw = newValue.trim();
     if (!raw) return;
     const num = Number(raw);
     if (!Number.isFinite(num)) return;
 
-    const idx = scripts.findIndex(s => s.id === id);
+    const pageScripts = getScriptsForPageEdit(pageIndex);
+    const idx = pageScripts.findIndex(s => s.id === id);
     if (idx < 0) return;
 
-    const n = scripts.length;
+    const n = pageScripts.length;
     const minFloor = 1; // 0.1s in tenths
     const targetTenths = Math.max(n * minFloor, Math.round((Number(genDuration) || 1) * 10));
 
     // 单镜头：锁定为 genDuration，保持 sum == genDuration
     if (n === 1) {
-      updateScripts([{ ...scripts[0], dur: tenthsToDur(targetTenths) }]);
+      updateScriptPageScriptsAt(pageIndex, [{ ...pageScripts[0], dur: tenthsToDur(targetTenths) }]);
       return;
     }
 
@@ -6197,28 +6225,29 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const newDurTenths = Math.min(Math.max(rawNewTenths, minFloor), maxNewTenths);
 
     // 剩余 targetTenths - newDurTenths 按原比例分给其他镜头
-    const otherWeights = scripts.filter((_, i) => i !== idx).map(s => durToTenths(s.dur));
+    const otherWeights = pageScripts.filter((_, i) => i !== idx).map(s => durToTenths(s.dur));
     const otherTargetTotal = targetTenths - newDurTenths;
     const distributedOthers = distributeTenthsProportional(otherWeights, otherTargetTotal, minFloor);
 
     let j = 0;
-    const next = scripts.map((s, i) => {
+    const next = pageScripts.map((s, i) => {
       if (i === idx) return { ...s, dur: tenthsToDur(newDurTenths) };
       const d = distributedOthers[j];
       j += 1;
       return { ...s, dur: tenthsToDur(d) };
     });
-    updateScripts(next);
+    updateScriptPageScriptsAt(pageIndex, next);
   };
 
-  const handleScriptTypeChange = (id: number, newType: string) => {
+  const handleScriptTypeChangeForPage = (pageIndex: number, id: number, newType: string) => {
     const normalizedType = newType.trim() || 'Medium';
-    const newScripts = scripts.map((item) => (item.id === id ? { ...item, type: normalizedType } : item));
-    updateScripts(newScripts);
+    const pageScripts = getScriptsForPageEdit(pageIndex);
+    const newScripts = pageScripts.map((item) => (item.id === id ? { ...item, type: normalizedType } : item));
+    updateScriptPageScriptsAt(pageIndex, newScripts);
   };
 
   // 台词翻译处理（直接翻译 / 创意翻译）
-  const handleTranslateShot = async (script: ScriptItem, index: number, mode: 'direct' | 'creative') => {
+  const handleTranslateShotForPage = async (pageIndex: number, script: ScriptItem, index: number, mode: 'direct' | 'creative') => {
     if (!script.audioTranslation?.trim() || !user?.id) return;
     setTranslatingShots(prev => ({ ...prev, [script.id]: true }));
     try {
@@ -6231,9 +6260,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         product_selling_points: coreSellingPoints,
       });
       if (resp.code === 0 && resp.data?.translated_text) {
-        const ns = [...scripts];
+        const ns = [...getScriptsForPageEdit(pageIndex)];
         ns[index].audio = resp.data.translated_text;
-        updateScripts(ns);
+        updateScriptPageScriptsAt(pageIndex, ns);
       }
     } catch (err) {
       console.error('[handleTranslateShot] 翻译失败:', err);
@@ -6243,13 +6272,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const updateScripts = (newScripts: ScriptItem[]) => {
-    isDemoScriptsRef.current = false;
-    setScripts(newScripts);
-    setScriptPages(prev => {
-      const next = [...prev];
-      next[activeScriptPage] = { ...next[activeScriptPage], scripts: newScripts };
-      return next;
-    });
+    updateScriptPageScriptsAt(activeScriptPage, newScripts);
   };
 
   // 不变量：只要开着分镜编辑器，每一页分镜的 Σdur 必须恒等于 genDuration。
@@ -6333,36 +6356,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setActiveScriptPage(nextIndex);
     setScripts([]);
     setIsShotBreakdownOpen(false);
-  };
-
-  const updateActiveScriptPageMeta = (updater: (page: ScriptPage) => ScriptPage) => {
-    setScriptPages((prev) => {
-      if (activeScriptPage < 0 || activeScriptPage >= prev.length) return prev;
-      const next = [...prev];
-      next[activeScriptPage] = updater(next[activeScriptPage]);
-      return next;
-    });
-  };
-
-  const updateActiveFullScript = (value: string) => {
-    updateActiveScriptPageMeta((page) => ({
-      ...page,
-      fullScript: value,
-    }));
-  };
-
-  const updateActiveCreativeCardText = (value: string) => {
-    updateActiveScriptPageMeta((page) => ({
-      ...page,
-      creativeCardText: value,
-    }));
-  };
-
-  const updateActiveScriptPageName = (value: string) => {
-    updateActiveScriptPageMeta((page) => ({
-      ...page,
-      name: value,
-    }));
   };
 
   const [themeClassSnapshot, setThemeClassSnapshot] = useState<string>('');
@@ -6509,12 +6502,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     areas.forEach((el) => autoResizeCardTextarea(el));
   }, [activeScriptPage, scriptPages]);
 
-  const addScript = () => {
-    const newId = scripts.length > 0 ? Math.max(...scripts.map(s => s.id)) + 1 : 1;
+  const addScriptToPage = (pageIndex: number) => {
+    const pageScripts = getScriptsForPageEdit(pageIndex);
+    const newId = pageScripts.length > 0 ? Math.max(...pageScripts.map(s => s.id)) + 1 : 1;
     // 空状态：第一个镜头直接等于用户所选 genDuration，让总时长立刻对齐
-    if (scripts.length === 0) {
+    if (pageScripts.length === 0) {
       const targetTenths = Math.max(1, Math.round((Number(genDuration) || 1) * 10));
-      updateScripts([{
+      updateScriptPageScriptsAt(pageIndex, [{
         id: newId,
         shot: '1',
         type: 'Medium',
@@ -6526,44 +6520,45 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
     // 非空：对最后一个镜头做「对半分裂」，保持总时长不变
-    const lastIdx = scripts.length - 1;
-    const lastTenths = durToTenths(scripts[lastIdx].dur);
+    const lastIdx = pageScripts.length - 1;
+    const lastTenths = durToTenths(pageScripts[lastIdx].dur);
     if (lastTenths < 2) {
       openInfo(popupTitles.notice, t.wb_shot_timeline_insert_too_short || '当前镜头过短，无法分裂');
       return;
     }
     const frontTenths = Math.floor(lastTenths / 2);
     const backTenths = lastTenths - frontTenths;
-    const next = scripts.map((s, i) =>
+    const next = pageScripts.map((s, i) =>
       i === lastIdx ? { ...s, dur: tenthsToDur(frontTenths) } : s
     );
     next.push({
       id: newId,
-      shot: (scripts.length + 1).toString(),
+      shot: (pageScripts.length + 1).toString(),
       type: 'Medium',
       dur: tenthsToDur(backTenths),
       visual: '',
       audio: '',
       audioTranslation: '',
     });
-    updateScripts(next);
+    updateScriptPageScriptsAt(pageIndex, next);
   };
 
-  const removeScript = (id: number) => {
-    const index = scripts.findIndex(s => s.id === id);
+  const removeScriptFromPage = (pageIndex: number, id: number) => {
+    const pageScripts = getScriptsForPageEdit(pageIndex);
+    const index = pageScripts.findIndex(s => s.id === id);
     if (index < 0) return;
-    if (scripts.length === 1) {
-      updateScripts([]);
+    if (pageScripts.length === 1) {
+      updateScriptPageScriptsAt(pageIndex, []);
       return;
     }
     // Preserve total duration: redistribute deleted shot's dur 50/50 to adjacent neighbors.
     // Edge shots (first/last) give 100% to their single neighbor.
-    const deletedTenths = durToTenths(scripts[index].dur);
+    const deletedTenths = durToTenths(pageScripts[index].dur);
     const leftShare = Math.floor(deletedTenths / 2);
     const rightShare = deletedTenths - leftShare;
     const isFirst = index === 0;
-    const isLast = index === scripts.length - 1;
-    const filtered = scripts.filter((_, i) => i !== index);
+    const isLast = index === pageScripts.length - 1;
+    const filtered = pageScripts.filter((_, i) => i !== index);
     const redistributed = filtered.map((s, i) => {
       if (isFirst) {
         return i === 0 ? { ...s, dur: tenthsToDur(durToTenths(s.dur) + deletedTenths) } : s;
@@ -6576,7 +6571,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return s;
     });
     const remaining = redistributed.map((s, idx) => ({ ...s, shot: (idx + 1).toString() }));
-    updateScripts(remaining);
+    updateScriptPageScriptsAt(pageIndex, remaining);
   };
 
   const addCurrentAssetToQueue = () => {
@@ -8218,7 +8213,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setActiveScriptPage(nextIndex);
 
     setScripts(scriptPages[nextIndex]?.scripts || []);
-    setIsShotBreakdownOpen(false);
+    const nextPageId = scriptPages[nextIndex]?.id;
+    const nextStoryboardEnabled = nextPageId ? !!storyboardEditorEnabledByPage[nextPageId] : false;
+    const nextShotBreakdownOpen = nextPageId ? !!shotBreakdownOpenByPage[nextPageId] : false;
+    setEnableStoryboardEditor(nextStoryboardEnabled);
+    setIsShotBreakdownOpen(nextShotBreakdownOpen);
   };
 
   useEffect(() => {
@@ -8331,8 +8330,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const computeDurationFromScripts = (items: ScriptItem[]) =>
     items.reduce((total, s) => total + (parseFloat(String(s.dur || '').replace('s', '')) || 0), 0);
 
-  const buildQueuedScriptFromPage = (page: ScriptPage): QueuedScript => {
-    const duration = enableStoryboardEditor ? computeDurationFromScripts(page.scripts || []) : genDuration;
+  const buildQueuedScriptFromPage = (page: ScriptPage, storyboardEnabled = enableStoryboardEditor): QueuedScript => {
+    const duration = storyboardEnabled ? computeDurationFromScripts(page.scripts || []) : genDuration;
     const idx = Math.max(0, scriptPages.findIndex((p) => p.id === page.id));
     return {
       id: page.id,
@@ -8345,21 +8344,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
   };
 
-  const handleBatchGenerateSubmit = async () => {
-    const selectedScriptPages: ScriptPage[] = batchGenerateSlots
-      .map((slot) => (slot.scriptPageId ? scriptPages.find((p) => p.id === slot.scriptPageId) : null))
-      .filter(Boolean) as ScriptPage[];
-
-    if (selectedScriptPages.length === 0) {
-      openInfo(popupTitles.notice, language === 'zh' ? '请选择至少一个脚本。' : 'Select at least one script.');
-      return;
-    }
-
-    if (selectedModel === 'kling') {
-      openInfo(popupTitles.notice, 'Kling 当前版本暂不支持一次生成多条视频。');
-      return;
-    }
-
+  const validateScriptPageBatchGenerateRequirements = (items: typeof scriptPageBatchGenerateItems) => {
     const issues: string[] = [];
     if (!selectedTemplate?.id && !selectedFileObj && !selectedAssetUrl && !uploadedFile && uploadDisplayAssets.length === 0) {
       issues.push(t.wb_gen_req_issue_asset_or_template || 'Assets: upload an asset or select a template first.');
@@ -8367,18 +8352,41 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!selectedTemplate?.id && !user?.id) {
       issues.push(t.wb_gen_req_issue_login || 'Account: please sign in.');
     }
-    if (enableStoryboardEditor) {
-      const invalid = selectedScriptPages
-        .map((p) => ({ page: p, duration: computeDurationFromScripts(p.scripts || []) }))
-        .filter((row) => Math.abs(row.duration - genDuration) >= 0.1);
-      if (invalid.length > 0) {
-        issues.push(t.wb_gen_req_issue_duration_mismatch || 'Storyboard duration must match configured duration.');
+    items.forEach((item) => {
+      const hasScriptConcept = Boolean((item.page.fullScript || '').trim())
+        || Boolean((item.page.creativeCardText || '').trim())
+        || (item.page.scripts || []).some((script) => Boolean((script.visual || script.audio || '').trim()));
+      if (!hasScriptConcept) {
+        const name = formatScriptPageDisplayName(item.page.name, item.pageIndex, t.wb_script_page_prefix);
+        issues.push(`${name}: ${t.wb_gen_req_issue_master_script_missing || 'Please generate or complete the script plan.'}`);
       }
+      if (item.storyboardEnabled && Math.abs(item.duration - genDuration) >= 0.1) {
+        const template = t.wb_gen_req_issue_duration_mismatch || 'Storyboard: total shot duration ({scriptDuration}s) must match configured duration ({configDuration}s).';
+        const name = formatScriptPageDisplayName(item.page.name, item.pageIndex, t.wb_script_page_prefix);
+        issues.push(`${name}: ${formatI18nTemplate(template, {
+          scriptDuration: item.duration.toFixed(1),
+          configDuration: genDuration,
+        })}`);
+      }
+    });
+    return issues;
+  };
+
+  const handleScriptPageBatchGenerateSubmit = async () => {
+    if (scriptPageBatchGenerateItems.length === 0) {
+      openInfo(popupTitles.notice, t.wb_generate_at_least_one_video || '请至少生成一个视频');
+      return;
     }
+
+    const issues = validateScriptPageBatchGenerateRequirements(scriptPageBatchGenerateItems);
     if (issues.length > 0) {
       showGenerateValidationIssues(issues);
       return;
     }
+
+    const generationJobs = scriptPageBatchGenerateItems.flatMap((item) => (
+      Array.from({ length: item.count }, (_, copyIndex) => ({ ...item, copyIndex }))
+    ));
 
     setIsGenerating(true);
     setGeneratedVideoUrl(null);
@@ -8387,9 +8395,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const basePayload = await buildSingleGeneratePayload();
       let createdCount = 0;
 
-      for (let i = 0; i < selectedScriptPages.length; i += 1) {
-        const page = selectedScriptPages[i];
-        const scriptPack = buildQueuedScriptFromPage(page);
+      for (let i = 0; i < generationJobs.length; i += 1) {
+        const job = generationJobs[i];
+        const page = job.page;
+        const scriptPack = buildQueuedScriptFromPage(page, job.storyboardEnabled);
 
         let newProjectId: string | undefined;
         if (selectedTemplate?.id) {
@@ -8399,11 +8408,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         } else {
           if (!user?.id) throw new Error('请先登录');
           const createResp = await videoApi.createProject(user.id, {
-            title: (productName || '').trim() || `${fileName || 'Video'} × ${scriptPack.name}`,
+            title: (productName || '').trim() || `${fileName || 'Video'} × ${scriptPack.name}${job.count > 1 ? ` #${job.copyIndex + 1}` : ''}`,
             aspect_ratio: aspectRatio || selectedTemplate?.aspect_ratio || '9:16',
             script_content: {
               duration: scriptPack.duration,
-              shots: enableStoryboardEditor ? scriptPack.scripts : [],
+              shots: job.storyboardEnabled ? scriptPack.scripts : [],
             },
           });
           newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
@@ -8444,7 +8453,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             estimatedSeconds,
             type: 'video_generation',
             status: 'processing',
-            name: `${(productName || '').trim() || fileName || 'Video'} · ${scriptPack.name}`,
+            name: `${(productName || '').trim() || fileName || 'Video'} · ${scriptPack.name}${job.count > 1 ? ` #${job.copyIndex + 1}` : ''}`,
             thumbnail: uploadedFile || undefined,
             createdAt: Date.now(),
           });
@@ -8455,7 +8464,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       if (createdCount > 0) {
         openInfo(popupTitles.success, formatMessage(t.wb_popup_batch_success, { count: createdCount }));
-        setIsBatchGenerateOpen(false);
       } else {
         openInfo(popupTitles.notice, t.wb_popup_batch_no_task_id);
       }
@@ -8463,7 +8471,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       if (err?.message === USER_CANCELLED_ADAPT) {
         openInfo(popupTitles.notice, t.wb_popup_batch_cancelled);
       } else {
-        openErrorModal(err, { category: 'generation_failed', onRetry: handleBatchGenerateSubmit });
+        openErrorModal(err, { category: 'generation_failed', onRetry: handleScriptPageBatchGenerateSubmit });
       }
     } finally {
       setIsGenerating(false);
@@ -8472,176 +8480,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const handleGenerateVideo = async () => {
     if (!requireAuth()) return;
-    const issues = validateGenerateRequirements();
-    if (issues.length > 0) {
-      showGenerateValidationIssues(issues);
-      return;
-    }
-
-    if (reuseQueueEnabled) {
-      setIsGenerating(true);
-      setGeneratedVideoUrl(null);
-
-      try {
-        let batchCount = 0;
-
-        const preparedAssets = await Promise.all(assetQueue.map(async (asset) => {
-          let apiPath = asset.uploadedPath || asset.assetUrl || null;
-
-          if (!apiPath && asset.fileObj) {
-            const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
-            let rawPath = null;
-            if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
-              rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
-            } else {
-              rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
-            }
-            if (!rawPath) throw new Error("素材上传后未返回路径");
-            apiPath = rawPath;
-
-            setAssetQueue(prev => prev.map(a => a.id === asset.id ? { ...a, uploadedPath: apiPath } : a));
-          }
-
-          if (!apiPath) throw new Error(`无法获取素材路径：${asset.name}`);
-
-          return { ...asset, apiPath };
-        }));
-
-        // 收集所有音频素材的路径，用于 Seedance reference_audio
-        const audioPaths = preparedAssets
-          .filter((a) => a.mediaKind === 'audio')
-          .map((a) => (a as any).apiPath as string);
-
-        // 非音频素材才参与 asset × script 矩阵生成
-        const nonAudioAssets = preparedAssets.filter((a) => a.mediaKind !== 'audio');
-
-        // 如果全部是音频（无图片/视频），仍走 text-to-video，用空数组兜底
-        const effectiveAssets = nonAudioAssets.length > 0 ? nonAudioAssets : [null];
-
-        for (const asset of effectiveAssets) {
-          for (const scriptPack of scriptQueue) {
-            const combinedScriptPrompt = buildCombinedScriptPrompt(
-              scriptPack.fullScript || '',
-              scriptPack.creativeCard,
-              scriptPack.scripts,
-              scriptPack.creativeCardText || ''
-            );
-
-            let newProjectId: string | undefined;
-            if (selectedTemplate?.id) {
-              const cloneResp = await videoApi.cloneProject(selectedTemplate.id);
-              newProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
-              if (!newProjectId) throw new Error('Failed to clone project');
-            } else {
-              if (!user?.id) throw new Error('请先登录');
-              const createResp = await videoApi.createProject(user.id, {
-                title: (productName || '').trim() || `${asset?.name || 'Text'} × ${scriptPack.name}`,
-                aspect_ratio: '9:16',
-                script_content: {
-                  duration: scriptPack.duration,
-                  shots: scriptPack.scripts
-                }
-              });
-              newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
-              if (!newProjectId) throw new Error('Failed to create project');
-            }
-
-            const payload = {
-              model: backendModel,
-              prompt: combinedScriptPrompt,
-              product_name: productName,
-              project_id: newProjectId,
-              duration: scriptPack.duration,
-              aspect_ratio: aspectRatio,
-              ...(asset
-                ? (asset.mediaKind === 'video'
-                  ? { motion_video_path: (asset as any).apiPath }
-                  : { image_path: (asset as any).apiPath })
-                : {}),
-              sound: soundSetting,
-              ...(audioPaths.length > 0 ? { audio_paths: audioPaths } : {}),
-              ...(selectedBackgroundAudio && soundSetting === 'off'
-                ? {
-                  background_audio_asset_id: selectedBackgroundAudio.id,
-                  background_audio_url: selectedBackgroundAudio.file_url,
-                  background_audio_name: selectedBackgroundAudio.name,
-                }
-                : {}),
-              asset_source: asset?.source ?? null,
-              user_language: language,
-              target_language: targetLanguage,
-              model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
-              motion_asset_id: asset?.mediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
-              ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
-            };
-
-            const genResp = await generateWithAdaptiveImageConfirm(payload);
-            const taskId = genResp?.data?.task_id || genResp?.task_id;
-            const projectId = genResp?.data?.project_id || newProjectId;
-
-            if (genResp?.code === 0 && taskId) {
-              const estimatedSeconds = await fetchEstimatedSeconds({
-                model: backendModel,
-                duration: scriptPack.duration,
-                sound: soundSetting,
-                aspect_ratio: String(payload.aspect_ratio || ''),
-                resolution: String((payload as any).resolution || (payload as any).size || ''),
-              });
-              console.log('[Estimate] batchGeneration', { taskId, projectId: String(projectId), estimatedSeconds });
-
-              addTask({
-                id: taskId,
-                projectId: String(projectId),
-                workbenchProjectId: projectStore.currentProjectId,
-                estimatedSeconds,
-                type: 'video_generation',
-                status: 'processing',
-                name: `${(productName || '').trim() || asset?.name || 'Text-to-Video'}`,
-                thumbnail: asset?.previewUrl || undefined,
-                createdAt: Date.now(),
-              });
-
-              batchCount += 1;
-            } else {
-              console.warn('Batch generation response invalid', genResp);
-            }
-          }
-        }
-
-        if (batchCount > 0) {
-          openInfo(popupTitles.success, formatMessage(t.wb_popup_batch_success, { count: batchCount }));
-        } else {
-          openInfo(popupTitles.notice, t.wb_popup_batch_no_task_id);
-        }
-      } catch (err: any) {
-        if (err?.message === USER_CANCELLED_ADAPT) {
-          openInfo(popupTitles.notice, t.wb_popup_batch_cancelled);
-        } else {
-          openErrorModal(err, { category: 'generation_failed', onRetry: handleGenerateVideo });
-        }
-      } finally {
-        setIsGenerating(false);
-      }
-
-      return;
-    }
-
-    setIsGenerating(true);
-    setGeneratedVideoUrl(null);
-
-    try {
-      const payload = await buildSingleGeneratePayload();
-      payload.script_count = Math.max(1, Number(scriptVariantCount) || 1);
-      await submitSingleGeneration(payload);
-    } catch (err: any) {
-      if (err?.message === USER_CANCELLED_ADAPT) {
-        openInfo(popupTitles.notice, t.wb_popup_batch_cancelled);
-      } else {
-        openErrorModal(err, { category: 'generation_failed', onRetry: handleGenerateVideo });
-      }
-    } finally {
-      setIsGenerating(false);
-    }
+    await handleScriptPageBatchGenerateSubmit();
   };
 
   const handlePublishToTikTok = async () => {
@@ -11842,220 +11681,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         </div>
       </AppDialog>
 
-      <AppDialog
-        isOpen={isBatchGenerateOpen}
-        title={language === 'zh' ? '批量生成视频' : 'Batch Generate Videos'}
-        subtitle={language === 'zh' ? '选择一次性生成几条视频（最多 5 条），并拖拽指定每条视频对应的脚本。' : 'Choose up to 5 videos and drag scripts to map each video.'}
-        onClose={() => setIsBatchGenerateOpen(false)}
-        widthClassName="max-w-none w-[min(92vw,1080px)]"
-        contentClassName="overflow-hidden"
-      >
-        <div className="h-[min(72vh,720px)] flex gap-6">
-          <div className="w-[360px] shrink-0 rounded-2xl border border-white/10 bg-black/20 overflow-hidden flex flex-col">
-            <div className="px-5 py-4 border-b border-white/10 bg-black/30 flex items-center justify-between gap-3">
-              <div className="text-sm font-extrabold text-zinc-200">{language === 'zh' ? '脚本列表' : 'Scripts'}</div>
-              <div className="text-[11px] font-bold text-zinc-500">{scriptPages.length}</div>
-            </div>
-            <div className="flex-1 min-h-0 overflow-y-auto custom-scroll p-4 space-y-2">
-              {scriptPages.map((page, idx) => {
-                const displayName = formatScriptPageDisplayName(page.name, idx, t.wb_script_page_prefix);
-                const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim();
-                return (
-                  <div
-                    key={page.id}
-                    draggable
-                    onDragStart={(e) => {
-                      batchGenerateDragRef.current = { kind: 'script', scriptPageId: page.id };
-                      e.dataTransfer.effectAllowed = 'copyMove';
-                    }}
-                    className="rounded-xl border border-white/10 bg-black/30 px-3 py-3 hover:border-white/20 transition cursor-grab active:cursor-grabbing"
-                    title={language === 'zh' ? '拖拽到右侧槽位' : 'Drag into a slot on the right'}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-xs font-extrabold text-zinc-200 truncate">{displayName}</div>
-                        <div className="mt-1 text-[11px] text-zinc-500 line-clamp-2">{previewText || (t.wb_script_grid_card_empty || 'No script content yet')}</div>
-                      </div>
-                      <div className="shrink-0 mt-0.5 text-[10px] font-bold text-zinc-500">#{idx + 1}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="flex-1 min-w-0 rounded-2xl border border-white/10 bg-black/20 overflow-hidden flex flex-col">
-            <div className="px-5 py-4 border-b border-white/10 bg-black/30 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="text-sm font-extrabold text-zinc-200">{language === 'zh' ? '生成映射' : 'Mapping'}</div>
-                <div className="text-[11px] text-zinc-500">{language === 'zh' ? '把左侧脚本拖到下方每个视频槽位' : 'Drag a script into each slot'}</div>
-              </div>
-              <div className="flex items-center gap-2">
-                <select
-                  value={batchGenerateCount}
-                  onChange={(e) => setBatchGenerateCount(Math.max(1, Math.min(5, Number(e.target.value) || 1)))}
-                  className="h-8 rounded-lg border border-white/10 bg-black/40 px-2 text-xs text-zinc-200 outline-none hover:border-white/20"
-                >
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <option key={n} value={n}>
-                      {language === 'zh' ? `${n} 条` : `${n} videos`}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const ordered = scriptPages.map((p) => p.id);
-                    setBatchGenerateSlots((prev) =>
-                      prev.map((slot, idx) => ({ ...slot, scriptPageId: ordered[idx] || null }))
-                    );
-                  }}
-                  className="h-8 px-3 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition"
-                >
-                  {language === 'zh' ? '自动填充' : 'Auto fill'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setBatchGenerateSlots((prev) => prev.map((s) => ({ ...s, scriptPageId: null })))}
-                  className="h-8 px-3 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition"
-                >
-                  {language === 'zh' ? '清空' : 'Clear'}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 min-h-0 overflow-y-auto custom-scroll p-5">
-              <div className="grid grid-cols-1 gap-3">
-                {batchGenerateSlots.map((slot, idx) => {
-                  const page = slot.scriptPageId ? scriptPages.find((p) => p.id === slot.scriptPageId) : null;
-                  const pageIndex = page ? scriptPages.findIndex((p) => p.id === page.id) : -1;
-                  const displayName = page ? formatScriptPageDisplayName(page.name, Math.max(0, pageIndex), t.wb_script_page_prefix) : '';
-                  const previewText = page ? String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim() : '';
-                  const hasValue = Boolean(page);
-
-                  return (
-                    <div
-                      key={slot.slotId}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = 'move';
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const drag = batchGenerateDragRef.current;
-                        if (!drag) return;
-                        setBatchGenerateSlots((prev) => {
-                          const next = prev.map((x) => ({ ...x }));
-                          const targetIndex = next.findIndex((x) => x.slotId === slot.slotId);
-                          if (targetIndex < 0) return prev;
-
-                          if (drag.kind === 'script') {
-                            next[targetIndex].scriptPageId = drag.scriptPageId;
-                            return next;
-                          }
-
-                          if (drag.kind === 'slot' && drag.slotId) {
-                            const sourceIndex = next.findIndex((x) => x.slotId === drag.slotId);
-                            if (sourceIndex < 0 || sourceIndex === targetIndex) return prev;
-                            const tmp = next[targetIndex].scriptPageId;
-                            next[targetIndex].scriptPageId = drag.scriptPageId;
-                            next[sourceIndex].scriptPageId = tmp ?? null;
-                            return next;
-                          }
-
-                          return prev;
-                        });
-                      }}
-                      className={`rounded-2xl border p-4 transition ${hasValue ? 'border-white/15 bg-black/30' : 'border-dashed border-white/10 bg-black/20'
-                        }`}
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <div className="text-[11px] font-bold text-zinc-500">
-                            {language === 'zh' ? `视频 ${idx + 1}` : `Video ${idx + 1}`}
-                          </div>
-                          {hasValue ? (
-                            <>
-                              <div
-                                draggable
-                                onDragStart={(e) => {
-                                  if (!slot.scriptPageId) return;
-                                  batchGenerateDragRef.current = { kind: 'slot', scriptPageId: slot.scriptPageId, slotId: slot.slotId };
-                                  e.dataTransfer.effectAllowed = 'move';
-                                }}
-                                className="mt-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 cursor-grab active:cursor-grabbing"
-                                title={language === 'zh' ? '拖拽到其它槽位以交换' : 'Drag to another slot to swap'}
-                              >
-                                <div className="text-xs font-extrabold text-zinc-200 truncate">{displayName}</div>
-                                <div className="mt-1 text-[11px] text-zinc-500 line-clamp-2">{previewText || (t.wb_script_grid_card_empty || 'No script content yet')}</div>
-                              </div>
-                            </>
-                          ) : (
-                            <div className="mt-2 text-xs text-zinc-500">{language === 'zh' ? '拖拽脚本到此处' : 'Drop a script here'}</div>
-                          )}
-                        </div>
-                        <div className="shrink-0 flex items-center gap-2">
-                          {hasValue ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setBatchGenerateSlots((prev) =>
-                                  prev.map((s) => (s.slotId === slot.slotId ? { ...s, scriptPageId: null } : s))
-                                )
-                              }
-                              className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20 transition flex items-center justify-center"
-                              aria-label="Remove"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          ) : (
-                            <div className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-500 flex items-center justify-center">
-                              <Layers className="w-4 h-4" />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="px-5 py-4 border-t border-white/10 bg-black/30 flex items-center justify-between gap-3">
-              <div className="text-[11px] text-zinc-500">
-                {language === 'zh' ? '提示：可以重复使用同一个脚本生成多条视频。' : 'Tip: you can reuse the same script for multiple videos.'}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsBatchGenerateOpen(false)}
-                  className="h-9 px-4 rounded-xl border border-white/10 bg-white/5 text-sm font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition"
-                >
-                  {t.wb_confirm_cancel || '取消'}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleBatchGenerateSubmit}
-                  disabled={isGenerating}
-                  className={`relative overflow-hidden rounded-xl px-4 py-2 text-xs font-extrabold text-white shadow-lg transition active:scale-[0.98] ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : 'hover:brightness-110'
-                    }`}
-                >
-                  <span className="absolute inset-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-600" />
-                  <span className="absolute inset-0 opacity-0 transition-opacity duration-200 hover:opacity-100 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.22),transparent_55%)]" />
-                  <span className="relative flex items-center gap-2">
-                    {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clapperboard className="w-4 h-4" />}
-                    <span>{language === 'zh' ? '开始批量生成' : 'Start Batch'}</span>
-                    {/* {estimatedBatchVideoCostLabel ? (
-                      <span className="ml-2 text-[9px] font-semibold text-white/80 whitespace-nowrap">{estimatedBatchVideoCostLabel}</span>
-                    ) : null} */}
-                  </span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </AppDialog>
-
       <div ref={workspaceRowRef} className="flex-1 flex overflow-hidden p-8 gap-6" style={rowStyle}>
         <div style={{ width: leftColumnWidth }} className="shrink-0 h-full min-w-[260px] max-w-[640px]">
           {renderLeftColumn()}
@@ -12118,25 +11743,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <div className="relative group/batch-btn">
-                  <button
-                    type="button"
-                    onClick={() => setIsBatchGenerateOpen(true)}
-                    disabled={isGenerating}
-                    className={`h-9 ${isScriptsHeaderCompact ? 'px-2' : 'px-3'} rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition inline-flex items-center gap-2 ${isGenerating ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    title={language === 'zh' ? '批量生成视频' : 'Batch Generate Videos'}
-                  >
-                    <Layers className="w-4 h-4" />
-                    {!isScriptsHeaderCompact && (
-                      <span>{language === 'zh' ? '批量生成' : 'Batch'}</span>
-                    )}
-                  </button>
-                  {isScriptsHeaderCompact && (
-                    <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/batch-btn:opacity-100">
-                      {language === 'zh' ? '批量生成视频' : 'Batch Generate Videos'}
-                    </span>
-                  )}
-                </div>
                 <div className="relative group/cost-video">
                   <button
                     onClick={handleGenerateVideo}
@@ -12168,292 +11774,354 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
-            {scriptPages.length > 0 && (
-              <div className="shrink-0 rounded-xl border border-white/10 bg-transparent p-2.5">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <div className="text-[12px] font-bold uppercase tracking-wider text-zinc-300">
-                    {t.wb_script_grid_title || 'Script Plans'}
-                  </div>
-                </div>
-                <div className="grid max-h-[300px] grid-cols-3 gap-3 overflow-y-auto overflow-x-hidden custom-scroll px-1 py-2">
-                  {scriptPages.map((page, index) => {
-                    const active = index === activeScriptPage;
-                    const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim()
-                      || (t.wb_script_grid_card_empty || 'No script content yet');
-                    return (
-                      <div key={page.id} className="relative group/scriptcard">
+          <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-2 pl-1 pt-1 space-y-4 pb-10">
+            {scriptPages.map((page, index) => {
+              const active = index === activeScriptPage;
+              const pageScripts = active ? scripts : (page.scripts || []);
+              const pageText = (page.creativeCardText ?? (active ? buildCreativeCardEditorText(activeCreativeCard) : '')) || page.fullScript || '';
+              const displayName = formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix);
+              const storyboardEnabled = storyboardEditorEnabledByPage[page.id] ?? (active ? enableStoryboardEditor : false);
+              const shotBreakdownOpen = shotBreakdownOpenByPage[page.id] ?? (active ? isShotBreakdownOpen : false);
+              const batchGenerateCountForPage = getScriptPageBatchGenerateCount(page.id, index);
+              const pageGenerationDuration = getPageScriptDuration({ ...page, scripts: pageScripts }, index, storyboardEnabled);
+              const hasStoryboardDurationMismatch = storyboardEnabled && Math.abs(pageGenerationDuration - genDuration) >= 0.1;
+              const pageBatchCost = (() => {
+                const rate = Number(selectedVideoPricing?.rate ?? 0);
+                if (!Number.isFinite(rate) || rate <= 0 || batchGenerateCountForPage <= 0) return 0;
+                return roundCreditTenths(rate * pageGenerationDuration * batchGenerateCountForPage);
+              })();
+
+              return (
+                <section
+                  key={page.id}
+                  onMouseDownCapture={() => {
+                    if (!active) handleScriptPageChange(index);
+                  }}
+                  className={`rounded-2xl border bg-white/5 backdrop-blur-xl p-5 shadow-md relative overflow-hidden transition ${active ? 'border-purple-300/50 ring-1 ring-purple-400/35 shadow-purple-950/25' : 'border-white/10 hover:border-purple-400/60 hover:ring-1 hover:ring-purple-400/25'}`}
+                >
+                  <div className="absolute -top-20 -right-20 w-72 h-72 bg-purple-500/10 rounded-full blur-[100px] pointer-events-none" />
+                  {active && <div className="absolute inset-0 bg-purple-500/1 pointer-events-none" />}
+                  <div className="relative z-10 flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${active ? 'border-purple-300/45 bg-purple-500/25' : 'border-purple-300/20 bg-purple-500/10'}`}>
+                        <Sparkles className={`h-4 w-4 ${active ? 'text-purple-600' : 'text-purple-300/75'}`} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className={`flex flex-wrap items-center gap-2 text-[13px] font-black tracking-wider ${isLightTheme ? 'text-slate-900' : 'text-zinc-100'}`}>
+                          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${active ? 'border-purple-300/45 bg-purple-500/15 text-purple-600' : 'border-purple-300/20 text-purple-300/75'}`}>
+                            #{index + 1}
+                          </span>
+                          <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-bold text-zinc-500">
+                            {`${pageScripts.length} ${t.wb_shot || 'Shot'}`}
+                          </span>
+                          {hasStoryboardDurationMismatch && (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-red-300/35 bg-red-500/10 px-2 py-0.5 text-[10px] font-bold text-red-300">
+                              <AlertCircle className="h-3 w-3" />
+                              <span>{t.wb_storyboard_duration_mismatch_badge || '生成时间和分镜时长不匹配'}</span>
+                            </span>
+                          )}
+                        </div>
+                        <input
+                          value={page.name || ''}
+                          onChange={(e) => updateScriptPageNameAt(index, e.target.value)}
+                          placeholder={displayName}
+                          className={`mt-1 box-border w-[200px] max-w-full rounded-md border border-transparent bg-transparent px-2 py-0.5 text-[12px] font-bold placeholder:font-bold outline-none transition focus:border-purple-400/45 focus:bg-black/15 ${isLightTheme ? 'text-slate-700 placeholder:text-slate-500 focus:bg-white' : 'text-zinc-300 placeholder:text-zinc-600'}`}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!active) {
+                            handleScriptPageChange(index);
+                            return;
+                          }
+                          openScriptSaveDialog();
+                        }}
+                        disabled={isSavingScriptAsset}
+                        className={`h-9 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-bold text-zinc-200 transition inline-flex items-center gap-2 ${isSavingScriptAsset ? 'cursor-not-allowed opacity-60' : 'hover:bg-white/10 hover:border-white/20'}`}
+                        title={t.wb_script_save_to_library || '保存到素材库'}
+                      >
+                        {isSavingScriptAsset ? <Loader2 className="w-4 h-4 animate-spin" /> : <BookmarkPlus className="w-4 h-4" />}
+                        <span>{t.wb_script_save_to_library || '保存到素材库'}</span>
+                      </button>
+                      {scriptPages.length > 1 && (
                         <button
                           type="button"
-                          onClick={() => handleScriptPageChange(index)}
-                          className={`${scriptPlanCardClass} ${active ? 'border-orange-500/70 bg-orange-500/10 ring-1 ring-orange-500/35' : 'border-white/10 bg-black/30 hover:border-white/25 hover:bg-white/5'}`}
+                          onClick={(e) => { e.stopPropagation(); removeScriptPage(index); }}
+                          className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-zinc-500 transition hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-300"
+                          title={t.wb_delete || 'Delete'}
                         >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <div className={`truncate text-[12px] font-bold leading-5 ${active ? 'text-orange-400' : 'text-zinc-100'}`}>
-                                {formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix)}
-                              </div>
-                            </div>
-                            <span className={`shrink-0 text-[12px] ${active ? 'text-orange-400 font-bold' : 'text-zinc-500'}`}>
-                              {`${page.scripts.length} ${t.wb_shot || 'Shot'}`}
-                            </span>
-                          </div>
-                          <div className={`${scriptPlanCardBodyClass} ${active ? 'border-orange-400/30 bg-black/15 text-orange-100/90' : 'border-white/10 bg-black/20 text-zinc-300'}`}>
-                            {previewText}
-                          </div>
+                          <Trash2 className="h-4 w-4" />
                         </button>
-                        {scriptPages.length > 1 && (
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="relative z-10 mt-4">
+                    <div className={cardThemeClass.shell}>
+                      <div className={cardThemeClass.panel}>
+                        <textarea
+                          rows={1}
+                          data-card-autosize="true"
+                          value={pageText}
+                          onChange={(e) => updateScriptPageCreativeCardTextAt(index, e.target.value)}
+                          onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                          className={`${cardThemeClass.textarea} w-full min-h-[180px]`}
+                          style={{
+                            color: isLightTheme ? '#1f2937' : '#f4f4f5',
+                            WebkitTextFillColor: isLightTheme ? '#1f2937' : '#f4f4f5',
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                      <div className="flex items-center gap-2 text-[12px] font-bold text-zinc-300">
+                          <Layers className="h-3.5 w-3.5 text-purple-300" />
+                          <span>{t.wb_batch_generate_setting || 'Batch generation setting'}</span>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3">
+                        {isSeedanceModel(selectedModel) && batchGenerateCountForPage > 0 ? (
+                          <span className="text-[10px] font-semibold text-zinc-400">
+                            {t.wb_usage_based_billing || '按量付费'}
+                          </span>
+                        ) : pageBatchCost > 0 ? (
+                          <span className="text-[10px] font-semibold text-zinc-400">
+                            -{formatCreditAmount(pageBatchCost)} {t.v_points || 'V点'}
+                          </span>
+                        ) : null}
+                        <label className="flex items-center gap-2 text-[11px] font-bold text-zinc-500">
+                          <span>{t.wb_batch_generate_count_label || 'Videos'}</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={1}
+                            value={batchGenerateCountForPage}
+                            onChange={(e) => {
+                              const nextCount = normalizeBatchGenerateCount(e.target.value);
+                              setBatchGenerateCountsByPage((prev) => ({ ...prev, [page.id]: nextCount }));
+                            }}
+                            className="h-8 w-16 rounded-lg border border-white/10 bg-black/40 px-2 text-right text-xs font-bold text-zinc-100 outline-none transition focus:border-purple-400/50"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="relative z-10 mt-4 border-t border-white/10 pt-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                      <div className="text-[12px] font-medium text-zinc-400">
+                        {storyboardEnabled
+                          ? (t.wb_storyboard_shot_mode_hint || 'Currently generating video from the shot structure.')
+                          : t.wb_storyboard_master_mode_hint}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {storyboardEnabled && (
                           <button
                             type="button"
-                            onClick={(e) => { e.stopPropagation(); removeScriptPage(index); }}
-                            className="absolute -top-1.5 -right-1.5 z-10 hidden group-hover/scriptcard:flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-zinc-900 text-zinc-400 transition hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-300"
-                            title={t.wb_delete || 'Delete'}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const nextOpen = !shotBreakdownOpen;
+                              setShotBreakdownOpenByPage((prev) => ({ ...prev, [page.id]: nextOpen }));
+                              setIsShotBreakdownOpen(nextOpen);
+                            }}
+                            className="text-[12px] px-2 py-1 rounded border text-zinc-300 hover:border-orange-500/40 transition"
+                            title={shotBreakdownOpen ? (t.wb_storyboard_collapse || 'Collapse storyboard') : (t.wb_storyboard_expand || 'Expand storyboard')}
                           >
-                            <Trash2 className="h-3 w-3" />
+                            <ChevronDown
+                              className={[
+                                'h-4 w-4 transition-transform duration-200',
+                                shotBreakdownOpen ? 'rotate-180' : '',
+                              ].join(' ')}
+                            />
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (storyboardEnabled) {
+                              setStoryboardEditorEnabledByPage((prev) => ({ ...prev, [page.id]: false }));
+                              setShotBreakdownOpenByPage((prev) => ({ ...prev, [page.id]: false }));
+                              setEnableStoryboardEditor(false);
+                              setIsShotBreakdownOpen(false);
+                            } else {
+                              setStoryboardEditorEnabledByPage((prev) => ({ ...prev, [page.id]: true }));
+                              setShotBreakdownOpenByPage((prev) => ({ ...prev, [page.id]: true }));
+                              setEnableStoryboardEditor(true);
+                              setIsShotBreakdownOpen(true);
+                            }
+                          }}
+                          className={`text-[12px] px-2.5 py-1 rounded border transition whitespace-nowrap ${storyboardEnabled ? 'text-zinc-500 hover:text-red-400 hover:border-red-500/40' : 'border-orange-500/40 text-orange-400 hover:bg-orange-500/10'}`}
+                        >
+                          {storyboardEnabled ? (t.wb_disable_storyboard || 'Disable storyboard') : t.wb_enable_storyboard}
+                        </button>
                       </div>
-                    );
-                  })}
-                  <button
-                    type="button"
-                    onClick={addScriptPage}
-                    className={`${scriptPlanCardClass} items-center justify-center border-dashed border-white/15 bg-black/20 text-zinc-500 hover:border-orange-500/45 hover:bg-orange-500/10 hover:text-orange-300`}
-                    aria-label={language === 'zh' ? '新增脚本方案' : 'Add script plan'}
-                  >
-                    <Plus className="h-7 w-7" />
-                  </button>
-                </div>
-              </div>
-            )}
+                    </div>
 
-            {activeScriptPlan && (
-              <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-lg relative overflow-hidden">
-                <div className="absolute -top-20 -right-20 w-72 h-72 bg-purple-500/10 rounded-full blur-[100px] pointer-events-none" />
-                <div className="flex items-center justify-between gap-3 relative z-10 mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.15)]">
-                      <Sparkles className="w-4 h-4 text-purple-400" />
-                    </div>
-                    <div>
-                      <div className={`flex flex-wrap items-center gap-2 text-[13px] font-black tracking-wider ${isLightTheme ? 'text-slate-900' : 'text-zinc-100'}`}>
-                        <span>{t.wb_script_plan_card_title || 'Script plan'}</span>
-                      </div>
-                      <input
-                        value={activeScriptPlan?.name || ''}
-                        onChange={(e) => updateActiveScriptPageName(e.target.value)}
-                        placeholder={formatScriptPageDisplayName(activeScriptPlan?.name, activeScriptPage, t.wb_script_page_prefix)}
-                        className={`mt-1 box-border w-[280px] max-w-full rounded-md border border-transparent bg-transparent px-2 py-0.5 text-[12px] font-medium outline-none transition focus:border-orange-500/40 focus:bg-black/15 ${isLightTheme ? 'text-slate-600 placeholder:text-slate-400 focus:bg-white' : 'text-zinc-500 placeholder:text-zinc-600'}`}
-                      />
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={openScriptSaveDialog}
-                    disabled={isSavingScriptAsset}
-                    className={`h-9 shrink-0 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-bold text-zinc-200 transition inline-flex items-center gap-2 ${isSavingScriptAsset ? 'cursor-not-allowed opacity-60' : 'hover:bg-white/10 hover:border-white/20'}`}
-                    title={t.wb_script_save_to_library || '保存到素材库'}
-                  >
-                    {isSavingScriptAsset ? <Loader2 className="w-4 h-4 animate-spin" /> : <BookmarkPlus className="w-4 h-4" />}
-                    <span>{t.wb_script_save_to_library || '保存到素材库'}</span>
-                  </button>
-                </div>
-
-                <div className="space-y-1.5 relative z-10">
-                  <div className={cardThemeClass.shell}>
-                    <div className={cardThemeClass.panel}>
-                      <textarea
-                        rows={1}
-                        data-card-autosize="true"
-                        value={(activeScriptPlan?.creativeCardText ?? buildCreativeCardEditorText(activeCreativeCard)) || activeFullScript}
-                        onChange={(e) => updateActiveCreativeCardText(e.target.value)}
-                        onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                        className={`${cardThemeClass.textarea} w-full min-h-[220px]`}
-                        style={{
-                          color: isLightTheme ? '#1f2937' : '#f4f4f5',
-                          WebkitTextFillColor: isLightTheme ? '#1f2937' : '#f4f4f5',
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            {enableStoryboardEditor ? (
-              <>
-                <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                  <div className="text-[12px] text-zinc-400 uppercase tracking-widest">分镜结构（可编辑）</div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setIsShotBreakdownOpen((prev) => !prev)}
-                      className="text-[12px] px-2 py-1 rounded border text-zinc-300 hover:border-red-500/40 transition"
-                    >
-                      <ChevronDown
-                        className={[
-                          'h-4 w-4 transition-transform duration-200',
-                          isShotBreakdownOpen ? 'rotate-180' : '',
-                        ].join(' ')}
-                      />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setEnableStoryboardEditor(false); setIsShotBreakdownOpen(false); }}
-                      className="text-[12px] px-2 py-1 rounded border text-zinc-500 hover:text-red-400 hover:border-red-500/40 transition"
-                    >
-                      关闭分镜
-                    </button>
-                  </div>
-                </div>
-                {isShotBreakdownOpen && scripts.length > 0 && (
-                  <ShotTimelineBar scripts={scripts} onUpdateScripts={updateScripts} t={t} />
-                )}
-                {isShotBreakdownOpen && (scripts.length === 0 ? (
-                  <button
-                    type="button"
-                    onClick={addScript}
-                    className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span className="text-xs font-bold">{t.wb_btn_add_shot}</span>
-                  </button>
-                ) : (
-                  scripts.map((script, index) => (
-                    <div id={`shot-card-${script.id}`} key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex items-center gap-2">
-                          <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
-                          <select
-                            value={script.type}
-                            onChange={(e) => handleScriptTypeChange(script.id, e.target.value)}
-                            className="text-[10px] text-zinc-300 border border-white/10 px-1.5 py-0.5 rounded bg-black/40 focus:outline-none focus:border-orange-500"
-                            title={t.wb_shot_type_label || '镜头类型'}
-                          >
-                            {shotTypeOptions.map((option) => (
-                              <option key={option.value} value={option.value} className="bg-black text-zinc-100">
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                          <input type="number" min={0.1} step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s', ''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
-                          <span className="text-[10px] text-zinc-500">s</span>
-                        </div>
-                        <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
-                      </div>
-                      <div className="grid grid-cols-1 gap-3">
-                        <div className="flex flex-col gap-1.5">
-                          <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_visual}</p>
-                          <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll" value={script.visual} onChange={(e) => { const ns = [...scripts]; ns[index].visual = e.target.value; updateScripts(ns); }} />
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                          <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
-                          <input
-                            type="text"
-                            disabled={soundSetting === 'off'}
-                            className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
-                            value={soundSetting === 'off' ? '已关闭音频' : script.audio}
-                            onChange={(e) => {
-                              if (soundSetting === 'off') return;
-                              const ns = [...scripts];
-                              ns[index].audio = e.target.value;
-                              updateScripts(ns);
-                            }}
-                          />
-                        </div>
-                        {language !== targetLanguage && (
-                          <div className="flex flex-col gap-1">
-                            <div className="flex items-center justify-between">
-                              <p className="text-[10px] text-zinc-600 uppercase font-bold ml-1">{t.wb_audio_translation || 'Translation'}</p>
-                              {soundSetting !== 'off' && (
-                                <div className="relative group/translate">
-                                  <button
-                                    type="button"
-                                    className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-white/10 text-zinc-400 hover:text-orange-400 hover:border-orange-500/40 transition"
-                                    disabled={!script.audioTranslation?.trim() || translatingShots[script.id]}
-                                  >
-                                    {translatingShots[script.id] ? (
-                                      <>
-                                        <Loader2 className="w-3 h-3 animate-spin" />
-                                        <span>{t.wb_translating || '翻译中...'}</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Languages className="w-3 h-3" />
-                                        <span>{t.wb_btn_translate_to_target || '翻译成目标语言'}</span>
-                                      </>
-                                    )}
-                                  </button>
-                                  {/* 悬浮弹出菜单：直接翻译 / 创意翻译 */}
-                                  {!translatingShots[script.id] && script.audioTranslation?.trim() && (
-                                    <div className="absolute right-0 top-full pt-1 hidden group-hover/translate:flex flex-col z-50 min-w-[160px]">
-                                      <div className="flex flex-col gap-1 bg-zinc-900 border border-white/10 rounded-lg p-2 shadow-xl">
-                                        <button
-                                          type="button"
-                                          className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 hover:text-orange-400 px-2 py-1.5 rounded hover:bg-white/5 transition whitespace-nowrap"
-                                          onClick={() => handleTranslateShot(script, index, 'direct')}
-                                        >
-                                          <span>{t.wb_translate_direct || '直接翻译'}</span>
-                                          <span className="relative group/tip-d">
-                                            <HelpCircle className="w-3 h-3 text-zinc-500" />
-                                            <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden group-hover/tip-d:block bg-black/90 text-zinc-300 text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap border border-white/10">
-                                              {t.wb_translate_direct_tip || '直接翻译，保持原文含义和语气'}
-                                            </span>
-                                          </span>
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 hover:text-purple-400 px-2 py-1.5 rounded hover:bg-white/5 transition whitespace-nowrap"
-                                          onClick={() => handleTranslateShot(script, index, 'creative')}
-                                        >
-                                          <span>{t.wb_translate_creative || '创意翻译'}</span>
-                                          <span className="relative group/tip-c">
-                                            <HelpCircle className="w-3 h-3 text-zinc-500" />
-                                            <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden group-hover/tip-c:block bg-black/90 text-zinc-300 text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap border border-white/10">
-                                              {t.wb_translate_creative_tip || '结合产品特点和画面进行创意翻译'}
-                                            </span>
-                                          </span>
-                                        </button>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                            <textarea
-                              className="w-full bg-black/20 text-xs text-zinc-400 p-3 rounded-lg border border-white/5 resize-none min-h-[40px] focus:border-white/20 transition-colors outline-none italic"
-                              value={script.audioTranslation}
-                              placeholder={t.wb_audio_translation || 'Translation'}
-                              onChange={(e) => {
-                                const ns = [...scripts];
-                                ns[index].audioTranslation = e.target.value;
-                                updateScripts(ns);
+                    {!storyboardEnabled ? (
+                      null
+                    ) : (
+                      <div className="mt-3 space-y-3">
+                        {shotBreakdownOpen && pageScripts.length > 0 && (
+                          <ShotTimelineBar scripts={pageScripts} onUpdateScripts={(nextScripts) => updateScriptPageScriptsAt(index, nextScripts)} t={t} />
+                        )}
+                        {shotBreakdownOpen ? (
+                          pageScripts.length === 0 ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                addScriptToPage(index);
                               }}
-                            />
+                              className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"
+                            >
+                              <Plus className="w-4 h-4" />
+                              <span className="text-xs font-bold">{t.wb_btn_add_shot}</span>
+                            </button>
+                          ) : (
+                            <>
+                              {pageScripts.map((script, shotIndex) => (
+                                <div id={`shot-card-${page.id}-${script.id}`} key={`${page.id}-${script.id}`} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${shotIndex % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
+                                  <div className="flex justify-between items-start mb-3">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className={`${shotIndex % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
+                                      <select
+                                        value={script.type}
+                                        onChange={(e) => handleScriptTypeChangeForPage(index, script.id, e.target.value)}
+                                        className="text-[10px] text-zinc-300 border border-white/10 px-1.5 py-0.5 rounded bg-black/40 focus:outline-none focus:border-orange-500"
+                                        title={t.wb_shot_type_label || '镜头类型'}
+                                      >
+                                        {shotTypeOptions.map((option) => (
+                                          <option key={option.value} value={option.value} className="bg-black text-zinc-100">
+                                            {option.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <input type="number" min={0.1} step="0.1" className="w-10 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s', ''))} onChange={(e) => handleDurationChangeForPage(index, script.id, e.target.value)} />
+                                      <span className="text-[10px] text-zinc-500">s</span>
+                                    </div>
+                                    <button onClick={(e) => { e.stopPropagation(); removeScriptFromPage(index, script.id); }} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
+                                  </div>
+                                  <div className="grid grid-cols-1 gap-3">
+                                    <div className="flex flex-col gap-1.5">
+                                      <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_visual}</p>
+                                      <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll" value={script.visual} onChange={(e) => { const ns = [...pageScripts]; ns[shotIndex].visual = e.target.value; updateScriptPageScriptsAt(index, ns); }} />
+                                    </div>
+                                    <div className="flex flex-col gap-1.5">
+                                      <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
+                                      <input
+                                        type="text"
+                                        disabled={soundSetting === 'off'}
+                                        className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
+                                        value={soundSetting === 'off' ? '已关闭音频' : script.audio}
+                                        onChange={(e) => {
+                                          if (soundSetting === 'off') return;
+                                          const ns = [...pageScripts];
+                                          ns[shotIndex].audio = e.target.value;
+                                          updateScriptPageScriptsAt(index, ns);
+                                        }}
+                                      />
+                                    </div>
+                                    {language !== targetLanguage && (
+                                      <div className="flex flex-col gap-1">
+                                        <div className="flex items-center justify-between">
+                                          <p className="text-[10px] text-zinc-600 uppercase font-bold ml-1">{t.wb_audio_translation || 'Translation'}</p>
+                                          {soundSetting !== 'off' && (
+                                            <div className="relative group/translate">
+                                              <button
+                                                type="button"
+                                                className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-white/10 text-zinc-400 hover:text-orange-400 hover:border-orange-500/40 transition"
+                                                disabled={!script.audioTranslation?.trim() || translatingShots[script.id]}
+                                              >
+                                                {translatingShots[script.id] ? (
+                                                  <>
+                                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                                    <span>{t.wb_translating || '翻译中...'}</span>
+                                                  </>
+                                                ) : (
+                                                  <>
+                                                    <Languages className="w-3 h-3" />
+                                                    <span>{t.wb_btn_translate_to_target || '翻译成目标语言'}</span>
+                                                  </>
+                                                )}
+                                              </button>
+                                              {!translatingShots[script.id] && script.audioTranslation?.trim() && (
+                                                <div className="absolute right-0 top-full pt-1 hidden group-hover/translate:flex flex-col z-50 min-w-[160px]">
+                                                  <div className="flex flex-col gap-1 bg-zinc-900 border border-white/10 rounded-lg p-2 shadow-xl">
+                                                    <button
+                                                      type="button"
+                                                      className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 hover:text-orange-400 px-2 py-1.5 rounded hover:bg-white/5 transition whitespace-nowrap"
+                                                      onClick={() => handleTranslateShotForPage(index, script, shotIndex, 'direct')}
+                                                    >
+                                                      <span>{t.wb_translate_direct || '直接翻译'}</span>
+                                                      <span className="relative group/tip-d">
+                                                        <HelpCircle className="w-3 h-3 text-zinc-500" />
+                                                        <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden group-hover/tip-d:block bg-black/90 text-zinc-300 text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap border border-white/10">
+                                                          {t.wb_translate_direct_tip || '直接翻译，保持原文含义和语气'}
+                                                        </span>
+                                                      </span>
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 hover:text-purple-400 px-2 py-1.5 rounded hover:bg-white/5 transition whitespace-nowrap"
+                                                      onClick={() => handleTranslateShotForPage(index, script, shotIndex, 'creative')}
+                                                    >
+                                                      <span>{t.wb_translate_creative || '创意翻译'}</span>
+                                                      <span className="relative group/tip-c">
+                                                        <HelpCircle className="w-3 h-3 text-zinc-500" />
+                                                        <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden group-hover/tip-c:block bg-black/90 text-zinc-300 text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap border border-white/10">
+                                                          {t.wb_translate_creative_tip || '结合产品特点和画面进行创意翻译'}
+                                                        </span>
+                                                      </span>
+                                                    </button>
+                                                  </div>
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                        <textarea
+                                          className="w-full bg-black/20 text-xs text-zinc-400 p-3 rounded-lg border border-white/5 resize-none min-h-[40px] focus:border-white/20 transition-colors outline-none italic"
+                                          value={script.audioTranslation}
+                                          placeholder={t.wb_audio_translation || 'Translation'}
+                                          onChange={(e) => {
+                                            const ns = [...pageScripts];
+                                            ns[shotIndex].audioTranslation = e.target.value;
+                                            updateScriptPageScriptsAt(index, ns);
+                                          }}
+                                        />
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                              <button onClick={(e) => { e.stopPropagation(); addScriptToPage(index); }} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
+                            </>
+                          )
+                        ) : (
+                          <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-[12px] text-zinc-500">
+                            {`${pageScripts.length} ${t.wb_shot || 'Shot'}`}
                           </div>
                         )}
                       </div>
-                    </div>
-                  ))
-                ))}
-                {isShotBreakdownOpen && scripts.length > 0 && (
-                  <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
-                )}
-              </>
-            ) : (
-              <div className="flex items-center justify-between rounded-xl border border-dashed border-white/10 bg-black/20 px-3 py-3">
-                <span className="text-[12px] text-zinc-500">{t.wb_storyboard_master_mode_hint}</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEnableStoryboardEditor(true);
-                    setIsShotBreakdownOpen(true);
-                  }}
-                  className="text-[12px] px-2.5 py-1 rounded border border-orange-500/40 text-orange-400 hover:bg-orange-500/10 transition whitespace-nowrap"
-                >
-                  {t.wb_enable_storyboard}
-                </button>
-              </div>
-            )}
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+
+            <button
+              type="button"
+              onClick={addScriptPage}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-white/15 bg-black/20 px-4 py-5 text-xs font-bold text-zinc-500 transition hover:border-orange-500/45 hover:bg-orange-500/10 hover:text-orange-300"
+              aria-label={language === 'zh' ? '新增脚本方案' : 'Add script plan'}
+            >
+              <Plus className="h-5 w-5" />
+              <span>{language === 'zh' ? '新增脚本方案' : 'Add script plan'}</span>
+            </button>
           </div>
         </div>
 

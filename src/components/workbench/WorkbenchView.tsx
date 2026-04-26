@@ -6460,7 +6460,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (isDimTheme) {
       return {
         shell: 'rounded-2xl px-0 py-0 text-slate-100',
-        panel: 'rounded-xl border border-slate-500/35 bg-slate-950/45 p-1.5',
+        panel: 'rounded-xl border border-slate-500/35 bg-slate-950/80 p-1.5',
         row: 'flex items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-800/55 border border-transparent focus-within:border-emerald-400/45 focus-within:bg-emerald-500/10',
         actionsBlock: 'rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-800/55 border border-transparent focus-within:border-emerald-400/45 focus-within:bg-emerald-500/10',
         actionIndex: 'mt-0.5 text-[11px] font-semibold text-slate-400',
@@ -6471,12 +6471,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         button: 'text-[11px] px-2 py-0.5 rounded-md border border-slate-400/40 bg-slate-700/60 text-slate-100 hover:bg-slate-700/80 transition',
         dangerButton: 'text-[11px] px-1.5 py-0.5 rounded border border-slate-400/40 text-slate-300 hover:text-red-300 hover:border-red-300/40 hover:bg-red-500/10 transition',
         subLabel: 'shrink-0 mt-0.5 text-[10px] leading-4 font-semibold text-emerald-300 border border-emerald-400/40 bg-emerald-500/10 rounded-full px-2 py-0.5',
-        textarea: 'flex-1 bg-transparent border-0 p-0 text-[12px] leading-5 focus:outline-none resize-none text-slate-100 placeholder:text-slate-500',
+        textarea: 'flex-1 bg-slate-950/55 border-0 rounded-lg p-2 text-[12px] leading-5 focus:outline-none resize-none text-slate-100 placeholder:text-slate-500',
       };
     }
     return {
       shell: 'rounded-2xl px-0 py-0 text-zinc-100',
-      panel: 'rounded-xl border border-zinc-600/40 bg-zinc-950/45 p-1.5',
+      panel: 'rounded-xl border border-zinc-600/40 bg-zinc-950/85 p-1.5',
       row: 'flex items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/5 border border-transparent focus-within:border-emerald-400/40 focus-within:bg-emerald-500/10',
       actionsBlock: 'rounded-lg px-2 py-1.5 transition-colors hover:bg-white/5 border border-transparent focus-within:border-emerald-400/40 focus-within:bg-emerald-500/10',
       actionIndex: 'mt-0.5 text-[11px] font-semibold text-zinc-400',
@@ -6487,7 +6487,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       button: 'text-[11px] px-2 py-0.5 rounded-md border border-zinc-500 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition',
       dangerButton: 'text-[11px] px-1.5 py-0.5 rounded border border-zinc-500 text-zinc-300 hover:text-red-300 hover:border-red-300/40 hover:bg-red-500/10 transition',
       subLabel: 'shrink-0 mt-0.5 text-[10px] leading-4 font-semibold text-emerald-300 border border-emerald-400/35 bg-emerald-500/10 rounded-full px-2 py-0.5',
-      textarea: 'flex-1 bg-transparent border-0 p-0 text-[12px] leading-5 focus:outline-none resize-none text-zinc-100 placeholder:text-zinc-500',
+      textarea: 'flex-1 bg-zinc-950/60 border-0 rounded-lg p-2 text-[12px] leading-5 focus:outline-none resize-none text-zinc-100 placeholder:text-zinc-500',
     };
   }, [isLightTheme, isDimTheme]);
 
@@ -9607,7 +9607,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           </div>
                         ) : (
                           <div className="flex flex-col gap-2">
-                            <div className="wb-mode-toggle grid-cols-3 border border-white/10 bg-white shadow-sm shadow-black/10">
+                            <div className="wb-mode-toggle grid-cols-3">
                               <span
                                 className="wb-mode-thumb w-1/3"
                                 style={{ transform: `translateX(${boundaryModelIndex * 100}%)` }}
@@ -9622,7 +9622,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                   type="button"
                                   onClick={() => setImageGenModel(m.id)}
                                   aria-pressed={imageGenModel === m.id}
-                                  className={`relative z-10 rounded-lg px-2 py-1.5 text-[10px] font-bold transition ${imageGenModel === m.id ? 'text-orange-200' : 'bg-transparent text-zinc-500 hover:text-orange-500'}`}
+                                  className={`relative z-10 flex items-center justify-center rounded-md border border-transparent px-3 py-2 text-center text-[10px] font-bold leading-none transition hover:z-20 ${imageGenModel === m.id ? 'text-orange-200' : 'text-zinc-300 hover:text-orange-300'}`}
                                 >
                                   {m.label}
                                 </button>
@@ -11803,8 +11803,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   {active && <div className="absolute inset-0 bg-purple-500/1 pointer-events-none" />}
                   <div className="relative z-10 flex items-start justify-between gap-3">
                     <div className="flex min-w-0 items-start gap-3">
-                      <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${active ? 'border-purple-300/45 bg-purple-500/25' : 'border-purple-300/20 bg-purple-500/10'}`}>
-                        <Sparkles className={`h-4 w-4 ${active ? 'text-purple-600' : 'text-purple-300/75'}`} />
+                      <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${active ? 'border-purple-300/45 bg-purple-500/25' : 'border-purple-300/20 bg-purple-500/10'}`}>
+                        <Sparkles className={`h-5 w-5 ${active ? 'text-purple-600' : 'text-purple-300/75'}`} />
                       </div>
                       <div className="min-w-0">
                         <div className={`flex flex-wrap items-center gap-2 text-[13px] font-black tracking-wider ${isLightTheme ? 'text-slate-900' : 'text-zinc-100'}`}>
@@ -11825,7 +11825,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           value={page.name || ''}
                           onChange={(e) => updateScriptPageNameAt(index, e.target.value)}
                           placeholder={displayName}
-                          className={`mt-1 box-border w-[200px] max-w-full rounded-md border border-transparent bg-transparent px-2 py-0.5 text-[12px] font-bold placeholder:font-bold outline-none transition focus:border-purple-400/45 focus:bg-black/15 ${isLightTheme ? 'text-slate-700 placeholder:text-slate-500 focus:bg-white' : 'text-zinc-300 placeholder:text-zinc-600'}`}
+                          className={`mt-1 box-border w-[200px] max-w-full rounded-md border border-transparent bg-transparent px-2 py-0.5 text-[13px] font-bold placeholder:font-bold outline-none transition focus:border-purple-400/45 focus:bg-black/15 ${isLightTheme ? 'text-slate-700 placeholder:text-slate-500 focus:bg-white' : 'text-zinc-300 placeholder:text-zinc-600'}`}
                         />
                       </div>
                     </div>
@@ -11878,21 +11878,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       </div>
                     </div>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                      <div className="flex items-center gap-2 text-[12px] font-bold text-zinc-300">
-                          <Layers className="h-3.5 w-3.5 text-purple-300" />
+                      <div className="flex items-center gap-2 text-[13px] font-bold text-zinc-300">
+                          <Layers className="h-4 w-4 text-purple-300" />
                           <span>{t.wb_batch_generate_setting || 'Batch generation setting'}</span>
                       </div>
                       <div className="flex shrink-0 items-center gap-3">
                         {isSeedanceModel(selectedModel) && batchGenerateCountForPage > 0 ? (
-                          <span className="text-[10px] font-semibold text-zinc-400">
+                          <span className="text-[11px] font-semibold text-zinc-400">
                             {t.wb_usage_based_billing || '按量付费'}
                           </span>
                         ) : pageBatchCost > 0 ? (
-                          <span className="text-[10px] font-semibold text-zinc-400">
+                          <span className="text-[11px] font-semibold text-zinc-400">
                             {formatCreditAmount(pageBatchCost)} {t.v_points || 'V点'}
                           </span>
                         ) : null}
-                        <label className="flex items-center gap-2 text-[11px] font-bold text-zinc-500">
+                        <label className="flex items-center gap-2 text-[12px] font-bold text-zinc-500">
                           <span>{t.wb_batch_generate_count_label || 'Videos'}</span>
                           <input
                             type="number"
@@ -11911,8 +11911,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
 
                   <div className="relative z-10 mt-4 border-t border-white/10 pt-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                      <div className="text-[12px] font-medium text-zinc-400">
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border-none bg-transparent px-3 py-2">
+                      <div className="text-[13px] font-medium text-zinc-400">
                         {storyboardEnabled
                           ? (t.wb_storyboard_shot_mode_hint || 'Currently generating video from the shot structure.')
                           : t.wb_storyboard_master_mode_hint}
@@ -11927,7 +11927,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               setShotBreakdownOpenByPage((prev) => ({ ...prev, [page.id]: nextOpen }));
                               setIsShotBreakdownOpen(nextOpen);
                             }}
-                            className="text-[12px] px-2 py-1 rounded border text-zinc-300 hover:border-orange-500/40 transition"
+                            className="text-[13px] px-2 py-1 rounded border text-zinc-300 hover:border-orange-500/40 transition"
                             title={shotBreakdownOpen ? (t.wb_storyboard_collapse || 'Collapse storyboard') : (t.wb_storyboard_expand || 'Expand storyboard')}
                           >
                             <ChevronDown
@@ -11954,7 +11954,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               setIsShotBreakdownOpen(true);
                             }
                           }}
-                          className={`text-[12px] px-2.5 py-1 rounded border transition whitespace-nowrap ${storyboardEnabled ? 'text-zinc-500 hover:text-red-400 hover:border-red-500/40' : 'border-orange-500/40 text-orange-400 hover:bg-orange-500/10'}`}
+                          className={`text-[12px] px-2.5 py-1 rounded border transition whitespace-nowrap ${storyboardEnabled ? 'border-orange-500/40 text-orange-400 hover:bg-orange-500/10' : 'wb-storyboard-enable-btn border-purple-500/40 text-purple-400 hover:border-purple-500/50'}`}
                         >
                           {storyboardEnabled ? (t.wb_disable_storyboard || 'Disable storyboard') : t.wb_enable_storyboard}
                         </button>

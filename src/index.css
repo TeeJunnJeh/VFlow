@@ -433,6 +433,29 @@ html.theme-light .wb-seedance-replay-added-badge {
   color: #065f46 !important;
 }
 
+button.wb-storyboard-enable-btn {
+  background-color: rgba(168, 85, 247, 0.14) !important;
+  border-color: rgba(168, 85, 247, 0.45) !important;
+  color: #c084fc !important;
+}
+
+button.wb-storyboard-enable-btn:hover {
+  background-color: rgba(168, 85, 247, 0.20) !important;
+  border-color: rgba(168, 85, 247, 0.60) !important;
+}
+
+.theme-light button.wb-storyboard-enable-btn {
+  background-color: rgba(168, 85, 247, 0.16) !important;
+  border-color: rgba(168, 85, 247, 0.45) !important;
+  color: #7e22ce !important;
+}
+
+.theme-light button.wb-storyboard-enable-btn:hover {
+  background-color: rgba(168, 85, 247, 0.24) !important;
+  border-color: rgba(168, 85, 247, 0.60) !important;
+  color: #6b21a8 !important;
+}
+
 /* Workbench: reusable segmented mode toggle */
 .wb-mode-toggle {
   position: relative;
@@ -521,9 +544,9 @@ html.theme-light .wb-seedance-replay-added-badge {
 .wb-workbench-field {
   width: 100%;
   border-radius: 0.5rem;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  background-color: #ffffff;
-  color: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background-color: rgba(9, 9, 11, 0.55);
+  color: #e4e4e7;
   font-size: 0.75rem;
   line-height: 1rem;
   padding: 0.5rem 0.75rem;
@@ -534,12 +557,12 @@ html.theme-light .wb-seedance-replay-added-badge {
 }
 
 .wb-workbench-field::placeholder {
-  color: #94a3b8;
+  color: #71717a;
 }
 
 .wb-workbench-field:hover {
-  background-color: #ffffff;
-  border-color: rgba(15, 23, 42, 0.18);
+  background-color: rgba(9, 9, 11, 0.70);
+  border-color: rgba(255, 255, 255, 0.18);
 }
 
 .wb-workbench-field:focus,

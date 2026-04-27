@@ -98,6 +98,10 @@ export type ImagesGalleryViewProps = {
   panelClassName: (view: ViewType) => string;
   t: any;
 
+  galleryExamples: Array<{ id: string; title: string; subtitle: string; previewUrl: string }>;
+  applyGalleryExample: (id: string) => void;
+  isGalleryApplyingExample: boolean;
+
   galleryFileInputRef: React.RefObject<HTMLInputElement | null>;
   galleryImages: File[];
   galleryPreviewUrls: string[];
@@ -854,8 +858,45 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
   return (
     <>
-    <div className={`${panelClassName('product_images_gallery')} h-full min-h-0 flex flex-col px-10 py-6`}>
-      <div className="flex-1 min-h-0 flex overflow-hidden relative" id="gallery-container">
+    <div className={`${panelClassName('product_images_gallery')} h-full flex flex-col px-10 py-6 overflow-y-auto custom-scroll pr-1`}>
+      {props.galleryExamples.length > 0 && (
+        <div className="mb-4">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <div className="text-sm font-bold text-zinc-200">
+                {props.t.pg_img_examples_title || '示例套图'}
+              </div>
+              <div className="mt-1 text-xs text-zinc-500">
+                {props.t.pg_img_examples_subtitle || '点击示例，自动填充参数与出图方案'}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 flex gap-3 overflow-x-auto pb-2 custom-scroll">
+            {props.galleryExamples.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => props.applyGalleryExample(item.id)}
+                disabled={props.isGalleryGenerating || props.isGalleryApplyingExample}
+                className="group relative w-[240px] shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-black/20 text-left transition hover:border-orange-500/30 hover:bg-black/30 disabled:opacity-60 disabled:hover:border-white/10"
+                title={props.isGalleryGenerating || props.isGalleryApplyingExample ? (props.t.pg_img_examples_loading || '生成中...') : (props.t.pg_img_examples_click_to_generate || '点击填充')}
+              >
+                <div className="relative h-[112px]">
+                  <img src={item.previewUrl} alt={item.title} className="h-full w-full object-cover opacity-85 transition group-hover:opacity-95" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
+                  <div className="absolute inset-x-4 bottom-3">
+                    <div className="text-sm font-extrabold text-white/95">{item.title}</div>
+                    <div className="mt-0.5 text-[11px] text-white/70 line-clamp-1">{item.subtitle}</div>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex-1 min-h-[720px] flex overflow-hidden relative" id="gallery-container">
         <div
           ref={galleryLeftPanelRef}
           className={`flex flex-col gap-3 min-h-0 overflow-y-auto custom-scroll pr-2 shrink-0 transition-colors duration-150 rounded-2xl border border-white/5 bg-white/2 hover:border-orange-500/20 ${getGuideFocusClass('left')}`}

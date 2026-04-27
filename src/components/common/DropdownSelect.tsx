@@ -157,7 +157,7 @@ export const DropdownSelect: React.FC<DropdownSelectProps> = ({
       {isOpen && !disabled && (
         renderInPortal
           ? createPortal(menuNode, document.body)
-          : <div className="absolute w-full">{menuNode}</div>
+          : <div className="absolute z-[120] w-full">{menuNode}</div>
       )}
     </div>
   );

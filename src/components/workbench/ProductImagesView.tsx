@@ -155,6 +155,27 @@ type GalleryBulkRatioStrategy = 'recommended' | '1:1' | '4:5' | '9:16';
 type GalleryBulkBindingStrategy = 'none' | 'auto_primary';
 
 type GalleryOutputMode = 'custom' | 'ai';
+type GalleryExampleTemplate = {
+  id: string;
+  title: string;
+  subtitle: string;
+  previewUrl: string;
+  inputImageUrls: string[];
+  settings: {
+    productName: string;
+    productCategory: string;
+    sellingPoints: string[];
+    targetScene: 'detail' | 'xiaohongshu' | 'douyin' | 'poster' | 'ads';
+    style: 'ecom_clean' | 'lifestyle' | 'premium' | 'festival';
+    copyLanguage?: string;
+    outputItems: Array<{
+      outputType: GalleryOutputType;
+      aspectRatio: string;
+      resolution: '1k' | '2k' | '4k';
+      count: number;
+    }>;
+  };
+};
 type GalleryOutputItem = {
   id: string;
   enabled: boolean;
@@ -207,6 +228,85 @@ const GALLERY_BULK_RECOMMENDED_ASPECT_RATIOS: Record<GalleryOutputType, '1:1' | 
   cover: '4:5',
   poster: '9:16',
 };
+
+const GALLERY_EXAMPLE_TEMPLATES: GalleryExampleTemplate[] = [
+  {
+    id: 'ecom_triple',
+    title: '白底主图三连',
+    subtitle: '标品快速出主图 + 卖点图',
+    previewUrl: '/intro-page-demo/product_gallery_1776926764914.jpeg',
+    inputImageUrls: [
+      '/smart-repair-examples/flat_lay_with_accessories_before.jpg',
+      '/smart-repair-examples/mannequin_to_model_before.jpg',
+      '/smart-repair-examples/body_reshape_before.jpg',
+    ],
+    settings: {
+      productName: '高腰运动瑜伽裤',
+      productCategory: '服饰',
+      sellingPoints: ['显瘦高腰', '弹力透气', '不易起球'],
+      targetScene: 'detail',
+      style: 'ecom_clean',
+      outputItems: [
+        { outputType: 'white_bg', aspectRatio: '1:1', resolution: '1k', count: 1 },
+        { outputType: 'selling_point', aspectRatio: '1:1', resolution: '1k', count: 3 },
+      ],
+    },
+  },
+  {
+    id: 'promo_sale',
+    title: '促销活动套图',
+    subtitle: '到手价 + 限时标签 + 主视觉',
+    previewUrl: '/ai-poster-editor-guide/edited.png',
+    inputImageUrls: ['/smart-repair-examples/flat_lay_with_accessories_before.jpg'],
+    settings: {
+      productName: '春季轻薄外套',
+      productCategory: '服饰',
+      sellingPoints: ['限时立减', '满减叠券'],
+      targetScene: 'ads',
+      style: 'festival',
+      outputItems: [
+        { outputType: 'cover', aspectRatio: '4:5', resolution: '1k', count: 1 },
+        { outputType: 'poster', aspectRatio: '9:16', resolution: '1k', count: 1 },
+      ],
+    },
+  },
+  {
+    id: 'lifestyle_seed',
+    title: '场景种草',
+    subtitle: '氛围图 + 轻文案，适合小红书',
+    previewUrl: '/smart-repair-examples/fashion_3d_showcase_after.jpg',
+    inputImageUrls: ['/smart-repair-examples/mannequin_to_model_before.jpg'],
+    settings: {
+      productName: '通勤连衣裙',
+      productCategory: '服饰',
+      sellingPoints: ['通勤显气质'],
+      targetScene: 'xiaohongshu',
+      style: 'lifestyle',
+      outputItems: [
+        { outputType: 'scene', aspectRatio: '4:5', resolution: '1k', count: 2 },
+        { outputType: 'cover', aspectRatio: '4:5', resolution: '1k', count: 1 },
+      ],
+    },
+  },
+  {
+    id: 'premium_brand',
+    title: '品牌质感',
+    subtitle: '高级感封面 + 海报，适合品牌调性',
+    previewUrl: '/ai-poster-editor-guide/repainted.jpeg',
+    inputImageUrls: ['/smart-repair-examples/fashion_3d_showcase_before.jpg'],
+    settings: {
+      productName: '真丝衬衫',
+      productCategory: '服饰',
+      sellingPoints: ['高级质感', '自然垂坠'],
+      targetScene: 'poster',
+      style: 'premium',
+      outputItems: [
+        { outputType: 'cover', aspectRatio: '4:5', resolution: '1k', count: 1 },
+        { outputType: 'poster', aspectRatio: '9:16', resolution: '1k', count: 1 },
+      ],
+    },
+  },
+];
 
 const normalizeGalleryTypeSelections = (
   selections: Record<GalleryOutputType, { enabled: boolean; count: number }>
@@ -856,6 +956,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   });
   const galleryFileInputRef = useRef<HTMLInputElement | null>(null);
   const [galleryPreviewUrls, setGalleryPreviewUrls] = useState<string[]>([]);
+  const [galleryExampleApplyingId, setGalleryExampleApplyingId] = useState<string | null>(null);
   const [isGalleryDragActive, setIsGalleryDragActive] = useState(false);
   const [isGalleryAnalyzing, setIsGalleryAnalyzing] = useState(false);
   const [galleryAlert, setGalleryAlert] = useState<{ open: boolean; title: string; message: string }>({
@@ -1091,6 +1192,75 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       title: title || t.pg_main_notice,
       message,
     });
+
+  const loadGalleryExampleFiles = async (imageUrls: string[], seedName: string) => {
+    const urls = imageUrls.map((u) => String(u || '').trim()).filter(Boolean).slice(0, 3);
+    const files: File[] = [];
+    for (let idx = 0; idx < urls.length; idx += 1) {
+      const url = urls[idx]!;
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        throw new Error(t.pg_main_toast_image_upload_failed_retry);
+      }
+      const blob = await resp.blob();
+      const mime = String(blob.type || '').trim() || 'image/jpeg';
+      const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
+      files.push(new File([blob], `gallery-example-${seedName}-${idx + 1}.${ext}`, { type: mime }));
+    }
+    return files;
+  };
+
+  const applyGalleryExample = async (exampleId: string) => {
+    if (!requireAuth()) return;
+    if (isGalleryGenerating) return;
+    if (galleryExampleApplyingId) return;
+
+    const template = GALLERY_EXAMPLE_TEMPLATES.find((item) => item.id === exampleId) || null;
+    if (!template) return;
+
+    setGalleryExampleApplyingId(exampleId);
+    try {
+      const files = await loadGalleryExampleFiles(template.inputImageUrls, template.id);
+      if (files.length === 0) {
+        openGalleryAlert(t.pg_main_toast_upload_one_image);
+        return;
+      }
+
+      const sellingPoints = template.settings.sellingPoints.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 5);
+      const outputItems: GalleryOutputItem[] = template.settings.outputItems
+        .map((row) => ({
+          id: createGalleryOutputItemId(),
+          enabled: true,
+          outputType: row.outputType,
+          aspectRatio: String(row.aspectRatio || '1:1').trim() || '1:1',
+          resolution: row.resolution,
+          count: Math.max(0, Math.round(Number(row.count || 0))),
+        }))
+        .filter((row) => row.enabled && row.count > 0);
+
+      setGalleryImages(files);
+      setGalleryRestoredImagePaths([]);
+      setGalleryProductName(template.settings.productName);
+      setGalleryCategory(template.settings.productCategory);
+      setGallerySellingPoints(sellingPoints);
+      setGalleryTargetScene(template.settings.targetScene);
+      setGalleryStyle(template.settings.style);
+      if (template.settings.copyLanguage) {
+        setGalleryCopyLanguage(template.settings.copyLanguage);
+      }
+
+      setGalleryOutputMode('custom');
+      setGalleryOutputItems(outputItems);
+      setGalleryBulkConfig(inferGalleryBulkConfigFromOutputItems(outputItems, sellingPoints.length));
+      setGalleryAdvancedDirty(false);
+      setIsGalleryAdvancedEditingCollapsed(true);
+      setGalleryRightPanel('preview');
+    } catch (err: any) {
+      openGalleryAlert(String(err?.message || t.pg_main_toast_image_upload_failed_retry));
+    } finally {
+      setGalleryExampleApplyingId(null);
+    }
+  };
 
   const guideGalleryResourceSection = (target: 'model' | 'scene') => {
     setGalleryResourceGuide({
@@ -5100,6 +5270,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           isVisible={currentValue === 'product_images_gallery'}
           panelClassName={panelClassName}
           t={t}
+          galleryExamples={GALLERY_EXAMPLE_TEMPLATES.map(({ id, title, subtitle, previewUrl }) => ({ id, title, subtitle, previewUrl }))}
+          applyGalleryExample={applyGalleryExample}
+          isGalleryApplyingExample={Boolean(galleryExampleApplyingId)}
           galleryFileInputRef={galleryFileInputRef}
           galleryImages={galleryImages}
           galleryPreviewUrls={galleryPreviewUrls}

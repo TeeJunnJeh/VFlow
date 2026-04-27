@@ -48,8 +48,9 @@ export type FirstFrameHoldingStyle =
 
 export type FirstFrameAspectRatio = 
   | '9:16'
-  | '4:5'
-  | '1:1';
+  | '1:1'
+  | '3:2'
+  | '2:3';
 
 export type FirstFrameStyle = 
   | 'authentic'
@@ -60,6 +61,7 @@ export type FirstFrameStyle =
 export type FirstFrameModel =
   | 'flux-2-pro'
   | 'flux-2-flex'
+  | 'gpt-image-2'
   | 'gpt-image-1.5';
 
 export type FirstFrameWhitespace = 

@@ -144,7 +144,7 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
         </div>
 
         {results.length > 1 && (
-          <div className="bg-transparent px-8 py-6">
+          <div className="bg-transparent px-8 pb-6 pt-2">
             <p className="mb-4 text-sm font-medium text-zinc-300">{t.ff_preview_variants}</p>
             <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
               {results.map((result) => (

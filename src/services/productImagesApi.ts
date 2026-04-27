@@ -14,6 +14,20 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 const PROJECTS_API_BASE = `${API_BASE}/projects`;
 const ASSETS_API_BASE = '/api/assets';
 
+function isApiDebugEnabled(): boolean {
+  const isDev = Boolean((import.meta as any)?.env?.DEV);
+  if (isDev) return true;
+  if (typeof window === 'undefined') return false;
+  const flag = String(window.localStorage.getItem('vflow_api_debug') || '').trim().toLowerCase();
+  return flag === '1' || flag === 'true' || flag === 'on';
+}
+
+function debugApiLog(label: string, payload: Record<string, unknown>): void {
+  if (!isApiDebugEnabled()) return;
+  // Keep logs structured so browser console can inspect payloads easily.
+  console.log(`[API DEBUG] ${label}`, payload);
+}
+
 function toDisplayUrl(pathOrUrl: string): string {
   const raw = String(pathOrUrl || '').trim();
   if (!raw) return '';
@@ -32,7 +46,7 @@ function styleToModel(style?: FirstFrameParams['style']): string {
   return 'flux-2-pro';
 }
 
-const FIRST_FRAME_MODELS: FirstFrameModel[] = ['flux-2-pro', 'flux-2-flex', 'gpt-image-1.5'];
+const FIRST_FRAME_MODELS: FirstFrameModel[] = ['flux-2-pro', 'flux-2-flex', 'gpt-image-2', 'gpt-image-1.5'];
 
 function resolveFirstFrameModel(params: FirstFrameParams): FirstFrameModel {
   const selected = String(params.model || '').trim() as FirstFrameModel;
@@ -119,7 +133,14 @@ async function generateFirstFrameOnce(options: {
     payload.client_history_id = options.clientHistoryId;
   }
 
-  const response = await fetch(`${PROJECTS_API_BASE}/generate_first_frame`, {
+  const endpoint = `${PROJECTS_API_BASE}/generate_first_frame`;
+  debugApiLog('request generate_first_frame', {
+    endpoint,
+    method: 'POST',
+    payload,
+  });
+
+  const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -128,6 +149,20 @@ async function generateFirstFrameOnce(options: {
     },
     credentials: 'include',
     body: JSON.stringify(payload),
+  });
+  const responseClone = response.clone();
+
+  let debugResponseBody: unknown = null;
+  try {
+    debugResponseBody = await responseClone.json();
+  } catch {
+    debugResponseBody = { nonJson: true };
+  }
+  debugApiLog('response generate_first_frame', {
+    endpoint,
+    status: response.status,
+    ok: response.ok,
+    body: debugResponseBody,
   });
 
   if (!response.ok) {

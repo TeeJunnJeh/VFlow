@@ -4,7 +4,7 @@ import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import { billingApi } from '../../../../services/billing';
 import { productImagesApi } from '../../../../services/productImagesApi';
-import type { FirstFrameParams } from '../../../../types/productImages';
+import type { FirstFrameAspectRatio, FirstFrameModel, FirstFrameParams } from '../../../../types/productImages';
 import { formatCreditAmount, roundCreditTenths } from '../../../../utils/credits';
 
 interface FirstFrameFormProps {
@@ -28,6 +28,30 @@ const FALLBACK_PARAMS: FirstFrameParams = {
   outputCount: 4,
 };
 
+const GPT_FIRST_FRAME_MODELS: FirstFrameModel[] = ['gpt-image-2', 'gpt-image-1.5'];
+
+const isGptFirstFrameModel = (model?: FirstFrameModel) => (
+  GPT_FIRST_FRAME_MODELS.includes(model as FirstFrameModel)
+);
+
+const getFirstFrameAspectRatios = (model?: FirstFrameModel): Array<{ label: string; value: FirstFrameAspectRatio }> => {
+  const base: Array<{ label: string; value: FirstFrameAspectRatio }> = [
+    { label: '1:1', value: '1:1' },
+    { label: '3:2', value: '3:2' },
+    { label: '2:3', value: '2:3' },
+  ];
+  if (isGptFirstFrameModel(model)) return base;
+  return [...base, { label: '9:16', value: '9:16' }];
+};
+
+const normalizeFirstFrameAspectRatio = (
+  value: FirstFrameParams['aspectRatio'],
+  model: FirstFrameParams['model']
+): FirstFrameAspectRatio => {
+  const options = getFirstFrameAspectRatios(model);
+  return options.some((item) => item.value === value) ? value as FirstFrameAspectRatio : options[0].value;
+};
+
 export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   images,
   onSubmit,
@@ -47,19 +71,11 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
     [defaultParams]
   );
 
-  const aspectRatios = useMemo(
-    () => [
-      { label: t.ff_aspect_ratio_vertical, value: '9:16' },
-      { label: '4:5', value: '4:5' },
-      { label: t.ff_aspect_ratio_square, value: '1:1' },
-    ],
-    [t]
-  );
-
   const models = useMemo(
     () => [
       { label: 'Flux 2 Pro', value: 'flux-2-pro' },
       { label: 'Flux 2 Flex', value: 'flux-2-flex' },
+      { label: 'GPT Image 2', value: 'gpt-image-2' },
       { label: 'GPT Image 1.5', value: 'gpt-image-1.5' },
     ],
     []
@@ -92,6 +108,19 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
     return baseDefaults;
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const aspectRatios = useMemo(
+    () => getFirstFrameAspectRatios(formData.model),
+    [formData.model]
+  );
+
+  useEffect(() => {
+    setFormData((prev) => {
+      const normalized = normalizeFirstFrameAspectRatio(prev.aspectRatio, prev.model);
+      if (normalized === prev.aspectRatio) return prev;
+      return { ...prev, aspectRatio: normalized };
+    });
+  }, [formData.aspectRatio, formData.model]);
 
   useEffect(() => {
     let nextFormData: FirstFrameParams = { ...mergedDefaultParams };
@@ -242,32 +271,39 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
 
         <div className="space-y-6">
           <div>
+            <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.wb_model_title || t.ff_style_label}</label>
+            <DropdownSelect
+              value={formData.model || ''}
+              options={models}
+              onChange={(value) => {
+                const nextModel = value as FirstFrameModel;
+                setFormData({
+                  ...formData,
+                  model: nextModel,
+                  aspectRatio: normalizeFirstFrameAspectRatio(formData.aspectRatio, nextModel),
+                });
+              }}
+              buttonClassName={`w-full bg-zinc-900/70 border rounded-xl px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 ${errors.model ? 'border-red-500' : 'border-white/10'}`}
+              iconClassName="w-4 h-4 text-zinc-500"
+              optionClassName="text-sm"
+            />
+            {errors.model && <p className="text-red-400 text-xs mt-1">{errors.model}</p>}
+          </div>
+
+          <div>
             <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_aspect_ratio_label}</label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className={`grid gap-2 ${aspectRatios.length === 4 ? 'grid-cols-4' : 'grid-cols-3'}`}>
               {aspectRatios.map((item) => (
                 <button
                   key={item.value}
                   type="button"
-                  onClick={() => setFormData({ ...formData, aspectRatio: item.value as any })}
+                  onClick={() => setFormData({ ...formData, aspectRatio: item.value })}
                   className={`px-3 py-2 rounded-xl text-sm font-medium border transition ${formData.aspectRatio === item.value ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
                 >
                   {item.label}
                 </button>
               ))}
             </div>
-          </div>
-
-          <div>
-            <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.wb_model_title || t.ff_style_label}</label>
-            <DropdownSelect
-              value={formData.model || ''}
-              options={models}
-              onChange={(value) => setFormData({ ...formData, model: value as any })}
-              buttonClassName={`w-full bg-zinc-900/70 border rounded-xl px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 ${errors.model ? 'border-red-500' : 'border-white/10'}`}
-              iconClassName="w-4 h-4 text-zinc-500"
-              optionClassName="text-sm"
-            />
-            {errors.model && <p className="text-red-400 text-xs mt-1">{errors.model}</p>}
           </div>
 
           <div>

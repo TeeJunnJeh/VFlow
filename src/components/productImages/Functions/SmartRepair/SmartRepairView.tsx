@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, Download, Sparkles, ArrowLeft, Home } from 'lucide-react';
+import { ChevronLeft, Download, Sparkles, Home } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { ErrorDialog, type ErrorInfo, ImageUploader, LoadingProgress } from '../../Common';
 import { downloadBlob, productImagesApi } from '../../../../services/productImagesApi';
@@ -228,7 +228,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   const [aspectRatio, setAspectRatio] = useState<SmartRepairParams['aspectRatio']>('1:1');
   const [strength, setStrength] = useState<SmartRepairParams['strength']>('medium');
   const [outputCount, setOutputCount] = useState<SmartRepairParams['outputCount']>(1);
-  const [activeSubpage, setActiveSubpage] = useState<SmartRepairSubpage | null>(null);
+  const [activeSubpage, setActiveSubpage] = useState<SmartRepairSubpage>('fashion_model');
   const [activeToolCode, setActiveToolCode] = useState<SmartRepairToolCode | null>(null);
   const [historyItems, setHistoryItems] = useState<SmartRepairHistoryEntry[]>([]);
   const [loadingTheme, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
@@ -241,8 +241,47 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     { key: 'other', label: t.sr_subpage_other_name },
   ];
 
-  const currentTools = activeSubpage ? TOOL_MATRIX[activeSubpage] : [];
+  const currentTools = TOOL_MATRIX[activeSubpage];
   const activeTool = activeToolCode ? currentTools.find((tool) => tool.code === activeToolCode) : undefined;
+
+  const editablePromptTokens = useMemo(
+    () => (
+      isZh
+        ? ['{{主体}}', '{{目标效果}}', '{{背景/场景}}', '{{风格/质感}}', '{{必须保留元素}}']
+        : ['{{Subject}}', '{{Target effect}}', '{{Background/scene}}', '{{Style/texture}}', '{{Must keep details}}']
+    ),
+    [isZh]
+  );
+
+  const buildPromptTemplate = useCallback((tool: SmartRepairToolDef) => {
+    if (isZh) {
+      return [
+        tool.promptZh,
+        '',
+        '【可编辑字段（建议按需替换）】',
+        `- 主体：${editablePromptTokens[0]}`,
+        `- 目标效果：${editablePromptTokens[1]}`,
+        `- 背景/场景：${editablePromptTokens[2]}`,
+        `- 风格/质感：${editablePromptTokens[3]}`,
+        `- 必须保留元素：${editablePromptTokens[4]}`,
+        '',
+        '【输出要求】保持主体一致、边缘自然、光影统一、无明显修图痕迹。',
+      ].join('\n');
+    }
+
+    return [
+      tool.promptEn,
+      '',
+      '[Editable fields - update based on your needs]',
+      `- Subject: ${editablePromptTokens[0]}`,
+      `- Target effect: ${editablePromptTokens[1]}`,
+      `- Background/scene: ${editablePromptTokens[2]}`,
+      `- Style/texture: ${editablePromptTokens[3]}`,
+      `- Must keep details: ${editablePromptTokens[4]}`,
+      '',
+      '[Output requirements] Keep subject identity, realistic edges, consistent lighting, and no obvious retouch artifacts.',
+    ].join('\n');
+  }, [editablePromptTokens, isZh]);
 
   const getSamplePath = (code: SmartRepairToolCode, type: 'before' | 'after') =>
     `/smart-repair-examples/${code}_${type}.jpg`;
@@ -263,7 +302,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     setSourceImage(null);
     setReferenceImage(null);
     setPrompt('');
-    setActiveSubpage(null);
+    setActiveSubpage('fashion_model');
     setActiveToolCode(null);
   };
 
@@ -295,12 +334,12 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   const contentWrapClassName = embedded ? 'w-full' : 'max-w-5xl mx-auto';
 
   useEffect(() => {
-    if (!activeTool) return;
-    setPrompt((prev) => {
-      if (prev.trim().length > 0) return prev;
-      return isZh ? activeTool.promptZh : activeTool.promptEn;
-    });
-  }, [activeTool, isZh]);
+    if (currentTools.length === 0) return;
+    const stillExists = activeToolCode && currentTools.some((tool) => tool.code === activeToolCode);
+    if (stillExists) return;
+    setActiveToolCode(currentTools[0].code);
+    setPrompt(buildPromptTemplate(currentTools[0]));
+  }, [activeToolCode, buildPromptTemplate, currentTools]);
 
   useEffect(() => {
     void refreshHistory();
@@ -475,115 +514,39 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
           </div>
         )}
 
-        <div className="bg-zinc-900 rounded-2xl border border-zinc-800 p-6 md:p-8 shadow-2xl">
-          {phase === 'setup' && !activeSubpage && (
-            <div>
-              <h2 className="text-lg font-semibold text-white mb-2">
-                {t.sr_step1_select_submodule}
-              </h2>
-              <p className="text-sm text-zinc-400 mb-6">
-                {t.sr_step1_select_submodule_hint}
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {subpageOptions.map((item) => {
-                  const toolsInModule = TOOL_MATRIX[item.key];
-                  return (
-                    <button
-                      key={item.key}
-                      type="button"
-                      onClick={() => {
-                        setActiveSubpage(item.key);
-                        setActiveToolCode(null);
-                        setSourceImage(null);
-                        setReferenceImage(null);
-                        setPrompt('');
-                      }}
-                      className="rounded-2xl border border-white/10 bg-black/20 p-5 text-left hover:border-orange-400/60 hover:bg-orange-500/5 transition group"
-                    >
-                      <div className="text-base font-semibold text-zinc-100">{item.label}</div>
-                      <div className="text-xs text-zinc-500 mt-2">
-                        {item.key === 'fashion_model' && t.sr_subpage_fashion_model_desc}
-                        {item.key === 'product_object' && t.sr_subpage_product_object_desc}
-                        {item.key === 'other' && t.sr_subpage_other_desc}
-                      </div>
-                      <div className="mt-4 pt-4 border-t border-white/10">
-                        <div className="text-xs text-zinc-400 mb-2">
-                          {t.sr_available_functions} ({toolsInModule.length})
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {toolsInModule.map((tool) => (
-                            <span
-                              key={tool.code}
-                              className="inline-block px-2 py-1 rounded-md bg-white/5 text-xs text-zinc-300 group-hover:bg-orange-500/10 group-hover:text-orange-200 transition"
-                            >
-                              {isZh ? tool.titleZh : tool.titleEn}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {phase === 'setup' && activeSubpage && (
-            <div className="space-y-6">
-              {/* Header */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveSubpage(null);
-                      setActiveToolCode(null);
-                      setSourceImage(null);
-                      setReferenceImage(null);
-                      setPrompt('');
-                    }}
-                    className="inline-flex items-center gap-2 text-xs text-zinc-400 hover:text-zinc-200 mb-2"
-                  >
-                    <ArrowLeft className="w-4 h-4" />
-                    {t.sr_back_to_submodule}
-                  </button>
-                  <h2 className="text-lg font-semibold text-white">
-                    {subpageOptions.find((s) => s.key === activeSubpage)?.label}
-                  </h2>
-                </div>
-              </div>
-
-              {/* Tool Selector Tabs */}
-              <div className="bg-black/30 rounded-xl p-4 border border-white/10">
-                <div className="text-xs text-zinc-400 mb-3">{t.sr_step1_select_function}</div>
-                <div className="flex gap-2 flex-wrap">
-                  {currentTools.map((tool) => {
-                    const selected = !!activeToolCode && tool.code === activeToolCode;
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5 md:p-6 shadow-2xl">
+          {phase === 'setup' && (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-white/5 bg-black/20 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  {subpageOptions.map((item) => {
+                    const selected = activeSubpage === item.key;
                     return (
                       <button
-                        key={tool.code}
+                        key={item.key}
                         type="button"
                         onClick={() => {
-                          setActiveToolCode(tool.code);
-                          setPrompt(isZh ? tool.promptZh : tool.promptEn);
+                          setActiveSubpage(item.key);
+                          setActiveToolCode(null);
+                          setSourceImage(null);
+                          setReferenceImage(null);
+                          setPrompt('');
                         }}
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap ${
+                        className={`px-4 py-2 rounded-full text-sm font-semibold transition border ${
                           selected
-                            ? 'bg-orange-500/20 text-orange-200 border border-orange-400/60'
-                            : 'bg-black/20 text-zinc-300 border border-white/10 hover:border-white/20 hover:bg-white/5'
+                            ? 'border-orange-500/50 bg-orange-500/10 text-orange-200'
+                            : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'
                         }`}
                       >
-                        {isZh ? tool.titleZh : tool.titleEn}
+                        {item.label}
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Function Cards Gallery - Show all tools with before/after examples */}
-              <div>
-                <div className="text-sm font-semibold text-zinc-200 mb-4">{t.sr_step2_function_showcase}</div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="rounded-2xl border border-white/5 bg-black/20 p-3">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
                   {currentTools.map((tool) => {
                     const selected = !!activeToolCode && tool.code === activeToolCode;
                     return (
@@ -591,52 +554,44 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                         key={tool.code}
                         onClick={() => {
                           setActiveToolCode(tool.code);
-                          setPrompt(isZh ? tool.promptZh : tool.promptEn);
+                          setPrompt(buildPromptTemplate(tool));
                         }}
-                        className={`rounded-xl border-2 transition overflow-hidden hover:shadow-lg group ${
+                        className={`group overflow-hidden rounded-xl border text-left transition ${
                           selected
-                            ? 'border-orange-400/70 bg-orange-500/10 shadow-lg shadow-orange-500/20'
-                            : 'border-white/10 bg-black/40 hover:border-white/20 hover:bg-black/30'
+                            ? 'border-orange-400/70 bg-orange-500/10'
+                            : 'border-white/10 bg-black/30 hover:border-white/20 hover:bg-black/20'
                         }`}
                         type="button"
                       >
-                        {/* Before/After Comparison */}
-                        <div className="grid grid-cols-2 gap-0">
-                          <div className="aspect-square overflow-hidden bg-black/50 relative">
+                        <div className="grid grid-cols-2">
+                          <div className="relative aspect-[4/3] overflow-hidden bg-black/40">
                             <img
                               src={getSamplePath(tool.code, 'before')}
                               alt={isZh ? `${tool.titleZh} 处理前` : `${tool.titleEn} before`}
-                              className="w-full h-full object-cover opacity-70 group-hover:opacity-100 transition duration-300"
+                              className="h-full w-full object-cover opacity-80"
                               onError={(e) => {
-                                (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22%3E%3Crect fill=%22%23333%22 width=%22100%22 height=%22100%22/%3E%3C/svg%3E';
+                                (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%2275%22%3E%3Crect fill=%22%23333%22 width=%22100%22 height=%2275%22/%3E%3C/svg%3E';
                               }}
                             />
-                            <div className="absolute top-1 left-1 bg-black/60 px-2 py-0.5 rounded text-xs text-zinc-300">
-                              {t.sr_before}
-                            </div>
                           </div>
-                          <div className="aspect-square overflow-hidden bg-black/50 relative">
+                          <div className="relative aspect-[4/3] overflow-hidden bg-black/40">
                             <img
                               src={getSamplePath(tool.code, 'after')}
                               alt={isZh ? `${tool.titleZh} 处理后` : `${tool.titleEn} after`}
-                              className="w-full h-full object-cover opacity-70 group-hover:opacity-100 transition duration-300"
+                              className="h-full w-full object-cover opacity-90"
                               onError={(e) => {
-                                (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22%3E%3Crect fill=%22%23333%22 width=%22100%22 height=%22100%22/%3E%3C/svg%3E';
+                                (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%2275%22%3E%3Crect fill=%22%23333%22 width=%22100%22 height=%2275%22/%3E%3C/svg%3E';
                               }}
                             />
-                            <div className="absolute top-1 right-1 bg-orange-500/80 px-2 py-0.5 rounded text-xs text-white font-semibold">
-                              {t.sr_after}
-                            </div>
                           </div>
                         </div>
-                        {/* Tool Info */}
-                        <div className="p-4 text-left">
-                          <h4 className="font-semibold text-base text-white truncate group-hover:text-orange-300 transition">
+                        <div className="px-2.5 py-2">
+                          <div className="truncate text-xs font-semibold text-zinc-100 group-hover:text-orange-200">
                             {isZh ? tool.titleZh : tool.titleEn}
-                          </h4>
-                          <p className="text-sm text-zinc-400 mt-1 line-clamp-2">
+                          </div>
+                          <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-zinc-400">
                             {isZh ? tool.descZh : tool.descEn}
-                          </p>
+                          </div>
                         </div>
                       </button>
                     );
@@ -644,34 +599,59 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                 </div>
               </div>
 
-              {/* Tool Details & Setup */}
-              <div className="space-y-4">
-                {/* Main Content - Only show when tool is selected */}
-                {!activeToolCode && (
-                  <div className="rounded-xl border border-dashed border-white/10 bg-black/20 p-6 text-center">
-                    <div className="text-sm text-zinc-500 mb-2">{t.sr_tip_label}</div>
-                    <p className="text-sm text-zinc-400">
-                      {t.sr_tip_select_function}
-                    </p>
-                  </div>
-                )}
+              {!activeToolCode && (
+                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-6 text-center text-sm text-zinc-400">
+                  {t.sr_tip_select_function}
+                </div>
+              )}
 
-                {activeToolCode && (
-                  <>
-                    {/* Tool Info Card */}
-                    <div className="rounded-xl border border-white/10 bg-black/40 p-5">
-                      <h3 className="text-lg font-bold text-orange-300 mb-2">
+              {activeToolCode && (
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-orange-500/40 bg-orange-500/5 p-4">
+                      <div className="mb-2 text-sm font-semibold text-orange-200">
                         {activeTool ? (isZh ? activeTool.titleZh : activeTool.titleEn) : '-'}
-                      </h3>
+                      </div>
                       <p className="text-sm text-zinc-300">
                         {activeTool ? (isZh ? activeTool.descZh : activeTool.descEn) : '-'}
                       </p>
                     </div>
 
-                  {/* Upload Section - Two Column */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <div className="text-sm font-semibold text-zinc-200 mb-3">{t.sr_step3_upload_source}</div>
+                    <div className="rounded-2xl border border-orange-500/40 bg-black/35 p-4">
+                      <div className="mb-3 flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold text-zinc-100">{isZh ? '修复说明（可编辑）' : 'Repair Instructions (Editable)'}</span>
+                        {editablePromptTokens.map((token) => (
+                          <span key={token} className="rounded-full border border-orange-400/40 bg-orange-500/15 px-2 py-0.5 text-[11px] font-medium text-orange-200">
+                            {token}
+                          </span>
+                        ))}
+                      </div>
+                      <textarea
+                        value={prompt}
+                        onChange={(e) => setPrompt(e.target.value)}
+                        rows={8}
+                        className="w-full rounded-xl border border-orange-500/40 bg-black/30 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-orange-300"
+                        placeholder={t.sr_prompt_placeholder}
+                      />
+                      <div className="mt-3 rounded-xl border border-white/10 bg-black/40 p-3">
+                        <div className="mb-2 text-xs text-zinc-400">{isZh ? '高亮预览（橙色部分可按需求修改）' : 'Highlighted preview (orange tokens are editable)'}</div>
+                        <div className="max-h-36 overflow-y-auto whitespace-pre-wrap text-xs leading-5 text-zinc-300">
+                          {prompt.split(/(\{\{[^}]+\}\})/g).map((part, index) => {
+                            const isEditable = /^\{\{[^}]+\}\}$/.test(part);
+                            return isEditable ? (
+                              <span key={`editable-${index}`} className="rounded bg-orange-500/20 px-1 py-0.5 text-orange-200">{part}</span>
+                            ) : (
+                              <span key={`normal-${index}`}>{part}</span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+                      <div className="mb-2 text-sm font-semibold text-zinc-200">{isZh ? '上传原图' : 'Source Image'}</div>
                       {!sourceImage ? (
                         <ImageUploader
                           maxFiles={1}
@@ -686,7 +666,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                         />
                       ) : (
                         <div>
-                          <img src={sourcePreviewUrl} alt="source" className="w-full rounded-lg border border-white/10 object-cover" style={{maxHeight: '400px'}} />
+                          <img src={sourcePreviewUrl} alt="source" className="w-full rounded-lg border border-white/10 object-cover" style={{ maxHeight: '280px' }} />
                           <button
                             onClick={() => setSourceImage(null)}
                             className="mt-2 text-xs text-zinc-400 hover:text-zinc-200 underline"
@@ -697,8 +677,8 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                       )}
                     </div>
 
-                    <div>
-                      <div className="text-sm font-semibold text-zinc-200 mb-3">{t.sr_reference_optional}</div>
+                    <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+                      <div className="mb-2 text-sm font-semibold text-zinc-200">{t.sr_reference_optional}</div>
                       <ImageUploader
                         maxFiles={1}
                         onFilesSelected={(files) => setReferenceImage(files[0] || null)}
@@ -712,7 +692,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                       />
                       {referencePreviewUrl && (
                         <div className="mt-2">
-                          <img src={referencePreviewUrl} alt="reference" className="w-full rounded-lg border border-white/10 object-cover" style={{maxHeight: '300px'}} />
+                          <img src={referencePreviewUrl} alt="reference" className="w-full rounded-lg border border-white/10 object-cover" style={{ maxHeight: '220px' }} />
                           <button
                             onClick={() => setReferenceImage(null)}
                             className="mt-2 text-xs text-zinc-400 hover:text-zinc-200 underline"
@@ -722,94 +702,79 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                         </div>
                       )}
                     </div>
+
+                    <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <div>
+                          <div className="mb-2 text-xs font-medium text-zinc-400">{t.sr_strength}</div>
+                          <select
+                            value={strength}
+                            onChange={(e) => setStrength(e.target.value as SmartRepairParams['strength'])}
+                            className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-zinc-200 focus:border-orange-400/50"
+                          >
+                            <option value="light">{t.sr_strength_light}</option>
+                            <option value="medium">{t.sr_strength_medium}</option>
+                            <option value="strong">{t.sr_strength_strong}</option>
+                          </select>
+                        </div>
+                        <div>
+                          <div className="mb-2 text-xs font-medium text-zinc-400">{t.sr_aspect}</div>
+                          <select
+                            value={aspectRatio}
+                            onChange={(e) => setAspectRatio(e.target.value as SmartRepairParams['aspectRatio'])}
+                            className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-zinc-200 focus:border-orange-400/50"
+                          >
+                            <option value="1:1">1:1</option>
+                            <option value="4:5">4:5</option>
+                            <option value="9:16">9:16</option>
+                            <option value="16:9">16:9</option>
+                          </select>
+                        </div>
+                        <div>
+                          <div className="mb-2 text-xs font-medium text-zinc-400">{t.sr_count}</div>
+                          <select
+                            value={outputCount}
+                            onChange={(e) => setOutputCount(Number(e.target.value) as SmartRepairParams['outputCount'])}
+                            className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-zinc-200 focus:border-orange-400/50"
+                          >
+                            <option value={1}>1</option>
+                            <option value={2}>2</option>
+                            <option value={4}>4</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex items-center gap-3">
+                        <button
+                          onClick={() => {
+                            setSourceImage(null);
+                            setReferenceImage(null);
+                            if (activeTool) {
+                              setPrompt(buildPromptTemplate(activeTool));
+                            }
+                          }}
+                          className="px-4 py-2 text-sm bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition"
+                        >
+                          {t.sr_clear_input}
+                        </button>
+                        <button
+                          onClick={handleGenerate}
+                          className="flex-1 px-4 py-2 text-sm font-semibold bg-orange-500 text-black rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={!sourceImage}
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          {isZh ? '开始智能修复' : 'Start Smart Repair'}
+                          {estimatedCost > 0 ? (
+                            <span className="ml-1 text-[10px] font-semibold text-black/75 whitespace-nowrap">
+                              {`-${formatCreditAmount(estimatedCost)} ${t.v_points}`}
+                            </span>
+                          ) : null}
+                        </button>
+                      </div>
+                    </div>
                   </div>
-
-                  {/* Repair Instructions */}
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-200 mb-3">{t.sr_step4_repair_instructions}</div>
-                    <textarea
-                      value={prompt}
-                      onChange={(e) => setPrompt(e.target.value)}
-                      rows={5}
-                      className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm text-zinc-200 outline-none focus:border-orange-400/50"
-                      placeholder={t.sr_prompt_placeholder}
-                    />
-                  </div>
-
-                  {/* Parameters - Three Column */}
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <div className="text-xs text-zinc-400 mb-2 font-medium">{t.sr_strength}</div>
-                      <select
-                        value={strength}
-                        onChange={(e) => setStrength(e.target.value as SmartRepairParams['strength'])}
-                        className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:border-orange-400/50"
-                      >
-                        <option value="light">{t.sr_strength_light}</option>
-                        <option value="medium">{t.sr_strength_medium}</option>
-                        <option value="strong">{t.sr_strength_strong}</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <div className="text-xs text-zinc-400 mb-2 font-medium">{t.sr_aspect}</div>
-                      <select
-                        value={aspectRatio}
-                        onChange={(e) => setAspectRatio(e.target.value as SmartRepairParams['aspectRatio'])}
-                        className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:border-orange-400/50"
-                      >
-                        <option value="1:1">1:1</option>
-                        <option value="4:5">4:5</option>
-                        <option value="9:16">9:16</option>
-                        <option value="16:9">16:9</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <div className="text-xs text-zinc-400 mb-2 font-medium">{t.sr_count}</div>
-                      <select
-                        value={outputCount}
-                        onChange={(e) => setOutputCount(Number(e.target.value) as SmartRepairParams['outputCount'])}
-                        className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:border-orange-400/50"
-                      >
-                        <option value={1}>1</option>
-                        <option value={2}>2</option>
-                        <option value={4}>4</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex items-center gap-3 pt-2">
-                    <button
-                      onClick={() => {
-                        setSourceImage(null);
-                        setReferenceImage(null);
-                        if (activeTool) {
-                          setPrompt(isZh ? activeTool.promptZh : activeTool.promptEn);
-                        }
-                      }}
-                      className="px-4 py-2 text-sm bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition"
-                    >
-                      {t.sr_clear_input}
-                    </button>
-                    <button
-                      onClick={handleGenerate}
-                      className="flex-1 px-4 py-2 text-sm font-semibold bg-orange-500 text-black rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={!sourceImage}
-                    >
-                      <Sparkles className="w-4 h-4" />
-                      {t.sr_step5_start_repair}
-                      {estimatedCost > 0 ? (
-                        <span className="ml-1 text-[10px] font-semibold text-black/75 whitespace-nowrap">
-                          {`-${formatCreditAmount(estimatedCost)} ${t.v_points}`}
-                        </span>
-                      ) : null}
-                    </button>
-                    </div>
-                  </>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           )}
 

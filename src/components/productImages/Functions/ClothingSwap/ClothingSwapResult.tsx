@@ -143,7 +143,7 @@ export const ClothingSwapResult: React.FC<ClothingSwapResultProps> = ({
           return (
             <div
               key={item.id}
-              className={`relative rounded-2xl overflow-hidden border transition cursor-pointer ${
+              className={`relative rounded-2xl overflow-hidden border-4 transition cursor-pointer ${
                 isSelected ? 'border-orange-500/60' : 'border-white/10 hover:border-white/20'
               } bg-black/30`}
               onClick={() => setSelectedId(item.id)}

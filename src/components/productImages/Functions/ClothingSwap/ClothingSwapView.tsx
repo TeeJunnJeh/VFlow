@@ -4,7 +4,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, Sparkles, X } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { ImageUploader } from '../../Common/ImageUploader';
 import { ClothingSwapForm } from './ClothingSwapForm';
@@ -182,6 +182,141 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
   });
   const [generatingVideoIds, setGeneratingVideoIds] = useState<Set<string>>(new Set());
   const [lastGeneratedBackground, setLastGeneratedBackground] = useState<ClothingSwapBackground>('model');
+
+  // ── guide state ──────────────────────────────────────────────────────────────
+  const csLeftPanelRef = useRef<HTMLElement | null>(null);
+  const csMiddlePanelRef = useRef<HTMLElement | null>(null);
+  const csRightPanelRef = useRef<HTMLElement | null>(null);
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [guideStepIndex, setGuideStepIndex] = useState(0);
+  const [guidePanelStyle, setGuidePanelStyle] = useState<React.CSSProperties>({});
+  const [guideHighlightStyle, setGuideHighlightStyle] = useState<React.CSSProperties>({});
+  const isVisibleRef = useRef(isVisible);
+  useEffect(() => { isVisibleRef.current = isVisible; }, [isVisible]);
+
+  type CsGuideStepKey = 'upload' | 'settings' | 'result';
+  const csGuideSteps = useMemo<
+    Array<{ key: CsGuideStepKey; title: string; description: string; image: string }>
+  >(
+    () => [
+      {
+        key: 'upload',
+        title: t.cs_guide_step_upload_title,
+        description: t.cs_guide_step_upload_desc,
+        image: '/cs-guide/step1.png', // ← 在此处填写步骤1的示意图路径，如 '/cs-guide/step1-upload.png'
+      },
+      {
+        key: 'settings',
+        title: t.cs_guide_step_settings_title,
+        description: t.cs_guide_step_settings_desc,
+        image: '/cs-guide/step2.png', // ← 在此处填写步骤2的示意图路径，如 '/cs-guide/step2-settings.png'
+      },
+      {
+        key: 'result',
+        title: t.cs_guide_step_result_title,
+        description: t.cs_guide_step_result_desc,
+        image: '/cs-guide/step3.png', // ← 在此处填写步骤3的示意图路径，如 '/cs-guide/step3-result.png'
+      },
+    ],
+    [t],
+  );
+
+  const activeCsGuideStep = isGuideOpen ? csGuideSteps[guideStepIndex] : null;
+  const getCsGuideFocusClass = (key: CsGuideStepKey) =>
+    activeCsGuideStep?.key === key
+      ? 'relative z-[85] ring-2 ring-orange-400/80 ring-offset-2 ring-offset-black/60 shadow-[0_0_24px_rgba(251,146,60,0.35)] rounded-2xl'
+      : '';
+
+  const getCsGuideTargetElement = useCallback(() => {
+    const map: Record<CsGuideStepKey, React.RefObject<HTMLElement | null>> = {
+      upload: csLeftPanelRef,
+      settings: csMiddlePanelRef,
+      result: csRightPanelRef,
+    };
+    const key = csGuideSteps[guideStepIndex]?.key;
+    return key ? map[key]?.current ?? null : null;
+  }, [guideStepIndex, csGuideSteps]);
+
+  const updateCsGuidePanelPosition = useCallback(() => {
+    const target = getCsGuideTargetElement();
+    const vp = 12;
+    const panelWidth = Math.min(420, window.innerWidth - vp * 2);
+    const panelHeight = 380;
+    const pad = 10;
+
+    if (!target) {
+      setGuidePanelStyle({
+        width: `${panelWidth}px`,
+        left: `${Math.max(vp, Math.round((window.innerWidth - panelWidth) / 2))}px`,
+        top: `${Math.max(vp, Math.round((window.innerHeight - panelHeight) / 2))}px`,
+      });
+      setGuideHighlightStyle({ display: 'none' });
+      return;
+    }
+
+    const rect = target.getBoundingClientRect();
+    setGuideHighlightStyle({
+      left: `${Math.round(rect.left - pad)}px`,
+      top: `${Math.round(rect.top - pad)}px`,
+      width: `${Math.round(rect.width + pad * 2)}px`,
+      height: `${Math.round(rect.height + pad * 2)}px`,
+    });
+
+    let left = rect.right + 16;
+    if (left + panelWidth > window.innerWidth - vp) left = rect.left - panelWidth - 16;
+    if (left < vp) left = Math.max(vp, Math.round((window.innerWidth - panelWidth) / 2));
+
+    let top = rect.top;
+    if (top + panelHeight > window.innerHeight - vp) top = window.innerHeight - panelHeight - vp;
+    if (top < vp) top = vp;
+
+    setGuidePanelStyle({
+      width: `${panelWidth}px`,
+      left: `${Math.round(left)}px`,
+      top: `${Math.round(top)}px`,
+    });
+  }, [getCsGuideTargetElement]);
+
+  const csGuideSeenKey = 'vflow_cs_guide_seen_v1';
+  const markCsGuideSeen = useCallback(() => {
+    try { window.localStorage.setItem(csGuideSeenKey, '1'); } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    const handler = () => {
+      if (!isVisibleRef.current) return;
+      setGuideStepIndex(0);
+      setIsGuideOpen(true);
+    };
+    window.addEventListener('vflow:open-clothing-swap-guide', handler as EventListener);
+    return () => window.removeEventListener('vflow:open-clothing-swap-guide', handler as EventListener);
+  }, []);
+
+  useEffect(() => {
+    if (!isVisible) setIsGuideOpen(false);
+  }, [isVisible]);
+
+  useEffect(() => {
+    if (!isVisible || isGuideOpen) return;
+    try { if (window.localStorage.getItem(csGuideSeenKey) === '1') return; } catch { /* ignore */ }
+    const timer = window.setTimeout(() => { setGuideStepIndex(0); setIsGuideOpen(true); }, 400);
+    return () => window.clearTimeout(timer);
+  }, [isGuideOpen, isVisible]);
+
+  useEffect(() => {
+    if (!isGuideOpen) return;
+    const target = getCsGuideTargetElement();
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    const timer = window.setTimeout(() => updateCsGuidePanelPosition(), 260);
+    const onResize = () => updateCsGuidePanelPosition();
+    window.addEventListener('scroll', onResize, true);
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('scroll', onResize, true);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [guideStepIndex, getCsGuideTargetElement, isGuideOpen, updateCsGuidePanelPosition]);
 
   const generationSeqRef = useRef(0);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -628,7 +763,8 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
         <div ref={containerRef} className="relative flex h-full min-h-0 items-stretch overflow-hidden">
           {/* Left: Upload */}
           <section
-            className="mr-3 h-full shrink-0 overflow-y-auto rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100"
+            ref={csLeftPanelRef}
+            className={`mr-3 h-full shrink-0 overflow-y-auto rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100 ${getCsGuideFocusClass('upload')}`}
             style={{ width: `${leftWidth}px`, minWidth: `${CS_PANEL_MIN_WIDTH}px`, scrollbarColor: 'black transparent', scrollbarWidth: 'thin' }}
           >
             <div className="mb-5 flex items-center justify-between">
@@ -680,7 +816,8 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
 
           {/* Middle: Form */}
           <section
-            className="mx-3 h-full shrink-0 overflow-y-auto rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100"
+            ref={csMiddlePanelRef}
+            className={`mx-3 h-full shrink-0 overflow-y-auto rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100 ${getCsGuideFocusClass('settings')}`}
             style={{ width: `${middleWidth}px`, minWidth: `${CS_PANEL_MIN_WIDTH}px`, scrollbarColor: 'black transparent', scrollbarWidth: 'thin' }}
           >
             <div className="mb-5">
@@ -709,7 +846,8 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
 
           {/* Right: Result */}
           <section
-            className="ml-3 h-full flex-1 overflow-y-auto rounded-2xl border border-white/5 bg-white/[0.02] p-5"
+            ref={csRightPanelRef}
+            className={`ml-3 h-full flex-1 overflow-y-auto rounded-2xl border border-white/5 bg-white/[0.02] p-5 ${getCsGuideFocusClass('result')}`}
             style={{ minWidth: `${CS_PANEL_MIN_WIDTH}px` }}
           >
             <div className="mb-5 flex items-start justify-between gap-3">
@@ -861,6 +999,107 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
           onRetry={handleErrorRetry}
           showRetry={true}
         />
+      )}
+
+      {/* ── 新手引导 overlay ──────────────────────────────────────────────────── */}
+      {isGuideOpen && (
+        <div
+          className="fixed inset-0 z-[120]"
+          onClick={() => { setIsGuideOpen(false); markCsGuideSeen(); }}
+        >
+          {/* 高亮框 */}
+          <div
+            className="absolute rounded-2xl border-2 border-orange-400/90 bg-transparent pointer-events-none shadow-[0_0_0_9999px_rgba(0,0,0,0.72),0_0_32px_rgba(249,115,22,0.35)]"
+            style={guideHighlightStyle}
+          />
+          {/* 面板 */}
+          <div
+            className="absolute rounded-2xl border border-orange-500/30 bg-zinc-950/95 shadow-2xl shadow-black/60 backdrop-blur p-4"
+            style={guidePanelStyle}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 标题行 */}
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-base font-bold text-white">{t.cs_guide_modal_title}</div>
+                <div className="mt-1 text-xs text-zinc-400">
+                  {t.wb_guide_step} {guideStepIndex + 1} / {csGuideSteps.length}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setIsGuideOpen(false); markCsGuideSeen(); }}
+                className="text-zinc-400 hover:text-white"
+                title={t.wb_guide_close}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* 步骤内容 */}
+            <div className="mt-4 rounded-xl border border-white/10 bg-black/30 px-3 py-3">
+              <div className="text-sm font-bold text-orange-200">{activeCsGuideStep?.title ?? ''}</div>
+              <div className="mt-2 text-xs leading-5 text-zinc-300">{activeCsGuideStep?.description ?? ''}</div>
+              {/* 示意图展示位 — 将 image 字段设为非空路径即可显示 */}
+              {activeCsGuideStep?.image ? (
+                <img
+                  src={activeCsGuideStep.image}
+                  alt={activeCsGuideStep.title}
+                  className="mt-3 w-full rounded-lg border border-white/10 object-cover max-h-40"
+                />
+              ) : (
+                <div className="mt-3 flex h-28 items-center justify-center rounded-lg border border-dashed border-white/10 bg-black/20 text-xs text-zinc-600">
+                  {/* 示意图占位区 — 将对应步骤的 image 字段填写图片路径后此占位将被替换 */}
+                  示意图
+                </div>
+              )}
+            </div>
+
+            {/* 步骤导航按钮 */}
+            <div className="mt-4 flex flex-wrap gap-2">
+              {csGuideSteps.map((step, index) => (
+                <button
+                  key={step.key}
+                  type="button"
+                  onClick={() => setGuideStepIndex(index)}
+                  className={`text-left rounded-lg border px-3 py-2 text-xs transition ${
+                    guideStepIndex === index
+                      ? 'border-orange-500/70 bg-orange-500/20 text-orange-200'
+                      : 'border-white/10 bg-black/40 text-zinc-300 hover:bg-white/5'
+                  }`}
+                >
+                  {index + 1}. {step.title}
+                </button>
+              ))}
+            </div>
+
+            {/* 上一步 / 下一步 */}
+            <div className="mt-4 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setGuideStepIndex((prev) => Math.max(0, prev - 1))}
+                disabled={guideStepIndex <= 0}
+                className="px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5 transition"
+              >
+                {t.wb_guide_prev}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (guideStepIndex >= csGuideSteps.length - 1) {
+                    setIsGuideOpen(false);
+                    markCsGuideSeen();
+                    return;
+                  }
+                  setGuideStepIndex((prev) => Math.min(csGuideSteps.length - 1, prev + 1));
+                }}
+                className="px-4 py-2 rounded-xl bg-orange-500 text-xs font-bold text-black hover:bg-orange-400 transition"
+              >
+                {guideStepIndex >= csGuideSteps.length - 1 ? t.wb_guide_finish : t.wb_guide_next}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

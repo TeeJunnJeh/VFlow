@@ -11,6 +11,7 @@ import { assetsApi } from '../../services/assets';
 import { videoApi } from '../../services/video';
 import { downloadBlob, productImagesApi } from '../../services/productImagesApi';
 import { billingApi } from '../../services/billing';
+import { apiRequest } from '../../services/apiClient';
 import { notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, removeImageHistoryAssets, replaceImageHistoryAsset, subscribeImageHistory, type ImageHistoryItem } from '../../utils/imageHistory';
 import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../utils/loadingTheme';
 import { saveBlobWithPickerFallback } from '../../utils/browserDownload';
@@ -155,6 +156,46 @@ type GalleryBulkRatioStrategy = 'recommended' | '1:1' | '4:5' | '9:16';
 type GalleryBulkBindingStrategy = 'none' | 'auto_primary';
 
 type GalleryOutputMode = 'custom' | 'ai';
+type GalleryExampleTemplate = {
+  id: string;
+  title: string;
+  subtitle: string;
+  previewUrl: string;
+  isUserSnapshot?: boolean;
+  inputImageUrls: string[];
+  modelCards?: Array<{
+    name?: string;
+    imageUrl: string;
+    modelInfo?: string;
+  }>;
+  sceneCards?: Array<{
+    name?: string;
+    sourceMode?: GallerySceneCardSourceMode;
+    presetId?: string;
+    sceneConfig?: Partial<GallerySceneConfig>;
+  }>;
+  settings: {
+    productName: string;
+    productCategory: string;
+    sellingPoints: string[];
+    targetScene: 'detail' | 'xiaohongshu' | 'douyin' | 'poster' | 'ads';
+    style: 'ecom_clean' | 'lifestyle' | 'premium' | 'festival';
+    copyLanguage?: string;
+    uploadedImagePaths?: string[];
+    outputItems: Array<{
+      outputType: GalleryOutputType;
+      aspectRatio: string;
+      resolution: '1k' | '2k' | '4k';
+      count: number;
+      layout?: string;
+      layouts?: string[];
+      result_url?: string;
+      modelCardIndex?: number;
+      sceneCardIndex?: number;
+      cardConfig?: GalleryOutputCardConfig;
+    }>;
+  };
+};
 type GalleryOutputItem = {
   id: string;
   enabled: boolean;
@@ -207,6 +248,227 @@ const GALLERY_BULK_RECOMMENDED_ASPECT_RATIOS: Record<GalleryOutputType, '1:1' | 
   cover: '4:5',
   poster: '9:16',
 };
+
+const GALLERY_USER_EXAMPLE_LIMIT = 20;
+
+const GALLERY_EXAMPLE_TEMPLATES: GalleryExampleTemplate[] = [
+  {
+    id: 'ecom_triple',
+    title: '白底主图三连',
+    subtitle: '标品快速出主图 + 卖点图',
+    previewUrl: '/product-gallery-examples/1/result_6.jpeg',
+    inputImageUrls: [
+      '/product-gallery-examples/1/product_1.png',
+      '/product-gallery-examples/1/product_2.png',
+    ],
+    modelCards: [
+      {
+        name: '模特-刘亦菲',
+        imageUrl: '/product-gallery-examples/1/model1.jpg',
+        modelInfo: '亚洲女模特 / 干净妆面',
+      },
+    ],
+    sceneCards: [
+      {
+        name: '场景1',
+        sourceMode: 'custom',
+        sceneConfig: {
+          sceneTheme: '干净白色浴室台面',
+          sceneDescription: '清爽、柔和、极简质感',
+          sceneProps: '毛巾、香薰、浴室绿植',
+          lighting: '柔和自然光',
+          mood: '治愈、干净',
+        },
+      },
+    ],
+    settings: {
+      productName: 'SC-11 玫瑰香身体乳',
+      productCategory: '美妆个护',
+      sellingPoints: ['3天提亮肤色不反黑', '7天改善暗沉使肌肤透亮柔嫩', '16小时长效保湿锁水','含烟酰胺有效抑制黑色素生成', '含维生素E增强皮肤屏障并抗氧化'],
+      targetScene: 'detail',
+      style: 'ecom_clean',
+      copyLanguage: 'zh',
+      outputItems: [
+        {
+          outputType: 'white_bg',
+          aspectRatio: '1:1',
+          resolution: '2k',
+          count: 1,
+          result_url: '/product-gallery-examples/1/result_1.jpeg',
+          cardConfig: {
+            compositionHint: '产品SC-11身体乳管身居中偏下1/3处，45度斜角摆放，瓶盖朝右上；背景纯白无阴影；左侧留白15%用于后期加品牌logo与净含量文字；右侧留白20%用于叠加小玫瑰花瓣装饰（半透明虚化）；底部留白10%避免裁切误伤；确保管身无拉伸变形，标签文字清晰但不可读（仅轮廓）',
+          },
+        },
+        {
+          outputType: 'selling_point',
+          aspectRatio: '3:4',
+          resolution: '2k',
+          count: 1,
+          result_url: '/product-gallery-examples/1/result_2.jpeg',
+          modelCardIndex: 0,
+          sceneCardIndex: 0,
+          cardConfig: {
+            compositionHint: '左1/2为亚洲女模特手臂特写（干净妆面，自然光下肤质透亮），右1/2为产品管身竖立+半开盖露出乳液质地；中间以极细粉金分隔线隔开；顶部留白15%放标题区；底部留白10%放图标区（绿色对勾+‘3天’圆形徽章）；整体画面饱满，无空洞区域',
+          },
+        },
+        {
+          outputType: 'selling_point',
+          aspectRatio: '3:4',
+          resolution: '2k',
+          count: 1,
+          result_url: '/product-gallery-examples/1/result_3.jpeg',
+          modelCardIndex: 0,
+          sceneCardIndex: 0,
+          cardConfig: {
+            compositionHint: '模特侧脸+肩颈局部特写（皮肤水润有光泽），产品管身斜靠于模特手肘旁；背景为柔焦粉色水波纹纹理；左侧留白25%放置‘16H’动态水滴图标+锁水符号；右侧留白15%为产品特写小窗（放大乳液延展性）；整体构图紧凑，人物与产品占比共85%',
+          },
+        },
+        {
+          outputType: 'selling_point',
+          aspectRatio: '3:4',
+          resolution: '2k',
+          count: 1,
+          result_url: '/product-gallery-examples/1/result_4.jpeg',
+          modelCardIndex: 0,
+          sceneCardIndex: 0,
+          cardConfig: {
+            compositionHint: '实验室风格微场景：白色大理石台面，产品管身居中，左侧摆放微型玻璃烧杯（内含淡粉乳液）、右侧放烟酰胺分子结构简图（线条示意，非真实化学式）；背景为浅灰柔光；顶部留白18%放标题；底部留白10%放置‘√ 烟酰胺’图标组合；画面饱满无冗余留白',
+          },
+        },
+        {
+          outputType: 'selling_point',
+          aspectRatio: '3:4',
+          resolution: '2k',
+          count: 1,
+          result_url: '/product-gallery-examples/1/result_5.jpeg',
+          modelCardIndex: 0,
+          sceneCardIndex: 0,
+          cardConfig: {
+            compositionHint: '模特双手轻抚前臂肌肤（动作自然），产品管身置于手旁桌面；背景为柔焦晨光窗景（浅金光晕）；左上角留白15%放置‘维生素E’图标+盾牌符号；右下角留白12%为皮肤屏障示意图（三层结构轮廓，无标注）；人物+产品占画面90%，确保饱满',
+          },
+        },
+        {
+          outputType: 'selling_point',
+          aspectRatio: '3:4',
+          resolution: '2k',
+          count: 1,
+          result_url: '/product-gallery-examples/1/result_6.jpeg',
+          modelCardIndex: 0,
+          sceneCardIndex: 0,
+          cardConfig: {
+            compositionHint: '俯拍构图：浅粉亚克力托盘中央放置产品管身，周围散落3朵新鲜粉玫瑰与1片湿润花瓣；托盘边缘延伸至画面四角，形成饱满框架；上方留白20%用于标题与‘7天’徽章；下方留白12%放置对比示意小图框（左暗沉/右透亮，仅轮廓示意，无文字）',
+          },
+        }
+      ],
+    },
+  },
+  {
+    id: 'lifestyle_seed',
+    title: '场景种草',
+    subtitle: '氛围图 + 轻文案，适合小红书',
+    previewUrl: '/product-gallery-examples/2/result_3.jpeg',
+    inputImageUrls: ['/product-gallery-examples/2/product_1.webp', '/product-gallery-examples/2/product_2.png'],
+    settings: {
+      productName: 'Apple iPhone 14 Pro',
+      productCategory: '3C数码',
+      sellingPoints: ['灵动岛设计', '三摄系统（主摄+超广角+长焦）', '深空紫色磨砂玻璃背板', 'A16仿生芯片'],
+      targetScene: 'xiaohongshu',
+      style: 'lifestyle',
+      outputItems: [
+        {
+          outputType: 'scene',
+          aspectRatio: '3:4',
+          resolution: '2k',
+          count: 1,
+          result_url: '/product-gallery-examples/2/result_1.jpeg',
+          cardConfig: {
+            compositionHint: 'iPhone 14 Pro 深空紫背板朝上斜置于浅木纹咖啡桌右下角，屏幕亮起显示灵动岛动态交互界面（如音乐播放/计时器），左侧留白区放置半杯拿铁与翻开的杂志；背景虚化处理，呈现柔和日光窗景；视觉焦点为手机背部三摄模组与磨砂质感，顶部留15%空白供后期加标题，底部留10%空白加CTA按钮位。',
+          },
+        },
+        {
+          outputType: 'poster',
+          aspectRatio: '16:9',
+          resolution: '4k',
+          count: 1,
+          result_url: '/product-gallery-examples/2/result_3.jpeg',
+          cardConfig: {
+            compositionHint: '深色渐变背景，一台暗紫色iPhone 14 Pro居中偏下悬浮摆放，屏幕亮起，显示极简界面。不锈钢边框与三摄模组有细腻柔光勾勒，无杂乱反光。上方约40%区域保持干净深色，适合放置标题；底部少量留白可放一行小字。整体光感高级、画面简洁，突出产品轮廓与质感。上面有一个标题显示产品名称',
+          },
+        },
+        {
+          outputType: 'cover',
+          aspectRatio: '1:1',
+          resolution: '2k',
+          count: 1,
+          result_url: '/product-gallery-examples/2/result_2.jpeg',
+          cardConfig: {
+            compositionHint: '纯白背景中央偏左放置iPhone 14 Pro 正面45度视角（屏幕亮起，显示深紫到蓝灰渐变灵动岛动画），右侧留白占画面40%，用于后期叠加大字标题与卖点图标；手机底部轻微投影增强立体感；顶部与底部各留10%安全边距；视觉层级：手机主体 > 屏幕灵动岛 > 右侧留白区。',
+          },
+        }
+      ],
+    },
+  },
+  {
+    id: 'premium_brand',
+    title: '品牌质感',
+    subtitle: '高级感封面 + 海报，适合品牌调性',
+    previewUrl: '/product-gallery-examples/3/result_3.jpeg',
+    inputImageUrls: ['/product-gallery-examples/3/product_1.webp'],
+    settings: {
+      productName: 'Nike 连帽拉链运动外套',
+      productCategory: '服装鞋靴',
+      sellingPoints: ['灰色混纺面料舒适透气', '连帽设计带抽绳调节', '正面全拉链开合方便穿脱', '两侧斜插拉链口袋实用安全'],
+      targetScene: 'ads',
+      style: 'premium',
+      outputItems: [
+        {
+          outputType: 'scene',
+          aspectRatio: '3:4',
+          resolution: '2k',
+          count: 1,
+          modelCardIndex: 0,
+          result_url: '/product-gallery-examples/3/result_1.jpeg',
+          cardConfig: {
+            compositionHint: '模特侧身微前倾站立于城市公园步道，背景虚化为晨光中的梧桐树与慢跑人群；外套正面全开拉链展示内衬细节，左手插右侧斜插口袋，右手自然下垂；左上角留白15%用于后期叠加品牌slogan；视觉重心在模特 torso 区域，突出连帽抽绳与胸前Swoosh标识；整体构图采用黄金分割线布局，人物占画面60%，环境占40%',
+          },
+        },
+        {
+          outputType: 'scene',
+          aspectRatio: '4:5',
+          resolution: '2k',
+          count: 1,
+          modelCardIndex: 0,
+          result_url: '/product-gallery-examples/3/result_2.jpeg',
+          cardConfig: {
+            compositionHint: '模特坐于浅木色沙发边缘，双腿微屈，外套半拉链敞开露出内搭T恤；右手持咖啡杯置于膝上，左手轻搭左腿；外套连帽自然垂落，抽绳松散可见；右下角留白20%作CTA区域；背景为极简北欧风客厅（米白墙面+绿植+落地窗），光线从左侧45°入射，营造温暖生活感；商品占据画面中心偏左70%区域，强调面料肌理与口袋细节',
+          },
+        },
+        {
+          outputType: 'poster',
+          aspectRatio: '9:16',
+          resolution: '4k',
+          count: 1,
+          modelCardIndex: 0,
+          result_url: '/product-gallery-examples/3/result_3.jpeg',
+          cardConfig: {
+            compositionHint: '模特背对镜头跃起瞬间（膝盖微屈、双臂后摆），外套下摆随动飘起，连帽扬起显轮廓；背景为纯深灰渐变（#2D2D2D → #1A1A1A），主体居中偏上；底部留白30%用于大字标题与CTA按钮位；Swoosh标志仅以压暗灰度呈现于左肩后方，不突出；强调运动张力与面料垂坠感',
+          },
+        },
+        {
+          outputType: 'poster',
+          aspectRatio: '1:1',
+          resolution: '4k',
+          count: 1,
+          modelCardIndex: 0,
+          result_url: '/product-gallery-examples/3/result_4.jpeg',
+          cardConfig: {
+            compositionHint: '模特正面站立，双臂自然下垂，外套全拉链闭合，连帽戴起并抽绳收紧至适中；背景为哑光浅灰（#E8E8E8），无任何干扰元素；商品居中占画面80%，头部略出画顶边；左上角预留10%留白用于品牌标（后期添加）；重点突出抽绳细节、拉链轨道与袖口拼接黑边；光影为环形柔光，无硬阴影',
+          },
+        }
+      ],
+    },
+  },
+];
 
 const normalizeGalleryTypeSelections = (
   selections: Record<GalleryOutputType, { enabled: boolean; count: number }>
@@ -773,7 +1035,7 @@ const GalleryLoadingCard: React.FC<{
 
 const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setActiveView }) => {
   const { language, t } = useLanguage();
-  const { requireAuth } = useRequireAuth();
+  const { isAuthenticated, requireAuth } = useRequireAuth();
   const isZh = language === 'zh';
   const isProductView =
     activeView === 'product_images_clothing_swap' ||
@@ -855,6 +1117,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   });
   const galleryFileInputRef = useRef<HTMLInputElement | null>(null);
   const [galleryPreviewUrls, setGalleryPreviewUrls] = useState<string[]>([]);
+  const [galleryExampleApplyingId, setGalleryExampleApplyingId] = useState<string | null>(null);
+  const [galleryLastAppliedExampleId, setGalleryLastAppliedExampleId] = useState<string | null>(null);
   const [isGalleryDragActive, setIsGalleryDragActive] = useState(false);
   const [isGalleryAnalyzing, setIsGalleryAnalyzing] = useState(false);
   const [galleryAlert, setGalleryAlert] = useState<{ open: boolean; title: string; message: string }>({
@@ -1091,6 +1355,445 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       message,
     });
 
+  const [galleryUserExampleTemplates, setGalleryUserExampleTemplates] = useState<GalleryExampleTemplate[]>([]);
+
+  const galleryExampleTemplates = useMemo(
+    () => [...GALLERY_EXAMPLE_TEMPLATES, ...galleryUserExampleTemplates],
+    [galleryUserExampleTemplates]
+  );
+
+  const [isGallerySavingExampleSnapshot, setIsGallerySavingExampleSnapshot] = useState(false);
+  const [isGalleryDeletingExampleSnapshot, setIsGalleryDeletingExampleSnapshot] = useState(false);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setGalleryUserExampleTemplates([]);
+      return;
+    }
+
+    let canceled = false;
+    (async () => {
+      try {
+        const resp = await apiRequest<any>('/api/projects/gallery/example-snapshots', {
+          method: 'GET',
+          fallbackMessage: t.pg_main_toast_image_upload_failed_retry,
+        });
+        if (canceled) return;
+        const items = Array.isArray(resp?.data?.items) ? resp.data.items : [];
+        const templates = items
+          .map((row: any) => {
+            const id = String(row?.id || '').trim();
+            const title = String(row?.title || '').trim();
+            const subtitle = String(row?.subtitle || '').trim();
+            const previewUrl = String(row?.preview_url || '').trim();
+            const settingsSeed = row?.settings_snapshot && typeof row.settings_snapshot === 'object' && !Array.isArray(row.settings_snapshot)
+              ? row.settings_snapshot
+              : {};
+
+            const outputItemsSeed = Array.isArray(settingsSeed?.outputItems) ? settingsSeed.outputItems : [];
+            const outputItems = outputItemsSeed
+              .map((item: any) => ({
+                outputType: item?.outputType,
+                aspectRatio: String(item?.aspectRatio || '').trim(),
+                resolution: item?.resolution,
+                count: Number(item?.count || 0),
+                layout: String(item?.layout || '').trim() || undefined,
+                layouts: Array.isArray(item?.layouts) ? item.layouts.map((v: any) => String(v || '').trim()).filter(Boolean) : undefined,
+                modelCardIndex: item?.modelCardIndex,
+                sceneCardIndex: item?.sceneCardIndex,
+                cardConfig: item?.cardConfig,
+              }))
+              .filter((seed: any) => Boolean(String(seed.outputType || '').trim()));
+
+            if (!id || !title || !previewUrl) return null;
+            return {
+              id,
+              title,
+              subtitle,
+              previewUrl,
+              isUserSnapshot: true,
+              inputImageUrls: [],
+              modelCards: Array.isArray(settingsSeed?.modelCards) ? settingsSeed.modelCards : undefined,
+              sceneCards: Array.isArray(settingsSeed?.sceneCards) ? settingsSeed.sceneCards : undefined,
+              settings: {
+                productName: String(settingsSeed?.productName || '').trim(),
+                productCategory: String(settingsSeed?.productCategory || '').trim(),
+                sellingPoints: Array.isArray(settingsSeed?.sellingPoints) ? settingsSeed.sellingPoints.map((v: any) => String(v || '').trim()).filter(Boolean) : [],
+                targetScene: settingsSeed?.targetScene,
+                style: settingsSeed?.style,
+                copyLanguage: String(settingsSeed?.copyLanguage || '').trim() || undefined,
+                uploadedImagePaths: Array.isArray(settingsSeed?.uploadedImagePaths)
+                  ? settingsSeed.uploadedImagePaths.map((v: any) => String(v || '').trim()).filter(Boolean).slice(0, 3)
+                  : undefined,
+                outputItems,
+              },
+            } as GalleryExampleTemplate;
+          })
+          .filter(Boolean)
+          .slice(0, GALLERY_USER_EXAMPLE_LIMIT) as GalleryExampleTemplate[];
+
+        setGalleryUserExampleTemplates(templates);
+      } catch {
+        if (!canceled) setGalleryUserExampleTemplates([]);
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, [isAuthenticated, t.pg_main_toast_image_upload_failed_retry]);
+
+  const saveGalleryExampleSnapshot = async () => {
+    if (!requireAuth()) return;
+    if (isGallerySavingExampleSnapshot) return;
+    const coverFile = galleryImages[0];
+    if (!coverFile) {
+      openGalleryAlert(t.pg_main_toast_upload_one_image);
+      return;
+    }
+
+    setIsGallerySavingExampleSnapshot(true);
+    try {
+      const uploadTargets = galleryImages.slice(0, 3);
+      const uploadedImagePaths: string[] = [];
+      for (const file of uploadTargets) {
+        const uploadResp = await assetsApi.uploadAsset(file, 'PRODUCT', undefined, { bundleOnly: true });
+        const url = String((uploadResp as any)?.data?.url || '').trim();
+        if (url) uploadedImagePaths.push(url);
+      }
+      const coverUrl = String(uploadedImagePaths[0] || '').trim();
+      if (!coverUrl) {
+        openGalleryAlert(t.pg_main_toast_image_upload_failed_retry);
+        return;
+      }
+
+      const baseTitle = String(galleryProductName || '').trim() || '我的示例';
+      const now = new Date();
+      const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+      const modelIdToIndex = new Map<string, number>();
+      galleryModelCards.forEach((card, idx) => modelIdToIndex.set(card.id, idx));
+      const sceneIdToIndex = new Map<string, number>();
+      gallerySceneCards.forEach((card, idx) => sceneIdToIndex.set(card.id, idx));
+
+      const outputItems = galleryOutputItems
+        .filter((item) => item.enabled && Math.max(0, Math.round(Number(item.count || 0))) > 0)
+        .map((item) => {
+          const layouts = Array.isArray(item.layouts) ? item.layouts.map((v) => String(v || '').trim()).filter(Boolean) : [];
+          const layoutIndex = Number(item.layoutIndex);
+          const activeLayout = Number.isFinite(layoutIndex) && layoutIndex >= 0 && layoutIndex < layouts.length ? layouts[layoutIndex] : '';
+          const layoutText = String(activeLayout || item.layout || '').trim();
+          return {
+            outputType: item.outputType,
+            aspectRatio: String(item.aspectRatio || '').trim() || '1:1',
+            resolution: item.resolution,
+            count: Math.max(0, Math.round(Number(item.count || 0))),
+            layout: layoutText || undefined,
+            modelCardIndex: item.modelCardId ? modelIdToIndex.get(item.modelCardId) : undefined,
+            sceneCardIndex: item.sceneCardId ? sceneIdToIndex.get(item.sceneCardId) : undefined,
+            cardConfig: item.cardConfig,
+          };
+        });
+
+      const settings_snapshot = {
+        productName: String(galleryProductName || '').trim(),
+        productCategory: String(galleryCategory || '').trim(),
+        sellingPoints: gallerySellingPoints.map((v) => String(v || '').trim()).filter(Boolean).slice(0, 5),
+        targetScene: galleryTargetScene,
+        style: galleryStyle,
+        copyLanguage: String(galleryCopyLanguage || '').trim() || undefined,
+        uploadedImagePaths,
+        modelCards: galleryModelCards
+          .map((card) => ({
+            name: String(card?.name || '').trim(),
+            imageUrl: String(card?.imagePath || '').trim(),
+            modelInfo: String(card?.modelInfo || '').trim(),
+          }))
+          .filter((row) => Boolean(String(row.imageUrl || '').trim())),
+        sceneCards: gallerySceneCards.map((card) => ({
+          name: String(card?.name || '').trim(),
+          sourceMode: card?.sourceMode,
+          presetId: String(card?.presetId || '').trim() || undefined,
+          sceneConfig: card?.sceneConfig,
+        })),
+        outputItems,
+      };
+
+      const createResp = await apiRequest<any>('/api/projects/gallery/example-snapshots', {
+        method: 'POST',
+        body: {
+          title: baseTitle,
+          subtitle: `工作区快照 · ${stamp}`,
+          cover_image: coverUrl,
+          settings_snapshot,
+        },
+        fallbackMessage: t.pg_main_toast_image_upload_failed_retry,
+      });
+
+      const created = createResp?.data?.item || null;
+      const createdId = String(created?.id || '').trim();
+      const createdTitle = String(created?.title || baseTitle).trim();
+      const createdSubtitle = String(created?.subtitle || '').trim();
+      const createdPreviewUrl = String(created?.preview_url || coverUrl).trim();
+      const createdSettings = created?.settings_snapshot || settings_snapshot;
+
+      if (createdId && createdPreviewUrl) {
+        const snapshot: GalleryExampleTemplate = {
+          id: createdId,
+          title: createdTitle,
+          subtitle: createdSubtitle,
+          previewUrl: createdPreviewUrl,
+          isUserSnapshot: true,
+          inputImageUrls: [],
+          modelCards: Array.isArray(createdSettings?.modelCards) ? createdSettings.modelCards : undefined,
+          sceneCards: Array.isArray(createdSettings?.sceneCards) ? createdSettings.sceneCards : undefined,
+          settings: {
+            productName: String(createdSettings?.productName || '').trim(),
+            productCategory: String(createdSettings?.productCategory || '').trim(),
+            sellingPoints: Array.isArray(createdSettings?.sellingPoints) ? createdSettings.sellingPoints : [],
+            targetScene: createdSettings?.targetScene,
+            style: createdSettings?.style,
+            copyLanguage: String(createdSettings?.copyLanguage || '').trim() || undefined,
+            uploadedImagePaths: Array.isArray(createdSettings?.uploadedImagePaths)
+              ? createdSettings.uploadedImagePaths.map((v: any) => String(v || '').trim()).filter(Boolean).slice(0, 3)
+              : undefined,
+            outputItems: Array.isArray(createdSettings?.outputItems) ? createdSettings.outputItems : outputItems,
+          },
+        };
+
+        setGalleryUserExampleTemplates((prev) => [...prev, snapshot].slice(-GALLERY_USER_EXAMPLE_LIMIT));
+      }
+    } catch (err: any) {
+      openGalleryAlert(String(err?.message || t.pg_main_toast_image_upload_failed_retry));
+    } finally {
+      setIsGallerySavingExampleSnapshot(false);
+    }
+  };
+
+  const deleteGalleryExampleSnapshot = async (snapshotId: string) => {
+    if (!requireAuth()) return;
+    if (isGalleryDeletingExampleSnapshot) return;
+    const id = String(snapshotId || '').trim();
+    if (!id) return;
+
+    setIsGalleryDeletingExampleSnapshot(true);
+    try {
+      await apiRequest<any>(`/api/projects/gallery/example-snapshots/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        fallbackMessage: t.pg_main_toast_image_upload_failed_retry,
+      });
+      setGalleryUserExampleTemplates((prev) => prev.filter((item) => String(item.id || '').trim() !== id));
+    } catch (err: any) {
+      openGalleryAlert(String(err?.message || t.pg_main_toast_image_upload_failed_retry));
+    } finally {
+      setIsGalleryDeletingExampleSnapshot(false);
+    }
+  };
+
+  const loadGalleryExampleFiles = async (imageUrls: string[], seedName: string) => {
+    const urls = imageUrls.map((u) => String(u || '').trim()).filter(Boolean).slice(0, 3);
+    const files: File[] = [];
+    for (let idx = 0; idx < urls.length; idx += 1) {
+      const url = urls[idx]!;
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        throw new Error(t.pg_main_toast_image_upload_failed_retry);
+      }
+      const blob = await resp.blob();
+      const mime = String(blob.type || '').trim() || 'image/jpeg';
+      const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
+      files.push(new File([blob], `gallery-example-${seedName}-${idx + 1}.${ext}`, { type: mime }));
+    }
+    return files;
+  };
+
+  const applyGalleryExample = async (exampleId: string) => {
+    if (!requireAuth()) return;
+    if (isGalleryGenerating) return;
+    if (galleryExampleApplyingId) return;
+
+    const template = galleryExampleTemplates.find((item) => item.id === exampleId) || null;
+    if (!template) return;
+
+    setGalleryExampleApplyingId(exampleId);
+    setGalleryLastAppliedExampleId(exampleId);
+    try {
+      const exampleImageUrls = Array.isArray(template.inputImageUrls)
+        ? template.inputImageUrls.map((u) => String(u || '').trim()).filter(Boolean)
+        : [];
+      const shouldReplaceImages = exampleImageUrls.length > 0;
+      const files = shouldReplaceImages ? await loadGalleryExampleFiles(exampleImageUrls, template.id) : null;
+      if (shouldReplaceImages && (!files || files.length === 0)) {
+        openGalleryAlert(t.pg_main_toast_upload_one_image);
+        return;
+      }
+
+      const snapshotUploadedPaths = Array.isArray((template.settings as any)?.uploadedImagePaths)
+        ? (template.settings as any).uploadedImagePaths.map((v: any) => String(v || '').trim()).filter(Boolean).slice(0, 3)
+        : [];
+
+      const sellingPoints = template.settings.sellingPoints.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 5);
+
+      const templateModelCards = Array.isArray(template.modelCards) ? template.modelCards : [];
+      let nextModelCards: GalleryModelCard[] = [];
+      if (templateModelCards.length > 0) {
+        const modelUrls = templateModelCards
+          .map((row) => String(row?.imageUrl || '').trim())
+          .filter(Boolean);
+        let modelFiles: File[] = [];
+        try {
+          modelFiles = await loadGalleryExampleFiles(modelUrls, `${template.id}-model`);
+        } catch (err: any) {
+          openGalleryAlert(String(err?.message || t.pg_main_toast_image_upload_failed_retry));
+          modelFiles = [];
+        }
+
+        nextModelCards = modelFiles.map((file, idx) => {
+          const seed = templateModelCards[idx] || null;
+          const fallbackName = `模特${idx + 1}`;
+          const name = String(seed?.name || fallbackName).trim() || fallbackName;
+          const modelInfo = String(seed?.modelInfo || '').trim();
+          return {
+            ...createGalleryModelCard(name),
+            modelInfo,
+            imageFile: file,
+            imagePreviewUrl: URL.createObjectURL(file),
+          };
+        });
+      }
+
+      const templateSceneCards = Array.isArray(template.sceneCards) ? template.sceneCards : [];
+      const nextSceneCards: GallerySceneCard[] = templateSceneCards.map((seed, idx) => {
+        const fallbackName = `场景${idx + 1}`;
+        const name = String(seed?.name || fallbackName).trim() || fallbackName;
+        const sourceMode: GallerySceneCardSourceMode = seed?.sourceMode === 'preset' ? 'preset' : 'custom';
+        const presetId = String(seed?.presetId || '').trim();
+        const sceneConfig = sourceMode === 'preset' && presetId
+          ? applyGalleryScenePresetToCard(presetId)
+          : sanitizeGallerySceneConfig(seed?.sceneConfig || seed);
+
+        return {
+          ...createGallerySceneCard(name),
+          sourceMode,
+          presetId: presetId || undefined,
+          sceneConfig,
+        };
+      });
+
+      const outputItems: GalleryOutputItem[] = template.settings.outputItems
+        .map((row) => {
+          const raw = row as any;
+          const modelIdx = Number(raw?.modelCardIndex);
+          const sceneIdx = Number(raw?.sceneCardIndex);
+          const modelCardId = Number.isFinite(modelIdx) && modelIdx >= 0 && modelIdx < nextModelCards.length
+            ? nextModelCards[modelIdx]?.id
+            : undefined;
+          const sceneCardId = Number.isFinite(sceneIdx) && sceneIdx >= 0 && sceneIdx < nextSceneCards.length
+            ? nextSceneCards[sceneIdx]?.id
+            : undefined;
+          const cardConfig = sanitizeGalleryOutputCardConfig(raw?.cardConfig || raw?.card_config);
+
+          const layoutText = String(
+            raw?.layout
+              || (Array.isArray(raw?.layouts) ? raw.layouts[0] : '')
+              || (cardConfig as any)?.compositionHint
+              || ''
+          ).trim();
+          const layouts = layoutText ? [layoutText] : [];
+
+          return {
+            id: createGalleryOutputItemId(),
+            enabled: true,
+            outputType: row.outputType,
+            aspectRatio: String(row.aspectRatio || '1:1').trim() || '1:1',
+            resolution: row.resolution,
+            count: Math.max(0, Math.round(Number(row.count || 0))),
+            modelCardId,
+            sceneCardId,
+            layout: layoutText || undefined,
+            layouts,
+            layoutIndex: layouts.length > 0 ? 0 : undefined,
+            cardConfig,
+          };
+        })
+        .filter((row) => row.enabled && row.count > 0);
+
+      if (files && files.length > 0) {
+        setGalleryImages(files);
+        setGalleryRestoredImagePaths([]);
+      }
+      if (!shouldReplaceImages && Boolean(template.isUserSnapshot) && snapshotUploadedPaths.length > 0) {
+        setGalleryImages([]);
+        setGalleryRestoredImagePaths(snapshotUploadedPaths);
+      }
+      setGalleryProductName(template.settings.productName);
+      setGalleryCategory(template.settings.productCategory);
+      setGallerySellingPoints(sellingPoints);
+      setGalleryTargetScene(template.settings.targetScene);
+      setGalleryStyle(template.settings.style);
+      if (template.settings.copyLanguage) {
+        setGalleryCopyLanguage(template.settings.copyLanguage);
+      }
+
+      setGalleryModelCards((prev) => {
+        prev.forEach((card) => {
+          const url = String(card.imagePreviewUrl || '').trim();
+          if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+        });
+        return nextModelCards;
+      });
+
+      setGallerySceneCards(nextSceneCards);
+
+      const hasOutputCardConfig = outputItems.some((item) => {
+        const cfg = item.cardConfig;
+        if (!cfg) return false;
+        return Object.values(cfg).some((value) => Boolean(String(value || '').trim()));
+      });
+
+      setGalleryOutputMode('custom');
+      setGalleryOutputItems(outputItems);
+      setGalleryBulkConfig(inferGalleryBulkConfigFromOutputItems(outputItems, sellingPoints.length));
+      setGalleryAdvancedDirty(hasOutputCardConfig);
+      setIsGalleryAdvancedEditingCollapsed(!hasOutputCardConfig);
+      setGalleryRightPanel('preview');
+
+      setGalleryPreviewImageUrl(null);
+      setGalleryPreviewSource(null);
+
+      const examplePreviewItems = template.settings.outputItems
+        .map((row, idx) => {
+          const resultUrl = String((row as any)?.result_url || '').trim();
+          if (!resultUrl) return null;
+          const outputType = String((row as any)?.outputType || '').trim();
+          return {
+            localId: `pg-example-${template.id}-${idx}-${outputType || 'output'}`,
+            requestId: `example-${template.id}-${idx}`,
+            status: 'succeeded' as const,
+            imageUrl: resultUrl,
+            outputType: outputType || undefined,
+            createdAt: new Date().toISOString(),
+          };
+        })
+        .filter(Boolean) as Array<{
+          localId: string;
+          requestId: string;
+          status: 'created' | 'processing' | 'succeeded' | 'failed';
+          imageUrl?: string;
+          error?: string;
+          outputType?: string;
+          createdAt?: string;
+          layout?: any;
+        }>;
+
+      setGalleryPreviewItems(examplePreviewItems);
+    } catch (err: any) {
+      openGalleryAlert(String(err?.message || t.pg_main_toast_image_upload_failed_retry));
+    } finally {
+      setGalleryExampleApplyingId(null);
+    }
+  };
+
   const guideGalleryResourceSection = (target: 'model' | 'scene') => {
     setGalleryResourceGuide({
       target,
@@ -1237,6 +1940,19 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const galleryDownloadButtonRef = useRef<HTMLButtonElement | null>(null);
   const [galleryToastMessage, setGalleryToastMessage] = useState<string | null>(null);
   const [galleryPreviewResolution, setGalleryPreviewResolution] = useState<{ w: number; h: number } | null>(null);
+  const galleryPreviewMagnifierRef = useRef<HTMLDivElement | null>(null);
+  const [galleryMagnifier, setGalleryMagnifier] = useState<null | {
+    rx: number;
+    ry: number;
+    centerX: number;
+    centerY: number;
+    displayW: number;
+    displayH: number;
+    offsetX: number;
+    offsetY: number;
+    containerW: number;
+    containerH: number;
+  }>(null);
 
   useEffect(() => {
     if (!galleryToastMessage) return;
@@ -1281,7 +1997,23 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
   useEffect(() => {
     setGalleryPreviewResolution(null);
+    setGalleryMagnifier(null);
   }, [galleryPreviewImageUrl]);
+
+  const resolveContainedImageRect = (containerW: number, containerH: number) => {
+    const naturalW = Number(galleryPreviewResolution?.w || 0);
+    const naturalH = Number(galleryPreviewResolution?.h || 0);
+    if (!Number.isFinite(naturalW) || !Number.isFinite(naturalH) || naturalW <= 0 || naturalH <= 0) {
+      return null;
+    }
+    const scale = Math.min(containerW / naturalW, containerH / naturalH);
+    if (!Number.isFinite(scale) || scale <= 0) return null;
+    const displayW = naturalW * scale;
+    const displayH = naturalH * scale;
+    const offsetX = (containerW - displayW) / 2;
+    const offsetY = (containerH - displayH) / 2;
+    return { displayW, displayH, offsetX, offsetY };
+  };
 
   const [galleryInpaint, setGalleryInpaint] = useState<{
     open: boolean;
@@ -3460,12 +4192,91 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         setGalleryModelImagePath(modelImagePath);
       */
 
+      const normalizeSellingPoints = (items: string[]) =>
+        items.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 5);
+
+      const normalizeLayoutFromOutputItem = (item: any) => {
+        const layouts = Array.isArray(item?.layouts) ? item.layouts.map((v: any) => String(v || '').trim()).filter(Boolean) : [];
+        const idx = Number(item?.layoutIndex);
+        const active = Number.isFinite(idx) && idx >= 0 && idx < layouts.length ? String(layouts[idx] || '').trim() : '';
+        return String(active || item?.layout || '').trim();
+      };
+
+      const normalizeLayoutFromTemplateRow = (row: any) => {
+        const cfg = row?.cardConfig || row?.card_config;
+        const hint = cfg && typeof cfg === 'object' && !Array.isArray(cfg) ? String((cfg as any)?.compositionHint || '').trim() : '';
+        const primaryLayout = String(row?.layout || '').trim();
+        const layouts = Array.isArray(row?.layouts) ? row.layouts.map((v: any) => String(v || '').trim()).filter(Boolean) : [];
+        return String(primaryLayout || layouts[0] || hint || '').trim();
+      };
+
+      const shouldSkipHistoryForPristineBuiltinExample = (() => {
+        const exampleId = String(galleryLastAppliedExampleId || '').trim();
+        if (!exampleId) return false;
+        const builtin = GALLERY_EXAMPLE_TEMPLATES.find((it) => it.id === exampleId) || null;
+        if (!builtin) return false;
+
+        const expectedSellingPoints = normalizeSellingPoints(builtin.settings.sellingPoints);
+        const currentSellingPoints = normalizeSellingPoints(gallerySellingPoints);
+        const sameSellingPoints =
+          expectedSellingPoints.length === currentSellingPoints.length
+          && expectedSellingPoints.every((v, idx) => v === currentSellingPoints[idx]);
+
+        const sameBasics =
+          String(galleryProductName || '').trim() === String(builtin.settings.productName || '').trim()
+          && String(galleryCategory || '').trim() === String(builtin.settings.productCategory || '').trim()
+          && sameSellingPoints
+          && galleryTargetScene === builtin.settings.targetScene
+          && galleryStyle === builtin.settings.style
+          && String(galleryCopyLanguage || '').trim() === String(builtin.settings.copyLanguage || '').trim();
+
+        const expectedRows = (builtin.settings.outputItems || [])
+          .map((row: any) => ({
+            outputType: String(row?.outputType || '').trim(),
+            aspectRatio: String(row?.aspectRatio || '1:1').trim() || '1:1',
+            resolution: row?.resolution,
+            count: Math.max(0, Math.round(Number(row?.count || 0))),
+            layout: normalizeLayoutFromTemplateRow(row),
+          }))
+          .filter((row: any) => row.outputType && row.count > 0);
+
+        const currentRows = galleryOutputItems
+          .filter((item) => item.enabled && Math.max(0, Math.round(Number(item.count || 0))) > 0)
+          .map((item) => ({
+            outputType: String(item.outputType || '').trim(),
+            aspectRatio: String(item.aspectRatio || '1:1').trim() || '1:1',
+            resolution: item.resolution,
+            count: Math.max(0, Math.round(Number(item.count || 0))),
+            layout: normalizeLayoutFromOutputItem(item),
+          }));
+
+        const sameRows =
+          expectedRows.length === currentRows.length
+          && expectedRows.every((row: any, idx: number) => {
+            const other = currentRows[idx];
+            if (!other) return false;
+            return (
+              row.outputType === other.outputType
+              && row.aspectRatio === other.aspectRatio
+              && row.resolution === other.resolution
+              && row.count === other.count
+              && String(row.layout || '') === String(other.layout || '')
+            );
+          });
+
+        const expectedPrefix = `gallery-example-${builtin.id}-`;
+        const sameExampleImages = galleryImages.length > 0 && galleryImages.every((f) => String(f?.name || '').startsWith(expectedPrefix));
+
+        return sameBasics && sameRows && sameExampleImages;
+      })();
+
       const createResp = await videoApi.generateProductGallery({
         image_paths: imagePaths,
         aspect_ratio: fallbackAspectRatio,
         resolution: fallbackResolution,
         count: totalCount,
         client_history_id: clientHistoryId,
+        skip_history: shouldSkipHistoryForPristineBuiltinExample ? true : undefined,
         product_name: galleryProductName.trim(),
         product_category: galleryCategory.trim(),
         core_selling_points: effectiveSellingPoints,
@@ -3928,7 +4739,47 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                     </button>
                   ) : null}
 
-                  <div className="relative h-full w-full overflow-hidden">
+                  <div
+                    ref={galleryPreviewMagnifierRef}
+                    className="relative h-full w-full overflow-hidden"
+                    onMouseLeave={() => setGalleryMagnifier(null)}
+                    onMouseMove={(e) => {
+                      if (!galleryPreviewImageUrl) return;
+                      const host = galleryPreviewMagnifierRef.current;
+                      if (!host) return;
+                      const rect = host.getBoundingClientRect();
+                      const w = rect.width;
+                      const h = rect.height;
+                      if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
+                      const fit = resolveContainedImageRect(w, h);
+                      if (!fit) return;
+                      const localX = e.clientX - rect.left;
+                      const localY = e.clientY - rect.top;
+                      const relX = (localX - fit.offsetX) / fit.displayW;
+                      const relY = (localY - fit.offsetY) / fit.displayH;
+                      if (!Number.isFinite(relX) || !Number.isFinite(relY)) return;
+                      if (relX < 0 || relX > 1 || relY < 0 || relY > 1) {
+                        setGalleryMagnifier(null);
+                        return;
+                      }
+                      const rx = Math.min(1, Math.max(0, relX));
+                      const ry = Math.min(1, Math.max(0, relY));
+                      const centerX = fit.offsetX + rx * fit.displayW;
+                      const centerY = fit.offsetY + ry * fit.displayH;
+                      setGalleryMagnifier({
+                        rx,
+                        ry,
+                        centerX,
+                        centerY,
+                        displayW: fit.displayW,
+                        displayH: fit.displayH,
+                        offsetX: fit.offsetX,
+                        offsetY: fit.offsetY,
+                        containerW: w,
+                        containerH: h,
+                      });
+                    }}
+                  >
                     <img
                       src={galleryPreviewImageUrl}
                       alt={t.pg_main_aria_preview_image}
@@ -3938,6 +4789,66 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                         if (img.naturalWidth && img.naturalHeight) setGalleryPreviewResolution({ w: img.naturalWidth, h: img.naturalHeight });
                       }}
                     />
+                    {galleryMagnifier ? (() => {
+                      const minSide = Math.min(galleryMagnifier.displayW, galleryMagnifier.displayH);
+                      const lensSize = Math.max(80, Math.min(160, Math.floor(minSide)));
+
+                      const left = galleryMagnifier.centerX - lensSize / 2;
+                      const top = galleryMagnifier.centerY - lensSize / 2;
+                      const minLeft = galleryMagnifier.offsetX;
+                      const minTop = galleryMagnifier.offsetY;
+                      const maxLeft = galleryMagnifier.offsetX + galleryMagnifier.displayW - lensSize;
+                      const maxTop = galleryMagnifier.offsetY + galleryMagnifier.displayH - lensSize;
+                      const clampedLeft = Math.min(maxLeft, Math.max(minLeft, left));
+                      const clampedTop = Math.min(maxTop, Math.max(minTop, top));
+
+                      const zoom = 3;
+                      const zoomBox = 240;
+                      const bgW = Math.round(galleryMagnifier.displayW * zoom);
+                      const bgH = Math.round(galleryMagnifier.displayH * zoom);
+                      const focusX = galleryMagnifier.rx * bgW;
+                      const focusY = galleryMagnifier.ry * bgH;
+                      const rawBgPosX = Math.round(-(focusX - zoomBox / 2));
+                      const rawBgPosY = Math.round(-(focusY - zoomBox / 2));
+                      const bgPosX = Math.min(0, Math.max(-(bgW - zoomBox), rawBgPosX));
+                      const bgPosY = Math.min(0, Math.max(-(bgH - zoomBox), rawBgPosY));
+
+                      const padding = 10;
+                      const preferredLeft = clampedLeft + lensSize + 12;
+                      const flippedLeft = clampedLeft - zoomBox - 12;
+                      const availableRight = galleryMagnifier.containerW - padding - zoomBox;
+                      const candidateLeft = preferredLeft <= availableRight ? preferredLeft : flippedLeft;
+                      const zoomLeft = Math.min(availableRight, Math.max(padding, candidateLeft));
+                      const availableTop = galleryMagnifier.containerH - padding - zoomBox;
+                      const zoomTop = Math.min(availableTop, Math.max(padding, clampedTop));
+
+                      return (
+                        <>
+                          <div
+                            className="absolute z-10 rounded-xl border border-black/15 dark:border-white/25 bg-white/[0.05] dark:bg-black/[0.08] backdrop-blur-sm shadow-[0_0_0_1px_rgba(0,0,0,0.12)] pointer-events-none"
+                            style={{
+                              width: `${lensSize}px`,
+                              height: `${lensSize}px`,
+                              left: `${clampedLeft}px`,
+                              top: `${clampedTop}px`,
+                            }}
+                          />
+                          <div
+                            className="absolute z-10 rounded-2xl border border-white/15 bg-black/40 overflow-hidden shadow-lg shadow-black/30 pointer-events-none"
+                            style={{
+                              width: `${zoomBox}px`,
+                              height: `${zoomBox}px`,
+                              left: `${zoomLeft}px`,
+                              top: `${zoomTop}px`,
+                              backgroundImage: `url(${galleryPreviewImageUrl})`,
+                              backgroundRepeat: 'no-repeat',
+                              backgroundSize: `${bgW}px ${bgH}px`,
+                              backgroundPosition: `${bgPosX}px ${bgPosY}px`,
+                            }}
+                          />
+                        </>
+                      );
+                    })() : null}
                   </div>
 
                   {galleryPreviewNav && galleryPreviewNav.total > 1 ? (
@@ -3955,11 +4866,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               </div>
 
               <div className="w-[320px] shrink-0 min-h-0 flex flex-col gap-3 pl-6 border-l border-white/10">
-
-
                 <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                   <div className="text-xs font-bold text-zinc-200">{t.pg_main_generation_info}</div>
-                  <div className="mt-3 space-y-2 text-xs">
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-zinc-500">{t.pg_main_resolution}</span>
                       <span className="text-zinc-200 font-bold">
@@ -3977,7 +4885,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-zinc-500">{t.pg_main_model}</span>
                       <span className="text-zinc-200 font-bold">{modelLabel}</span>
-                    </div>
                   </div>
                 </div>
 
@@ -5110,6 +6017,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           isVisible={currentValue === 'product_images_gallery'}
           panelClassName={panelClassName}
           t={t}
+          galleryExamples={galleryExampleTemplates.map(({ id, title, subtitle, previewUrl, isUserSnapshot }) => ({ id, title, subtitle, previewUrl, isUserSnapshot: Boolean(isUserSnapshot) }))}
+          applyGalleryExample={applyGalleryExample}
+          isGalleryApplyingExample={Boolean(galleryExampleApplyingId)}
+          saveGalleryExampleSnapshot={saveGalleryExampleSnapshot}
+          isGallerySavingExampleSnapshot={isGallerySavingExampleSnapshot}
+          deleteGalleryExampleSnapshot={deleteGalleryExampleSnapshot}
+          isGalleryDeletingExampleSnapshot={isGalleryDeletingExampleSnapshot}
           galleryFileInputRef={galleryFileInputRef}
           galleryImages={galleryImages}
           galleryPreviewUrls={galleryPreviewUrls}

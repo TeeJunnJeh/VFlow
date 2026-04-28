@@ -1,4 +1,4 @@
-﻿// src/services/video.ts
+// src/services/video.ts
 
 import { traceApiRequest } from './opsTrace';
 import { apiRequest, getCookie } from './apiClient';
@@ -508,6 +508,7 @@ export const videoApi = {
 
   generateProductGallery: async (payload: {
     client_history_id?: string;
+    skip_history?: boolean;
     prompt?: string;
     image_paths: string[];
     aspect_ratio?: string;

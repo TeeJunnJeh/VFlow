@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, Eye, Image as ImageIcon, LayoutGrid, Minus, Plus, RotateCw, Sparkles, Upload, Wand2, X } from 'lucide-react';
+import { ChevronLeft, Eye, Image as ImageIcon, LayoutGrid, Minus, Plus, RotateCw, Save, Sparkles, Upload, Wand2, X } from 'lucide-react';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import type { ViewType } from '../../../workbench/types';
 import type { LoadingTheme } from '../../../../utils/loadingTheme';
@@ -97,6 +97,14 @@ export type ImagesGalleryViewProps = {
   isVisible: boolean;
   panelClassName: (view: ViewType) => string;
   t: any;
+
+  galleryExamples: Array<{ id: string; title: string; subtitle: string; previewUrl: string; isUserSnapshot?: boolean }>;
+  applyGalleryExample: (id: string) => void;
+  isGalleryApplyingExample: boolean;
+  saveGalleryExampleSnapshot?: () => void;
+  isGallerySavingExampleSnapshot?: boolean;
+  deleteGalleryExampleSnapshot?: (id: string) => void;
+  isGalleryDeletingExampleSnapshot?: boolean;
 
   galleryFileInputRef: React.RefObject<HTMLInputElement | null>;
   galleryImages: File[];
@@ -754,108 +762,113 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     }
   };
 
-  const buildCardConfigFields = (outputType: GalleryOutputItemConfig['outputType']) => {
-    const common = [
-      {
-        key: 'visualFocus',
-        label: t.pg_img_visual_focus_label,
-        placeholder: t.pg_img_visual_focus_placeholder,
-      },
-      {
-        key: 'compositionHint',
-        label: t.pg_img_composition_hint_label,
-        placeholder: t.pg_img_composition_hint_placeholder,
-      },
-      {
-        key: 'copyTone',
-        label: t.pg_img_copy_tone_label,
-        placeholder: t.pg_img_copy_tone_placeholder,
-      },
-      {
-        key: 'negativeHints',
-        label: t.pg_img_negative_hints_label,
-        placeholder: t.pg_img_negative_hints_placeholder,
-      },
-    ];
-
-    const typeSpecific =
-      outputType === 'selling_point'
-        ? [
-            {
-              key: 'sellingPointText',
-              label: t.pg_img_selling_point_focus_label,
-              placeholder: t.pg_img_selling_point_focus_placeholder,
-            },
-            {
-              key: 'headlineFocus',
-              label: t.pg_img_headline_focus_label,
-              placeholder: t.pg_img_headline_focus_selling_placeholder,
-            },
-          ]
-        : outputType === 'scene'
-          ? [
-              {
-                key: 'backgroundStyle',
-                label: t.pg_img_background_style_label,
-                placeholder: t.pg_img_background_style_placeholder,
-              },
-              {
-                key: 'displayAngle',
-                label: t.pg_img_display_angle_label,
-                placeholder: t.pg_img_display_angle_scene_placeholder,
-              },
-            ]
-          : outputType === 'cover'
-            ? [
-                {
-                  key: 'heroStyle',
-                  label: t.pg_img_hero_style_label,
-                  placeholder: t.pg_img_hero_style_placeholder,
-                },
-                {
-                  key: 'headlineFocus',
-                  label: t.pg_img_headline_focus_label,
-                  placeholder: t.pg_img_headline_focus_cover_placeholder,
-                },
-              ]
-            : outputType === 'poster'
-              ? [
-                  {
-                    key: 'campaignAngle',
-                    label: t.pg_img_campaign_angle_label,
-                    placeholder: t.pg_img_campaign_angle_placeholder,
-                  },
-                  {
-                    key: 'promotionTone',
-                    label: t.pg_img_promotion_tone_label,
-                    placeholder: t.pg_img_promotion_tone_placeholder,
-                  },
-                  {
-                    key: 'copyBlockDensity',
-                    label: t.pg_img_copy_block_density_label,
-                    placeholder: t.pg_img_copy_block_density_placeholder,
-                  },
-                ]
-              : [
-                  {
-                    key: 'displayAngle',
-                    label: t.pg_img_display_angle_label,
-                    placeholder: t.pg_img_display_angle_white_placeholder,
-                  },
-                  {
-                    key: 'backgroundStyle',
-                    label: t.pg_img_background_treatment_label,
-                    placeholder: t.pg_img_background_treatment_placeholder,
-                  },
-                ];
-
-    return [...common, ...typeSpecific] as Array<{ key: string; label: string; placeholder: string }>;
+  const buildCardConfigFields = (_outputType: GalleryOutputItemConfig['outputType']) => {
+    return [] as Array<{ key: string; label: string; placeholder: string }>;
   };
 
   return (
     <>
-    <div className={`${panelClassName('product_images_gallery')} h-full min-h-0 flex flex-col px-10 py-6`}>
-      <div className="flex-1 min-h-0 flex overflow-hidden relative" id="gallery-container">
+    <div className={`${panelClassName('product_images_gallery')} h-full flex flex-col px-10 py-6 overflow-y-auto custom-scroll pr-1`}>
+      {props.galleryExamples.length > 0 && (
+        <div className="mb-4">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <div className="text-sm font-bold text-zinc-200">
+                {props.t.pg_img_examples_title || '示例套图'}
+              </div>
+              <div className="mt-1 text-xs text-zinc-500">
+                {props.t.pg_img_examples_subtitle || '点击示例，自动填充参数与出图方案'}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 flex gap-3 overflow-x-auto pb-2 custom-scroll">
+            {props.galleryExamples.map((item) => {
+              const isUserSnapshot = Boolean((item as any)?.isUserSnapshot);
+              const canDelete = isUserSnapshot && Boolean(props.deleteGalleryExampleSnapshot);
+              const canApply = isUserSnapshot;
+              const isBusy = Boolean(props.isGalleryGenerating || props.isGalleryApplyingExample || props.isGalleryDeletingExampleSnapshot);
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => (isUserSnapshot ? undefined : props.applyGalleryExample(item.id))}
+                  disabled={props.isGalleryGenerating || props.isGalleryApplyingExample}
+                  className={`group relative w-[240px] shrink-0 overflow-hidden rounded-2xl border border-white/10 ${isUserSnapshot ? 'bg-black/10' : 'bg-black/20'} text-left transition hover:border-orange-500/30 hover:bg-black/30 disabled:opacity-60 disabled:hover:border-white/10 ${isUserSnapshot ? 'hover:-translate-y-1' : ''}`}
+                  title={props.isGalleryGenerating || props.isGalleryApplyingExample ? (props.t.pg_img_examples_loading || '生成中...') : (isUserSnapshot ? (props.t.pg_img_saved_example_hover_tip || '悬浮显示操作') : (props.t.pg_img_examples_click_to_generate || '点击填充'))}
+                >
+                  <div className="relative h-[112px]">
+                    <img
+                      src={item.previewUrl}
+                      alt={item.title}
+                      className={`h-full w-full object-cover transition ${isUserSnapshot ? 'opacity-85 group-hover:opacity-70 group-hover:blur-sm' : 'opacity-85 group-hover:opacity-95'}`}
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
+                    <div className="absolute inset-x-4 bottom-3">
+                      <div className="text-sm font-extrabold text-white/95">{item.title}</div>
+                      <div className="mt-0.5 text-[11px] text-white/70 line-clamp-1">{item.subtitle}</div>
+                    </div>
+
+                    {isUserSnapshot && (
+                      <div className="absolute inset-0 flex items-center justify-center opacity-0 transition group-hover:opacity-100">
+                        <div className="flex items-center gap-2">
+                          {canApply && (
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                props.applyGalleryExample(item.id);
+                              }}
+                              className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-500/15 border border-emerald-500/30 text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60 disabled:hover:bg-emerald-500/15 transition"
+                            >
+                              {props.t.pg_img_saved_example_apply || '添加'}
+                            </button>
+                          )}
+                          {canDelete && (
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                props.deleteGalleryExampleSnapshot?.(item.id);
+                              }}
+                              className="px-3 py-2 rounded-xl text-xs font-bold bg-red-500/15 border border-red-500/30 text-red-100 hover:bg-red-500/20 disabled:opacity-60 disabled:hover:bg-red-500/15 transition"
+                            >
+                              {props.t.pg_img_saved_example_delete || '删除'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+
+            {props.saveGalleryExampleSnapshot && (
+              <button
+                type="button"
+                onClick={props.saveGalleryExampleSnapshot}
+                disabled={props.isGalleryGenerating || props.isGalleryApplyingExample || props.isGallerySavingExampleSnapshot}
+                className="group relative w-[240px] shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-black/10 text-left transition hover:border-orange-500/30 hover:bg-black/20 disabled:opacity-60 disabled:hover:border-white/10"
+                title={props.isGallerySavingExampleSnapshot ? (props.t.pg_img_saving || '保存中...') : (props.t.pg_img_save_as_example || '保存当前配置为示例')}
+              >
+                <div className="relative h-[112px] flex items-center justify-center gap-2 px-4">
+                  <Save className="h-4 w-4 text-orange-300/90" />
+                  <div>
+                    <div className="text-sm font-extrabold text-zinc-200">{props.t.pg_img_save_as_example || '保存为示例'}</div>
+                    <div className="mt-0.5 text-[11px] text-zinc-500 line-clamp-1">{props.t.pg_img_save_as_example_desc || '保存当前工作区快照'}</div>
+                  </div>
+                </div>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="flex-1 min-h-[720px] flex overflow-hidden relative" id="gallery-container">
         <div
           ref={galleryLeftPanelRef}
           className={`flex flex-col gap-3 min-h-0 overflow-y-auto custom-scroll pr-2 shrink-0 transition-colors duration-150 rounded-2xl border border-white/5 bg-white/2 hover:border-orange-500/20 ${getGuideFocusClass('left')}`}
@@ -1921,27 +1934,50 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                           );
                         })()}
 
-                        <div className="hidden">
-                          {extraConfigFields.map((field) => (
-                            <label key={`${item.id}-${field.key}`} className="space-y-1">
-                              <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{field.label}</div>
-                              <input
-                                type="text"
-                                value={String((item.cardConfig as any)?.[field.key] || '')}
-                                onChange={(e) =>
-                                  updateOutputItem(item.id, (current) => ({
-                                    ...current,
-                                    cardConfig: {
-                                      ...(current.cardConfig || {}),
-                                      [field.key]: e.target.value,
-                                    },
-                                  }))
-                                }
-                                className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
-                                placeholder={field.placeholder}
-                              />
-                            </label>
-                          ))}
+                        <div className="space-y-3">
+                          {extraConfigFields.map((field) => {
+                            const isLongText = field.key === 'compositionHint' || field.key === 'negativeHints' || field.key === 'sellingPointText';
+                            const value = String((item.cardConfig as any)?.[field.key] || '');
+
+                            return (
+                              <label key={`${item.id}-${field.key}`} className="space-y-1">
+                                <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{field.label}</div>
+                                {isLongText ? (
+                                  <textarea
+                                    value={value}
+                                    onChange={(e) =>
+                                      updateOutputItem(item.id, (current) => ({
+                                        ...current,
+                                        cardConfig: {
+                                          ...(current.cardConfig || {}),
+                                          [field.key]: e.target.value,
+                                        },
+                                      }))
+                                    }
+                                    rows={3}
+                                    className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
+                                    placeholder={field.placeholder}
+                                  />
+                                ) : (
+                                  <input
+                                    type="text"
+                                    value={value}
+                                    onChange={(e) =>
+                                      updateOutputItem(item.id, (current) => ({
+                                        ...current,
+                                        cardConfig: {
+                                          ...(current.cardConfig || {}),
+                                          [field.key]: e.target.value,
+                                        },
+                                      }))
+                                    }
+                                    className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-white/20"
+                                    placeholder={field.placeholder}
+                                  />
+                                )}
+                              </label>
+                            );
+                          })}
                         </div>
 
                         {false ? (

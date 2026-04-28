@@ -8,6 +8,8 @@ import type {
   SmartRepairParams,
   ClothingSwapParams,
   ClothingSwapResult,
+  ClothingSwapBackground,
+  ClothingSwapVideoResult,
 } from '../types/productImages';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
@@ -443,6 +445,37 @@ export const productImagesApi = {
       balance: typeof data?.data?.balance === 'number' ? data.data.balance : undefined,
       model: String(data?.data?.model || '').trim() || undefined,
     };
+  },
+
+  async generateClothingSwapVideo(
+    imageUrl: string,
+    background: ClothingSwapBackground,
+    options?: { signal?: AbortSignal }
+  ): Promise<ClothingSwapVideoResult> {
+    const payload: Record<string, unknown> = {
+      image_url: imageUrl,
+      background,
+    };
+    const response = await fetch(`${PROJECTS_API_BASE}/generate_clothing_swap_video`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCookie('csrftoken') || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      signal: options?.signal,
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      throw await parseApiError(response, 'Failed to generate clothing-swap video');
+    }
+    const data = await response.json();
+    const videoUrl = String(data?.data?.video_url || '').trim();
+    if (!videoUrl) {
+      throw new Error('Video generation succeeded but video_url was missing');
+    }
+    return { videoUrl, background };
   },
 
   async downloadImageByUrl(imageUrl: string): Promise<Blob> {

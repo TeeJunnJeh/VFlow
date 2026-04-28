@@ -172,6 +172,11 @@ export interface ClothingSwapResult {
   outputImages: ProductImageResult[];
 }
 
+export interface ClothingSwapVideoResult {
+  videoUrl: string;
+  background: ClothingSwapBackground;
+}
+
 // ==================== 生成任务相关类型 ====================
 
 export interface ProductImageGenerationRequest {

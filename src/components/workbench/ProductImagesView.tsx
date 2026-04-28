@@ -1047,7 +1047,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const currentValue: ViewType = isProductView ? activeView : 'product_images_first_frame';
   const panelClassName = (view: ViewType) => (currentValue === view ? 'block' : 'hidden');
   const [firstFrameHeaderActionsContainer, setFirstFrameHeaderActionsContainer] = useState<HTMLDivElement | null>(null);
-  const [clothingSwapHeaderActionsContainer, setClothingSwapHeaderActionsContainer] = useState<HTMLDivElement | null>(null);
 
   const currentHeader = useMemo(() => {
     switch (currentValue) {
@@ -5733,9 +5732,21 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           {t.wb_guide_button_label}
         </button>
       )}
+      {currentValue === 'product_images_clothing_swap' && (
+        <button
+          type="button"
+          onClick={() => {
+            window.dispatchEvent(new CustomEvent('vflow:open-clothing-swap-guide'));
+          }}
+          className="px-3 py-2 rounded-xl text-xs font-bold transition border border-orange-500/30 bg-orange-500/10 text-orange-300 hover:bg-orange-500/15 inline-flex items-center gap-2"
+          title={t.cs_guide_modal_title}
+        >
+          <Sparkles className="w-4 h-4" />
+          {t.wb_guide_button_label}
+        </button>
+      )}
           <LanguageSwitcher />
           {currentValue === 'product_images_first_frame' && <div ref={setFirstFrameHeaderActionsContainer} className="flex items-center gap-3" />}
-          {currentValue === 'product_images_clothing_swap' && <div ref={setClothingSwapHeaderActionsContainer} className="flex items-center gap-3" />}
         </div>
       </header>
 
@@ -5752,7 +5763,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           <ClothingSwapView
             embedded
             isVisible={currentValue === 'product_images_clothing_swap'}
-            headerActionsContainer={clothingSwapHeaderActionsContainer}
           />
         </div>
 

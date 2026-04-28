@@ -785,7 +785,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const currentValue: ViewType = isProductView ? activeView : 'product_images_first_frame';
   const panelClassName = (view: ViewType) => (currentValue === view ? 'block' : 'hidden');
   const [firstFrameHeaderActionsContainer, setFirstFrameHeaderActionsContainer] = useState<HTMLDivElement | null>(null);
-  const [clothingSwapHeaderActionsContainer, setClothingSwapHeaderActionsContainer] = useState<HTMLDivElement | null>(null);
 
   const currentHeader = useMemo(() => {
     switch (currentValue) {
@@ -4828,7 +4827,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       )}
           <LanguageSwitcher />
           {currentValue === 'product_images_first_frame' && <div ref={setFirstFrameHeaderActionsContainer} className="flex items-center gap-3" />}
-          {currentValue === 'product_images_clothing_swap' && <div ref={setClothingSwapHeaderActionsContainer} className="flex items-center gap-3" />}
         </div>
       </header>
 
@@ -4845,7 +4843,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           <ClothingSwapView
             embedded
             isVisible={currentValue === 'product_images_clothing_swap'}
-            headerActionsContainer={clothingSwapHeaderActionsContainer}
           />
         </div>
 

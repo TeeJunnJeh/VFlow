@@ -4,10 +4,8 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { ChevronLeft, Minus, Plus } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
-import { DropdownSelect } from '../../../common/DropdownSelect';
 import { ImageUploader } from '../../Common/ImageUploader';
 import { ClothingSwapForm } from './ClothingSwapForm';
 import { ClothingSwapResult } from './ClothingSwapResult';
@@ -25,7 +23,6 @@ import type {
   ProductImageResult,
 } from '../../../../types/productImages';
 import {
-  deleteImageHistoryItem,
   notifyImageHistoryUpdated,
   readImageHistoryByFeature,
   refreshImageHistory,
@@ -37,7 +34,7 @@ import {
   getDefaultLoadingTheme,
   type LoadingTheme,
 } from '../../../../utils/loadingTheme';
-import { saveBlobWithPickerFallback } from '../../../../utils/browserDownload';
+import { saveBlobWithPickerFallback, downloadUrlDirectly } from '../../../../utils/browserDownload';
 import { useRequireAuth } from '../../../../utils/useRequireAuth';
 
 type Phase = 'upload' | 'form' | 'generating' | 'result' | 'error';
@@ -47,14 +44,6 @@ interface ClothingSwapViewProps {
   projectId?: string;
   embedded?: boolean;
   isVisible?: boolean;
-  headerActionsContainer?: HTMLElement | null;
-}
-
-interface ClothingSwapWorkspaceMeta {
-  id: string;
-  order: number;
-  createdAt: number;
-  updatedAt: number;
 }
 
 interface ClothingSwapHistoryItem {
@@ -72,8 +61,6 @@ interface ClothingSwapHistoryItem {
   };
 }
 
-const CS_WORKSPACE_META_KEY = 'vflow_clothing_swap_workspaces_v1';
-const CS_ACTIVE_WORKSPACE_KEY = 'vflow_clothing_swap_active_workspace_v1';
 const CS_COUNTDOWN_SECONDS = 60;
 const CS_PROGRESS_HOLD_MAX = 95;
 const CS_PANEL_MIN_WIDTH = 280;
@@ -82,48 +69,28 @@ const CS_DEFAULT_LEFT_RATIO = 0.8;
 const CS_DEFAULT_MIDDLE_RATIO = 1;
 const CS_DEFAULT_RIGHT_RATIO = 1;
 const CS_DEFAULT_TOTAL_RATIO = CS_DEFAULT_LEFT_RATIO + CS_DEFAULT_MIDDLE_RATIO + CS_DEFAULT_RIGHT_RATIO;
+const CS_VIDEO_CACHE_KEY = 'vflow_cs_videos';
 
-const createDefaultWorkspaceMeta = (): ClothingSwapWorkspaceMeta => ({
-  id: 'cs-workspace-1',
-  order: 1,
-  createdAt: Date.now(),
-  updatedAt: Date.now(),
-});
-
-const readWorkspaceMetas = (): ClothingSwapWorkspaceMeta[] => {
-  if (typeof window === 'undefined') return [createDefaultWorkspaceMeta()];
-  try {
-    const raw = window.localStorage.getItem(CS_WORKSPACE_META_KEY);
-    if (!raw) return [createDefaultWorkspaceMeta()];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) return [createDefaultWorkspaceMeta()];
-
-    const normalized = parsed
-      .map((item: any, index: number) => {
-        const id = String(item?.id || '').trim();
-        const orderRaw = Number(item?.order);
-        const order = Number.isFinite(orderRaw) && orderRaw > 0 ? Math.floor(orderRaw) : index + 1;
-        const createdAtRaw = Number(item?.createdAt);
-        const updatedAtRaw = Number(item?.updatedAt);
-        if (!id) return null;
-        return {
-          id,
-          order,
-          createdAt: Number.isFinite(createdAtRaw) ? createdAtRaw : Date.now(),
-          updatedAt: Number.isFinite(updatedAtRaw) ? updatedAtRaw : Date.now(),
-        } satisfies ClothingSwapWorkspaceMeta;
-      })
-      .filter(Boolean) as ClothingSwapWorkspaceMeta[];
-
-    return normalized.length > 0 ? normalized : [createDefaultWorkspaceMeta()];
-  } catch {
-    return [createDefaultWorkspaceMeta()];
-  }
-};
+/**
+ * 与 productImagesApi.toDisplayUrl 保持一致的 URL 规范化：
+ * 将后端返回的原始 /media/... 路径转换为带 VITE_MEDIA_BASE_URL 前缀的完整 URL，
+ * 确保历史记录恢复时的图片 URL 与生成时存入 videoMap 的 key 相同。
+ */
+function normalizeMediaUrl(raw: string): string {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  if (/^https?:\/\//i.test(s) || s.startsWith('data:') || s.startsWith('blob:')) return s;
+  const normalized = s.startsWith('/') ? s : `/${s}`;
+  const base = (import.meta.env.VITE_MEDIA_BASE_URL as string) || '';
+  if (base && normalized.startsWith('/media/')) return `${base}${normalized}`;
+  return normalized;
+}
 
 const sanitizeHistoryImage = (item: any, index: number, historyId: string): ProductImageResult | null => {
-  const imageUrl = String(item?.imageUrl || item?.downloadUrl || '').trim();
-  if (!imageUrl) return null;
+  const rawUrl = String(item?.imageUrl || item?.downloadUrl || '').trim();
+  if (!rawUrl) return null;
+  // 规范化 URL：使历史记录的 imageUrl 与生成时存入 videoMap 的 key 保持一致
+  const imageUrl = normalizeMediaUrl(rawUrl);
   const rawId = String(item?.id || '').trim();
   const namespacedId = rawId
     ? `clothing-swap-history-${historyId}-${index}-${rawId}`
@@ -131,7 +98,7 @@ const sanitizeHistoryImage = (item: any, index: number, historyId: string): Prod
   return {
     id: namespacedId,
     imageUrl,
-    downloadUrl: String(item?.downloadUrl || imageUrl),
+    downloadUrl: String(item?.downloadUrl || rawUrl),
     format: String(item?.format || 'png'),
   };
 };
@@ -174,7 +141,6 @@ const mapImageHistoryToCsItem = (item: ImageHistoryItem): ClothingSwapHistoryIte
 interface ClothingSwapWorkspacePaneProps {
   workspaceId: string;
   workspaceOrder: number;
-  workspaceLabel: string;
   projectId?: string;
   isVisible?: boolean;
 }
@@ -182,7 +148,6 @@ interface ClothingSwapWorkspacePaneProps {
 const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
   workspaceId,
   workspaceOrder: _workspaceOrder,
-  workspaceLabel,
   projectId,
   isVisible = true,
 }) => {
@@ -207,6 +172,16 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
   const [restoredParams, setRestoredParams] = useState<Partial<ClothingSwapParams> | undefined>(undefined);
   const [loadingTheme, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
   const [loadingBackgroundSrc, setLoadingBackgroundSrc] = useState<string>('');
+  // ── video state ──────────────────────────────────────────────────────────────
+  const [videoMap, setVideoMap] = useState<Record<string, string>>(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const raw = window.localStorage.getItem(CS_VIDEO_CACHE_KEY);
+      return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    } catch { return {}; }
+  });
+  const [generatingVideoIds, setGeneratingVideoIds] = useState<Set<string>>(new Set());
+  const [lastGeneratedBackground, setLastGeneratedBackground] = useState<ClothingSwapBackground>('model');
 
   const generationSeqRef = useRef(0);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -317,6 +292,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
       setRightPanel('preview');
       setError(null);
       setProgress(2);
+      setLastGeneratedBackground(params.background ?? 'model');
       startProgressSimulation();
 
       const clientHistoryId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -414,10 +390,27 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
   };
 
   const handleDownloadAll = async (prefix: string) => {
+    const safePrefix = prefix.trim() || 'ai_clothing_swap';
     for (let i = 0; i < results.length; i += 1) {
       const item = results[i];
+      // download image
       // eslint-disable-next-line no-await-in-loop
-      await handleDownload(item.id, buildFileName(prefix, i, item.id));
+      await downloadUrlDirectly(item.imageUrl, buildFileName(safePrefix, i, item.id));
+      // download associated video if available
+      const videoUrl = videoMap[item.imageUrl];
+      if (videoUrl) {
+        const shortId =
+          item.imageUrl.split('/').pop()?.replace(/\.[^.]+$/, '') ?? item.id.slice(0, 8);
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise<void>((res) => setTimeout(res, 300));
+        // eslint-disable-next-line no-await-in-loop
+        await downloadUrlDirectly(videoUrl, `${safePrefix}_${i + 1}_${shortId}.mp4`);
+      }
+      if (i < results.length - 1) {
+        // small delay so browser doesn't block rapid-fire downloads
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise<void>((res) => setTimeout(res, 300));
+      }
     }
   };
 
@@ -427,6 +420,59 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
       setPhase(hasBothImages ? 'form' : 'upload');
     }
   };
+
+  // ── video helpers ────────────────────────────────────────────────────────────
+  // videoMap is keyed by imageUrl (stable across history restores, not ephemeral imageId)
+  const saveVideoToCache = useCallback((imageUrl: string, videoUrl: string) => {
+    setVideoMap((prev) => {
+      const next = { ...prev, [imageUrl]: videoUrl };
+      try {
+        window.localStorage.setItem(CS_VIDEO_CACHE_KEY, JSON.stringify(next));
+      } catch { /* storage full — ignore */ }
+      return next;
+    });
+  }, []);
+
+  const handleGenerateVideo = useCallback(async (imageId: string) => {
+    const imageItem = results.find((r) => r.id === imageId);
+    if (!imageItem) return;
+    if (generatingVideoIds.has(imageId)) return; // 防止重复触发
+    const background: ClothingSwapBackground =
+      (restoredParams?.background) ?? lastGeneratedBackground ?? 'model';
+    setGeneratingVideoIds((prev) => new Set([...prev, imageId]));
+    try {
+      const result = await productImagesApi.generateClothingSwapVideo(
+        imageItem.imageUrl,
+        background,
+      );
+      // key by imageUrl so the video survives history restores
+      saveVideoToCache(imageItem.imageUrl, result.videoUrl);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : (t.cs_video_error || 'Video generation failed');
+      setError({ code: 'VIDEO_FAILED', message, severity: 'error' });
+    } finally {
+      setGeneratingVideoIds((prev) => {
+        const next = new Set(prev);
+        next.delete(imageId);
+        return next;
+      });
+    }
+  }, [generatingVideoIds, lastGeneratedBackground, restoredParams, results, saveVideoToCache, t]);
+
+  const handleDownloadVideo = useCallback(async (imageId: string) => {
+    const imageItem = results.find((r) => r.id === imageId);
+    const videoUrl = imageItem ? videoMap[imageItem.imageUrl] : undefined;
+    if (!videoUrl) return;
+    try {
+      const response = await fetch(videoUrl);
+      const blob = await response.blob();
+      const shortId = imageItem?.imageUrl.split('/').pop()?.replace(/\.[^.]+$/, '') || imageId.slice(0, 8);
+      await saveBlobWithPickerFallback(blob, `ai_clothing_swap_video_${shortId}.mp4`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : (t.cs_error_download_failed || 'Download failed');
+      setError({ code: 'DOWNLOAD_FAILED', message, severity: 'error' });
+    }
+  }, [results, videoMap, t]);
 
   const activateHistoryItem = (item: ClothingSwapHistoryItem) => {
     if (!item.outputImages || item.outputImages.length === 0) return;
@@ -583,7 +629,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
           {/* Left: Upload */}
           <section
             className="mr-3 h-full shrink-0 overflow-y-auto rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100"
-            style={{ width: `${leftWidth}px`, minWidth: `${CS_PANEL_MIN_WIDTH}px` }}
+            style={{ width: `${leftWidth}px`, minWidth: `${CS_PANEL_MIN_WIDTH}px`, scrollbarColor: 'black transparent', scrollbarWidth: 'thin' }}
           >
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">{t.cs_upload_materials}</h2>
@@ -667,8 +713,16 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
             style={{ minWidth: `${CS_PANEL_MIN_WIDTH}px` }}
           >
             <div className="mb-5 flex items-start justify-between gap-3">
-              <div>
+              <div className="flex items-center gap-3">
                 <h2 className="text-lg font-semibold text-white">{t.cs_result_preview}</h2>
+                {generatingVideoIds.size > 0 && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-violet-500/15 border border-violet-500/30 text-violet-300 animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-violet-400 inline-block" />
+                    {generatingVideoIds.size === 1
+                      ? (t.cs_generating_video || '正在生成视频…')
+                      : `正在生成 ${generatingVideoIds.size} 个视频…`}
+                  </span>
+                )}
               </div>
               <div className="flex items-center rounded-xl border border-white/10 bg-black/20 p-1">
                 <button
@@ -717,6 +771,10 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
                   onRegenerate={handleRegenerate}
                   onDownload={handleDownload}
                   onDownloadAll={handleDownloadAll}
+                  onGenerateVideo={(id) => void handleGenerateVideo(id)}
+                  generatingVideoIds={generatingVideoIds}
+                  videoMap={videoMap}
+                  onDownloadVideo={(id) => void handleDownloadVideo(id)}
                 />
               ) : (
                 <div className="flex min-h-[420px] items-center justify-center rounded-2xl border border-dashed border-white/10 bg-black/20 p-6 text-center">
@@ -742,22 +800,38 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
                         </div>
                         <div className="p-3 grid grid-cols-4 gap-2">
                           {item.outputImages.slice(0, 4).map((img, idx) => (
-                            <img
-                              key={`${item.id}-${idx}`}
-                              src={img.imageUrl}
-                              alt={`${workspaceLabel}-${idx}`}
-                              className="w-full aspect-square object-cover rounded-lg border border-white/10"
-                            />
+                            <div key={`${item.id}-${idx}`} className="relative">
+                              <img
+                                src={img.imageUrl}
+                                alt={`history-${item.id}-${idx}`}
+                                className="w-full aspect-square object-cover rounded-lg border border-white/10"
+                              />
+                              {videoMap[img.imageUrl] && (
+                                <span className="absolute bottom-0.5 right-0.5 bg-violet-600/90 rounded text-[9px] px-1 py-px text-white font-bold leading-none">
+                                  ▶
+                                </span>
+                              )}
+                            </div>
                           ))}
                         </div>
-                        <div className="px-3 pb-3">
+                        <div className="px-3 pb-3 flex gap-2">
                           <button
                             type="button"
                             onClick={() => activateHistoryItem(item)}
-                            className="w-full px-3 py-2 rounded-lg text-xs font-semibold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
+                            className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
                           >
                             {t.cs_restore_record}
                           </button>
+                          {item.outputImages.some((img) => videoMap[img.imageUrl]) && (
+                            <button
+                              type="button"
+                              onClick={() => activateHistoryItem(item)}
+                              className="px-3 py-2 rounded-lg text-xs font-semibold bg-violet-500/10 border border-violet-500/30 text-violet-300 hover:bg-violet-500/20 transition"
+                              title={t.cs_video_ready || 'Video ready — restore to view'}
+                            >
+                              ▶ {t.cs_video_ready || 'Video'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -797,100 +871,8 @@ export const ClothingSwapView: React.FC<ClothingSwapViewProps> = ({
   projectId,
   embedded = false,
   isVisible = true,
-  headerActionsContainer,
 }) => {
   const { t } = useLanguage();
-
-  const initialWorkspaceMetas = useMemo(() => readWorkspaceMetas(), []);
-  const [workspaceMetas, setWorkspaceMetas] = useState<ClothingSwapWorkspaceMeta[]>(initialWorkspaceMetas);
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(() => {
-    if (typeof window === 'undefined') return initialWorkspaceMetas[0]?.id || createDefaultWorkspaceMeta().id;
-    const stored = String(window.localStorage.getItem(CS_ACTIVE_WORKSPACE_KEY) || '').trim();
-    if (stored && initialWorkspaceMetas.some((ws) => ws.id === stored)) return stored;
-    return initialWorkspaceMetas[0]?.id || createDefaultWorkspaceMeta().id;
-  });
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      window.localStorage.setItem(CS_WORKSPACE_META_KEY, JSON.stringify(workspaceMetas));
-    } catch { /* ignore */ }
-  }, [workspaceMetas]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      window.localStorage.setItem(CS_ACTIVE_WORKSPACE_KEY, activeWorkspaceId);
-    } catch { /* ignore */ }
-  }, [activeWorkspaceId]);
-
-  useEffect(() => {
-    if (workspaceMetas.length === 0) {
-      const fallback = createDefaultWorkspaceMeta();
-      setWorkspaceMetas([fallback]);
-      setActiveWorkspaceId(fallback.id);
-      return;
-    }
-    if (!workspaceMetas.some((w) => w.id === activeWorkspaceId)) {
-      setActiveWorkspaceId(workspaceMetas[0].id);
-    }
-  }, [activeWorkspaceId, workspaceMetas]);
-
-  const workspaceLabel = useCallback((workspace: ClothingSwapWorkspaceMeta) => (
-    `${t.cs_workspace} ${workspace.order}`
-  ), [t]);
-
-  const workspaceOptions = useMemo(
-    () => workspaceMetas.map((workspace) => ({
-      value: workspace.id,
-      label: workspaceLabel(workspace),
-    })),
-    [workspaceMetas, workspaceLabel],
-  );
-
-  const createWorkspace = () => {
-    const occupiedOrders = new Set(
-      workspaceMetas
-        .map((w) => w.order)
-        .filter((o) => Number.isFinite(o) && o > 0),
-    );
-    let order = 1;
-    while (occupiedOrders.has(order)) order += 1;
-    const now = Date.now();
-    const newWorkspace: ClothingSwapWorkspaceMeta = {
-      id: `cs-workspace-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-      order,
-      createdAt: now,
-      updatedAt: now,
-    };
-    setWorkspaceMetas((prev) => [newWorkspace, ...prev]);
-    setActiveWorkspaceId(newWorkspace.id);
-  };
-
-  const switchWorkspace = (workspaceId: string) => {
-    const id = String(workspaceId || '').trim();
-    if (!id) return;
-    setActiveWorkspaceId(id);
-    setWorkspaceMetas((prev) => prev.map((w) => (
-      w.id === id ? { ...w, updatedAt: Date.now() } : w
-    )));
-  };
-
-  const deleteWorkspace = useCallback((workspaceId: string) => {
-    const id = String(workspaceId || '').trim();
-    if (!id || workspaceMetas.length <= 1) return;
-    const nextWorkspaces = workspaceMetas.filter((w) => w.id !== id);
-    if (nextWorkspaces.length === workspaceMetas.length) return;
-    setWorkspaceMetas(nextWorkspaces);
-    if (activeWorkspaceId === id && nextWorkspaces[0]) {
-      setActiveWorkspaceId(nextWorkspaces[0].id);
-    }
-    readImageHistoryByFeature('clothing_swap')
-      .filter((item) => (item.workspaceId || 'cs-workspace-1') === id)
-      .forEach((item) => {
-        deleteImageHistoryItem(item.id);
-      });
-  }, [activeWorkspaceId, workspaceMetas]);
 
   const shellClassName = useMemo(
     () => (embedded
@@ -902,64 +884,6 @@ export const ClothingSwapView: React.FC<ClothingSwapViewProps> = ({
   const contentWrapClassName = embedded
     ? 'flex h-full min-h-0 w-full flex-col'
     : 'mx-auto max-w-[1600px] pb-10';
-
-  const workspaceActions = (
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="w-48">
-        <DropdownSelect
-          value={activeWorkspaceId}
-          options={workspaceOptions}
-          onChange={(value) => switchWorkspace(String(value || ''))}
-          buttonClassName="w-full bg-zinc-900/70 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800"
-          iconClassName="w-4 h-4 text-zinc-500"
-          optionClassName="text-xs"
-          renderOption={({ option, isSelected, onSelect }) => {
-            const canDelete = workspaceMetas.length > 1;
-            const targetWorkspace = workspaceMetas.find((w) => w.id === option.value);
-            const optionTitle = targetWorkspace ? workspaceLabel(targetWorkspace) : String(option.value || '');
-            return (
-              <div
-                className={`group flex items-center gap-2 px-3 py-2 text-xs transition ${
-                  isSelected ? 'bg-white/5 text-white' : 'text-zinc-200 hover:bg-white/5'
-                }`}
-              >
-                <button type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
-                  <span className="block truncate">{option.label}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    deleteWorkspace(option.value);
-                  }}
-                  disabled={!canDelete}
-                  className={`shrink-0 rounded-full p-0.5 transition ${
-                    canDelete
-                      ? 'opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300'
-                      : 'opacity-0 pointer-events-none'
-                  }`}
-                  aria-label={`Delete ${optionTitle}`}
-                  title={canDelete ? `Delete ${optionTitle}` : undefined}
-                >
-                  <span className="flex h-4 w-4 items-center justify-center rounded-full border border-current">
-                    <Minus className="h-2.5 w-2.5" strokeWidth={2.5} />
-                  </span>
-                </button>
-              </div>
-            );
-          }}
-        />
-      </div>
-      <button
-        type="button"
-        onClick={createWorkspace}
-        className="px-3 py-2 rounded-xl text-xs font-semibold bg-orange-500/10 border border-orange-500/40 text-orange-300 hover:bg-orange-500/20 transition inline-flex items-center gap-1.5"
-      >
-        <Plus className="w-3.5 h-3.5" />
-        {t.cs_new_workspace}
-      </button>
-    </div>
-  );
 
   return (
     <div className={shellClassName}>
@@ -975,30 +899,15 @@ export const ClothingSwapView: React.FC<ClothingSwapViewProps> = ({
                 <ChevronLeft className="w-6 h-6 text-zinc-400" />
               </button>
             )}
-            <div>
-              <h1 className="text-2xl font-bold text-white mb-1">{t.cs_page_title}</h1>
-            </div>
-            <div className="ml-auto">{workspaceActions}</div>
+            <h1 className="text-2xl font-bold text-white mb-1">{t.cs_page_title}</h1>
           </div>
         )}
-
-        {embedded && headerActionsContainer ? createPortal(workspaceActions, headerActionsContainer) : null}
-
-        {workspaceMetas.map((workspace) => (
-          <div
-            key={workspace.id}
-            className={workspace.id === activeWorkspaceId ? 'block h-full min-h-0' : 'hidden'}
-            aria-hidden={workspace.id !== activeWorkspaceId}
-          >
-            <ClothingSwapWorkspacePane
-              workspaceId={workspace.id}
-              workspaceOrder={workspace.order}
-              workspaceLabel={workspaceLabel(workspace)}
-              projectId={projectId}
-              isVisible={isVisible && workspace.id === activeWorkspaceId}
-            />
-          </div>
-        ))}
+        <ClothingSwapWorkspacePane
+          workspaceId="cs-workspace-1"
+          workspaceOrder={1}
+          projectId={projectId}
+          isVisible={isVisible}
+        />
       </div>
     </div>
   );

@@ -10,6 +10,7 @@ interface FirstFrameResultProps {
   elapsedSeconds?: number | null;
   selectionKey?: string;
   loadingTheme?: LoadingTheme;
+  aspectRatio?: string;
   onRegenerate: () => void;
   onDownload: (imageId: string, filename?: string) => Promise<void>;
   onDownloadAll: (prefix: string) => Promise<void>;
@@ -24,6 +25,16 @@ const DEFAULT_LOADING_THEME: LoadingTheme = {
   accent: '#ffd2b4',
   quaternary: '#ffb4dc',
   surface: '#ffffff',
+};
+
+const parseAspectRatio = (value?: string) => {
+  const match = String(value || '9:16').match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+  const width = match ? Number(match[1]) : 9;
+  const height = match ? Number(match[2]) : 16;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return { width: 9, height: 16, ratio: 9 / 16 };
+  }
+  return { width, height, ratio: width / height };
 };
 
 const hexToRgba = (hex: string, alpha: number) => {
@@ -126,6 +137,7 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
   elapsedSeconds: _elapsedSeconds = null,
   selectionKey,
   loadingTheme,
+  aspectRatio,
   onRegenerate,
   onDownload,
   onDownloadAll,
@@ -168,6 +180,19 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
   }, [results, selectionKey]);
 
   const selectedImage = results.find((r) => r.id === selectedImageId) || results.find((item) => isResultSucceeded(item)) || results[0] || null;
+  const parsedAspectRatio = parseAspectRatio(aspectRatio);
+  const previewMaxSize = 384;
+  const previewWidth = parsedAspectRatio.ratio >= 1
+    ? previewMaxSize
+    : previewMaxSize * parsedAspectRatio.ratio;
+  const previewHeight = parsedAspectRatio.ratio >= 1
+    ? previewMaxSize / parsedAspectRatio.ratio
+    : previewMaxSize;
+  const previewFrameStyle: React.CSSProperties = {
+    width: `${Math.round(previewWidth)}px`,
+    maxWidth: '100%',
+    height: `${Math.round(previewHeight)}px`,
+  };
 
   if (isLoading) return null;
 
@@ -256,7 +281,8 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
                   </>
                 ) : (
                   <div
-                    className="relative h-96 w-sm min-w-80 overflow-hidden rounded-lg border border-orange-200/60"
+                    className="relative h-full w-full overflow-hidden rounded-lg border border-orange-200/60"
+                    style={previewFrameStyle}
                   >
                     {isResultFailed(selectedImage) ? (
                       <div className="flex h-full w-full flex-col items-center justify-center bg-zinc-900/70 px-6 text-center">
@@ -270,7 +296,7 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
                 )}
               </div>
             ) : (
-              <div className="flex h-96 w-sm items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800">
+              <div className="flex items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800" style={previewFrameStyle}>
                 <p className="text-zinc-500">{t.ff_no_result}</p>
               </div>
             )}

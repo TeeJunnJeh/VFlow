@@ -187,6 +187,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const [loadingTheme, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
   const [loadingBackgroundSrc, setLoadingBackgroundSrc] = useState<string>('');
   const [isAsyncGenerating, setIsAsyncGenerating] = useState(false);
+  const [resultAspectRatio, setResultAspectRatio] = useState<string>('9:16');
 
   const generationSeqRef = useRef(0);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -272,6 +273,20 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       .includes(String(status || '').trim().toLowerCase())
   );
 
+  const isNonRetryableFirstFramePollError = (err: unknown) => {
+    const status = Number((err as any)?.status || 0);
+    if (status === 400 || status === 404) return true;
+    const message = String((err as any)?.message || err || '').trim().toLowerCase();
+    return [
+      'not found',
+      'not exist',
+      'invalid request',
+      'invalid request_id',
+      'request_id is required',
+      'first-frame task not found',
+    ].some((marker) => message.includes(marker));
+  };
+
   const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
   const handleImagesSelected = useCallback((files: File[]) => {
@@ -302,6 +317,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       setPhase('generating');
       setRightPanel('preview');
       setError(null);
+      setResultAspectRatio(params.aspectRatio || '9:16');
       setProgress(2);
       startProgressSimulation();
 
@@ -398,7 +414,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                 return;
               }
             } catch (pollError) {
-              if (attempt >= FIRST_FRAME_ASYNC_POLL_MAX_ATTEMPTS - 1) {
+              if (isNonRetryableFirstFramePollError(pollError) || attempt >= FIRST_FRAME_ASYNC_POLL_MAX_ATTEMPTS - 1) {
                 setResults((prev) => prev.map((item) => (
                   String(item.metadata?.requestId || '') === requestId
                     ? {
@@ -863,10 +879,10 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
           />
 
           <section
-            className="ml-3 h-full flex-1 rounded-2xl border border-white/5 bg-white/[0.02] p-5"
+            className="ml-3 flex h-full min-h-0 flex-1 flex-col rounded-2xl border border-white/5 bg-white/[0.02] p-5"
             style={{ minWidth: `${FIRST_FRAME_PANEL_MIN_WIDTH}px` }}
           >
-            <div className="mb-5 flex items-start justify-between gap-3">
+            <div className="mb-5 flex shrink-0 items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-white">
                   {t.ff_result_preview}
@@ -898,6 +914,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
               </div>
             </div>
 
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
             {rightPanel === 'preview' ? (
               showFullScreenGenerating ? (
                 <div className="flex min-h-[420px] items-center justify-center">
@@ -918,6 +935,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                   elapsedSeconds={lastElapsedSeconds}
                   selectionKey={resultSelectionKey}
                   loadingTheme={loadingTheme}
+                  aspectRatio={resultAspectRatio}
                   onRegenerate={handleRegenerate}
                   onDownload={handleDownload}
                   onDownloadAll={handleDownloadAll}
@@ -943,7 +961,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                     {t.ff_no_history_yet}
                   </div>
                 ) : (
-                  <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
+                  <div className="space-y-3 pr-1">
                     {historyItems.map((item) => (
                       <div key={item.id} className="rounded-xl border border-white/10 bg-black/30 overflow-hidden">
                         <div className="px-3 py-2 border-b border-white/10 bg-black/40 flex items-center justify-between text-xs text-zinc-400">
@@ -975,6 +993,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                 )}
               </div>
             )}
+            </div>
           </section>
         </div>
 

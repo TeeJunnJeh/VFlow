@@ -4778,7 +4778,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         isOpen={isGalleryBoardEditorOpen}
         title={t.pg_main_dialog_board_editor_title}
         onClose={closeGalleryBoardEditor}
-        widthClassName="max-w-[96rem]"
+        widthClassName="max-w-[110rem]"
+        contentClassName="overflow-hidden"
       >
         {isGalleryBoardEditorOpen ? (
           <GalleryBoardEditor

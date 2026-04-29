@@ -153,7 +153,7 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
         </div>
       </div>
 
-      {onCancel ? (
+      {/* {onCancel ? (
         <div className="mt-4 flex justify-end">
           <button
             onClick={onCancel}
@@ -163,7 +163,7 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
             {t.ff_cancel_generation}
           </button>
         </div>
-      ) : null}
+      ) : null} */}
     </div>
   );
 };

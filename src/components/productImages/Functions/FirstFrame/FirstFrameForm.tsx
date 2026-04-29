@@ -46,34 +46,18 @@ const normalizeFirstFrameModel = (model?: FirstFrameParams['model']): FirstFrame
     : NANO_BANANA_FIRST_FRAME_MODEL
 );
 
-const getFirstFrameAspectRatios = (model?: FirstFrameModel): Array<{ label: string; value: FirstFrameAspectRatio }> => {
-  const gptRatios: Array<{ label: string; value: FirstFrameAspectRatio }> = [
-    { label: '1:1', value: '1:1' },
-    { label: '3:2', value: '3:2' },
-    { label: '2:3', value: '2:3' },
-  ];
-  if (isGptFirstFrameModel(model)) return gptRatios;
-
-  return [
-    { label: '1:1', value: '1:1' },
-    { label: '2:3', value: '2:3' },
-    { label: '3:2', value: '3:2' },
-    { label: '3:4', value: '3:4' },
-    { label: '4:3', value: '4:3' },
-    { label: '4:5', value: '4:5' },
-    { label: '5:4', value: '5:4' },
-    { label: '9:16', value: '9:16' },
-    { label: '16:9', value: '16:9' },
-    { label: '21:9', value: '21:9' },
-  ];
+const getFirstFrameAspectRatioValues = (model?: FirstFrameModel): FirstFrameAspectRatio[] => {
+  const allRatios: FirstFrameAspectRatio[] = ['1:1', '9:16', '4:5', '3:4', '2:3', '16:9', '4:3', '3:2', '5:4', '21:9'];
+  const gptRatios: FirstFrameAspectRatio[] = ['1:1', '2:3', '3:2'];
+  return isGptFirstFrameModel(model) ? gptRatios : allRatios;
 };
 
 const normalizeFirstFrameAspectRatio = (
   value: FirstFrameParams['aspectRatio'],
   model: FirstFrameParams['model']
 ): FirstFrameAspectRatio => {
-  const options = getFirstFrameAspectRatios(normalizeFirstFrameModel(model));
-  return options.some((item) => item.value === value) ? value as FirstFrameAspectRatio : options[0].value;
+  const options = getFirstFrameAspectRatioValues(normalizeFirstFrameModel(model));
+  return options.includes(value as FirstFrameAspectRatio) ? value as FirstFrameAspectRatio : options[0];
 };
 
 const normalizeFirstFrameParams = (params: FirstFrameParams): FirstFrameParams => {
@@ -145,10 +129,21 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const aspectRatios = useMemo(
-    () => getFirstFrameAspectRatios(formData.model),
-    [formData.model]
-  );
+  const aspectRatios = useMemo(() => {
+    const labels: Record<FirstFrameAspectRatio, string> = {
+      '1:1': (t as any).ff_aspect_ratio_option_1_1 || '方形 · 1:1',
+      '9:16': (t as any).ff_aspect_ratio_option_9_16 || '竖屏 · 9:16',
+      '4:5': (t as any).ff_aspect_ratio_option_4_5 || '竖屏 · 4:5',
+      '3:4': (t as any).ff_aspect_ratio_option_3_4 || '竖屏 · 3:4',
+      '2:3': (t as any).ff_aspect_ratio_option_2_3 || '竖屏 · 2:3',
+      '16:9': (t as any).ff_aspect_ratio_option_16_9 || '横屏 · 16:9',
+      '4:3': (t as any).ff_aspect_ratio_option_4_3 || '横屏 · 4:3',
+      '3:2': (t as any).ff_aspect_ratio_option_3_2 || '横屏 · 3:2',
+      '5:4': (t as any).ff_aspect_ratio_option_5_4 || '横屏 · 5:4',
+      '21:9': (t as any).ff_aspect_ratio_option_21_9 || '横屏 · 21:9',
+    };
+    return getFirstFrameAspectRatioValues(formData.model).map((value) => ({ value, label: labels[value] }));
+  }, [formData.model, t]);
 
   useEffect(() => {
     setFormData((prev) => {

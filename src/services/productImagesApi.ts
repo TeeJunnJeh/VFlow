@@ -98,7 +98,7 @@ async function uploadTempImage(file: File): Promise<string> {
 }
 
 async function generateFirstFrameOnce(options: {
-  referenceImagePath: string;
+  referenceImagePaths: string[];
   aspectRatio?: string;
   projectId?: string;
   model: string;
@@ -112,7 +112,7 @@ async function generateFirstFrameOnce(options: {
   clientHistoryId?: string;
 }): Promise<{ imagePath: string; projectId?: string }> {
   const payload: Record<string, unknown> = {
-    reference_image_path: options.referenceImagePath,
+    reference_image_paths: options.referenceImagePaths,
     aspect_ratio: options.aspectRatio || '9:16',
     frame_type: 'first',
     model: options.model,
@@ -190,7 +190,7 @@ async function generateFirstFrameOnce(options: {
 }
 
 async function createFirstFrameAsync(options: {
-  referenceImagePath: string;
+  referenceImagePaths: string[];
   aspectRatio?: string;
   projectId?: string;
   model: string;
@@ -205,7 +205,7 @@ async function createFirstFrameAsync(options: {
   clientHistoryId?: string;
 }): Promise<GenerationStatusResponse> {
   const payload: Record<string, unknown> = {
-    reference_image_path: options.referenceImagePath,
+    reference_image_paths: options.referenceImagePaths,
     aspect_ratio: options.aspectRatio || '9:16',
     frame_type: 'first',
     model: options.model,
@@ -303,7 +303,7 @@ export const productImagesApi = {
 
     const outputCount = params.outputCount || 1;
     const model = resolveFirstFrameModel(params);
-    const referenceImagePath = await uploadTempImage(images[0]);
+    const referenceImagePaths = await Promise.all(images.map((image) => uploadTempImage(image)));
     const clientHistoryId =
       (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
         ? crypto.randomUUID()
@@ -314,7 +314,7 @@ export const productImagesApi = {
 
     if (model === NANO_BANANA_FIRST_FRAME_MODEL) {
       return createFirstFrameAsync({
-        referenceImagePath,
+        referenceImagePaths,
         aspectRatio: params.aspectRatio,
         projectId: resolvedProjectId,
         model,
@@ -332,7 +332,7 @@ export const productImagesApi = {
 
     for (let i = 0; i < outputCount; i += 1) {
       const generated = await generateFirstFrameOnce({
-        referenceImagePath,
+        referenceImagePaths,
         aspectRatio: params.aspectRatio,
         projectId: resolvedProjectId,
         model,

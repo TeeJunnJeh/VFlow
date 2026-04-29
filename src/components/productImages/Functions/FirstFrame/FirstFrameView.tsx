@@ -332,13 +332,11 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
             },
           }));
 
-        setResults(placeholders);
-        setResultSelectionKey(`generation:${workspaceId}:${Date.now()}:async`);
-        setPhase('result');
-        setIsAsyncGenerating(true);
         setProgress(8);
 
         const startedAt = progressStartedAtRef.current || Date.now();
+        let hasRevealedResults = false;
+        setResults(placeholders);
 
         await Promise.all(response.requests.map(async (requestItem, index) => {
           const requestId = String(requestItem.requestId || '').trim();
@@ -355,6 +353,12 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
               const imageUrl = String(poll.imageUrl || '').trim();
 
               if (imageUrl) {
+                if (!hasRevealedResults) {
+                  hasRevealedResults = true;
+                  setResultSelectionKey(`generation:${workspaceId}:${Date.now()}:async`);
+                  setPhase('result');
+                  setIsAsyncGenerating(true);
+                }
                 setResults((prev) => prev.map((item) => (
                   String(item.metadata?.requestId || '') === requestId
                     ? {
@@ -439,6 +443,17 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
         const completedElapsedSeconds = Math.max(1, Math.floor((Date.now() - startedAt) / 1000));
         setLastElapsedSeconds(completedElapsedSeconds);
         progressStartedAtRef.current = null;
+        if (!hasRevealedResults) {
+          setResults([]);
+          setError({
+            code: 'GENERATION_FAILED',
+            message: t.ff_error_generation_failed,
+            severity: 'error',
+            suggestion: t.ff_error_suggestion_clear_front_image,
+          });
+          setPhase(images.length > 0 ? 'form' : 'upload');
+          return;
+        }
         await refreshWorkspaceHistory();
         notifyImageHistoryUpdated();
         return;
@@ -795,7 +810,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
             </div>
             <ImageUploader
               key={`${workspaceId}-${uploaderResetKey}`}
-              maxFiles={1}
+              maxFiles={4}
               previewVariant="first-frame"
               onFilesSelected={handleImagesSelected}
               onError={(err) =>

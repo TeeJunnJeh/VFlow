@@ -1154,6 +1154,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       outputType?: string;
       createdAt?: string;
       layout?: any;
+      aspectRatio?: string;
     }>
   >([]);
   const [isGalleryBoardAssetPickerOpen, setIsGalleryBoardAssetPickerOpen] = useState(false);
@@ -4152,6 +4153,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       status: 'created' as const,
       outputType: planned.outputType,
       createdAt: placeholderCreatedAt,
+      aspectRatio: planned.aspectRatio,
     }));
 
     setIsGalleryGenerating(true);

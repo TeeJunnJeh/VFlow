@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, Eye, Image as ImageIcon, LayoutGrid, Minus, Plus, RotateCw, Save, Sparkles, Upload, Wand2, X } from 'lucide-react';
+import Masonry from 'react-masonry-css';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import type { ViewType } from '../../../workbench/types';
 import type { LoadingTheme } from '../../../../utils/loadingTheme';
@@ -189,6 +190,7 @@ export type ImagesGalleryViewProps = {
     outputType?: string;
     createdAt?: string;
     layout?: any;
+    aspectRatio?: string;
   }>;
   openGalleryImagePreview: (url: string, source?: any) => void;
   galleryHistoryItems: Array<{
@@ -2103,7 +2105,12 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   </div>
                 </div>
               ) : (
-                <div className="p-4 grid grid-cols-2 gap-3">
+                <div className="p-4">
+                <Masonry
+                  breakpointCols={2}
+                  className="pg-masonry-grid"
+                  columnClassName="pg-masonry-grid-col"
+                >
                   {galleryPreviewItems.map((item: any) => {
                     const outputType = String(item.outputType || '').trim();
                     const outputTypeLabel =
@@ -2132,20 +2139,32 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                           ? 'bg-red-500/15 text-red-200 border-red-500/30'
                           : 'bg-orange-500/15 text-orange-200 border-orange-500/30';
 
+                    // Placeholder aspect ratio for loading / failed cards (no image yet).
+                    // Loaded images ignore this and use their natural aspect ratio.
+                    const placeholderAspect = (() => {
+                      const raw = String(item.aspectRatio || '').trim();
+                      if (!raw) return '1 / 1';
+                      const m = raw.match(/^(\d+)\s*[:\/]\s*(\d+)$/);
+                      return m ? `${m[1]} / ${m[2]}` : '1 / 1';
+                    })();
+
                     return (
                       <div
                         key={item.localId}
                         className="group rounded-xl border border-white/10 bg-black/20 overflow-hidden shadow-sm transition-all duration-200 ease-out hover:-translate-y-1 hover:border-indigo-500 hover:ring-1 hover:ring-indigo-500/50 hover:shadow-xl"
                       >
-                        <div className="relative w-full aspect-square border-b border-white/10 bg-black/30">
+                        <div
+                          className="relative w-full bg-black/30"
+                          style={item.imageUrl ? undefined : { aspectRatio: placeholderAspect }}
+                        >
                           {item.imageUrl ? (
                             <button
                               type="button"
                               onClick={() => openGalleryImagePreview(item.imageUrl as string, { kind: 'preview_item', localId: item.localId })}
-                              className="absolute inset-0 relative"
+                              className="block w-full"
                               title={t.pg_img_click_to_preview}
                             >
-                              <img src={item.imageUrl} className="w-full h-full object-cover" alt={item.requestId} />
+                              <img src={item.imageUrl} className="block w-full h-auto" alt={item.requestId} />
                               <div className="absolute inset-0 opacity-0 transition-opacity duration-200 bg-black/40 flex items-center justify-center group-hover:opacity-100">
                                 <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-xs font-bold text-white">
                                   <Eye className="w-4 h-4" />
@@ -2177,6 +2196,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                       </div>
                     );
                   })}
+                </Masonry>
                 </div>
               )}
             </div>

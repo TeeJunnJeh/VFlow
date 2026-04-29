@@ -200,10 +200,19 @@ const isSeedanceModel = (modelId: string | null | undefined) => {
   return modelKey === 'seedance-2.0';
 };
 
-const getSeedanceReplayLocalAccept = (mediaKind?: SeedanceReplayMediaKind | null) => {
+const getSeedanceReplayLocalAccept = (mediaKind?: SeedanceReplayMediaKind | null, options: { allowAudio?: boolean } = {}) => {
+  const allowAudio = options.allowAudio !== false;
   if (mediaKind === 'image') return SEEDANCE_REPLAY_IMAGE_EXTS.map((ext) => `.${ext}`).join(',');
   if (mediaKind === 'video') return SEEDANCE_REPLAY_VIDEO_EXTS.map((ext) => `.${ext}`).join(',');
+  if (mediaKind === 'audio' && !allowAudio) return [
+    ...SEEDANCE_REPLAY_IMAGE_EXTS.map((ext) => `.${ext}`),
+    ...SEEDANCE_REPLAY_VIDEO_EXTS.map((ext) => `.${ext}`),
+  ].join(',');
   if (mediaKind === 'audio') return SEEDANCE_REPLAY_AUDIO_EXTS.map((ext) => `.${ext}`).join(',');
+  if (!allowAudio) return [
+    ...SEEDANCE_REPLAY_IMAGE_EXTS.map((ext) => `.${ext}`),
+    ...SEEDANCE_REPLAY_VIDEO_EXTS.map((ext) => `.${ext}`),
+  ].join(',');
   return SEEDANCE_REPLAY_UPLOAD_ACCEPT;
 };
 // Storyboard editor is now a user-toggleable runtime setting (no longer a compile-time constant).
@@ -304,6 +313,94 @@ type GeneratePayload = {
   negative_prompt?: string;
   [key: string]: unknown;
 };
+
+type ReplayScriptTemplate = {
+  id: string;
+  title: string;
+  description: string;
+  fullScript: string;
+  prompt: string;
+  previewImageUrl: string;
+  previewVideoUrl?: string;
+  tags: string[];
+  duration: number;
+  aspectRatio: WorkbenchAspectRatio;
+};
+
+type ReplayBatchItemStatus = 'queued' | 'submitting' | 'processing' | 'success' | 'failed';
+
+type ReplayBatchItem = {
+  id: string;
+  label: string;
+  source: 'template' | 'user_reference';
+  templateId?: string;
+  copyIndex: number;
+  taskId?: string | number;
+  projectId?: string;
+  status: ReplayBatchItemStatus;
+  detail?: string;
+  error?: string;
+};
+
+type ReplayReverseStatus = 'idle' | 'queued' | 'processing' | 'success' | 'failed';
+
+type ReplayBatchRun = {
+  id: string;
+  expanded: boolean;
+  startedAt: number;
+  totalVideos: number;
+  userReferenceCount: number;
+  templateVideoCount: number;
+  reverse: {
+    status: ReplayReverseStatus;
+    progress: number;
+    detail?: string;
+    error?: string;
+    scriptBrief?: string;
+  };
+  items: ReplayBatchItem[];
+};
+
+const REPLAY_SCRIPT_TEMPLATES: ReplayScriptTemplate[] = [
+  {
+    id: 'hook-demo-closeup',
+    title: '3 秒强钩子产品展示',
+    description: '开场快速抓住痛点，随后用产品特写和使用动作完成卖点展示。',
+    fullScript: '开场用近景展示产品解决的核心痛点；中段切换到手持/摆放使用动作；结尾用清晰 CTA 强化购买理由。',
+    prompt: '为xx产品生成一条强钩子电商广告视频：前 3 秒用近景展示痛点与产品出现，中段使用多张商品图片作为外观参考，镜头节奏清晰，突出质感、功能和使用结果，结尾给出明确行动号召。避免复刻参考视频中的真人，只使用提供的商品图片作为视觉依据。',
+    previewImageUrl: ASSET_PLACEHOLDER_DATA_URL,
+    previewVideoUrl: WAITING_PREVIEW_VIDEO_SRC,
+    tags: ['Hook', 'Demo', 'CTA'],
+    duration: 8,
+    aspectRatio: '9:16',
+  },
+  {
+    id: 'problem-solution-proof',
+    title: '痛点-方案-证明',
+    description: '用问题场景切入，再展示产品解决方案和结果对比。',
+    fullScript: '先呈现目标用户常见问题；随后展示产品细节与使用步骤；最后用结果感画面和利益点收束。',
+    prompt: '为xx产品生成一条痛点-方案-证明结构的短视频广告：先用克制但明确的视觉语言展示用户问题，再围绕提供的商品图片设计使用步骤、细节特写和结果画面，节奏稳中有变化，结尾突出核心利益点和购买动机。全程不要使用参考广告视频作为生成素材。',
+    previewImageUrl: ASSET_PLACEHOLDER_DATA_URL,
+    previewVideoUrl: WAITING_PREVIEW_VIDEO_SRC,
+    tags: ['Pain Point', 'Proof', 'Lifestyle'],
+    duration: 10,
+    aspectRatio: '9:16',
+  },
+  {
+    id: 'premium-texture-showcase',
+    title: '质感大片式陈列',
+    description: '更适合高客单价产品，强调材质、光线、慢镜头和高级感。',
+    fullScript: '用干净背景和有层次的光线展示产品；穿插局部特写、包装和使用场景；以品牌感口吻结束。',
+    prompt: '为xx产品生成一条高级质感广告视频：围绕上传的商品图片，设计干净背景、柔和但有层次的灯光、慢速推拉镜头、细节特写和品牌感收束。整体画面精致、克制、商业化，避免真人敏感内容，只使用图片参考生成。',
+    previewImageUrl: ASSET_PLACEHOLDER_DATA_URL,
+    previewVideoUrl: WAITING_PREVIEW_VIDEO_SRC,
+    tags: ['Premium', 'Texture', 'Brand'],
+    duration: 8,
+    aspectRatio: '9:16',
+  },
+];
+
+const SEEDANCE_REPLAY_MODEL_LIMIT = 3;
 
 type SelectedBackgroundAudio = {
   id: string;
@@ -1083,11 +1180,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [targetLanguage, setTargetLanguage] = useState<string>(() => initialPrefs.targetLanguage || 'en');
   const [translatingShots, setTranslatingShots] = useState<Record<number, boolean>>({});
   const [creationMode, setCreationMode] = useState<'fast' | 'replay'>(() => (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
+  const isSeedanceReplayMode = creationMode === 'replay' && selectedModel === 'seedance2.0';
+  const isSeedanceFastMode = creationMode === 'fast' && selectedModel === 'seedance2.0';
+  const isSeedanceMode = isSeedanceReplayMode || isSeedanceFastMode;
   const [seedanceReplayUploadIntent, setSeedanceReplayUploadIntent] = useState<SeedanceReplayUploadIntent>({ targetMediaKind: null });
   const [seedanceReplayFocusTarget, setSeedanceReplayFocusTarget] = useState<SeedanceReplayMediaKind | null>(null);
+  const [replayUserReferenceGenerateCount, setReplayUserReferenceGenerateCount] = useState(1);
+  const [replayTemplateCountsById, setReplayTemplateCountsById] = useState<Record<string, number>>({});
+  const [replayPreviewTemplate, setReplayPreviewTemplate] = useState<ReplayScriptTemplate | null>(null);
+  const [replayBatchRun, setReplayBatchRun] = useState<ReplayBatchRun | null>(null);
   const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
   const [billingPricing, setBillingPricing] = useState<BillingPricingCatalog | null>(null);
   const [isModelSectionCollapsed, setIsModelSectionCollapsed] = useState(false);
+  const [isUploadSectionCollapsed, setIsUploadSectionCollapsed] = useState(false);
   const [isAiRecognizing, setIsAiRecognizing] = useState(false);
   const [hasAiRecognized, setHasAiRecognized] = useState(false);
   const [recognizedProductSourceSignature, setRecognizedProductSourceSignature] = useState('');
@@ -1373,6 +1478,64 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       .slice()
       .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
   }, [projectStore.currentProjectId, tasks]);
+  const replayTaskById = useMemo(() => {
+    const map = new Map<string, typeof tasks[number]>();
+    tasks.forEach((task) => map.set(String(task.id), task));
+    return map;
+  }, [tasks]);
+  const replayBatchProgress = useMemo(() => {
+    if (!replayBatchRun) return null;
+
+    const items = replayBatchRun.items.map((item) => {
+      const remoteTask = item.taskId ? replayTaskById.get(String(item.taskId)) : null;
+      if (!remoteTask) return item;
+
+      const nextStatus: ReplayBatchItemStatus = remoteTask.status === 'success'
+        ? 'success'
+        : remoteTask.status === 'failed'
+          ? 'failed'
+          : 'processing';
+      return {
+        ...item,
+        status: nextStatus,
+        detail: nextStatus === 'success'
+          ? (language === 'zh' ? '生成完成' : 'Generated')
+          : nextStatus === 'failed'
+            ? (remoteTask.result?.error || item.error || (language === 'zh' ? '生成失败' : 'Generation failed'))
+            : item.detail,
+        error: nextStatus === 'failed' ? (remoteTask.result?.error || item.error) : item.error,
+      };
+    });
+
+    const reverseRequired = replayBatchRun.userReferenceCount > 0;
+    const reverseScore = !reverseRequired
+      ? 0
+      : replayBatchRun.reverse.status === 'success' || replayBatchRun.reverse.status === 'failed'
+        ? 1
+        : replayBatchRun.reverse.status === 'processing'
+          ? Math.max(0.15, Math.min(0.92, replayBatchRun.reverse.progress / 100))
+          : replayBatchRun.reverse.status === 'queued'
+            ? 0.05
+            : 0;
+
+    const itemScore = items.reduce((sum, item) => {
+      if (item.status === 'success' || item.status === 'failed') return sum + 1;
+      if (item.status === 'processing') return sum + 0.55;
+      if (item.status === 'submitting') return sum + 0.2;
+      return sum;
+    }, 0);
+    const totalUnits = items.length + (reverseRequired ? 1 : 0);
+    const completedUnits = items.filter((item) => item.status === 'success' || item.status === 'failed').length
+      + (reverseRequired && (replayBatchRun.reverse.status === 'success' || replayBatchRun.reverse.status === 'failed') ? 1 : 0);
+    const percent = totalUnits > 0 ? Math.round(((itemScore + reverseScore) / totalUnits) * 100) : 0;
+
+    return {
+      items,
+      completedUnits,
+      totalUnits,
+      percent: Math.max(0, Math.min(100, percent)),
+    };
+  }, [language, replayBatchRun, replayTaskById]);
   const [taskQueueNowTs, setTaskQueueNowTs] = useState<number>(Date.now());
   const taskQueueTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isCompletedCollapsed, setIsCompletedCollapsed] = useState(true);
@@ -3151,6 +3314,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   ]);
 
   const getSeedanceReplayLibraryIntent = useCallback((targetMediaKind?: SeedanceReplayMediaKind | null): SeedanceReplayLibraryIntent => {
+    const replayOnly = creationMode === 'replay' && selectedModel === 'seedance2.0';
     if (targetMediaKind === 'image') {
       return {
         targetMediaKind: 'image',
@@ -3166,10 +3330,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       };
     }
     if (targetMediaKind === 'audio') {
+      if (replayOnly) {
+        return {
+          targetMediaKind: 'image',
+          allowedTabs: ['product'],
+          preferredTab: 'product',
+        };
+      }
       return {
         targetMediaKind: 'audio',
         allowedTabs: ['audio'],
         preferredTab: 'audio',
+      };
+    }
+    if (replayOnly) {
+      return {
+        targetMediaKind: null,
+        allowedTabs: ['product', 'motion', 'model'],
+        preferredTab: 'product',
       };
     }
     return {
@@ -3177,7 +3355,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       allowedTabs: ['product', 'model', 'motion', 'audio'],
       preferredTab: 'product',
     };
-  }, []);
+  }, [creationMode, selectedModel]);
   const openSubjectCreationLibrary = useCallback(() => {
     onNavigateToAssetsLibrary?.();
   }, [onNavigateToAssetsLibrary]);
@@ -3343,11 +3521,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     return {
       ...baseAsset,
-      source: candidate.mediaKind === 'image' ? 'product' : 'preference',
+      source: baseAsset.materialType === 'model' ? 'preference' : candidate.mediaKind === 'image' ? 'product' : 'preference',
       materialType: candidate.mediaKind === 'video' ? 'motion'
         : candidate.mediaKind === 'audio' ? 'audio'
           : (baseAsset.materialType === 'model' ? 'model' : 'product'),
-      isPrimaryFrame: candidate.mediaKind === 'image',
+      isPrimaryFrame: candidate.mediaKind === 'image' && baseAsset.materialType !== 'model',
       mediaKind: candidate.mediaKind,
       durationSeconds: candidate.durationSeconds ?? null,
       mimeType: candidate.mimeType,
@@ -3547,15 +3725,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         return false;
       }
 
-      const currentCount = uploadDisplayAssets.filter((item) => item.mediaKind === queuedAsset.mediaKind).length;
-      const limit = queuedAsset.mediaKind === 'image'
-        ? SEEDANCE_REPLAY_IMAGE_LIMIT
-        : queuedAsset.mediaKind === 'video'
-          ? SEEDANCE_REPLAY_VIDEO_LIMIT
-          : SEEDANCE_REPLAY_AUDIO_LIMIT;
+      const currentCount = queuedAsset.materialType === 'model'
+        ? uploadDisplayAssets.filter((item) => item.materialType === 'model').length
+        : uploadDisplayAssets.filter((item) => item.mediaKind === queuedAsset.mediaKind && item.materialType !== 'model').length;
+      const limit = queuedAsset.materialType === 'model'
+        ? SEEDANCE_REPLAY_MODEL_LIMIT
+        : queuedAsset.mediaKind === 'image'
+          ? SEEDANCE_REPLAY_IMAGE_LIMIT
+          : queuedAsset.mediaKind === 'video'
+            ? (isSeedanceReplayMode ? 1 : SEEDANCE_REPLAY_VIDEO_LIMIT)
+            : SEEDANCE_REPLAY_AUDIO_LIMIT;
       if (currentCount >= limit) {
-        const kindLabel = queuedAsset.mediaKind === 'image'
-          ? (t.wb_seedance_replay_media_image || 'Image')
+        const kindLabel = queuedAsset.materialType === 'model'
+          ? (t.wb_seedance_replay_virtual_models || 'Virtual Models')
+          : queuedAsset.mediaKind === 'image'
+            ? (t.wb_seedance_replay_media_image || 'Image')
           : queuedAsset.mediaKind === 'video'
             ? (t.wb_seedance_replay_media_video || 'Video')
             : (t.wb_seedance_replay_media_audio || 'Audio');
@@ -3800,7 +3984,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       ? subjectAssetLibraryTabs
       : (seedanceReplayLibraryIntent ? seedanceReplayAssetLibraryTabs : defaultAssetLibraryTabs);
   const shouldHideAssetLibraryLocalUpload = assetLibraryTab === 'model';
-  const isSeedanceReplayMode = creationMode === 'replay' && selectedModel === 'seedance2.0';
+  const replayTemplateGenerateCount = useMemo(() => (
+    REPLAY_SCRIPT_TEMPLATES.reduce((sum, template) => {
+      const count = Number(replayTemplateCountsById[template.id] || 0);
+      return sum + (Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0);
+    }, 0)
+  ), [replayTemplateCountsById]);
+  const replayTotalGenerateCount = Math.max(0, Math.floor(replayUserReferenceGenerateCount || 0)) + replayTemplateGenerateCount;
   const uploadDisplayAssets: QueuedAsset[] = useMemo(() => {
     if (assetQueue.length > 0) return assetQueue;
     if (!uploadedFile) return [];
@@ -3906,8 +4096,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [klingSelectedAssetSignatures, normalizeSeedanceAssetUrl]);
 
   const seedanceReplayValidation = useMemo(
-    () => buildSeedanceReplayValidationSummary(uploadDisplayAssets, t),
-    [t, uploadDisplayAssets]
+    () => buildSeedanceReplayValidationSummary(uploadDisplayAssets, t, { mode: isSeedanceReplayMode ? 'viral_replay' : 'multimodal' }),
+    [isSeedanceReplayMode, t, uploadDisplayAssets]
   );
 
   const focusSeedanceReplayValidationTarget = useCallback((target: SeedanceReplayMediaKind) => {
@@ -3983,20 +4173,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         openInfo(popupTitles.notice, t.wb_transfer_station_apply_failed || 'Unable to read this transfer-station asset.');
         return false;
       }
+      if (replayQueued.mediaKind !== 'image' && replayQueued.mediaKind !== 'video') {
+        openInfo(popupTitles.notice, t.wb_replay_error_audio_not_supported || 'Audio assets are not supported in viral recreate mode.');
+        return false;
+      }
       const validationMessage = validateSeedanceReplayParsedAsset(replayCandidate, t);
       if (validationMessage) {
         openInfo(popupTitles.notice, validationMessage);
         return false;
       }
-      const currentCount = uploadDisplayAssets.filter((a) => a.mediaKind === replayQueued.mediaKind).length;
-      const limit = replayQueued.mediaKind === 'image'
-        ? SEEDANCE_REPLAY_IMAGE_LIMIT
-        : replayQueued.mediaKind === 'video'
-          ? SEEDANCE_REPLAY_VIDEO_LIMIT
-          : SEEDANCE_REPLAY_AUDIO_LIMIT;
+      const currentCount = replayQueued.materialType === 'model'
+        ? uploadDisplayAssets.filter((a) => a.materialType === 'model').length
+        : uploadDisplayAssets.filter((a) => a.mediaKind === replayQueued.mediaKind && a.materialType !== 'model').length;
+      const limit = replayQueued.materialType === 'model'
+        ? SEEDANCE_REPLAY_MODEL_LIMIT
+        : replayQueued.mediaKind === 'image'
+          ? SEEDANCE_REPLAY_IMAGE_LIMIT
+          : replayQueued.mediaKind === 'video'
+            ? 1
+            : SEEDANCE_REPLAY_AUDIO_LIMIT;
       if (currentCount >= limit) {
         const kindLabel = replayQueued.mediaKind === 'image'
-          ? (t.wb_seedance_replay_media_image || 'Image')
+          ? (replayQueued.materialType === 'model' ? (t.wb_seedance_replay_virtual_models || 'Virtual Models') : (t.wb_seedance_replay_media_image || 'Image'))
           : replayQueued.mediaKind === 'video'
             ? (t.wb_seedance_replay_media_video || 'Video')
             : (t.wb_seedance_replay_media_audio || 'Audio');
@@ -6649,6 +6847,43 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setGeneratedVideoUrl(null);
   }, [clearWorkbenchAssetSelection]);
 
+  useEffect(() => {
+    if (!isSeedanceReplayMode) return;
+
+    if (assetQueue.length > 0) {
+      let hasVideo = false;
+      const allowedQueue = assetQueue.filter((asset) => {
+        if (asset.mediaKind === 'image') return true;
+        if (asset.mediaKind === 'video' && !hasVideo) {
+          hasVideo = true;
+          return true;
+        }
+        return false;
+      });
+
+      if (allowedQueue.length !== assetQueue.length) {
+        setAssetQueue(allowedQueue);
+        if (!selectedQueueAssetId || !allowedQueue.some((asset) => asset.id === selectedQueueAssetId)) {
+          applyWorkbenchAssetSelection(allowedQueue[0] || null);
+        }
+      }
+      return;
+    }
+
+    if (uploadedFile && currentAssetMediaKind === 'audio') {
+      clearWorkbenchAssetSelection();
+    }
+  }, [
+    applyWorkbenchAssetSelection,
+    assetQueue,
+    clearWorkbenchAssetSelection,
+    currentAssetMediaKind,
+    currentMaterialType,
+    isSeedanceReplayMode,
+    selectedQueueAssetId,
+    uploadedFile,
+  ]);
+
   const removeQueuedAssetById = useCallback((id: string) => {
     const removedAsset = assetQueue.find((asset) => asset.id === id) || null;
     const nextQueue = assetQueue.filter((asset) => asset.id !== id);
@@ -6681,9 +6916,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!seedanceReplayFileInputRef.current) return;
     seedanceReplayFileInputRef.current.value = '';
     seedanceReplayFileInputRef.current.multiple = true;
-    seedanceReplayFileInputRef.current.accept = getSeedanceReplayLocalAccept(intent.targetMediaKind);
+    seedanceReplayFileInputRef.current.accept = getSeedanceReplayLocalAccept(intent.targetMediaKind, { allowAudio: !isSeedanceReplayMode });
     seedanceReplayFileInputRef.current.click();
-  }, []);
+  }, [isSeedanceReplayMode]);
 
   const handleSeedanceReplayOpenLibrary = useCallback(() => {
     const intent = getSeedanceReplayLibraryIntent(null);
@@ -6725,6 +6960,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           inferMediaKind,
           compressImage,
         }, t);
+        if (isSeedanceReplayMode && parsedAsset.mediaKind === 'audio') {
+          errors.push(t.wb_replay_error_audio_not_supported || 'Audio assets are not supported in viral recreate mode.');
+          continue;
+        }
         if (intent.targetMediaKind && parsedAsset.mediaKind !== intent.targetMediaKind) {
           const kindLabel = intent.targetMediaKind === 'image'
             ? (t.wb_seedance_replay_media_image || 'Image')
@@ -6767,7 +7006,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const limit = asset.mediaKind === 'image'
         ? SEEDANCE_REPLAY_IMAGE_LIMIT
         : asset.mediaKind === 'video'
-          ? SEEDANCE_REPLAY_VIDEO_LIMIT
+          ? (isSeedanceReplayMode ? 1 : SEEDANCE_REPLAY_VIDEO_LIMIT)
           : SEEDANCE_REPLAY_AUDIO_LIMIT;
 
       if (existingCounts[asset.mediaKind] + acceptedAssets.filter((item) => item.mediaKind === asset.mediaKind).length >= limit) {
@@ -6785,7 +7024,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       ));
       if (overflow.video > 0) summaryLines.push(formatMessage(
         t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
-        { limit: SEEDANCE_REPLAY_VIDEO_LIMIT, kind: t.wb_seedance_replay_media_video || 'Video', count: overflow.video },
+        { limit: isSeedanceReplayMode ? 1 : SEEDANCE_REPLAY_VIDEO_LIMIT, kind: t.wb_seedance_replay_media_video || 'Video', count: overflow.video },
       ));
       if (overflow.audio > 0) summaryLines.push(formatMessage(
         t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
@@ -6816,7 +7055,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       )] : []),
       ...(overflow.video > 0 ? [formatMessage(
         t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
-        { limit: SEEDANCE_REPLAY_VIDEO_LIMIT, kind: t.wb_seedance_replay_media_video || 'Video', count: overflow.video },
+        { limit: isSeedanceReplayMode ? 1 : SEEDANCE_REPLAY_VIDEO_LIMIT, kind: t.wb_seedance_replay_media_video || 'Video', count: overflow.video },
       )] : []),
       ...(overflow.audio > 0 ? [formatMessage(
         t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
@@ -6832,6 +7071,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     buildSeedanceReplayQueuedAsset,
     compressImage,
     inferMediaKind,
+    isSeedanceReplayMode,
     openInfo,
     persistLocalQueuedAsset,
     popupTitles.notice,
@@ -6845,9 +7085,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setSeedanceReplayUploadIntent({ targetMediaKind: null });
     if (seedanceReplayFileInputRef.current) {
       seedanceReplayFileInputRef.current.value = '';
-      seedanceReplayFileInputRef.current.accept = SEEDANCE_REPLAY_UPLOAD_ACCEPT;
+      seedanceReplayFileInputRef.current.accept = getSeedanceReplayLocalAccept(null, { allowAudio: !isSeedanceReplayMode });
     }
-  }, [handleSeedanceReplayLocalFiles, seedanceReplayUploadIntent]);
+  }, [handleSeedanceReplayLocalFiles, isSeedanceReplayMode, seedanceReplayUploadIntent]);
 
   const klingPrimarySlotAsset = useMemo(
     () => uploadDisplayAssets.find((asset) => klingGenerateMode === 'subject' ? asset.source === 'subject' : asset.source === 'product') || null,
@@ -8478,8 +8718,382 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
   };
 
+  const patchReplayBatchItem = (itemId: string, patch: Partial<ReplayBatchItem>) => {
+    setReplayBatchRun((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        items: prev.items.map((item) => item.id === itemId ? { ...item, ...patch } : item),
+      };
+    });
+  };
+
+  const patchReplayReverse = (patch: Partial<ReplayBatchRun['reverse']>) => {
+    setReplayBatchRun((prev) => prev ? { ...prev, reverse: { ...prev.reverse, ...patch } } : prev);
+  };
+
+  const buildReplayPrompt = (basePrompt: string, label: string) => {
+    const productLabel = (productName || '').trim() || 'xx产品';
+    return [
+      String(basePrompt || '').replace(/xx产品/g, productLabel).trim(),
+      productName.trim() ? `商品名称：${productName.trim()}` : '',
+      productCategory.trim() ? `商品品类：${productCategory.trim()}` : '',
+      coreSellingPoints.trim() ? `核心卖点：${coreSellingPoints.trim()}` : '',
+      targetAudience.trim() ? `目标人群：${targetAudience.trim()}` : '',
+      `生成来源：${label}`,
+      '只使用用户上传的商品图片和已选虚拟模特作为视觉参考，不要把参考广告视频作为 Seedance 生成素材。',
+    ].filter(Boolean).join('\n');
+  };
+
+  const resolveReplayGenerationAssets = async () => {
+    const productImageAssets = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image' && asset.materialType !== 'model');
+    const modelAssets = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image' && asset.materialType === 'model');
+    const videoAssets = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'video');
+    const pathUpdates: Record<string, string> = {};
+    const productImagePaths: string[] = [];
+    const seedanceImagePaths: string[] = [];
+    const imageAssetsMeta: Array<{ path: string; material_type: string; seedance_asset_id?: string; frame_role?: string | null }> = [];
+
+    for (const imageAsset of productImageAssets) {
+      let resolvedPath = imageAsset.uploadedPath || imageAsset.assetUrl || null;
+      if (!resolvedPath && imageAsset.fileObj) {
+        const uploadResp = await assetsApi.uploadTempAsset(imageAsset.fileObj);
+        resolvedPath = extractUploadedAssetPath(uploadResp);
+      }
+      if (!resolvedPath) continue;
+      productImagePaths.push(resolvedPath);
+      seedanceImagePaths.push(resolvedPath);
+      imageAssetsMeta.push({
+        path: resolvedPath,
+        material_type: imageAsset.materialType || 'product',
+        frame_role: imageAsset.frameRole === '首帧' ? 'first_frame' : imageAsset.frameRole === '尾帧' ? 'last_frame' : null,
+      });
+      if (imageAsset.id && imageAsset.id !== 'current-upload') {
+        pathUpdates[imageAsset.id] = resolvedPath;
+      }
+    }
+
+    for (const modelAsset of modelAssets) {
+      const seedanceAssetId = String(modelAsset.seedanceAssetId || '').trim();
+      if (!seedanceAssetId) {
+        throw new Error(t.wb_replay_error_model_missing_seedance_id || '该虚拟模特缺少 Seedance 资产 ID，无法用于爆款复刻生成。');
+      }
+      const resolvedPath = modelAsset.uploadedPath || modelAsset.assetUrl || modelAsset.previewUrl || `asset://${seedanceAssetId}`;
+      seedanceImagePaths.push(resolvedPath);
+      imageAssetsMeta.push({
+        path: resolvedPath,
+        material_type: 'model',
+        seedance_asset_id: seedanceAssetId,
+        frame_role: null,
+      });
+    }
+
+    if (Object.keys(pathUpdates).length > 0) {
+      setAssetQueue((prev) => prev.map((item) => pathUpdates[item.id] ? { ...item, uploadedPath: pathUpdates[item.id] } : item));
+    }
+
+    return {
+      productImagePaths,
+      seedanceImagePaths,
+      imageAssetsMeta,
+      modelAssetIds: modelAssets.map((asset) => String(asset.seedanceAssetId || '').trim()).filter(Boolean),
+      referenceVideoAsset: videoAssets[0] || null,
+    };
+  };
+
+  const buildReplayReversePayload = (referenceVideoAsset: QueuedAsset, debugTraceId: string) => {
+    if (referenceVideoAsset.fileObj) {
+      const formData = new FormData();
+      formData.append('video_file', referenceVideoAsset.fileObj, referenceVideoAsset.fileObj.name || referenceVideoAsset.name || 'reference.mp4');
+      formData.append('user_language', language);
+      formData.append('debug_trace_id', debugTraceId);
+      formData.append('debug', 'true');
+      if (productName.trim()) formData.append('product_name', productName.trim());
+      if (productCategory.trim()) formData.append('product_category', productCategory.trim());
+      if (coreSellingPoints.trim()) formData.append('core_selling_points', coreSellingPoints.trim());
+      if (targetAudience?.trim()) formData.append('target_audience', targetAudience.trim());
+      return formData;
+    }
+
+    const videoPath = String(referenceVideoAsset.uploadedPath || referenceVideoAsset.assetUrl || '').trim();
+    if (!videoPath) {
+      throw new Error(t.wb_replay_error_reference_video_unreadable || '无法读取参考广告视频');
+    }
+    const productExtra = {
+      ...(productName.trim() ? { product_name: productName.trim() } : {}),
+      ...(productCategory.trim() ? { product_category: productCategory.trim() } : {}),
+      ...(coreSellingPoints.trim() ? { core_selling_points: coreSellingPoints.trim() } : {}),
+      ...(targetAudience?.trim() ? { target_audience: targetAudience.trim() } : {}),
+    };
+    if (/^https?:\/\//i.test(videoPath)) {
+      return { video_url: videoPath, user_language: language, debug_trace_id: debugTraceId, debug: true, ...productExtra };
+    }
+    return { video_path: videoPath, user_language: language, debug_trace_id: debugTraceId, debug: true, ...productExtra };
+  };
+
+  const handleReplayBatchGenerateSubmit = async () => {
+    if (!requireAuth()) return;
+
+    const imageCount = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image' && asset.materialType !== 'model').length;
+    const videoCount = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'video').length;
+    const issues: string[] = [];
+    if (!productName.trim()) issues.push(t.wb_required_product_name || '请填写商品名称');
+    if (!productCategory.trim()) issues.push(t.wb_required_product_category || '请填写商品品类');
+    if (!coreSellingPoints.trim()) issues.push(t.wb_required_core_selling_points || '请填写核心卖点');
+    if (imageCount <= 0) issues.push(t.wb_replay_error_missing_product_image || '请上传至少 1 张商品图片');
+    if (videoCount <= 0) issues.push(t.wb_replay_error_missing_reference_video || '请上传 1 个参考广告视频');
+    if (videoCount > 1) issues.push(t.wb_replay_error_single_reference_video || '爆款复刻模式只支持 1 个参考广告视频');
+    if (seedanceReplayValidation.hasBlockingIssues) {
+      issues.push(...seedanceReplayValidation.imageErrors, ...seedanceReplayValidation.videoErrors, ...seedanceReplayValidation.audioErrors, ...seedanceReplayValidation.globalErrors);
+    }
+    if (replayTotalGenerateCount <= 0) issues.push(t.wb_replay_error_zero_total || '请至少设置生成 1 条视频');
+
+    if (issues.length > 0) {
+      showGenerateValidationIssues(Array.from(new Set(issues.filter(Boolean))));
+      if (imageCount <= 0) focusSeedanceReplayValidationTarget('image');
+      else if (videoCount !== 1) focusSeedanceReplayValidationTarget('video');
+      return;
+    }
+
+    setIsGenerating(true);
+    setGeneratedVideoUrl(null);
+
+    const runId = `replay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const templateJobs = REPLAY_SCRIPT_TEMPLATES.flatMap((template) => (
+      Array.from({ length: normalizeBatchGenerateCount(replayTemplateCountsById[template.id]) }, (_, copyIndex) => ({ template, copyIndex }))
+    ));
+    const userReferenceJobs = Array.from({ length: normalizeBatchGenerateCount(replayUserReferenceGenerateCount) }, (_, copyIndex) => ({ copyIndex }));
+    const initialItems: ReplayBatchItem[] = [
+      ...templateJobs.map(({ template, copyIndex }) => ({
+        id: `${runId}-tpl-${template.id}-${copyIndex}`,
+        label: `${template.title}${templateJobs.length > 1 ? ` #${copyIndex + 1}` : ''}`,
+        source: 'template' as const,
+        templateId: template.id,
+        copyIndex,
+        status: 'queued' as const,
+      })),
+      ...userReferenceJobs.map(({ copyIndex }) => ({
+        id: `${runId}-ref-${copyIndex}`,
+        label: `${t.wb_replay_user_reference_generation || '用户参考脚本生成'} #${copyIndex + 1}`,
+        source: 'user_reference' as const,
+        copyIndex,
+        status: 'queued' as const,
+      })),
+    ];
+
+    setReplayBatchRun({
+      id: runId,
+      expanded: true,
+      startedAt: Date.now(),
+      totalVideos: replayTotalGenerateCount,
+      userReferenceCount: userReferenceJobs.length,
+      templateVideoCount: templateJobs.length,
+      reverse: {
+        status: userReferenceJobs.length > 0 ? 'queued' : 'idle',
+        progress: 0,
+        detail: userReferenceJobs.length > 0 ? (t.wb_replay_reverse_queued || '等待逆向解析参考广告') : undefined,
+      },
+      items: initialItems,
+    });
+
+    try {
+      const { productImagePaths, seedanceImagePaths, imageAssetsMeta, modelAssetIds, referenceVideoAsset } = await resolveReplayGenerationAssets();
+      if (productImagePaths.length === 0) throw new Error(t.wb_replay_error_missing_product_image || '请上传至少 1 张商品图片');
+      if (!referenceVideoAsset) throw new Error(t.wb_replay_error_missing_reference_video || '请上传 1 个参考广告视频');
+
+      const submitReplayVideo = async (params: {
+        itemId: string;
+        label: string;
+        prompt: string;
+        source: 'template' | 'user_reference';
+        copyIndex: number;
+        templateId?: string;
+      }) => {
+        patchReplayBatchItem(params.itemId, {
+          status: 'submitting',
+          detail: t.wb_replay_submitting || '提交中',
+        });
+
+        try {
+          const createResp = await videoApi.createProject(user!.id, {
+            title: `${(productName || '').trim() || 'Replay'} · ${params.label}`,
+            aspect_ratio: aspectRatio,
+            script_content: {
+              duration: genDuration,
+              shots: [],
+              replay_source: params.source,
+              prompt: params.source === 'template' ? params.prompt : '',
+              prompt_hidden: params.source === 'user_reference',
+              replay_template_id: params.templateId || null,
+            },
+          });
+          const newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
+          if (!newProjectId) throw new Error('Failed to create project');
+
+          const requestPayload: GeneratePayload = {
+            model: 'seedance-2.0',
+            prompt: params.prompt,
+            product_name: productName,
+            duration: Math.max(4, Math.min(15, Math.round(Number(genDuration) || 8))),
+            aspect_ratio: aspectRatio,
+            sound: soundSetting,
+            asset_source: 'product',
+            pricing_mode: 'replay',
+            user_language: language,
+            target_language: targetLanguage,
+            debug: true,
+            debug_trace_id: runId,
+            replay_batch_role: params.source === 'template' ? 'template' : 'qwen_reverse',
+            replay_template_id: params.templateId || null,
+            replay_copy_index: params.copyIndex,
+            replay_item_label: params.label,
+            replay_model_asset_ids: modelAssetIds,
+            reference_video_sent_to_seedance: false,
+            model_asset_id: null,
+            motion_asset_id: null,
+            project_id: String(newProjectId),
+            image_path: seedanceImagePaths[0],
+            ...(seedanceImagePaths.length > 1 ? { image_paths: seedanceImagePaths } : {}),
+            ...(imageAssetsMeta.length > 0 ? { image_assets_meta: imageAssetsMeta } : {}),
+          };
+
+          const genResp = await generateWithAdaptiveImageConfirm(requestPayload);
+          const taskId = genResp?.data?.task_id || genResp?.task_id;
+          const projectId = genResp?.data?.project_id || newProjectId;
+          if (!taskId) throw new Error(t.wb_popup_batch_no_task_id || '任务提交成功但没有返回 task_id');
+
+          const estimatedSeconds = await fetchEstimatedSeconds({
+            model: 'seedance-2.0',
+            duration: Number(requestPayload.duration ?? genDuration),
+            sound: String(requestPayload.sound || '') === 'off' ? 'off' : 'on',
+            aspect_ratio: String(requestPayload.aspect_ratio || ''),
+            resolution: String((requestPayload as any).resolution || ''),
+          });
+
+          addTask({
+            id: taskId,
+            projectId: String(projectId),
+            workbenchProjectId: projectStore.currentProjectId,
+            estimatedSeconds,
+            type: 'video_generation',
+            status: 'processing',
+            name: params.label,
+            thumbnail: uploadDisplayAssets.find((asset) => asset.mediaKind === 'image')?.previewUrl || uploadedFile || undefined,
+            createdAt: Date.now(),
+            result: {
+              replay_source: params.source,
+              copyIndex: params.copyIndex,
+            },
+          });
+          patchReplayBatchItem(params.itemId, {
+            status: 'processing',
+            taskId,
+            projectId: String(projectId),
+            detail: t.wb_status_processing || '进行中',
+          });
+        } catch (error: any) {
+          const message = error?.message || String(error || t.wb_popup_submit_failed || '提交失败');
+          patchReplayBatchItem(params.itemId, {
+            status: 'failed',
+            error: message,
+            detail: message,
+          });
+        }
+      };
+
+      let reverseProgressTimer: number | null = null;
+      const reversePromise = (async () => {
+        if (userReferenceJobs.length === 0) return;
+        patchReplayReverse({ status: 'processing', progress: 8, detail: t.wb_replay_reverse_processing || '正在逆向解析参考广告脚本' });
+        reverseProgressTimer = window.setInterval(() => {
+          setReplayBatchRun((prev) => {
+            if (!prev || prev.reverse.status !== 'processing') return prev;
+            return {
+              ...prev,
+              reverse: {
+                ...prev.reverse,
+                progress: Math.min(88, Math.max(prev.reverse.progress + 2, prev.reverse.progress * 1.03)),
+              },
+            };
+          });
+        }, 1000);
+
+        try {
+          const reverseResp = await videoApi.reverseScriptFromVideo(user!.id, buildReplayReversePayload(referenceVideoAsset, runId));
+          const reverseData: any = reverseResp?.data || {};
+          const reversePrompt = String(
+            reverseData.seedancePrompt
+            || reverseData.seedance_prompt
+            || reverseData.suggestedPrompt
+            || reverseData.styleReferenceText
+            || ''
+          ).trim();
+          if (!reversePrompt) throw new Error(t.wb_replay_reverse_empty_prompt || '参考广告解析完成，但没有返回可用脚本');
+          patchReplayReverse({ status: 'success', progress: 100, detail: t.wb_replay_reverse_done || '脚本逆向解析完成', scriptBrief: '' });
+
+          for (const { copyIndex } of userReferenceJobs) {
+            const itemId = `${runId}-ref-${copyIndex}`;
+            await submitReplayVideo({
+              itemId,
+              label: `${t.wb_replay_user_reference_generation || '用户参考脚本生成'} #${copyIndex + 1}`,
+              prompt: buildReplayPrompt(reversePrompt, t.wb_replay_user_reference_generation || '用户参考脚本生成'),
+              source: 'user_reference',
+              copyIndex,
+            });
+          }
+        } catch (error: any) {
+          const message = error?.message || String(error || t.wb_replay_reverse_failed || '参考广告解析失败');
+          patchReplayReverse({ status: 'failed', progress: 100, error: message, detail: message });
+          userReferenceJobs.forEach(({ copyIndex }) => {
+            patchReplayBatchItem(`${runId}-ref-${copyIndex}`, {
+              status: 'failed',
+              error: message,
+              detail: message,
+            });
+          });
+        } finally {
+          if (reverseProgressTimer !== null) {
+            window.clearInterval(reverseProgressTimer);
+          }
+        }
+      })();
+
+      for (const { template, copyIndex } of templateJobs) {
+        await submitReplayVideo({
+          itemId: `${runId}-tpl-${template.id}-${copyIndex}`,
+          label: `${template.title}${normalizeBatchGenerateCount(replayTemplateCountsById[template.id]) > 1 ? ` #${copyIndex + 1}` : ''}`,
+          prompt: buildReplayPrompt(template.prompt, template.title),
+          source: 'template',
+          copyIndex,
+          templateId: template.id,
+        });
+      }
+
+      await reversePromise;
+      openInfo(popupTitles.success, formatMessage(t.wb_replay_batch_submitted || '已提交 {count} 条视频生成任务。', { count: replayTotalGenerateCount }));
+    } catch (error: any) {
+      const message = error?.message || String(error || t.wb_popup_submit_failed || '提交失败');
+      openErrorModal(error, { category: 'generation_failed', onRetry: handleReplayBatchGenerateSubmit });
+      setReplayBatchRun((prev) => prev ? {
+        ...prev,
+        reverse: prev.reverse.status === 'processing' || prev.reverse.status === 'queued'
+          ? { ...prev.reverse, status: 'failed', progress: 100, error: message, detail: message }
+          : prev.reverse,
+        items: prev.items.map((item) => item.status === 'queued' || item.status === 'submitting'
+          ? { ...item, status: 'failed', error: message, detail: message }
+          : item),
+      } : prev);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   const handleGenerateVideo = async () => {
     if (!requireAuth()) return;
+    if (isSeedanceReplayMode) {
+      await handleReplayBatchGenerateSubmit();
+      return;
+    }
     await handleScriptPageBatchGenerateSubmit();
   };
 
@@ -8801,6 +9415,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           title: 'Sora 2 Pro',
           desc: t.wb_model_sora2pro_desc,
           Icon: Sparkles,
+        },
+        {
+          id: 'seedance2.0',
+          title: 'Seedance 2.0',
+          desc: t.wb_model_tip_seedance,
+          Icon: Video,
         },
 
       ];
@@ -9402,42 +10022,46 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-[12px] text-zinc-500 font-bold block uppercase">{t.wb_reference_script_label || '参考脚本（来自视频解析）'}</label>
-              <textarea
-                value={referenceScript}
-                onChange={(e) => {
-                  setReferenceScript(e.target.value);
-                  setReferenceScriptProductSignature(currentProductInfoSignature);
-                }}
-                rows={4}
-                placeholder={t.wb_reference_script_placeholder || '粘贴或使用“视频解析反向生成脚本”应用到工作台后的参考脚本'}
-                className="wb-workbench-field wb-workbench-field--textarea resize-y min-h-[86px]"
-              />
-              <div className="text-[11px] text-zinc-500">{t.wb_reference_script_hint || '该内容将作为风格参考一并输入脚本模型，帮助生成更接近参考风格的新脚本。'}</div>
-              {!isReferenceScriptFresh && referenceScript.trim() && (
-                <div className="text-[11px] text-amber-300 font-medium">
-                  当前参考脚本对应的是旧商品信息，生成脚本时将自动忽略它。
+            {!isSeedanceReplayMode && (
+              <>
+                <div className="space-y-2">
+                  <label className="text-[12px] text-zinc-500 font-bold block uppercase">{t.wb_reference_script_label || '参考脚本（来自视频解析）'}</label>
+                  <textarea
+                    value={referenceScript}
+                    onChange={(e) => {
+                      setReferenceScript(e.target.value);
+                      setReferenceScriptProductSignature(currentProductInfoSignature);
+                    }}
+                    rows={4}
+                    placeholder={t.wb_reference_script_placeholder || '粘贴或使用“视频解析反向生成脚本”应用到工作台后的参考脚本'}
+                    className="wb-workbench-field wb-workbench-field--textarea resize-y min-h-[86px]"
+                  />
+                  <div className="text-[11px] text-zinc-500">{t.wb_reference_script_hint || '该内容将作为风格参考一并输入脚本模型，帮助生成更接近参考风格的新脚本。'}</div>
+                  {!isReferenceScriptFresh && referenceScript.trim() && (
+                    <div className="text-[11px] text-amber-300 font-medium">
+                      当前参考脚本对应的是旧商品信息，生成脚本时将自动忽略它。
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            <div className="border-t border-white/5 my-1" />
+                <div className="border-t border-white/5 my-1" />
 
-            <div className="flex flex-col gap-3">
-              <div className="flex justify-between items-center">
-                <label className="text-[12px] text-zinc-500 font-bold block uppercase">{t.wb_script_count_label}</label>
-                <span className="text-[12px] font-bold text-orange-400">{scriptVariantCount} {t.wb_script_count_unit}</span>
-              </div>
-              <input
-                type="range"
-                min={1}
-                max={10}
-                value={scriptVariantCount}
-                onChange={(e) => setScriptVariantCount(Number(e.target.value))}
-                className="wb-range w-full h-2 rounded-lg cursor-pointer accent-orange-500"
-              />
-            </div>
+                <div className="flex flex-col gap-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[12px] text-zinc-500 font-bold block uppercase">{t.wb_script_count_label}</label>
+                    <span className="text-[12px] font-bold text-orange-400">{scriptVariantCount} {t.wb_script_count_unit}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={1}
+                    max={10}
+                    value={scriptVariantCount}
+                    onChange={(e) => setScriptVariantCount(Number(e.target.value))}
+                    className="wb-range w-full h-2 rounded-lg cursor-pointer accent-orange-500"
+                  />
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -9454,23 +10078,44 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         <div ref={uploadSectionRef} className={`flex flex-col gap-3 border-t border-white/10 pt-4 ${getGuideFocusClass('upload')}`}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-4 h-4" /> {t.wb_upload_title}</h2>
-            {isSeedanceReplayMode && (
+            <div className="flex items-center gap-2">
+              {isSeedanceMode && (
+                <button
+                  type="button"
+                  onClick={handleSeedanceReplayOpenLibrary}
+                  className="wb-upload-library-btn inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-1.5 text-xs font-bold text-zinc-300 transition hover:border-white/25 hover:bg-white/[0.08] hover:text-white"
+                >
+                  <Library className="h-3.5 w-3.5" />
+                  {t.wb_seedance_replay_quick_add_button || '快速添加'}
+                </button>
+              )}
               <button
                 type="button"
-                onClick={handleSeedanceReplayOpenLibrary}
-                className="wb-upload-library-btn inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-1.5 text-xs font-bold text-zinc-300 transition hover:border-white/25 hover:bg-white/[0.08] hover:text-white"
+                onClick={() => setIsUploadSectionCollapsed(!isUploadSectionCollapsed)}
+                className="p-1.5 text-zinc-600 hover:text-zinc-300 transition rounded"
+                title={isUploadSectionCollapsed ? t.wb_expand : t.wb_collapse}
               >
-                <Library className="h-3.5 w-3.5" />
-                {t.wb_seedance_replay_quick_add_button || '快速添加'}
+                <ChevronsDown className={`w-4 h-4 transition-transform duration-200 ${isUploadSectionCollapsed ? 'rotate-0' : 'rotate-180'}`} />
               </button>
-            )}
+            </div>
           </div>
-          {isSeedanceReplayMode ? (
+          <div
+            className={[
+              'grid overflow-hidden transition-[grid-template-rows,opacity] duration-300',
+              'ease-[cubic-bezier(0.22,1,0.36,1)]',
+              isUploadSectionCollapsed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
+            ].join(' ')}
+            aria-hidden={isUploadSectionCollapsed}
+          >
+          <div className="min-h-0 overflow-hidden">
+          {isSeedanceMode ? (
             <>
               <SeedanceReplayUploadPanel
                 assets={seedanceReplayUploadAssets}
                 validationSummary={seedanceReplayValidation}
                 focusTarget={seedanceReplayFocusTarget}
+                visibleKinds={isSeedanceReplayMode ? ['image', 'video', 'model'] : undefined}
+                videoLimitOverride={isSeedanceReplayMode ? 1 : undefined}
                 onAddVirtualModel={handleSeedanceReplayAddVirtualModel}
                 onOpenLibraryForKind={handleSeedanceReplayAddFromLibrary}
                 onPreview={handleSeedanceReplayPreview}
@@ -10116,11 +10761,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               )}
             </div>
           )}
+          </div>
+          </div>
         </div>
 
         {renderLeftColumnSettings()}
 
         <div className="pt-1">
+          {!isSeedanceReplayMode && (
+            <>
           {scriptGenerationNotice && !isScriptGenerationForCurrentProject && (
             <div className="mb-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-medium text-emerald-200 shadow-[0_8px_24px_rgba(16,185,129,0.12)]">
               {scriptGenerationNotice}
@@ -10178,6 +10827,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 <span className="whitespace-nowrap">{t.wb_btn_gen_scripts}</span>
               </span>
             </button>
+          )}
+            </>
           )}
         </div>
       </div>
@@ -11681,6 +12332,56 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         </div>
       </AppDialog>
 
+      <AppDialog
+        isOpen={!!replayPreviewTemplate}
+        title={replayPreviewTemplate?.title || (t.wb_replay_template_preview_title || '脚本模板预览')}
+        onClose={() => setReplayPreviewTemplate(null)}
+        widthClassName="max-w-[min(92vw,980px)]"
+        titleClassName="text-base"
+      >
+        <div className="grid gap-5 md:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)]">
+          <div className="min-h-[280px] overflow-hidden rounded-xl border border-white/10 bg-black/30">
+            {replayPreviewTemplate?.previewVideoUrl ? (
+              <video
+                src={replayPreviewTemplate.previewVideoUrl}
+                className="h-full max-h-[calc(100vh-14rem)] w-full object-contain"
+                controls
+                autoPlay
+                loop
+                playsInline
+              />
+            ) : (
+              <img
+                src={replayPreviewTemplate?.previewImageUrl || ASSET_PLACEHOLDER_DATA_URL}
+                alt={replayPreviewTemplate?.title || 'template'}
+                className="h-full max-h-[calc(100vh-14rem)] w-full object-contain"
+              />
+            )}
+          </div>
+          <div className="space-y-4">
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">
+                {t.wb_replay_template_script_brief || '脚本简介'}
+              </div>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-200">{replayPreviewTemplate?.description}</p>
+            </div>
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">
+                {t.wb_replay_template_script_detail || '脚本信息'}
+              </div>
+              <p className="mt-2 whitespace-pre-wrap rounded-xl border border-white/10 bg-black/25 p-3 text-xs leading-relaxed text-zinc-300">
+                {replayPreviewTemplate?.fullScript}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {replayPreviewTemplate?.tags.map((tag) => (
+                <span key={tag} className="rounded-full border border-orange-300/20 bg-orange-500/10 px-2 py-0.5 text-[10px] font-bold text-orange-200/85">{tag}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </AppDialog>
+
       <div ref={workspaceRowRef} className="flex-1 flex overflow-hidden p-8 gap-6" style={rowStyle}>
         <div style={{ width: leftColumnWidth }} className="shrink-0 h-full min-w-[260px] max-w-[640px]">
           {renderLeftColumn()}
@@ -11722,6 +12423,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   )}
                 </div>
                 <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{genDuration}s</div>
+                {!isSeedanceReplayMode && (
                 <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
                   <div className="relative group/import-btn">
                     <button
@@ -11741,6 +12443,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     )}
                   </div>
                 </div>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <div className="relative group/cost-video">
@@ -11775,6 +12478,189 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-2 pl-1 pt-1 space-y-4 pb-10">
+            {isSeedanceReplayMode ? (
+              <>
+                <section className="rounded-2xl border border-orange-300/25 bg-black/25 p-4 shadow-md">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-bold uppercase tracking-widest text-orange-300/85">
+                        {t.wb_replay_generation_formula || '生成数量'}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-black text-zinc-100">
+                        <span>{t.wb_replay_user_reference_short || '用户参考'}</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={replayUserReferenceGenerateCount}
+                          onChange={(e) => setReplayUserReferenceGenerateCount(normalizeBatchGenerateCount(e.target.value))}
+                          className="h-8 w-16 rounded-lg border border-white/10 bg-black/45 px-2 text-right text-xs font-bold text-zinc-100 outline-none transition focus:border-orange-400/60"
+                        />
+                        <span className="text-zinc-500">+</span>
+                        <span>{t.wb_replay_template_short || '网站脚本'}</span>
+                        <span className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-zinc-100">{replayTemplateGenerateCount}</span>
+                        <span className="text-zinc-500">=</span>
+                        <span className="rounded-lg border border-orange-400/35 bg-orange-500/15 px-2 py-1 text-xs text-orange-200">
+                          {formatMessage(t.wb_replay_total_videos || '共 {count} 条视频', { count: replayTotalGenerateCount })}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-xs leading-relaxed text-zinc-400">
+                      {t.wb_replay_formula_hint || '参考广告只用于脚本逆向，Seedance 仅使用商品图片生成视频。'}
+                    </div>
+                  </div>
+                </section>
+
+                {replayBatchRun && replayBatchProgress && (
+                  <section className="rounded-2xl border border-white/10 bg-black/25 p-4 shadow-md">
+                    <button
+                      type="button"
+                      onClick={() => setReplayBatchRun((prev) => prev ? { ...prev, expanded: !prev.expanded } : prev)}
+                      className="flex w-full items-center justify-between gap-3 text-left"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">
+                          {t.wb_replay_batch_progress || '复刻批次进度'}
+                        </div>
+                        <div className="mt-1 text-xs font-bold text-zinc-200">
+                          {formatMessage(t.wb_replay_batch_progress_count || '已处理 {done}/{total}', {
+                            done: replayBatchProgress.completedUnits,
+                            total: replayBatchProgress.totalUnits,
+                          })}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs font-bold text-orange-200">
+                        <span>{replayBatchProgress.percent}%</span>
+                        <ChevronDown className={`h-4 w-4 transition-transform ${replayBatchRun.expanded ? 'rotate-180' : ''}`} />
+                      </div>
+                    </button>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-orange-500 via-amber-300 to-purple-300 transition-[width] duration-300"
+                        style={{ width: `${Math.max(3, replayBatchProgress.percent)}%` }}
+                      />
+                    </div>
+                    {replayBatchRun.expanded && (
+                      <div className="mt-4 space-y-2 border-t border-white/10 pt-3">
+                        {replayBatchRun.userReferenceCount > 0 && (
+                          <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-bold text-zinc-200">{t.wb_replay_reverse_stage || 'Qwen 脚本逆向解析'}</span>
+                              <span className={`font-bold ${replayBatchRun.reverse.status === 'failed' ? 'text-red-300' : replayBatchRun.reverse.status === 'success' ? 'text-emerald-300' : 'text-orange-300'}`}>
+                                {replayBatchRun.reverse.status === 'success'
+                                  ? (t.wb_status_success || '成功')
+                                  : replayBatchRun.reverse.status === 'failed'
+                                    ? (t.wb_status_failed || '失败')
+                                    : (t.wb_status_processing || '进行中')}
+                              </span>
+                            </div>
+                            {(replayBatchRun.reverse.detail || replayBatchRun.reverse.error || replayBatchRun.reverse.scriptBrief) && (
+                              <div className="mt-1 line-clamp-3 text-zinc-500">
+                                {replayBatchRun.reverse.error || replayBatchRun.reverse.scriptBrief || replayBatchRun.reverse.detail}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {replayBatchProgress.items.map((item) => {
+                          const task = item.taskId ? replayTaskById.get(String(item.taskId)) : null;
+                          const videoUrl = task?.result?.video_url || task?.result?.url;
+                          return (
+                            <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs">
+                              <div className="min-w-0">
+                                <div className="truncate font-bold text-zinc-200">{item.label}</div>
+                                <div className="truncate text-[11px] text-zinc-500">{item.detail || item.error || (item.source === 'template' ? (t.wb_replay_template_generation || '模板脚本生成') : (t.wb_replay_user_reference_generation || '用户参考脚本生成'))}</div>
+                              </div>
+                              {item.status === 'success' && videoUrl ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPreviewProjectId(item.projectId || task?.projectId || null);
+                                    setLastGeneratedProjectId(item.projectId || task?.projectId || null);
+                                    setGeneratedVideoUrl(videoUrl);
+                                  }}
+                                  className="shrink-0 text-orange-300 hover:text-orange-200"
+                                >
+                                  {t.wb_replay_preview_result || '预览'}
+                                </button>
+                              ) : (
+                                <span className={`shrink-0 font-bold ${item.status === 'failed' ? 'text-red-300' : item.status === 'success' ? 'text-emerald-300' : 'text-zinc-500'}`}>
+                                  {item.status === 'failed'
+                                    ? (t.wb_status_failed || '失败')
+                                    : item.status === 'success'
+                                      ? (t.wb_status_success || '成功')
+                                      : item.status === 'submitting'
+                                        ? (t.wb_replay_submitting || '提交中')
+                                        : item.status === 'processing'
+                                          ? (t.wb_status_processing || '进行中')
+                                          : (t.wb_status_pending || '排队')}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                )}
+
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  {REPLAY_SCRIPT_TEMPLATES.map((template) => {
+                    const count = normalizeBatchGenerateCount(replayTemplateCountsById[template.id]);
+                    return (
+                      <button
+                        key={template.id}
+                        type="button"
+                        onClick={() => setReplayPreviewTemplate(template)}
+                        className="group flex h-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] text-left shadow-md transition hover:-translate-y-0.5 hover:border-orange-400/45 hover:bg-white/[0.07]"
+                      >
+                        <div className="relative aspect-video w-full overflow-hidden bg-zinc-900">
+                          {template.previewVideoUrl ? (
+                            <video src={template.previewVideoUrl} className="h-full w-full object-cover opacity-80 transition group-hover:opacity-100" muted playsInline preload="metadata" />
+                          ) : (
+                            <img src={template.previewImageUrl} alt={template.title} className="h-full w-full object-cover opacity-80 transition group-hover:opacity-100" />
+                          )}
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 transition group-hover:opacity-100">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white">
+                              <Play className="h-4 w-4 fill-current" />
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex flex-1 flex-col gap-3 p-4">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="text-sm font-black text-zinc-100">{template.title}</h3>
+                              <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-bold text-zinc-500">{template.duration}s</span>
+                            </div>
+                            <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-zinc-400">{template.description}</p>
+                          </div>
+                          <div className="mt-auto flex flex-wrap gap-1.5">
+                            {template.tags.map((tag) => (
+                              <span key={tag} className="rounded-full border border-orange-300/20 bg-orange-500/10 px-2 py-0.5 text-[10px] font-bold text-orange-200/85">{tag}</span>
+                            ))}
+                          </div>
+                          <div className="flex items-center justify-between gap-3 border-t border-white/10 pt-3">
+                            <span className="text-[11px] font-bold text-zinc-500">{t.wb_replay_template_count_label || '使用该模板生成'}</span>
+                            <input
+                              type="number"
+                              min={0}
+                              step={1}
+                              value={count}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                const next = normalizeBatchGenerateCount(e.target.value);
+                                setReplayTemplateCountsById((prev) => ({ ...prev, [template.id]: next }));
+                              }}
+                              className="h-8 w-16 rounded-lg border border-white/10 bg-black/45 px-2 text-right text-xs font-bold text-zinc-100 outline-none transition focus:border-orange-400/60"
+                            />
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              <>
             {scriptPages.map((page, index) => {
               const active = index === activeScriptPage;
               const pageScripts = active ? scripts : (page.scripts || []);
@@ -12122,6 +13008,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <Plus className="h-5 w-5" />
               <span>{language === 'zh' ? '新增脚本方案' : 'Add script plan'}</span>
             </button>
+              </>
+            )}
           </div>
         </div>
 

@@ -126,6 +126,48 @@ export interface SmartRepairParams {
   toolCode?: SmartRepairToolCode;
 }
 
+export type SmartRepairPollStatus = 'created' | 'processing' | 'succeeded' | 'failed';
+
+export interface SmartRepairSubmissionItem {
+  requestId: string;
+  status: SmartRepairPollStatus;
+  sortOrder: number;
+  role: string;
+}
+
+export interface SmartRepairSubmission {
+  requests: SmartRepairSubmissionItem[];
+  historyRecordId: string;
+  cost: number;
+  balance: number;
+  model: string;
+}
+
+export interface SmartRepairPollResult {
+  requestId: string;
+  status: SmartRepairPollStatus;
+  imageUrl: string;
+  outputs: string[];
+  error: string;
+  historyRecordId: string;
+  assetId: number;
+  sortOrder: number;
+}
+
+export interface SmartRepairPendingItem {
+  requestId: string;
+  historyRecordId: string;
+  assetId: number;
+  sortOrder: number;
+  role: string;
+  submittedAt: number;
+  settings: SmartRepairParams & {
+    sourceImagePath?: string;
+    referenceImagePath?: string;
+    model?: string;
+  };
+}
+
 // ==================== AI 换装 (ClothingSwap) 相关类型 ====================
 
 export type ClothingSwapCategory = 'Top' | 'Bottom' | 'Full Body';

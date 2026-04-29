@@ -1767,6 +1767,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           const resultUrl = String((row as any)?.result_url || '').trim();
           if (!resultUrl) return null;
           const outputType = String((row as any)?.outputType || '').trim();
+          const aspectRatio = String((row as any)?.aspectRatio || (row as any)?.aspect_ratio || '').trim();
           return {
             localId: `pg-example-${template.id}-${idx}-${outputType || 'output'}`,
             requestId: `example-${template.id}-${idx}`,
@@ -1774,6 +1775,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             imageUrl: resultUrl,
             outputType: outputType || undefined,
             createdAt: new Date().toISOString(),
+            aspectRatio: aspectRatio || undefined,
           };
         })
         .filter(Boolean) as Array<{
@@ -1785,6 +1787,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           outputType?: string;
           createdAt?: string;
           layout?: any;
+          aspectRatio?: string;
         }>;
 
       setGalleryPreviewItems(examplePreviewItems);
@@ -4312,15 +4315,19 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           if (!requestId) return null;
           const outputType = String(r?.type || r?.output_type || r?.image_type || r?.kind || '').trim();
           const createdAt = String(r?.created_at || r?.createdAt || '').trim() || new Date().toISOString();
+          const fallbackAspect = String(
+            r?.aspect_ratio || r?.aspectRatio || fallback?.aspectRatio || ''
+          ).trim();
           return {
             localId: fallback?.localId || `pg-prev-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
             requestId,
             status: 'created' as const,
             outputType: outputType || fallback?.outputType || undefined,
             createdAt: createdAt || fallback?.createdAt,
+            aspectRatio: fallbackAspect || undefined,
           };
         })
-        .filter(Boolean) as Array<{ localId: string; requestId: string; status: 'created' | 'processing' | 'succeeded' | 'failed'; imageUrl?: string; error?: string; outputType?: string; createdAt?: string; layout?: any }>;
+        .filter(Boolean) as Array<{ localId: string; requestId: string; status: 'created' | 'processing' | 'succeeded' | 'failed'; imageUrl?: string; error?: string; outputType?: string; createdAt?: string; layout?: any; aspectRatio?: string }>;
 
       if (initial.length === 0) {
         throw new Error(t.pg_main_error_create_generation_task_failed);

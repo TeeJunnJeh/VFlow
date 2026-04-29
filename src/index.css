@@ -894,3 +894,6 @@ html.theme-dim .hist-workbar-toggle-active {
 .pg-masonry-grid-col > div {
   margin-bottom: 12px;
 }
+.pg-masonry-grid-col > div:last-child {
+  margin-bottom: 0; /* outer space-y-3 already provides inter-group gap */
+}

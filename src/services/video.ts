@@ -117,6 +117,10 @@ export type ReplayReverseScriptData = {
   styleTags: string[];
   styleReferenceText?: string;
   suggestedPrompt: string;
+  scriptBrief?: string;
+  shotOutline?: string[];
+  seedancePrompt?: string;
+  seedance_prompt?: string;
   suggestedCategory: string;
   suggestedSellingPoints: string;
   sampled_keyframes?: Array<{
@@ -1178,7 +1182,7 @@ export const videoApi = {
 
   reverseScriptFromVideo: async (
     userId: string | number,
-    payload: { video_url?: string; user_language?: string } | FormData,
+    payload: { video_url?: string; video_path?: string; user_language?: string } | FormData,
   ): Promise<ApiEnvelope<ReplayReverseScriptData>> => {
     return apiRequest<ApiEnvelope<ReplayReverseScriptData>>(
       `${API_BASE_URL}/users/${userId}/replay-reverse-script`,

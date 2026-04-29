@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Wand2 } from 'lucide-react';
+import { Minus, Plus, Wand2 } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import { billingApi } from '../../../../services/billing';
 import { productImagesApi } from '../../../../services/productImagesApi';
-import type { FirstFrameAspectRatio, FirstFrameModel, FirstFrameParams } from '../../../../types/productImages';
+import type { FirstFrameAspectRatio, FirstFrameModel, FirstFrameOpeningScene, FirstFrameParams } from '../../../../types/productImages';
 import { formatCreditAmount, roundCreditTenths } from '../../../../utils/credits';
 
 interface FirstFrameFormProps {
@@ -13,6 +13,8 @@ interface FirstFrameFormProps {
   isSubmitting?: boolean;
   onReset: () => void;
   defaultParams?: Partial<FirstFrameParams>;
+  applyVersion?: number;
+  onChange?: (params: FirstFrameParams) => void;
   workspaceId?: string;
 }
 
@@ -23,6 +25,7 @@ const buildStorageKey = (workspaceId?: string) => {
 
 const FALLBACK_PARAMS: FirstFrameParams = {
   prompt: '',
+  openingScene: 'person_selling',
   aspectRatio: '9:16',
   model: 'nano-banana-pro',
   outputCount: 4,
@@ -60,12 +63,25 @@ const normalizeFirstFrameAspectRatio = (
   return options.includes(value as FirstFrameAspectRatio) ? value as FirstFrameAspectRatio : options[0];
 };
 
+const normalizeFirstFrameOutputCount = (value: unknown): NonNullable<FirstFrameParams['outputCount']> => {
+  const count = Math.round(Number(value || 1));
+  if (!Number.isFinite(count)) return 1;
+  return Math.max(1, Math.min(4, count)) as NonNullable<FirstFrameParams['outputCount']>;
+};
+
+const normalizeFirstFrameOpeningScene = (value?: FirstFrameParams['openingScene']): FirstFrameOpeningScene => {
+  const allowed: FirstFrameOpeningScene[] = ['person_selling', 'product_showcase', 'usage_demo', 'brand_ad'];
+  return allowed.includes(value as FirstFrameOpeningScene) ? value as FirstFrameOpeningScene : 'person_selling';
+};
+
 const normalizeFirstFrameParams = (params: FirstFrameParams): FirstFrameParams => {
-  const model = normalizeFirstFrameModel(params.model);
+  const model = NANO_BANANA_FIRST_FRAME_MODEL;
   return {
     ...params,
     model,
+    openingScene: normalizeFirstFrameOpeningScene(params.openingScene),
     aspectRatio: normalizeFirstFrameAspectRatio(params.aspectRatio, model),
+    outputCount: normalizeFirstFrameOutputCount(params.outputCount),
   };
 };
 
@@ -79,6 +95,8 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   isSubmitting = false,
   onReset,
   defaultParams,
+  applyVersion = 0,
+  onChange,
   workspaceId,
 }) => {
   const { t, language } = useLanguage();
@@ -101,11 +119,12 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
     []
   );
 
-  const outputCounts = useMemo(
+  const openingSceneOptions = useMemo(
     () => [
-      { label: t.ff_output_count_1, value: 1 as const },
-      { label: t.ff_output_count_2, value: 2 as const },
-      { label: t.ff_output_count_4, value: 4 as const },
+      { label: t.ff_opening_scene_person_selling, value: 'person_selling' },
+      { label: t.ff_opening_scene_product_showcase, value: 'product_showcase' },
+      { label: t.ff_opening_scene_usage_demo, value: 'usage_demo' },
+      { label: t.ff_opening_scene_brand_ad, value: 'brand_ad' },
     ],
     [t]
   );
@@ -154,6 +173,12 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   }, [formData.aspectRatio, formData.model]);
 
   useEffect(() => {
+    if (applyVersion > 0) {
+      setFormData(normalizeFirstFrameParams({ ...mergedDefaultParams }));
+      setErrors({});
+      return;
+    }
+
     let nextFormData: FirstFrameParams = normalizeFirstFrameParams({ ...mergedDefaultParams });
     try {
       const saved = localStorage.getItem(storageKey);
@@ -168,7 +193,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
     }
     setFormData(nextFormData);
     setErrors({});
-  }, [mergedDefaultParams, storageKey]);
+  }, [applyVersion, mergedDefaultParams, storageKey]);
 
   useEffect(() => {
     try {
@@ -176,7 +201,8 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
     } catch {
       // Ignore localStorage write failures.
     }
-  }, [formData, storageKey]);
+    onChange?.(formData);
+  }, [formData, onChange, storageKey]);
 
   useEffect(() => {
     let alive = true;
@@ -261,10 +287,31 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
     onReset();
   };
 
+  const updateOutputCount = (delta: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      outputCount: normalizeFirstFrameOutputCount(Number(prev.outputCount || 1) + delta),
+    }));
+  };
+
   return (
     <form onSubmit={handleSubmit} className="w-full">
       <div className="space-y-6">
         <div>
+          <div className="mb-4">
+            <label className="block text-sm text-zinc-300 mb-2 font-medium">
+              {t.ff_opening_scene_label}
+            </label>
+            <DropdownSelect
+              value={formData.openingScene || 'person_selling'}
+              options={openingSceneOptions}
+              onChange={(value) => setFormData({ ...formData, openingScene: normalizeFirstFrameOpeningScene(value as FirstFrameOpeningScene) })}
+              buttonClassName="w-full bg-zinc-900/70 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800"
+              iconClassName="w-4 h-4 text-zinc-500"
+              optionClassName="text-sm"
+            />
+          </div>
+
           <div className="mb-2 flex items-center justify-between gap-2">
             <label className="block text-sm text-zinc-300 font-medium">
               {t.ff_prompt_label || '填写生成要求'}
@@ -301,7 +348,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
         </div>
 
         <div className="space-y-6">
-          <div>
+          <div className="hidden">
             <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.wb_model_title || t.ff_style_label}</label>
             <DropdownSelect
               value={formData.model || ''}
@@ -321,32 +368,43 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
             {errors.model && <p className="text-red-400 text-xs mt-1">{errors.model}</p>}
           </div>
 
-          <div>
-            <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_aspect_ratio_label}</label>
-            <DropdownSelect
-              value={formData.aspectRatio || ''}
-              options={aspectRatios}
-              onChange={(value) => setFormData({ ...formData, aspectRatio: value as FirstFrameAspectRatio })}
-              buttonClassName={`w-full bg-zinc-900/70 border rounded-xl px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 ${errors.aspectRatio ? 'border-red-500' : 'border-white/10'}`}
-              iconClassName="w-4 h-4 text-zinc-500"
-              optionClassName="text-sm"
-            />
-            {errors.aspectRatio && <p className="text-red-400 text-xs mt-1">{errors.aspectRatio}</p>}
-          </div>
+          <div className="grid grid-cols-[minmax(0,1fr)_8.5rem] gap-3">
+            <div className="min-w-0">
+              <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_aspect_ratio_label}</label>
+              <DropdownSelect
+                value={formData.aspectRatio || ''}
+                options={aspectRatios}
+                onChange={(value) => setFormData({ ...formData, aspectRatio: value as FirstFrameAspectRatio })}
+                buttonClassName={`w-full bg-zinc-900/70 border rounded-xl px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 ${errors.aspectRatio ? 'border-red-500' : 'border-white/10'}`}
+                iconClassName="w-4 h-4 text-zinc-500"
+                optionClassName="text-sm"
+              />
+              {errors.aspectRatio && <p className="text-red-400 text-xs mt-1">{errors.aspectRatio}</p>}
+            </div>
 
-          <div>
-            <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_output_count_label}</label>
-            <div className="grid grid-cols-3 gap-2">
-              {outputCounts.map((item) => (
+            <div className="min-w-0">
+              <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_output_count_label}</label>
+              <div className="flex h-10 w-full items-center">
                 <button
-                  key={item.value}
                   type="button"
-                  onClick={() => setFormData({ ...formData, outputCount: item.value as any })}
-                  className={`px-3 py-2 rounded-xl text-sm font-medium border transition ${formData.outputCount === item.value ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
+                  onClick={() => updateOutputCount(-1)}
+                  disabled={isSubmitting || Number(formData.outputCount || 1) <= 1}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-l-xl border border-white/10 bg-white/5 text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {item.label}
+                  <Minus className="h-4 w-4" />
                 </button>
-              ))}
+                <div className="flex h-10 min-w-0 flex-1 items-center justify-center border-y border-white/10 bg-black/30 text-sm font-medium tabular-nums text-zinc-100">
+                  {normalizeFirstFrameOutputCount(formData.outputCount)}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => updateOutputCount(1)}
+                  disabled={isSubmitting || Number(formData.outputCount || 1) >= 4}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-r-xl border border-white/10 bg-white/5 text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           </div>
         </div>

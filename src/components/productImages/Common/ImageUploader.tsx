@@ -2,7 +2,7 @@
  * 图片上传组件 - 支持拖拽和点击上传
  */
 
-import React, { useCallback, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Upload, X } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
@@ -16,6 +16,7 @@ interface ImageUploaderProps {
   disabled?: boolean;
   multiple?: boolean;
   previewVariant?: 'default' | 'first-frame';
+  value?: File[];
 }
 
 const DEFAULT_ACCEPTED_FORMATS = ['image/jpeg', 'image/png', 'image/webp'];
@@ -30,6 +31,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   disabled = false,
   multiple = true,
   previewVariant = 'default',
+  value,
 }) => {
   const { t } = useLanguage();
   const [dragActive, setDragActive] = useState(false);
@@ -37,6 +39,11 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   const [previews, setPreviews] = useState<string[]>([]);
   const [previewingIndex, setPreviewingIndex] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!Array.isArray(value)) return;
+    setSelectedFiles(value);
+  }, [value]);
 
   /**
    * 验证文件
@@ -94,11 +101,28 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
     );
   };
 
+  useEffect(() => {
+    let alive = true;
+    if (selectedFiles.length === 0) {
+      setPreviews([]);
+      return () => {
+        alive = false;
+      };
+    }
+    setPreviews([]);
+    void generatePreviews(selectedFiles).then((nextPreviews) => {
+      if (alive) setPreviews(nextPreviews);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [selectedFiles]);
+
   /**
    * 处理文件选择
    */
   const handleFileSelect = useCallback(
-    async (files: FileList | null) => {
+    (files: FileList | null) => {
       if (!files || files.length === 0) return;
 
       const fileArray = Array.from(files);
@@ -112,10 +136,6 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       const newSelectedFiles = [...selectedFiles, ...valid];
       setSelectedFiles(newSelectedFiles);
 
-      // 生成新预览
-      const newPreviews = await generatePreviews(valid);
-      setPreviews([...previews, ...newPreviews]);
-
       // 通知父组件
       onFilesSelected(newSelectedFiles);
 
@@ -124,7 +144,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
         inputRef.current.value = '';
       }
     },
-    [selectedFiles, previews, onFilesSelected, onError, maxFiles, maxFileSize, acceptedFormats]
+    [selectedFiles, onFilesSelected, onError, maxFiles, maxFileSize, acceptedFormats]
   );
 
   /**
@@ -157,11 +177,9 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
    */
   const handleRemoveFile = (index: number) => {
     const newFiles = selectedFiles.filter((_, i) => i !== index);
-    const newPreviews = previews.filter((_, i) => i !== index);
 
     setPreviewingIndex((current) => (current === null || current === index ? null : current > index ? current - 1 : current));
     setSelectedFiles(newFiles);
-    setPreviews(newPreviews);
     onFilesSelected(newFiles);
   };
 
@@ -237,15 +255,19 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       {showFirstFrameGrid && (
         <div className="mt-6">
           <div className="grid grid-cols-2 gap-4">
-            {previews.slice(0, maxFiles).map((preview, index) => (
-              <div key={index} className="relative group">
+            {selectedFiles.slice(0, maxFiles).map((file, index) => (
+              <div key={`${file.name}-${index}`} className="relative group">
                 <div className="relative w-full aspect-square rounded-lg overflow-hidden bg-zinc-900">
-                  <img
-                    src={preview}
-                    alt={`Preview ${index + 1}`}
-                    className="w-full h-full object-cover cursor-zoom-in"
-                    onClick={() => setPreviewingIndex(index)}
-                  />
+                  {previews[index] ? (
+                    <img
+                      src={previews[index]}
+                      alt={`Preview ${index + 1}`}
+                      className="w-full h-full object-cover cursor-zoom-in"
+                      onClick={() => setPreviewingIndex(index)}
+                    />
+                  ) : (
+                    <div className="h-full w-full animate-pulse bg-zinc-800" />
+                  )}
                   <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/15 to-transparent opacity-0 transition-opacity group-hover:opacity-100">
                     <button
                       type="button"
@@ -260,7 +282,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
                     </button>
                     <div className="absolute inset-x-0 bottom-0 p-2">
                       <p className="truncate text-xs font-medium !text-white">
-                        {selectedFiles[index].name}
+                        {file.name}
                       </p>
                     </div>
                   </div>
@@ -299,17 +321,23 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
         <div className="mt-6">
           <p className="text-zinc-300 text-sm font-medium mb-3">{t.ff_uploaded_images}</p>
           <div className={maxFiles === 1 ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"}>
-            {previews.map((preview, index) => (
+            {selectedFiles.map((file, index) => {
+              const preview = previews[index] || '';
+              return (
               <div
-                key={index}
+                key={`${file.name}-${index}`}
                 className="relative group"
               >
                 <div className="relative w-full max-w-[250px] aspect-square rounded-lg overflow-hidden bg-zinc-900">
-                  <img
-                    src={preview}
-                    alt={`Preview ${index + 1}`}
-                    className="w-full h-full object-cover"
-                  />
+                  {preview ? (
+                    <img
+                      src={preview}
+                      alt={`Preview ${index + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="h-full w-full animate-pulse bg-zinc-800" />
+                  )}
 
                   <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                     <button
@@ -321,17 +349,18 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
                       <X className="w-4 h-4" />
                     </button>
                     <span className="text-white text-xs">
-                      {selectedFiles[index].name}
+                      {file.name}
                     </span>
                   </div>
                 </div>
 
                 {/* 文件大小 */}
                 <p className="text-zinc-500 text-xs mt-1">
-                  {(selectedFiles[index].size / 1024).toFixed(0)} KB
+                  {(file.size / 1024).toFixed(0)} KB
                 </p>
               </div>
-            ))}
+            );
+            })}
           </div>
 
         </div>

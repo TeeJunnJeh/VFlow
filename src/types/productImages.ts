@@ -77,8 +77,15 @@ export type FirstFrameWhitespace =
   | 'right'
   | 'none';
 
+export type FirstFrameOpeningScene =
+  | 'person_selling'
+  | 'product_showcase'
+  | 'usage_demo'
+  | 'brand_ad';
+
 export interface FirstFrameParams {
   prompt?: string;
+  openingScene?: FirstFrameOpeningScene;
   category?: FirstFrameCategory;
   personType?: FirstFramePersonType;
   holdingStyle?: FirstFrameHoldingStyle;
@@ -86,7 +93,7 @@ export interface FirstFrameParams {
   model?: FirstFrameModel;
   style?: FirstFrameStyle;
   textWhitespace?: FirstFrameWhitespace;
-  outputCount?: 1 | 2 | 4;
+  outputCount?: 1 | 2 | 3 | 4;
 }
 
 // ==================== 智能修复相关类型 ====================

@@ -103,6 +103,7 @@ async function generateFirstFrameOnce(options: {
   projectId?: string;
   model: string;
   prompt?: string;
+  openingScene?: string;
   category?: string;
   personType?: string;
   holdingStyle?: string;
@@ -117,6 +118,7 @@ async function generateFirstFrameOnce(options: {
     frame_type: 'first',
     model: options.model,
     prompt_override: options.prompt,
+    opening_scene: options.openingScene,
     category: options.category,
     person_type: options.personType,
     holding_style: options.holdingStyle,
@@ -195,6 +197,7 @@ async function createFirstFrameAsync(options: {
   projectId?: string;
   model: string;
   prompt?: string;
+  openingScene?: string;
   category?: string;
   personType?: string;
   holdingStyle?: string;
@@ -210,6 +213,7 @@ async function createFirstFrameAsync(options: {
     frame_type: 'first',
     model: options.model,
     prompt_override: options.prompt,
+    opening_scene: options.openingScene,
     category: options.category,
     person_type: options.personType,
     holding_style: options.holdingStyle,
@@ -319,6 +323,7 @@ export const productImagesApi = {
         projectId: resolvedProjectId,
         model,
         prompt: params.prompt,
+        openingScene: params.openingScene,
         category: params.category,
         personType: params.personType,
         holdingStyle: params.holdingStyle,
@@ -337,6 +342,7 @@ export const productImagesApi = {
         projectId: resolvedProjectId,
         model,
         prompt: params.prompt,
+        openingScene: params.openingScene,
         category: params.category,
         personType: params.personType,
         holdingStyle: params.holdingStyle,

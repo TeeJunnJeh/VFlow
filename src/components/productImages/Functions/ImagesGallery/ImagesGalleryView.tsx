@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, Eye, Image as ImageIcon, LayoutGrid, Minus, Plus, RotateCw, Save, Sparkles, Upload, Wand2, X } from 'lucide-react';
+import Masonry from 'react-masonry-css';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import type { ViewType } from '../../../workbench/types';
 import type { LoadingTheme } from '../../../../utils/loadingTheme';
@@ -189,6 +190,7 @@ export type ImagesGalleryViewProps = {
     outputType?: string;
     createdAt?: string;
     layout?: any;
+    aspectRatio?: string;
   }>;
   openGalleryImagePreview: (url: string, source?: any) => void;
   galleryHistoryItems: Array<{
@@ -205,6 +207,107 @@ export type ImagesGalleryViewProps = {
   preventDragDefaults: (e: React.DragEvent) => void;
 };
 
+
+// Threshold above which a generated image is treated as "wide" and given a full row
+// in the preview panel. 7:6 ≈ 1.167 — anything more horizontal than that breaks out
+// of the 2-column masonry layout.
+const PG_WIDE_RATIO_THRESHOLD = 7 / 6;
+
+const parseAspectRatioFloat = (ar: string | undefined | null): number => {
+  if (!ar) return 1;
+  const m = String(ar).trim().match(/^(\d+)\s*[:\/]\s*(\d+)$/);
+  if (!m) return 1;
+  const w = Number(m[1]);
+  const h = Number(m[2]);
+  if (!w || !h) return 1;
+  return w / h;
+};
+
+const isWideGalleryItem = (item: { aspectRatio?: string }): boolean => {
+  return parseAspectRatioFloat(item.aspectRatio) > PG_WIDE_RATIO_THRESHOLD;
+};
+
+type GalleryGroup<T> =
+  | { type: 'full'; key: string; item: T }
+  | { type: 'masonry'; key: string; items: T[] };
+
+// Splits items into a sequence of groups for the preview layout:
+// — non-wide items go into 2-column masonry sub-blocks,
+// — wide items become full-row sections,
+// — before sealing a masonry block (because the next item is wide), we look ahead
+//   into pending items beyond the wide one and "borrow" non-wide items to balance
+//   the two-column heights, so the full-row landscape doesn't sit under an obviously
+//   uneven gap.
+const groupGalleryPreviewItems = <T extends { aspectRatio?: string; localId?: string }>(
+  items: T[],
+): GalleryGroup<T>[] => {
+  const groups: GalleryGroup<T>[] = [];
+  const pending = items.slice();
+  let groupCounter = 0;
+
+  while (pending.length > 0) {
+    if (isWideGalleryItem(pending[0])) {
+      const wide = pending.shift() as T;
+      groups.push({
+        type: 'full',
+        key: `pg-grp-full-${groupCounter++}-${wide.localId ?? ''}`,
+        item: wide,
+      });
+      continue;
+    }
+
+    const buffer: T[] = [];
+    while (pending.length > 0 && !isWideGalleryItem(pending[0])) {
+      buffer.push(pending.shift() as T);
+    }
+
+    // If a wide item is now next, try to balance the buffer's 2-column layout
+    // by borrowing later non-wide items.
+    if (pending.length > 0 && isWideGalleryItem(pending[0])) {
+      const cols: [number, number] = [0, 0];
+      for (const it of buffer) {
+        const h = 1 / (parseAspectRatioFloat(it.aspectRatio) || 1);
+        const target = cols[0] <= cols[1] ? 0 : 1;
+        cols[target] += h;
+      }
+
+      while (Math.abs(cols[0] - cols[1]) > 1e-6) {
+        let borrowIdx = -1;
+        for (let k = 1; k < pending.length; k += 1) {
+          if (!isWideGalleryItem(pending[k])) {
+            borrowIdx = k;
+            break;
+          }
+        }
+        if (borrowIdx === -1) break;
+
+        const portrait = pending[borrowIdx];
+        const h = 1 / (parseAspectRatioFloat(portrait.aspectRatio) || 1);
+        const shorter = cols[0] <= cols[1] ? 0 : 1;
+        const otherCol = 1 - shorter;
+        const oldDiff = Math.abs(cols[shorter] - cols[otherCol]);
+        const newDiff = Math.abs(cols[shorter] + h - cols[otherCol]);
+        // Only borrow if it actually reduces the imbalance — overshooting would
+        // just move the gap to the other side.
+        if (newDiff >= oldDiff) break;
+
+        buffer.push(portrait);
+        pending.splice(borrowIdx, 1);
+        cols[shorter] += h;
+      }
+    }
+
+    if (buffer.length > 0) {
+      groups.push({
+        type: 'masonry',
+        key: `pg-grp-mas-${groupCounter++}`,
+        items: buffer,
+      });
+    }
+  }
+
+  return groups;
+};
 
 const hexToRgba = (hex: string, alpha: number) => {
   const cleaned = String(hex || '').trim().replace('#', '');
@@ -2103,80 +2206,115 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   </div>
                 </div>
               ) : (
-                <div className="p-4 grid grid-cols-2 gap-3">
-                  {galleryPreviewItems.map((item: any) => {
-                    const outputType = String(item.outputType || '').trim();
-                    const outputTypeLabel =
-                      outputType === 'white_bg'
-                        ? t.pi_gallery_output_white_bg
-                        : outputType === 'scene'
-                          ? t.pi_gallery_output_scene
-                          : outputType === 'selling_point'
-                            ? t.pi_gallery_output_selling_point
-                            : outputType === 'cover'
-                              ? t.pi_gallery_output_cover
-                              : outputType === 'poster'
-                                ? t.pi_gallery_output_poster
-                                : '';
-                    const rightLabel = String(outputTypeLabel || '').trim() || (outputType ? outputType : item.requestId.slice(0, 8));
-                    const statusLabel =
-                      item.status === 'succeeded'
-                        ? t.pg_img_status_done
-                        : item.status === 'failed'
-                          ? t.pg_img_status_failed
-                          : t.pg_img_status_generating;
-                    const badgeTone =
-                      item.status === 'succeeded'
-                        ? 'bg-emerald-500/15 text-emerald-200 border-emerald-500/30'
-                        : item.status === 'failed'
-                          ? 'bg-red-500/15 text-red-200 border-red-500/30'
-                          : 'bg-orange-500/15 text-orange-200 border-orange-500/30';
+                <div className="p-4 space-y-3">
+                  {(() => {
+                    const renderPreviewCard = (item: any) => {
+                      const outputType = String(item.outputType || '').trim();
+                      const outputTypeLabel =
+                        outputType === 'white_bg'
+                          ? t.pi_gallery_output_white_bg
+                          : outputType === 'scene'
+                            ? t.pi_gallery_output_scene
+                            : outputType === 'selling_point'
+                              ? t.pi_gallery_output_selling_point
+                              : outputType === 'cover'
+                                ? t.pi_gallery_output_cover
+                                : outputType === 'poster'
+                                  ? t.pi_gallery_output_poster
+                                  : '';
+                      const rightLabel = String(outputTypeLabel || '').trim() || (outputType ? outputType : item.requestId.slice(0, 8));
+                      const statusLabel =
+                        item.status === 'succeeded'
+                          ? t.pg_img_status_done
+                          : item.status === 'failed'
+                            ? t.pg_img_status_failed
+                            : t.pg_img_status_generating;
+                      const badgeTone =
+                        item.status === 'succeeded'
+                          ? 'bg-emerald-500/15 text-emerald-200 border-emerald-500/30'
+                          : item.status === 'failed'
+                            ? 'bg-red-500/15 text-red-200 border-red-500/30'
+                            : 'bg-orange-500/15 text-orange-200 border-orange-500/30';
 
-                    return (
-                      <div
-                        key={item.localId}
-                        className="group rounded-xl border border-white/10 bg-black/20 overflow-hidden shadow-sm transition-all duration-200 ease-out hover:-translate-y-1 hover:border-indigo-500 hover:ring-1 hover:ring-indigo-500/50 hover:shadow-xl"
-                      >
-                        <div className="relative w-full aspect-square border-b border-white/10 bg-black/30">
-                          {item.imageUrl ? (
-                            <button
-                              type="button"
-                              onClick={() => openGalleryImagePreview(item.imageUrl as string, { kind: 'preview_item', localId: item.localId })}
-                              className="absolute inset-0 relative"
-                              title={t.pg_img_click_to_preview}
-                            >
-                              <img src={item.imageUrl} className="w-full h-full object-cover" alt={item.requestId} />
-                              <div className="absolute inset-0 opacity-0 transition-opacity duration-200 bg-black/40 flex items-center justify-center group-hover:opacity-100">
-                                <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-xs font-bold text-white">
-                                  <Eye className="w-4 h-4" />
-                                  {t.pg_img_preview}
+                      // Placeholder aspect ratio for loading / failed cards (no image yet).
+                      // Loaded images ignore this and use their natural aspect ratio.
+                      const placeholderAspect = (() => {
+                        const raw = String(item.aspectRatio || '').trim();
+                        if (!raw) return '1 / 1';
+                        const m = raw.match(/^(\d+)\s*[:\/]\s*(\d+)$/);
+                        return m ? `${m[1]} / ${m[2]}` : '1 / 1';
+                      })();
+
+                      return (
+                        <div
+                          key={item.localId}
+                          className="group rounded-xl border border-white/10 bg-black/20 overflow-hidden shadow-sm transition-all duration-200 ease-out hover:-translate-y-1 hover:border-indigo-500 hover:ring-1 hover:ring-indigo-500/50 hover:shadow-xl"
+                        >
+                          <div
+                            className="relative w-full bg-black/30"
+                            style={item.imageUrl ? undefined : { aspectRatio: placeholderAspect }}
+                          >
+                            {item.imageUrl ? (
+                              <button
+                                type="button"
+                                onClick={() => openGalleryImagePreview(item.imageUrl as string, { kind: 'preview_item', localId: item.localId })}
+                                className="block w-full"
+                                title={t.pg_img_click_to_preview}
+                              >
+                                <img src={item.imageUrl} className="block w-full h-auto" alt={item.requestId} />
+                                <div className="absolute inset-0 opacity-0 transition-opacity duration-200 bg-black/40 flex items-center justify-center group-hover:opacity-100">
+                                  <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-xs font-bold text-white">
+                                    <Eye className="w-4 h-4" />
+                                    {t.pg_img_preview}
+                                  </div>
+                                </div>
+                              </button>
+                            ) : item.status !== 'failed' ? (
+                              <GalleryLoadingCard
+                                theme={galleryLoadingTheme}
+                                seed={`${item.localId}-${item.requestId}-${rightLabel}`}
+                                label={rightLabel}
+                                backgroundImageSrc={galleryLoadingBackgroundSrc}
+                              />
+                            ) : (
+                              <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500 gap-2">
+                                <ImageIcon className={`w-8 h-8 ${item.status === 'failed' ? 'opacity-50' : 'opacity-60 animate-pulse'}`} />
+                                <div className="text-xs text-zinc-500 px-4 text-center">
+                                  {item.error || (item.status === 'failed' ? t.pg_img_generation_failed : t.pg_img_waiting)}
                                 </div>
                               </div>
-                            </button>
-                          ) : item.status !== 'failed' ? (
-                            <GalleryLoadingCard
-                              theme={galleryLoadingTheme}
-                              seed={`${item.localId}-${item.requestId}-${rightLabel}`}
-                              label={rightLabel}
-                              backgroundImageSrc={galleryLoadingBackgroundSrc}
-                            />
-                          ) : (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500 gap-2">
-                              <ImageIcon className={`w-8 h-8 ${item.status === 'failed' ? 'opacity-50' : 'opacity-60 animate-pulse'}`} />
-                              <div className="text-xs text-zinc-500 px-4 text-center">
-                                {item.error || (item.status === 'failed' ? t.pg_img_generation_failed : t.pg_img_waiting)}
-                              </div>
-                            </div>
-                          )}
+                            )}
 
-                          <div className={`absolute top-2 left-2 px-2 py-1 rounded-lg text-[11px] font-bold border ${badgeTone}`}>{statusLabel}</div>
-                          <div className="absolute top-2 right-2 px-2 py-1 rounded-lg text-[11px] font-bold border border-white/10 bg-black/50 text-zinc-200">
-                            {rightLabel}
+                            <div className={`absolute top-2 left-2 px-2 py-1 rounded-lg text-[11px] font-bold border ${badgeTone}`}>{statusLabel}</div>
+                            <div className="absolute top-2 right-2 px-2 py-1 rounded-lg text-[11px] font-bold border border-white/10 bg-black/50 text-zinc-200">
+                              {rightLabel}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    };
+
+                    const groups = groupGalleryPreviewItems(galleryPreviewItems);
+                    return groups.map((group) => {
+                      if (group.type === 'full') {
+                        return (
+                          <div key={group.key}>
+                            {renderPreviewCard(group.item)}
+                          </div>
+                        );
+                      }
+                      return (
+                        <Masonry
+                          key={group.key}
+                          breakpointCols={2}
+                          className="pg-masonry-grid"
+                          columnClassName="pg-masonry-grid-col"
+                        >
+                          {group.items.map(renderPreviewCard)}
+                        </Masonry>
+                      );
+                    });
+                  })()}
                 </div>
               )}
             </div>

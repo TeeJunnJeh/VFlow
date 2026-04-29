@@ -54,6 +54,8 @@ type SeedanceReplayUploadPanelProps = {
   assets: SeedanceReplayUploadAsset[];
   validationSummary?: SeedanceReplayValidationSummary;
   focusTarget?: SeedanceReplayMediaKind | null;
+  visibleKinds?: MediaKind[];
+  videoLimitOverride?: number;
   onAddVirtualModel?: () => void;
   onOpenLibraryForKind?: (kind: SeedanceReplayMediaKind) => void;
   onPreview?: (assetId: string) => void;
@@ -134,6 +136,8 @@ export function SeedanceReplayUploadPanel({
   assets,
   validationSummary,
   focusTarget = null,
+  visibleKinds = ['image', 'video', 'audio', 'model'],
+  videoLimitOverride,
   onAddVirtualModel = noop,
   onOpenLibraryForKind,
   onPreview = noop,
@@ -151,6 +155,7 @@ export function SeedanceReplayUploadPanel({
   const audioAssets = assets.filter((asset) => asset.mediaKind === 'audio');
   const modelAssets = assets.filter((asset) => asset.mediaKind === 'model');
   const mediaTooltipItems = getMediaTooltipItems(t);
+  const visibleKindSet = new Set(visibleKinds);
 
   const imageCount = imageAssets.length;
   const videoCount = videoAssets.length;
@@ -204,76 +209,84 @@ export function SeedanceReplayUploadPanel({
         }
       `}</style>
       <div className="grid grid-cols-1 gap-3">
-        <CategoryCard
-          cardKey="image"
-          containerRef={imageCardRef}
-          highlighted={flashTarget === 'image'}
-          title={t.wb_seedance_replay_ref_images || 'Reference Images'}
-          icon={<ImageIcon className="h-4 w-4" />}
-          items={imageAssets}
-          count={imageCount}
-          limit={SEEDANCE_REPLAY_IMAGE_LIMIT}
-          exceedsLimit={imageOverLimit}
-          errorMessages={imageErrors}
-          onPreview={onPreview}
-          onRemove={onRemove}
-          onSetFrameRole={onSetFrameRole}
-          tooltipLabel={t.wb_seedance_replay_media_image || 'Image'}
-          tooltipItems={mediaTooltipItems.image}
-          isLightTheme={isLightTheme}
-          onOpenLibrary={onOpenLibraryForKind ? () => onOpenLibraryForKind('image') : undefined}
-        />
-        <CategoryCard
-          cardKey="video"
-          containerRef={videoCardRef}
-          highlighted={flashTarget === 'video'}
-          title={t.wb_seedance_replay_ref_videos || 'Reference Videos'}
-          icon={<Video className="h-4 w-4" />}
-          items={videoAssets}
-          count={videoCount}
-          limit={SEEDANCE_REPLAY_VIDEO_LIMIT}
-          totalDuration={videoTotalDuration}
-          durationLimit={SEEDANCE_REPLAY_DURATION_MAX}
-          exceedsLimit={videoOverLimit}
-          errorMessages={videoErrors}
-          onPreview={onPreview}
-          onRemove={onRemove}
-          tooltipLabel={t.wb_seedance_replay_media_video || 'Video'}
-          tooltipItems={mediaTooltipItems.video}
-          isLightTheme={isLightTheme}
-          onOpenLibrary={onOpenLibraryForKind ? () => onOpenLibraryForKind('video') : undefined}
-        />
-        <CategoryCard
-          cardKey="audio"
-          containerRef={audioCardRef}
-          highlighted={flashTarget === 'audio'}
-          title={t.wb_seedance_replay_ref_audio || 'Reference Audio'}
-          icon={<Music className="h-4 w-4" />}
-          items={audioAssets}
-          count={audioCount}
-          limit={SEEDANCE_REPLAY_AUDIO_LIMIT}
-          totalDuration={audioTotalDuration}
-          durationLimit={SEEDANCE_REPLAY_DURATION_MAX}
-          exceedsLimit={audioOverLimit}
-          errorMessages={audioErrors}
-          onPreview={onPreview}
-          onRemove={onRemove}
-          tooltipLabel={t.wb_seedance_replay_media_audio || 'Audio'}
-          tooltipItems={mediaTooltipItems.audio}
-          isLightTheme={isLightTheme}
-          onOpenLibrary={onOpenLibraryForKind ? () => onOpenLibraryForKind('audio') : undefined}
-        />
+        {visibleKindSet.has('image') && (
+          <CategoryCard
+            cardKey="image"
+            containerRef={imageCardRef}
+            highlighted={flashTarget === 'image'}
+            title={t.wb_seedance_replay_ref_images || 'Reference Images'}
+            icon={<ImageIcon className="h-4 w-4" />}
+            items={imageAssets}
+            count={imageCount}
+            limit={SEEDANCE_REPLAY_IMAGE_LIMIT}
+            exceedsLimit={imageOverLimit}
+            errorMessages={imageErrors}
+            onPreview={onPreview}
+            onRemove={onRemove}
+            onSetFrameRole={onSetFrameRole}
+            tooltipLabel={t.wb_seedance_replay_media_image || 'Image'}
+            tooltipItems={mediaTooltipItems.image}
+            isLightTheme={isLightTheme}
+            onOpenLibrary={onOpenLibraryForKind ? () => onOpenLibraryForKind('image') : undefined}
+          />
+        )}
+        {visibleKindSet.has('video') && (
+          <CategoryCard
+            cardKey="video"
+            containerRef={videoCardRef}
+            highlighted={flashTarget === 'video'}
+            title={t.wb_seedance_replay_ref_videos || 'Reference Videos'}
+            icon={<Video className="h-4 w-4" />}
+            items={videoAssets}
+            count={videoCount}
+            limit={videoLimitOverride ?? SEEDANCE_REPLAY_VIDEO_LIMIT}
+            totalDuration={videoTotalDuration}
+            durationLimit={SEEDANCE_REPLAY_DURATION_MAX}
+            exceedsLimit={videoOverLimit}
+            errorMessages={videoErrors}
+            onPreview={onPreview}
+            onRemove={onRemove}
+            tooltipLabel={t.wb_seedance_replay_media_video || 'Video'}
+            tooltipItems={mediaTooltipItems.video}
+            isLightTheme={isLightTheme}
+            onOpenLibrary={onOpenLibraryForKind ? () => onOpenLibraryForKind('video') : undefined}
+          />
+        )}
+        {visibleKindSet.has('audio') && (
+          <CategoryCard
+            cardKey="audio"
+            containerRef={audioCardRef}
+            highlighted={flashTarget === 'audio'}
+            title={t.wb_seedance_replay_ref_audio || 'Reference Audio'}
+            icon={<Music className="h-4 w-4" />}
+            items={audioAssets}
+            count={audioCount}
+            limit={SEEDANCE_REPLAY_AUDIO_LIMIT}
+            totalDuration={audioTotalDuration}
+            durationLimit={SEEDANCE_REPLAY_DURATION_MAX}
+            exceedsLimit={audioOverLimit}
+            errorMessages={audioErrors}
+            onPreview={onPreview}
+            onRemove={onRemove}
+            tooltipLabel={t.wb_seedance_replay_media_audio || 'Audio'}
+            tooltipItems={mediaTooltipItems.audio}
+            isLightTheme={isLightTheme}
+            onOpenLibrary={onOpenLibraryForKind ? () => onOpenLibraryForKind('audio') : undefined}
+          />
+        )}
 
         {/* Virtual Model Zone */}
-        <VirtualModelCard
-          modelAssets={modelAssets}
-          tooltipLabel={t.wb_seedance_replay_virtual_models || 'Virtual Models'}
-          tooltipItems={mediaTooltipItems.model}
-          isLightTheme={isLightTheme}
-          onAddVirtualModel={onAddVirtualModel}
-          onPreview={onPreview}
-          onRemove={onRemove}
-        />
+        {visibleKindSet.has('model') && (
+          <VirtualModelCard
+            modelAssets={modelAssets}
+            tooltipLabel={t.wb_seedance_replay_virtual_models || 'Virtual Models'}
+            tooltipItems={mediaTooltipItems.model}
+            isLightTheme={isLightTheme}
+            onAddVirtualModel={onAddVirtualModel}
+            onPreview={onPreview}
+            onRemove={onRemove}
+          />
+        )}
       </div>
 
     </div>

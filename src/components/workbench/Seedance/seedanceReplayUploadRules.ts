@@ -18,6 +18,7 @@ export type SeedanceReplayValidationCandidate = Omit<SeedanceReplayParsedAsset, 
 
 export type SeedanceReplayValidationAsset = {
   mediaKind?: SeedanceReplayMediaKind | 'file' | null;
+  materialType?: string | null;
   sizeBytes?: number | null;
   durationSeconds?: number | null;
   validationMessages?: string[] | null;
@@ -30,6 +31,12 @@ export type SeedanceReplayValidationSummary = {
   globalErrors: string[];
   hasMinimumAssets: boolean;
   hasBlockingIssues: boolean;
+};
+
+export type SeedanceReplayValidationMode = 'multimodal' | 'viral_replay';
+
+export type SeedanceReplayValidationOptions = {
+  mode?: SeedanceReplayValidationMode;
 };
 
 const FILE_SIZE_MB = 1024 * 1024;
@@ -381,30 +388,42 @@ export const validateSeedanceReplayParsedAsset = (asset: SeedanceReplayValidatio
   return null;
 };
 
-export const buildSeedanceReplayValidationSummary = <T extends SeedanceReplayValidationAsset>(assets: T[], t?: any): SeedanceReplayValidationSummary => {
+export const buildSeedanceReplayValidationSummary = <T extends SeedanceReplayValidationAsset>(
+  assets: T[],
+  t?: any,
+  options: SeedanceReplayValidationOptions = {},
+): SeedanceReplayValidationSummary => {
+  const mode = options.mode || 'multimodal';
   const seedanceAssets = assets.filter(
     (asset): asset is T & { mediaKind: SeedanceReplayMediaKind } =>
       asset.mediaKind === 'image' || asset.mediaKind === 'video' || asset.mediaKind === 'audio'
   );
   const imageAssets = seedanceAssets.filter((asset) => asset.mediaKind === 'image');
+  const productImageAssets = mode === 'viral_replay'
+    ? imageAssets.filter((asset) => String(asset.materialType || '').toLowerCase() !== 'model')
+    : imageAssets;
   const videoAssets = seedanceAssets.filter((asset) => asset.mediaKind === 'video');
   const audioAssets = seedanceAssets.filter((asset) => asset.mediaKind === 'audio');
   const uniqueMessages = (values: string[]) => Array.from(new Set(values.filter(Boolean)));
   const sumSizeBytes = (items: SeedanceReplayValidationAsset[]) => items.reduce((sum, item) => sum + Math.max(0, item.sizeBytes ?? 0), 0);
   const sumDuration = (items: SeedanceReplayValidationAsset[]) => items.reduce((sum, item) => sum + Math.max(0, item.durationSeconds ?? 0), 0);
-  const totalImageBytes = sumSizeBytes(imageAssets);
+  const totalImageBytes = sumSizeBytes(productImageAssets);
   const totalVideoDuration = sumDuration(videoAssets);
   const totalAudioDuration = sumDuration(audioAssets);
   const totalAudioBytes = sumSizeBytes(audioAssets);
   const imageKindLabel = getSeedanceReplayKindLabel(t, 'image');
   const videoKindLabel = getSeedanceReplayKindLabel(t, 'video');
   const audioKindLabel = getSeedanceReplayKindLabel(t, 'audio');
+  const videoLimit = mode === 'viral_replay' ? 1 : SEEDANCE_REPLAY_VIDEO_LIMIT;
 
   const imageErrors = uniqueMessages([
-    ...(imageAssets.length > SEEDANCE_REPLAY_IMAGE_LIMIT
+    ...(mode === 'viral_replay' && productImageAssets.length === 0
+      ? [t?.wb_replay_error_missing_product_image || 'Please upload at least 1 product image.']
+      : []),
+    ...(productImageAssets.length > SEEDANCE_REPLAY_IMAGE_LIMIT
       ? [formatSeedanceReplayText(
           t?.wb_seedance_replay_error_count || '{kind} count exceeds limit ({count}/{limit})',
-          { kind: imageKindLabel, count: imageAssets.length, limit: SEEDANCE_REPLAY_IMAGE_LIMIT },
+          { kind: imageKindLabel, count: productImageAssets.length, limit: SEEDANCE_REPLAY_IMAGE_LIMIT },
         )]
       : []),
     ...(totalImageBytes > SEEDANCE_REPLAY_IMAGE_TOTAL_BYTES_LIMIT
@@ -413,13 +432,18 @@ export const buildSeedanceReplayValidationSummary = <T extends SeedanceReplayVal
           { kind: imageKindLabel, current: formatMegabytes(totalImageBytes), limit: '64MB' },
         )]
       : []),
-    ...imageAssets.flatMap((asset) => asset.validationMessages || []),
+    ...productImageAssets.flatMap((asset) => asset.validationMessages || []),
   ]);
   const videoErrors = uniqueMessages([
-    ...(videoAssets.length > SEEDANCE_REPLAY_VIDEO_LIMIT
+    ...(mode === 'viral_replay' && videoAssets.length === 0
+      ? [t?.wb_replay_error_missing_reference_video || 'Please upload 1 reference ad video.']
+      : []),
+    ...(videoAssets.length > videoLimit
       ? [formatSeedanceReplayText(
-          t?.wb_seedance_replay_error_count || '{kind} count exceeds limit ({count}/{limit})',
-          { kind: videoKindLabel, count: videoAssets.length, limit: SEEDANCE_REPLAY_VIDEO_LIMIT },
+          mode === 'viral_replay'
+            ? (t?.wb_replay_error_single_reference_video || 'Viral recreate mode supports exactly 1 reference ad video ({count}/{limit}).')
+            : (t?.wb_seedance_replay_error_count || '{kind} count exceeds limit ({count}/{limit})'),
+          { kind: videoKindLabel, count: videoAssets.length, limit: videoLimit },
         )]
       : []),
     ...(totalVideoDuration > SEEDANCE_REPLAY_DURATION_MAX
@@ -431,6 +455,9 @@ export const buildSeedanceReplayValidationSummary = <T extends SeedanceReplayVal
     ...videoAssets.flatMap((asset) => asset.validationMessages || []),
   ]);
   const audioErrors = uniqueMessages([
+    ...(mode === 'viral_replay' && audioAssets.length > 0
+      ? [t?.wb_replay_error_audio_not_supported || 'Audio assets are not supported in viral recreate mode.']
+      : []),
     ...(audioAssets.length > SEEDANCE_REPLAY_AUDIO_LIMIT
       ? [formatSeedanceReplayText(
           t?.wb_seedance_replay_error_count || '{kind} count exceeds limit ({count}/{limit})',
@@ -451,8 +478,10 @@ export const buildSeedanceReplayValidationSummary = <T extends SeedanceReplayVal
       : []),
     ...audioAssets.flatMap((asset) => asset.validationMessages || []),
   ]);
-  const hasMinimumAssets = imageAssets.length > 0 || videoAssets.length > 0;
-  const globalErrors = hasMinimumAssets
+  const hasMinimumAssets = mode === 'viral_replay'
+    ? productImageAssets.length > 0 && videoAssets.length === 1
+    : imageAssets.length > 0 || videoAssets.length > 0;
+  const globalErrors = hasMinimumAssets || mode === 'viral_replay'
     ? []
     : [t?.wb_seedance_replay_error_min_assets || 'Please upload at least 1 image or 1 video'];
 

@@ -5,12 +5,16 @@ import type {
   FirstFrameModel,
   GenerationStatusResponse,
   ProductImageResult,
+  SmartRepairAspectRatio,
   SmartRepairParams,
   SmartRepairPendingItem,
   SmartRepairPollResult,
   SmartRepairPollStatus,
+  SmartRepairStrength,
   SmartRepairSubmission,
   SmartRepairSubmissionItem,
+  SmartRepairSubpage,
+  SmartRepairToolCode,
   ClothingSwapParams,
   ClothingSwapResult,
   ClothingSwapBackground,
@@ -635,6 +639,14 @@ export const productImagesApi = {
           const t = Date.parse(String(raw));
           return Number.isFinite(t) ? t : Date.now();
         })();
+        const aspectRatioRaw = String(settings.aspectRatio || settings.aspect_ratio || '1:1') as SmartRepairAspectRatio;
+        const strengthRaw = String(settings.strength || 'medium') as SmartRepairStrength;
+        const subpageRaw = String(settings.subpage || 'product_object') as SmartRepairSubpage;
+        const toolCodeRaw = String(settings.toolCode || settings.tool_code || 'custom_retouch') as SmartRepairToolCode;
+        const outputCountRaw = (() => {
+          const n = Number(settings.outputCount || settings.output_count || 1);
+          return (n === 2 ? 2 : n === 4 ? 4 : 1) as 1 | 2 | 4;
+        })();
         return {
           requestId,
           historyRecordId: String(row?.history_record_id || '').trim(),
@@ -644,14 +656,14 @@ export const productImagesApi = {
           submittedAt: submittedAtMs,
           settings: {
             prompt: String(settings.prompt || ''),
-            aspectRatio: settings.aspectRatio || settings.aspect_ratio || '1:1',
-            strength: settings.strength || 'medium',
-            outputCount: Number(settings.outputCount || settings.output_count || 1) as 1 | 2 | 4,
-            subpage: settings.subpage || 'product_object',
-            toolCode: settings.toolCode || settings.tool_code || 'custom_retouch',
-            sourceImagePath: settings.sourceImagePath || settings.source_image_path || '',
-            referenceImagePath: settings.referenceImagePath || settings.reference_image_path || '',
-            model: settings.model || '',
+            aspectRatio: aspectRatioRaw,
+            strength: strengthRaw,
+            outputCount: outputCountRaw,
+            subpage: subpageRaw,
+            toolCode: toolCodeRaw,
+            sourceImagePath: String(settings.sourceImagePath || settings.source_image_path || ''),
+            referenceImagePath: String(settings.referenceImagePath || settings.reference_image_path || ''),
+            model: String(settings.model || ''),
           },
         };
       })

@@ -24,33 +24,70 @@ const buildStorageKey = (workspaceId?: string) => {
 const FALLBACK_PARAMS: FirstFrameParams = {
   prompt: '',
   aspectRatio: '9:16',
-  model: 'flux-2-pro',
+  model: 'nano-banana-pro',
   outputCount: 4,
 };
 
+const NANO_BANANA_FIRST_FRAME_MODEL: FirstFrameModel = 'nano-banana-pro';
 const GPT_FIRST_FRAME_MODELS: FirstFrameModel[] = ['gpt-image-2', 'gpt-image-1.5'];
+const VISIBLE_FIRST_FRAME_MODELS: FirstFrameModel[] = [
+  NANO_BANANA_FIRST_FRAME_MODEL,
+  'gpt-image-2',
+  'gpt-image-1.5',
+];
 
 const isGptFirstFrameModel = (model?: FirstFrameModel) => (
   GPT_FIRST_FRAME_MODELS.includes(model as FirstFrameModel)
 );
 
+const normalizeFirstFrameModel = (model?: FirstFrameParams['model']): FirstFrameModel => (
+  VISIBLE_FIRST_FRAME_MODELS.includes(model as FirstFrameModel)
+    ? model as FirstFrameModel
+    : NANO_BANANA_FIRST_FRAME_MODEL
+);
+
 const getFirstFrameAspectRatios = (model?: FirstFrameModel): Array<{ label: string; value: FirstFrameAspectRatio }> => {
-  const base: Array<{ label: string; value: FirstFrameAspectRatio }> = [
+  const gptRatios: Array<{ label: string; value: FirstFrameAspectRatio }> = [
     { label: '1:1', value: '1:1' },
     { label: '3:2', value: '3:2' },
     { label: '2:3', value: '2:3' },
   ];
-  if (isGptFirstFrameModel(model)) return base;
-  return [...base, { label: '9:16', value: '9:16' }];
+  if (isGptFirstFrameModel(model)) return gptRatios;
+
+  return [
+    { label: '1:1', value: '1:1' },
+    { label: '2:3', value: '2:3' },
+    { label: '3:2', value: '3:2' },
+    { label: '3:4', value: '3:4' },
+    { label: '4:3', value: '4:3' },
+    { label: '4:5', value: '4:5' },
+    { label: '5:4', value: '5:4' },
+    { label: '9:16', value: '9:16' },
+    { label: '16:9', value: '16:9' },
+    { label: '21:9', value: '21:9' },
+  ];
 };
 
 const normalizeFirstFrameAspectRatio = (
   value: FirstFrameParams['aspectRatio'],
   model: FirstFrameParams['model']
 ): FirstFrameAspectRatio => {
-  const options = getFirstFrameAspectRatios(model);
+  const options = getFirstFrameAspectRatios(normalizeFirstFrameModel(model));
   return options.some((item) => item.value === value) ? value as FirstFrameAspectRatio : options[0].value;
 };
+
+const normalizeFirstFrameParams = (params: FirstFrameParams): FirstFrameParams => {
+  const model = normalizeFirstFrameModel(params.model);
+  return {
+    ...params,
+    model,
+    aspectRatio: normalizeFirstFrameAspectRatio(params.aspectRatio, model),
+  };
+};
+
+const pricingModelKeyForFirstFrame = (model?: FirstFrameModel): string => (
+  model === NANO_BANANA_FIRST_FRAME_MODEL ? 'gemini-3-pro-image-preview' : String(model || '')
+);
 
 export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   images,
@@ -73,8 +110,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
 
   const models = useMemo(
     () => [
-      { label: 'Flux 2 Pro', value: 'flux-2-pro' },
-      { label: 'Flux 2 Flex', value: 'flux-2-flex' },
+      { label: 'Nano Banana Pro', value: 'nano-banana-pro' },
       { label: 'GPT Image 2', value: 'gpt-image-2' },
       { label: 'GPT Image 1.5', value: 'gpt-image-1.5' },
     ],
@@ -93,13 +129,13 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   const [isPolishingPrompt, setIsPolishingPrompt] = useState(false);
   const [imageModelRates, setImageModelRates] = useState<Record<string, number>>({});
   const [formData, setFormData] = useState<FirstFrameParams>(() => {
-    const baseDefaults: FirstFrameParams = { ...mergedDefaultParams };
+    const baseDefaults: FirstFrameParams = normalizeFirstFrameParams({ ...mergedDefaultParams });
     try {
       const saved = localStorage.getItem(storageKey);
       if (saved) {
         const parsed = JSON.parse(saved) as Partial<FirstFrameParams>;
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          return { ...baseDefaults, ...parsed };
+          return normalizeFirstFrameParams({ ...baseDefaults, ...parsed });
         }
       }
     } catch {
@@ -116,20 +152,20 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
 
   useEffect(() => {
     setFormData((prev) => {
-      const normalized = normalizeFirstFrameAspectRatio(prev.aspectRatio, prev.model);
-      if (normalized === prev.aspectRatio) return prev;
-      return { ...prev, aspectRatio: normalized };
+      const normalized = normalizeFirstFrameParams(prev);
+      if (normalized.model === prev.model && normalized.aspectRatio === prev.aspectRatio) return prev;
+      return normalized;
     });
   }, [formData.aspectRatio, formData.model]);
 
   useEffect(() => {
-    let nextFormData: FirstFrameParams = { ...mergedDefaultParams };
+    let nextFormData: FirstFrameParams = normalizeFirstFrameParams({ ...mergedDefaultParams });
     try {
       const saved = localStorage.getItem(storageKey);
       if (saved) {
         const parsed = JSON.parse(saved) as Partial<FirstFrameParams>;
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          nextFormData = { ...mergedDefaultParams, ...parsed };
+          nextFormData = normalizeFirstFrameParams({ ...mergedDefaultParams, ...parsed });
         }
       }
     } catch {
@@ -169,7 +205,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   }, []);
 
   const estimatedCost = useMemo(() => {
-    const modelKey = String(formData.model || '').trim();
+    const modelKey = pricingModelKeyForFirstFrame(formData.model);
     const rate = Number(imageModelRates[modelKey] || 0);
     const units = Math.max(1, Number(formData.outputCount || 1));
     if (!Number.isFinite(rate) || rate <= 0) return 0;
@@ -292,18 +328,15 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
 
           <div>
             <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_aspect_ratio_label}</label>
-            <div className={`grid gap-2 ${aspectRatios.length === 4 ? 'grid-cols-4' : 'grid-cols-3'}`}>
-              {aspectRatios.map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  onClick={() => setFormData({ ...formData, aspectRatio: item.value })}
-                  className={`px-3 py-2 rounded-xl text-sm font-medium border transition ${formData.aspectRatio === item.value ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
+            <DropdownSelect
+              value={formData.aspectRatio || ''}
+              options={aspectRatios}
+              onChange={(value) => setFormData({ ...formData, aspectRatio: value as FirstFrameAspectRatio })}
+              buttonClassName={`w-full bg-zinc-900/70 border rounded-xl px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 ${errors.aspectRatio ? 'border-red-500' : 'border-white/10'}`}
+              iconClassName="w-4 h-4 text-zinc-500"
+              optionClassName="text-sm"
+            />
+            {errors.aspectRatio && <p className="text-red-400 text-xs mt-1">{errors.aspectRatio}</p>}
           </div>
 
           <div>

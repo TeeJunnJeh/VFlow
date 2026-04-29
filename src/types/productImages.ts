@@ -48,9 +48,15 @@ export type FirstFrameHoldingStyle =
 
 export type FirstFrameAspectRatio = 
   | '9:16'
+  | '16:9'
   | '1:1'
   | '3:2'
-  | '2:3';
+  | '2:3'
+  | '3:4'
+  | '4:3'
+  | '4:5'
+  | '5:4'
+  | '21:9';
 
 export type FirstFrameStyle = 
   | 'authentic'
@@ -59,6 +65,7 @@ export type FirstFrameStyle =
   | 'clean';
 
 export type FirstFrameModel =
+  | 'nano-banana-pro'
   | 'flux-2-pro'
   | 'flux-2-flex'
   | 'gpt-image-2'
@@ -206,6 +213,8 @@ export interface ProductImageResult {
   downloadUrl: string;
   category?: ImageCategory;
   format?: string;
+  generationStatus?: 'pending' | 'processing' | 'succeeded' | 'failed';
+  errorMessage?: string;
   metadata?: Record<string, any>;
   size?: number; // bytes
 }
@@ -255,6 +264,17 @@ export interface GenerationStatusResponse {
   id: string;
   status: GenerationStatus;
   progress: number;
+  isAsync?: boolean;
+  requests?: Array<{
+    requestId: string;
+    status: string;
+    outputIndex?: number;
+    sortOrder?: number;
+    frameRole?: string;
+    role?: string;
+  }>;
+  projectId?: string;
+  historyRecordId?: string;
   outputImages?: ProductImageResult[];
   errorMessage?: string;
   completedAt?: string;

@@ -3882,7 +3882,7 @@ export const translations = {
     ff_workspace: "工作区",
     ff_restore_this_record: "恢复此记录",
     ff_back: "返回",
-    ff_page_title: "AI首帧图生成",
+    ff_page_title: "AI 首帧图",
     ff_new_workspace: "新建工作区",
 
     // Gallery Board Editor

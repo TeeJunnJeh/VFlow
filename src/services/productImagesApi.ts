@@ -45,10 +45,11 @@ function toDisplayUrl(pathOrUrl: string): string {
 function styleToModel(style?: FirstFrameParams['style']): string {
   if (style === 'studio') return 'gpt-image-1.5';
   if (style === 'clean') return 'flux-2-flex';
-  return 'flux-2-pro';
+  return 'nano-banana-pro';
 }
 
-const FIRST_FRAME_MODELS: FirstFrameModel[] = ['flux-2-pro', 'flux-2-flex', 'gpt-image-2', 'gpt-image-1.5'];
+const FIRST_FRAME_MODELS: FirstFrameModel[] = ['nano-banana-pro', 'flux-2-pro', 'flux-2-flex', 'gpt-image-2', 'gpt-image-1.5'];
+const NANO_BANANA_FIRST_FRAME_MODEL: FirstFrameModel = 'nano-banana-pro';
 
 function resolveFirstFrameModel(params: FirstFrameParams): FirstFrameModel {
   const selected = String(params.model || '').trim() as FirstFrameModel;
@@ -172,6 +173,12 @@ async function generateFirstFrameOnce(options: {
   }
 
   const data = await response.json();
+  const asyncRequests = Array.isArray(data?.data?.requests) ? data.data.requests : [];
+  if (data?.data?.async && asyncRequests.length > 0) {
+    const error = new Error('Async first-frame response returned from sync helper') as Error & { asyncData?: any };
+    error.asyncData = data;
+    throw error;
+  }
   const imagePath = String(data?.data?.first_frame_path || '').trim();
 
   if (!imagePath) {
@@ -180,6 +187,107 @@ async function generateFirstFrameOnce(options: {
 
   const projectId = String(data?.data?.project_id || '').trim() || undefined;
   return { imagePath, projectId };
+}
+
+async function createFirstFrameAsync(options: {
+  referenceImagePath: string;
+  aspectRatio?: string;
+  projectId?: string;
+  model: string;
+  prompt?: string;
+  category?: string;
+  personType?: string;
+  holdingStyle?: string;
+  textWhitespace?: string;
+  outputCount: number;
+  workspaceId?: string;
+  workspaceOrder?: number;
+  clientHistoryId?: string;
+}): Promise<GenerationStatusResponse> {
+  const payload: Record<string, unknown> = {
+    reference_image_path: options.referenceImagePath,
+    aspect_ratio: options.aspectRatio || '9:16',
+    frame_type: 'first',
+    model: options.model,
+    prompt_override: options.prompt,
+    category: options.category,
+    person_type: options.personType,
+    holding_style: options.holdingStyle,
+    text_whitespace: options.textWhitespace,
+    output_count: options.outputCount,
+  };
+
+  if (options.projectId) payload.project_id = options.projectId;
+  if (options.workspaceId) payload.workspace_id = options.workspaceId;
+  if (Number.isFinite(options.workspaceOrder)) payload.workspace_order = options.workspaceOrder;
+  if (options.clientHistoryId) payload.client_history_id = options.clientHistoryId;
+
+  const endpoint = `${PROJECTS_API_BASE}/generate_first_frame`;
+  debugApiLog('request generate_first_frame async', {
+    endpoint,
+    method: 'POST',
+    payload,
+  });
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': getCookie('csrftoken') || '',
+      'X-Requested-With': 'XMLHttpRequest',
+    },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  });
+  const responseClone = response.clone();
+
+  let debugResponseBody: unknown = null;
+  try {
+    debugResponseBody = await responseClone.json();
+  } catch {
+    debugResponseBody = { nonJson: true };
+  }
+  debugApiLog('response generate_first_frame async', {
+    endpoint,
+    status: response.status,
+    ok: response.ok,
+    body: debugResponseBody,
+  });
+
+  if (!response.ok) {
+    throw await parseApiError(response, 'Failed to create first-frame generation tasks');
+  }
+
+  const data = await response.json();
+  const rawRequests = Array.isArray(data?.data?.requests) ? data.data.requests : [];
+  const requests = rawRequests
+    .map((item: any, index: number) => {
+      const requestId = String(item?.request_id || item?.requestId || item?.id || '').trim();
+      if (!requestId) return null;
+      return {
+        requestId,
+        status: String(item?.status || 'created'),
+        outputIndex: Number.isFinite(Number(item?.output_index ?? item?.outputIndex)) ? Number(item?.output_index ?? item?.outputIndex) : index + 1,
+        sortOrder: Number.isFinite(Number(item?.sort_order ?? item?.sortOrder)) ? Number(item?.sort_order ?? item?.sortOrder) : index,
+        frameRole: String(item?.frame_role || item?.frameRole || ''),
+        role: String(item?.role || ''),
+      };
+    })
+    .filter(Boolean) as NonNullable<GenerationStatusResponse['requests']>;
+
+  if (requests.length === 0) {
+    throw new Error('Generation task creation succeeded but no request_id was returned');
+  }
+
+  return {
+    id: `first-frame-task-${Date.now()}`,
+    status: 'processing',
+    progress: 2,
+    isAsync: true,
+    requests,
+    projectId: String(data?.data?.project_id || '').trim() || undefined,
+    historyRecordId: String(data?.data?.history_record_id || '').trim() || undefined,
+  };
 }
 
 export const productImagesApi = {
@@ -203,6 +311,24 @@ export const productImagesApi = {
 
     let resolvedProjectId = projectId;
     const outputImages: ProductImageResult[] = [];
+
+    if (model === NANO_BANANA_FIRST_FRAME_MODEL) {
+      return createFirstFrameAsync({
+        referenceImagePath,
+        aspectRatio: params.aspectRatio,
+        projectId: resolvedProjectId,
+        model,
+        prompt: params.prompt,
+        category: params.category,
+        personType: params.personType,
+        holdingStyle: params.holdingStyle,
+        textWhitespace: params.textWhitespace,
+        outputCount,
+        workspaceId: workspaceMeta?.workspaceId,
+        workspaceOrder: workspaceMeta?.workspaceOrder,
+        clientHistoryId,
+      });
+    }
 
     for (let i = 0; i < outputCount; i += 1) {
       const generated = await generateFirstFrameOnce({
@@ -230,6 +356,7 @@ export const productImagesApi = {
         imageUrl: displayUrl,
         downloadUrl: displayUrl,
         format: 'jpg',
+        generationStatus: 'succeeded',
       });
     }
 
@@ -239,6 +366,61 @@ export const productImagesApi = {
       progress: 100,
       outputImages,
       completedAt: new Date().toISOString(),
+    };
+  },
+
+  async getFirstFrameResult(requestId: string): Promise<{
+    requestId: string;
+    status: string;
+    imageUrl: string;
+    error: string;
+    metadata?: Record<string, any>;
+  }> {
+    const id = String(requestId || '').trim();
+    if (!id) throw new Error('requestId is required');
+
+    const endpoint = `${PROJECTS_API_BASE}/generate_first_frame_result?request_id=${encodeURIComponent(id)}`;
+    debugApiLog('request generate_first_frame_result', {
+      endpoint,
+      method: 'GET',
+      requestId: id,
+    });
+
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+    const responseClone = response.clone();
+
+    let debugResponseBody: unknown = null;
+    try {
+      debugResponseBody = await responseClone.json();
+    } catch {
+      debugResponseBody = { nonJson: true };
+    }
+    debugApiLog('response generate_first_frame_result', {
+      endpoint,
+      status: response.status,
+      ok: response.ok,
+      body: debugResponseBody,
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Failed to query first-frame generation result');
+    }
+
+    const data = await response.json();
+    const payload = data?.data || {};
+    return {
+      requestId: String(payload?.request_id || id),
+      status: String(payload?.status || ''),
+      imageUrl: toDisplayUrl(String(payload?.image_url || payload?.first_frame_path || '').trim()),
+      error: String(payload?.error || ''),
+      metadata: payload?.metadata && typeof payload.metadata === 'object' ? payload.metadata : undefined,
     };
   },
 

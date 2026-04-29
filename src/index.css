@@ -158,6 +158,18 @@ body {
   }
 }
 
+@keyframes ff-shimmer {
+  0% {
+    background-position: 0% 50%, center;
+  }
+  50% {
+    background-position: 100% 50%, center;
+  }
+  100% {
+    background-position: 0% 50%, center;
+  }
+}
+
 .animate-shooting-star {
   /* 使用 linear 确保匀速滑落，!important 确保不被 Tailwind 默认样式干扰 */
   animation: shooting 3s linear infinite !important;

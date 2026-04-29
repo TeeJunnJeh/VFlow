@@ -49,6 +49,8 @@ const FIRST_FRAME_WORKSPACE_META_KEY = 'vflow_first_frame_workspaces_v1';
 const FIRST_FRAME_ACTIVE_WORKSPACE_KEY = 'vflow_first_frame_active_workspace_v1';
 const FIRST_FRAME_COUNTDOWN_SECONDS = 120;
 const FIRST_FRAME_PROGRESS_HOLD_MAX = 95;
+const FIRST_FRAME_ASYNC_POLL_INTERVAL_MS = 3000;
+const FIRST_FRAME_ASYNC_POLL_MAX_ATTEMPTS = 80;
 const FIRST_FRAME_PANEL_MIN_WIDTH = 280;
 const FIRST_FRAME_PANEL_MAX_WIDTH = 720;
 const FIRST_FRAME_DEFAULT_LEFT_RATIO = 0.8;
@@ -184,12 +186,14 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const [resultSelectionKey, setResultSelectionKey] = useState<string>('');
   const [loadingTheme, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
   const [loadingBackgroundSrc, setLoadingBackgroundSrc] = useState<string>('');
+  const [isAsyncGenerating, setIsAsyncGenerating] = useState(false);
 
   const generationSeqRef = useRef(0);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const progressStartedAtRef = useRef<number | null>(null);
 
-  const isGenerating = phase === 'generating';
+  const isGenerating = phase === 'generating' || isAsyncGenerating;
+  const showFullScreenGenerating = phase === 'generating' && !isAsyncGenerating;
   const hasResults = results.length > 0;
 
   const refreshWorkspaceHistory = useCallback(async () => {
@@ -258,12 +262,25 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     clearProgressTimer();
   }, [clearProgressTimer]);
 
+  const isTerminalFirstFrameStatus = (status: string) => (
+    ['succeeded', 'success', 'completed', 'done', 'ready', 'failed', 'error', 'cancelled', 'canceled', 'rejected']
+      .includes(String(status || '').trim().toLowerCase())
+  );
+
+  const isSuccessfulFirstFrameStatus = (status: string) => (
+    ['succeeded', 'success', 'completed', 'done', 'ready']
+      .includes(String(status || '').trim().toLowerCase())
+  );
+
+  const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
   const handleImagesSelected = useCallback((files: File[]) => {
     setImages(files);
     setError(null);
     setProgress(0);
     setResults([]);
     setLastElapsedSeconds(null);
+    setIsAsyncGenerating(false);
     setPhase(files.length > 0 ? 'form' : 'upload');
   }, []);
 
@@ -294,6 +311,139 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       });
       if (generationSeqRef.current !== runSeq) return;
 
+      if (response.isAsync && response.requests && response.requests.length > 0) {
+        const placeholders: ProductImageResult[] = response.requests
+          .slice()
+          .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0))
+          .map((item, index) => ({
+            id: `first-frame-async-${item.requestId}`,
+            imageUrl: '',
+            downloadUrl: '',
+            format: 'jpg',
+            category: 'frame',
+            generationStatus: 'processing',
+            metadata: {
+              requestId: item.requestId,
+              status: item.status,
+              outputIndex: item.outputIndex ?? index + 1,
+              sortOrder: item.sortOrder ?? index,
+              frameRole: item.frameRole,
+              role: item.role,
+            },
+          }));
+
+        setResults(placeholders);
+        setResultSelectionKey(`generation:${workspaceId}:${Date.now()}:async`);
+        setPhase('result');
+        setIsAsyncGenerating(true);
+        setProgress(8);
+
+        const startedAt = progressStartedAtRef.current || Date.now();
+
+        await Promise.all(response.requests.map(async (requestItem, index) => {
+          const requestId = String(requestItem.requestId || '').trim();
+          if (!requestId) return;
+
+          for (let attempt = 0; attempt < FIRST_FRAME_ASYNC_POLL_MAX_ATTEMPTS; attempt += 1) {
+            if (generationSeqRef.current !== runSeq) return;
+            if (attempt > 0) await sleep(FIRST_FRAME_ASYNC_POLL_INTERVAL_MS);
+            if (generationSeqRef.current !== runSeq) return;
+
+            try {
+              const poll = await productImagesApi.getFirstFrameResult(requestId);
+              const status = String(poll.status || '').trim().toLowerCase();
+              const imageUrl = String(poll.imageUrl || '').trim();
+
+              if (imageUrl) {
+                setResults((prev) => prev.map((item) => (
+                  String(item.metadata?.requestId || '') === requestId
+                    ? {
+                        ...item,
+                        imageUrl,
+                        downloadUrl: imageUrl,
+                        generationStatus: 'succeeded',
+                        errorMessage: '',
+                        metadata: {
+                          ...(item.metadata || {}),
+                          ...(poll.metadata || {}),
+                          status,
+                          requestId,
+                        },
+                      }
+                    : item
+                )));
+                return;
+              }
+
+              if (isTerminalFirstFrameStatus(status)) {
+                setResults((prev) => prev.map((item) => (
+                  String(item.metadata?.requestId || '') === requestId
+                    ? {
+                        ...item,
+                        generationStatus: isSuccessfulFirstFrameStatus(status) ? 'failed' : 'failed',
+                        errorMessage: poll.error || t.ff_error_generation_failed,
+                        metadata: {
+                          ...(item.metadata || {}),
+                          ...(poll.metadata || {}),
+                          status,
+                          requestId,
+                        },
+                      }
+                    : item
+                )));
+                return;
+              }
+            } catch (pollError) {
+              if (attempt >= FIRST_FRAME_ASYNC_POLL_MAX_ATTEMPTS - 1) {
+                setResults((prev) => prev.map((item) => (
+                  String(item.metadata?.requestId || '') === requestId
+                    ? {
+                        ...item,
+                        generationStatus: 'failed',
+                        errorMessage: pollError instanceof Error ? pollError.message : t.ff_error_generation_failed,
+                        metadata: {
+                          ...(item.metadata || {}),
+                          status: 'failed',
+                          requestId,
+                        },
+                      }
+                    : item
+                )));
+                return;
+              }
+            }
+
+            setProgress((prev) => Math.max(prev, Math.min(FIRST_FRAME_PROGRESS_HOLD_MAX, 8 + Math.round(((index + 1) / response.requests!.length) * 20))));
+          }
+
+          setResults((prev) => prev.map((item) => (
+            String(item.metadata?.requestId || '') === requestId
+              ? {
+                  ...item,
+                  generationStatus: 'failed',
+                  errorMessage: t.ff_error_generation_failed,
+                  metadata: {
+                    ...(item.metadata || {}),
+                    status: 'timeout',
+                    requestId,
+                  },
+                }
+              : item
+          )));
+        }));
+
+        if (generationSeqRef.current !== runSeq) return;
+        clearProgressTimer();
+        setProgress(100);
+        setIsAsyncGenerating(false);
+        const completedElapsedSeconds = Math.max(1, Math.floor((Date.now() - startedAt) / 1000));
+        setLastElapsedSeconds(completedElapsedSeconds);
+        progressStartedAtRef.current = null;
+        await refreshWorkspaceHistory();
+        notifyImageHistoryUpdated();
+        return;
+      }
+
       clearProgressTimer();
       setProgress(100);
       const completedElapsedSeconds = progressStartedAtRef.current
@@ -322,6 +472,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       if (generationSeqRef.current !== runSeq) return;
 
       clearProgressTimer();
+      setIsAsyncGenerating(false);
       const message = err instanceof Error ? err.message : t.ff_unknown_error;
       setError({
         code: 'GENERATION_ERROR',
@@ -338,6 +489,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     clearProgressTimer();
     progressStartedAtRef.current = null;
     setLastElapsedSeconds(null);
+    setIsAsyncGenerating(false);
     setPhase(images.length > 0 ? 'form' : 'upload');
     setProgress(0);
   };
@@ -345,6 +497,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const handleRegenerate = () => {
     setResults([]);
     setLastElapsedSeconds(null);
+    setIsAsyncGenerating(false);
     setPhase('form');
     setProgress(0);
     setError(null);
@@ -358,6 +511,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
     setResults([]);
     setLastElapsedSeconds(null);
+    setIsAsyncGenerating(false);
     setProgress(0);
     setError(null);
     setPhase(images.length > 0 ? 'form' : 'upload');
@@ -390,6 +544,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const handleDownloadAll = async (prefix: string) => {
     for (let i = 0; i < results.length; i += 1) {
       const item = results[i];
+      if (!item.imageUrl || item.generationStatus === 'failed') continue;
       // Keep sequential order so filenames are deterministic.
       // eslint-disable-next-line no-await-in-loop
       await handleDownload(item.id, buildFileName(prefix, i, item.id));
@@ -729,7 +884,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
             </div>
 
             {rightPanel === 'preview' ? (
-              isGenerating ? (
+              showFullScreenGenerating ? (
                 <div className="flex min-h-[420px] items-center justify-center">
                   <LoadingProgress
                     progress={progress}
@@ -747,6 +902,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                   results={results}
                   elapsedSeconds={lastElapsedSeconds}
                   selectionKey={resultSelectionKey}
+                  loadingTheme={loadingTheme}
                   onRegenerate={handleRegenerate}
                   onDownload={handleDownload}
                   onDownloadAll={handleDownloadAll}

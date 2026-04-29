@@ -892,3 +892,20 @@ html.theme-dim .hist-workbar-toggle-active {
   background-color: #232333 !important;
   color: #ffffff !important;
 }
+
+/* react-masonry-css for AI 商品套图 right preview panel */
+.pg-masonry-grid {
+  display: flex;
+  margin-left: -12px; /* gutter offset */
+  width: auto;
+}
+.pg-masonry-grid-col {
+  padding-left: 12px; /* gutter */
+  background-clip: padding-box;
+}
+.pg-masonry-grid-col > div {
+  margin-bottom: 12px;
+}
+.pg-masonry-grid-col > div:last-child {
+  margin-bottom: 0; /* outer space-y-3 already provides inter-group gap */
+}

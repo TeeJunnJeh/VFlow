@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, Download, Sparkles, Home } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, Download, Sparkles, Loader2, X, RotateCcw } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
-import { ErrorDialog, type ErrorInfo, ImageUploader, LoadingProgress } from '../../Common';
+import { ErrorDialog, type ErrorInfo, ImageUploader } from '../../Common';
 import { downloadBlob, productImagesApi } from '../../../../services/productImagesApi';
 import { billingApi } from '../../../../services/billing';
 import type { ProductImageResult, SmartRepairParams, SmartRepairSubpage, SmartRepairToolCode } from '../../../../types/productImages';
@@ -10,7 +10,32 @@ import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingThe
 import { useRequireAuth } from '../../../../utils/useRequireAuth';
 import { formatCreditAmount, roundCreditTenths } from '../../../../utils/credits';
 
-type Phase = 'setup' | 'generating' | 'result' | 'error';
+type RepairTaskStatus = 'processing' | 'succeeded' | 'failed';
+
+interface RepairTaskSettingsSnapshot {
+  prompt: string;
+  aspectRatio: SmartRepairParams['aspectRatio'];
+  strength: SmartRepairParams['strength'];
+  outputCount: SmartRepairParams['outputCount'];
+  subpage: SmartRepairSubpage;
+  toolCode: SmartRepairToolCode;
+}
+
+interface RepairTask {
+  localId: string;
+  requestId: string;
+  historyRecordId: string;
+  status: RepairTaskStatus;
+  outputs: ProductImageResult[];
+  error: string;
+  settings: RepairTaskSettingsSnapshot;
+  submittedAt: number;
+}
+
+const POLL_INTERVAL_MS = 1500;
+const POLL_MAX_ATTEMPTS = 120; // 1.5s × 120 ≈ 3 minutes ceiling
+
+const generateLocalId = () => `sr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 interface SmartRepairViewProps {
   onBack?: () => void;
@@ -215,13 +240,10 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   const { requireAuth } = useRequireAuth();
   const isZh = language === 'zh';
 
-  const [phase, setPhase] = useState<Phase>('setup');
   const [sourceImage, setSourceImage] = useState<File | null>(null);
   const [referenceImage, setReferenceImage] = useState<File | null>(null);
   const [sourcePreviewUrl, setSourcePreviewUrl] = useState<string>('');
   const [referencePreviewUrl, setReferencePreviewUrl] = useState<string>('');
-  const [results, setResults] = useState<ProductImageResult[]>([]);
-  const [progress, setProgress] = useState(0);
   const [error, setError] = useState<ErrorInfo | null>(null);
 
   const [prompt, setPrompt] = useState('');
@@ -231,9 +253,14 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   const [activeSubpage, setActiveSubpage] = useState<SmartRepairSubpage>('fashion_model');
   const [activeToolCode, setActiveToolCode] = useState<SmartRepairToolCode | null>(null);
   const [historyItems, setHistoryItems] = useState<SmartRepairHistoryEntry[]>([]);
-  const [loadingTheme, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
-  const [loadingBackgroundSrc, setLoadingBackgroundSrc] = useState<string>('');
+  // loadingTheme/backgroundSrc kept for potential reuse but no longer drives a full-page overlay
+  const [, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
+  const [, setLoadingBackgroundSrc] = useState<string>('');
   const [smartRepairModelRate, setSmartRepairModelRate] = useState<number>(0);
+  const [repairTasks, setRepairTasks] = useState<RepairTask[]>([]);
+  const pollAbortRef = useRef<Set<string>>(new Set());
+  const pollStartedRef = useRef<Set<string>>(new Set());
+  const isSubmittingRef = useRef<boolean>(false);
 
   const subpageOptions: Array<{ key: SmartRepairSubpage; label: string }> = [
     { key: 'fashion_model', label: t.sr_subpage_fashion_model_name },
@@ -294,16 +321,81 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     setHistoryItems(nextItems);
   }, []);
 
-  const resetToStart = () => {
-    setPhase('setup');
-    setResults([]);
-    setProgress(0);
-    setError(null);
-    setSourceImage(null);
-    setReferenceImage(null);
-    setPrompt('');
-    setActiveSubpage('fashion_model');
-    setActiveToolCode(null);
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  const startPolling = useCallback(
+    async (requestId: string) => {
+      if (!requestId || pollStartedRef.current.has(requestId)) return;
+      pollStartedRef.current.add(requestId);
+
+      try {
+        for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt += 1) {
+          if (pollAbortRef.current.has(requestId)) return;
+          try {
+            const result = await productImagesApi.getSmartRepairResult(requestId);
+            if (result.status === 'succeeded') {
+              const url = result.imageUrl || result.outputs[0] || '';
+              const product: ProductImageResult = {
+                id: `smart-repair-${requestId}`,
+                imageUrl: url,
+                downloadUrl: url,
+                format: 'jpg',
+              };
+              setRepairTasks((prev) =>
+                prev.map((t) =>
+                  t.requestId === requestId
+                    ? { ...t, status: 'succeeded', outputs: [product], error: '' }
+                    : t,
+                ),
+              );
+              notifyImageHistoryUpdated();
+              void refreshHistory();
+              return;
+            }
+            if (result.status === 'failed') {
+              setRepairTasks((prev) =>
+                prev.map((t) =>
+                  t.requestId === requestId
+                    ? { ...t, status: 'failed', outputs: [], error: result.error || (isZh ? '生成失败' : 'Generation failed') }
+                    : t,
+                ),
+              );
+              notifyImageHistoryUpdated();
+              void refreshHistory();
+              return;
+            }
+            // status: 'created' | 'processing' → keep waiting
+          } catch (err) {
+            // network or transient error: keep retrying until POLL_MAX_ATTEMPTS exhausted
+            console.warn('[smart-repair] poll error', err);
+          }
+          await sleep(POLL_INTERVAL_MS);
+        }
+        // hit the cap → mark failed
+        setRepairTasks((prev) =>
+          prev.map((t) =>
+            t.requestId === requestId && t.status === 'processing'
+              ? { ...t, status: 'failed', error: isZh ? '生成超时，请稍后重试' : 'Generation timed out, please retry' }
+              : t,
+          ),
+        );
+      } finally {
+        pollStartedRef.current.delete(requestId);
+      }
+    },
+    [isZh, refreshHistory],
+  );
+
+  const cancelTaskCard = (localId: string) => {
+    setRepairTasks((prev) => {
+      const target = prev.find((t) => t.localId === localId);
+      if (target) pollAbortRef.current.add(target.requestId);
+      return prev.filter((t) => t.localId !== localId);
+    });
+  };
+
+  const dismissCard = (localId: string) => {
+    setRepairTasks((prev) => prev.filter((t) => t.localId !== localId));
   };
 
   useEffect(() => {
@@ -348,6 +440,48 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     });
   }, [refreshHistory]);
 
+  // Mount-time hydration: pull any PROCESSING smart_repair tasks from the
+  // backend and resume polling. This keeps user-perceived state consistent
+  // across F5 and tab switches inside ProductImagesView.
+  useEffect(() => {
+    let alive = true;
+    void productImagesApi.listSmartRepairPending()
+      .then((items) => {
+        if (!alive || items.length === 0) return;
+        const hydrated: RepairTask[] = items.map((item) => ({
+          localId: generateLocalId(),
+          requestId: item.requestId,
+          historyRecordId: item.historyRecordId,
+          status: 'processing',
+          outputs: [],
+          error: '',
+          settings: {
+            prompt: item.settings.prompt || '',
+            aspectRatio: (item.settings.aspectRatio as SmartRepairParams['aspectRatio']) || '1:1',
+            strength: (item.settings.strength as SmartRepairParams['strength']) || 'medium',
+            outputCount: (item.settings.outputCount as SmartRepairParams['outputCount']) || 1,
+            subpage: (item.settings.subpage as SmartRepairSubpage) || 'product_object',
+            toolCode: (item.settings.toolCode as SmartRepairToolCode) || 'custom_retouch',
+          },
+          submittedAt: item.submittedAt,
+        }));
+        setRepairTasks((prev) => {
+          // De-dup by requestId in case the user already has cards for the same job
+          const existingIds = new Set(prev.map((t) => t.requestId));
+          return [...hydrated.filter((t) => !existingIds.has(t.requestId)), ...prev];
+        });
+        hydrated.forEach((card) => {
+          void startPolling(card.requestId);
+        });
+      })
+      .catch(() => {
+        // Hydration failure is silent — user can still kick off new tasks.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [startPolling]);
+
   useEffect(() => {
     let alive = true;
     void billingApi.getOverview()
@@ -390,6 +524,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
 
   const handleGenerate = async () => {
     if (!requireAuth()) return;
+    if (isSubmittingRef.current) return;
     if (!activeSubpage || !activeToolCode) {
       setError({
         code: 'NO_FUNCTION',
@@ -417,12 +552,19 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
       return;
     }
 
-    try {
-      setError(null);
-      setPhase('generating');
-      setProgress(10);
+    const settingsSnapshot: RepairTaskSettingsSnapshot = {
+      prompt,
+      aspectRatio,
+      strength,
+      outputCount,
+      subpage: activeSubpage,
+      toolCode: activeToolCode,
+    };
 
-      const response = await productImagesApi.generateSmartRepair(
+    try {
+      isSubmittingRef.current = true;
+      setError(null);
+      const submission = await productImagesApi.submitSmartRepair(
         sourceImage,
         {
           prompt,
@@ -432,25 +574,28 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
           subpage: activeSubpage,
           toolCode: activeToolCode,
         },
-        projectId,
-        referenceImage || undefined
+        {
+          projectId,
+          referenceImage: referenceImage || undefined,
+        },
       );
 
-      setProgress(100);
-      if (response.status === 'completed' && response.outputImages && response.outputImages.length > 0) {
-        await refreshHistory();
-        notifyImageHistoryUpdated();
-        setResults(response.outputImages);
-        setPhase('result');
-        return;
-      }
+      const submittedAt = Date.now();
+      const newCards: RepairTask[] = submission.requests.map((req) => ({
+        localId: generateLocalId(),
+        requestId: req.requestId,
+        historyRecordId: submission.historyRecordId,
+        status: 'processing',
+        outputs: [],
+        error: '',
+        settings: settingsSnapshot,
+        submittedAt,
+      }));
 
-      setError({
-        code: 'SMART_REPAIR_EMPTY',
-        message: t.sr_empty_result_msg,
-        severity: 'error',
+      setRepairTasks((prev) => [...newCards, ...prev]);
+      newCards.forEach((card) => {
+        void startPolling(card.requestId);
       });
-      setPhase('error');
     } catch (err) {
       const message = err instanceof Error ? err.message : t.ff_unknown_error;
       setError({
@@ -459,7 +604,8 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
         severity: 'error',
         suggestion: t.sr_retry_suggestion,
       });
-      setPhase('error');
+    } finally {
+      isSubmittingRef.current = false;
     }
   };
 
@@ -471,9 +617,38 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     if (item.settings?.subpage) setActiveSubpage(item.settings.subpage);
     if (item.settings?.toolCode) setActiveToolCode(item.settings.toolCode);
     setError(null);
-    setProgress(100);
-    setResults(item.outputImages);
-    setPhase('result');
+
+    // surface the historical result as a synthetic succeeded card so the user
+    // can compare it with newly-running tasks in the same panel.
+    const synthetic: RepairTask = {
+      localId: generateLocalId(),
+      requestId: `history:${item.id}`,
+      historyRecordId: item.id,
+      status: 'succeeded',
+      outputs: item.outputImages,
+      error: '',
+      settings: {
+        prompt: item.settings?.prompt || '',
+        aspectRatio: item.settings?.aspectRatio || '1:1',
+        strength: item.settings?.strength || 'medium',
+        outputCount: item.settings?.outputCount || 1,
+        subpage: item.settings?.subpage || activeSubpage,
+        toolCode: item.settings?.toolCode || activeToolCode || 'custom_retouch',
+      },
+      submittedAt: Date.parse(item.createdAt) || Date.now(),
+    };
+    setRepairTasks((prev) => [synthetic, ...prev]);
+  };
+
+  const retryFailedCard = (task: RepairTask) => {
+    // Apply settings back to the form and remove the failed card; user can hit submit again
+    setPrompt(task.settings.prompt);
+    setAspectRatio(task.settings.aspectRatio);
+    setStrength(task.settings.strength);
+    setOutputCount(task.settings.outputCount);
+    setActiveSubpage(task.settings.subpage);
+    setActiveToolCode(task.settings.toolCode);
+    dismissCard(task.localId);
   };
 
   const handleDownload = async (result: ProductImageResult, index: number) => {
@@ -515,8 +690,8 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
         )}
 
         <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5 md:p-6 shadow-2xl">
-          {phase === 'setup' && (
-            <div className="space-y-4">
+          {/* form area is always visible; submitting starts a new task card without locking the page */}
+          <div className="space-y-4">
               <div className="rounded-2xl border border-white/5 bg-black/20 p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   {subpageOptions.map((item) => {
@@ -776,59 +951,105 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                 </div>
               )}
             </div>
-          )}
 
-          {phase === 'generating' && (
-            <div className="flex justify-center">
-              <LoadingProgress
-                progress={progress}
-                estimatedTime={35}
-                currentStep={t.sr_loading_current_step}
-                totalSteps={3}
-                title={t.sr_loading_title}
-                theme={loadingTheme}
-                backgroundImageSrc={loadingBackgroundSrc}
-                onCancel={() => setPhase('setup')}
-              />
-            </div>
-          )}
-
-          {phase === 'result' && (
-            <div>
-              <div className="flex items-center justify-between mb-6">
+          {repairTasks.length > 0 && (
+            <div className="mt-8 border-t border-white/10 pt-6">
+              <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-bold text-white">{t.sr_generation_results}</h2>
-                  <p className="text-sm text-zinc-400 mt-1">{results.length} {t.sr_images_generated}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setPhase('setup')}
-                    className="px-4 py-2 text-sm bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition"
-                  >
-                    {t.sr_adjust_params}
-                  </button>
-                  <button
-                    onClick={resetToStart}
-                    className="px-4 py-2 text-sm bg-white/10 text-zinc-200 rounded-lg hover:bg-white/20 transition inline-flex items-center gap-2"
-                  >
-                    <Home className="w-4 h-4" />
-                    {t.sr_back_to_start}
-                  </button>
+                  <h2 className="text-xl font-bold text-white">
+                    {isZh ? '修复任务' : 'Repair Tasks'}
+                  </h2>
+                  <p className="text-sm text-zinc-400 mt-1">
+                    {isZh
+                      ? `${repairTasks.length} 个任务（可同时进行）`
+                      : `${repairTasks.length} task(s) — running in parallel`}
+                  </p>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {results.map((item, idx) => (
-                  <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 overflow-hidden hover:border-orange-400/30 transition">
-                    <img src={item.imageUrl} alt={`smart-repair-${idx}`} className="w-full aspect-video object-cover" />
+                {repairTasks.map((task) => (
+                  <div
+                    key={task.localId}
+                    className="rounded-xl border border-white/10 bg-black/20 overflow-hidden hover:border-orange-400/30 transition"
+                  >
+                    {task.status === 'processing' && (
+                      <div className="aspect-video flex items-center justify-center bg-black/40">
+                        <div className="flex flex-col items-center gap-2 text-zinc-300">
+                          <Loader2 className="w-6 h-6 animate-spin text-orange-400" />
+                          <div className="text-sm">{isZh ? '处理中…' : 'Processing…'}</div>
+                          <div className="text-[11px] text-zinc-500">
+                            {new Date(task.submittedAt).toLocaleTimeString()}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {task.status === 'succeeded' && task.outputs[0] && (
+                      <img
+                        src={task.outputs[0].imageUrl}
+                        alt={`smart-repair-${task.localId}`}
+                        className="w-full aspect-video object-cover"
+                      />
+                    )}
+                    {task.status === 'failed' && (
+                      <div className="aspect-video flex items-center justify-center bg-red-900/20 px-4">
+                        <div className="text-center">
+                          <div className="text-sm text-red-300 font-semibold mb-1">
+                            {isZh ? '生成失败' : 'Generation failed'}
+                          </div>
+                          <div className="text-xs text-red-200/70 line-clamp-3">{task.error || (isZh ? '未知错误' : 'Unknown error')}</div>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="p-3">
-                      <button
-                        onClick={() => handleDownload(item, idx)}
-                        className="w-full px-3 py-2 text-sm bg-orange-500 text-black font-semibold rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2"
-                      >
-                        <Download className="w-4 h-4" />
-                        {t.sr_download}
-                      </button>
+                      <div className="mb-2 line-clamp-2 text-[11px] text-zinc-500">
+                        {task.settings.prompt}
+                      </div>
+                      {task.status === 'processing' && (
+                        <button
+                          onClick={() => cancelTaskCard(task.localId)}
+                          className="w-full px-3 py-2 text-sm bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition inline-flex items-center justify-center gap-2"
+                        >
+                          <X className="w-4 h-4" />
+                          {isZh ? '隐藏卡片（任务后台继续）' : 'Hide card (task keeps running)'}
+                        </button>
+                      )}
+                      {task.status === 'succeeded' && task.outputs[0] && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleDownload(task.outputs[0], 0)}
+                            className="flex-1 px-3 py-2 text-sm bg-orange-500 text-black font-semibold rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2"
+                          >
+                            <Download className="w-4 h-4" />
+                            {t.sr_download}
+                          </button>
+                          <button
+                            onClick={() => dismissCard(task.localId)}
+                            className="px-3 py-2 text-sm bg-white/10 text-zinc-300 rounded-lg hover:bg-white/20 transition"
+                            title={isZh ? '从任务卡列表隐藏（历史中保留）' : 'Hide from task list (still in history)'}
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                      {task.status === 'failed' && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => retryFailedCard(task)}
+                            className="flex-1 px-3 py-2 text-sm bg-orange-500 text-black font-semibold rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                            {isZh ? '重试' : 'Retry'}
+                          </button>
+                          <button
+                            onClick={() => dismissCard(task.localId)}
+                            className="px-3 py-2 text-sm bg-white/10 text-zinc-300 rounded-lg hover:bg-white/20 transition"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -892,28 +1113,12 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
             )}
           </div>
 
-          {phase === 'error' && error && (
-            <ErrorDialog
-              isOpen={true}
-              error={error}
-              onClose={() => setPhase('setup')}
-              onRetry={() => {
-                setError(null);
-                setPhase('setup');
-              }}
-              showRetry={true}
-            />
-          )}
-
-          {error && phase !== 'error' && (
+          {error && (
             <ErrorDialog
               isOpen={!!error}
               error={error}
               onClose={() => setError(null)}
-              onRetry={() => {
-                setError(null);
-                setPhase('setup');
-              }}
+              onRetry={() => setError(null)}
               showRetry={true}
             />
           )}

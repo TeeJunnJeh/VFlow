@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, Minus, Plus, Save } from 'lucide-react';
+import { ChevronLeft, ChevronsDown, Minus, Plus, Save } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import { ImageUploader } from '../../Common/ImageUploader';
@@ -59,6 +59,7 @@ interface FirstFrameViewProps {
 const FIRST_FRAME_TRANSFER_KEY = 'vflow_apply_first_frame';
 const FIRST_FRAME_WORKSPACE_META_KEY = 'vflow_first_frame_workspaces_v1';
 const FIRST_FRAME_ACTIVE_WORKSPACE_KEY = 'vflow_first_frame_active_workspace_v1';
+const FIRST_FRAME_EXAMPLES_COLLAPSED_KEY = 'vflow_first_frame_examples_collapsed_v1';
 const FIRST_FRAME_COUNTDOWN_SECONDS = 120;
 const FIRST_FRAME_PROGRESS_HOLD_MAX = 95;
 const FIRST_FRAME_ASYNC_POLL_INTERVAL_MS = 3000;
@@ -82,12 +83,15 @@ const FIRST_FRAME_EXAMPLE_TEMPLATES: FirstFrameExampleTemplate[] = [
       '/first-frame-examples/brand_ad/input_model.png',
       '/first-frame-examples/brand_ad/input_product.jpg',
     ],
-    resultImageUrls: ['/first-frame-examples/brand_ad/result1.jpg'],
+    resultImageUrls: [
+      '/first-frame-examples/brand_ad/result1.jpg',
+      '/first-frame-examples/brand_ad/result2.jpg'
+    ],
     params: {
       openingScene: 'brand_ad',
       prompt: '人物自然手持护肤品出镜，妆容精致，产品清晰突出。背景简洁高级，光线柔和，整体呈现高质感护肤品广告画面。',
       aspectRatio: '3:4',
-      outputCount: 1,
+      outputCount: 2,
       model: 'nano-banana-pro',
     },
   },
@@ -106,7 +110,7 @@ const FIRST_FRAME_EXAMPLE_TEMPLATES: FirstFrameExampleTemplate[] = [
     ],
     params: {
       openingScene: 'usage_demo',
-      prompt: '一个年轻亚裔女孩在安静的居家空间中自然佩戴耳机，单手轻扶耳机，呈现沉浸听音乐的状态。耳机清晰突出，画面的洁柔和，有生活感。',
+      prompt: '一个年轻亚裔女孩在安静的居家空间中自然佩戴耳机，单手轻扶耳机，呈现沉浸听音乐的状态。耳机清晰突出，画面柔和有生活感。',
       aspectRatio: '16:9',
       outputCount: 3,
       model: 'nano-banana-pro',
@@ -256,6 +260,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const [isApplyingExample, setIsApplyingExample] = useState(false);
   const [isSavingExampleSnapshot, setIsSavingExampleSnapshot] = useState(false);
   const [isDeletingExampleSnapshot, setIsDeletingExampleSnapshot] = useState(false);
+  const [isExamplesCollapsed, setIsExamplesCollapsed] = useState(false);
 
   const generationSeqRef = useRef(0);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -344,6 +349,24 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       canceled = true;
     };
   }, [t.ff_error_generation_failed]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      setIsExamplesCollapsed(window.localStorage.getItem(FIRST_FRAME_EXAMPLES_COLLAPSED_KEY) === '1');
+    } catch {
+      // Ignore localStorage read failures.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(FIRST_FRAME_EXAMPLES_COLLAPSED_KEY, isExamplesCollapsed ? '1' : '0');
+    } catch {
+      // Ignore localStorage write failures.
+    }
+  }, [isExamplesCollapsed]);
 
   useEffect(() => {
     let alive = true;
@@ -1133,83 +1156,102 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     <>
       <div className="flex h-full min-h-0 flex-col">
         <div className="mb-4 shrink-0">
-          <div className="mb-3">
+          <div className="mb-3 flex items-center gap-2">
             <div className="text-sm font-bold text-zinc-200">{t.ff_examples_title || '示例首帧'}</div>
-            {/* <div className="mt-1 text-xs text-zinc-500">{t.ff_examples_subtitle || '点击示例，自动填充参考图与生成参数'}</div> */}
-          </div>
-          <div className="flex gap-3 overflow-x-auto pb-2 custom-scroll">
-            {firstFrameExamples.map((item) => {
-              const isUserSnapshot = Boolean(item.isUserSnapshot);
-              const isBusy = Boolean(isGenerating || isApplyingExample || isSavingExampleSnapshot || isDeletingExampleSnapshot);
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => (isUserSnapshot ? undefined : void applyFirstFrameExample(item.id))}
-                  disabled={isBusy}
-                  className={`group relative w-[240px] shrink-0 overflow-hidden rounded-2xl border border-white/10 ${isUserSnapshot ? 'bg-black/10' : 'bg-black/20'} text-left transition hover:border-orange-500/30 hover:bg-black/30 disabled:opacity-60 disabled:hover:border-white/10 ${isUserSnapshot ? 'hover:-translate-y-1' : ''}`}
-                  title={isBusy ? (t.ff_examples_loading || '处理中...') : (isUserSnapshot ? (t.ff_saved_example_hover_tip || '悬浮显示操作') : (t.ff_examples_click_to_fill || '点击填充'))}
-                >
-                  <div className="relative h-[112px]">
-                    <img
-                      src={item.previewUrl}
-                      alt={item.title}
-                      className={`h-full w-full object-cover transition ${isUserSnapshot ? 'opacity-85 group-hover:opacity-70 group-hover:blur-sm' : 'opacity-85 group-hover:opacity-95'}`}
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
-                    <div className="absolute inset-x-4 bottom-3">
-                      <div className="text-sm font-extrabold text-white/95">{item.title}</div>
-                      <div className="mt-0.5 text-[11px] text-white/70 line-clamp-1">{item.subtitle}</div>
-                    </div>
-
-                    {isUserSnapshot && (
-                      <div className="absolute inset-0 flex items-center justify-center opacity-0 transition group-hover:opacity-100">
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            disabled={isBusy}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void applyFirstFrameExample(item.id);
-                            }}
-                            className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-500/15 border border-emerald-500/30 text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60 disabled:hover:bg-emerald-500/15 transition"
-                          >
-                            {t.ff_saved_example_apply || '添加'}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={isBusy}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void deleteFirstFrameExampleSnapshot(item.id);
-                            }}
-                            className="px-3 py-2 rounded-xl text-xs font-bold bg-red-500/15 border border-red-500/30 text-red-100 hover:bg-red-500/20 disabled:opacity-60 disabled:hover:bg-red-500/15 transition"
-                          >
-                            {t.ff_saved_example_delete || '删除'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-
             <button
               type="button"
-              onClick={() => void saveFirstFrameExampleSnapshot()}
-              disabled={isGenerating || isApplyingExample || isSavingExampleSnapshot}
-              className="group relative w-[240px] shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-black/10 text-left transition hover:border-orange-500/30 hover:bg-black/20 disabled:opacity-60 disabled:hover:border-white/10"
-              title={isSavingExampleSnapshot ? (t.ff_saving || '保存中...') : (t.ff_save_as_example || '保存当前配置为示例')}
+              onClick={() => setIsExamplesCollapsed((prev) => !prev)}
+              className="p-1.5 text-zinc-600 hover:text-zinc-300 transition rounded"
+              title={isExamplesCollapsed ? (t.wb_expand || '展开') : (t.wb_collapse || '折叠')}
+              aria-label={isExamplesCollapsed ? (t.wb_expand || '展开') : (t.wb_collapse || '折叠')}
             >
-              <div className="relative h-[112px] flex items-center justify-center gap-2 px-4">
-                <Save className="h-4 w-4 text-orange-300/90" />
-                <div>
-                  <div className="text-sm font-extrabold text-zinc-200">{t.ff_save_as_example || '保存为示例'}</div>
-                  <div className="mt-0.5 text-[11px] text-zinc-500 line-clamp-1">{t.ff_save_as_example_desc || '保存当前工作区快照'}</div>
-                </div>
-              </div>
+              <ChevronsDown className={`w-4 h-4 transition-transform duration-200 ${isExamplesCollapsed ? 'rotate-0' : 'rotate-180'}`} />
             </button>
+          </div>
+          <div
+            className={[
+              'grid overflow-hidden transition-[grid-template-rows,opacity] duration-300',
+              'ease-[cubic-bezier(0.22,1,0.36,1)]',
+              isExamplesCollapsed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
+            ].join(' ')}
+            aria-hidden={isExamplesCollapsed}
+          >
+            <div className="min-h-0 overflow-hidden">
+              <div className="flex gap-3 overflow-x-auto pb-2 custom-scroll">
+                {firstFrameExamples.map((item) => {
+                  const isUserSnapshot = Boolean(item.isUserSnapshot);
+                  const isBusy = Boolean(isGenerating || isApplyingExample || isSavingExampleSnapshot || isDeletingExampleSnapshot);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => (isUserSnapshot ? undefined : void applyFirstFrameExample(item.id))}
+                      disabled={isBusy}
+                      className={`group relative w-[240px] shrink-0 overflow-hidden rounded-2xl border border-white/10 ${isUserSnapshot ? 'bg-black/10' : 'bg-black/20'} text-left transition hover:border-orange-500/30 hover:bg-black/30 disabled:opacity-60 disabled:hover:border-white/10 ${isUserSnapshot ? 'hover:-translate-y-1' : ''}`}
+                      title={isBusy ? (t.ff_examples_loading || '处理中...') : (isUserSnapshot ? (t.ff_saved_example_hover_tip || '悬浮显示操作') : (t.ff_examples_click_to_fill || '点击填充'))}
+                    >
+                      <div className="relative h-[112px]">
+                        <img
+                          src={item.previewUrl}
+                          alt={item.title}
+                          className={`h-full w-full object-cover transition ${isUserSnapshot ? 'opacity-85 group-hover:opacity-70 group-hover:blur-sm' : 'opacity-85 group-hover:opacity-95'}`}
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
+                        <div className="absolute inset-x-4 bottom-3">
+                          <div className="text-sm font-extrabold text-white/95">{item.title}</div>
+                          <div className="mt-0.5 text-[11px] text-white/70 line-clamp-1">{item.subtitle}</div>
+                        </div>
+
+                        {isUserSnapshot && (
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 transition group-hover:opacity-100">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void applyFirstFrameExample(item.id);
+                                }}
+                                className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-500/15 border border-emerald-500/30 text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60 disabled:hover:bg-emerald-500/15 transition"
+                              >
+                                {t.ff_saved_example_apply || '添加'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void deleteFirstFrameExampleSnapshot(item.id);
+                                }}
+                                className="px-3 py-2 rounded-xl text-xs font-bold bg-red-500/15 border border-red-500/30 text-red-100 hover:bg-red-500/20 disabled:opacity-60 disabled:hover:bg-red-500/15 transition"
+                              >
+                                {t.ff_saved_example_delete || '删除'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+
+                <button
+                  type="button"
+                  onClick={() => void saveFirstFrameExampleSnapshot()}
+                  disabled={isGenerating || isApplyingExample || isSavingExampleSnapshot}
+                  className="group relative w-[240px] shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-black/10 text-left transition hover:border-orange-500/30 hover:bg-black/20 disabled:opacity-60 disabled:hover:border-white/10"
+                  title={isSavingExampleSnapshot ? (t.ff_saving || '保存中...') : (t.ff_save_as_example || '保存当前配置为示例')}
+                >
+                  <div className="relative h-[112px] flex items-center justify-center gap-2 px-4">
+                    <Save className="h-4 w-4 text-orange-300/90" />
+                    <div>
+                      <div className="text-sm font-extrabold text-zinc-200">{t.ff_save_as_example || '保存为示例'}</div>
+                      <div className="mt-0.5 text-[11px] text-zinc-500 line-clamp-1">{t.ff_save_as_example_desc || '保存当前工作区快照'}</div>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 

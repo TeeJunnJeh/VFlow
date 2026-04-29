@@ -18,6 +18,7 @@ export type SeedanceReplayValidationCandidate = Omit<SeedanceReplayParsedAsset, 
 
 export type SeedanceReplayValidationAsset = {
   mediaKind?: SeedanceReplayMediaKind | 'file' | null;
+  materialType?: string | null;
   sizeBytes?: number | null;
   durationSeconds?: number | null;
   validationMessages?: string[] | null;
@@ -398,27 +399,31 @@ export const buildSeedanceReplayValidationSummary = <T extends SeedanceReplayVal
       asset.mediaKind === 'image' || asset.mediaKind === 'video' || asset.mediaKind === 'audio'
   );
   const imageAssets = seedanceAssets.filter((asset) => asset.mediaKind === 'image');
+  const productImageAssets = mode === 'viral_replay'
+    ? imageAssets.filter((asset) => String(asset.materialType || '').toLowerCase() !== 'model')
+    : imageAssets;
   const videoAssets = seedanceAssets.filter((asset) => asset.mediaKind === 'video');
   const audioAssets = seedanceAssets.filter((asset) => asset.mediaKind === 'audio');
   const uniqueMessages = (values: string[]) => Array.from(new Set(values.filter(Boolean)));
   const sumSizeBytes = (items: SeedanceReplayValidationAsset[]) => items.reduce((sum, item) => sum + Math.max(0, item.sizeBytes ?? 0), 0);
   const sumDuration = (items: SeedanceReplayValidationAsset[]) => items.reduce((sum, item) => sum + Math.max(0, item.durationSeconds ?? 0), 0);
-  const totalImageBytes = sumSizeBytes(imageAssets);
+  const totalImageBytes = sumSizeBytes(productImageAssets);
   const totalVideoDuration = sumDuration(videoAssets);
   const totalAudioDuration = sumDuration(audioAssets);
   const totalAudioBytes = sumSizeBytes(audioAssets);
   const imageKindLabel = getSeedanceReplayKindLabel(t, 'image');
   const videoKindLabel = getSeedanceReplayKindLabel(t, 'video');
   const audioKindLabel = getSeedanceReplayKindLabel(t, 'audio');
+  const videoLimit = mode === 'viral_replay' ? 1 : SEEDANCE_REPLAY_VIDEO_LIMIT;
 
   const imageErrors = uniqueMessages([
-    ...(mode === 'viral_replay' && imageAssets.length === 0
+    ...(mode === 'viral_replay' && productImageAssets.length === 0
       ? [t?.wb_replay_error_missing_product_image || 'Please upload at least 1 product image.']
       : []),
-    ...(imageAssets.length > SEEDANCE_REPLAY_IMAGE_LIMIT
+    ...(productImageAssets.length > SEEDANCE_REPLAY_IMAGE_LIMIT
       ? [formatSeedanceReplayText(
           t?.wb_seedance_replay_error_count || '{kind} count exceeds limit ({count}/{limit})',
-          { kind: imageKindLabel, count: imageAssets.length, limit: SEEDANCE_REPLAY_IMAGE_LIMIT },
+          { kind: imageKindLabel, count: productImageAssets.length, limit: SEEDANCE_REPLAY_IMAGE_LIMIT },
         )]
       : []),
     ...(totalImageBytes > SEEDANCE_REPLAY_IMAGE_TOTAL_BYTES_LIMIT
@@ -427,22 +432,18 @@ export const buildSeedanceReplayValidationSummary = <T extends SeedanceReplayVal
           { kind: imageKindLabel, current: formatMegabytes(totalImageBytes), limit: '64MB' },
         )]
       : []),
-    ...imageAssets.flatMap((asset) => asset.validationMessages || []),
+    ...productImageAssets.flatMap((asset) => asset.validationMessages || []),
   ]);
   const videoErrors = uniqueMessages([
     ...(mode === 'viral_replay' && videoAssets.length === 0
       ? [t?.wb_replay_error_missing_reference_video || 'Please upload 1 reference ad video.']
       : []),
-    ...(mode === 'viral_replay' && videoAssets.length > 1
+    ...(videoAssets.length > videoLimit
       ? [formatSeedanceReplayText(
-          t?.wb_replay_error_single_reference_video || 'Viral recreate mode supports exactly 1 reference ad video ({count}/{limit}).',
-          { count: videoAssets.length, limit: 1 },
-        )]
-      : []),
-    ...(videoAssets.length > SEEDANCE_REPLAY_VIDEO_LIMIT
-      ? [formatSeedanceReplayText(
-          t?.wb_seedance_replay_error_count || '{kind} count exceeds limit ({count}/{limit})',
-          { kind: videoKindLabel, count: videoAssets.length, limit: SEEDANCE_REPLAY_VIDEO_LIMIT },
+          mode === 'viral_replay'
+            ? (t?.wb_replay_error_single_reference_video || 'Viral recreate mode supports exactly 1 reference ad video ({count}/{limit}).')
+            : (t?.wb_seedance_replay_error_count || '{kind} count exceeds limit ({count}/{limit})'),
+          { kind: videoKindLabel, count: videoAssets.length, limit: videoLimit },
         )]
       : []),
     ...(totalVideoDuration > SEEDANCE_REPLAY_DURATION_MAX
@@ -478,7 +479,7 @@ export const buildSeedanceReplayValidationSummary = <T extends SeedanceReplayVal
     ...audioAssets.flatMap((asset) => asset.validationMessages || []),
   ]);
   const hasMinimumAssets = mode === 'viral_replay'
-    ? imageAssets.length > 0 && videoAssets.length === 1
+    ? productImageAssets.length > 0 && videoAssets.length === 1
     : imageAssets.length > 0 || videoAssets.length > 0;
   const globalErrors = hasMinimumAssets || mode === 'viral_replay'
     ? []

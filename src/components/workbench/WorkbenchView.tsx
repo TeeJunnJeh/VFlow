@@ -400,6 +400,8 @@ const REPLAY_SCRIPT_TEMPLATES: ReplayScriptTemplate[] = [
   },
 ];
 
+const SEEDANCE_REPLAY_MODEL_LIMIT = 3;
+
 type SelectedBackgroundAudio = {
   id: string;
   name: string;
@@ -3344,7 +3346,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (replayOnly) {
       return {
         targetMediaKind: null,
-        allowedTabs: ['product', 'motion'],
+        allowedTabs: ['product', 'motion', 'model'],
         preferredTab: 'product',
       };
     }
@@ -3519,11 +3521,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     return {
       ...baseAsset,
-      source: candidate.mediaKind === 'image' ? 'product' : 'preference',
+      source: baseAsset.materialType === 'model' ? 'preference' : candidate.mediaKind === 'image' ? 'product' : 'preference',
       materialType: candidate.mediaKind === 'video' ? 'motion'
         : candidate.mediaKind === 'audio' ? 'audio'
           : (baseAsset.materialType === 'model' ? 'model' : 'product'),
-      isPrimaryFrame: candidate.mediaKind === 'image',
+      isPrimaryFrame: candidate.mediaKind === 'image' && baseAsset.materialType !== 'model',
       mediaKind: candidate.mediaKind,
       durationSeconds: candidate.durationSeconds ?? null,
       mimeType: candidate.mimeType,
@@ -3723,15 +3725,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         return false;
       }
 
-      const currentCount = uploadDisplayAssets.filter((item) => item.mediaKind === queuedAsset.mediaKind).length;
-      const limit = queuedAsset.mediaKind === 'image'
-        ? SEEDANCE_REPLAY_IMAGE_LIMIT
-        : queuedAsset.mediaKind === 'video'
-          ? (isSeedanceReplayMode ? 1 : SEEDANCE_REPLAY_VIDEO_LIMIT)
-          : SEEDANCE_REPLAY_AUDIO_LIMIT;
+      const currentCount = queuedAsset.materialType === 'model'
+        ? uploadDisplayAssets.filter((item) => item.materialType === 'model').length
+        : uploadDisplayAssets.filter((item) => item.mediaKind === queuedAsset.mediaKind && item.materialType !== 'model').length;
+      const limit = queuedAsset.materialType === 'model'
+        ? SEEDANCE_REPLAY_MODEL_LIMIT
+        : queuedAsset.mediaKind === 'image'
+          ? SEEDANCE_REPLAY_IMAGE_LIMIT
+          : queuedAsset.mediaKind === 'video'
+            ? (isSeedanceReplayMode ? 1 : SEEDANCE_REPLAY_VIDEO_LIMIT)
+            : SEEDANCE_REPLAY_AUDIO_LIMIT;
       if (currentCount >= limit) {
-        const kindLabel = queuedAsset.mediaKind === 'image'
-          ? (t.wb_seedance_replay_media_image || 'Image')
+        const kindLabel = queuedAsset.materialType === 'model'
+          ? (t.wb_seedance_replay_virtual_models || 'Virtual Models')
+          : queuedAsset.mediaKind === 'image'
+            ? (t.wb_seedance_replay_media_image || 'Image')
           : queuedAsset.mediaKind === 'video'
             ? (t.wb_seedance_replay_media_video || 'Video')
             : (t.wb_seedance_replay_media_audio || 'Audio');
@@ -4169,24 +4177,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         openInfo(popupTitles.notice, t.wb_replay_error_audio_not_supported || 'Audio assets are not supported in viral recreate mode.');
         return false;
       }
-      if (replayQueued.materialType === 'model') {
-        openInfo(popupTitles.notice, t.wb_replay_error_model_not_supported || 'Virtual model assets are not supported in viral recreate mode.');
-        return false;
-      }
       const validationMessage = validateSeedanceReplayParsedAsset(replayCandidate, t);
       if (validationMessage) {
         openInfo(popupTitles.notice, validationMessage);
         return false;
       }
-      const currentCount = uploadDisplayAssets.filter((a) => a.mediaKind === replayQueued.mediaKind).length;
-      const limit = replayQueued.mediaKind === 'image'
-        ? SEEDANCE_REPLAY_IMAGE_LIMIT
-        : replayQueued.mediaKind === 'video'
-          ? 1
-          : SEEDANCE_REPLAY_AUDIO_LIMIT;
+      const currentCount = replayQueued.materialType === 'model'
+        ? uploadDisplayAssets.filter((a) => a.materialType === 'model').length
+        : uploadDisplayAssets.filter((a) => a.mediaKind === replayQueued.mediaKind && a.materialType !== 'model').length;
+      const limit = replayQueued.materialType === 'model'
+        ? SEEDANCE_REPLAY_MODEL_LIMIT
+        : replayQueued.mediaKind === 'image'
+          ? SEEDANCE_REPLAY_IMAGE_LIMIT
+          : replayQueued.mediaKind === 'video'
+            ? 1
+            : SEEDANCE_REPLAY_AUDIO_LIMIT;
       if (currentCount >= limit) {
         const kindLabel = replayQueued.mediaKind === 'image'
-          ? (t.wb_seedance_replay_media_image || 'Image')
+          ? (replayQueued.materialType === 'model' ? (t.wb_seedance_replay_virtual_models || 'Virtual Models') : (t.wb_seedance_replay_media_image || 'Image'))
           : replayQueued.mediaKind === 'video'
             ? (t.wb_seedance_replay_media_video || 'Video')
             : (t.wb_seedance_replay_media_audio || 'Audio');
@@ -6845,7 +6853,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (assetQueue.length > 0) {
       let hasVideo = false;
       const allowedQueue = assetQueue.filter((asset) => {
-        if (asset.mediaKind === 'image' && asset.materialType !== 'model') return true;
+        if (asset.mediaKind === 'image') return true;
         if (asset.mediaKind === 'video' && !hasVideo) {
           hasVideo = true;
           return true;
@@ -6862,7 +6870,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
-    if (uploadedFile && (currentAssetMediaKind === 'audio' || currentMaterialType === 'model')) {
+    if (uploadedFile && currentAssetMediaKind === 'audio') {
       clearWorkbenchAssetSelection();
     }
   }, [
@@ -8733,25 +8741,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       coreSellingPoints.trim() ? `核心卖点：${coreSellingPoints.trim()}` : '',
       targetAudience.trim() ? `目标人群：${targetAudience.trim()}` : '',
       `生成来源：${label}`,
-      '只使用用户上传的商品图片作为视觉参考，不要把参考广告视频作为 Seedance 生成素材。',
+      '只使用用户上传的商品图片和已选虚拟模特作为视觉参考，不要把参考广告视频作为 Seedance 生成素材。',
     ].filter(Boolean).join('\n');
   };
 
   const resolveReplayGenerationAssets = async () => {
-    const imageAssets = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image' && asset.materialType !== 'model');
+    const productImageAssets = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image' && asset.materialType !== 'model');
+    const modelAssets = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image' && asset.materialType === 'model');
     const videoAssets = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'video');
     const pathUpdates: Record<string, string> = {};
-    const imagePaths: string[] = [];
+    const productImagePaths: string[] = [];
+    const seedanceImagePaths: string[] = [];
     const imageAssetsMeta: Array<{ path: string; material_type: string; seedance_asset_id?: string; frame_role?: string | null }> = [];
 
-    for (const imageAsset of imageAssets) {
+    for (const imageAsset of productImageAssets) {
       let resolvedPath = imageAsset.uploadedPath || imageAsset.assetUrl || null;
       if (!resolvedPath && imageAsset.fileObj) {
         const uploadResp = await assetsApi.uploadTempAsset(imageAsset.fileObj);
         resolvedPath = extractUploadedAssetPath(uploadResp);
       }
       if (!resolvedPath) continue;
-      imagePaths.push(resolvedPath);
+      productImagePaths.push(resolvedPath);
+      seedanceImagePaths.push(resolvedPath);
       imageAssetsMeta.push({
         path: resolvedPath,
         material_type: imageAsset.materialType || 'product',
@@ -8762,22 +8773,45 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
     }
 
+    for (const modelAsset of modelAssets) {
+      const seedanceAssetId = String(modelAsset.seedanceAssetId || '').trim();
+      if (!seedanceAssetId) {
+        throw new Error(t.wb_replay_error_model_missing_seedance_id || '该虚拟模特缺少 Seedance 资产 ID，无法用于爆款复刻生成。');
+      }
+      const resolvedPath = modelAsset.uploadedPath || modelAsset.assetUrl || modelAsset.previewUrl || `asset://${seedanceAssetId}`;
+      seedanceImagePaths.push(resolvedPath);
+      imageAssetsMeta.push({
+        path: resolvedPath,
+        material_type: 'model',
+        seedance_asset_id: seedanceAssetId,
+        frame_role: null,
+      });
+    }
+
     if (Object.keys(pathUpdates).length > 0) {
       setAssetQueue((prev) => prev.map((item) => pathUpdates[item.id] ? { ...item, uploadedPath: pathUpdates[item.id] } : item));
     }
 
     return {
-      imagePaths,
+      productImagePaths,
+      seedanceImagePaths,
       imageAssetsMeta,
+      modelAssetIds: modelAssets.map((asset) => String(asset.seedanceAssetId || '').trim()).filter(Boolean),
       referenceVideoAsset: videoAssets[0] || null,
     };
   };
 
-  const buildReplayReversePayload = (referenceVideoAsset: QueuedAsset) => {
+  const buildReplayReversePayload = (referenceVideoAsset: QueuedAsset, debugTraceId: string) => {
     if (referenceVideoAsset.fileObj) {
       const formData = new FormData();
       formData.append('video_file', referenceVideoAsset.fileObj, referenceVideoAsset.fileObj.name || referenceVideoAsset.name || 'reference.mp4');
       formData.append('user_language', language);
+      formData.append('debug_trace_id', debugTraceId);
+      formData.append('debug', 'true');
+      if (productName.trim()) formData.append('product_name', productName.trim());
+      if (productCategory.trim()) formData.append('product_category', productCategory.trim());
+      if (coreSellingPoints.trim()) formData.append('core_selling_points', coreSellingPoints.trim());
+      if (targetAudience?.trim()) formData.append('target_audience', targetAudience.trim());
       return formData;
     }
 
@@ -8785,10 +8819,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!videoPath) {
       throw new Error(t.wb_replay_error_reference_video_unreadable || '无法读取参考广告视频');
     }
+    const productExtra = {
+      ...(productName.trim() ? { product_name: productName.trim() } : {}),
+      ...(productCategory.trim() ? { product_category: productCategory.trim() } : {}),
+      ...(coreSellingPoints.trim() ? { core_selling_points: coreSellingPoints.trim() } : {}),
+      ...(targetAudience?.trim() ? { target_audience: targetAudience.trim() } : {}),
+    };
     if (/^https?:\/\//i.test(videoPath)) {
-      return { video_url: videoPath, user_language: language };
+      return { video_url: videoPath, user_language: language, debug_trace_id: debugTraceId, debug: true, ...productExtra };
     }
-    return { video_path: videoPath, user_language: language };
+    return { video_path: videoPath, user_language: language, debug_trace_id: debugTraceId, debug: true, ...productExtra };
   };
 
   const handleReplayBatchGenerateSubmit = async () => {
@@ -8857,8 +8897,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     });
 
     try {
-      const { imagePaths, imageAssetsMeta, referenceVideoAsset } = await resolveReplayGenerationAssets();
-      if (imagePaths.length === 0) throw new Error(t.wb_replay_error_missing_product_image || '请上传至少 1 张商品图片');
+      const { productImagePaths, seedanceImagePaths, imageAssetsMeta, modelAssetIds, referenceVideoAsset } = await resolveReplayGenerationAssets();
+      if (productImagePaths.length === 0) throw new Error(t.wb_replay_error_missing_product_image || '请上传至少 1 张商品图片');
       if (!referenceVideoAsset) throw new Error(t.wb_replay_error_missing_reference_video || '请上传 1 个参考广告视频');
 
       const submitReplayVideo = async (params: {
@@ -8867,6 +8907,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         prompt: string;
         source: 'template' | 'user_reference';
         copyIndex: number;
+        templateId?: string;
       }) => {
         patchReplayBatchItem(params.itemId, {
           status: 'submitting',
@@ -8881,7 +8922,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               duration: genDuration,
               shots: [],
               replay_source: params.source,
-              prompt: params.prompt,
+              prompt: params.source === 'template' ? params.prompt : '',
+              prompt_hidden: params.source === 'user_reference',
+              replay_template_id: params.templateId || null,
             },
           });
           const newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
@@ -8898,11 +8941,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             pricing_mode: 'replay',
             user_language: language,
             target_language: targetLanguage,
+            debug: true,
+            debug_trace_id: runId,
+            replay_batch_role: params.source === 'template' ? 'template' : 'qwen_reverse',
+            replay_template_id: params.templateId || null,
+            replay_copy_index: params.copyIndex,
+            replay_item_label: params.label,
+            replay_model_asset_ids: modelAssetIds,
+            reference_video_sent_to_seedance: false,
             model_asset_id: null,
             motion_asset_id: null,
             project_id: String(newProjectId),
-            image_path: imagePaths[0],
-            ...(imagePaths.length > 1 ? { image_paths: imagePaths } : {}),
+            image_path: seedanceImagePaths[0],
+            ...(seedanceImagePaths.length > 1 ? { image_paths: seedanceImagePaths } : {}),
             ...(imageAssetsMeta.length > 0 ? { image_assets_meta: imageAssetsMeta } : {}),
           };
 
@@ -8968,7 +9019,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         }, 1000);
 
         try {
-          const reverseResp = await videoApi.reverseScriptFromVideo(user!.id, buildReplayReversePayload(referenceVideoAsset));
+          const reverseResp = await videoApi.reverseScriptFromVideo(user!.id, buildReplayReversePayload(referenceVideoAsset, runId));
           const reverseData: any = reverseResp?.data || {};
           const reversePrompt = String(
             reverseData.seedancePrompt
@@ -8978,8 +9029,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             || ''
           ).trim();
           if (!reversePrompt) throw new Error(t.wb_replay_reverse_empty_prompt || '参考广告解析完成，但没有返回可用脚本');
-          const scriptBrief = String(reverseData.scriptBrief || reverseData.summary || reverseData.styleReferenceText || '').trim();
-          patchReplayReverse({ status: 'success', progress: 100, detail: t.wb_replay_reverse_done || '脚本逆向解析完成', scriptBrief });
+          patchReplayReverse({ status: 'success', progress: 100, detail: t.wb_replay_reverse_done || '脚本逆向解析完成', scriptBrief: '' });
 
           for (const { copyIndex } of userReferenceJobs) {
             const itemId = `${runId}-ref-${copyIndex}`;
@@ -9015,6 +9065,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           prompt: buildReplayPrompt(template.prompt, template.title),
           source: 'template',
           copyIndex,
+          templateId: template.id,
         });
       }
 
@@ -9971,42 +10022,46 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-[12px] text-zinc-500 font-bold block uppercase">{t.wb_reference_script_label || '参考脚本（来自视频解析）'}</label>
-              <textarea
-                value={referenceScript}
-                onChange={(e) => {
-                  setReferenceScript(e.target.value);
-                  setReferenceScriptProductSignature(currentProductInfoSignature);
-                }}
-                rows={4}
-                placeholder={t.wb_reference_script_placeholder || '粘贴或使用“视频解析反向生成脚本”应用到工作台后的参考脚本'}
-                className="wb-workbench-field wb-workbench-field--textarea resize-y min-h-[86px]"
-              />
-              <div className="text-[11px] text-zinc-500">{t.wb_reference_script_hint || '该内容将作为风格参考一并输入脚本模型，帮助生成更接近参考风格的新脚本。'}</div>
-              {!isReferenceScriptFresh && referenceScript.trim() && (
-                <div className="text-[11px] text-amber-300 font-medium">
-                  当前参考脚本对应的是旧商品信息，生成脚本时将自动忽略它。
+            {!isSeedanceReplayMode && (
+              <>
+                <div className="space-y-2">
+                  <label className="text-[12px] text-zinc-500 font-bold block uppercase">{t.wb_reference_script_label || '参考脚本（来自视频解析）'}</label>
+                  <textarea
+                    value={referenceScript}
+                    onChange={(e) => {
+                      setReferenceScript(e.target.value);
+                      setReferenceScriptProductSignature(currentProductInfoSignature);
+                    }}
+                    rows={4}
+                    placeholder={t.wb_reference_script_placeholder || '粘贴或使用“视频解析反向生成脚本”应用到工作台后的参考脚本'}
+                    className="wb-workbench-field wb-workbench-field--textarea resize-y min-h-[86px]"
+                  />
+                  <div className="text-[11px] text-zinc-500">{t.wb_reference_script_hint || '该内容将作为风格参考一并输入脚本模型，帮助生成更接近参考风格的新脚本。'}</div>
+                  {!isReferenceScriptFresh && referenceScript.trim() && (
+                    <div className="text-[11px] text-amber-300 font-medium">
+                      当前参考脚本对应的是旧商品信息，生成脚本时将自动忽略它。
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            <div className="border-t border-white/5 my-1" />
+                <div className="border-t border-white/5 my-1" />
 
-            <div className="flex flex-col gap-3">
-              <div className="flex justify-between items-center">
-                <label className="text-[12px] text-zinc-500 font-bold block uppercase">{t.wb_script_count_label}</label>
-                <span className="text-[12px] font-bold text-orange-400">{scriptVariantCount} {t.wb_script_count_unit}</span>
-              </div>
-              <input
-                type="range"
-                min={1}
-                max={10}
-                value={scriptVariantCount}
-                onChange={(e) => setScriptVariantCount(Number(e.target.value))}
-                className="wb-range w-full h-2 rounded-lg cursor-pointer accent-orange-500"
-              />
-            </div>
+                <div className="flex flex-col gap-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[12px] text-zinc-500 font-bold block uppercase">{t.wb_script_count_label}</label>
+                    <span className="text-[12px] font-bold text-orange-400">{scriptVariantCount} {t.wb_script_count_unit}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={1}
+                    max={10}
+                    value={scriptVariantCount}
+                    onChange={(e) => setScriptVariantCount(Number(e.target.value))}
+                    className="wb-range w-full h-2 rounded-lg cursor-pointer accent-orange-500"
+                  />
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -10059,7 +10114,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 assets={seedanceReplayUploadAssets}
                 validationSummary={seedanceReplayValidation}
                 focusTarget={seedanceReplayFocusTarget}
-                visibleKinds={isSeedanceReplayMode ? ['image', 'video'] : undefined}
+                visibleKinds={isSeedanceReplayMode ? ['image', 'video', 'model'] : undefined}
                 videoLimitOverride={isSeedanceReplayMode ? 1 : undefined}
                 onAddVirtualModel={handleSeedanceReplayAddVirtualModel}
                 onOpenLibraryForKind={handleSeedanceReplayAddFromLibrary}

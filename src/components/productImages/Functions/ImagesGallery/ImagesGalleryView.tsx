@@ -181,7 +181,8 @@ export type ImagesGalleryViewProps = {
   setGalleryRightPanel: React.Dispatch<React.SetStateAction<'preview' | 'history'>>;
   setIsGalleryHistoryManaging: (v: boolean) => void;
   setGalleryHistorySelectedKeys: React.Dispatch<React.SetStateAction<string[]>>;
-  openGalleryBoardEditor: () => void;
+  galleryBoardCanvasRatio: '3:4' | '1:1' | '4:3' | '2:3' | '3:2' | '16:9' | '9:16';
+  openGalleryBoardEditor: (options?: { onboarding?: boolean }) => void;
 
   galleryPreviewItems: Array<{
     localId: string;
@@ -309,6 +310,133 @@ const groupGalleryPreviewItems = <T extends { aspectRatio?: string; localId?: st
   }
 
   return groups;
+};
+
+type GalleryBoardExampleSlot = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+const clampNumber = (value: number, min: number, max: number) => {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+};
+
+const getBoardExampleAspectRatioStyle = (ratioId: string) => {
+  const matched = String(ratioId || '').trim().match(/^(\d+)\s*[:/]\s*(\d+)$/);
+  if (!matched) return '3 / 4';
+  return `${matched[1]} / ${matched[2]}`;
+};
+
+const createBoardExampleGridSlots = (
+  cols: number,
+  rows: number,
+  bounds: GalleryBoardExampleSlot = { x: 0.08, y: 0.08, w: 0.84, h: 0.84 },
+  gap = 0.02
+) => {
+  const safeCols = Math.max(cols, 1);
+  const safeRows = Math.max(rows, 1);
+  const cellW = (bounds.w - gap * (safeCols - 1)) / safeCols;
+  const cellH = (bounds.h - gap * (safeRows - 1)) / safeRows;
+  const slots: GalleryBoardExampleSlot[] = [];
+  for (let row = 0; row < safeRows; row += 1) {
+    for (let col = 0; col < safeCols; col += 1) {
+      slots.push({
+        x: bounds.x + col * (cellW + gap),
+        y: bounds.y + row * (cellH + gap),
+        w: cellW,
+        h: cellH,
+      });
+    }
+  }
+  return slots;
+};
+
+const buildGalleryBoardExampleSlots = (count: number, ratioId: string): GalleryBoardExampleSlot[] => {
+  const safeCount = clampNumber(Math.round(count || 0), 1, 9);
+  const ratioValue = parseAspectRatioFloat(ratioId);
+  const isPortrait = ratioValue < 0.95;
+  const isLandscape = ratioValue > 1.05;
+
+  if (safeCount === 1) {
+    return [{ x: 0.08, y: 0.08, w: 0.84, h: 0.84 }];
+  }
+
+  if (safeCount === 2) {
+    return isPortrait
+      ? [
+          { x: 0.08, y: 0.08, w: 0.84, h: 0.38 },
+          { x: 0.08, y: 0.5, w: 0.84, h: 0.34 },
+        ]
+      : [
+          { x: 0.08, y: 0.12, w: 0.38, h: 0.76 },
+          { x: 0.54, y: 0.12, w: 0.38, h: 0.76 },
+        ];
+  }
+
+  if (safeCount === 3) {
+    if (isPortrait) {
+      return [
+        { x: 0.08, y: 0.08, w: 0.54, h: 0.76 },
+        { x: 0.66, y: 0.08, w: 0.26, h: 0.36 },
+        { x: 0.66, y: 0.48, w: 0.26, h: 0.36 },
+      ];
+    }
+    if (isLandscape) {
+      return [
+        { x: 0.08, y: 0.08, w: 0.48, h: 0.76 },
+        { x: 0.6, y: 0.08, w: 0.32, h: 0.36 },
+        { x: 0.6, y: 0.48, w: 0.32, h: 0.36 },
+      ];
+    }
+    return [
+      { x: 0.08, y: 0.08, w: 0.84, h: 0.42 },
+      { x: 0.08, y: 0.54, w: 0.4, h: 0.3 },
+      { x: 0.52, y: 0.54, w: 0.4, h: 0.3 },
+    ];
+  }
+
+  if (safeCount === 4) {
+    return createBoardExampleGridSlots(2, 2);
+  }
+
+  if (safeCount === 5) {
+    if (isLandscape) {
+      return [
+        { x: 0.08, y: 0.08, w: 0.44, h: 0.76 },
+        ...createBoardExampleGridSlots(2, 2, { x: 0.56, y: 0.08, w: 0.36, h: 0.76 }, 0.02),
+      ];
+    }
+    return [
+      { x: 0.08, y: 0.08, w: 0.84, h: 0.34 },
+      ...createBoardExampleGridSlots(2, 2, { x: 0.08, y: 0.46, w: 0.84, h: 0.38 }, 0.02),
+    ];
+  }
+
+  if (safeCount === 6) {
+    return createBoardExampleGridSlots(3, 2);
+  }
+
+  if (safeCount === 7) {
+    if (isLandscape) {
+      return [
+        { x: 0.08, y: 0.08, w: 0.42, h: 0.76 },
+        ...createBoardExampleGridSlots(2, 3, { x: 0.54, y: 0.08, w: 0.38, h: 0.76 }, 0.02),
+      ];
+    }
+    return [
+      { x: 0.08, y: 0.08, w: 0.84, h: 0.26 },
+      ...createBoardExampleGridSlots(3, 2, { x: 0.08, y: 0.38, w: 0.84, h: 0.46 }, 0.02),
+    ];
+  }
+
+  if (safeCount === 8) {
+    return createBoardExampleGridSlots(4, 2);
+  }
+
+  return createBoardExampleGridSlots(3, 3);
 };
 
 const hexToRgba = (hex: string, alpha: number) => {
@@ -461,7 +589,9 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
   const sceneSectionRef = useRef<HTMLDivElement | null>(null);
   const galleryLeftPanelRef = useRef<HTMLDivElement | null>(null);
   const galleryMiddlePanelRef = useRef<HTMLDivElement | null>(null);
-  const galleryRightPanelRef = useRef<HTMLDivElement | null>(null);
+  const galleryPreviewResultsRef = useRef<HTMLDivElement | null>(null);
+  const galleryBoardExampleRef = useRef<HTMLDivElement | null>(null);
+  const galleryBoardEditButtonRef = useRef<HTMLButtonElement | null>(null);
   const galleryGenerateRef = useRef<HTMLDivElement | null>(null);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [guideStepIndex, setGuideStepIndex] = useState(0);
@@ -474,13 +604,30 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     isVisibleRef.current = isVisible;
   }, [isVisible]);
 
-  type GuideStepKey = 'left' | 'middle' | 'generate' | 'right';
+  const gallerySucceededPreviewItems = useMemo(
+    () =>
+      props.galleryPreviewItems
+        .filter((item) => item.status === 'succeeded' && Boolean(String(item.imageUrl || '').trim()))
+        .slice(0, 9),
+    [props.galleryPreviewItems]
+  );
+  const galleryBoardExampleAspect = useMemo(
+    () => getBoardExampleAspectRatioStyle(props.galleryBoardCanvasRatio),
+    [props.galleryBoardCanvasRatio]
+  );
+  const galleryBoardExampleSlots = useMemo(
+    () => buildGalleryBoardExampleSlots(gallerySucceededPreviewItems.length, props.galleryBoardCanvasRatio),
+    [gallerySucceededPreviewItems.length, props.galleryBoardCanvasRatio]
+  );
+
+  type GuideStepKey = 'left' | 'middle' | 'generate' | 'result' | 'board';
   const guideSteps = useMemo<Array<{ key: GuideStepKey; title: string; description: string }>>(
     () => [
       { key: 'left', title: props.t.pg_img_guide_step_upload_title, description: props.t.pg_img_guide_step_upload_desc },
       { key: 'middle', title: props.t.pg_img_guide_step_config_title, description: props.t.pg_img_guide_step_config_desc },
       { key: 'generate', title: props.t.pg_img_guide_step_generate_title, description: props.t.pg_img_guide_step_generate_desc },
-      { key: 'right', title: props.t.pg_img_guide_step_result_title, description: props.t.pg_img_guide_step_result_desc },
+      { key: 'result', title: props.t.pg_img_guide_step_result_title, description: props.t.pg_img_guide_step_result_desc },
+      { key: 'board', title: props.t.pg_img_guide_step_board_title, description: props.t.pg_img_guide_step_board_desc },
     ],
     [props]
   );
@@ -494,14 +641,13 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
   );
 
   const getGuideTargetElement = useCallback(() => {
-    const map: Record<GuideStepKey, React.RefObject<HTMLDivElement | null>> = {
-      left: galleryLeftPanelRef,
-      middle: galleryMiddlePanelRef,
-      generate: galleryGenerateRef,
-      right: galleryRightPanelRef,
-    };
     const key = guideSteps[guideStepIndex]?.key;
-    return key ? map[key]?.current || null : null;
+    if (key === 'left') return galleryLeftPanelRef.current;
+    if (key === 'middle') return galleryMiddlePanelRef.current;
+    if (key === 'generate') return galleryGenerateRef.current;
+    if (key === 'result') return galleryPreviewResultsRef.current;
+    if (key === 'board') return galleryBoardEditButtonRef.current;
+    return null;
   }, [guideStepIndex, guideSteps]);
 
   const updateGuidePanelPosition = useCallback(() => {
@@ -551,7 +697,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     });
   }, [getGuideTargetElement]);
 
-  const galleryGuideSeenKey = useMemo(() => 'vflow_product_gallery_guide_seen_v1', []);
+  const galleryGuideSeenKey = useMemo(() => 'vflow_product_gallery_guide_seen_v2', []);
   const markGalleryGuideSeen = useCallback(() => {
     try {
       window.localStorage.setItem(galleryGuideSeenKey, '1');
@@ -587,6 +733,14 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     }, 350);
     return () => window.clearTimeout(timer);
   }, [galleryGuideSeenKey, isGuideOpen, isVisible]);
+
+  useEffect(() => {
+    if (!isGuideOpen) return;
+    const key = guideSteps[guideStepIndex]?.key;
+    if (key === 'result' || key === 'board') {
+      props.setGalleryRightPanel('preview');
+    }
+  }, [guideStepIndex, guideSteps, isGuideOpen, props.setGalleryRightPanel]);
 
   useEffect(() => {
     if (!isGuideOpen) return;
@@ -751,6 +905,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     setGalleryRightPanel,
     setIsGalleryHistoryManaging,
     setGalleryHistorySelectedKeys,
+    galleryBoardCanvasRatio,
     openGalleryBoardEditor,
 
     galleryPreviewItems,
@@ -785,6 +940,89 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
   };
 
   const galleryOptimizingItemIds: Record<string, boolean> = {};
+  const renderPreviewCard = (item: any) => {
+    const outputType = String(item.outputType || '').trim();
+    const outputTypeLabel =
+      outputType === 'white_bg'
+        ? t.pi_gallery_output_white_bg
+        : outputType === 'scene'
+          ? t.pi_gallery_output_scene
+          : outputType === 'selling_point'
+            ? t.pi_gallery_output_selling_point
+            : outputType === 'cover'
+              ? t.pi_gallery_output_cover
+              : outputType === 'poster'
+                ? t.pi_gallery_output_poster
+                : '';
+    const rightLabel = String(outputTypeLabel || '').trim() || (outputType ? outputType : item.requestId.slice(0, 8));
+    const statusLabel =
+      item.status === 'succeeded'
+        ? t.pg_img_status_done
+        : item.status === 'failed'
+          ? t.pg_img_status_failed
+          : t.pg_img_status_generating;
+    const badgeTone =
+      item.status === 'succeeded'
+        ? 'bg-emerald-500/15 text-emerald-200 border-emerald-500/30'
+        : item.status === 'failed'
+          ? 'bg-red-500/15 text-red-200 border-red-500/30'
+          : 'bg-orange-500/15 text-orange-200 border-orange-500/30';
+    const placeholderAspect = (() => {
+      const raw = String(item.aspectRatio || '').trim();
+      if (!raw) return '1 / 1';
+      const m = raw.match(/^(\d+)\s*[:\/]\s*(\d+)$/);
+      return m ? `${m[1]} / ${m[2]}` : '1 / 1';
+    })();
+
+    return (
+      <div
+        key={item.localId}
+        className="group rounded-xl border border-white/10 bg-black/20 overflow-hidden shadow-sm transition-all duration-200 ease-out hover:-translate-y-1 hover:border-indigo-500 hover:ring-1 hover:ring-indigo-500/50 hover:shadow-xl"
+      >
+        <div
+          className="relative w-full bg-black/30"
+          style={item.imageUrl ? undefined : { aspectRatio: placeholderAspect }}
+        >
+          {item.imageUrl ? (
+            <button
+              type="button"
+              onClick={() => openGalleryImagePreview(item.imageUrl as string, { kind: 'preview_item', localId: item.localId })}
+              className="block w-full"
+              title={t.pg_img_click_to_preview}
+            >
+              <img src={item.imageUrl} className="block w-full h-auto" alt={item.requestId} />
+              <div className="absolute inset-0 opacity-0 transition-opacity duration-200 bg-black/40 flex items-center justify-center group-hover:opacity-100">
+                <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-xs font-bold text-white">
+                  <Eye className="w-4 h-4" />
+                  {t.pg_img_preview}
+                </div>
+              </div>
+            </button>
+          ) : item.status !== 'failed' ? (
+            <GalleryLoadingCard
+              theme={galleryLoadingTheme}
+              seed={`${item.localId}-${item.requestId}-${rightLabel}`}
+              label={rightLabel}
+              backgroundImageSrc={galleryLoadingBackgroundSrc}
+            />
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500 gap-2">
+              <ImageIcon className={`w-8 h-8 ${item.status === 'failed' ? 'opacity-50' : 'opacity-60 animate-pulse'}`} />
+              <div className="text-xs text-zinc-500 px-4 text-center">
+                {item.error || (item.status === 'failed' ? t.pg_img_generation_failed : t.pg_img_waiting)}
+              </div>
+            </div>
+          )}
+
+          <div className={`absolute top-2 left-2 px-2 py-1 rounded-lg text-[11px] font-bold border ${badgeTone}`}>{statusLabel}</div>
+          <div className="absolute top-2 right-2 px-2 py-1 rounded-lg text-[11px] font-bold border border-white/10 bg-black/50 text-zinc-200">
+            {rightLabel}
+          </div>
+        </div>
+      </div>
+    );
+  };
+  const galleryPreviewGroups = useMemo(() => groupGalleryPreviewItems(galleryPreviewItems), [galleryPreviewItems]);
   const galleryAdvancedItemCount = galleryOutputItems.filter((item) => item.enabled && item.count > 0).length;
   const bulkTypeCards: Array<{
     outputType: GalleryOutputItemConfig['outputType'];
@@ -2143,8 +2381,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
         />
 
         <div
-          ref={galleryRightPanelRef}
-          className={`flex-1 rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col min-h-0 overflow-hidden border border-transparent hover:border-orange-500/20 ${getGuideFocusClass('right')}`}
+          className="flex-1 rounded-2xl border border-transparent bg-white/2 p-5 flex flex-col min-h-0 overflow-hidden hover:border-orange-500/20"
           style={{ minWidth: `${GALLERY_PANEL_MIN_WIDTH}px` }}
           data-testid="right-panel"
         >
@@ -2155,7 +2392,8 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={openGalleryBoardEditor}
+                ref={galleryBoardEditButtonRef}
+                onClick={() => openGalleryBoardEditor()}
                 className="px-3 py-2 rounded-xl text-xs font-bold transition border border-orange-500/30 bg-orange-500/10 text-orange-300 hover:bg-orange-500/15 inline-flex items-center gap-2"
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
@@ -2194,127 +2432,113 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
           {galleryRightPanel === 'preview' ? (
             <div className="flex-1 min-h-0 mt-4 rounded-2xl border border-dashed border-white/10 bg-black/10 overflow-y-auto custom-scroll">
-              {galleryPreviewItems.length === 0 ? (
-                <div className="h-full flex items-center justify-center p-6">
-                  <div className="w-full max-w-[560px] aspect-square rounded-2xl border border-white/10 bg-black/20 flex flex-col items-center justify-center text-zinc-500 gap-3">
-                    <ImageIcon className="w-10 h-10 opacity-60" />
-                    <div className="text-sm font-semibold text-zinc-400">
-                      {t.pg_img_waiting_for_generation}
+              <div className="p-4 space-y-4">
+                <div
+                  ref={galleryPreviewResultsRef}
+                  className={`rounded-2xl border border-white/10 bg-black/15 ${getGuideFocusClass('result')}`}
+                >
+                  <div className="border-b border-white/10 px-4 py-3 text-xs font-bold uppercase tracking-[0.24em] text-zinc-500">
+                    {t.pg_img_preview_area}
+                  </div>
+                  {galleryPreviewItems.length === 0 ? (
+                    <div className="p-6">
+                      <div className="mx-auto flex w-full max-w-[560px] aspect-square items-center justify-center rounded-2xl border border-white/10 bg-black/20 text-zinc-500 gap-3">
+                        <ImageIcon className="w-10 h-10 opacity-60" />
+                        <div className="text-sm font-semibold text-zinc-400">
+                          {t.pg_img_waiting_for_generation}
+                        </div>
+                      </div>
                     </div>
+                  ) : (
+                    <div className="p-4 space-y-3">
+                      {galleryPreviewGroups.map((group) => {
+                        if (group.type === 'full') {
+                          return (
+                            <div key={group.key}>
+                              {renderPreviewCard(group.item)}
+                            </div>
+                          );
+                        }
+                        return (
+                          <Masonry
+                            key={group.key}
+                            breakpointCols={2}
+                            className="pg-masonry-grid"
+                            columnClassName="pg-masonry-grid-col"
+                          >
+                            {group.items.map(renderPreviewCard)}
+                          </Masonry>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  ref={galleryBoardExampleRef}
+                  className={`rounded-2xl border border-white/10 bg-black/25 p-4 ${getGuideFocusClass('board')}`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-zinc-100">{t.pg_img_board_example_title}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openGalleryBoardEditor({ onboarding: true })}
+                      className="inline-flex items-center gap-2 rounded-xl border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs font-bold text-orange-200 transition hover:bg-orange-500/15"
+                    >
+                      <LayoutGrid className="h-3.5 w-3.5" />
+                      {t.pg_img_board_example_action}
+                    </button>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                      {String(t.pg_img_board_example_badge || '').replace('{count}', String(gallerySucceededPreviewItems.length || 0))}
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                      {galleryBoardCanvasRatio}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/70 p-3">
+                    {gallerySucceededPreviewItems.length > 0 ? (
+                      <div
+                        className="relative mx-auto w-full overflow-hidden rounded-[22px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(251,146,60,0.18),transparent_36%),linear-gradient(135deg,rgba(24,24,27,0.96),rgba(9,9,11,1))]"
+                        style={{ aspectRatio: galleryBoardExampleAspect }}
+                      >
+                        <div className="absolute left-[6%] top-[5%] h-[5.5%] w-[34%] rounded-full bg-white/14" />
+                        <div className="absolute left-[6%] top-[13%] h-[2.8%] w-[22%] rounded-full bg-white/8" />
+                        {galleryBoardExampleSlots.map((slot, index) => {
+                          const item = gallerySucceededPreviewItems[index];
+                          if (!item?.imageUrl) return null;
+                          return (
+                            <div
+                              key={`${item.localId}-board-example`}
+                              className="absolute overflow-hidden rounded-[16px] border border-white/10 bg-black/30 shadow-[0_10px_24px_rgba(0,0,0,0.28)]"
+                              style={{
+                                left: `${slot.x * 100}%`,
+                                top: `${slot.y * 100}%`,
+                                width: `${slot.w * 100}%`,
+                                height: `${slot.h * 100}%`,
+                              }}
+                            >
+                              <img src={item.imageUrl} alt={item.requestId} className="h-full w-full object-cover" />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="flex aspect-[3/4] w-full items-center justify-center rounded-[22px] border border-white/10 bg-black/30 px-6 text-center">
+                        <div className="space-y-3 text-zinc-500">
+                          <LayoutGrid className="mx-auto h-8 w-8 text-zinc-600" />
+                          <div className="text-sm font-semibold text-zinc-400">{t.pg_img_board_example_empty}</div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
-              ) : (
-                <div className="p-4 space-y-3">
-                  {(() => {
-                    const renderPreviewCard = (item: any) => {
-                      const outputType = String(item.outputType || '').trim();
-                      const outputTypeLabel =
-                        outputType === 'white_bg'
-                          ? t.pi_gallery_output_white_bg
-                          : outputType === 'scene'
-                            ? t.pi_gallery_output_scene
-                            : outputType === 'selling_point'
-                              ? t.pi_gallery_output_selling_point
-                              : outputType === 'cover'
-                                ? t.pi_gallery_output_cover
-                                : outputType === 'poster'
-                                  ? t.pi_gallery_output_poster
-                                  : '';
-                      const rightLabel = String(outputTypeLabel || '').trim() || (outputType ? outputType : item.requestId.slice(0, 8));
-                      const statusLabel =
-                        item.status === 'succeeded'
-                          ? t.pg_img_status_done
-                          : item.status === 'failed'
-                            ? t.pg_img_status_failed
-                            : t.pg_img_status_generating;
-                      const badgeTone =
-                        item.status === 'succeeded'
-                          ? 'bg-emerald-500/15 text-emerald-200 border-emerald-500/30'
-                          : item.status === 'failed'
-                            ? 'bg-red-500/15 text-red-200 border-red-500/30'
-                            : 'bg-orange-500/15 text-orange-200 border-orange-500/30';
-
-                      // Placeholder aspect ratio for loading / failed cards (no image yet).
-                      // Loaded images ignore this and use their natural aspect ratio.
-                      const placeholderAspect = (() => {
-                        const raw = String(item.aspectRatio || '').trim();
-                        if (!raw) return '1 / 1';
-                        const m = raw.match(/^(\d+)\s*[:\/]\s*(\d+)$/);
-                        return m ? `${m[1]} / ${m[2]}` : '1 / 1';
-                      })();
-
-                      return (
-                        <div
-                          key={item.localId}
-                          className="group rounded-xl border border-white/10 bg-black/20 overflow-hidden shadow-sm transition-all duration-200 ease-out hover:-translate-y-1 hover:border-indigo-500 hover:ring-1 hover:ring-indigo-500/50 hover:shadow-xl"
-                        >
-                          <div
-                            className="relative w-full bg-black/30"
-                            style={item.imageUrl ? undefined : { aspectRatio: placeholderAspect }}
-                          >
-                            {item.imageUrl ? (
-                              <button
-                                type="button"
-                                onClick={() => openGalleryImagePreview(item.imageUrl as string, { kind: 'preview_item', localId: item.localId })}
-                                className="block w-full"
-                                title={t.pg_img_click_to_preview}
-                              >
-                                <img src={item.imageUrl} className="block w-full h-auto" alt={item.requestId} />
-                                <div className="absolute inset-0 opacity-0 transition-opacity duration-200 bg-black/40 flex items-center justify-center group-hover:opacity-100">
-                                  <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-xs font-bold text-white">
-                                    <Eye className="w-4 h-4" />
-                                    {t.pg_img_preview}
-                                  </div>
-                                </div>
-                              </button>
-                            ) : item.status !== 'failed' ? (
-                              <GalleryLoadingCard
-                                theme={galleryLoadingTheme}
-                                seed={`${item.localId}-${item.requestId}-${rightLabel}`}
-                                label={rightLabel}
-                                backgroundImageSrc={galleryLoadingBackgroundSrc}
-                              />
-                            ) : (
-                              <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500 gap-2">
-                                <ImageIcon className={`w-8 h-8 ${item.status === 'failed' ? 'opacity-50' : 'opacity-60 animate-pulse'}`} />
-                                <div className="text-xs text-zinc-500 px-4 text-center">
-                                  {item.error || (item.status === 'failed' ? t.pg_img_generation_failed : t.pg_img_waiting)}
-                                </div>
-                              </div>
-                            )}
-
-                            <div className={`absolute top-2 left-2 px-2 py-1 rounded-lg text-[11px] font-bold border ${badgeTone}`}>{statusLabel}</div>
-                            <div className="absolute top-2 right-2 px-2 py-1 rounded-lg text-[11px] font-bold border border-white/10 bg-black/50 text-zinc-200">
-                              {rightLabel}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    };
-
-                    const groups = groupGalleryPreviewItems(galleryPreviewItems);
-                    return groups.map((group) => {
-                      if (group.type === 'full') {
-                        return (
-                          <div key={group.key}>
-                            {renderPreviewCard(group.item)}
-                          </div>
-                        );
-                      }
-                      return (
-                        <Masonry
-                          key={group.key}
-                          breakpointCols={2}
-                          className="pg-masonry-grid"
-                          columnClassName="pg-masonry-grid-col"
-                        >
-                          {group.items.map(renderPreviewCard)}
-                        </Masonry>
-                      );
-                    });
-                  })()}
-                </div>
-              )}
+              </div>
             </div>
           ) : (
             <div className="flex-1 mt-4 rounded-2xl border border-dashed border-white/10 bg-black/10 overflow-y-auto custom-scroll">
@@ -2733,13 +2957,14 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 if (guideStepIndex >= guideSteps.length - 1) {
                   setIsGuideOpen(false);
                   markGalleryGuideSeen();
+                  openGalleryBoardEditor({ onboarding: true });
                   return;
                 }
                 setGuideStepIndex((prev) => Math.min(guideSteps.length - 1, prev + 1));
               }}
               className="px-4 py-2 rounded-xl bg-orange-500 text-xs font-bold text-black hover:bg-orange-400 transition"
             >
-              {guideStepIndex >= guideSteps.length - 1 ? t.wb_guide_finish : t.wb_guide_next}
+              {guideStepIndex >= guideSteps.length - 1 ? t.pg_img_guide_enter_board : t.wb_guide_next}
             </button>
           </div>
         </div>

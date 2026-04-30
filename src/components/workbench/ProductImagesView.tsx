@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Eye, Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download, FileDown, ChevronLeft, ChevronRight, LayoutGrid, ArrowLeft, PencilLine, Trash2, Zap, Check, Shirt, Wrench, Clapperboard, Folder } from 'lucide-react';
 import type { ViewType } from './types';
 import { useLanguage } from '../../context/LanguageContext';
@@ -156,6 +156,8 @@ type GalleryBulkRatioStrategy = 'recommended' | '1:1' | '4:5' | '9:16';
 type GalleryBulkBindingStrategy = 'none' | 'auto_primary';
 
 type GalleryOutputMode = 'custom' | 'ai';
+type GalleryBoardOnboardingStage = 'idle' | 'picker' | 'editor';
+type GalleryBoardPickerGuideStepKey = 'assets' | 'ratio' | 'confirm';
 type GalleryExampleTemplate = {
   id: string;
   title: string;
@@ -1165,6 +1167,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [galleryBoardDraft, setGalleryBoardDraft] = useState<GalleryBoardDraft | null>(null);
   const [galleryBoardSelectedAssetIds, setGalleryBoardSelectedAssetIds] = useState<string[]>([]);
   const [galleryBoardCanvasRatio, setGalleryBoardCanvasRatio] = useState<'3:4' | '1:1' | '4:3' | '2:3' | '3:2' | '16:9' | '9:16'>('3:4');
+  const [galleryBoardOnboardingStage, setGalleryBoardOnboardingStage] = useState<GalleryBoardOnboardingStage>('idle');
+  const [galleryBoardPickerGuideStepIndex, setGalleryBoardPickerGuideStepIndex] = useState(0);
+  const [galleryBoardPickerGuidePanelStyle, setGalleryBoardPickerGuidePanelStyle] = useState<React.CSSProperties>({});
+  const [galleryBoardPickerGuideHighlightStyle, setGalleryBoardPickerGuideHighlightStyle] = useState<React.CSSProperties>({});
   const [isGalleryBoardLibraryPickerOpen, setIsGalleryBoardLibraryPickerOpen] = useState(false);
   const [galleryBoardLibraryAssetType, setGalleryBoardLibraryAssetType] = useState<'product' | 'scene'>('product');
   const [galleryBoardLibraryLoading, setGalleryBoardLibraryLoading] = useState(false);
@@ -1175,6 +1181,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [galleryBoardLibraryCurrentFolderId, setGalleryBoardLibraryCurrentFolderId] = useState<string | null>(null);
   const [isGalleryBoardHistoryPickerOpen, setIsGalleryBoardHistoryPickerOpen] = useState(false);
   const galleryBoardPickerUploadRef = useRef<HTMLInputElement | null>(null);
+  const galleryBoardPickerAssetsRef = useRef<HTMLDivElement | null>(null);
+  const galleryBoardPickerRatioRef = useRef<HTMLDivElement | null>(null);
+  const galleryBoardPickerConfirmRef = useRef<HTMLButtonElement | null>(null);
   const [galleryTextEditor, setGalleryTextEditor] = useState<{ open: boolean; localId: string; imageUrl: string; layout: any } | null>(null);
   const [galleryTextDraftLayout, setGalleryTextDraftLayout] = useState<any | null>(null);
   const [isGalleryTextExporting, setIsGalleryTextExporting] = useState(false);
@@ -1355,6 +1364,120 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       title: title || t.pg_main_notice,
       message,
     });
+
+  const galleryBoardPickerGuideSteps = useMemo<Array<{ key: GalleryBoardPickerGuideStepKey; title: string; description: string }>>(
+    () => [
+      {
+        key: 'assets',
+        title: t.pg_img_picker_guide_assets_title,
+        description: t.pg_img_picker_guide_assets_desc,
+      },
+      {
+        key: 'ratio',
+        title: t.pg_img_picker_guide_ratio_title,
+        description: t.pg_img_picker_guide_ratio_desc,
+      },
+      {
+        key: 'confirm',
+        title: t.pg_img_picker_guide_confirm_title,
+        description: t.pg_img_picker_guide_confirm_desc,
+      },
+    ],
+    [
+      t.pg_img_picker_guide_assets_desc,
+      t.pg_img_picker_guide_assets_title,
+      t.pg_img_picker_guide_confirm_desc,
+      t.pg_img_picker_guide_confirm_title,
+      t.pg_img_picker_guide_ratio_desc,
+      t.pg_img_picker_guide_ratio_title,
+    ]
+  );
+  const isGalleryBoardPickerGuideOpen = galleryBoardOnboardingStage === 'picker' && isGalleryBoardAssetPickerOpen;
+  const activeGalleryBoardPickerGuideStep = isGalleryBoardPickerGuideOpen
+    ? galleryBoardPickerGuideSteps[galleryBoardPickerGuideStepIndex]
+    : null;
+
+  const getGalleryBoardPickerGuideTarget = useCallback(() => {
+    const map: Record<GalleryBoardPickerGuideStepKey, HTMLElement | null> = {
+      assets: galleryBoardPickerAssetsRef.current,
+      ratio: galleryBoardPickerRatioRef.current,
+      confirm: galleryBoardPickerConfirmRef.current,
+    };
+    const key = galleryBoardPickerGuideSteps[galleryBoardPickerGuideStepIndex]?.key;
+    return key ? map[key] || null : null;
+  }, [galleryBoardPickerGuideStepIndex, galleryBoardPickerGuideSteps]);
+
+  const updateGalleryBoardPickerGuidePosition = useCallback(() => {
+    const target = getGalleryBoardPickerGuideTarget();
+    const viewportPadding = 12;
+    const panelWidth = Math.min(400, window.innerWidth - viewportPadding * 2);
+    const panelHeight = 308;
+    const highlightPadding = 10;
+
+    if (!target) {
+      setGalleryBoardPickerGuidePanelStyle({
+        width: `${panelWidth}px`,
+        left: `${Math.max(viewportPadding, Math.round((window.innerWidth - panelWidth) / 2))}px`,
+        top: `${Math.max(viewportPadding, Math.round((window.innerHeight - panelHeight) / 2))}px`,
+      });
+      setGalleryBoardPickerGuideHighlightStyle({ display: 'none' });
+      return;
+    }
+
+    const rect = target.getBoundingClientRect();
+    setGalleryBoardPickerGuideHighlightStyle({
+      left: `${Math.round(rect.left - highlightPadding)}px`,
+      top: `${Math.round(rect.top - highlightPadding)}px`,
+      width: `${Math.round(rect.width + highlightPadding * 2)}px`,
+      height: `${Math.round(rect.height + highlightPadding * 2)}px`,
+    });
+
+    let left = rect.right + 16;
+    if (left + panelWidth > window.innerWidth - viewportPadding) {
+      left = rect.left - panelWidth - 16;
+    }
+    if (left < viewportPadding) {
+      left = Math.max(viewportPadding, Math.round((window.innerWidth - panelWidth) / 2));
+    }
+
+    let top = rect.top;
+    if (top + panelHeight > window.innerHeight - viewportPadding) {
+      top = window.innerHeight - panelHeight - viewportPadding;
+    }
+    if (top < viewportPadding) top = viewportPadding;
+
+    setGalleryBoardPickerGuidePanelStyle({
+      width: `${panelWidth}px`,
+      left: `${Math.round(left)}px`,
+      top: `${Math.round(top)}px`,
+    });
+  }, [getGalleryBoardPickerGuideTarget]);
+
+  useEffect(() => {
+    if (!isGalleryBoardPickerGuideOpen) return;
+    const target = getGalleryBoardPickerGuideTarget();
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+
+    const timer = window.setTimeout(() => {
+      updateGalleryBoardPickerGuidePosition();
+    }, 260);
+
+    const onViewportChange = () => updateGalleryBoardPickerGuidePosition();
+
+    window.addEventListener('scroll', onViewportChange, true);
+    window.addEventListener('resize', onViewportChange);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('scroll', onViewportChange, true);
+      window.removeEventListener('resize', onViewportChange);
+    };
+  }, [
+    galleryBoardPickerGuideStepIndex,
+    getGalleryBoardPickerGuideTarget,
+    isGalleryBoardPickerGuideOpen,
+    updateGalleryBoardPickerGuidePosition,
+  ]);
 
   const [galleryUserExampleTemplates, setGalleryUserExampleTemplates] = useState<GalleryExampleTemplate[]>([]);
 
@@ -2078,13 +2201,15 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     setGalleryPreviewSource(source);
   };
 
-  const openGalleryBoardEditor = () => {
+  const openGalleryBoardEditor = (options?: { onboarding?: boolean }) => {
     const preservedIds = galleryBoardSessionAssets.map((item) => item.localId).filter(Boolean).slice(0, 9);
     const defaultIds = preservedIds.length > 0
       ? preservedIds
       : galleryBoardAssets.slice(0, 9).map((item) => item.localId);
     setGalleryBoardSelectedAssetIds(defaultIds);
     setGalleryBoardCanvasRatio(galleryBoardDraft?.templateRatioId || galleryBoardCanvasRatio || '3:4');
+    setGalleryBoardOnboardingStage(options?.onboarding ? 'picker' : 'idle');
+    setGalleryBoardPickerGuideStepIndex(0);
     setGalleryBoardLibraryCurrentFolderId(null);
     setGalleryBoardLibraryAssetType('product');
     setGalleryBoardPickerAssets([]);
@@ -2093,12 +2218,14 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
   const closeGalleryBoardEditor = () => {
     setIsGalleryBoardEditorOpen(false);
+    setGalleryBoardOnboardingStage('idle');
   };
 
   const closeGalleryBoardAssetPicker = () => {
     setIsGalleryBoardAssetPickerOpen(false);
     setIsGalleryBoardLibraryPickerOpen(false);
     setIsGalleryBoardHistoryPickerOpen(false);
+    setGalleryBoardOnboardingStage('idle');
   };
 
   const confirmGalleryBoardAssetPicker = () => {
@@ -2121,6 +2248,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     setIsGalleryBoardAssetPickerOpen(false);
     setIsGalleryBoardLibraryPickerOpen(false);
     setIsGalleryBoardHistoryPickerOpen(false);
+    setGalleryBoardOnboardingStage((prev) => (prev === 'picker' ? 'editor' : 'idle'));
     setIsGalleryBoardEditorOpen(true);
   };
 
@@ -4518,6 +4646,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         title={galleryAlert.title}
         onClose={closeGalleryAlert}
         widthClassName="max-w-sm"
+        overlayClassName="z-[320]"
         footer={
           <button
             type="button"
@@ -5381,6 +5510,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             </button>
             <button
               type="button"
+              ref={galleryBoardPickerConfirmRef}
               onClick={confirmGalleryBoardAssetPicker}
               className="rounded-xl bg-orange-500 px-4 py-2 text-xs font-bold text-black transition hover:bg-orange-400"
             >
@@ -5392,7 +5522,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm text-zinc-400">已选 {galleryBoardSelectedAssetIds.length} / 9</div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div ref={galleryBoardPickerRatioRef} className="flex flex-wrap items-center gap-2">
               <div className="text-xs text-zinc-500">海报比例</div>
               {(['3:4', '1:1', '4:3', '2:3', '3:2', '16:9', '9:16'] as const).map((ratio) => (
                 <button
@@ -5457,7 +5587,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             </button>
           </div>
 
-          <div className="grid max-h-[62vh] grid-cols-2 gap-3 overflow-y-auto pr-1 md:grid-cols-4">
+          <div ref={galleryBoardPickerAssetsRef} className="grid max-h-[62vh] grid-cols-2 gap-3 overflow-y-auto pr-1 md:grid-cols-4">
             {galleryBoardCandidateAssets.map((asset) => {
               const checked = galleryBoardSelectedAssetSet.has(asset.localId);
               return (
@@ -5485,6 +5615,85 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           </div>
         </div>
       </AppDialog>
+      {isGalleryBoardPickerGuideOpen ? (
+        <div
+          className="fixed inset-0 z-[230]"
+          onClick={() => setGalleryBoardOnboardingStage('idle')}
+        >
+          <div
+            className="absolute rounded-2xl border-2 border-orange-400/90 bg-transparent shadow-[0_0_0_9999px_rgba(0,0,0,0.72),0_0_32px_rgba(249,115,22,0.35)]"
+            style={galleryBoardPickerGuideHighlightStyle}
+          />
+          <div
+            className="absolute rounded-2xl border border-orange-500/30 bg-zinc-950/95 p-4 shadow-2xl shadow-black/60 backdrop-blur"
+            style={galleryBoardPickerGuidePanelStyle}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-base font-bold text-white">{t.pg_img_picker_guide_title}</div>
+                <div className="mt-1 text-xs text-zinc-400">
+                  {t.wb_guide_step} {galleryBoardPickerGuideStepIndex + 1} / {galleryBoardPickerGuideSteps.length}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGalleryBoardOnboardingStage('idle')}
+                className="text-zinc-400 transition hover:text-white"
+                title={t.wb_guide_close}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-white/10 bg-black/30 px-3 py-3">
+              <div className="text-sm font-bold text-orange-200">{activeGalleryBoardPickerGuideStep?.title || ''}</div>
+              <div className="mt-2 text-xs leading-5 text-zinc-300">{activeGalleryBoardPickerGuideStep?.description || ''}</div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              {galleryBoardPickerGuideSteps.map((step, index) => (
+                <button
+                  key={step.key}
+                  type="button"
+                  onClick={() => setGalleryBoardPickerGuideStepIndex(index)}
+                  className={`rounded-lg border px-3 py-2 text-left text-xs transition ${
+                    galleryBoardPickerGuideStepIndex === index
+                      ? 'border-orange-500/70 bg-orange-500/20 text-orange-200'
+                      : 'border-white/10 bg-black/40 text-zinc-300 hover:bg-white/5'
+                  }`}
+                >
+                  {index + 1}. {step.title}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-4 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setGalleryBoardPickerGuideStepIndex((prev) => Math.max(0, prev - 1))}
+                disabled={galleryBoardPickerGuideStepIndex <= 0}
+                className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold text-zinc-200 transition hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+              >
+                {t.wb_guide_prev}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (galleryBoardPickerGuideStepIndex >= galleryBoardPickerGuideSteps.length - 1) {
+                    confirmGalleryBoardAssetPicker();
+                    return;
+                  }
+                  setGalleryBoardPickerGuideStepIndex((prev) => Math.min(galleryBoardPickerGuideSteps.length - 1, prev + 1));
+                }}
+                className="rounded-xl bg-orange-500 px-4 py-2 text-xs font-bold text-black transition hover:bg-orange-400"
+              >
+                {galleryBoardPickerGuideStepIndex >= galleryBoardPickerGuideSteps.length - 1 ? t.pg_img_guide_enter_board : t.wb_guide_next}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <AppDialog
         isOpen={isGalleryBoardLibraryPickerOpen}
@@ -5709,6 +5918,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             initialSubtitle={gallerySellingPoints.filter((item) => String(item || '').trim()).slice(0, 2).join(' / ')}
             initialLocalAssets={galleryBoardLocalAssets}
             initialDraft={galleryBoardDraft}
+            shouldAutoOpenGuide={galleryBoardOnboardingStage === 'editor'}
             onLocalAssetsChange={setGalleryBoardLocalAssets}
             onDraftChange={setGalleryBoardDraft}
             onAlert={openGalleryAlert}
@@ -6097,6 +6307,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           setGalleryRightPanel={setGalleryRightPanel}
           setIsGalleryHistoryManaging={setIsGalleryHistoryManaging}
           setGalleryHistorySelectedKeys={setGalleryHistorySelectedKeys}
+          galleryBoardCanvasRatio={galleryBoardCanvasRatio}
           openGalleryBoardEditor={openGalleryBoardEditor}
           galleryPreviewItems={galleryPreviewItems}
           openGalleryImagePreview={openGalleryImagePreview}

@@ -11,6 +11,7 @@ import type {
   ClothingSwapParams,
 } from '../../../../types/productImages';
 import { formatCreditAmount, roundCreditTenths } from '../../../../utils/credits';
+import { AspectRatioPicker, CLOTHING_SWAP_RATIOS, ratioDescriptorsForLanguage } from '../../Common';
 
 interface ClothingSwapFormProps {
   modelImage: File | null;
@@ -24,10 +25,6 @@ interface ClothingSwapFormProps {
 
 const CATEGORIES: ClothingSwapCategory[] = ['Top', 'Bottom', 'Full Body'];
 const BACKGROUNDS: ClothingSwapBackground[] = ['model', 'runway', 'street', 'white_wall'];
-const ASPECT_RATIOS: ClothingSwapAspectRatio[] = [
-  '1:1', '2:3', '3:2', '3:4', '4:3',
-  '4:5', '5:4', '9:16', '16:9', '21:9',
-];
 const OUTPUT_COUNTS: ClothingSwapOutputCount[] = [1, 2, 3, 4];
 
 interface ColorChoice {
@@ -71,7 +68,7 @@ export const ClothingSwapForm: React.FC<ClothingSwapFormProps> = ({
   onReset,
   defaultParams,
 }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const storageKey = useMemo(() => buildStorageKey(workspaceId), [workspaceId]);
 
   const mergedDefaults = useMemo(() => ({
@@ -228,22 +225,18 @@ export const ClothingSwapForm: React.FC<ClothingSwapFormProps> = ({
         {/* Aspect ratio */}
         <div>
           <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.cs_aspect_ratio_label}</label>
-          <div className="grid grid-cols-5 gap-2">
-            {ASPECT_RATIOS.map((item) => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => setFormData({ ...formData, aspectRatio: item })}
-                className={`px-2 py-2 rounded-xl text-xs font-medium border transition ${
-                  formData.aspectRatio === item
-                    ? 'border-orange-500/60 bg-orange-500/10 text-orange-200'
-                    : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'
-                }`}
-              >
-                {item}
-              </button>
-            ))}
-          </div>
+          <AspectRatioPicker
+            value={String(formData.aspectRatio || '1:1')}
+            onChange={(next) => setFormData({ ...formData, aspectRatio: next as ClothingSwapAspectRatio })}
+            primary={CLOTHING_SWAP_RATIOS.primary}
+            more={CLOTHING_SWAP_RATIOS.more}
+            labels={{
+              more: language === 'zh' ? '更多比例' : 'More ratios',
+              vertical: t.pi_gallery_ratio_group_vertical,
+              landscape: t.pi_gallery_ratio_group_landscape,
+            }}
+            descriptors={ratioDescriptorsForLanguage(language)}
+          />
         </div>
 
         {/* Color */}

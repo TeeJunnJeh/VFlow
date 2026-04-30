@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, Eye, Image as ImageIcon, LayoutGrid, Minus, Plus, RotateCw, Save, Sparkles, Upload, Wand2, X } from 'lucide-react';
 import Masonry from 'react-masonry-css';
 import { DropdownSelect } from '../../../common/DropdownSelect';
+import { AspectRatioPicker, GALLERY_RATIOS, ratioDescriptorsForLanguage } from '../../Common';
+import { useLanguage } from '../../../../context/LanguageContext';
 import type { ViewType } from '../../../workbench/types';
 import type { LoadingTheme } from '../../../../utils/loadingTheme';
 import ResizableSplitter from '../../../common/ResizableSplitter';
@@ -448,6 +450,7 @@ const GalleryLoadingCard: React.FC<{
 };
 
 const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
+  const { language } = useLanguage();
   const [leftWidth, setLeftWidth] = useState<number>(GALLERY_PANEL_DEFAULT_WIDTH);
   const [middleWidth, setMiddleWidth] = useState<number>(GALLERY_PANEL_DEFAULT_WIDTH);
   const [isBasicsCollapsed, setIsBasicsCollapsed] = useState(false);
@@ -1771,103 +1774,98 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3">
-                          <DropdownSelect
-                            value={String(item.outputType || 'white_bg')}
-                            options={[
-                              { value: 'white_bg', label: t.pi_gallery_output_white_bg },
-                              { value: 'scene', label: t.pi_gallery_output_scene },
-                              { value: 'selling_point', label: t.pi_gallery_output_selling_point },
-                              { value: 'cover', label: t.pi_gallery_output_cover },
-                              { value: 'poster', label: t.pi_gallery_output_poster },
-                            ]}
-                            onChange={(v) =>
-                              mutateAdvancedOutputItems((prev) =>
-                                prev.map((it) => {
-                                  if (it.id !== item.id) return it;
-                                  const raw = String(v || 'white_bg');
-                                  const next =
-                                    raw === 'scene' || raw === 'selling_point' || raw === 'cover' || raw === 'poster'
-                                      ? raw
-                                      : 'white_bg';
-                                  return {
-                                    ...it,
-                                    outputType: next as any,
-                                    modelCardId: next === 'white_bg' ? undefined : it.modelCardId,
-                                    sceneCardId: next === 'white_bg' ? undefined : it.sceneCardId,
-                                  };
+                        {/* Row 1: 出图类型 + 分辨率 + 张数 */}
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1 min-w-0">
+                            <DropdownSelect
+                              value={String(item.outputType || 'white_bg')}
+                              options={[
+                                { value: 'white_bg', label: t.pi_gallery_output_white_bg },
+                                { value: 'scene', label: t.pi_gallery_output_scene },
+                                { value: 'selling_point', label: t.pi_gallery_output_selling_point },
+                                { value: 'cover', label: t.pi_gallery_output_cover },
+                                { value: 'poster', label: t.pi_gallery_output_poster },
+                              ]}
+                              onChange={(v) =>
+                                mutateAdvancedOutputItems((prev) =>
+                                  prev.map((it) => {
+                                    if (it.id !== item.id) return it;
+                                    const raw = String(v || 'white_bg');
+                                    const next =
+                                      raw === 'scene' || raw === 'selling_point' || raw === 'cover' || raw === 'poster'
+                                        ? raw
+                                        : 'white_bg';
+                                    return {
+                                      ...it,
+                                      outputType: next as any,
+                                      modelCardId: next === 'white_bg' ? undefined : it.modelCardId,
+                                      sceneCardId: next === 'white_bg' ? undefined : it.sceneCardId,
+                                    };
+                                  })
+                                )
+                              }
+                              buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                              iconClassName="w-4 h-4 text-zinc-500"
+                              optionClassName="text-xs"
+                            />
+                          </div>
+                          <div className="w-20 shrink-0">
+                            <DropdownSelect
+                              value={String(item.resolution || '1k')}
+                              options={[
+                                { value: '1k', label: '1K' },
+                                { value: '2k', label: '2K' },
+                                { value: '4k', label: '4K' },
+                              ]}
+                              onChange={(v) =>
+                                updateOutputItem(item.id, (current) => {
+                                  const raw = String(v || '1k').toLowerCase();
+                                  const resolution = raw === '2k' || raw === '4k' ? raw : '1k';
+                                  return { ...current, resolution: resolution as any };
                                 })
-                              )
-                            }
-                            buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                            iconClassName="w-4 h-4 text-zinc-500"
-                            optionClassName="text-xs"
-                          />
-                          <DropdownSelect
-                            value={String(item.aspectRatio || '1:1')}
-                            options={[
-                              { value: '21:9', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_21_9}` },
-                              { value: '16:9', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_16_9}` },
-                              { value: '4:3', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_4_3}` },
-                              { value: '3:2', label: `${t.pi_gallery_ratio_group_landscape} · ${t.pi_gallery_ratio_3_2}` },
-                              { value: '1:1', label: `${t.pi_gallery_ratio_group_square} · ${t.pi_gallery_ratio_1_1}` },
-                              { value: '9:16', label: `${t.pi_gallery_ratio_group_vertical} · ${t.pi_gallery_ratio_9_16}` },
-                              { value: '3:4', label: `${t.pi_gallery_ratio_group_vertical} · ${t.pi_gallery_ratio_3_4}` },
-                              { value: '2:3', label: `${t.pi_gallery_ratio_group_vertical} · ${t.pi_gallery_ratio_2_3}` },
-                              { value: '5:4', label: `${t.pi_gallery_ratio_group_flexible} · ${t.pi_gallery_ratio_5_4}` },
-                              { value: '4:5', label: `${t.pi_gallery_ratio_group_flexible} · ${t.pi_gallery_ratio_4_5}` },
-                            ]}
-                            onChange={(v) => updateOutputItem(item.id, (current) => ({ ...current, aspectRatio: String(v || '1:1') }))}
-                            buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                            iconClassName="w-4 h-4 text-zinc-500"
-                            optionClassName="text-xs"
-                          />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3">
-                          <DropdownSelect
-                            value={String(item.resolution || '1k')}
-                            options={[
-                              { value: '1k', label: '1K' },
-                              { value: '2k', label: '2K' },
-                              { value: '4k', label: '4K' },
-                            ]}
-                            onChange={(v) =>
-                              updateOutputItem(item.id, (current) => {
-                                const raw = String(v || '1k').toLowerCase();
-                                const resolution = raw === '2k' || raw === '4k' ? raw : '1k';
-                                return { ...current, resolution: resolution as any };
-                              })
-                            }
-                            buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
-                            iconClassName="w-4 h-4 text-zinc-500"
-                            optionClassName="text-xs"
-                          />
-
-                          <div className="flex items-center justify-end">
-                            <div className="flex items-center">
-                              <button
-                                type="button"
-                                onClick={() => updateOutputItem(item.id, (current) => ({ ...current, count: Math.max(1, Number(current.count || 1) - 1) }))}
-                                disabled={!item.enabled || Number(item.count || 1) <= 1}
-                                className="w-8 h-8 rounded-l-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-50 flex items-center justify-center"
-                              >
-                                <Minus className="w-4 h-4" />
-                              </button>
-                              <div className="w-10 h-8 flex items-center justify-center border-t border-b border-white/10 bg-black/30 text-xs text-zinc-200">
-                                {Number(item.count || 1)}
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => updateOutputItem(item.id, (current) => ({ ...current, count: Math.min(8, Number(current.count || 1) + 1) }))}
-                                disabled={!item.enabled || Number(item.count || 1) >= 8}
-                                className="w-8 h-8 rounded-r-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-50 flex items-center justify-center"
-                              >
-                                <Plus className="w-4 h-4" />
-                              </button>
+                              }
+                              buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-200 hover:bg-white/5"
+                              iconClassName="w-4 h-4 text-zinc-500"
+                              optionClassName="text-xs"
+                            />
+                          </div>
+                          <div className="shrink-0 flex items-center">
+                            <button
+                              type="button"
+                              onClick={() => updateOutputItem(item.id, (current) => ({ ...current, count: Math.max(1, Number(current.count || 1) - 1) }))}
+                              disabled={!item.enabled || Number(item.count || 1) <= 1}
+                              className="w-8 h-8 rounded-l-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-50 flex items-center justify-center"
+                            >
+                              <Minus className="w-4 h-4" />
+                            </button>
+                            <div className="w-10 h-8 flex items-center justify-center border-t border-b border-white/10 bg-black/30 text-xs text-zinc-200">
+                              {Number(item.count || 1)}
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => updateOutputItem(item.id, (current) => ({ ...current, count: Math.min(8, Number(current.count || 1) + 1) }))}
+                              disabled={!item.enabled || Number(item.count || 1) >= 8}
+                              className="w-8 h-8 rounded-r-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-50 flex items-center justify-center"
+                            >
+                              <Plus className="w-4 h-4" />
+                            </button>
                           </div>
                         </div>
+
+                        {/* Row 2: 比例选择独占整行 */}
+                        <AspectRatioPicker
+                          value={String(item.aspectRatio || '1:1')}
+                          onChange={(next) => updateOutputItem(item.id, (current) => ({ ...current, aspectRatio: next }))}
+                          primary={GALLERY_RATIOS.primary}
+                          more={GALLERY_RATIOS.more}
+                          size="sm"
+                          labels={{
+                            more: language === 'zh' ? '更多比例' : 'More ratios',
+                            vertical: t.pi_gallery_ratio_group_vertical,
+                            landscape: t.pi_gallery_ratio_group_landscape,
+                          }}
+                          descriptors={ratioDescriptorsForLanguage(language)}
+                        />
 
                         {supportsResourceBinding ? (
                           <div className="w-full">

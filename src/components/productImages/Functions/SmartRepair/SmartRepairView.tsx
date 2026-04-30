@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, Download, Sparkles, Loader2, X, RotateCcw } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
-import { ErrorDialog, type ErrorInfo, ImageUploader } from '../../Common';
+import { AspectRatioPicker, ErrorDialog, type ErrorInfo, ImageUploader, SMART_REPAIR_RATIOS, ratioDescriptorsForLanguage } from '../../Common';
 import { downloadBlob, productImagesApi } from '../../../../services/productImagesApi';
 import { billingApi } from '../../../../services/billing';
 import type { ProductImageResult, SmartRepairParams, SmartRepairSubpage, SmartRepairToolCode } from '../../../../types/productImages';
@@ -879,7 +879,8 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                     </div>
 
                     <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      {/* Row 1: 强度 + 张数 */}
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div>
                           <div className="mb-2 text-xs font-medium text-zinc-400">{t.sr_strength}</div>
                           <select
@@ -890,19 +891,6 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                             <option value="light">{t.sr_strength_light}</option>
                             <option value="medium">{t.sr_strength_medium}</option>
                             <option value="strong">{t.sr_strength_strong}</option>
-                          </select>
-                        </div>
-                        <div>
-                          <div className="mb-2 text-xs font-medium text-zinc-400">{t.sr_aspect}</div>
-                          <select
-                            value={aspectRatio}
-                            onChange={(e) => setAspectRatio(e.target.value as SmartRepairParams['aspectRatio'])}
-                            className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-zinc-200 focus:border-orange-400/50"
-                          >
-                            <option value="1:1">1:1</option>
-                            <option value="4:5">4:5</option>
-                            <option value="9:16">9:16</option>
-                            <option value="16:9">16:9</option>
                           </select>
                         </div>
                         <div>
@@ -917,6 +905,23 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                             <option value={4}>4</option>
                           </select>
                         </div>
+                      </div>
+
+                      {/* Row 2: 比例 */}
+                      <div className="mt-3">
+                        <div className="mb-2 text-xs font-medium text-zinc-400">{t.sr_aspect}</div>
+                        <AspectRatioPicker
+                          value={String(aspectRatio || '1:1')}
+                          onChange={(next) => setAspectRatio(next as SmartRepairParams['aspectRatio'])}
+                          primary={SMART_REPAIR_RATIOS.primary}
+                          more={SMART_REPAIR_RATIOS.more}
+                          labels={{
+                            more: isZh ? '更多比例' : 'More ratios',
+                            vertical: t.pi_gallery_ratio_group_vertical,
+                            landscape: t.pi_gallery_ratio_group_landscape,
+                          }}
+                          descriptors={ratioDescriptorsForLanguage(language)}
+                        />
                       </div>
 
                       <div className="mt-4 flex items-center gap-3">

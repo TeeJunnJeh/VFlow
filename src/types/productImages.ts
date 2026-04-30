@@ -98,9 +98,16 @@ export interface FirstFrameParams {
 
 // ==================== 智能修复相关类型 ====================
 
+// Flux 文生图 API 实际支持 9 个比例（无 21:9）。前端类型保持与上游对齐，
+// 这样 SmartRepair picker 暴露的全集和 Flux 的支持范围一致。
 export type SmartRepairAspectRatio =
   | '1:1'
+  | '2:3'
+  | '3:2'
+  | '3:4'
+  | '4:3'
   | '4:5'
+  | '5:4'
   | '9:16'
   | '16:9';
 

@@ -6,6 +6,7 @@ import { billingApi } from '../../../../services/billing';
 import { productImagesApi } from '../../../../services/productImagesApi';
 import type { FirstFrameAspectRatio, FirstFrameModel, FirstFrameOpeningScene, FirstFrameParams } from '../../../../types/productImages';
 import { formatCreditAmount, roundCreditTenths } from '../../../../utils/credits';
+import { AspectRatioPicker, firstFrameRatiosForModel, ratioDescriptorsForLanguage } from '../../Common';
 
 interface FirstFrameFormProps {
   images: File[];
@@ -148,21 +149,10 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const aspectRatios = useMemo(() => {
-    const labels: Record<FirstFrameAspectRatio, string> = {
-      '1:1': (t as any).ff_aspect_ratio_option_1_1 || '方形 · 1:1',
-      '9:16': (t as any).ff_aspect_ratio_option_9_16 || '竖屏 · 9:16',
-      '4:5': (t as any).ff_aspect_ratio_option_4_5 || '竖屏 · 4:5',
-      '3:4': (t as any).ff_aspect_ratio_option_3_4 || '竖屏 · 3:4',
-      '2:3': (t as any).ff_aspect_ratio_option_2_3 || '竖屏 · 2:3',
-      '16:9': (t as any).ff_aspect_ratio_option_16_9 || '横屏 · 16:9',
-      '4:3': (t as any).ff_aspect_ratio_option_4_3 || '横屏 · 4:3',
-      '3:2': (t as any).ff_aspect_ratio_option_3_2 || '横屏 · 3:2',
-      '5:4': (t as any).ff_aspect_ratio_option_5_4 || '横屏 · 5:4',
-      '21:9': (t as any).ff_aspect_ratio_option_21_9 || '横屏 · 21:9',
-    };
-    return getFirstFrameAspectRatioValues(formData.model).map((value) => ({ value, label: labels[value] }));
-  }, [formData.model, t]);
+  const firstFrameRatioConfig = useMemo(
+    () => firstFrameRatiosForModel(formData.model),
+    [formData.model],
+  );
 
   useEffect(() => {
     setFormData((prev) => {
@@ -369,42 +359,50 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
             {errors.model && <p className="text-red-400 text-xs mt-1">{errors.model}</p>}
           </div>
 
-          <div className="grid grid-cols-[minmax(0,1fr)_8.5rem] gap-3">
-            <div className="min-w-0">
+          <div className="space-y-4">
+            {/* Row 1: 比例选择独占整行 */}
+            <div>
               <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_aspect_ratio_label}</label>
-              <DropdownSelect
-                value={formData.aspectRatio || ''}
-                options={aspectRatios}
+              <AspectRatioPicker
+                value={String(formData.aspectRatio || '1:1')}
                 onChange={(value) => setFormData({ ...formData, aspectRatio: value as FirstFrameAspectRatio })}
-                buttonClassName={`w-full bg-zinc-900/70 border rounded-xl px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 ${errors.aspectRatio ? 'border-red-500' : 'border-white/10'}`}
-                iconClassName="w-4 h-4 text-zinc-500"
-                optionClassName="text-sm"
+                primary={firstFrameRatioConfig.primary}
+                more={firstFrameRatioConfig.more}
+                labels={{
+                  more: language === 'zh' ? '更多比例' : 'More ratios',
+                  vertical: t.pi_gallery_ratio_group_vertical,
+                  landscape: t.pi_gallery_ratio_group_landscape,
+                }}
+                descriptors={ratioDescriptorsForLanguage(language)}
               />
               {errors.aspectRatio && <p className="text-red-400 text-xs mt-1">{errors.aspectRatio}</p>}
             </div>
 
-            <div className="min-w-0">
-              <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_output_count_label}</label>
-              <div className="flex h-10 w-full items-center">
-                <button
-                  type="button"
-                  onClick={() => updateOutputCount(-1)}
-                  disabled={isSubmitting || Number(formData.outputCount || 1) <= 1}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-l-xl border border-white/10 bg-white/5 text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Minus className="h-4 w-4" />
-                </button>
-                <div className="flex h-10 min-w-0 flex-1 items-center justify-center border-y border-white/10 bg-black/30 text-sm font-medium tabular-nums text-zinc-100">
-                  {normalizeFirstFrameOutputCount(formData.outputCount)}
+            {/* Row 2: 输出数量靠右 */}
+            <div className="flex justify-end">
+              <div className="w-32">
+                <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_output_count_label}</label>
+                <div className="flex h-10 w-full items-center">
+                  <button
+                    type="button"
+                    onClick={() => updateOutputCount(-1)}
+                    disabled={isSubmitting || Number(formData.outputCount || 1) <= 1}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-l-xl border border-white/10 bg-white/5 text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Minus className="h-4 w-4" />
+                  </button>
+                  <div className="flex h-10 min-w-0 flex-1 items-center justify-center border-y border-white/10 bg-black/30 text-sm font-medium tabular-nums text-zinc-100">
+                    {normalizeFirstFrameOutputCount(formData.outputCount)}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => updateOutputCount(1)}
+                    disabled={isSubmitting || Number(formData.outputCount || 1) >= 4}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-r-xl border border-white/10 bg-white/5 text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => updateOutputCount(1)}
-                  disabled={isSubmitting || Number(formData.outputCount || 1) >= 4}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-r-xl border border-white/10 bg-white/5 text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
               </div>
             </div>
           </div>

@@ -320,8 +320,9 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
               type="button"
               onClick={() => void handlePolishPrompt()}
               disabled={isPolishingPrompt || isSubmitting}
-              className={`text-xs px-2.5 py-1 rounded border transition ${isPolishingPrompt || isSubmitting ? 'border-orange-500/30 bg-orange-500/5 text-orange-200/70 cursor-not-allowed' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+              className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded border transition ${isPolishingPrompt || isSubmitting ? 'border-orange-500/30 bg-orange-500/5 text-orange-200/70 cursor-not-allowed' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
             >
+              <Wand2 className="h-3.5 w-3.5 shrink-0" />
               {isPolishingPrompt
                 ? (t.wb_ai_opt_prompt_generating || '润色中...')
                 : (t.ff_prompt_optimize_btn || 'AI优化文案')}

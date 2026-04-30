@@ -1081,7 +1081,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         return {
           icon: Clapperboard,
           title: t.ff_page_title,
-          subtitle: '',
+          subtitle: t.ff_page_subtitle,
         };
     }
   }, [currentValue, t]);

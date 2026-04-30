@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Minus, Plus, Wand2 } from 'lucide-react';
+import { Eraser, Minus, Plus, Wand2 } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import { billingApi } from '../../../../services/billing';
@@ -310,8 +310,9 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
               type="button"
               onClick={() => void handlePolishPrompt()}
               disabled={isPolishingPrompt || isSubmitting}
-              className={`text-xs px-2.5 py-1 rounded border transition ${isPolishingPrompt || isSubmitting ? 'border-orange-500/30 bg-orange-500/5 text-orange-200/70 cursor-not-allowed' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+              className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded border transition ${isPolishingPrompt || isSubmitting ? 'border-orange-500/30 bg-orange-500/5 text-orange-200/70 cursor-not-allowed' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
             >
+              <Wand2 className="h-3.5 w-3.5 shrink-0" />
               {isPolishingPrompt
                 ? (t.wb_ai_opt_prompt_generating || '润色中...')
                 : (t.ff_prompt_optimize_btn || 'AI优化文案')}
@@ -367,6 +368,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
                 onChange={(value) => setFormData({ ...formData, aspectRatio: value as FirstFrameAspectRatio })}
                 primary={firstFrameRatioConfig.primary}
                 more={firstFrameRatioConfig.more}
+                stretch
                 labels={{
                   more: language === 'zh' ? '更多比例' : 'More ratios',
                   vertical: t.pi_gallery_ratio_group_vertical,
@@ -377,8 +379,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
               {errors.aspectRatio && <p className="text-red-400 text-xs mt-1">{errors.aspectRatio}</p>}
             </div>
 
-            {/* Row 2: 输出数量靠右 */}
-            <div className="flex justify-end">
+            <div className="flex justify-start">
               <div className="w-32">
                 <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_output_count_label}</label>
                 <div className="flex h-10 w-full items-center">
@@ -432,8 +433,9 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
             type="button"
             onClick={handleReset}
             disabled={isSubmitting}
-            className="px-4 py-3 bg-white/5 border border-white/10 text-zinc-300 rounded-lg hover:bg-white/10 transition disabled:opacity-50 font-medium"
+            className="inline-flex items-center gap-1.5 px-4 py-3 bg-white/5 border border-white/10 text-zinc-300 rounded-lg hover:bg-white/10 transition disabled:opacity-50 text-sm font-bold"
           >
+            <Eraser className="h-4 w-4 shrink-0" />
             {t.ff_reset}
           </button>
         </div>

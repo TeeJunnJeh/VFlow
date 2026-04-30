@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronsDown, Minus, Plus, Save } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronsDown, Minus, Plus, Save, Trash2 } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import { ImageUploader } from '../../Common/ImageUploader';
@@ -75,22 +75,42 @@ const FIRST_FRAME_USER_EXAMPLE_LIMIT = 20;
 
 const FIRST_FRAME_EXAMPLE_TEMPLATES: FirstFrameExampleTemplate[] = [
   {
-    id: 'brand_ad_skincare',
-    title: '品牌广告大片',
-    subtitle: '打造高级、有视觉冲击力的品牌广告开场',
-    previewUrl: '/first-frame-examples/brand_ad/result1.jpg',
+    id: 'person_selling_seeding',
+    title: '人物带货/种草',
+    subtitle: '具有生活感的人物带货短视频开场',
+    previewUrl: '/first-frame-examples/person_selling/result1.png',
     inputImageUrls: [
-      '/first-frame-examples/brand_ad/input_model.png',
-      '/first-frame-examples/brand_ad/input_product.jpg',
+      '/first-frame-examples/person_selling/input.webp',
     ],
     resultImageUrls: [
-      '/first-frame-examples/brand_ad/result1.jpg',
-      '/first-frame-examples/brand_ad/result2.jpg'
+      '/first-frame-examples/person_selling/result1.png',
+      '/first-frame-examples/person_selling/result2.jpg',
+      '/first-frame-examples/person_selling/result3.png',
     ],
     params: {
-      openingScene: 'brand_ad',
-      prompt: '人物自然手持护肤品出镜，妆容精致，产品清晰突出。背景简洁高级，光线柔和，整体呈现高质感护肤品广告画面。',
-      aspectRatio: '3:4',
+      openingScene: 'person_selling',
+      prompt: '年轻女孩自然手持小风扇半身出镜，表情亲和有推荐感。小风扇清晰突出，背景简洁明亮，画面清爽有生活感，适合夏日好物种草短视频开场。',
+      aspectRatio: '9:16',
+      outputCount: 3,
+      model: 'nano-banana-pro',
+    },
+  },
+  {
+    id: 'product_showcase_bag',
+    title: '纯商品展示',
+    subtitle: '突出商品质感的展示开场',
+    previewUrl: '/first-frame-examples/product_showcase/result1.jpg',
+    inputImageUrls: [
+      '/first-frame-examples/product_showcase/input.jpg',
+    ],
+    resultImageUrls: [
+      '/first-frame-examples/product_showcase/result1.jpg',
+      '/first-frame-examples/product_showcase/result2.jpg'
+    ],
+    params: {
+      openingScene: 'product_showcase',
+      prompt: '包包摆放在浅色大理石桌面上，包链自然垂下。桌面铺有柔软的米白色丝绒布料，包包作为画面主体居中展示，周围可适当加些装饰物。背景简洁高级，光线柔和。',
+      aspectRatio: '3:2',
       outputCount: 2,
       model: 'nano-banana-pro',
     },
@@ -98,7 +118,7 @@ const FIRST_FRAME_EXAMPLE_TEMPLATES: FirstFrameExampleTemplate[] = [
   {
     id: 'usage_demo_headphones',
     title: '使用场景演示',
-    subtitle: '展示商品真实使用状态的生活化开场',
+    subtitle: '展示商品真实使用状态',
     previewUrl: '/first-frame-examples/usage_demo/result1.jpg',
     inputImageUrls: [
       '/first-frame-examples/usage_demo/input_product.jpg',
@@ -113,6 +133,27 @@ const FIRST_FRAME_EXAMPLE_TEMPLATES: FirstFrameExampleTemplate[] = [
       prompt: '一个年轻亚裔女孩在安静的居家空间中自然佩戴耳机，单手轻扶耳机，呈现沉浸听音乐的状态。耳机清晰突出，画面柔和有生活感。',
       aspectRatio: '16:9',
       outputCount: 3,
+      model: 'nano-banana-pro',
+    },
+  },
+  {
+    id: 'brand_ad_skincare',
+    title: '品牌广告大片',
+    subtitle: '打造高级感品牌广告开场',
+    previewUrl: '/first-frame-examples/brand_ad/result1.jpg',
+    inputImageUrls: [
+      '/first-frame-examples/brand_ad/input_model.png',
+      '/first-frame-examples/brand_ad/input_product.jpg',
+    ],
+    resultImageUrls: [
+      '/first-frame-examples/brand_ad/result1.jpg',
+      '/first-frame-examples/brand_ad/result2.jpg'
+    ],
+    params: {
+      openingScene: 'brand_ad',
+      prompt: '人物自然手持护肤品出镜，妆容精致，产品清晰突出。背景简洁高级，光线柔和，整体呈现高质感护肤品广告画面。',
+      aspectRatio: '3:4',
+      outputCount: 2,
       model: 'nano-banana-pro',
     },
   },
@@ -880,18 +921,31 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     clearProgressTimer();
     progressStartedAtRef.current = null;
 
+    setImages([]);
+    setUploaderResetKey((prev) => prev + 1);
+    setExampleParams({});
+    setCurrentFormParams({
+      prompt: '',
+      openingScene: 'person_selling',
+      aspectRatio: '9:16',
+      model: 'nano-banana-pro',
+      outputCount: 4,
+    });
+    setExampleApplyVersion((prev) => prev + 1);
     setResults([]);
+    setResultSelectionKey('');
+    setResultAspectRatio('9:16');
     setLastElapsedSeconds(null);
     setIsAsyncGenerating(false);
     setProgress(0);
     setError(null);
-    setPhase(images.length > 0 ? 'form' : 'upload');
-  }, [clearProgressTimer, images.length]);
+    setRightPanel('preview');
+    setPhase('upload');
+  }, [clearProgressTimer]);
 
-  const buildFileName = useCallback((prefix: string, index: number, imageId: string) => {
+  const buildFileName = useCallback((prefix: string, index: number) => {
     const safePrefix = prefix.trim() || 'ai_first_frame';
-    const shortId = imageId.slice(0, 8);
-    return `${safePrefix}_${index + 1}_${shortId}.jpg`;
+    return `${safePrefix}_${index + 1}.jpg`;
   }, []);
 
   const handleDownload = async (imageId: string, filename?: string) => {
@@ -901,7 +955,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       if (!selected) return;
 
       const blob = await productImagesApi.downloadImageByUrl(selected.imageUrl);
-      const nextName = filename || buildFileName('ai_first_frame', Math.max(index, 0), imageId);
+      const nextName = filename || buildFileName('ai_first_frame', Math.max(index, 0));
       await saveBlobWithPickerFallback(blob, nextName);
     } catch {
       setError({
@@ -918,7 +972,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       if (!item.imageUrl || item.generationStatus === 'failed') continue;
       // Keep sequential order so filenames are deterministic.
       // eslint-disable-next-line no-await-in-loop
-      await handleDownload(item.id, buildFileName(prefix, i, item.id));
+      await handleDownload(item.id, buildFileName(prefix, i));
     }
   };
 
@@ -944,7 +998,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       || 'jpg';
 
     const normalizedExtension = extension === 'jpeg' ? 'jpg' : extension;
-    return buildFileName('ai_first_frame', Math.max(index, 0), image.id).replace(/\.jpg$/i, `.${normalizedExtension}`);
+    return buildFileName('ai_first_frame', Math.max(index, 0)).replace(/\.jpg$/i, `.${normalizedExtension}`);
   };
 
   const handleSaveToAssets = async (imageId: string): Promise<boolean> => {
@@ -1156,15 +1210,15 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     <>
       <div className="flex h-full min-h-0 flex-col">
         <div className="mb-4 shrink-0">
-          <div className="mb-3 flex items-center gap-2">
-            <div className="text-sm font-bold text-zinc-200">{t.ff_examples_title || '示例首帧'}</div>
+          <div className="mb-1 flex items-center gap-2">
+            <div className="text-sm font-bold text-zinc-200">{t.ff_examples_title || '示例案例'}</div>
             <button
               type="button"
               onClick={() => setIsExamplesCollapsed((prev) => !prev)}
-              className="p-1.5 text-zinc-600 hover:text-zinc-300 transition rounded"
-              title={isExamplesCollapsed ? (t.wb_expand || '展开') : (t.wb_collapse || '折叠')}
-              aria-label={isExamplesCollapsed ? (t.wb_expand || '展开') : (t.wb_collapse || '折叠')}
+              className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs text-zinc-500 transition hover:text-zinc-300"
+              aria-label={isExamplesCollapsed ? (t.ff_examples_expand || '展开') : (t.ff_examples_collapse || '折叠')}
             >
+              <span>{isExamplesCollapsed ? (t.ff_examples_expand || '展开') : (t.ff_examples_collapse || '折叠')}</span>
               <ChevronsDown className={`w-4 h-4 transition-transform duration-200 ${isExamplesCollapsed ? 'rotate-0' : 'rotate-180'}`} />
             </button>
           </div>
@@ -1177,59 +1231,71 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
             aria-hidden={isExamplesCollapsed}
           >
             <div className="min-h-0 overflow-hidden">
-              <div className="flex gap-3 overflow-x-auto pb-2 custom-scroll">
+              <div className="flex gap-3 overflow-x-auto pt-2 pb-2 custom-scroll">
                 {firstFrameExamples.map((item) => {
                   const isUserSnapshot = Boolean(item.isUserSnapshot);
                   const isBusy = Boolean(isGenerating || isApplyingExample || isSavingExampleSnapshot || isDeletingExampleSnapshot);
+                  const inputThumbs = (Array.isArray(item.inputImageUrls) ? item.inputImageUrls : [])
+                    .filter(Boolean)
+                    .slice(0, 2);
+                  if (inputThumbs.length === 0) inputThumbs.push(item.previewUrl);
                   return (
                     <button
                       key={item.id}
                       type="button"
-                      onClick={() => (isUserSnapshot ? undefined : void applyFirstFrameExample(item.id))}
+                      onClick={() => void applyFirstFrameExample(item.id)}
                       disabled={isBusy}
-                      className={`group relative w-[240px] shrink-0 overflow-hidden rounded-2xl border border-white/10 ${isUserSnapshot ? 'bg-black/10' : 'bg-black/20'} text-left transition hover:border-orange-500/30 hover:bg-black/30 disabled:opacity-60 disabled:hover:border-white/10 ${isUserSnapshot ? 'hover:-translate-y-1' : ''}`}
-                      title={isBusy ? (t.ff_examples_loading || '处理中...') : (isUserSnapshot ? (t.ff_saved_example_hover_tip || '悬浮显示操作') : (t.ff_examples_click_to_fill || '点击填充'))}
+                      className="group relative aspect-[4/3] w-[288px] shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-black/20 text-left transition duration-300 hover:-translate-y-1 hover:border-white/20 disabled:opacity-60 disabled:hover:border-white/10"
+                      title={isBusy ? (t.ff_examples_loading || '处理中...') : undefined}
                     >
-                      <div className="relative h-[112px]">
+                      <div className="relative h-full w-full">
                         <img
                           src={item.previewUrl}
                           alt={item.title}
-                          className={`h-full w-full object-cover transition ${isUserSnapshot ? 'opacity-85 group-hover:opacity-70 group-hover:blur-sm' : 'opacity-85 group-hover:opacity-95'}`}
+                          className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.04] group-hover:brightness-110"
                         />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
-                        <div className="absolute inset-x-4 bottom-3">
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
+
+                        <div className="absolute left-3 bottom-[62px] px-1 py-0.5">
+                          <div className="mb-1 text-[11px] font-normal leading-none text-white/80">输入素材</div>
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2">
+                              {inputThumbs.map((thumb, thumbIndex) => (
+                                <div
+                                  key={`${item.id}-input-thumb-${thumbIndex}`}
+                                  className="h-[64px] w-[64px] overflow-hidden rounded-[10px] bg-black/20 shadow-[0_2px_8px_rgba(0,0,0,0.22)]"
+                                >
+                                  <img src={thumb} alt="input" className="h-full w-full object-cover" />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="absolute inset-x-4 bottom-3 pr-12">
                           <div className="text-sm font-extrabold text-white/95">{item.title}</div>
                           <div className="mt-0.5 text-[11px] text-white/70 line-clamp-1">{item.subtitle}</div>
                         </div>
 
-                        {isUserSnapshot && (
-                          <div className="absolute inset-0 flex items-center justify-center opacity-0 transition group-hover:opacity-100">
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                disabled={isBusy}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void applyFirstFrameExample(item.id);
-                                }}
-                                className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-500/15 border border-emerald-500/30 text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60 disabled:hover:bg-emerald-500/15 transition"
-                              >
-                                {t.ff_saved_example_apply || '添加'}
-                              </button>
-                              <button
-                                type="button"
-                                disabled={isBusy}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void deleteFirstFrameExampleSnapshot(item.id);
-                                }}
-                                className="px-3 py-2 rounded-xl text-xs font-bold bg-red-500/15 border border-red-500/30 text-red-100 hover:bg-red-500/20 disabled:opacity-60 disabled:hover:bg-red-500/15 transition"
-                              >
-                                {t.ff_saved_example_delete || '删除'}
-                              </button>
-                            </div>
-                          </div>
-                        )}
+                        <span className="absolute right-3 bottom-3 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/70 bg-transparent text-white transition duration-300 group-hover:scale-110">
+                          <ArrowRight className="h-4 w-4 !text-white" style={{ color: '#fff' }} />
+                        </span>
+
+                        {isUserSnapshot ? (
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void deleteFirstFrameExampleSnapshot(item.id);
+                            }}
+                            className="absolute left-3 top-3 inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-400/35 bg-black/45 text-red-200 opacity-0 transition hover:bg-red-500/35 group-hover:opacity-100 disabled:opacity-40"
+                            title={t.ff_saved_example_delete || '删除'}
+                            aria-label={t.ff_saved_example_delete || '删除'}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
                       </div>
                     </button>
                   );
@@ -1239,14 +1305,14 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                   type="button"
                   onClick={() => void saveFirstFrameExampleSnapshot()}
                   disabled={isGenerating || isApplyingExample || isSavingExampleSnapshot}
-                  className="group relative w-[240px] shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-black/10 text-left transition hover:border-orange-500/30 hover:bg-black/20 disabled:opacity-60 disabled:hover:border-white/10"
-                  title={isSavingExampleSnapshot ? (t.ff_saving || '保存中...') : (t.ff_save_as_example || '保存当前配置为示例')}
+                  className="group relative aspect-[4/3] w-[288px] shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-black/10 text-left transition duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-black/20 disabled:opacity-60 disabled:hover:border-white/10"
+                  title={isSavingExampleSnapshot ? (t.ff_saving || '保存中...') : undefined}
                 >
-                  <div className="relative h-[112px] flex items-center justify-center gap-2 px-4">
+                  <div className="relative h-full flex items-center justify-center gap-2 px-4">
                     <Save className="h-4 w-4 text-orange-300/90" />
                     <div>
-                      <div className="text-sm font-extrabold text-zinc-200">{t.ff_save_as_example || '保存为示例'}</div>
-                      <div className="mt-0.5 text-[11px] text-zinc-500 line-clamp-1">{t.ff_save_as_example_desc || '保存当前工作区快照'}</div>
+                      <div className="text-sm font-extrabold text-zinc-200">{t.ff_save_as_example || '保存在当前配置'}</div>
+                      <div className="mt-0.5 text-[11px] text-zinc-500 line-clamp-2">{t.ff_save_as_example_desc || '下次可快速恢复素材与参数'}</div>
                     </div>
                   </div>
                 </button>
@@ -1257,28 +1323,30 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
         <div ref={containerRef} className="relative flex min-h-0 flex-1 items-stretch overflow-hidden">
           <section
-            className="mr-3 h-full shrink-0 rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100"
+            className="mr-3 flex h-full min-h-0 shrink-0 flex-col rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100"
             style={{ width: `${leftWidth}px`, minWidth: `${FIRST_FRAME_PANEL_MIN_WIDTH}px` }}
           >
-            <div className="mb-5">
+            <div className="mb-5 shrink-0">
               <h2 className="text-lg font-semibold text-white">
                 {t.ff_upload_materials}
               </h2>
             </div>
-            <ImageUploader
-              key={`${workspaceId}-${uploaderResetKey}`}
-              maxFiles={4}
-              previewVariant="first-frame"
-              value={images}
-              onFilesSelected={handleImagesSelected}
-              onError={(err) =>
-                setError({
-                  code: 'UPLOAD_ERROR',
-                  message: err,
-                  severity: 'warning',
-                })
-              }
-            />
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <ImageUploader
+                key={`${workspaceId}-${uploaderResetKey}`}
+                maxFiles={4}
+                previewVariant="first-frame"
+                value={images}
+                onFilesSelected={handleImagesSelected}
+                onError={(err) =>
+                  setError({
+                    code: 'UPLOAD_ERROR',
+                    message: err,
+                    severity: 'warning',
+                  })
+                }
+              />
+            </div>
           </section>
 
           <ResizableSplitter
@@ -1292,25 +1360,26 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
           />
 
           <section
-            className="mx-3 h-full shrink-0 rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100"
+            className="mx-3 flex h-full min-h-0 shrink-0 flex-col rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100"
             style={{ width: `${middleWidth}px`, minWidth: `${FIRST_FRAME_PANEL_MIN_WIDTH}px` }}
           >
-            <div className="mb-5">
+            <div className="mb-5 shrink-0">
               <h2 className="text-lg font-semibold text-white">
                 {t.ff_generation_settings}
               </h2>
             </div>
-
-            <FirstFrameForm
-              images={images}
-              workspaceId={workspaceId}
-              defaultParams={exampleParams}
-              applyVersion={exampleApplyVersion}
-              isSubmitting={isGenerating}
-              onChange={setCurrentFormParams}
-              onSubmit={handleGenerateFormSubmit}
-              onReset={handleResetLayout}
-            />
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <FirstFrameForm
+                images={images}
+                workspaceId={workspaceId}
+                defaultParams={exampleParams}
+                applyVersion={exampleApplyVersion}
+                isSubmitting={isGenerating}
+                onChange={setCurrentFormParams}
+                onSubmit={handleGenerateFormSubmit}
+                onReset={handleResetLayout}
+              />
+            </div>
           </section>
 
           <ResizableSplitter
@@ -1667,6 +1736,9 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
               <h1 className="text-2xl font-bold text-white mb-1">
                 {t.ff_page_title}
               </h1>
+              <p className="text-sm text-zinc-400">
+                {t.ff_page_subtitle}
+              </p>
             </div>
 
             <div className="ml-auto">

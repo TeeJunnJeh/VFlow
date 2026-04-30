@@ -47,6 +47,8 @@ export interface AspectRatioPickerProps {
   className?: string;
   /** chip 内边距尺寸：sm 给 ImagesGallery 的紧凑卡片用；md 给独立表单用 */
   size?: 'sm' | 'md';
+  /** 主行按钮等宽拉伸，占满一整行 */
+  stretch?: boolean;
 }
 
 export const AspectRatioPicker: React.FC<AspectRatioPickerProps> = ({
@@ -59,6 +61,7 @@ export const AspectRatioPicker: React.FC<AspectRatioPickerProps> = ({
   descriptors,
   className = '',
   size = 'md',
+  stretch = false,
 }) => {
   const labels: AspectRatioPickerLabels = { ...FALLBACK_LABELS, ...labelsProp };
   const moreSet = new Set(more);
@@ -173,8 +176,11 @@ export const AspectRatioPicker: React.FC<AspectRatioPickerProps> = ({
     </div>
   );
 
+  const rowClassName = stretch ? 'flex w-full gap-1.5' : 'flex flex-wrap gap-1.5';
+  const stretchChipClass = stretch ? 'flex-1 inline-flex items-center justify-center' : '';
+
   return (
-    <div className={`flex flex-wrap gap-1.5 ${className}`}>
+    <div className={`${rowClassName} ${className}`}>
       {primary.map((r) => {
         const selected = r === value;
         return (
@@ -183,7 +189,7 @@ export const AspectRatioPicker: React.FC<AspectRatioPickerProps> = ({
             type="button"
             disabled={disabled}
             onClick={() => onChange(r)}
-            className={`${baseChip} ${selected ? activeChip : inactiveChip} ${disabled ? disabledChip : ''}`}
+            className={`${baseChip} ${stretchChipClass} ${selected ? activeChip : inactiveChip} ${disabled ? disabledChip : ''}`}
             aria-pressed={selected}
           >
             {r}
@@ -198,7 +204,7 @@ export const AspectRatioPicker: React.FC<AspectRatioPickerProps> = ({
             type="button"
             disabled={disabled}
             onClick={() => setOpen((prev) => !prev)}
-            className={`${baseChip} inline-flex items-center gap-1 ${isInMore ? activeChip : inactiveChip} ${disabled ? disabledChip : ''}`}
+            className={`${baseChip} ${stretchChipClass} inline-flex items-center gap-1 ${isInMore ? activeChip : inactiveChip} ${disabled ? disabledChip : ''}`}
             aria-haspopup="listbox"
             aria-expanded={open}
           >

@@ -203,7 +203,7 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
     setDownloadingIds((prev) => new Set(prev).add(imageId));
     try {
       const index = results.findIndex((item) => item.id === imageId);
-      const filename = `ai_first_frame_${Math.max(index + 1, 1)}_${imageId.slice(0, 8)}.jpg`;
+      const filename = `ai_first_frame_${Math.max(index + 1, 1)}.jpg`;
       await onDownload(imageId, filename);
     } finally {
       setDownloadingIds((prev) => {

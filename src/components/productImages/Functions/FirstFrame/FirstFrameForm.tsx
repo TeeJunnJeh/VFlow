@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Minus, Plus, Wand2 } from 'lucide-react';
+import { Eraser, Minus, Plus, Wand2 } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import { billingApi } from '../../../../services/billing';
@@ -433,8 +433,9 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
             type="button"
             onClick={handleReset}
             disabled={isSubmitting}
-            className="px-4 py-3 bg-white/5 border border-white/10 text-zinc-300 rounded-lg hover:bg-white/10 transition disabled:opacity-50 font-medium"
+            className="inline-flex items-center gap-1.5 px-4 py-3 bg-white/5 border border-white/10 text-zinc-300 rounded-lg hover:bg-white/10 transition disabled:opacity-50 text-sm font-bold"
           >
+            <Eraser className="h-4 w-4 shrink-0" />
             {t.ff_reset}
           </button>
         </div>

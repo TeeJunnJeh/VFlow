@@ -921,13 +921,27 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     clearProgressTimer();
     progressStartedAtRef.current = null;
 
+    setImages([]);
+    setUploaderResetKey((prev) => prev + 1);
+    setExampleParams({});
+    setCurrentFormParams({
+      prompt: '',
+      openingScene: 'person_selling',
+      aspectRatio: '9:16',
+      model: 'nano-banana-pro',
+      outputCount: 4,
+    });
+    setExampleApplyVersion((prev) => prev + 1);
     setResults([]);
+    setResultSelectionKey('');
+    setResultAspectRatio('9:16');
     setLastElapsedSeconds(null);
     setIsAsyncGenerating(false);
     setProgress(0);
     setError(null);
-    setPhase(images.length > 0 ? 'form' : 'upload');
-  }, [clearProgressTimer, images.length]);
+    setRightPanel('preview');
+    setPhase('upload');
+  }, [clearProgressTimer]);
 
   const buildFileName = useCallback((prefix: string, index: number) => {
     const safePrefix = prefix.trim() || 'ai_first_frame';

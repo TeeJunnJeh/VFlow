@@ -2,6 +2,8 @@
 import { ArrowLeft, ChevronDown, Download, MoveDiagonal2, PanelRightClose, PanelRightOpen, Plus, RotateCcw, Sparkles, Trash2, Type, X, PencilLine } from 'lucide-react';
 import PptxGenJS from 'pptxgenjs';
 import { AppDialog } from '../common/AppDialog';
+import { useLanguage } from '../../context/LanguageContext';
+import type { translations } from '../../i18n/translations';
 import {
   videoApi,
   type TextSeparationSecondaryCreatePayload,
@@ -9,6 +11,8 @@ import {
   type TextSeparationSecondaryResult,
   type TextSeparationSecondaryTask,
 } from '../../services/video';
+
+type I18nTranslations = typeof translations['en'];
 
 export interface TextSeparationBlock {
   id: string;
@@ -278,8 +282,6 @@ const mapCreateTaskToTextRepaintTask = (
   get_url: task.get_url,
 });
 
-type TranslateFn = (zhText: string, enText: string) => string;
-
 const normalizeTaskImageKey = (value?: string | null) => {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -368,14 +370,14 @@ const styles = {
       'inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-white/10 bg-black/20 px-4 py-3 text-sm font-bold text-zinc-200 transition-all hover:!border-orange-400 hover:!bg-orange-500/10 hover:!text-orange-200 disabled:opacity-50',
   } as const;
 
-const getTextRepaintTaskTitle = (task: TextRepaintTaskItem, tr: TranslateFn) =>
-  tr(`文本重绘_${formatTaskTimestamp(task.createdAt)}`, `Text Repaint_${formatTaskTimestamp(task.createdAt)}`);
+const getTextRepaintTaskTitle = (task: TextRepaintTaskItem, t: I18nTranslations) =>
+  `${t.tsep_task_title_prefix}_${formatTaskTimestamp(task.createdAt)}`;
 
 interface ExportMenuProps {
   isOpen: boolean;
   isExporting: boolean;
   isExportingPptx: boolean;
-  tr: TranslateFn;
+  t: I18nTranslations;
   onToggle: () => void;
   onExportJson: () => void;
   onExportPptx: () => Promise<void>;
@@ -386,7 +388,7 @@ const ExportMenu: React.FC<ExportMenuProps> = ({
   isOpen,
   isExporting,
   isExportingPptx,
-  tr,
+  t,
   onToggle,
   onExportJson,
   onExportPptx,
@@ -395,19 +397,19 @@ const ExportMenu: React.FC<ExportMenuProps> = ({
   <div className="relative">
     <button type="button" onClick={onToggle} className={styles.primaryButton}>
       <Download className="w-4 h-4" />
-      {tr('导出', 'Export')}
+      {t.pg_board_export}
       <ChevronDown className={`h-4 w-4 transition ${isOpen ? 'rotate-180' : ''}`} />
     </button>
     {isOpen ? (
         <div className="absolute right-0 z-20 mt-2 w-32 overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/95 py-1 shadow-2xl backdrop-blur">
           <button type="button" onClick={onExportJson} className={styles.menuButton}>
-            {tr('导出文本 JSON', 'Export Text JSON')}
+            {t.tsep_export_text_json}
           </button>
         <button type="button" onClick={() => void onExportPptx()} disabled={isExportingPptx} className={styles.menuButton}>
-          {isExportingPptx ? tr('导出 PPTX 中...', 'Exporting PPTX...') : tr('导出 PPTX', 'Export PPTX')}
+          {isExportingPptx ? t.tsep_exporting_pptx : t.tsep_export_pptx}
         </button>
         <button type="button" onClick={() => void onExportPng()} disabled={isExporting} className={styles.menuButton}>
-          {isExporting ? tr('导出 PNG 中...', 'Exporting PNG...') : tr('导出 PNG', 'Export PNG')}
+          {isExporting ? t.tsep_exporting_png : t.tsep_export_png}
         </button>
       </div>
     ) : null}
@@ -425,7 +427,7 @@ interface TextElementBoxProps {
   onDelete: (id: string) => void;
   onStartDrag: (id: string, e: React.PointerEvent<HTMLDivElement>) => void;
   onStartResize: (id: string, e: React.PointerEvent<HTMLButtonElement>) => void;
-  tr: TranslateFn;
+  t: I18nTranslations;
 }
 
 const TextElementBox: React.FC<TextElementBoxProps> = ({
@@ -438,7 +440,7 @@ const TextElementBox: React.FC<TextElementBoxProps> = ({
   onDelete,
   onStartDrag,
   onStartResize,
-  tr,
+  t,
 }) => {
   const fontSizePx = Math.max(12, Math.round(item.fontSizePx * (surfaceViewportWidth / imageWidth)));
 
@@ -497,7 +499,7 @@ const TextElementBox: React.FC<TextElementBoxProps> = ({
             onDelete(item.id);
           }}
           className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full border border-red-300 bg-red-500 text-white shadow"
-          aria-label={tr('删除文本框', 'Delete text box')}
+          aria-label={t.tsep_delete_text_box}
         >
           <X className="h-3 w-3" />
         </button>
@@ -507,7 +509,7 @@ const TextElementBox: React.FC<TextElementBoxProps> = ({
           type="button"
           onPointerDown={(e) => onStartResize(item.id, e)}
           className="absolute -bottom-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full border border-orange-300 bg-orange-500 text-black shadow"
-          aria-label={tr('缩放文本框', 'Resize text box')}
+          aria-label={t.tsep_resize_text_box}
         >
           <MoveDiagonal2 className="h-3 w-3" />
         </button>
@@ -517,7 +519,7 @@ const TextElementBox: React.FC<TextElementBoxProps> = ({
 };
 
 interface CanvasPanelProps {
-  tr: TranslateFn;
+  t: I18nTranslations;
   backgroundImageUrl: string;
   sampleTitle: string;
   elements: TextElement[];
@@ -543,7 +545,7 @@ interface CanvasPanelProps {
 }
 
 const CanvasPanel: React.FC<CanvasPanelProps> = ({
-  tr,
+  t,
   backgroundImageUrl,
   sampleTitle,
   elements,
@@ -571,18 +573,18 @@ const CanvasPanel: React.FC<CanvasPanelProps> = ({
       <div className="mb-3 flex items-start justify-between gap-3 px-1 py-1">
         <div className="min-w-0 flex items-center gap-2">
           <PencilLine className="h-4 w-4 text-orange-300" />
-          <div className={styles.sectionTitle}>{tr('编辑画布', 'Editor Canvas')}</div>
+          <div className={styles.sectionTitle}>{t.tsep_editor_canvas}</div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
         <button type="button" onClick={onReset} className={styles.secondaryButton}>
           <RotateCcw className="w-4 h-4" />
-          {tr('恢复初始布局', 'Reset Layout')}
+          {t.tsep_reset_layout}
         </button>
         <ExportMenu
           isOpen={isExportMenuOpen}
           isExporting={isExporting}
           isExportingPptx={isExportingPptx}
-          tr={tr}
+          t={t}
           onToggle={onToggleExportMenu}
           onExportJson={onExportJson}
           onExportPptx={onExportPptx}
@@ -590,7 +592,7 @@ const CanvasPanel: React.FC<CanvasPanelProps> = ({
         />
         <button type="button" onClick={onAddTextElement} className={styles.secondaryButton}>
           <Plus className="h-4 w-4" />
-          {tr('添加文本框', 'Add Text Box')}
+          {t.tsep_add_text_box}
         </button>
       </div>
     </div>
@@ -620,7 +622,7 @@ const CanvasPanel: React.FC<CanvasPanelProps> = ({
                 onDelete={onDeleteElement}
                 onStartDrag={onStartDrag}
                 onStartResize={onStartResize}
-                tr={tr}
+                t={t}
               />
             ))}
           </div>
@@ -631,7 +633,7 @@ const CanvasPanel: React.FC<CanvasPanelProps> = ({
 );
 
 interface SettingsPanelProps {
-  tr: TranslateFn;
+  t: I18nTranslations;
   selectedElement: TextElement | null;
   textRepaintGlobalPrompt: string;
   originalImageUrl: string;
@@ -642,7 +644,7 @@ interface SettingsPanelProps {
 }
 
 const SettingsPanel: React.FC<SettingsPanelProps> = ({
-  tr,
+  t,
   selectedElement,
   textRepaintGlobalPrompt,
   originalImageUrl,
@@ -655,18 +657,18 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     <div className={`${styles.card} ${styles.panelPadding}`}>
       <div className="flex items-center gap-2 text-sm font-bold text-zinc-100">
         <Sparkles className="w-4 h-4 text-orange-300" />
-        {tr('全局文本重绘描述', 'Global Text Repaint Prompt')}
+        {t.tsep_global_prompt_title}
       </div>
       <div className="mt-4 space-y-4">
         <textarea
           value={textRepaintGlobalPrompt}
           onChange={(e) => onGlobalPromptChange(e.target.value)}
-          placeholder={tr('例如：整体海报更具艺术感，文字自然融入环境光影。', 'Example: Make the poster more artistic and blend the text naturally into the scene lighting.')}
+          placeholder={t.tsep_global_prompt_placeholder}
           className={`${styles.textarea} min-h-[120px]`}
         />
         <button type="button" onClick={onStartTextRepaint} disabled={isTextRepaintSubmitting} className={styles.primaryWideButton}>
           <Sparkles className="h-4 w-4" />
-          {isTextRepaintSubmitting ? tr('文本重绘提交中...', 'Submitting Text Repaint...') : tr('文本重绘', 'Text Repaint')}
+          {isTextRepaintSubmitting ? t.tsep_text_repaint_submitting : t.tsep_text_repaint_action}
         </button>
       </div>
     </div>
@@ -674,13 +676,13 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     <div className={`${styles.card} ${styles.panelPadding}`}>
       <div className="flex items-center gap-2 text-sm font-bold text-zinc-100">
         <Type className="w-4 h-4 text-orange-300" />
-        {tr('文本属性', 'Text Settings')}
+        {t.tsep_text_settings_title}
       </div>
       <div className="mt-4 space-y-4">
         {selectedElement ? (
           <>
             <div>
-              <div className={styles.sectionLabel}>{tr('文本内容', 'Text')}</div>
+              <div className={styles.sectionLabel}>{t.tsep_text_content_label}</div>
               <textarea
                 value={selectedElement.text}
                 onChange={(e) => onUpdateElement(selectedElement.id, { text: e.target.value })}
@@ -689,18 +691,18 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </div>
 
             <div>
-              <div className={styles.sectionLabel}>{tr('当前文本框文本重绘描述', 'Selected Text Repaint Prompt')}</div>
+              <div className={styles.sectionLabel}>{t.tsep_selected_prompt_label}</div>
               <textarea
                 value={selectedElement.prompt}
                 onChange={(e) => onUpdateElement(selectedElement.id, { prompt: e.target.value })}
-                placeholder={tr('例如：金属质感、柔和发光、与背景边缘融合。', 'Example: Metallic texture, subtle glow, and soft edge blending with the background.')}
+                placeholder={t.tsep_selected_prompt_placeholder}
                 className={`${styles.textarea} min-h-[110px]`}
               />
             </div>
 
             <div>
               <div className="mb-2 flex items-center justify-between text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">
-                <span>{tr('字号', 'Font Size')}</span>
+                <span>{t.tsep_font_size}</span>
                 <span>{Math.round(selectedElement.fontSizePx)} px</span>
               </div>
               <input
@@ -714,11 +716,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </div>
 
             <div>
-              <div className={styles.sectionLabel}>{tr('字重', 'Weight')}</div>
+              <div className={styles.sectionLabel}>{t.tsep_font_weight}</div>
               <div className="grid grid-cols-2 gap-2">
                 {([
-                  [400, tr('常规', 'Regular')],
-                  [700, tr('加粗', 'Bold')],
+                  [400, t.tsep_weight_regular],
+                  [700, t.tsep_weight_bold],
                 ] as Array<[number, string]>).map(([value, label]) => (
                   <button
                     key={value}
@@ -736,17 +738,17 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
             {[
               {
-                label: tr('字体颜色', 'Text Color'),
+                label: t.tsep_color_text,
                 value: selectedElement.color,
                 onChange: (value: string) => onUpdateElement(selectedElement.id, { color: value }),
               },
               {
-                label: tr('描边颜色', 'Stroke Color'),
+                label: t.tsep_color_stroke,
                 value: selectedElement.strokeColor,
                 onChange: (value: string) => onUpdateElement(selectedElement.id, { strokeColor: value }),
               },
               {
-                label: tr('阴影颜色', 'Shadow Color'),
+                label: t.tsep_color_shadow,
                 value: selectedElement.shadowColor,
                 onChange: (value: string) => onUpdateElement(selectedElement.id, { shadowColor: value }),
               },
@@ -765,7 +767,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
             <div>
               <div className="mb-2 flex items-center justify-between text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">
-                <span>{tr('描边粗细', 'Stroke Width')}</span>
+                <span>{t.tsep_stroke_width}</span>
                 <span>{Math.round(selectedElement.strokeWidth * 1000)}</span>
               </div>
               <input
@@ -780,7 +782,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
             <div>
               <div className="mb-2 flex items-center justify-between text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">
-                <span>{tr('阴影模糊', 'Shadow Blur')}</span>
+                <span>{t.tsep_shadow_blur}</span>
                 <span>{Math.round(selectedElement.shadowBlur * 1000)}</span>
               </div>
               <input
@@ -796,12 +798,12 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
             <div className="grid grid-cols-2 gap-3">
               {[
                 {
-                  label: tr('阴影 X', 'Shadow X'),
+                  label: t.tsep_shadow_x,
                   value: selectedElement.shadowOffsetX,
                   onChange: (value: number) => onUpdateElement(selectedElement.id, { shadowOffsetX: value }),
                 },
                 {
-                  label: tr('阴影 Y', 'Shadow Y'),
+                  label: t.tsep_shadow_y,
                   value: selectedElement.shadowOffsetY,
                   onChange: (value: number) => onUpdateElement(selectedElement.id, { shadowOffsetY: value }),
                 },
@@ -824,12 +826,12 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </div>
 
             <div>
-              <div className={styles.sectionLabel}>{tr('对齐', 'Align')}</div>
+              <div className={styles.sectionLabel}>{t.tsep_align}</div>
               <div className="grid grid-cols-3 gap-2">
                 {([
-                  ['left', tr('左对齐', 'Left')],
-                  ['center', tr('居中', 'Center')],
-                  ['right', tr('右对齐', 'Right')],
+                  ['left', t.tsep_align_left],
+                  ['center', t.tsep_align_center],
+                  ['right', t.tsep_align_right],
                 ] as Array<[TextElement['align'], string]>).map(([value, label]) => (
                   <button
                     key={value}
@@ -847,21 +849,21 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
           </>
         ) : (
           <div className={styles.emptyState}>
-            {tr('先在画布中选择一个文本框，再编辑局部提示词与样式。', 'Select a text block on the canvas before editing per-block prompts and styles.')}
+            {t.tsep_select_textbox_hint}
           </div>
         )}
       </div>
       </div>
 
       <div className={`${styles.card} ${styles.panelPadding}`}>
-        <div className={styles.sectionTitle}>{tr('原图参考', 'Original Reference')}</div>
-        <img src={originalImageUrl} alt={tr('原始海报', 'Original poster')} className="mt-3 block w-full h-auto max-h-[360px] object-contain rounded-xl" />
+        <div className={styles.sectionTitle}>{t.tsep_original_reference}</div>
+        <img src={originalImageUrl} alt={t.tsep_original_poster_alt} className="mt-3 block w-full h-auto max-h-[360px] object-contain rounded-xl" />
       </div>
   </div>
 );
 
 interface TaskDrawerProps {
-  tr: TranslateFn;
+  t: I18nTranslations;
   isOpen: boolean;
   isZh: boolean;
   imageAspectRatio: number;
@@ -872,21 +874,21 @@ interface TaskDrawerProps {
   onDownload: (task: TextRepaintTaskItem) => void;
 }
 
-const TaskDrawer: React.FC<TaskDrawerProps> = ({ tr, isOpen, isZh, imageAspectRatio, tasks, onToggle, onPreview, onApply, onDownload }) => (
+const TaskDrawer: React.FC<TaskDrawerProps> = ({ t, isOpen, isZh, imageAspectRatio, tasks, onToggle, onPreview, onApply, onDownload }) => (
   <div className={`min-h-0 self-stretch shrink-0 overflow-hidden rounded-2xl border border-white/5 bg-white/2 transition-all duration-200 ${isOpen ? 'w-[360px]' : 'w-[56px]'}`}>
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-white/5 px-3 py-3">
         {isOpen ? (
           <div className="flex items-center gap-2 text-sm font-bold text-zinc-100">
               <Sparkles className="h-4 w-4 text-orange-300" />
-              {tr('文本重绘任务', 'Text Repaint Tasks')}
+              {t.tsep_text_repaint_tasks}
           </div>
         ) : null}
         <button
           type="button"
           onClick={onToggle}
           className={styles.drawerToggle}
-          aria-label={isOpen ? tr('收起文本重绘任务抽屉', 'Collapse text repaint drawer') : tr('展开文本重绘任务抽屉', 'Expand text repaint drawer')}
+          aria-label={isOpen ? t.tsep_drawer_collapse : t.tsep_drawer_expand}
         >
           {isOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
         </button>
@@ -898,7 +900,7 @@ const TaskDrawer: React.FC<TaskDrawerProps> = ({ tr, isOpen, isZh, imageAspectRa
             <div className="space-y-3">
                 {tasks.map((task) => {
                   const lowerStatus = String(task.status || '').toLowerCase();
-                  const taskTitle = getTextRepaintTaskTitle(task, tr);
+                  const taskTitle = getTextRepaintTaskTitle(task, t);
                   return (
                     <div key={task.request_id} className={styles.taskCard}>
                       <button
@@ -906,7 +908,7 @@ const TaskDrawer: React.FC<TaskDrawerProps> = ({ tr, isOpen, isZh, imageAspectRa
                         onClick={() => task.previewUrl && onPreview(task)}
                         disabled={!task.previewUrl}
                         className={styles.previewCardButton}
-                        aria-label={tr('查看文本重绘预览', 'Open text repaint preview')}
+                        aria-label={t.tsep_open_preview}
                       >
                         <div className="overflow-hidden rounded-t-xl border border-white/10 bg-black/30" style={{ aspectRatio: `${task.canvasAspectRatio || imageAspectRatio}` }}>
                           {task.previewUrl ? (
@@ -914,8 +916,8 @@ const TaskDrawer: React.FC<TaskDrawerProps> = ({ tr, isOpen, isZh, imageAspectRa
                         ) : (
                           <div className="flex h-full items-center justify-center px-4 text-center text-xs text-zinc-500">
                             {lowerStatus === 'failed' || lowerStatus === 'error'
-                              ? task.error || tr('生成失败，请调整提示词后重试。', 'Generation failed. Refine the prompts and try again.')
-                              : tr('等待生成结果...', 'Waiting for generated preview...')}
+                              ? task.error || t.tsep_generation_failed
+                              : t.tsep_waiting_preview}
                           </div>
                           )}
                         </div>
@@ -946,14 +948,14 @@ const TaskDrawer: React.FC<TaskDrawerProps> = ({ tr, isOpen, isZh, imageAspectRa
                           className={`${styles.actionSecondaryButton} w-full`}
                         >
                           <Download className="h-4 w-4" />
-                          {tr('下载图片', 'Download Image')}
+                          {t.pi_gallery_preview_download_image}
                         </button>
                         <button
                           type="button"
                           onClick={() => onApply(task)}
                           className={`${styles.applyAccentButton} w-full`}
                         >
-                          {tr('应用到编辑栏', 'Apply to Editor')}
+                          {t.tsep_apply_to_editor}
                         </button>
                         </div>
                       </div>
@@ -963,14 +965,14 @@ const TaskDrawer: React.FC<TaskDrawerProps> = ({ tr, isOpen, isZh, imageAspectRa
             </div>
           ) : (
             <div className={styles.emptyState}>
-              {tr('当前海报的文本重绘任务会显示在这里，可再次预览或回填。', 'Text repaint tasks for the current poster appear here and can be previewed or reapplied later.')}
+              {t.tsep_tasks_empty}
             </div>
           )}
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center px-2 py-4">
           <div style={{ writingMode: 'vertical-rl' }} className="rotate-180 text-[11px] font-bold tracking-[0.2em] text-zinc-500">
-            {tr('文本重绘任务', 'Text Repaint Tasks')}
+            {t.tsep_text_repaint_tasks}
           </div>
         </div>
       )}
@@ -979,18 +981,18 @@ const TaskDrawer: React.FC<TaskDrawerProps> = ({ tr, isOpen, isZh, imageAspectRa
 );
 
 interface PreviewDialogProps {
-  tr: TranslateFn;
+  t: I18nTranslations;
   previewTask: TextRepaintTaskItem | null;
   onClose: () => void;
   onApplyAndClose: (task: TextRepaintTaskItem) => void;
   onDownload: (task: TextRepaintTaskItem) => void;
 }
 
-const PreviewDialog: React.FC<PreviewDialogProps> = ({ tr, previewTask, onClose, onApplyAndClose, onDownload }) => (
+const PreviewDialog: React.FC<PreviewDialogProps> = ({ t, previewTask, onClose, onApplyAndClose, onDownload }) => (
   <AppDialog
     isOpen={Boolean(previewTask?.previewUrl)}
     onClose={onClose}
-    title={tr('文本重绘预览', 'Text Repaint Preview')}
+    title={t.tsep_preview_title}
     subtitle={previewTask?.request_id || ''}
     widthClassName="max-w-5xl"
     contentClassName="overflow-auto"
@@ -1001,15 +1003,17 @@ const PreviewDialog: React.FC<PreviewDialogProps> = ({ tr, previewTask, onClose,
           <img src={previewTask.previewUrl} alt={previewTask.request_id} className="block max-h-[75vh] w-full object-contain rounded-xl" />
         </div>
         <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-300">
-          <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">{tr('任务配置', 'Task Configuration')}</div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">{t.tsep_task_configuration}</div>
           <div className="mt-3 space-y-2">
-            {previewTask.sampleTitle ? <div>{tr(`任务来源：${previewTask.sampleTitle}`, `Source: ${previewTask.sampleTitle}`)}</div> : null}
-            <div>{tr(`全局提示词：${previewTask.globalPrompt || '未填写'}`, `Global prompt: ${previewTask.globalPrompt || 'Empty'}`)}</div>
-            <div>{tr(`文本框数量：${previewTask.elementsSnapshot.length}`, `Text blocks: ${previewTask.elementsSnapshot.length}`)}</div>
+            {previewTask.sampleTitle ? (
+              <div>{t.tsep_task_source.replace('{source}', previewTask.sampleTitle)}</div>
+            ) : null}
+            <div>{t.tsep_task_global_prompt.replace('{prompt}', previewTask.globalPrompt || t.tsep_empty_value)}</div>
+            <div>{t.tsep_task_text_blocks_count.replace('{count}', String(previewTask.elementsSnapshot.length))}</div>
             <div>
-              {tr(
-                `局部提示词：${previewTask.elementsSnapshot.filter((item) => String(item.prompt || '').trim()).length} 个`,
-                `Local prompts: ${previewTask.elementsSnapshot.filter((item) => String(item.prompt || '').trim()).length}`
+              {t.tsep_task_local_prompts_count.replace(
+                '{count}',
+                String(previewTask.elementsSnapshot.filter((item) => String(item.prompt || '').trim()).length)
               )}
             </div>
           </div>
@@ -1017,10 +1021,10 @@ const PreviewDialog: React.FC<PreviewDialogProps> = ({ tr, previewTask, onClose,
         <div className="grid grid-cols-2 gap-3">
           <button type="button" onClick={() => onDownload(previewTask)} className={`${styles.actionSecondaryButton} w-full`}>
             <Download className="h-4 w-4" />
-            {tr('下载图片', 'Download Image')}
+            {t.pi_gallery_preview_download_image}
           </button>
           <button type="button" onClick={() => onApplyAndClose(previewTask)} className={`${styles.applyAccentButton} w-full`}>
-            {tr('应用到编辑栏', 'Apply to Editor')}
+            {t.tsep_apply_to_editor}
           </button>
         </div>
       </div>
@@ -1036,7 +1040,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
   isZh,
   onBack,
 }) => {
-  const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
+  const { t } = useLanguage();
   const initialElements = useMemo(() => normalizeBlocks(textBlocks), [textBlocks]);
   const [elements, setElements] = useState<TextElement[]>(initialElements);
   const [selectedId, setSelectedId] = useState<string | null>(initialElements[0]?.id || null);
@@ -1170,7 +1174,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
                 ? {
                     ...item,
                     status: 'failed',
-                    error: error instanceof Error ? error.message : tr('查询任务失败', 'Failed to query task'),
+                    error: error instanceof Error ? error.message : t.tsep_error_query_task,
                   }
                 : item
             )
@@ -1180,7 +1184,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
     }, 3000);
 
     return () => window.clearInterval(timer);
-  }, [textRepaintTasks, isZh, backgroundImageUrl, originalImageUrl]);
+  }, [textRepaintTasks, isZh, backgroundImageUrl, originalImageUrl, t.tsep_error_query_task]);
 
   useEffect(() => {
     const image = new Image();
@@ -1393,7 +1397,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
 
   const renderCompositeImageDataUrl = async (format: 'png' | 'jpeg' = 'png', quality = 0.92) => {
     const resp = await fetch(backgroundImageUrl, { method: 'GET' });
-    if (!resp.ok) throw new Error(tr('下载背景失败', 'Failed to download background'));
+    if (!resp.ok) throw new Error(t.tsep_error_download_background);
     const blob = await resp.blob();
     const blobUrl = URL.createObjectURL(blob);
 
@@ -1401,7 +1405,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
       const image = new Image();
       const loaded = new Promise<void>((resolve, reject) => {
         image.onload = () => resolve();
-        image.onerror = () => reject(new Error(tr('加载背景失败', 'Failed to load background')));
+        image.onerror = () => reject(new Error(t.tsep_error_load_background));
       });
       image.src = blobUrl;
       await loaded;
@@ -1410,7 +1414,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
       canvas.width = image.naturalWidth || image.width;
       canvas.height = image.naturalHeight || image.height;
       const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error(tr('导出失败', 'Export failed'));
+      if (!ctx) throw new Error(t.tsep_error_export_failed);
 
       ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
 
@@ -1502,7 +1506,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
     }
 
     const resp = await fetch(previewUrl, { method: 'GET' });
-    if (!resp.ok) throw new Error(tr('下载图片失败', 'Failed to download image'));
+    if (!resp.ok) throw new Error(t.tsep_error_download_image);
     const blob = await resp.blob();
     const objectUrl = URL.createObjectURL(blob);
     try {
@@ -1601,7 +1605,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
     setIsExportingPptx(true);
     try {
       const resp = await fetch(backgroundImageUrl, { method: 'GET' });
-      if (!resp.ok) throw new Error(tr('下载背景失败', 'Failed to download background'));
+      if (!resp.ok) throw new Error(t.tsep_error_download_background);
       const blob = await resp.blob();
       const dataUrl = await blobToDataUrl(blob);
 
@@ -1688,13 +1692,13 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
       <div className="flex items-center">
         <button type="button" onClick={onBack} className={styles.secondaryButton}>
           <ArrowLeft className="w-4 h-4" />
-          {tr('返回生成记录', 'Back to Generation Records')}
+          {t.tsep_back_to_records}
         </button>
       </div>
 
       <div className="flex-1 min-h-0 flex items-start gap-5">
         <CanvasPanel
-          tr={tr}
+          t={t}
           backgroundImageUrl={backgroundImageUrl}
           sampleTitle={sampleTitle}
           elements={elements}
@@ -1739,7 +1743,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
         />
 
         <SettingsPanel
-          tr={tr}
+          t={t}
           selectedElement={selectedElement}
           textRepaintGlobalPrompt={textRepaintGlobalPrompt}
           originalImageUrl={originalImageUrl}
@@ -1749,7 +1753,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
           onUpdateElement={updateElement}
         />
         <TaskDrawer
-          tr={tr}
+          t={t}
           isOpen={isTaskDrawerOpen}
           isZh={isZh}
           imageAspectRatio={imageSize.width / Math.max(1, imageSize.height)}
@@ -1764,7 +1768,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
       </div>
 
         <PreviewDialog
-          tr={tr}
+          t={t}
           previewTask={previewTask}
           onClose={() => setPreviewTask(null)}
           onApplyAndClose={(task) => {

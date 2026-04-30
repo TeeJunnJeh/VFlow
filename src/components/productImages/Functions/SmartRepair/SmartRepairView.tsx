@@ -1,15 +1,41 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, Download, Sparkles, ArrowLeft, Home } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, Download, Sparkles, Loader2, X, RotateCcw } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
-import { ErrorDialog, type ErrorInfo, ImageUploader, LoadingProgress } from '../../Common';
+import { AspectRatioPicker, ErrorDialog, type ErrorInfo, ImageUploader, SMART_REPAIR_RATIOS, ratioDescriptorsForLanguage } from '../../Common';
 import { downloadBlob, productImagesApi } from '../../../../services/productImagesApi';
 import { billingApi } from '../../../../services/billing';
 import type { ProductImageResult, SmartRepairParams, SmartRepairSubpage, SmartRepairToolCode } from '../../../../types/productImages';
 import { notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
 import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../../../utils/loadingTheme';
 import { useRequireAuth } from '../../../../utils/useRequireAuth';
+import { formatCreditAmount, roundCreditTenths } from '../../../../utils/credits';
 
-type Phase = 'setup' | 'generating' | 'result' | 'error';
+type RepairTaskStatus = 'processing' | 'succeeded' | 'failed';
+
+interface RepairTaskSettingsSnapshot {
+  prompt: string;
+  aspectRatio: SmartRepairParams['aspectRatio'];
+  strength: SmartRepairParams['strength'];
+  outputCount: SmartRepairParams['outputCount'];
+  subpage: SmartRepairSubpage;
+  toolCode: SmartRepairToolCode;
+}
+
+interface RepairTask {
+  localId: string;
+  requestId: string;
+  historyRecordId: string;
+  status: RepairTaskStatus;
+  outputs: ProductImageResult[];
+  error: string;
+  settings: RepairTaskSettingsSnapshot;
+  submittedAt: number;
+}
+
+const POLL_INTERVAL_MS = 1500;
+const POLL_MAX_ATTEMPTS = 120; // 1.5s × 120 ≈ 3 minutes ceiling
+
+const generateLocalId = () => `sr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 interface SmartRepairViewProps {
   onBack?: () => void;
@@ -210,39 +236,79 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
 };
 
 export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projectId, embedded = false }) => {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const { requireAuth } = useRequireAuth();
   const isZh = language === 'zh';
-  const tr = (zhText: string, enText: string) => (isZh ? zhText : enText);
 
-  const [phase, setPhase] = useState<Phase>('setup');
   const [sourceImage, setSourceImage] = useState<File | null>(null);
   const [referenceImage, setReferenceImage] = useState<File | null>(null);
   const [sourcePreviewUrl, setSourcePreviewUrl] = useState<string>('');
   const [referencePreviewUrl, setReferencePreviewUrl] = useState<string>('');
-  const [results, setResults] = useState<ProductImageResult[]>([]);
-  const [progress, setProgress] = useState(0);
   const [error, setError] = useState<ErrorInfo | null>(null);
 
   const [prompt, setPrompt] = useState('');
   const [aspectRatio, setAspectRatio] = useState<SmartRepairParams['aspectRatio']>('1:1');
   const [strength, setStrength] = useState<SmartRepairParams['strength']>('medium');
   const [outputCount, setOutputCount] = useState<SmartRepairParams['outputCount']>(1);
-  const [activeSubpage, setActiveSubpage] = useState<SmartRepairSubpage | null>(null);
+  const [activeSubpage, setActiveSubpage] = useState<SmartRepairSubpage>('fashion_model');
   const [activeToolCode, setActiveToolCode] = useState<SmartRepairToolCode | null>(null);
   const [historyItems, setHistoryItems] = useState<SmartRepairHistoryEntry[]>([]);
-  const [loadingTheme, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
-  const [loadingBackgroundSrc, setLoadingBackgroundSrc] = useState<string>('');
+  // loadingTheme/backgroundSrc kept for potential reuse but no longer drives a full-page overlay
+  const [, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
+  const [, setLoadingBackgroundSrc] = useState<string>('');
   const [smartRepairModelRate, setSmartRepairModelRate] = useState<number>(0);
+  const [repairTasks, setRepairTasks] = useState<RepairTask[]>([]);
+  const pollAbortRef = useRef<Set<string>>(new Set());
+  const pollStartedRef = useRef<Set<string>>(new Set());
+  const isSubmittingRef = useRef<boolean>(false);
 
-  const subpageOptions: Array<{ key: SmartRepairSubpage; zh: string; en: string }> = [
-    { key: 'fashion_model', zh: '服装/模特', en: 'Fashion/Model' },
-    { key: 'product_object', zh: '商品/物品', en: 'Product/Object' },
-    { key: 'other', zh: '其他', en: 'Other' },
+  const subpageOptions: Array<{ key: SmartRepairSubpage; label: string }> = [
+    { key: 'fashion_model', label: t.sr_subpage_fashion_model_name },
+    { key: 'product_object', label: t.sr_subpage_product_object_name },
+    { key: 'other', label: t.sr_subpage_other_name },
   ];
 
-  const currentTools = activeSubpage ? TOOL_MATRIX[activeSubpage] : [];
+  const currentTools = TOOL_MATRIX[activeSubpage];
   const activeTool = activeToolCode ? currentTools.find((tool) => tool.code === activeToolCode) : undefined;
+
+  const editablePromptTokens = useMemo(
+    () => (
+      isZh
+        ? ['{{主体}}', '{{目标效果}}', '{{背景/场景}}', '{{风格/质感}}', '{{必须保留元素}}']
+        : ['{{Subject}}', '{{Target effect}}', '{{Background/scene}}', '{{Style/texture}}', '{{Must keep details}}']
+    ),
+    [isZh]
+  );
+
+  const buildPromptTemplate = useCallback((tool: SmartRepairToolDef) => {
+    if (isZh) {
+      return [
+        tool.promptZh,
+        '',
+        '【可编辑字段（建议按需替换）】',
+        `- 主体：${editablePromptTokens[0]}`,
+        `- 目标效果：${editablePromptTokens[1]}`,
+        `- 背景/场景：${editablePromptTokens[2]}`,
+        `- 风格/质感：${editablePromptTokens[3]}`,
+        `- 必须保留元素：${editablePromptTokens[4]}`,
+        '',
+        '【输出要求】保持主体一致、边缘自然、光影统一、无明显修图痕迹。',
+      ].join('\n');
+    }
+
+    return [
+      tool.promptEn,
+      '',
+      '[Editable fields - update based on your needs]',
+      `- Subject: ${editablePromptTokens[0]}`,
+      `- Target effect: ${editablePromptTokens[1]}`,
+      `- Background/scene: ${editablePromptTokens[2]}`,
+      `- Style/texture: ${editablePromptTokens[3]}`,
+      `- Must keep details: ${editablePromptTokens[4]}`,
+      '',
+      '[Output requirements] Keep subject identity, realistic edges, consistent lighting, and no obvious retouch artifacts.',
+    ].join('\n');
+  }, [editablePromptTokens, isZh]);
 
   const getSamplePath = (code: SmartRepairToolCode, type: 'before' | 'after') =>
     `/smart-repair-examples/${code}_${type}.jpg`;
@@ -255,16 +321,81 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     setHistoryItems(nextItems);
   }, []);
 
-  const resetToStart = () => {
-    setPhase('setup');
-    setResults([]);
-    setProgress(0);
-    setError(null);
-    setSourceImage(null);
-    setReferenceImage(null);
-    setPrompt('');
-    setActiveSubpage(null);
-    setActiveToolCode(null);
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  const startPolling = useCallback(
+    async (requestId: string) => {
+      if (!requestId || pollStartedRef.current.has(requestId)) return;
+      pollStartedRef.current.add(requestId);
+
+      try {
+        for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt += 1) {
+          if (pollAbortRef.current.has(requestId)) return;
+          try {
+            const result = await productImagesApi.getSmartRepairResult(requestId);
+            if (result.status === 'succeeded') {
+              const url = result.imageUrl || result.outputs[0] || '';
+              const product: ProductImageResult = {
+                id: `smart-repair-${requestId}`,
+                imageUrl: url,
+                downloadUrl: url,
+                format: 'jpg',
+              };
+              setRepairTasks((prev) =>
+                prev.map((t) =>
+                  t.requestId === requestId
+                    ? { ...t, status: 'succeeded', outputs: [product], error: '' }
+                    : t,
+                ),
+              );
+              notifyImageHistoryUpdated();
+              void refreshHistory();
+              return;
+            }
+            if (result.status === 'failed') {
+              setRepairTasks((prev) =>
+                prev.map((t) =>
+                  t.requestId === requestId
+                    ? { ...t, status: 'failed', outputs: [], error: result.error || (isZh ? '生成失败' : 'Generation failed') }
+                    : t,
+                ),
+              );
+              notifyImageHistoryUpdated();
+              void refreshHistory();
+              return;
+            }
+            // status: 'created' | 'processing' → keep waiting
+          } catch (err) {
+            // network or transient error: keep retrying until POLL_MAX_ATTEMPTS exhausted
+            console.warn('[smart-repair] poll error', err);
+          }
+          await sleep(POLL_INTERVAL_MS);
+        }
+        // hit the cap → mark failed
+        setRepairTasks((prev) =>
+          prev.map((t) =>
+            t.requestId === requestId && t.status === 'processing'
+              ? { ...t, status: 'failed', error: isZh ? '生成超时，请稍后重试' : 'Generation timed out, please retry' }
+              : t,
+          ),
+        );
+      } finally {
+        pollStartedRef.current.delete(requestId);
+      }
+    },
+    [isZh, refreshHistory],
+  );
+
+  const cancelTaskCard = (localId: string) => {
+    setRepairTasks((prev) => {
+      const target = prev.find((t) => t.localId === localId);
+      if (target) pollAbortRef.current.add(target.requestId);
+      return prev.filter((t) => t.localId !== localId);
+    });
+  };
+
+  const dismissCard = (localId: string) => {
+    setRepairTasks((prev) => prev.filter((t) => t.localId !== localId));
   };
 
   useEffect(() => {
@@ -295,12 +426,12 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   const contentWrapClassName = embedded ? 'w-full' : 'max-w-5xl mx-auto';
 
   useEffect(() => {
-    if (!activeTool) return;
-    setPrompt((prev) => {
-      if (prev.trim().length > 0) return prev;
-      return isZh ? activeTool.promptZh : activeTool.promptEn;
-    });
-  }, [activeTool, isZh]);
+    if (currentTools.length === 0) return;
+    const stillExists = activeToolCode && currentTools.some((tool) => tool.code === activeToolCode);
+    if (stillExists) return;
+    setActiveToolCode(currentTools[0].code);
+    setPrompt(buildPromptTemplate(currentTools[0]));
+  }, [activeToolCode, buildPromptTemplate, currentTools]);
 
   useEffect(() => {
     void refreshHistory();
@@ -308,6 +439,48 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
       void refreshHistory();
     });
   }, [refreshHistory]);
+
+  // Mount-time hydration: pull any PROCESSING smart_repair tasks from the
+  // backend and resume polling. This keeps user-perceived state consistent
+  // across F5 and tab switches inside ProductImagesView.
+  useEffect(() => {
+    let alive = true;
+    void productImagesApi.listSmartRepairPending()
+      .then((items) => {
+        if (!alive || items.length === 0) return;
+        const hydrated: RepairTask[] = items.map((item) => ({
+          localId: generateLocalId(),
+          requestId: item.requestId,
+          historyRecordId: item.historyRecordId,
+          status: 'processing',
+          outputs: [],
+          error: '',
+          settings: {
+            prompt: item.settings.prompt || '',
+            aspectRatio: (item.settings.aspectRatio as SmartRepairParams['aspectRatio']) || '1:1',
+            strength: (item.settings.strength as SmartRepairParams['strength']) || 'medium',
+            outputCount: (item.settings.outputCount as SmartRepairParams['outputCount']) || 1,
+            subpage: (item.settings.subpage as SmartRepairSubpage) || 'product_object',
+            toolCode: (item.settings.toolCode as SmartRepairToolCode) || 'custom_retouch',
+          },
+          submittedAt: item.submittedAt,
+        }));
+        setRepairTasks((prev) => {
+          // De-dup by requestId in case the user already has cards for the same job
+          const existingIds = new Set(prev.map((t) => t.requestId));
+          return [...hydrated.filter((t) => !existingIds.has(t.requestId)), ...prev];
+        });
+        hydrated.forEach((card) => {
+          void startPolling(card.requestId);
+        });
+      })
+      .catch(() => {
+        // Hydration failure is silent — user can still kick off new tasks.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [startPolling]);
 
   useEffect(() => {
     let alive = true;
@@ -326,7 +499,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   }, []);
 
   const estimatedCost = useMemo(
-    () => Math.max(0, Math.round((Number.isFinite(smartRepairModelRate) ? smartRepairModelRate : 0) * Math.max(1, Number(outputCount || 1)))),
+    () => Math.max(0, roundCreditTenths((Number.isFinite(smartRepairModelRate) ? smartRepairModelRate : 0) * Math.max(1, Number(outputCount || 1)))),
     [outputCount, smartRepairModelRate]
   );
 
@@ -351,10 +524,11 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
 
   const handleGenerate = async () => {
     if (!requireAuth()) return;
+    if (isSubmittingRef.current) return;
     if (!activeSubpage || !activeToolCode) {
       setError({
         code: 'NO_FUNCTION',
-        message: tr('请先选择功能', 'Please select a function first'),
+        message: t.sr_no_function_msg,
         severity: 'warning',
       });
       return;
@@ -363,7 +537,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     if (!sourceImage) {
       setError({
         code: 'NO_SOURCE_IMAGE',
-        message: tr('请先上传待修复图片', 'Please upload a source image first'),
+        message: t.sr_no_source_msg,
         severity: 'warning',
       });
       return;
@@ -372,18 +546,25 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     if (!prompt.trim()) {
       setError({
         code: 'NO_PROMPT',
-        message: tr('请填写修复说明', 'Please provide repair instructions'),
+        message: t.sr_no_prompt_msg,
         severity: 'warning',
       });
       return;
     }
 
-    try {
-      setError(null);
-      setPhase('generating');
-      setProgress(10);
+    const settingsSnapshot: RepairTaskSettingsSnapshot = {
+      prompt,
+      aspectRatio,
+      strength,
+      outputCount,
+      subpage: activeSubpage,
+      toolCode: activeToolCode,
+    };
 
-      const response = await productImagesApi.generateSmartRepair(
+    try {
+      isSubmittingRef.current = true;
+      setError(null);
+      const submission = await productImagesApi.submitSmartRepair(
         sourceImage,
         {
           prompt,
@@ -393,34 +574,38 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
           subpage: activeSubpage,
           toolCode: activeToolCode,
         },
-        projectId,
-        referenceImage || undefined
+        {
+          projectId,
+          referenceImage: referenceImage || undefined,
+        },
       );
 
-      setProgress(100);
-      if (response.status === 'completed' && response.outputImages && response.outputImages.length > 0) {
-        await refreshHistory();
-        notifyImageHistoryUpdated();
-        setResults(response.outputImages);
-        setPhase('result');
-        return;
-      }
+      const submittedAt = Date.now();
+      const newCards: RepairTask[] = submission.requests.map((req) => ({
+        localId: generateLocalId(),
+        requestId: req.requestId,
+        historyRecordId: submission.historyRecordId,
+        status: 'processing',
+        outputs: [],
+        error: '',
+        settings: settingsSnapshot,
+        submittedAt,
+      }));
 
-      setError({
-        code: 'SMART_REPAIR_EMPTY',
-        message: tr('修复完成但未返回图片，请重试', 'Repair finished but no image was returned. Please retry.'),
-        severity: 'error',
+      setRepairTasks((prev) => [...newCards, ...prev]);
+      newCards.forEach((card) => {
+        void startPolling(card.requestId);
       });
-      setPhase('error');
     } catch (err) {
-      const message = err instanceof Error ? err.message : tr('未知错误', 'Unknown error');
+      const message = err instanceof Error ? err.message : t.ff_unknown_error;
       setError({
         code: 'SMART_REPAIR_FAILED',
         message,
         severity: 'error',
-        suggestion: tr('请检查网络后重试，或简化修复指令', 'Please retry and simplify repair instructions if needed.'),
+        suggestion: t.sr_retry_suggestion,
       });
-      setPhase('error');
+    } finally {
+      isSubmittingRef.current = false;
     }
   };
 
@@ -432,9 +617,38 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     if (item.settings?.subpage) setActiveSubpage(item.settings.subpage);
     if (item.settings?.toolCode) setActiveToolCode(item.settings.toolCode);
     setError(null);
-    setProgress(100);
-    setResults(item.outputImages);
-    setPhase('result');
+
+    // surface the historical result as a synthetic succeeded card so the user
+    // can compare it with newly-running tasks in the same panel.
+    const synthetic: RepairTask = {
+      localId: generateLocalId(),
+      requestId: `history:${item.id}`,
+      historyRecordId: item.id,
+      status: 'succeeded',
+      outputs: item.outputImages,
+      error: '',
+      settings: {
+        prompt: item.settings?.prompt || '',
+        aspectRatio: item.settings?.aspectRatio || '1:1',
+        strength: item.settings?.strength || 'medium',
+        outputCount: item.settings?.outputCount || 1,
+        subpage: item.settings?.subpage || activeSubpage,
+        toolCode: item.settings?.toolCode || activeToolCode || 'custom_retouch',
+      },
+      submittedAt: Date.parse(item.createdAt) || Date.now(),
+    };
+    setRepairTasks((prev) => [synthetic, ...prev]);
+  };
+
+  const retryFailedCard = (task: RepairTask) => {
+    // Apply settings back to the form and remove the failed card; user can hit submit again
+    setPrompt(task.settings.prompt);
+    setAspectRatio(task.settings.aspectRatio);
+    setStrength(task.settings.strength);
+    setOutputCount(task.settings.outputCount);
+    setActiveSubpage(task.settings.subpage);
+    setActiveToolCode(task.settings.toolCode);
+    dismissCard(task.localId);
   };
 
   const handleDownload = async (result: ProductImageResult, index: number) => {
@@ -444,7 +658,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     } catch {
       setError({
         code: 'DOWNLOAD_FAILED',
-        message: tr('下载失败，请重试', 'Download failed. Please retry.'),
+        message: t.ff_error_download_failed,
         severity: 'error',
       });
     }
@@ -459,131 +673,55 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
               <button
                 onClick={onBack}
                 className="p-2 hover:bg-zinc-800 rounded-lg transition"
-                title={tr('返回', 'Back')}
+                title={t.ff_back}
               >
                 <ChevronLeft className="w-6 h-6 text-zinc-400" />
               </button>
             )}
             <div>
               <h1 className="text-2xl font-bold text-white mb-1">
-                {tr('AI智能修复', 'AI Smart Repair')}
+                {t.sr_title}
               </h1>
               <p className="text-zinc-400 text-sm">
-                {tr('基于三类能力中心进行可扩展的智能修图', 'Extensible smart-retouch workspace with three capability groups')}
+                {t.sr_subtitle}
               </p>
             </div>
           </div>
         )}
 
-        <div className="bg-zinc-900 rounded-2xl border border-zinc-800 p-6 md:p-8 shadow-2xl">
-          {phase === 'setup' && !activeSubpage && (
-            <div>
-              <h2 className="text-lg font-semibold text-white mb-2">
-                {tr('步骤 1: 选择子模块', 'Step 1: Select Submodule')}
-              </h2>
-              <p className="text-sm text-zinc-400 mb-6">
-                {tr('选择相应的子模块，查看可用功能并开始编辑。', 'Choose a submodule to view available functions and start editing.')}
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {subpageOptions.map((item) => {
-                  const toolsInModule = TOOL_MATRIX[item.key];
-                  return (
-                    <button
-                      key={item.key}
-                      type="button"
-                      onClick={() => {
-                        setActiveSubpage(item.key);
-                        setActiveToolCode(null);
-                        setSourceImage(null);
-                        setReferenceImage(null);
-                        setPrompt('');
-                      }}
-                      className="rounded-2xl border border-white/10 bg-black/20 p-5 text-left hover:border-orange-400/60 hover:bg-orange-500/5 transition group"
-                    >
-                      <div className="text-base font-semibold text-zinc-100">{isZh ? item.zh : item.en}</div>
-                      <div className="text-xs text-zinc-500 mt-2">
-                        {item.key === 'fashion_model' && tr('人像与服装相关智能编辑能力', 'Model and fashion editing capabilities')}
-                        {item.key === 'product_object' && tr('商品主图与细节图修复增强能力', 'Product image repair and enhancement capabilities')}
-                        {item.key === 'other' && tr('通用图像修复与风格化能力', 'General image retouch and stylization capabilities')}
-                      </div>
-                      <div className="mt-4 pt-4 border-t border-white/10">
-                        <div className="text-xs text-zinc-400 mb-2">
-                          {tr('包含功能：', 'Available Functions:')} ({toolsInModule.length})
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {toolsInModule.map((tool) => (
-                            <span
-                              key={tool.code}
-                              className="inline-block px-2 py-1 rounded-md bg-white/5 text-xs text-zinc-300 group-hover:bg-orange-500/10 group-hover:text-orange-200 transition"
-                            >
-                              {isZh ? tool.titleZh : tool.titleEn}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {phase === 'setup' && activeSubpage && (
-            <div className="space-y-6">
-              {/* Header */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveSubpage(null);
-                      setActiveToolCode(null);
-                      setSourceImage(null);
-                      setReferenceImage(null);
-                      setPrompt('');
-                    }}
-                    className="inline-flex items-center gap-2 text-xs text-zinc-400 hover:text-zinc-200 mb-2"
-                  >
-                    <ArrowLeft className="w-4 h-4" />
-                    {tr('返回子模块选择', 'Back to submodule selection')}
-                  </button>
-                  <h2 className="text-lg font-semibold text-white">
-                    {isZh ? subpageOptions.find((s) => s.key === activeSubpage)?.zh : subpageOptions.find((s) => s.key === activeSubpage)?.en}
-                  </h2>
-                </div>
-              </div>
-
-              {/* Tool Selector Tabs */}
-              <div className="bg-black/30 rounded-xl p-4 border border-white/10">
-                <div className="text-xs text-zinc-400 mb-3">{tr('步骤 1: 选择功能', 'Step 1: Select Function')}</div>
-                <div className="flex gap-2 flex-wrap">
-                  {currentTools.map((tool) => {
-                    const selected = !!activeToolCode && tool.code === activeToolCode;
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5 md:p-6 shadow-2xl">
+          {/* form area is always visible; submitting starts a new task card without locking the page */}
+          <div className="space-y-4">
+              <div className="rounded-2xl border border-white/5 bg-black/20 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  {subpageOptions.map((item) => {
+                    const selected = activeSubpage === item.key;
                     return (
                       <button
-                        key={tool.code}
+                        key={item.key}
                         type="button"
                         onClick={() => {
-                          setActiveToolCode(tool.code);
-                          setPrompt(isZh ? tool.promptZh : tool.promptEn);
+                          setActiveSubpage(item.key);
+                          setActiveToolCode(null);
+                          setSourceImage(null);
+                          setReferenceImage(null);
+                          setPrompt('');
                         }}
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap ${
+                        className={`px-4 py-2 rounded-full text-sm font-semibold transition border ${
                           selected
-                            ? 'bg-orange-500/20 text-orange-200 border border-orange-400/60'
-                            : 'bg-black/20 text-zinc-300 border border-white/10 hover:border-white/20 hover:bg-white/5'
+                            ? 'border-orange-500/50 bg-orange-500/10 text-orange-200'
+                            : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'
                         }`}
                       >
-                        {isZh ? tool.titleZh : tool.titleEn}
+                        {item.label}
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Function Cards Gallery - Show all tools with before/after examples */}
-              <div>
-                <div className="text-sm font-semibold text-zinc-200 mb-4">{tr('步骤 2: 功能示例', 'Step 2: Function Showcase')}</div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="rounded-2xl border border-white/5 bg-black/20 p-3">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
                   {currentTools.map((tool) => {
                     const selected = !!activeToolCode && tool.code === activeToolCode;
                     return (
@@ -591,52 +729,44 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                         key={tool.code}
                         onClick={() => {
                           setActiveToolCode(tool.code);
-                          setPrompt(isZh ? tool.promptZh : tool.promptEn);
+                          setPrompt(buildPromptTemplate(tool));
                         }}
-                        className={`rounded-xl border-2 transition overflow-hidden hover:shadow-lg group ${
+                        className={`group overflow-hidden rounded-xl border text-left transition ${
                           selected
-                            ? 'border-orange-400/70 bg-orange-500/10 shadow-lg shadow-orange-500/20'
-                            : 'border-white/10 bg-black/40 hover:border-white/20 hover:bg-black/30'
+                            ? 'border-orange-400/70 bg-orange-500/10'
+                            : 'border-white/10 bg-black/30 hover:border-white/20 hover:bg-black/20'
                         }`}
                         type="button"
                       >
-                        {/* Before/After Comparison */}
-                        <div className="grid grid-cols-2 gap-0">
-                          <div className="aspect-square overflow-hidden bg-black/50 relative">
+                        <div className="grid grid-cols-2">
+                          <div className="relative aspect-[4/3] overflow-hidden bg-black/40">
                             <img
                               src={getSamplePath(tool.code, 'before')}
                               alt={isZh ? `${tool.titleZh} 处理前` : `${tool.titleEn} before`}
-                              className="w-full h-full object-cover opacity-70 group-hover:opacity-100 transition duration-300"
+                              className="h-full w-full object-cover opacity-80"
                               onError={(e) => {
-                                (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22%3E%3Crect fill=%22%23333%22 width=%22100%22 height=%22100%22/%3E%3C/svg%3E';
+                                (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%2275%22%3E%3Crect fill=%22%23333%22 width=%22100%22 height=%2275%22/%3E%3C/svg%3E';
                               }}
                             />
-                            <div className="absolute top-1 left-1 bg-black/60 px-2 py-0.5 rounded text-xs text-zinc-300">
-                              {tr('前', 'Before')}
-                            </div>
                           </div>
-                          <div className="aspect-square overflow-hidden bg-black/50 relative">
+                          <div className="relative aspect-[4/3] overflow-hidden bg-black/40">
                             <img
                               src={getSamplePath(tool.code, 'after')}
                               alt={isZh ? `${tool.titleZh} 处理后` : `${tool.titleEn} after`}
-                              className="w-full h-full object-cover opacity-70 group-hover:opacity-100 transition duration-300"
+                              className="h-full w-full object-cover opacity-90"
                               onError={(e) => {
-                                (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22%3E%3Crect fill=%22%23333%22 width=%22100%22 height=%22100%22/%3E%3C/svg%3E';
+                                (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%2275%22%3E%3Crect fill=%22%23333%22 width=%22100%22 height=%2275%22/%3E%3C/svg%3E';
                               }}
                             />
-                            <div className="absolute top-1 right-1 bg-orange-500/80 px-2 py-0.5 rounded text-xs text-white font-semibold">
-                              {tr('后', 'After')}
-                            </div>
                           </div>
                         </div>
-                        {/* Tool Info */}
-                        <div className="p-4 text-left">
-                          <h4 className="font-semibold text-base text-white truncate group-hover:text-orange-300 transition">
+                        <div className="px-2.5 py-2">
+                          <div className="truncate text-xs font-semibold text-zinc-100 group-hover:text-orange-200">
                             {isZh ? tool.titleZh : tool.titleEn}
-                          </h4>
-                          <p className="text-sm text-zinc-400 mt-1 line-clamp-2">
+                          </div>
+                          <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-zinc-400">
                             {isZh ? tool.descZh : tool.descEn}
-                          </p>
+                          </div>
                         </div>
                       </button>
                     );
@@ -644,34 +774,59 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                 </div>
               </div>
 
-              {/* Tool Details & Setup */}
-              <div className="space-y-4">
-                {/* Main Content - Only show when tool is selected */}
-                {!activeToolCode && (
-                  <div className="rounded-xl border border-dashed border-white/10 bg-black/20 p-6 text-center">
-                    <div className="text-sm text-zinc-500 mb-2">{tr('💡 提示', '💡 Tip')}</div>
-                    <p className="text-sm text-zinc-400">
-                      {tr('请从上方功能列表中选择一个功能开始。', 'Please select a function from the list above to begin.')}
-                    </p>
-                  </div>
-                )}
+              {!activeToolCode && (
+                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-6 text-center text-sm text-zinc-400">
+                  {t.sr_tip_select_function}
+                </div>
+              )}
 
-                {activeToolCode && (
-                  <>
-                    {/* Tool Info Card */}
-                    <div className="rounded-xl border border-white/10 bg-black/40 p-5">
-                      <h3 className="text-lg font-bold text-orange-300 mb-2">
+              {activeToolCode && (
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-orange-500/40 bg-orange-500/5 p-4">
+                      <div className="mb-2 text-sm font-semibold text-orange-200">
                         {activeTool ? (isZh ? activeTool.titleZh : activeTool.titleEn) : '-'}
-                      </h3>
+                      </div>
                       <p className="text-sm text-zinc-300">
                         {activeTool ? (isZh ? activeTool.descZh : activeTool.descEn) : '-'}
                       </p>
                     </div>
 
-                  {/* Upload Section - Two Column */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <div className="text-sm font-semibold text-zinc-200 mb-3">{tr('步骤 3: 上传原图', 'Step 3: Upload Source')}</div>
+                    <div className="rounded-2xl border border-orange-500/40 bg-black/35 p-4">
+                      <div className="mb-3 flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold text-zinc-100">{isZh ? '修复说明（可编辑）' : 'Repair Instructions (Editable)'}</span>
+                        {editablePromptTokens.map((token) => (
+                          <span key={token} className="rounded-full border border-orange-400/40 bg-orange-500/15 px-2 py-0.5 text-[11px] font-medium text-orange-200">
+                            {token}
+                          </span>
+                        ))}
+                      </div>
+                      <textarea
+                        value={prompt}
+                        onChange={(e) => setPrompt(e.target.value)}
+                        rows={8}
+                        className="w-full rounded-xl border border-orange-500/40 bg-black/30 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-orange-300"
+                        placeholder={t.sr_prompt_placeholder}
+                      />
+                      <div className="mt-3 rounded-xl border border-white/10 bg-black/40 p-3">
+                        <div className="mb-2 text-xs text-zinc-400">{isZh ? '高亮预览（橙色部分可按需求修改）' : 'Highlighted preview (orange tokens are editable)'}</div>
+                        <div className="max-h-36 overflow-y-auto whitespace-pre-wrap text-xs leading-5 text-zinc-300">
+                          {prompt.split(/(\{\{[^}]+\}\})/g).map((part, index) => {
+                            const isEditable = /^\{\{[^}]+\}\}$/.test(part);
+                            return isEditable ? (
+                              <span key={`editable-${index}`} className="rounded bg-orange-500/20 px-1 py-0.5 text-orange-200">{part}</span>
+                            ) : (
+                              <span key={`normal-${index}`}>{part}</span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+                      <div className="mb-2 text-sm font-semibold text-zinc-200">{isZh ? '上传原图' : 'Source Image'}</div>
                       {!sourceImage ? (
                         <ImageUploader
                           maxFiles={1}
@@ -686,19 +841,19 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                         />
                       ) : (
                         <div>
-                          <img src={sourcePreviewUrl} alt="source" className="w-full rounded-lg border border-white/10 object-cover" style={{maxHeight: '400px'}} />
+                          <img src={sourcePreviewUrl} alt="source" className="w-full rounded-lg border border-white/10 object-cover" style={{ maxHeight: '280px' }} />
                           <button
                             onClick={() => setSourceImage(null)}
                             className="mt-2 text-xs text-zinc-400 hover:text-zinc-200 underline"
                           >
-                            {tr('更换图片', 'Change')}
+                            {t.sr_change_image}
                           </button>
                         </div>
                       )}
                     </div>
 
-                    <div>
-                      <div className="text-sm font-semibold text-zinc-200 mb-3">{tr('参考图 (可选)', 'Reference (Optional)')}</div>
+                    <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+                      <div className="mb-2 text-sm font-semibold text-zinc-200">{t.sr_reference_optional}</div>
                       <ImageUploader
                         maxFiles={1}
                         onFilesSelected={(files) => setReferenceImage(files[0] || null)}
@@ -712,158 +867,194 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                       />
                       {referencePreviewUrl && (
                         <div className="mt-2">
-                          <img src={referencePreviewUrl} alt="reference" className="w-full rounded-lg border border-white/10 object-cover" style={{maxHeight: '300px'}} />
+                          <img src={referencePreviewUrl} alt="reference" className="w-full rounded-lg border border-white/10 object-cover" style={{ maxHeight: '220px' }} />
                           <button
                             onClick={() => setReferenceImage(null)}
                             className="mt-2 text-xs text-zinc-400 hover:text-zinc-200 underline"
                           >
-                            {tr('移除参考图', 'Remove')}
+                            {t.sr_remove_reference}
                           </button>
                         </div>
                       )}
                     </div>
+
+                    <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+                      {/* Row 1: 强度 + 张数 */}
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                          <div className="mb-2 text-xs font-medium text-zinc-400">{t.sr_strength}</div>
+                          <select
+                            value={strength}
+                            onChange={(e) => setStrength(e.target.value as SmartRepairParams['strength'])}
+                            className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-zinc-200 focus:border-orange-400/50"
+                          >
+                            <option value="light">{t.sr_strength_light}</option>
+                            <option value="medium">{t.sr_strength_medium}</option>
+                            <option value="strong">{t.sr_strength_strong}</option>
+                          </select>
+                        </div>
+                        <div>
+                          <div className="mb-2 text-xs font-medium text-zinc-400">{t.sr_count}</div>
+                          <select
+                            value={outputCount}
+                            onChange={(e) => setOutputCount(Number(e.target.value) as SmartRepairParams['outputCount'])}
+                            className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-zinc-200 focus:border-orange-400/50"
+                          >
+                            <option value={1}>1</option>
+                            <option value={2}>2</option>
+                            <option value={4}>4</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Row 2: 比例 */}
+                      <div className="mt-3">
+                        <div className="mb-2 text-xs font-medium text-zinc-400">{t.sr_aspect}</div>
+                        <AspectRatioPicker
+                          value={String(aspectRatio || '1:1')}
+                          onChange={(next) => setAspectRatio(next as SmartRepairParams['aspectRatio'])}
+                          primary={SMART_REPAIR_RATIOS.primary}
+                          more={SMART_REPAIR_RATIOS.more}
+                          labels={{
+                            more: isZh ? '更多比例' : 'More ratios',
+                            vertical: t.pi_gallery_ratio_group_vertical,
+                            landscape: t.pi_gallery_ratio_group_landscape,
+                          }}
+                          descriptors={ratioDescriptorsForLanguage(language)}
+                        />
+                      </div>
+
+                      <div className="mt-4 flex items-center gap-3">
+                        <button
+                          onClick={() => {
+                            setSourceImage(null);
+                            setReferenceImage(null);
+                            if (activeTool) {
+                              setPrompt(buildPromptTemplate(activeTool));
+                            }
+                          }}
+                          className="px-4 py-2 text-sm bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition"
+                        >
+                          {t.sr_clear_input}
+                        </button>
+                        <button
+                          onClick={handleGenerate}
+                          className="flex-1 px-4 py-2 text-sm font-semibold bg-orange-500 text-black rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={!sourceImage}
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          {isZh ? '开始智能修复' : 'Start Smart Repair'}
+                          {estimatedCost > 0 ? (
+                            <span className="ml-1 text-[10px] font-semibold text-black/75 whitespace-nowrap">
+                              {`-${formatCreditAmount(estimatedCost)} ${t.v_points}`}
+                            </span>
+                          ) : null}
+                        </button>
+                      </div>
+                    </div>
                   </div>
-
-                  {/* Repair Instructions */}
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-200 mb-3">{tr('步骤 4: 修复说明', 'Step 4: Repair Instructions')}</div>
-                    <textarea
-                      value={prompt}
-                      onChange={(e) => setPrompt(e.target.value)}
-                      rows={5}
-                      className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm text-zinc-200 outline-none focus:border-orange-400/50"
-                      placeholder={tr('例如：去除杯身水印，保留材质高光和边缘细节', 'E.g. Remove watermark while preserving highlights')}
-                    />
-                  </div>
-
-                  {/* Parameters - Three Column */}
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <div className="text-xs text-zinc-400 mb-2 font-medium">{tr('强度', 'Strength')}</div>
-                      <select
-                        value={strength}
-                        onChange={(e) => setStrength(e.target.value as SmartRepairParams['strength'])}
-                        className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:border-orange-400/50"
-                      >
-                        <option value="light">{tr('轻度', 'Light')}</option>
-                        <option value="medium">{tr('中度', 'Medium')}</option>
-                        <option value="strong">{tr('强力', 'Strong')}</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <div className="text-xs text-zinc-400 mb-2 font-medium">{tr('比例', 'Aspect')}</div>
-                      <select
-                        value={aspectRatio}
-                        onChange={(e) => setAspectRatio(e.target.value as SmartRepairParams['aspectRatio'])}
-                        className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:border-orange-400/50"
-                      >
-                        <option value="1:1">1:1</option>
-                        <option value="4:5">4:5</option>
-                        <option value="9:16">9:16</option>
-                        <option value="16:9">16:9</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <div className="text-xs text-zinc-400 mb-2 font-medium">{tr('张数', 'Count')}</div>
-                      <select
-                        value={outputCount}
-                        onChange={(e) => setOutputCount(Number(e.target.value) as SmartRepairParams['outputCount'])}
-                        className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:border-orange-400/50"
-                      >
-                        <option value={1}>1</option>
-                        <option value={2}>2</option>
-                        <option value={4}>4</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex items-center gap-3 pt-2">
-                    <button
-                      onClick={() => {
-                        setSourceImage(null);
-                        setReferenceImage(null);
-                        if (activeTool) {
-                          setPrompt(isZh ? activeTool.promptZh : activeTool.promptEn);
-                        }
-                      }}
-                      className="px-4 py-2 text-sm bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition"
-                    >
-                      {tr('清空输入', 'Clear')}
-                    </button>
-                    <button
-                      onClick={handleGenerate}
-                      className="flex-1 px-4 py-2 text-sm font-semibold bg-orange-500 text-black rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={!sourceImage}
-                    >
-                      <Sparkles className="w-4 h-4" />
-                      {tr('步骤 5: 开始修复', 'Step 5: Start Repair')}
-                      {estimatedCost > 0 ? (
-                        <span className="ml-1 text-[10px] font-semibold text-black/75 whitespace-nowrap">
-                          {`-${estimatedCost} ${tr('V点', 'V-points')}`}
-                        </span>
-                      ) : null}
-                    </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-
-          {phase === 'generating' && (
-            <div className="flex justify-center">
-              <LoadingProgress
-                progress={progress}
-                estimatedTime={35}
-                currentStep={tr('智能修复生成中', 'Generating smart-repair images')}
-                totalSteps={3}
-                title={tr('正在进行智能修复...', 'Performing smart repair...')}
-                theme={loadingTheme}
-                backgroundImageSrc={loadingBackgroundSrc}
-                onCancel={() => setPhase('setup')}
-              />
-            </div>
-          )}
-
-          {phase === 'result' && (
-            <div>
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h2 className="text-xl font-bold text-white">{tr('生成结果', 'Generation Results')}</h2>
-                  <p className="text-sm text-zinc-400 mt-1">{results.length} {tr('张图片已生成', 'images generated')}</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setPhase('setup')}
-                    className="px-4 py-2 text-sm bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition"
-                  >
-                    {tr('调整参数', 'Adjust Params')}
-                  </button>
-                  <button
-                    onClick={resetToStart}
-                    className="px-4 py-2 text-sm bg-white/10 text-zinc-200 rounded-lg hover:bg-white/20 transition inline-flex items-center gap-2"
-                  >
-                    <Home className="w-4 h-4" />
-                    {tr('回到开头', 'Back To Start')}
-                  </button>
+              )}
+            </div>
+
+          {repairTasks.length > 0 && (
+            <div className="mt-8 border-t border-white/10 pt-6">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white">
+                    {isZh ? '修复任务' : 'Repair Tasks'}
+                  </h2>
+                  <p className="text-sm text-zinc-400 mt-1">
+                    {isZh
+                      ? `${repairTasks.length} 个任务（可同时进行）`
+                      : `${repairTasks.length} task(s) — running in parallel`}
+                  </p>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {results.map((item, idx) => (
-                  <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 overflow-hidden hover:border-orange-400/30 transition">
-                    <img src={item.imageUrl} alt={`smart-repair-${idx}`} className="w-full aspect-video object-cover" />
+                {repairTasks.map((task) => (
+                  <div
+                    key={task.localId}
+                    className="rounded-xl border border-white/10 bg-black/20 overflow-hidden hover:border-orange-400/30 transition"
+                  >
+                    {task.status === 'processing' && (
+                      <div className="aspect-video flex items-center justify-center bg-black/40">
+                        <div className="flex flex-col items-center gap-2 text-zinc-300">
+                          <Loader2 className="w-6 h-6 animate-spin text-orange-400" />
+                          <div className="text-sm">{isZh ? '处理中…' : 'Processing…'}</div>
+                          <div className="text-[11px] text-zinc-500">
+                            {new Date(task.submittedAt).toLocaleTimeString()}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {task.status === 'succeeded' && task.outputs[0] && (
+                      <img
+                        src={task.outputs[0].imageUrl}
+                        alt={`smart-repair-${task.localId}`}
+                        className="w-full aspect-video object-cover"
+                      />
+                    )}
+                    {task.status === 'failed' && (
+                      <div className="aspect-video flex items-center justify-center bg-red-900/20 px-4">
+                        <div className="text-center">
+                          <div className="text-sm text-red-300 font-semibold mb-1">
+                            {isZh ? '生成失败' : 'Generation failed'}
+                          </div>
+                          <div className="text-xs text-red-200/70 line-clamp-3">{task.error || (isZh ? '未知错误' : 'Unknown error')}</div>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="p-3">
-                      <button
-                        onClick={() => handleDownload(item, idx)}
-                        className="w-full px-3 py-2 text-sm bg-orange-500 text-black font-semibold rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2"
-                      >
-                        <Download className="w-4 h-4" />
-                        {tr('下载', 'Download')}
-                      </button>
+                      <div className="mb-2 line-clamp-2 text-[11px] text-zinc-500">
+                        {task.settings.prompt}
+                      </div>
+                      {task.status === 'processing' && (
+                        <button
+                          onClick={() => cancelTaskCard(task.localId)}
+                          className="w-full px-3 py-2 text-sm bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition inline-flex items-center justify-center gap-2"
+                        >
+                          <X className="w-4 h-4" />
+                          {isZh ? '隐藏卡片（任务后台继续）' : 'Hide card (task keeps running)'}
+                        </button>
+                      )}
+                      {task.status === 'succeeded' && task.outputs[0] && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleDownload(task.outputs[0], 0)}
+                            className="flex-1 px-3 py-2 text-sm bg-orange-500 text-black font-semibold rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2"
+                          >
+                            <Download className="w-4 h-4" />
+                            {t.sr_download}
+                          </button>
+                          <button
+                            onClick={() => dismissCard(task.localId)}
+                            className="px-3 py-2 text-sm bg-white/10 text-zinc-300 rounded-lg hover:bg-white/20 transition"
+                            title={isZh ? '从任务卡列表隐藏（历史中保留）' : 'Hide from task list (still in history)'}
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                      {task.status === 'failed' && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => retryFailedCard(task)}
+                            className="flex-1 px-3 py-2 text-sm bg-orange-500 text-black font-semibold rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                            {isZh ? '重试' : 'Retry'}
+                          </button>
+                          <button
+                            onClick={() => dismissCard(task.localId)}
+                            className="px-3 py-2 text-sm bg-white/10 text-zinc-300 rounded-lg hover:bg-white/20 transition"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -874,9 +1065,9 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
           <div className="mt-10 border-t border-white/10 pt-8">
             <div className="flex items-center justify-between gap-3 mb-6">
               <div>
-                <h3 className="text-lg font-bold text-white">{tr('最近生成', 'Recent Generations')}</h3>
+                <h3 className="text-lg font-bold text-white">{t.sr_recent_generations}</h3>
                 <p className="text-sm text-zinc-400 mt-1">
-                  {tr('已保存的修复结果 • ', 'Saved results • ')}
+                  {t.sr_saved_results_prefix}
                   <span className="text-zinc-300">{historyItems.length}</span>
                 </p>
               </div>
@@ -885,7 +1076,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
             {historyItems.length === 0 ? (
               <div className="rounded-xl border border-dashed border-white/10 bg-black/20 p-8 text-center">
                 <p className="text-sm text-zinc-500">
-                  {tr('暂无历史记录，生成成功后会出现在这里。', 'No history yet. Successful generations will appear here.')}
+                  {t.sr_empty_history}
                 </p>
               </div>
             ) : (
@@ -902,7 +1093,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                     <div className="p-3">
                       <div className="flex items-center justify-between gap-2 mb-2">
                         <div className="text-xs text-zinc-400">{new Date(item.createdAt).toLocaleDateString()}</div>
-                        <div className="text-xs bg-zinc-800/50 text-zinc-300 px-2 py-1 rounded">{item.outputImages.length} {tr('张', 'images')}</div>
+                        <div className="text-xs bg-zinc-800/50 text-zinc-300 px-2 py-1 rounded">{item.outputImages.length} {t.sr_images_unit}</div>
                       </div>
                       <div className="flex items-center gap-2">
                         <button
@@ -910,7 +1101,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                           onClick={() => restoreHistoryItem(item)}
                           className="flex-1 px-3 py-2 text-xs bg-white/10 text-zinc-200 rounded-lg hover:bg-orange-500/20 hover:text-orange-200 transition"
                         >
-                          {tr('查看', 'View')}
+                          {t.sr_view}
                         </button>
                         <button
                           type="button"
@@ -927,28 +1118,12 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
             )}
           </div>
 
-          {phase === 'error' && error && (
-            <ErrorDialog
-              isOpen={true}
-              error={error}
-              onClose={() => setPhase('setup')}
-              onRetry={() => {
-                setError(null);
-                setPhase('setup');
-              }}
-              showRetry={true}
-            />
-          )}
-
-          {error && phase !== 'error' && (
+          {error && (
             <ErrorDialog
               isOpen={!!error}
               error={error}
               onClose={() => setError(null)}
-              onRetry={() => {
-                setError(null);
-                setPhase('setup');
-              }}
+              onRetry={() => setError(null)}
               showRetry={true}
             />
           )}

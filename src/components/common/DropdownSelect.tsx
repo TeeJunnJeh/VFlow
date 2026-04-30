@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 
 export type DropdownSelectOption = {
@@ -26,6 +27,7 @@ type DropdownSelectProps = {
   menuClassName?: string;
   optionClassName?: string;
   renderOption?: (args: DropdownSelectRenderOptionArgs) => React.ReactNode;
+  renderInPortal?: boolean;
 };
 
 export const DropdownSelect: React.FC<DropdownSelectProps> = ({
@@ -40,25 +42,101 @@ export const DropdownSelect: React.FC<DropdownSelectProps> = ({
   iconClassName = '',
   menuClassName = '',
   optionClassName = '',
-  renderOption
+  renderOption,
+  renderInPortal = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const portalMenuRef = useRef<HTMLDivElement>(null);
+  const [portalStyle, setPortalStyle] = useState<React.CSSProperties>({});
 
   const selected = options.find((o) => o.value === value);
   const closeMenu = () => setIsOpen(false);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) setIsOpen(false);
+      const target = event.target as Node;
+      const inDropdown = !!dropdownRef.current?.contains(target);
+      const inPortalMenu = !!portalMenuRef.current?.contains(target);
+      if (!inDropdown && !inPortalMenu) setIsOpen(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  useLayoutEffect(() => {
+    if (!isOpen || !renderInPortal) return;
+    const updatePosition = () => {
+      const el = buttonRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      setPortalStyle({
+        position: 'fixed',
+        left: rect.left,
+        top: rect.bottom + 8,
+        width: rect.width,
+        zIndex: 1000,
+      });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [isOpen, renderInPortal]);
+
+  const menuNode = (
+    <div
+      ref={renderInPortal ? portalMenuRef : undefined}
+      className={`${renderInPortal ? '' : 'mt-2'} w-full max-h-64 overflow-auto custom-scroll rounded-lg border border-white/10 bg-zinc-950/90 backdrop-blur-sm shadow-xl z-[120] ${menuClassName}`}
+      role="listbox"
+      style={renderInPortal ? portalStyle : undefined}
+    >
+      {options.map((opt) => {
+        const isSelected = opt.value === value;
+        const handleSelect = () => {
+          onChange(opt.value);
+          closeMenu();
+        };
+
+        if (renderOption) {
+          return (
+            <div key={opt.value} role="option" aria-selected={isSelected}>
+              {renderOption({
+                option: opt,
+                isSelected,
+                onSelect: handleSelect,
+                closeMenu,
+              })}
+            </div>
+          );
+        }
+
+        return (
+          <button
+            type="button"
+            key={opt.value}
+            role="option"
+            aria-selected={isSelected}
+            className={`w-full text-left px-3 py-2 hover:bg-white/5 ${
+              isSelected ? 'text-white' : 'text-zinc-200'
+            } ${optionClassName}`}
+            onClick={handleSelect}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+
   return (
     <div className="relative" ref={dropdownRef}>
       <button
+        ref={buttonRef}
         type="button"
         disabled={disabled}
         onClick={() => { const next = !isOpen; setIsOpen(next); if (next && onOpen) onOpen(); }}
@@ -77,46 +155,9 @@ export const DropdownSelect: React.FC<DropdownSelectProps> = ({
       </button>
 
       {isOpen && !disabled && (
-        <div
-          className={`absolute mt-2 w-full max-h-64 overflow-auto custom-scroll rounded-lg border border-white/10 bg-zinc-950/90 backdrop-blur-sm shadow-xl z-[120] ${menuClassName}`}
-          role="listbox"
-        >
-          {options.map((opt) => {
-            const isSelected = opt.value === value;
-            const handleSelect = () => {
-              onChange(opt.value);
-              closeMenu();
-            };
-
-            if (renderOption) {
-              return (
-                <div key={opt.value} role="option" aria-selected={isSelected}>
-                  {renderOption({
-                    option: opt,
-                    isSelected,
-                    onSelect: handleSelect,
-                    closeMenu,
-                  })}
-                </div>
-              );
-            }
-
-            return (
-              <button
-                type="button"
-                key={opt.value}
-                role="option"
-                aria-selected={isSelected}
-                className={`w-full text-left px-3 py-2 hover:bg-white/5 ${
-                  isSelected ? 'text-white' : 'text-zinc-200'
-                } ${optionClassName}`}
-                onClick={handleSelect}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
+        renderInPortal
+          ? createPortal(menuNode, document.body)
+          : <div className="absolute z-[120] w-full">{menuNode}</div>
       )}
     </div>
   );

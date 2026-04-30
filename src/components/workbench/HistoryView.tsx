@@ -833,7 +833,7 @@ export const HistoryView = () => {
                       value={searchInput}
                       onChange={(e) => setSearchInput(e.target.value)}
                       placeholder={t.hist_filter_search_placeholder}
-                      className="hist-filter-control hist-workbar-item hist-filter-input w-full h-10 rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-500 focus:outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition-all shadow-sm"
+                      className="w-full h-10 rounded-xl bg-white/[0.03] px-4 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:bg-white/[0.05] focus:ring-1 focus:ring-orange-500/50 transition-all hover:bg-white/[0.04]"
                     />
                   </div>
 
@@ -842,16 +842,16 @@ export const HistoryView = () => {
                       <select
                         value={statusFilter}
                         onChange={(e) => setStatusFilter(e.target.value as 'ALL' | HistoryProject['status'])}
-                        className="hist-filter-control hist-workbar-item hist-filter-select h-10 appearance-none rounded-lg border border-zinc-200 bg-white pl-4 pr-8 py-2 text-sm text-zinc-900 focus:outline-none focus:border-zinc-400 transition-all cursor-pointer hover:bg-zinc-50 shadow-sm"
+                        className="h-10 appearance-none rounded-xl bg-white/[0.03] pl-4 pr-8 py-2 text-sm text-zinc-300 focus:outline-none focus:ring-1 focus:ring-orange-500/50 transition-all cursor-pointer hover:bg-white/[0.05]"
                       >
-                        <option value="ALL" className="hist-filter-option bg-white text-zinc-900">{t.hist_filter_all_status}</option>
-                        <option value="SUCCESS" className="hist-filter-option bg-white text-zinc-900">{t.hist_status_success}</option>
-                        <option value="PROCESSING" className="hist-filter-option bg-white text-zinc-900">{t.hist_status_processing}</option>
-                        <option value="PENDING" className="hist-filter-option bg-white text-zinc-900">{t.hist_status_pending}</option>
-                        <option value="FAILED" className="hist-filter-option bg-white text-zinc-900">{t.hist_status_failed}</option>
-                        <option value="DRAFT" className="hist-filter-option bg-white text-zinc-900">{t.hist_status_draft}</option>
+                        <option value="ALL" className="bg-zinc-900 text-zinc-300">{t.hist_filter_all_status}</option>
+                        <option value="SUCCESS" className="bg-zinc-900 text-zinc-300">{t.hist_status_success}</option>
+                        <option value="PROCESSING" className="bg-zinc-900 text-zinc-300">{t.hist_status_processing}</option>
+                        <option value="PENDING" className="bg-zinc-900 text-zinc-300">{t.hist_status_pending}</option>
+                        <option value="FAILED" className="bg-zinc-900 text-zinc-300">{t.hist_status_failed}</option>
+                        <option value="DRAFT" className="bg-zinc-900 text-zinc-300">{t.hist_status_draft}</option>
                       </select>
-                      <div className="hist-filter-icon pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-zinc-500">
+                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-zinc-500">
                         <svg className="h-4 w-4 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" /></svg>
                       </div>
                     </div>
@@ -860,26 +860,26 @@ export const HistoryView = () => {
                       <select
                         value={sortBy}
                         onChange={(e) => setSortBy(e.target.value as HistorySort)}
-                        className="hist-filter-control hist-workbar-item hist-filter-select h-10 appearance-none rounded-lg border border-zinc-200 bg-white pl-4 pr-8 py-2 text-sm text-zinc-900 focus:outline-none focus:border-zinc-400 transition-all cursor-pointer hover:bg-zinc-50 shadow-sm"
+                        className="h-10 appearance-none rounded-xl bg-white/[0.03] pl-4 pr-8 py-2 text-sm text-zinc-300 focus:outline-none focus:ring-1 focus:ring-orange-500/50 transition-all cursor-pointer hover:bg-white/[0.05]"
                       >
-                        <option value="updated_at_desc" className="hist-filter-option bg-white text-zinc-900">{t.hist_sort_updated_desc}</option>
-                        <option value="updated_at_asc" className="hist-filter-option bg-white text-zinc-900">{t.hist_sort_updated_asc}</option>
-                        <option value="created_at_desc" className="hist-filter-option bg-white text-zinc-900">{t.hist_sort_created_desc}</option>
-                        <option value="created_at_asc" className="hist-filter-option bg-white text-zinc-900">{t.hist_sort_created_asc}</option>
+                        <option value="updated_at_desc" className="bg-zinc-900 text-zinc-300">{t.hist_sort_updated_desc}</option>
+                        <option value="updated_at_asc" className="bg-zinc-900 text-zinc-300">{t.hist_sort_updated_asc}</option>
+                        <option value="created_at_desc" className="bg-zinc-900 text-zinc-300">{t.hist_sort_created_desc}</option>
+                        <option value="created_at_asc" className="bg-zinc-900 text-zinc-300">{t.hist_sort_created_asc}</option>
                       </select>
-                       <div className="hist-filter-icon pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-zinc-500">
+                       <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-zinc-500">
                         <svg className="h-4 w-4 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" /></svg>
                       </div>
                     </div>
 
-                    <div className="hist-filter-control hist-workbar-item hist-workbar-group flex bg-white rounded-lg p-1 border border-zinc-200 h-10 items-center shadow-sm">
+                    <div className="flex bg-white/[0.02] rounded-xl p-1 h-10 items-center">
                       <button
                         type="button"
                         onClick={() => setViewMode('grid')}
-                        className={`hist-filter-toggle hist-workbar-toggle flex items-center justify-center w-8 h-8 rounded transition-all ${
+                        className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all ${
                           viewMode === 'grid'
-                            ? 'hist-workbar-toggle-active bg-zinc-200 text-zinc-900 shadow-sm'
-                            : 'text-zinc-400 hover:text-zinc-700'
+                            ? 'bg-white/10 text-zinc-200 shadow-sm'
+                            : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5'
                         }`}
                         title={'Grid View'}
                       >
@@ -888,10 +888,10 @@ export const HistoryView = () => {
                       <button
                         type="button"
                         onClick={() => setViewMode('list')}
-                        className={`hist-filter-toggle hist-workbar-toggle flex items-center justify-center w-8 h-8 rounded transition-all ${
+                        className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all ${
                           viewMode === 'list'
-                            ? 'hist-workbar-toggle-active bg-zinc-200 text-zinc-900 shadow-sm'
-                            : 'text-zinc-400 hover:text-zinc-700'
+                            ? 'bg-white/10 text-zinc-200 shadow-sm'
+                            : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5'
                         }`}
                         title={'List View'}
                       >
@@ -905,10 +905,10 @@ export const HistoryView = () => {
                    <button
                       type="button"
                       onClick={() => setShowOnlyFavorites(!showOnlyFavorites)}
-                      className={`h-9 flex items-center gap-2 px-3 rounded-lg text-xs font-medium transition-colors border ${
+                      className={`h-9 flex items-center gap-2 px-3 rounded-lg text-xs font-medium transition-colors ${
                         showOnlyFavorites
-                          ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' 
-                          : 'bg-transparent border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900'
+                          ? 'bg-amber-500/10 text-amber-500' 
+                          : 'bg-white/[0.02] text-zinc-500 hover:text-zinc-300 hover:bg-white/5'
                       }`}
                     >
                       <Star size={14} className={showOnlyFavorites ? 'fill-current' : ''} />
@@ -917,7 +917,7 @@ export const HistoryView = () => {
                 </div>
               </div>
 
-              <div className="text-center py-20 text-zinc-500">
+              <div className="flex-1 flex flex-col items-center justify-center text-center py-20 text-zinc-500">
                 <Video className="w-12 h-12 mx-auto mb-4 opacity-20" />
                 <p>{t.hist_empty}</p>
               </div>
@@ -1006,24 +1006,24 @@ export const HistoryView = () => {
                     <button
                       type="button"
                       onClick={toggleSelectAll}
-                      className={`h-9 px-3 rounded-lg text-xs font-medium transition-colors border ${
+                      className={`h-9 px-3 rounded-lg text-xs font-medium transition-colors ${
                         allSelected 
-                          ? 'bg-zinc-100 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100' 
-                          : 'bg-transparent border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900'
+                          ? 'bg-orange-500/10 text-orange-500' 
+                          : 'bg-white/[0.02] text-zinc-500 hover:text-zinc-300 hover:bg-white/5'
                       }`}
                     >
                       {allSelected ? t.hist_selection_clear : t.hist_selection_all}
                     </button>
 
-                    <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800 mx-1" />
+                    <div className="h-4 w-px bg-white/10 mx-1" />
 
                     <button
                       type="button"
                       onClick={() => setShowOnlyFavorites(!showOnlyFavorites)}
-                      className={`h-9 flex items-center gap-2 px-3 rounded-lg text-xs font-medium transition-colors border ${
+                      className={`h-9 flex items-center gap-2 px-3 rounded-lg text-xs font-medium transition-colors ${
                         showOnlyFavorites
-                          ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' 
-                          : 'bg-transparent border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-900'
+                          ? 'bg-amber-500/10 text-amber-500' 
+                          : 'bg-white/[0.02] text-zinc-500 hover:text-zinc-300 hover:bg-white/5'
                       }`}
                     >
                       <Star size={14} className={showOnlyFavorites ? 'fill-current' : ''} />
@@ -1085,23 +1085,23 @@ export const HistoryView = () => {
                   return (
                     <div
                       key={proj.id}
-                      className={`group relative flex flex-row items-stretch rounded-xl overflow-hidden glass-card transition-all duration-300 hover:shadow-lg ${Boolean(selectedProjects[proj.id]) ? 'shadow-[0_0_20px_-5px_rgba(249,115,22,0.3)] bg-gradient-to-r from-orange-500/5 to-transparent border border-orange-500/20' : ''}`}
+                      className={`group relative flex flex-row items-stretch rounded-2xl overflow-hidden bg-white/[0.02] hover:bg-white/[0.04] transition-all duration-300 hover:shadow-lg ${Boolean(selectedProjects[proj.id]) ? 'bg-orange-500/6 backdrop-blur-sm' : ''}`}
                       style={{ height: '110px' }}
                       title={proj.title || ''}
                     >
                       {/* Thumbnail (Fixed Width) */}
                       <div className="w-48 bg-black/40 relative overflow-hidden shrink-0 cursor-pointer" onClick={() => handlePlay(proj)}>
                         <label
-                          className="absolute top-2 left-2 z-20 flex items-center justify-center w-5 h-5 bg-white/50 dark:bg-black/40 backdrop-blur-sm rounded border border-zinc-300 dark:border-white/20 cursor-pointer hover:bg-white/70 dark:hover:bg-black/60 transition-colors shadow-sm"
+                          className="absolute top-2 left-2 z-20 flex items-center justify-center w-6 h-6 bg-white/50 dark:bg-black/40 backdrop-blur-sm rounded-md border border-zinc-300 dark:border-white/20 cursor-pointer hover:bg-white/70 dark:hover:bg-black/60 transition-colors shadow-sm"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <input
                             type="checkbox"
                             checked={Boolean(selectedProjects[proj.id])}
                             onChange={() => toggleSelect(proj)}
-                            className="appearance-none w-3 h-3 rounded-[2px] border border-zinc-500 checked:bg-orange-500 checked:border-orange-500"
+                            className="appearance-none w-3.5 h-3.5 rounded-[2px] border border-zinc-500 checked:bg-orange-500 checked:border-orange-500"
                           />
-                          {Boolean(selectedProjects[proj.id]) && <div className="absolute inset-0 flex items-center justify-center text-white text-[10px] pointer-events-none">✓</div>}
+                          {Boolean(selectedProjects[proj.id]) && <div className="absolute inset-0 flex items-center justify-center text-white text-xs pointer-events-none">✓</div>}
                         </label>
 
                         {canPlay ? (
@@ -1188,19 +1188,19 @@ export const HistoryView = () => {
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between gap-2 mt-1 pt-3 border-t border-zinc-800/50">
-                          <div className="flex items-center gap-1">
+<div className="flex items-center justify-between gap-3 mt-1 pt-2 opacity-60 group-hover:opacity-100 transition-opacity">
+                          <div className="flex items-center gap-1.5 flex-1">
                             {showPublishTikTok ? (
                               <button
                                 onClick={() => handlePublishToTikTok(proj)}
                                 disabled={!canPublishTikTok || postingTikTokProjectId === proj.id}
-                                className={`h-7 px-2 rounded transition-all flex items-center gap-1.5 text-[11px] ${canPublishTikTok ? 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-white/5 hover:scale-105 active:scale-95' : 'text-zinc-400 opacity-50 cursor-not-allowed'} ${postingTikTokProjectId === proj.id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                className={`h-8 px-2.5 rounded-lg transition-all flex items-center gap-1.5 text-[11px] ${canPublishTikTok ? 'bg-white/5 text-zinc-300 hover:text-zinc-100 hover:bg-white/10 hover:scale-105' : 'text-zinc-500 bg-white/[0.02] opacity-50 cursor-not-allowed'} ${postingTikTokProjectId === proj.id ? 'opacity-50 cursor-not-allowed' : ''}`}
                                 title={canPublishTikTok ? t.wb_btn_tiktok_draft : t.hist_video_not_ready}
                               >
                                 {postingTikTokProjectId === proj.id ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  <Loader2 className="w-4 h-4 animate-spin" />
                                 ) : (
-                                  <Send className="w-3.5 h-3.5" />
+                                  <Send className="w-4 h-4" />
                                 )}
                                 <span className="hidden sm:inline">{postingTikTokProjectId === proj.id ? t.wb_tiktok_uploading : t.wb_btn_tiktok_draft}</span>
                               </button>
@@ -1208,56 +1208,56 @@ export const HistoryView = () => {
 
                             <button
                               onClick={() => handlePlay(proj)}
-                              className="h-7 px-2 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-white/5 rounded transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 text-[11px]"
+                              className="h-8 px-2.5 text-zinc-300 bg-white/5 hover:text-zinc-100 hover:bg-white/10 rounded-lg transition-all hover:scale-105 flex items-center gap-1.5 text-[11px]"
                               title={t.hist_action_view_video}
                             >
-                              <Play className="w-3.5 h-3.5 fill-current" />
+                              <Play className="w-4 h-4 fill-current" />
                               <span className="hidden sm:inline">{t.hist_action_view_video}</span>
                             </button>
 
                             <button
                               onClick={() => handleOpenPrompt(proj)}
                               disabled={!!loadingPromptId}
-                              className="h-7 px-2 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-white/5 rounded transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 text-[11px] disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="h-8 px-2.5 text-zinc-300 bg-white/5 hover:text-zinc-100 hover:bg-white/10 rounded-lg transition-all hover:scale-105 flex items-center gap-1.5 text-[11px] disabled:opacity-50 disabled:cursor-not-allowed"
                               title={t.hist_action_view_prompt}
                             >
-                              {loadingPromptId === proj.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileJson className="w-3.5 h-3.5" />}
+                              {loadingPromptId === proj.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileJson className="w-4 h-4" />}
                               <span className="hidden sm:inline">{loadingPromptId === proj.id ? t.hist_prompt_loading : t.hist_action_view_prompt}</span>
                             </button>
                           </div>
 
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1.5">
                             <button
                               onClick={() => handleDownload({ id: proj.id, title: proj.title || t.hist_untitled_project, video_url: proj.video_url })}
-                              className="h-7 w-7 flex items-center justify-center text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-white/5 rounded transition-all hover:scale-110 active:scale-95"
+                              className="h-8 w-8 flex items-center justify-center text-zinc-400 bg-white/5 hover:text-zinc-200 hover:bg-white/10 rounded-lg transition-all hover:scale-110"
                               title={t.hist_action_download}
                             >
-                              <Download className="w-3.5 h-3.5" />
+                              <Download className="w-4 h-4" />
                             </button>
 
                             <button
                               onClick={(e) => handleToggleFavorite(proj, e)}
                               disabled={togglingFavoriteId === proj.id}
-                              className="h-7 w-7 flex items-center justify-center text-zinc-500 hover:text-amber-500 hover:bg-amber-500/10 rounded transition-all hover:scale-110 active:scale-95 disabled:opacity-50"
+                              className="h-8 w-8 flex items-center justify-center text-zinc-400 bg-white/5 hover:text-amber-500 hover:bg-amber-500/10 rounded-lg transition-all hover:scale-110 disabled:opacity-50"
                               title={proj.is_favorited ? (t.hist_favorite_remove_title || 'Unfavorite') : (t.hist_favorite_add_title || 'Favorite')}
                             >
                               {togglingFavoriteId === proj.id ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                <Loader2 className="w-4 h-4 animate-spin" />
                               ) : (
-                                <Star className={`w-3.5 h-3.5 ${proj.is_favorited ? 'fill-current text-amber-500' : ''}`} />
+                                <Star className={`w-4 h-4 ${proj.is_favorited ? 'fill-current text-amber-500' : ''}`} />
                               )}
                             </button>
 
                             <button
                               onClick={(e) => handleDelete(e, proj.id)}
-                              className="h-7 w-7 flex items-center justify-center text-zinc-500 hover:text-red-500 hover:bg-red-500/10 rounded transition-all hover:scale-110 active:scale-95 disabled:opacity-50 ml-1"
+                              className="h-8 w-8 flex items-center justify-center text-zinc-500 bg-white/[0.03] hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all hover:scale-110 disabled:opacity-50 ml-1"
                               title={t.assets_delete}
                               disabled={deletingId === proj.id}
                             >
                               {deletingId === proj.id ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                <Loader2 className="w-4 h-4 animate-spin" />
                               ) : (
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Trash2 className="w-4 h-4" />
                               )}
                             </button>
                           </div>
@@ -1270,12 +1270,12 @@ export const HistoryView = () => {
                 return (
                   <div
                     key={proj.id}
-                    className={`group relative flex flex-col rounded-xl overflow-hidden glass-card transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${Boolean(selectedProjects[proj.id]) ? 'shadow-[0_0_20px_-5px_rgba(249,115,22,0.3)] bg-gradient-to-b from-orange-500/5 to-transparent border border-orange-500/20' : ''}`}
+                    className={`group relative flex flex-col rounded-2xl overflow-hidden bg-white/[0.02] hover:bg-white/[0.04] transition-all duration-300 hover:-translate-y-1 shadow-sm hover:shadow-xl ${Boolean(selectedProjects[proj.id]) ? 'bg-orange-500/6 backdrop-blur-sm' : ''}`}
                     title={proj.title || ''}
                   >
                     <div className="aspect-video bg-black/40 relative overflow-hidden">
                         <label
-                          className="absolute top-2 left-2 z-20 flex items-center justify-center w-6 h-6 bg-white/50 dark:bg-black/40 backdrop-blur-sm rounded-md border border-zinc-300 dark:border-white/20 cursor-pointer hover:bg-white/70 dark:hover:bg-black/60 transition-colors opacity-0 group-hover:opacity-100 peer-checked:opacity-100 shadow-sm"
+                          className="absolute top-3 left-3 z-20 flex items-center justify-center w-6 h-6 bg-white/50 dark:bg-black/40 backdrop-blur-sm rounded-md border border-zinc-300 dark:border-white/20 cursor-pointer hover:bg-white/70 dark:hover:bg-black/60 transition-colors opacity-0 group-hover:opacity-100 peer-checked:opacity-100 shadow-sm"
                           onClick={(e) => e.stopPropagation()}
                         >
                          <input
@@ -1304,13 +1304,13 @@ export const HistoryView = () => {
                           )}
 
                           {modelLabel ? (
-                            <div className="absolute bottom-2 left-2 px-1.5 py-0.5 bg-black/60 rounded text-[10px] text-zinc-100 backdrop-blur-sm border border-white/10 max-w-[70%] truncate">
+                            <div className="absolute bottom-3 left-3 px-2 py-1 bg-black/60 rounded-md text-[10px] text-zinc-100 backdrop-blur-md max-w-[70%] truncate font-medium">
                               {modelLabel}
                             </div>
                           ) : null}
 
                           {durationText ? (
-                            <div className="absolute bottom-2 right-2 px-1.5 py-0.5 bg-black/60 rounded text-[10px] text-zinc-200 font-mono backdrop-blur-sm">
+                            <div className="absolute bottom-3 right-3 px-2 py-1 bg-black/60 rounded-md text-[10px] text-zinc-200 font-mono backdrop-blur-md font-medium">
                               {durationText}
                             </div>
                           ) : null}
@@ -1329,109 +1329,109 @@ export const HistoryView = () => {
                               type="button"
                               onClick={() => handleRetryGenerate(proj)}
                               disabled={retryingProjectId === proj.id}
-                              className="absolute top-2 right-2 z-20 w-7 h-7 rounded-full border border-white/20 bg-black/45 text-zinc-100 hover:text-orange-400 hover:border-orange-400/60 transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="absolute top-3 right-3 z-20 w-8 h-8 rounded-full bg-black/45 text-zinc-100 hover:text-orange-400 hover:bg-black/60 transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed shadow-sm backdrop-blur-md"
                               title={t.hist_retry}
                             >
                               {retryingProjectId === proj.id ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                <Loader2 className="w-4 h-4 animate-spin" />
                               ) : (
-                                <RefreshCw className="w-3.5 h-3.5" />
+                                <RefreshCw className="w-4 h-4" />
                               )}
                             </button>
                           ) : null}
                         </>
                       )}
 
-                      <div className="absolute inset-0 z-10 bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-all duration-300 flex flex-col items-center justify-center gap-1 px-4">
+                      <div className="absolute inset-0 z-10 bg-black/50 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-all duration-300 flex flex-col items-center justify-center gap-1.5 px-4">
                         {showPublishTikTok ? (
                           <button
                             onClick={() => handlePublishToTikTok(proj)}
                             disabled={!canPublishTikTok || postingTikTokProjectId === proj.id}
-                            className={`w-full max-w-[180px] h-8 transition-all duration-200 flex items-center justify-center gap-1.5 ${canPublishTikTok ? 'text-zinc-100 hover:text-orange-400 hover:-translate-y-0.5 hover:scale-[1.02]' : 'text-zinc-400 opacity-50 cursor-not-allowed'} ${postingTikTokProjectId === proj.id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            className={`w-full max-w-[200px] h-9 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 ${canPublishTikTok ? 'bg-white/10 text-white hover:bg-orange-500 hover:text-white hover:shadow-lg' : 'bg-black/40 text-zinc-400 opacity-50 cursor-not-allowed'} ${postingTikTokProjectId === proj.id ? 'opacity-50 cursor-not-allowed' : ''}`}
                             title={canPublishTikTok ? t.wb_btn_tiktok_draft : t.hist_video_not_ready}
                           >
                             {postingTikTokProjectId === proj.id ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <Loader2 className="w-4 h-4 animate-spin" />
                             ) : (
-                              <Send className="w-3.5 h-3.5" />
+                              <Send className="w-4 h-4" />
                             )}
-                            <span className="text-xs font-medium">{postingTikTokProjectId === proj.id ? t.wb_tiktok_uploading : t.wb_btn_tiktok_draft}</span>
+                            <span className="text-xs font-semibold">{postingTikTokProjectId === proj.id ? t.wb_tiktok_uploading : t.wb_btn_tiktok_draft}</span>
                           </button>
                         ) : null}
 
-                        {showPublishTikTok ? <div className="w-full max-w-[180px] h-px bg-white/25" /> : null}
-
                         <button
                           onClick={() => handlePlay(proj)}
-                          className="w-full max-w-[180px] h-8 text-zinc-100 hover:text-orange-400 transition-all duration-200 hover:-translate-y-0.5 hover:scale-[1.02] flex items-center justify-center gap-1.5"
+                          className="w-full max-w-[200px] h-9 rounded-lg bg-white/10 text-white hover:bg-orange-500 hover:text-white transition-all duration-200 hover:shadow-lg flex items-center justify-center gap-2"
                           title={t.hist_action_view_video}
                         >
-                          <Play className="w-3.5 h-3.5 fill-current" />
-                          <span className="text-xs font-medium">{t.hist_action_view_video}</span>
+                          <Play className="w-4 h-4 fill-current" />
+                          <span className="text-xs font-semibold">{t.hist_action_view_video}</span>
                         </button>
-
-                        <div className="w-full max-w-[180px] h-px bg-white/25" />
 
                         <button
                           onClick={() => handleOpenPrompt(proj)}
                           disabled={!!loadingPromptId}
-                          className="w-full max-w-[180px] h-8 text-zinc-100 hover:text-orange-400 transition-all duration-200 hover:translate-y-0.5 hover:scale-[1.02] flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="w-full max-w-[200px] h-9 rounded-lg bg-white/10 text-white hover:bg-orange-500 hover:text-white transition-all duration-200 hover:shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white/10"
                           title={t.hist_action_view_prompt}
                         >
-                          {loadingPromptId === proj.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileJson className="w-3.5 h-3.5" />}
-                          <span className="text-xs font-medium">{loadingPromptId === proj.id ? t.hist_prompt_loading : t.hist_action_view_prompt}</span>
+                          {loadingPromptId === proj.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileJson className="w-4 h-4" />}
+                          <span className="text-xs font-semibold">{loadingPromptId === proj.id ? t.hist_prompt_loading : t.hist_action_view_prompt}</span>
                         </button>
                       </div>
                     </div>
 
-                    <div className="p-4 flex flex-col gap-2 flex-1">
-                      <div className="flex justify-between items-start gap-2">
-                        <h3 className="text-sm font-semibold text-zinc-300 group-hover:text-white transition-colors line-clamp-1" title={proj.title}>
+                    <div className="p-5 flex flex-col gap-3 flex-1 h-full">
+                      <div className="flex justify-between items-start gap-3">
+                        <h3 className="text-[15px] font-semibold text-zinc-300 group-hover:text-white transition-colors line-clamp-2 leading-relaxed flex-1" title={proj.title}>
                           {proj.title || t.hist_untitled_project}
                         </h3>
-                        <StatusBadge status={proj.status} label={statusLabels[proj.status] || t.hist_status_draft} />
+                        <div className="flex-shrink-0 pt-0.5">
+                          <StatusBadge status={proj.status} label={statusLabels[proj.status] || t.hist_status_draft} />
+                        </div>
                       </div>
 
                       {renderTikTokStatsPlaceholder()}
 
-                      <div className="flex items-center gap-1 mt-auto pt-3 border-t border-zinc-800/50">
-                        <div className="text-[10px] text-zinc-600 flex-1">
+                      <div className="flex items-center justify-between mt-auto pt-4 opacity-60 group-hover:opacity-100 transition-opacity">
+                        <div className="text-[11px] text-zinc-400 font-medium">
                           {formatDateTimeToMinute(proj.created_at)}
                         </div>
 
-                        <button
-                          onClick={() => handleDownload({ id: proj.id, title: proj.title || t.hist_untitled_project, video_url: proj.video_url })}
-                          className="h-7 w-7 flex items-center justify-center text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-white/5 rounded transition-all hover:scale-110 active:scale-95"
-                          title={t.hist_action_download}
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1.5 mt-2">
+                          <button
+                            onClick={() => handleDownload({ id: proj.id, title: proj.title || t.hist_untitled_project, video_url: proj.video_url })}
+                            className="h-8 w-8 flex items-center justify-center text-zinc-400 bg-white/5 hover:text-zinc-200 hover:bg-white/10 rounded-lg transition-all hover:scale-110"
+                            title={t.hist_action_download}
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
 
-                        <button
-                          onClick={(e) => handleToggleFavorite(proj, e)}
-                          disabled={togglingFavoriteId === proj.id}
-                          className="h-7 w-7 flex items-center justify-center text-zinc-500 hover:text-amber-500 hover:bg-amber-500/10 rounded transition-all hover:scale-110 active:scale-95 disabled:opacity-50"
-                          title={proj.is_favorited ? (t.hist_favorite_remove_title || 'Unfavorite') : (t.hist_favorite_add_title || 'Favorite')}
-                        >
-                          {togglingFavoriteId === proj.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Star className={`w-3.5 h-3.5 ${proj.is_favorited ? 'fill-current text-amber-500' : ''}`} />
-                          )}
-                        </button>
+                          <button
+                            onClick={(e) => handleToggleFavorite(proj, e)}
+                            disabled={togglingFavoriteId === proj.id}
+                            className="h-8 w-8 flex items-center justify-center text-zinc-400 bg-white/5 hover:text-amber-500 hover:bg-amber-500/10 rounded-lg transition-all hover:scale-110 disabled:opacity-50"
+                            title={proj.is_favorited ? (t.hist_favorite_remove_title || 'Unfavorite') : (t.hist_favorite_add_title || 'Favorite')}
+                          >
+                            {togglingFavoriteId === proj.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Star className={`w-4 h-4 ${proj.is_favorited ? 'fill-current text-amber-500' : ''}`} />
+                            )}
+                          </button>
 
-                        <button
-                          onClick={(e) => handleDelete(e, proj.id)}
-                          className="h-7 w-7 flex items-center justify-center text-zinc-500 hover:text-red-500 hover:bg-red-500/10 rounded transition-all hover:scale-110 active:scale-95 disabled:opacity-50 ml-1"
-                          title={t.assets_delete}
-                          disabled={deletingId === proj.id}
-                        >
-                          {deletingId === proj.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Trash2 className="w-3.5 h-3.5" />
-                          )}
-                        </button>
+                          <button
+                            onClick={(e) => handleDelete(e, proj.id)}
+                            className="h-8 w-8 flex items-center justify-center text-zinc-500 bg-white/[0.03] hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all hover:scale-110 disabled:opacity-50 ml-1"
+                            title={t.assets_delete}
+                            disabled={deletingId === proj.id}
+                          >
+                            {deletingId === proj.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>

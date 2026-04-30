@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import {
-  UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder,
+  UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder, Eye,
   Wand2, Loader2, Clapperboard, ArrowRight, BookmarkPlus, FolderOpen,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift, ImagePlus, Users, Image as ImageIcon,
-  SlidersHorizontal, Music, Languages, HelpCircle, AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ChevronsDown, Library
+  SlidersHorizontal, Music, Languages, HelpCircle, AlertCircle, ChevronDown, ChevronUp, ChevronsDown, Library
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -16,6 +16,7 @@ import { videoApi, VideoApiError, type GeneratePreviewData } from '../../service
 import { assetsApi, subjectGroupApi, type Asset as LibraryAsset, type AssetFolder, type SubjectGroup } from '../../services/assets';
 import { tiktokApi } from '../../services/tiktok';
 import { billingApi } from '../../services/billing';
+import { formatCreditAmount, roundCreditTenths } from '../../utils/credits';
 import { getDebugModeEnabled } from '../../services/debugMode';
 import {
   PromptLabWindow,
@@ -40,6 +41,8 @@ import {
   buildFullScriptFallback,
   buildScriptEstimateStorageKey,
   buildScriptsFromShots,
+  distributeTenthsProportional,
+  durToTenths,
   formatScriptPageDisplayName,
   getScriptGenerationCooldownRemainingMs,
   hasCreativeCardContent,
@@ -48,6 +51,7 @@ import {
   parseScriptStringList,
   readLocalScriptEstimate,
   recordScriptGenerationCancelTimestamp,
+  tenthsToDur,
   useScriptGenerationProgress,
   writeLocalScriptEstimate,
   type ScriptCreativeCard,
@@ -61,6 +65,7 @@ import {
   type TransferStationItem,
 } from '../../utils/workbenchTransferStation';
 import { type ReplayReusePayload } from './ReplayScriptView';
+import ShotTimelineBar from './ShotTimelineBar';
 import {
   SeedanceReplayUploadPanel,
   type SeedanceReplayUploadAsset,
@@ -123,6 +128,7 @@ const formatAssetSize = (sizeBytes?: number | null) => {
 type BillingPricingModelEntry = {
   display_name?: string;
   rate?: number;
+  rate_credit_tenths?: number;
   rate_label?: string;
   unit?: string;
 };
@@ -194,10 +200,19 @@ const isSeedanceModel = (modelId: string | null | undefined) => {
   return modelKey === 'seedance-2.0';
 };
 
-const getSeedanceReplayLocalAccept = (mediaKind?: SeedanceReplayMediaKind | null) => {
+const getSeedanceReplayLocalAccept = (mediaKind?: SeedanceReplayMediaKind | null, options: { allowAudio?: boolean } = {}) => {
+  const allowAudio = options.allowAudio !== false;
   if (mediaKind === 'image') return SEEDANCE_REPLAY_IMAGE_EXTS.map((ext) => `.${ext}`).join(',');
   if (mediaKind === 'video') return SEEDANCE_REPLAY_VIDEO_EXTS.map((ext) => `.${ext}`).join(',');
+  if (mediaKind === 'audio' && !allowAudio) return [
+    ...SEEDANCE_REPLAY_IMAGE_EXTS.map((ext) => `.${ext}`),
+    ...SEEDANCE_REPLAY_VIDEO_EXTS.map((ext) => `.${ext}`),
+  ].join(',');
   if (mediaKind === 'audio') return SEEDANCE_REPLAY_AUDIO_EXTS.map((ext) => `.${ext}`).join(',');
+  if (!allowAudio) return [
+    ...SEEDANCE_REPLAY_IMAGE_EXTS.map((ext) => `.${ext}`),
+    ...SEEDANCE_REPLAY_VIDEO_EXTS.map((ext) => `.${ext}`),
+  ].join(',');
   return SEEDANCE_REPLAY_UPLOAD_ACCEPT;
 };
 // Storyboard editor is now a user-toggleable runtime setting (no longer a compile-time constant).
@@ -269,6 +284,7 @@ type SeedanceReplayLibraryIntent = {
 
 type AssetLibraryTab = 'product' | 'model' | 'scene' | 'motion' | 'audio' | 'script' | 'subject';
 type AssetLibraryPickMode = 'default' | 'background_audio' | 'script_import';
+type KlingLibraryUploadTarget = 'default' | 'primary' | 'reference';
 type AiOptimizeResolution = 'sd' | 'hd' | 'uhd';
 type WaitProgressPhase = 'idle' | 'simulating' | 'holding' | 'finishing' | 'done';
 
@@ -297,6 +313,94 @@ type GeneratePayload = {
   negative_prompt?: string;
   [key: string]: unknown;
 };
+
+type ReplayScriptTemplate = {
+  id: string;
+  title: string;
+  description: string;
+  fullScript: string;
+  prompt: string;
+  previewImageUrl: string;
+  previewVideoUrl?: string;
+  tags: string[];
+  duration: number;
+  aspectRatio: WorkbenchAspectRatio;
+};
+
+type ReplayBatchItemStatus = 'queued' | 'submitting' | 'processing' | 'success' | 'failed';
+
+type ReplayBatchItem = {
+  id: string;
+  label: string;
+  source: 'template' | 'user_reference';
+  templateId?: string;
+  copyIndex: number;
+  taskId?: string | number;
+  projectId?: string;
+  status: ReplayBatchItemStatus;
+  detail?: string;
+  error?: string;
+};
+
+type ReplayReverseStatus = 'idle' | 'queued' | 'processing' | 'success' | 'failed';
+
+type ReplayBatchRun = {
+  id: string;
+  expanded: boolean;
+  startedAt: number;
+  totalVideos: number;
+  userReferenceCount: number;
+  templateVideoCount: number;
+  reverse: {
+    status: ReplayReverseStatus;
+    progress: number;
+    detail?: string;
+    error?: string;
+    scriptBrief?: string;
+  };
+  items: ReplayBatchItem[];
+};
+
+const REPLAY_SCRIPT_TEMPLATES: ReplayScriptTemplate[] = [
+  {
+    id: 'hook-demo-closeup',
+    title: '3 秒强钩子产品展示',
+    description: '开场快速抓住痛点，随后用产品特写和使用动作完成卖点展示。',
+    fullScript: '开场用近景展示产品解决的核心痛点；中段切换到手持/摆放使用动作；结尾用清晰 CTA 强化购买理由。',
+    prompt: '为xx产品生成一条强钩子电商广告视频：前 3 秒用近景展示痛点与产品出现，中段使用多张商品图片作为外观参考，镜头节奏清晰，突出质感、功能和使用结果，结尾给出明确行动号召。避免复刻参考视频中的真人，只使用提供的商品图片作为视觉依据。',
+    previewImageUrl: ASSET_PLACEHOLDER_DATA_URL,
+    previewVideoUrl: WAITING_PREVIEW_VIDEO_SRC,
+    tags: ['Hook', 'Demo', 'CTA'],
+    duration: 8,
+    aspectRatio: '9:16',
+  },
+  {
+    id: 'problem-solution-proof',
+    title: '痛点-方案-证明',
+    description: '用问题场景切入，再展示产品解决方案和结果对比。',
+    fullScript: '先呈现目标用户常见问题；随后展示产品细节与使用步骤；最后用结果感画面和利益点收束。',
+    prompt: '为xx产品生成一条痛点-方案-证明结构的短视频广告：先用克制但明确的视觉语言展示用户问题，再围绕提供的商品图片设计使用步骤、细节特写和结果画面，节奏稳中有变化，结尾突出核心利益点和购买动机。全程不要使用参考广告视频作为生成素材。',
+    previewImageUrl: ASSET_PLACEHOLDER_DATA_URL,
+    previewVideoUrl: WAITING_PREVIEW_VIDEO_SRC,
+    tags: ['Pain Point', 'Proof', 'Lifestyle'],
+    duration: 10,
+    aspectRatio: '9:16',
+  },
+  {
+    id: 'premium-texture-showcase',
+    title: '质感大片式陈列',
+    description: '更适合高客单价产品，强调材质、光线、慢镜头和高级感。',
+    fullScript: '用干净背景和有层次的光线展示产品；穿插局部特写、包装和使用场景；以品牌感口吻结束。',
+    prompt: '为xx产品生成一条高级质感广告视频：围绕上传的商品图片，设计干净背景、柔和但有层次的灯光、慢速推拉镜头、细节特写和品牌感收束。整体画面精致、克制、商业化，避免真人敏感内容，只使用图片参考生成。',
+    previewImageUrl: ASSET_PLACEHOLDER_DATA_URL,
+    previewVideoUrl: WAITING_PREVIEW_VIDEO_SRC,
+    tags: ['Premium', 'Texture', 'Brand'],
+    duration: 8,
+    aspectRatio: '9:16',
+  },
+];
+
+const SEEDANCE_REPLAY_MODEL_LIMIT = 3;
 
 type SelectedBackgroundAudio = {
   id: string;
@@ -855,14 +959,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [assetLibraryCurrentFolderId, setAssetLibraryCurrentFolderId] = useState<string | null>(null);
   const [assetLibraryLoading, setAssetLibraryLoading] = useState(false);
   const [isAssetLibraryUploading, setIsAssetLibraryUploading] = useState(false);
-  const [assetLibraryUploadSuccessVisible, setAssetLibraryUploadSuccessVisible] = useState(false);
-  const [assetLibraryUploadSuccessFading, setAssetLibraryUploadSuccessFading] = useState(false);
-  const assetLibraryUploadSuccessTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const [assetLibraryUploadSummaryToast, setAssetLibraryUploadSummaryToast] = useState<{ uploadedCount: number; addedCount: number } | null>(null);
+  const assetLibraryUploadSummaryToastTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const [assetLibraryHoverAssetId, setAssetLibraryHoverAssetId] = useState<string | null>(null);
   const [assetLibraryHoverClickedAssetId, setAssetLibraryHoverClickedAssetId] = useState<string | null>(null);
   const [assetLibraryError, setAssetLibraryError] = useState<string | null>(null);
   const [assetLibrarySubjects, setAssetLibrarySubjects] = useState<SubjectGroup[]>([]);
   const [seedanceReplayLibraryIntent, setSeedanceReplayLibraryIntent] = useState<SeedanceReplayLibraryIntent | null>(null);
+  const [klingLibraryUploadTarget, setKlingLibraryUploadTarget] = useState<KlingLibraryUploadTarget>('default');
   const [draggingWorkbenchAssetId, setDraggingWorkbenchAssetId] = useState<string | null>(null);
   const [transferStationItems, setTransferStationItems] = useState<TransferStationItem[]>([]);
   const [isTransferStationOpen, setIsTransferStationOpen] = useState(false);
@@ -1076,11 +1180,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [targetLanguage, setTargetLanguage] = useState<string>(() => initialPrefs.targetLanguage || 'en');
   const [translatingShots, setTranslatingShots] = useState<Record<number, boolean>>({});
   const [creationMode, setCreationMode] = useState<'fast' | 'replay'>(() => (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
+  const isSeedanceReplayMode = creationMode === 'replay' && selectedModel === 'seedance2.0';
+  const isSeedanceFastMode = creationMode === 'fast' && selectedModel === 'seedance2.0';
+  const isSeedanceMode = isSeedanceReplayMode || isSeedanceFastMode;
   const [seedanceReplayUploadIntent, setSeedanceReplayUploadIntent] = useState<SeedanceReplayUploadIntent>({ targetMediaKind: null });
   const [seedanceReplayFocusTarget, setSeedanceReplayFocusTarget] = useState<SeedanceReplayMediaKind | null>(null);
+  const [replayUserReferenceGenerateCount, setReplayUserReferenceGenerateCount] = useState(1);
+  const [replayTemplateCountsById, setReplayTemplateCountsById] = useState<Record<string, number>>({});
+  const [replayPreviewTemplate, setReplayPreviewTemplate] = useState<ReplayScriptTemplate | null>(null);
+  const [replayBatchRun, setReplayBatchRun] = useState<ReplayBatchRun | null>(null);
   const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
   const [billingPricing, setBillingPricing] = useState<BillingPricingCatalog | null>(null);
   const [isModelSectionCollapsed, setIsModelSectionCollapsed] = useState(false);
+  const [isUploadSectionCollapsed, setIsUploadSectionCollapsed] = useState(false);
   const [isAiRecognizing, setIsAiRecognizing] = useState(false);
   const [hasAiRecognized, setHasAiRecognized] = useState(false);
   const [recognizedProductSourceSignature, setRecognizedProductSourceSignature] = useState('');
@@ -1129,7 +1241,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
   }, [coreSellingPoints, productCategory, productName, targetAudience]);
 
-  const LEFT_COLUMN_MIN_WIDTH = 260;
+  const LEFT_COLUMN_MIN_WIDTH = 390;
   const SCRIPT_COLUMN_MIN_WIDTH = 350;
   const PREVIEW_COLUMN_MIN_WIDTH = 260;
   const LEFT_COLUMN_RATIO_KEY = `vflow_workbench_layout_ratio_v1_${user?.id ?? 'guest'}`;
@@ -1228,12 +1340,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const isInfoOpenRef = useRef(false);
   const [infoTitle, setInfoTitle] = useState('');
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
-  const openInfo = (title: string, message: string | null = null) => {
+  const isBatchAutoAddInfoQueueingRef = useRef(false);
+  const batchAutoAddInfoQueueRef = useRef<Array<{ title: string; message: string | null }>>([]);
+  const openInfoDirect = (title: string, message: string | null = null) => {
     setInfoTitle(title || '');
     setInfoMessage(message || null);
+    isInfoOpenRef.current = true;
     setIsInfoOpen(true);
+  };
+  const openInfo = (title: string, message: string | null = null) => {
+    if (isBatchAutoAddInfoQueueingRef.current && title === popupTitles.notice) {
+      const payload = { title: title || '', message: message || null };
+      if (isInfoOpenRef.current) {
+        batchAutoAddInfoQueueRef.current.push(payload);
+      } else {
+        openInfoDirect(payload.title, payload.message);
+      }
+      return;
+    }
+    openInfoDirect(title, message);
   };
 
   // ─── ErrorModal 状态（结构化错误弹窗） ───
@@ -1272,32 +1400,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [scripts, setScripts] = useState<ScriptItem[]>(buildDemoScripts);
   const [scriptPages, setScriptPages] = useState<ScriptPage[]>(() => ([{ id: 'page-1', name: `${t.wb_script_page_prefix} 1`, scripts: buildDemoScripts() }]));
   const [activeScriptPage, setActiveScriptPage] = useState(0);
-  const [scriptGridPageStart, setScriptGridPageStart] = useState(0);
-  const [isScriptGridDialogOpen, setIsScriptGridDialogOpen] = useState(false);
   const [isScriptSaveDialogOpen, setIsScriptSaveDialogOpen] = useState(false);
   const [scriptSaveNameDraft, setScriptSaveNameDraft] = useState('');
   const scriptPagesRef = useRef<ScriptPage[]>([]);
   const [isShotBreakdownOpen, setIsShotBreakdownOpen] = useState(false);
   const [enableStoryboardEditor, setEnableStoryboardEditor] = useState(false);
+  const [storyboardEditorEnabledByPage, setStoryboardEditorEnabledByPage] = useState<Record<string, boolean>>({});
+  const [shotBreakdownOpenByPage, setShotBreakdownOpenByPage] = useState<Record<string, boolean>>({});
   const [isGeneratingShotsOnly, setIsGeneratingShotsOnly] = useState(false);
-
-  const [isBatchGenerateOpen, setIsBatchGenerateOpen] = useState(false);
-  const [batchGenerateCount, setBatchGenerateCount] = useState(2);
-  const [batchGenerateSlots, setBatchGenerateSlots] = useState<Array<{ slotId: string; scriptPageId: string | null }>>(() =>
-    Array.from({ length: 2 }, (_, idx) => ({ slotId: `slot-${idx + 1}`, scriptPageId: null }))
-  );
-  const batchGenerateDragRef = useRef<{ kind: 'script' | 'slot'; scriptPageId: string; slotId?: string } | null>(null);
-
-  useEffect(() => {
-    setBatchGenerateSlots((prev) => {
-      const nextCount = Math.max(1, Math.min(5, Math.floor(Number(batchGenerateCount) || 1)));
-      const existing = prev.slice(0, nextCount);
-      while (existing.length < nextCount) {
-        existing.push({ slotId: `slot-${existing.length + 1}`, scriptPageId: null });
-      }
-      return existing;
-    });
-  }, [batchGenerateCount]);
+  const [batchGenerateCountsByPage, setBatchGenerateCountsByPage] = useState<Record<string, number>>({});
 
   const [assetQueue, setAssetQueue] = useState<QueuedAsset[]>([]);
   const [scriptQueue, setScriptQueue] = useState<QueuedScript[]>([]);
@@ -1367,6 +1478,64 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       .slice()
       .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
   }, [projectStore.currentProjectId, tasks]);
+  const replayTaskById = useMemo(() => {
+    const map = new Map<string, typeof tasks[number]>();
+    tasks.forEach((task) => map.set(String(task.id), task));
+    return map;
+  }, [tasks]);
+  const replayBatchProgress = useMemo(() => {
+    if (!replayBatchRun) return null;
+
+    const items = replayBatchRun.items.map((item) => {
+      const remoteTask = item.taskId ? replayTaskById.get(String(item.taskId)) : null;
+      if (!remoteTask) return item;
+
+      const nextStatus: ReplayBatchItemStatus = remoteTask.status === 'success'
+        ? 'success'
+        : remoteTask.status === 'failed'
+          ? 'failed'
+          : 'processing';
+      return {
+        ...item,
+        status: nextStatus,
+        detail: nextStatus === 'success'
+          ? (language === 'zh' ? '生成完成' : 'Generated')
+          : nextStatus === 'failed'
+            ? (remoteTask.result?.error || item.error || (language === 'zh' ? '生成失败' : 'Generation failed'))
+            : item.detail,
+        error: nextStatus === 'failed' ? (remoteTask.result?.error || item.error) : item.error,
+      };
+    });
+
+    const reverseRequired = replayBatchRun.userReferenceCount > 0;
+    const reverseScore = !reverseRequired
+      ? 0
+      : replayBatchRun.reverse.status === 'success' || replayBatchRun.reverse.status === 'failed'
+        ? 1
+        : replayBatchRun.reverse.status === 'processing'
+          ? Math.max(0.15, Math.min(0.92, replayBatchRun.reverse.progress / 100))
+          : replayBatchRun.reverse.status === 'queued'
+            ? 0.05
+            : 0;
+
+    const itemScore = items.reduce((sum, item) => {
+      if (item.status === 'success' || item.status === 'failed') return sum + 1;
+      if (item.status === 'processing') return sum + 0.55;
+      if (item.status === 'submitting') return sum + 0.2;
+      return sum;
+    }, 0);
+    const totalUnits = items.length + (reverseRequired ? 1 : 0);
+    const completedUnits = items.filter((item) => item.status === 'success' || item.status === 'failed').length
+      + (reverseRequired && (replayBatchRun.reverse.status === 'success' || replayBatchRun.reverse.status === 'failed') ? 1 : 0);
+    const percent = totalUnits > 0 ? Math.round(((itemScore + reverseScore) / totalUnits) * 100) : 0;
+
+    return {
+      items,
+      completedUnits,
+      totalUnits,
+      percent: Math.max(0, Math.min(100, percent)),
+    };
+  }, [language, replayBatchRun, replayTaskById]);
   const [taskQueueNowTs, setTaskQueueNowTs] = useState<number>(Date.now());
   const taskQueueTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isCompletedCollapsed, setIsCompletedCollapsed] = useState(true);
@@ -1806,6 +1975,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setScriptPages(restoredScriptPages);
     setActiveScriptPage(restoredActivePage);
     setScripts(restoredScriptPages[restoredActivePage]?.scripts || (Array.isArray(workspace.scripts) ? workspace.scripts : []));
+    setBatchGenerateCountsByPage({});
     setAssetQueue(restoredAssetQueue);
     setScriptQueue(Array.isArray(workspace.scriptQueue) ? workspace.scriptQueue : []);
     setGeneratedVideoUrl(workspace.generatedVideoUrl || null);
@@ -1861,6 +2031,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const closeInfoDialog = () => {
+    if (batchAutoAddInfoQueueRef.current.length > 0) {
+      const next = batchAutoAddInfoQueueRef.current.shift();
+      if (next) {
+        openInfoDirect(next.title, next.message);
+        return;
+      }
+    }
+    isInfoOpenRef.current = false;
     setIsInfoOpen(false);
     if (renameRetryState) {
       setProjectMenuOpen(true);
@@ -2928,13 +3106,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!isAssetLibraryOpen) return;
     void reloadAssetLibraryItems();
   }, [isAssetLibraryOpen, reloadAssetLibraryItems]);
+  useEffect(() => {
+    if (isAssetLibraryOpen) return;
+    setAssetLibraryUploadSummaryToast(null);
+    if (assetLibraryUploadSummaryToastTimerRef.current) {
+      window.clearTimeout(assetLibraryUploadSummaryToastTimerRef.current);
+      assetLibraryUploadSummaryToastTimerRef.current = null;
+    }
+  }, [isAssetLibraryOpen]);
 
-  const openAssetLibraryPicker = () => {
+  const openAssetLibraryPicker = (target: KlingLibraryUploadTarget = 'default') => {
+    setKlingLibraryUploadTarget(target);
     setSeedanceReplayLibraryIntent(null);
-    // Kling subject mode: show subject tab only
-    if (selectedModel === 'kling' && klingGenerateMode === 'subject') {
+    if (selectedModel === 'kling') {
       setAssetLibraryPickMode('default');
-      setAssetLibraryTab('subject');
+      setAssetLibraryTab(klingGenerateMode === 'subject' && target === 'primary' ? 'subject' : 'product');
       setAssetLibraryCurrentFolderId(null);
       setIsAssetLibraryOpen(true);
       return;
@@ -2946,6 +3132,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const openBackgroundAudioPicker = () => {
+    setKlingLibraryUploadTarget('default');
     setSeedanceReplayLibraryIntent(null);
     setAssetLibraryPickMode('background_audio');
     setAssetLibraryTab('audio');
@@ -2955,6 +3142,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const openScriptLibraryPicker = useCallback(() => {
+    setKlingLibraryUploadTarget('default');
     setSeedanceReplayLibraryIntent(null);
     setAssetLibraryPickMode('script_import');
     setAssetLibraryTab('script');
@@ -2969,6 +3157,32 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return '.jpg,.jpeg,.png,.webp';
   }, []);
 
+  const probeAssetLibraryMediaMeta = useCallback((file: File): Promise<{ width: number | null; height: number | null; duration: number | null; kind: string }> =>
+    new Promise((resolve) => {
+      const objectUrl = URL.createObjectURL(file);
+      if (file.type.startsWith('video/')) {
+        const v = document.createElement('video');
+        v.preload = 'metadata';
+        v.onloadedmetadata = () => { resolve({ width: v.videoWidth, height: v.videoHeight, duration: v.duration, kind: 'video' }); URL.revokeObjectURL(objectUrl); };
+        v.onerror = () => { resolve({ width: null, height: null, duration: null, kind: 'video' }); URL.revokeObjectURL(objectUrl); };
+        v.src = objectUrl;
+      } else if (file.type.startsWith('image/')) {
+        const img = new Image();
+        img.onload = () => { resolve({ width: img.naturalWidth, height: img.naturalHeight, duration: null, kind: 'image' }); URL.revokeObjectURL(objectUrl); };
+        img.onerror = () => { resolve({ width: null, height: null, duration: null, kind: 'image' }); URL.revokeObjectURL(objectUrl); };
+        img.src = objectUrl;
+      } else if (file.type.startsWith('audio/')) {
+        const a = document.createElement('audio');
+        a.preload = 'metadata';
+        a.onloadedmetadata = () => { resolve({ width: null, height: null, duration: a.duration, kind: 'audio' }); URL.revokeObjectURL(objectUrl); };
+        a.onerror = () => { resolve({ width: null, height: null, duration: null, kind: 'audio' }); URL.revokeObjectURL(objectUrl); };
+        a.src = objectUrl;
+      } else {
+        URL.revokeObjectURL(objectUrl);
+        resolve({ width: null, height: null, duration: null, kind: 'unknown' });
+      }
+    }), []);
+
   const triggerAssetLibraryLocalUpload = useCallback(() => {
     const input = assetLibraryUploadInputRef.current;
     if (!input || isAssetLibraryUploading) return;
@@ -2978,6 +3192,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     input.accept = getAssetLibraryUploadAccept(assetLibraryTab);
     input.click();
   }, [assetLibraryTab, getAssetLibraryUploadAccept, isAssetLibraryUploading]);
+  const [pendingSeedanceAutoAddPayload, setPendingSeedanceAutoAddPayload] = useState<{
+    ids: string[];
+    tab: AssetLibraryTab;
+    folderId: string | null;
+  } | null>(null);
 
   const handleAssetLibraryLocalUploadChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -2985,13 +3204,53 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     setIsAssetLibraryUploading(true);
     const failedMessages: string[] = [];
+    const successfulUploadedAssetIds: string[] = [];
     let successCount = 0;
 
     try {
       for (const file of files) {
         try {
-          // eslint-disable-next-line no-await-in-loop
-          await assetsApi.uploadAsset(file, assetLibraryTab, assetLibraryCurrentFolderId);
+          if (!user) {
+            // Guest path: same as AssetsView guest upload flow (temp upload + session cache)
+            // eslint-disable-next-line no-await-in-loop
+            const resp = await assetsApi.uploadTempAsset(file);
+            const url = resp?.data?.url || resp?.url || '';
+            // eslint-disable-next-line no-await-in-loop
+            const mediaMeta = await probeAssetLibraryMediaMeta(file);
+            const tempAsset: LibraryAsset = {
+              id: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+              name: file.name,
+              type: assetLibraryTab,
+              file_url: url,
+              thumbnail: url,
+              media_kind: mediaMeta.kind as LibraryAsset['media_kind'],
+              size: String(file.size),
+              status: 'ready',
+              created_at: new Date().toISOString(),
+              folder_id: null,
+              meta_data: {
+                width: mediaMeta.width,
+                height: mediaMeta.height,
+                video_width: mediaMeta.width,
+                video_height: mediaMeta.height,
+                size_bytes: file.size,
+                duration_seconds: mediaMeta.duration,
+                format: file.type || null,
+              },
+            };
+            try {
+              const existing: LibraryAsset[] = JSON.parse(sessionStorage.getItem('vflow_guest_assets') || '[]');
+              sessionStorage.setItem('vflow_guest_assets', JSON.stringify([tempAsset, ...existing]));
+            } catch {
+              // ignore session cache failures
+            }
+          } else {
+            // eslint-disable-next-line no-await-in-loop
+            const uploadResp = await assetsApi.uploadAsset(file, assetLibraryTab, assetLibraryCurrentFolderId);
+            const rawUploaded = (uploadResp as any)?.data || uploadResp;
+            const uploadedId = rawUploaded?.id;
+            if (uploadedId != null) successfulUploadedAssetIds.push(String(uploadedId));
+          }
           successCount += 1;
         } catch (err: any) {
           failedMessages.push(`${file.name}: ${String(err?.message || '上传失败')}`);
@@ -2999,21 +3258,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
 
       await reloadAssetLibraryItems();
+      const shouldAutoAddForSeedance = creationMode === 'replay' && selectedModel === 'seedance2.0';
+      if (shouldAutoAddForSeedance && assetLibraryPickMode === 'default' && successfulUploadedAssetIds.length > 0 && user) {
+        setPendingSeedanceAutoAddPayload({
+          ids: successfulUploadedAssetIds,
+          tab: assetLibraryTab,
+          folderId: assetLibraryCurrentFolderId,
+        });
+      } else if (successCount > 0) {
+        setAssetLibraryUploadSummaryToast({ uploadedCount: successCount, addedCount: 0 });
+        if (assetLibraryUploadSummaryToastTimerRef.current) {
+          window.clearTimeout(assetLibraryUploadSummaryToastTimerRef.current);
+        }
+        assetLibraryUploadSummaryToastTimerRef.current = window.setTimeout(() => {
+          setAssetLibraryUploadSummaryToast(null);
+          assetLibraryUploadSummaryToastTimerRef.current = null;
+        }, 5000);
+      }
 
       if (successCount > 0 && failedMessages.length === 0) {
-        if (assetLibraryUploadSuccessTimerRef.current) {
-          window.clearTimeout(assetLibraryUploadSuccessTimerRef.current);
-          assetLibraryUploadSuccessTimerRef.current = null;
-        }
-
-        setAssetLibraryUploadSuccessVisible(true);
-        setAssetLibraryUploadSuccessFading(false);
-        window.requestAnimationFrame(() => setAssetLibraryUploadSuccessFading(true));
-        assetLibraryUploadSuccessTimerRef.current = window.setTimeout(() => {
-          setAssetLibraryUploadSuccessVisible(false);
-          setAssetLibraryUploadSuccessFading(false);
-          assetLibraryUploadSuccessTimerRef.current = null;
-        }, 2000);
+        // Keep silent on full success; upload summary toast handles feedback.
       } else if (successCount > 0) {
         openInfo(
           popupTitles.notice,
@@ -3038,15 +3302,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     openInfo,
     popupTitles.notice,
     popupTitles.success,
+    probeAssetLibraryMediaMeta,
     reloadAssetLibraryItems,
+    assetLibraryPickMode,
+    creationMode,
+    selectedModel,
+    assetLibraryCurrentFolderId,
+    setPendingSeedanceAutoAddPayload,
+    user,
     (t as any).assets_upload_success_count,
   ]);
 
   const getSeedanceReplayLibraryIntent = useCallback((targetMediaKind?: SeedanceReplayMediaKind | null): SeedanceReplayLibraryIntent => {
+    const replayOnly = creationMode === 'replay' && selectedModel === 'seedance2.0';
     if (targetMediaKind === 'image') {
       return {
         targetMediaKind: 'image',
-        allowedTabs: ['model', 'product'],
+        allowedTabs: ['product'],
         preferredTab: 'product',
       };
     }
@@ -3058,10 +3330,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       };
     }
     if (targetMediaKind === 'audio') {
+      if (replayOnly) {
+        return {
+          targetMediaKind: 'image',
+          allowedTabs: ['product'],
+          preferredTab: 'product',
+        };
+      }
       return {
         targetMediaKind: 'audio',
         allowedTabs: ['audio'],
         preferredTab: 'audio',
+      };
+    }
+    if (replayOnly) {
+      return {
+        targetMediaKind: null,
+        allowedTabs: ['product', 'motion', 'model'],
+        preferredTab: 'product',
       };
     }
     return {
@@ -3069,7 +3355,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       allowedTabs: ['product', 'model', 'motion', 'audio'],
       preferredTab: 'product',
     };
-  }, []);
+  }, [creationMode, selectedModel]);
   const openSubjectCreationLibrary = useCallback(() => {
     onNavigateToAssetsLibrary?.();
   }, [onNavigateToAssetsLibrary]);
@@ -3235,11 +3521,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     return {
       ...baseAsset,
-      source: candidate.mediaKind === 'image' ? 'product' : 'preference',
+      source: baseAsset.materialType === 'model' ? 'preference' : candidate.mediaKind === 'image' ? 'product' : 'preference',
       materialType: candidate.mediaKind === 'video' ? 'motion'
         : candidate.mediaKind === 'audio' ? 'audio'
           : (baseAsset.materialType === 'model' ? 'model' : 'product'),
-      isPrimaryFrame: candidate.mediaKind === 'image',
+      isPrimaryFrame: candidate.mediaKind === 'image' && baseAsset.materialType !== 'model',
       mediaKind: candidate.mediaKind,
       durationSeconds: candidate.durationSeconds ?? null,
       mimeType: candidate.mimeType,
@@ -3256,6 +3542,25 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const queuedAsset = buildQueuedAssetFromLibrary(asset, options);
     const assetUrl = queuedAsset?.assetUrl || null;
     if (!queuedAsset || !assetUrl) return null;
+
+    if (
+      selectedModel === 'kling'
+      && klingGenerateMode === 'first_frame'
+      && queuedAsset.mediaKind === 'image'
+      && queuedAsset.source === 'preference'
+    ) {
+      const currentReferenceCount = normalizeQueueSourcesForKlingMode(
+        assetQueue.filter((item) => item.mediaKind === 'image'),
+        klingGenerateMode
+      ).filter((item) => item.source === 'preference').length;
+      if (currentReferenceCount >= 6) {
+        openInfo(
+          popupTitles.notice,
+          t.wb_kling_reference_slot_first_frame_max || '最多6张'
+        );
+        return null;
+      }
+    }
 
     if (options?.forceFirstFrame && selectedModel === 'kling' && klingGenerateMode !== 'first_frame') {
       setKlingGenerateMode('first_frame');
@@ -3309,6 +3614,58 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setIsAssetLibraryOpen(false);
       setAssetLibraryPickMode('default');
       setIsBackgroundAudioSourceOpen(false);
+      return true;
+    }
+
+    if (selectedModel === 'kling' && assetLibraryPickMode === 'default' && klingLibraryUploadTarget !== 'default') {
+      const queuedAsset = buildQueuedAssetFromLibrary(asset, { preferLastModeRouting: true });
+      if (!queuedAsset || queuedAsset.mediaKind !== 'image') {
+        openInfo(popupTitles.notice, t.wb_popup_only_image_first_frame || '仅支持图片素材');
+        return false;
+      }
+
+      if (klingLibraryUploadTarget === 'primary') {
+        const primarySource: QueuedAsset['source'] = klingGenerateMode === 'subject' ? 'subject' : 'product';
+        if (primarySource === 'subject' && !canBeKlingSubject(queuedAsset)) {
+          handleInvalidKlingSubjectTarget(queuedAsset);
+          return false;
+        }
+        const nextPrimary: QueuedAsset = {
+          ...queuedAsset,
+          source: primarySource,
+          isPrimaryFrame: primarySource === 'product',
+        };
+        setAssetQueue((prev) => {
+          const withoutExistingPrimary = prev.filter((item) => !(item.mediaKind === 'image' && item.source === primarySource));
+          return normalizeQueueSourcesForKlingMode([...withoutExistingPrimary, nextPrimary], klingGenerateMode);
+        });
+        applyWorkbenchAssetSelection(nextPrimary);
+        setLastUploadedUrl(nextPrimary.assetUrl || null);
+        return true;
+      }
+
+      if (klingGenerateMode === 'first_frame') {
+        const currentReferenceCount = normalizeQueueSourcesForKlingMode(
+          assetQueue.filter((item) => item.mediaKind === 'image'),
+          klingGenerateMode
+        ).filter((item) => item.source === 'preference').length;
+        if (currentReferenceCount >= 6) {
+          openInfo(
+            popupTitles.notice,
+            t.wb_kling_reference_slot_first_frame_max || '最多6张'
+          );
+          return false;
+        }
+      }
+
+      const nextReference: QueuedAsset = {
+        ...queuedAsset,
+        source: 'preference',
+        isPrimaryFrame: false,
+      };
+      setAssetQueue((prev) => normalizeQueueSourcesForKlingMode([...prev, nextReference], klingGenerateMode));
+      applyWorkbenchAssetSelection(nextReference);
+      setLastUploadedUrl(nextReference.assetUrl || null);
       return true;
     }
 
@@ -3368,15 +3725,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         return false;
       }
 
-      const currentCount = uploadDisplayAssets.filter((item) => item.mediaKind === queuedAsset.mediaKind).length;
-      const limit = queuedAsset.mediaKind === 'image'
-        ? SEEDANCE_REPLAY_IMAGE_LIMIT
-        : queuedAsset.mediaKind === 'video'
-          ? SEEDANCE_REPLAY_VIDEO_LIMIT
-          : SEEDANCE_REPLAY_AUDIO_LIMIT;
+      const currentCount = queuedAsset.materialType === 'model'
+        ? uploadDisplayAssets.filter((item) => item.materialType === 'model').length
+        : uploadDisplayAssets.filter((item) => item.mediaKind === queuedAsset.mediaKind && item.materialType !== 'model').length;
+      const limit = queuedAsset.materialType === 'model'
+        ? SEEDANCE_REPLAY_MODEL_LIMIT
+        : queuedAsset.mediaKind === 'image'
+          ? SEEDANCE_REPLAY_IMAGE_LIMIT
+          : queuedAsset.mediaKind === 'video'
+            ? (isSeedanceReplayMode ? 1 : SEEDANCE_REPLAY_VIDEO_LIMIT)
+            : SEEDANCE_REPLAY_AUDIO_LIMIT;
       if (currentCount >= limit) {
-        const kindLabel = queuedAsset.mediaKind === 'image'
-          ? (t.wb_seedance_replay_media_image || 'Image')
+        const kindLabel = queuedAsset.materialType === 'model'
+          ? (t.wb_seedance_replay_virtual_models || 'Virtual Models')
+          : queuedAsset.mediaKind === 'image'
+            ? (t.wb_seedance_replay_media_image || 'Image')
           : queuedAsset.mediaKind === 'video'
             ? (t.wb_seedance_replay_media_video || 'Video')
             : (t.wb_seedance_replay_media_audio || 'Audio');
@@ -3399,6 +3762,51 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const queued = queueLibraryAssetIntoWorkbench(asset);
     return Boolean(queued);
   };
+  useEffect(() => {
+    if (!pendingSeedanceAutoAddPayload || pendingSeedanceAutoAddPayload.ids.length === 0) return;
+    let cancelled = false;
+    const run = async () => {
+      isBatchAutoAddInfoQueueingRef.current = true;
+      batchAutoAddInfoQueueRef.current = [];
+      try {
+        const latestAssets = await assetsApi.getAssets({
+          type: pendingSeedanceAutoAddPayload.tab,
+          folderId: pendingSeedanceAutoAddPayload.folderId,
+        });
+        if (cancelled) return;
+        const assetMap = new Map(latestAssets.map((asset) => [String(asset.id), asset]));
+        let addedCount = 0;
+        pendingSeedanceAutoAddPayload.ids.forEach((id) => {
+          const matched = assetMap.get(id);
+          if (matched && selectAssetFromLibraryPopup(matched)) {
+            addedCount += 1;
+          }
+        });
+        setAssetLibraryUploadSummaryToast({
+          uploadedCount: pendingSeedanceAutoAddPayload.ids.length,
+          addedCount,
+        });
+        if (assetLibraryUploadSummaryToastTimerRef.current) {
+          window.clearTimeout(assetLibraryUploadSummaryToastTimerRef.current);
+        }
+        assetLibraryUploadSummaryToastTimerRef.current = window.setTimeout(() => {
+          setAssetLibraryUploadSummaryToast(null);
+          assetLibraryUploadSummaryToastTimerRef.current = null;
+        }, 5000);
+      } finally {
+        isBatchAutoAddInfoQueueingRef.current = false;
+        if (!isInfoOpenRef.current && batchAutoAddInfoQueueRef.current.length > 0) {
+          const next = batchAutoAddInfoQueueRef.current.shift();
+          if (next) openInfoDirect(next.title, next.message);
+        }
+        if (!cancelled) setPendingSeedanceAutoAddPayload(null);
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingSeedanceAutoAddPayload, selectAssetFromLibraryPopup]);
 
   const selectSubjectFromLibraryPopup = (subject: SubjectGroup) => {
     if (!subject.primary_asset) {
@@ -3462,65 +3870,68 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const expectedBatchCount = isReuseReady ? assetQueue.length * scriptQueue.length : 0;
   const selectedVideoPricing = getVideoModelPricingEntry(billingPricing, selectedModel, creationMode);
   const selectedImagePricing = getImageModelPricingEntry(billingPricing, imageGenModel);
+  const normalizeBatchGenerateCount = (value: unknown) => {
+    const n = Math.floor(Number(value) || 0);
+    return Number.isFinite(n) ? Math.max(0, n) : 0;
+  };
+  const getScriptPageBatchGenerateCount = (pageId: string, pageIndex: number) => (
+    Object.prototype.hasOwnProperty.call(batchGenerateCountsByPage, pageId)
+      ? normalizeBatchGenerateCount(batchGenerateCountsByPage[pageId])
+      : (pageIndex === 0 ? 1 : 0)
+  );
+  const getPageScriptDuration = (page: ScriptPage, pageIndex: number, storyboardEnabled: boolean) => {
+    if (!storyboardEnabled) return Math.max(1, Number(genDuration) || 0);
+    const pageScripts = pageIndex === activeScriptPage ? scripts : (page.scripts || []);
+    const total = pageScripts.reduce((sum, item) => sum + (parseFloat(String(item.dur || '').replace('s', '')) || 0), 0);
+    return Number.isFinite(total) && total > 0 ? total : Math.max(1, Number(genDuration) || 0);
+  };
+  const scriptPageBatchGenerateItems = useMemo(() => (
+    scriptPages
+      .map((page, pageIndex) => {
+        const count = getScriptPageBatchGenerateCount(page.id, pageIndex);
+        const storyboardEnabled = storyboardEditorEnabledByPage[page.id] ?? (pageIndex === activeScriptPage ? enableStoryboardEditor : false);
+        const pageScripts = pageIndex === activeScriptPage ? scripts : (page.scripts || []);
+        return {
+          page: { ...page, scripts: pageScripts },
+          pageIndex,
+          count,
+          storyboardEnabled,
+          duration: getPageScriptDuration({ ...page, scripts: pageScripts }, pageIndex, storyboardEnabled),
+        };
+      })
+      .filter((item) => item.count > 0)
+  ), [activeScriptPage, batchGenerateCountsByPage, enableStoryboardEditor, genDuration, scriptPages, scripts, storyboardEditorEnabledByPage]);
+  const scriptPageBatchGenerateTotalCount = scriptPageBatchGenerateItems.reduce((sum, item) => sum + item.count, 0);
+  const hasScriptPageBatchGeneratePlan = scriptPageBatchGenerateTotalCount > 0;
+  const scriptPageBatchGenerateTotalSeconds = scriptPageBatchGenerateItems.reduce((sum, item) => sum + item.duration * item.count, 0);
   const formatVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined) => {
     const rate = Number(entry?.rate ?? 0);
     if (!Number.isFinite(rate) || rate <= 0) return '-';
-    return `${rate}${t.wb_vpoints_per_sec || ''}`;
+    return `${formatCreditAmount(rate)}${t.wb_vpoints_per_sec || ''}`;
   };
   const formatApproxVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined) => {
     const label = formatVideoRateLabel(entry);
     if (label === '-') return label;
     return `${t.wb_rate_approx_prefix || 'Approx. '}${label}`;
   };
-  const queuedRenderableAssetCount = assetQueue.length === 0
-    ? 0
-    : Math.max(1, assetQueue.filter((asset) => asset.mediaKind !== 'audio').length);
   const estimatedVideoCost = useMemo(() => {
     const rate = Number(selectedVideoPricing?.rate ?? 0);
     if (!Number.isFinite(rate) || rate <= 0) return 0;
 
-    if (reuseQueueEnabled) {
-      if (queuedRenderableAssetCount <= 0 || scriptQueue.length <= 0) return 0;
-      const totalScriptSeconds = scriptQueue.reduce((sum, item) => {
-        const duration = Number(item.duration || 0);
-        return sum + (Number.isFinite(duration) && duration > 0 ? duration : genDuration);
-      }, 0);
-      return Math.max(0, Math.round(rate * totalScriptSeconds * queuedRenderableAssetCount));
-    }
-
-    const scriptCount = Math.max(1, Number(scriptVariantCount) || 1);
-    return Math.max(0, Math.round(rate * Math.max(1, Number(genDuration) || 0) * scriptCount));
-  }, [genDuration, queuedRenderableAssetCount, reuseQueueEnabled, scriptQueue, scriptVariantCount, selectedVideoPricing]);
+    if (!hasScriptPageBatchGeneratePlan) return 0;
+    return Math.max(0, roundCreditTenths(rate * scriptPageBatchGenerateTotalSeconds));
+  }, [hasScriptPageBatchGeneratePlan, scriptPageBatchGenerateTotalSeconds, selectedVideoPricing]);
 
   const estimatedImageCost = useMemo(() => {
     const rate = Number(selectedImagePricing?.rate ?? 0);
     if (!Number.isFinite(rate) || rate <= 0) return 0;
-    return Math.max(0, Math.round(rate * Math.max(1, Math.min(4, Number(aiOptimizeCount) || 1))));
+    return Math.max(0, roundCreditTenths(rate * Math.max(1, Math.min(4, Number(aiOptimizeCount) || 1))));
   }, [aiOptimizeCount, selectedImagePricing]);
 
-  const estimatedBatchVideoCost = useMemo(() => {
-    const rate = Number(selectedVideoPricing?.rate ?? 0);
-    if (!Number.isFinite(rate) || rate <= 0) return 0;
-
-    const selectedIds = batchGenerateSlots
-      .map((slot) => String(slot.scriptPageId || '').trim())
-      .filter(Boolean);
-    if (selectedIds.length === 0) return 0;
-
-    const totalSeconds = selectedIds.reduce((sum, id) => {
-      const page = scriptPages.find((p) => p.id === id);
-      if (!page) return sum;
-      if (!enableStoryboardEditor) return sum + Math.max(1, Number(genDuration) || 0);
-      const s = (page.scripts || []).reduce((total, it) => total + (parseFloat(String(it.dur || '').replace('s', '')) || 0), 0);
-      return sum + (Number.isFinite(s) && s > 0 ? s : Math.max(1, Number(genDuration) || 0));
-    }, 0);
-
-    return Math.max(0, Math.round(rate * totalSeconds));
-  }, [batchGenerateSlots, enableStoryboardEditor, genDuration, scriptPages, selectedVideoPricing]);
-
-  const estimatedVideoCostLabel = estimatedVideoCost > 0 && !isSeedanceModel(selectedModel) ? `-${estimatedVideoCost} ${t.v_points || 'V点'}` : '';
-  const estimatedImageCostLabel = estimatedImageCost > 0 ? `-${estimatedImageCost} ${t.v_points || 'V点'}` : '';
-  const estimatedBatchVideoCostLabel = estimatedBatchVideoCost > 0 ? `-${estimatedBatchVideoCost} ${t.v_points || 'V点'}` : '';
+  const estimatedVideoCostLabel = hasScriptPageBatchGeneratePlan && isSeedanceModel(selectedModel)
+    ? (t.wb_usage_based_billing || '按量付费')
+    : (estimatedVideoCost > 0 ? `${formatCreditAmount(estimatedVideoCost)} ${t.v_points || 'V点'}` : '');
+  const estimatedImageCostLabel = estimatedImageCost > 0 ? `-${formatCreditAmount(estimatedImageCost)} ${t.v_points || 'V点'}` : '';
   const hasCurrentAsset = Boolean(uploadedFile || selectedAssetUrl || selectedFileObj);
   const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
   const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
@@ -3529,33 +3940,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const videoFormats = VIDEO_EXTS.join('/');
   const formatHint = `图片(${imageFormats}) 视频(${videoFormats}) · ≤1GB`;
   const isBatchDebugMode = reuseQueueEnabled && hasAnyReuseQueue;
-  const SCRIPT_GRID_PAGE_SIZE = 4;
-  const scriptGridMaxStart = scriptPages.length <= SCRIPT_GRID_PAGE_SIZE
-    ? 0
-    : Math.floor((scriptPages.length - 1) / SCRIPT_GRID_PAGE_SIZE) * SCRIPT_GRID_PAGE_SIZE;
-  const visibleScriptPages = useMemo(
-    () => scriptPages.slice(scriptGridPageStart, scriptGridPageStart + SCRIPT_GRID_PAGE_SIZE),
-    [scriptGridPageStart, scriptPages]
-  );
-  useEffect(() => {
-    console.log('[WB][ScriptGrid] visibleScriptPages updated', {
-      scriptGridPageStart,
-      pageSize: SCRIPT_GRID_PAGE_SIZE,
-      totalPages: scriptPages.length,
-      visibleCount: visibleScriptPages.length,
-      visible: visibleScriptPages.map((p) => ({
-        id: p.id,
-        name: p.name,
-        scriptsCount: Array.isArray(p.scripts) ? p.scripts.length : 0,
-        hasFullScript: Boolean(String(p.fullScript || '').trim()),
-        hasCreativeCardText: Boolean(String(p.creativeCardText || '').trim()),
-      })),
-    });
-  }, [SCRIPT_GRID_PAGE_SIZE, scriptGridPageStart, scriptPages.length, visibleScriptPages]);
-  const canSlideScriptGridPrev = scriptGridPageStart > 0;
-  const canSlideScriptGridNext = scriptGridPageStart < scriptGridMaxStart;
-  const scriptPlanCardClass = 'w-[calc((100%-36px)/4)] min-w-[220px] flex-shrink-0 rounded-2xl border p-4 text-left transition h-[360px] flex flex-col gap-3';
-  const scriptPlanCardBodyClass = 'min-h-0 rounded-xl border px-3 py-3 text-[11px] leading-6 whitespace-pre-wrap break-words flex-1 overflow-y-auto';
   const materialTypeLabelMap: Record<AssetLibraryTab, string> = {
     product: t.assets_tab_images || '图片',
     model: t.assets_tab_virtual_models || '虚拟模特',
@@ -3575,6 +3959,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const subjectAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => ([
     { value: 'subject', label: materialTypeLabelMap.subject },
   ]), [materialTypeLabelMap]);
+  const klingAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => ([
+    { value: 'product', label: materialTypeLabelMap.product },
+    { value: 'model', label: materialTypeLabelMap.model },
+  ]), [materialTypeLabelMap.model, materialTypeLabelMap.product]);
   const seedanceReplayAssetLibraryTabs = useMemo<Array<{ value: AssetLibraryTab; label: string }>>(() => (
     seedanceReplayLibraryIntent
       ? seedanceReplayLibraryIntent.allowedTabs.map((tab) => ({ value: tab, label: materialTypeLabelMap[tab] }))
@@ -3585,10 +3973,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   ]), [materialTypeLabelMap.script]);
   const assetLibraryVisibleTabs = assetLibraryPickMode === 'script_import'
     ? scriptImportAssetLibraryTabs
+    : isKlingOmniMode
+      && assetLibraryPickMode === 'default'
+      && klingGenerateMode === 'subject'
+      && klingLibraryUploadTarget === 'primary'
+      ? subjectAssetLibraryTabs
+    : isKlingOmniMode && assetLibraryPickMode === 'default'
+      ? klingAssetLibraryTabs
     : assetLibraryTab === 'subject'
       ? subjectAssetLibraryTabs
       : (seedanceReplayLibraryIntent ? seedanceReplayAssetLibraryTabs : defaultAssetLibraryTabs);
-  const isSeedanceReplayMode = creationMode === 'replay' && selectedModel === 'seedance2.0';
+  const shouldHideAssetLibraryLocalUpload = assetLibraryTab === 'model';
+  const replayTemplateGenerateCount = useMemo(() => (
+    REPLAY_SCRIPT_TEMPLATES.reduce((sum, template) => {
+      const count = Number(replayTemplateCountsById[template.id] || 0);
+      return sum + (Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0);
+    }, 0)
+  ), [replayTemplateCountsById]);
+  const replayTotalGenerateCount = Math.max(0, Math.floor(replayUserReferenceGenerateCount || 0)) + replayTemplateGenerateCount;
   const uploadDisplayAssets: QueuedAsset[] = useMemo(() => {
     if (assetQueue.length > 0) return assetQueue;
     if (!uploadedFile) return [];
@@ -3671,9 +4073,31 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return false;
   }, [normalizeSeedanceAssetUrl, seedanceReplaySelectedAssetSignatures]);
 
+  const klingSelectedAssetSignatures = useMemo(() => {
+    const signatures = new Set<string>();
+    uploadDisplayAssets.forEach((asset) => {
+      const assetId = String(asset.assetId || asset.id || '').trim();
+      if (assetId) signatures.add(`id:${assetId}`);
+
+      const normalizedUrl = normalizeSeedanceAssetUrl(asset.assetUrl || asset.uploadedPath || asset.previewUrl || '');
+      if (normalizedUrl) signatures.add(`url:${normalizedUrl}`);
+    });
+    return signatures;
+  }, [normalizeSeedanceAssetUrl, uploadDisplayAssets]);
+
+  const isKlingAssetAlreadyAdded = useCallback((asset: LibraryAsset) => {
+    const assetId = String(asset.id || '').trim();
+    if (assetId && klingSelectedAssetSignatures.has(`id:${assetId}`)) return true;
+
+    const normalizedUrl = normalizeSeedanceAssetUrl(asset.file_url);
+    if (normalizedUrl && klingSelectedAssetSignatures.has(`url:${normalizedUrl}`)) return true;
+
+    return false;
+  }, [klingSelectedAssetSignatures, normalizeSeedanceAssetUrl]);
+
   const seedanceReplayValidation = useMemo(
-    () => buildSeedanceReplayValidationSummary(uploadDisplayAssets, t),
-    [t, uploadDisplayAssets]
+    () => buildSeedanceReplayValidationSummary(uploadDisplayAssets, t, { mode: isSeedanceReplayMode ? 'viral_replay' : 'multimodal' }),
+    [isSeedanceReplayMode, t, uploadDisplayAssets]
   );
 
   const focusSeedanceReplayValidationTarget = useCallback((target: SeedanceReplayMediaKind) => {
@@ -3749,20 +4173,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         openInfo(popupTitles.notice, t.wb_transfer_station_apply_failed || 'Unable to read this transfer-station asset.');
         return false;
       }
+      if (replayQueued.mediaKind !== 'image' && replayQueued.mediaKind !== 'video') {
+        openInfo(popupTitles.notice, t.wb_replay_error_audio_not_supported || 'Audio assets are not supported in viral recreate mode.');
+        return false;
+      }
       const validationMessage = validateSeedanceReplayParsedAsset(replayCandidate, t);
       if (validationMessage) {
         openInfo(popupTitles.notice, validationMessage);
         return false;
       }
-      const currentCount = uploadDisplayAssets.filter((a) => a.mediaKind === replayQueued.mediaKind).length;
-      const limit = replayQueued.mediaKind === 'image'
-        ? SEEDANCE_REPLAY_IMAGE_LIMIT
-        : replayQueued.mediaKind === 'video'
-          ? SEEDANCE_REPLAY_VIDEO_LIMIT
-          : SEEDANCE_REPLAY_AUDIO_LIMIT;
+      const currentCount = replayQueued.materialType === 'model'
+        ? uploadDisplayAssets.filter((a) => a.materialType === 'model').length
+        : uploadDisplayAssets.filter((a) => a.mediaKind === replayQueued.mediaKind && a.materialType !== 'model').length;
+      const limit = replayQueued.materialType === 'model'
+        ? SEEDANCE_REPLAY_MODEL_LIMIT
+        : replayQueued.mediaKind === 'image'
+          ? SEEDANCE_REPLAY_IMAGE_LIMIT
+          : replayQueued.mediaKind === 'video'
+            ? 1
+            : SEEDANCE_REPLAY_AUDIO_LIMIT;
       if (currentCount >= limit) {
         const kindLabel = replayQueued.mediaKind === 'image'
-          ? (t.wb_seedance_replay_media_image || 'Image')
+          ? (replayQueued.materialType === 'model' ? (t.wb_seedance_replay_virtual_models || 'Virtual Models') : (t.wb_seedance_replay_media_image || 'Image'))
           : replayQueued.mediaKind === 'video'
             ? (t.wb_seedance_replay_media_video || 'Video')
             : (t.wb_seedance_replay_media_audio || 'Audio');
@@ -4276,7 +4708,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return { ...item, source: 'preference', isPrimaryFrame: false };
     });
     const sorted = sortKlingQueueAssets(normalized);
-    if (mode === 'first_frame' || mode === 'first_last_frame') {
+    if (mode === 'first_last_frame') {
       return sorted.map((item) => (item.mediaKind === 'image' ? { ...item, materialType: 'product' as const } : item));
     }
     return sorted;
@@ -4358,6 +4790,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
+    if (isKlingOmniMode && klingGenerateMode === 'first_frame') {
+      const normalizedImages = normalizeQueueSourcesForKlingMode(
+        assetQueue.filter((item) => item.mediaKind === 'image'),
+        klingGenerateMode
+      );
+      const referenceCount = normalizedImages.filter((item) => item.source === 'preference').length;
+      const targetIsAlreadyReference = normalizedImages.some((item) => item.id === assetId && item.source === 'preference');
+      if (!targetIsAlreadyReference && referenceCount >= 6) {
+        openInfo(
+          popupTitles.notice,
+          t.wb_kling_reference_slot_first_frame_max || '最多6张'
+        );
+        return;
+      }
+    }
+
     setAssetQueue((prev) => {
       const next = reorderReferenceAssets(prev, assetId, beforeId);
       return isKlingOmniMode ? normalizeQueueSourcesForKlingMode(next, klingGenerateMode) : next;
@@ -4414,11 +4862,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const activeCreativeCardText = activeScriptPlan?.creativeCardText || '';
   const activeGuideStep = isGuideOpen ? guideSteps[guideStepIndex] : null;
   const isGuideFocused = (key: GuideStepKey) => activeGuideStep?.key === key;
-  const getGuideFocusClass = (key: GuideStepKey) => (
-    isGuideFocused(key)
-      ? 'relative z-[85] ring-2 ring-orange-400/80 ring-offset-2 ring-offset-black/60 shadow-[0_0_24px_rgba(251,146,60,0.35)] rounded-xl'
-      : ''
-  );
+  const getGuideFocusClass = (key: GuideStepKey) => {
+    if (!isGuideOpen) return '';
+    return isGuideFocused(key)
+      ? 'relative z-[85] pointer-events-auto opacity-100 blur-0 rounded-md outline outline-2 outline-orange-300/80 outline-offset-4 transition-[filter,opacity] duration-200'
+      : 'pointer-events-none blur-[1.5px] opacity-45 transition-[filter,opacity] duration-200';
+  };
 
   const getGuideTargetElement = useCallback(() => {
     const map: Record<GuideStepKey, React.RefObject<HTMLDivElement | null>> = {
@@ -4437,6 +4886,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const viewportPadding = 12;
     const panelWidth = Math.min(420, window.innerWidth - viewportPadding * 2);
     const panelHeight = 330;
+    const activeKey = guideSteps[guideStepIndex]?.key;
 
     if (!target) {
       setGuidePanelStyle({
@@ -4448,13 +4898,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
 
     const rect = target.getBoundingClientRect();
-    let left = rect.right + 16;
-    if (left + panelWidth > window.innerWidth - viewportPadding) {
-      left = rect.left - panelWidth - 16;
-    }
-    if (left < viewportPadding) {
-      left = Math.max(viewportPadding, Math.round((window.innerWidth - panelWidth) / 2));
-    }
+    const gap = activeKey === 'preview' ? 64 : 20;
+    const preferredLeft = activeKey === 'preview'
+      ? rect.left - panelWidth - gap
+      : rect.right + gap;
+    const left = Math.min(
+      Math.max(viewportPadding, preferredLeft),
+      Math.max(viewportPadding, window.innerWidth - panelWidth - viewportPadding)
+    );
 
     let top = rect.top;
     if (top + panelHeight > window.innerHeight - viewportPadding) {
@@ -4469,31 +4920,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       left: `${Math.round(left)}px`,
       top: `${Math.round(top)}px`,
     });
-  }, [getGuideTargetElement]);
+  }, [getGuideTargetElement, guideStepIndex, guideSteps]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isGuideOpen) return;
     const target = getGuideTargetElement();
     if (target) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+      target.scrollIntoView({
+        behavior: 'auto',
+        block: guideSteps[guideStepIndex]?.key === 'config' ? 'start' : 'nearest',
+        inline: 'nearest',
+      });
     }
 
-    const timer = window.setTimeout(() => {
-      updateGuidePanelPosition();
-    }, 260);
-
-    const onViewportChange = () => {
-      updateGuidePanelPosition();
-    };
-
-    window.addEventListener('scroll', onViewportChange, true);
-    window.addEventListener('resize', onViewportChange);
-
-    return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener('scroll', onViewportChange, true);
-      window.removeEventListener('resize', onViewportChange);
-    };
+    updateGuidePanelPosition();
+    return undefined;
   }, [guideStepIndex, isGuideOpen, getGuideTargetElement, updateGuidePanelPosition]);
 
   const extractUploadedAssetPath = (uploadResp: any): string | null => {
@@ -4531,7 +4972,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setScriptPages([defaultPage]);
     setActiveScriptPage(0);
     setScripts([]);
-    setScriptGridPageStart(0);
     setIsShotBreakdownOpen(false);
   }, [t.wb_script_page_prefix]);
 
@@ -4561,7 +5001,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return `[镜头${idx + 1}]${meta ? ` ${meta}` : ''} ${script.visual || ''} ${audioMarker}`.trim();
     }).join('\n');
     const basePrompt = [masterScriptPrompt, creativeCardPrompt].filter(Boolean).join('\n\n');
-    const storyboardSupplement = '[分镜补充要求]: 仅采用站立口播式出镜，人物始终站立并面向镜头，用手持商品进行展示与讲解；不要出现脚部穿戴、脚部特写、脚接触商品，避免把手误生成成脚。';
+    const storyboardSupplement = '[分镜补充要求]: 不要出现从手部特写到脚部穿戴/特写/接触商品的渐进过渡，以避免把手误生成成脚。';
     const firstLastFrameAudioSupplement = selectedModel === 'kling' && klingGenerateMode === 'first_last_frame' && soundSetting === 'on'
       ? '【音频|【[旁白]】全程保留清晰自然的人声口播讲解与轻微环境声，不要输出静音视频；口播需与站立手持展示动作一致，语气自然，避免无声片段。】'
       : '';
@@ -5916,31 +6356,96 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
   };
 
-  const handleDurationChange = (id: number, newValue: string) => {
-    const raw = newValue.trim();
-    const newScripts = scripts.map(s => {
-      if (s.id !== id) return s;
+  const getScriptsForPageEdit = (pageIndex: number): ScriptItem[] => (
+    pageIndex === activeScriptPage ? scripts : (scriptPages[pageIndex]?.scripts || [])
+  );
 
-      if (!raw) return s;
-
-      const num = Number(raw);
-      if (!Number.isFinite(num)) return s;
-
-      const clamped = Math.max(0.1, num);
-      const rounded = Math.round(clamped * 10) / 10;
-      return { ...s, dur: `${rounded}s` };
+  const updateScriptPageMetaAt = (pageIndex: number, updater: (page: ScriptPage) => ScriptPage) => {
+    setScriptPages((prev) => {
+      if (pageIndex < 0 || pageIndex >= prev.length) return prev;
+      const next = [...prev];
+      next[pageIndex] = updater(next[pageIndex]);
+      return next;
     });
-    setScripts(newScripts);
   };
 
-  const handleScriptTypeChange = (id: number, newType: string) => {
+  const updateScriptPageScriptsAt = (pageIndex: number, newScripts: ScriptItem[]) => {
+    isDemoScriptsRef.current = false;
+    if (pageIndex === activeScriptPage) {
+      setScripts(newScripts);
+    }
+    setScriptPages((prev) => {
+      if (pageIndex < 0 || pageIndex >= prev.length) return prev;
+      const next = [...prev];
+      next[pageIndex] = { ...next[pageIndex], scripts: newScripts };
+      return next;
+    });
+  };
+
+  const updateScriptPageNameAt = (pageIndex: number, value: string) => {
+    updateScriptPageMetaAt(pageIndex, (page) => ({
+      ...page,
+      name: value,
+    }));
+  };
+
+  const updateScriptPageCreativeCardTextAt = (pageIndex: number, value: string) => {
+    updateScriptPageMetaAt(pageIndex, (page) => ({
+      ...page,
+      creativeCardText: value,
+    }));
+  };
+
+  const handleDurationChangeForPage = (pageIndex: number, id: number, newValue: string) => {
+    const raw = newValue.trim();
+    if (!raw) return;
+    const num = Number(raw);
+    if (!Number.isFinite(num)) return;
+
+    const pageScripts = getScriptsForPageEdit(pageIndex);
+    const idx = pageScripts.findIndex(s => s.id === id);
+    if (idx < 0) return;
+
+    const n = pageScripts.length;
+    const minFloor = 1; // 0.1s in tenths
+    const targetTenths = Math.max(n * minFloor, Math.round((Number(genDuration) || 1) * 10));
+
+    // 单镜头：锁定为 genDuration，保持 sum == genDuration
+    if (n === 1) {
+      updateScriptPageScriptsAt(pageIndex, [{ ...pageScripts[0], dur: tenthsToDur(targetTenths) }]);
+      return;
+    }
+
+    // 把被改镜头 clamp 到 [0.1s, genDuration - 其它镜头最小占用]
+    const othersMinSum = (n - 1) * minFloor;
+    const maxNewTenths = Math.max(minFloor, targetTenths - othersMinSum);
+    const rawNewTenths = Math.round(Math.max(0.1, num) * 10);
+    const newDurTenths = Math.min(Math.max(rawNewTenths, minFloor), maxNewTenths);
+
+    // 剩余 targetTenths - newDurTenths 按原比例分给其他镜头
+    const otherWeights = pageScripts.filter((_, i) => i !== idx).map(s => durToTenths(s.dur));
+    const otherTargetTotal = targetTenths - newDurTenths;
+    const distributedOthers = distributeTenthsProportional(otherWeights, otherTargetTotal, minFloor);
+
+    let j = 0;
+    const next = pageScripts.map((s, i) => {
+      if (i === idx) return { ...s, dur: tenthsToDur(newDurTenths) };
+      const d = distributedOthers[j];
+      j += 1;
+      return { ...s, dur: tenthsToDur(d) };
+    });
+    updateScriptPageScriptsAt(pageIndex, next);
+  };
+
+  const handleScriptTypeChangeForPage = (pageIndex: number, id: number, newType: string) => {
     const normalizedType = newType.trim() || 'Medium';
-    const newScripts = scripts.map((item) => (item.id === id ? { ...item, type: normalizedType } : item));
-    updateScripts(newScripts);
+    const pageScripts = getScriptsForPageEdit(pageIndex);
+    const newScripts = pageScripts.map((item) => (item.id === id ? { ...item, type: normalizedType } : item));
+    updateScriptPageScriptsAt(pageIndex, newScripts);
   };
 
   // 台词翻译处理（直接翻译 / 创意翻译）
-  const handleTranslateShot = async (script: ScriptItem, index: number, mode: 'direct' | 'creative') => {
+  const handleTranslateShotForPage = async (pageIndex: number, script: ScriptItem, index: number, mode: 'direct' | 'creative') => {
     if (!script.audioTranslation?.trim() || !user?.id) return;
     setTranslatingShots(prev => ({ ...prev, [script.id]: true }));
     try {
@@ -5953,9 +6458,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         product_selling_points: coreSellingPoints,
       });
       if (resp.code === 0 && resp.data?.translated_text) {
-        const ns = [...scripts];
+        const ns = [...getScriptsForPageEdit(pageIndex)];
         ns[index].audio = resp.data.translated_text;
-        updateScripts(ns);
+        updateScriptPageScriptsAt(pageIndex, ns);
       }
     } catch (err) {
       console.error('[handleTranslateShot] 翻译失败:', err);
@@ -5965,14 +6470,54 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   const updateScripts = (newScripts: ScriptItem[]) => {
-    isDemoScriptsRef.current = false;
-    setScripts(newScripts);
-    setScriptPages(prev => {
-      const next = [...prev];
-      next[activeScriptPage] = { ...next[activeScriptPage], scripts: newScripts };
-      return next;
-    });
+    updateScriptPageScriptsAt(activeScriptPage, newScripts);
   };
+
+  // 不变量：只要开着分镜编辑器，每一页分镜的 Σdur 必须恒等于 genDuration。
+  // addScript / removeScript / handleDurationChange / ShotTimelineBar 里
+  // insert / delete / drag 经过前面改造后全部输出严格对齐状态，对普通编辑都是 no-op。
+  // 会真正触发 rescale 的只有：
+  //   1) 用户改 genDuration 滑块 / 下拉；
+  //   2) 切换 scriptPage（旧对齐的目标总时长已变）；
+  //   3) LLM 脚本生成返回 Σdur drift；
+  //   4) 工作区 / 模板恢复出来 Σdur 与 genDuration 不符。
+  useEffect(() => {
+    if (!enableStoryboardEditor) return;
+    const rescalePageScripts = (pageScripts: ScriptItem[]): ScriptItem[] => {
+      if (!pageScripts || pageScripts.length === 0) return pageScripts;
+      const pageTarget = Math.max(pageScripts.length, Math.round((Number(genDuration) || 1) * 10));
+      const currentTenths = pageScripts.reduce((sum, s) => sum + durToTenths(s.dur), 0);
+      if (currentTenths === pageTarget) return pageScripts;
+      const weights = pageScripts.map((s) => durToTenths(s.dur));
+      const distributed = distributeTenthsProportional(weights, pageTarget, 1);
+      return pageScripts.map((s, i) => ({ ...s, dur: tenthsToDur(distributed[i]) }));
+    };
+
+    const newActiveScripts = rescalePageScripts(scripts);
+    const activeChanged = newActiveScripts !== scripts;
+    if (activeChanged) setScripts(newActiveScripts);
+
+    setScriptPages((prev) => {
+      let changed = false;
+      const next = prev.map((page, i) => {
+        if (i === activeScriptPage) {
+          if (activeChanged) {
+            changed = true;
+            return { ...page, scripts: newActiveScripts };
+          }
+          return page;
+        }
+        const original = page.scripts || [];
+        const rescaled = rescalePageScripts(original);
+        if (rescaled !== original) {
+          changed = true;
+          return { ...page, scripts: rescaled };
+        }
+        return page;
+      });
+      return changed ? next : prev;
+    });
+  }, [genDuration, enableStoryboardEditor, scripts, scriptPages, activeScriptPage]);
 
   const removeScriptPage = (index: number) => {
     if (scriptPages.length <= 1) return;
@@ -5989,27 +6534,26 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     });
   };
 
-  const updateActiveScriptPageMeta = (updater: (page: ScriptPage) => ScriptPage) => {
+  const addScriptPage = () => {
+    const nextIndex = scriptPages.length;
+    const nextPage: ScriptPage = {
+      id: `page-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      name: `${t.wb_script_page_prefix} ${nextIndex + 1}`,
+      scripts: [],
+      fullScript: '',
+      creativeCardText: '',
+    };
+
     setScriptPages((prev) => {
-      if (activeScriptPage < 0 || activeScriptPage >= prev.length) return prev;
       const next = [...prev];
-      next[activeScriptPage] = updater(next[activeScriptPage]);
-      return next;
+      if (activeScriptPage >= 0 && activeScriptPage < next.length) {
+        next[activeScriptPage] = { ...next[activeScriptPage], scripts };
+      }
+      return [...next, nextPage];
     });
-  };
-
-  const updateActiveFullScript = (value: string) => {
-    updateActiveScriptPageMeta((page) => ({
-      ...page,
-      fullScript: value,
-    }));
-  };
-
-  const updateActiveCreativeCardText = (value: string) => {
-    updateActiveScriptPageMeta((page) => ({
-      ...page,
-      creativeCardText: value,
-    }));
+    setActiveScriptPage(nextIndex);
+    setScripts([]);
+    setIsShotBreakdownOpen(false);
   };
 
   const [themeClassSnapshot, setThemeClassSnapshot] = useState<string>('');
@@ -6114,7 +6658,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (isDimTheme) {
       return {
         shell: 'rounded-2xl px-0 py-0 text-slate-100',
-        panel: 'rounded-xl border border-slate-500/35 bg-slate-950/45 p-1.5',
+        panel: 'rounded-xl border border-slate-500/35 bg-slate-950/80 p-1.5',
         row: 'flex items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-800/55 border border-transparent focus-within:border-emerald-400/45 focus-within:bg-emerald-500/10',
         actionsBlock: 'rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-800/55 border border-transparent focus-within:border-emerald-400/45 focus-within:bg-emerald-500/10',
         actionIndex: 'mt-0.5 text-[11px] font-semibold text-slate-400',
@@ -6125,12 +6669,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         button: 'text-[11px] px-2 py-0.5 rounded-md border border-slate-400/40 bg-slate-700/60 text-slate-100 hover:bg-slate-700/80 transition',
         dangerButton: 'text-[11px] px-1.5 py-0.5 rounded border border-slate-400/40 text-slate-300 hover:text-red-300 hover:border-red-300/40 hover:bg-red-500/10 transition',
         subLabel: 'shrink-0 mt-0.5 text-[10px] leading-4 font-semibold text-emerald-300 border border-emerald-400/40 bg-emerald-500/10 rounded-full px-2 py-0.5',
-        textarea: 'flex-1 bg-transparent border-0 p-0 text-[12px] leading-5 focus:outline-none resize-none text-slate-100 placeholder:text-slate-500',
+        textarea: 'flex-1 bg-slate-950/55 border-0 rounded-lg p-2 text-[12px] leading-5 focus:outline-none resize-none text-slate-100 placeholder:text-slate-500',
       };
     }
     return {
       shell: 'rounded-2xl px-0 py-0 text-zinc-100',
-      panel: 'rounded-xl border border-zinc-600/40 bg-zinc-950/45 p-1.5',
+      panel: 'rounded-xl border border-zinc-600/40 bg-zinc-950/85 p-1.5',
       row: 'flex items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/5 border border-transparent focus-within:border-emerald-400/40 focus-within:bg-emerald-500/10',
       actionsBlock: 'rounded-lg px-2 py-1.5 transition-colors hover:bg-white/5 border border-transparent focus-within:border-emerald-400/40 focus-within:bg-emerald-500/10',
       actionIndex: 'mt-0.5 text-[11px] font-semibold text-zinc-400',
@@ -6141,7 +6685,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       button: 'text-[11px] px-2 py-0.5 rounded-md border border-zinc-500 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition',
       dangerButton: 'text-[11px] px-1.5 py-0.5 rounded border border-zinc-500 text-zinc-300 hover:text-red-300 hover:border-red-300/40 hover:bg-red-500/10 transition',
       subLabel: 'shrink-0 mt-0.5 text-[10px] leading-4 font-semibold text-emerald-300 border border-emerald-400/35 bg-emerald-500/10 rounded-full px-2 py-0.5',
-      textarea: 'flex-1 bg-transparent border-0 p-0 text-[12px] leading-5 focus:outline-none resize-none text-zinc-100 placeholder:text-zinc-500',
+      textarea: 'flex-1 bg-zinc-950/60 border-0 rounded-lg p-2 text-[12px] leading-5 focus:outline-none resize-none text-zinc-100 placeholder:text-zinc-500',
     };
   }, [isLightTheme, isDimTheme]);
 
@@ -6156,14 +6700,76 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     areas.forEach((el) => autoResizeCardTextarea(el));
   }, [activeScriptPage, scriptPages]);
 
-  const addScript = () => {
-    const newId = scripts.length > 0 ? Math.max(...scripts.map(s => s.id)) + 1 : 1;
-    updateScripts([...scripts, { id: newId, shot: (scripts.length + 1).toString(), type: 'Medium', dur: '2s', visual: '', audio: '', audioTranslation: '' }]);
+  const addScriptToPage = (pageIndex: number) => {
+    const pageScripts = getScriptsForPageEdit(pageIndex);
+    const newId = pageScripts.length > 0 ? Math.max(...pageScripts.map(s => s.id)) + 1 : 1;
+    // 空状态：第一个镜头直接等于用户所选 genDuration，让总时长立刻对齐
+    if (pageScripts.length === 0) {
+      const targetTenths = Math.max(1, Math.round((Number(genDuration) || 1) * 10));
+      updateScriptPageScriptsAt(pageIndex, [{
+        id: newId,
+        shot: '1',
+        type: 'Medium',
+        dur: tenthsToDur(targetTenths),
+        visual: '',
+        audio: '',
+        audioTranslation: '',
+      }]);
+      return;
+    }
+    // 非空：对最后一个镜头做「对半分裂」，保持总时长不变
+    const lastIdx = pageScripts.length - 1;
+    const lastTenths = durToTenths(pageScripts[lastIdx].dur);
+    if (lastTenths < 2) {
+      openInfo(popupTitles.notice, t.wb_shot_timeline_insert_too_short || '当前镜头过短，无法分裂');
+      return;
+    }
+    const frontTenths = Math.floor(lastTenths / 2);
+    const backTenths = lastTenths - frontTenths;
+    const next = pageScripts.map((s, i) =>
+      i === lastIdx ? { ...s, dur: tenthsToDur(frontTenths) } : s
+    );
+    next.push({
+      id: newId,
+      shot: (pageScripts.length + 1).toString(),
+      type: 'Medium',
+      dur: tenthsToDur(backTenths),
+      visual: '',
+      audio: '',
+      audioTranslation: '',
+    });
+    updateScriptPageScriptsAt(pageIndex, next);
   };
 
-  const removeScript = (id: number) => {
-    const remaining = scripts.filter(s => s.id !== id).map((s, idx) => ({ ...s, shot: (idx + 1).toString() }));
-    updateScripts(remaining);
+  const removeScriptFromPage = (pageIndex: number, id: number) => {
+    const pageScripts = getScriptsForPageEdit(pageIndex);
+    const index = pageScripts.findIndex(s => s.id === id);
+    if (index < 0) return;
+    if (pageScripts.length === 1) {
+      updateScriptPageScriptsAt(pageIndex, []);
+      return;
+    }
+    // Preserve total duration: redistribute deleted shot's dur 50/50 to adjacent neighbors.
+    // Edge shots (first/last) give 100% to their single neighbor.
+    const deletedTenths = durToTenths(pageScripts[index].dur);
+    const leftShare = Math.floor(deletedTenths / 2);
+    const rightShare = deletedTenths - leftShare;
+    const isFirst = index === 0;
+    const isLast = index === pageScripts.length - 1;
+    const filtered = pageScripts.filter((_, i) => i !== index);
+    const redistributed = filtered.map((s, i) => {
+      if (isFirst) {
+        return i === 0 ? { ...s, dur: tenthsToDur(durToTenths(s.dur) + deletedTenths) } : s;
+      }
+      if (isLast) {
+        return i === filtered.length - 1 ? { ...s, dur: tenthsToDur(durToTenths(s.dur) + deletedTenths) } : s;
+      }
+      if (i === index - 1) return { ...s, dur: tenthsToDur(durToTenths(s.dur) + leftShare) };
+      if (i === index) return { ...s, dur: tenthsToDur(durToTenths(s.dur) + rightShare) };
+      return s;
+    });
+    const remaining = redistributed.map((s, idx) => ({ ...s, shot: (idx + 1).toString() }));
+    updateScriptPageScriptsAt(pageIndex, remaining);
   };
 
   const addCurrentAssetToQueue = () => {
@@ -6241,6 +6847,43 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setGeneratedVideoUrl(null);
   }, [clearWorkbenchAssetSelection]);
 
+  useEffect(() => {
+    if (!isSeedanceReplayMode) return;
+
+    if (assetQueue.length > 0) {
+      let hasVideo = false;
+      const allowedQueue = assetQueue.filter((asset) => {
+        if (asset.mediaKind === 'image') return true;
+        if (asset.mediaKind === 'video' && !hasVideo) {
+          hasVideo = true;
+          return true;
+        }
+        return false;
+      });
+
+      if (allowedQueue.length !== assetQueue.length) {
+        setAssetQueue(allowedQueue);
+        if (!selectedQueueAssetId || !allowedQueue.some((asset) => asset.id === selectedQueueAssetId)) {
+          applyWorkbenchAssetSelection(allowedQueue[0] || null);
+        }
+      }
+      return;
+    }
+
+    if (uploadedFile && currentAssetMediaKind === 'audio') {
+      clearWorkbenchAssetSelection();
+    }
+  }, [
+    applyWorkbenchAssetSelection,
+    assetQueue,
+    clearWorkbenchAssetSelection,
+    currentAssetMediaKind,
+    currentMaterialType,
+    isSeedanceReplayMode,
+    selectedQueueAssetId,
+    uploadedFile,
+  ]);
+
   const removeQueuedAssetById = useCallback((id: string) => {
     const removedAsset = assetQueue.find((asset) => asset.id === id) || null;
     const nextQueue = assetQueue.filter((asset) => asset.id !== id);
@@ -6273,9 +6916,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!seedanceReplayFileInputRef.current) return;
     seedanceReplayFileInputRef.current.value = '';
     seedanceReplayFileInputRef.current.multiple = true;
-    seedanceReplayFileInputRef.current.accept = getSeedanceReplayLocalAccept(intent.targetMediaKind);
+    seedanceReplayFileInputRef.current.accept = getSeedanceReplayLocalAccept(intent.targetMediaKind, { allowAudio: !isSeedanceReplayMode });
     seedanceReplayFileInputRef.current.click();
-  }, []);
+  }, [isSeedanceReplayMode]);
 
   const handleSeedanceReplayOpenLibrary = useCallback(() => {
     const intent = getSeedanceReplayLibraryIntent(null);
@@ -6317,6 +6960,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           inferMediaKind,
           compressImage,
         }, t);
+        if (isSeedanceReplayMode && parsedAsset.mediaKind === 'audio') {
+          errors.push(t.wb_replay_error_audio_not_supported || 'Audio assets are not supported in viral recreate mode.');
+          continue;
+        }
         if (intent.targetMediaKind && parsedAsset.mediaKind !== intent.targetMediaKind) {
           const kindLabel = intent.targetMediaKind === 'image'
             ? (t.wb_seedance_replay_media_image || 'Image')
@@ -6359,7 +7006,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const limit = asset.mediaKind === 'image'
         ? SEEDANCE_REPLAY_IMAGE_LIMIT
         : asset.mediaKind === 'video'
-          ? SEEDANCE_REPLAY_VIDEO_LIMIT
+          ? (isSeedanceReplayMode ? 1 : SEEDANCE_REPLAY_VIDEO_LIMIT)
           : SEEDANCE_REPLAY_AUDIO_LIMIT;
 
       if (existingCounts[asset.mediaKind] + acceptedAssets.filter((item) => item.mediaKind === asset.mediaKind).length >= limit) {
@@ -6377,7 +7024,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       ));
       if (overflow.video > 0) summaryLines.push(formatMessage(
         t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
-        { limit: SEEDANCE_REPLAY_VIDEO_LIMIT, kind: t.wb_seedance_replay_media_video || 'Video', count: overflow.video },
+        { limit: isSeedanceReplayMode ? 1 : SEEDANCE_REPLAY_VIDEO_LIMIT, kind: t.wb_seedance_replay_media_video || 'Video', count: overflow.video },
       ));
       if (overflow.audio > 0) summaryLines.push(formatMessage(
         t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
@@ -6408,7 +7055,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       )] : []),
       ...(overflow.video > 0 ? [formatMessage(
         t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
-        { limit: SEEDANCE_REPLAY_VIDEO_LIMIT, kind: t.wb_seedance_replay_media_video || 'Video', count: overflow.video },
+        { limit: isSeedanceReplayMode ? 1 : SEEDANCE_REPLAY_VIDEO_LIMIT, kind: t.wb_seedance_replay_media_video || 'Video', count: overflow.video },
       )] : []),
       ...(overflow.audio > 0 ? [formatMessage(
         t.wb_seedance_replay_notice_overflow || 'Up to {limit} {kind} assets can be added. Ignored {count}.',
@@ -6424,6 +7071,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     buildSeedanceReplayQueuedAsset,
     compressImage,
     inferMediaKind,
+    isSeedanceReplayMode,
     openInfo,
     persistLocalQueuedAsset,
     popupTitles.notice,
@@ -6437,9 +7085,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setSeedanceReplayUploadIntent({ targetMediaKind: null });
     if (seedanceReplayFileInputRef.current) {
       seedanceReplayFileInputRef.current.value = '';
-      seedanceReplayFileInputRef.current.accept = SEEDANCE_REPLAY_UPLOAD_ACCEPT;
+      seedanceReplayFileInputRef.current.accept = getSeedanceReplayLocalAccept(null, { allowAudio: !isSeedanceReplayMode });
     }
-  }, [handleSeedanceReplayLocalFiles, seedanceReplayUploadIntent]);
+  }, [handleSeedanceReplayLocalFiles, isSeedanceReplayMode, seedanceReplayUploadIntent]);
 
   const klingPrimarySlotAsset = useMemo(
     () => uploadDisplayAssets.find((asset) => klingGenerateMode === 'subject' ? asset.source === 'subject' : asset.source === 'product') || null,
@@ -6453,42 +7101,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     () => uploadDisplayAssets.filter((asset) => asset.id !== klingPrimarySlotAsset?.id && asset.id !== klingTailSlotAsset?.id),
     [uploadDisplayAssets, klingPrimarySlotAsset, klingTailSlotAsset]
   );
-  const klingPrimarySlotHint = klingPrimarySlotAsset ? (
-    <span className="inline-flex items-center gap-1 text-[10px] font-medium normal-case tracking-normal text-green-400">
-      1/1
-      <CheckCircle className="h-3 w-3" />
-    </span>
-  ) : (
-    <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">
-      {klingGenerateMode === 'subject'
-        ? (t.wb_kling_primary_slot_subject_required || '必传1个主体')
-        : (t.wb_kling_primary_slot_first_frame_required || '必传1张')}
-    </span>
-  );
   const klingReferenceLimit = klingGenerateMode === 'subject' ? 3 : 6;
   const isKlingReferenceOverflow = klingReferenceSlotAssets.length > klingReferenceLimit;
-  const klingReferenceSlotHint = klingReferenceSlotAssets.length > 0 ? (
-    <span className={`inline-flex items-center gap-1 text-[10px] font-medium normal-case tracking-normal ${isKlingReferenceOverflow ? 'text-red-400' : 'text-green-400'}`}>
-      {klingReferenceSlotAssets.length}/{klingReferenceLimit}
-      {!isKlingReferenceOverflow ? <CheckCircle className="h-3 w-3" /> : null}
-      {isKlingReferenceOverflow ? (
-        <span>
-          {klingGenerateMode === 'subject'
-            ? (t.wb_kling_reference_slot_subject_max || '最多3张')
-            : (t.wb_kling_reference_slot_first_frame_max || '最多6张')}
-        </span>
-      ) : null}
-    </span>
-  ) : (
-    <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-500">
-      {klingGenerateMode === 'subject'
-        ? (t.wb_kling_reference_slot_subject_range || '1~3张')
-        : (t.wb_kling_reference_slot_first_frame_optional || '可选 · ≤6张')}
-    </span>
-  );
+  const klingPrimaryCountLabel = `${klingPrimarySlotAsset ? 1 : 0}/1`;
+  const klingReferenceCountLabel = `${klingReferenceSlotAssets.length}/${klingReferenceLimit}`;
   const renderUploadAssetCard = useCallback((asset: QueuedAsset, compact = false) => {
     const inQueue = assetQueue.find((item) => item.id === asset.id);
     const selected = selectedQueueAssetId ? selectedQueueAssetId === asset.id : uploadedFile === asset.previewUrl;
+    const isKlingPreviewCard = isKlingOmniMode && (klingGenerateMode === 'first_frame' || klingGenerateMode === 'subject');
     const highlighted = isKlingOmniMode
       ? (klingGenerateMode === 'subject'
         ? asset.source === 'subject' || (!asset.source && selected && selectedAssetSource === 'subject')
@@ -6511,6 +7131,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         onDragEnd={clearWorkbenchDragState}
         onClick={(e) => {
           e.stopPropagation();
+          if (isKlingPreviewCard) {
+            setSeedanceReplayPreviewAsset(inQueue || asset);
+            return;
+          }
           if (inQueue) {
             selectAssetFromQueue(inQueue);
             return;
@@ -6527,6 +7151,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           if (e.key !== 'Enter' && e.key !== ' ') return;
           e.preventDefault();
           e.stopPropagation();
+          if (isKlingPreviewCard) {
+            setSeedanceReplayPreviewAsset(inQueue || asset);
+            return;
+          }
           if (inQueue) {
             selectAssetFromQueue(inQueue);
             return;
@@ -6539,18 +7167,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           setCurrentMaterialType(asset.materialType || null);
           setSelectedQueueAssetId(null);
         }}
-        className={`relative w-full rounded-md overflow-hidden border text-left transition ${selected ? 'border-orange-500/70 ring-1 ring-orange-500/50' : 'border-white/10 hover:border-white/20'}`}
+        className={`group/upload-asset relative w-full rounded-md overflow-visible border text-left transition ${selected ? 'border-orange-500/70 ring-1 ring-orange-500/50' : 'border-white/10 hover:border-white/20'}`}
       >
         {asset.previewUrl ? (asset.mediaKind === 'video' ? (
           <video src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" muted playsInline />
         ) : (
-          <img src={asset.previewUrl} className="w-full h-auto max-h-[240px] object-contain bg-black/40 opacity-80" alt={asset.name} />
+          <img src={asset.previewUrl} className="w-full h-auto max-h-[240px] rounded-md object-contain bg-black/40 opacity-80" alt={asset.name} />
         )) : (
-          <div className="w-full h-24 flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
+          <div className="w-full h-24 rounded-md flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-800">无预览</div>
         )}
         {(() => {
           const hideMaterialTypeSelect =
-            isKlingOmniMode && (klingGenerateMode === 'first_frame' || klingGenerateMode === 'first_last_frame');
+            isKlingOmniMode && klingGenerateMode === 'first_last_frame';
+          const useKlingImageTagOnly =
+            isKlingOmniMode
+            && (klingGenerateMode === 'first_frame' || klingGenerateMode === 'subject')
+            && asset.mediaKind === 'image';
           const showSubjectBadge =
             isKlingOmniMode &&
             klingGenerateMode === 'subject' &&
@@ -6565,11 +7197,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </span>
               ) : null}
               {!hideMaterialTypeSelect ? (
-                <select
-                  className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
-                  value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product')}
-                  onChange={(e) => {
-                    const newType = e.target.value as AssetLibraryTab;
+                <DropdownSelect
+                  value={(() => {
+                    const fallback = asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product';
+                    const current = asset.materialType || fallback;
+                    if (!useKlingImageTagOnly) return current;
+                    return (current === 'product' || current === 'model' || current === 'scene') ? current : 'product';
+                  })()}
+                  options={[
+                    { value: 'product', label: t.assets_tab_products || '商品' },
+                    { value: 'model', label: materialTypeLabelMap['model'] },
+                    { value: 'scene', label: materialTypeLabelMap['scene'] },
+                    ...(useKlingImageTagOnly ? [] : [
+                      { value: 'motion', label: materialTypeLabelMap['motion'] },
+                      { value: 'audio', label: materialTypeLabelMap['audio'] },
+                    ]),
+                  ]}
+                  onChange={(value) => {
+                    const newType = value as AssetLibraryTab;
                     setAssetQueue((prev) => {
                       const next = prev.map((item): QueuedAsset =>
                         item.id === asset.id ? { ...item, materialType: newType } : item
@@ -6580,24 +7225,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       setCurrentMaterialType(newType);
                     }
                   }}
-                  style={{
-                    backgroundImage:
-                      'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")',
-                    backgroundRepeat: 'no-repeat',
-                    backgroundPosition: 'right 6px center',
-                  }}
-                >
-                  <option value="product">{materialTypeLabelMap['product']}</option>
-                  <option value="model">{materialTypeLabelMap['model']}</option>
-                  <option value="scene">{materialTypeLabelMap['scene']}</option>
-                  <option value="motion">{materialTypeLabelMap['motion']}</option>
-                  <option value="audio">{materialTypeLabelMap['audio']}</option>
-                </select>
+                  buttonClassName="min-w-[72px] rounded-md border border-white/20 bg-black/55 px-2 py-1 text-[10px] font-semibold text-zinc-100 shadow-sm backdrop-blur-sm hover:border-white/35 hover:bg-black/65"
+                  labelClassName="text-[10px] text-zinc-100"
+                  iconClassName="h-3 w-3 text-zinc-300"
+                  menuClassName="w-[120px] border-white/20 bg-zinc-950/95 z-[260]"
+                  optionClassName="text-[11px] font-medium text-zinc-100 hover:bg-white/10"
+                  renderInPortal
+                />
               ) : null}
             </div>
           );
         })()}
-        <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
+        {!isKlingPreviewCard ? (
+          <div className="absolute top-1 right-1 flex items-center gap-1 z-10">
           {!isKlingOmniMode && asset.mediaKind === 'image' && (
             <button
               type="button"
@@ -6635,10 +7275,25 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </button>
           )}
           <button onClick={(e) => removeUpload(e, asset.id)} className="p-1 bg-black/50 hover:bg-red-500 rounded text-white transition"><X className="w-2.5 h-2.5" /></button>
-        </div>
-        <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-10">
-          <p className="text-[9px] text-white truncate drop-shadow-md">{asset.name}</p>
-        </div>
+          </div>
+        ) : null}
+        {isKlingPreviewCard ? (
+          <div className="absolute top-1 right-1 z-10">
+            <button
+              type="button"
+              onClick={(e) => removeUpload(e, asset.id)}
+              className="flex h-6 w-6 items-center justify-center rounded-md border border-red-500/30 bg-red-500/20 text-red-200 transition hover:bg-red-500 hover:text-white"
+              aria-label="Delete"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : null}
+        {!isKlingPreviewCard ? (
+          <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-10">
+            <p className="text-[9px] text-white truncate drop-shadow-md">{asset.name}</p>
+          </div>
+        ) : null}
       </div>
     );
   }, [
@@ -6653,7 +7308,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     removeUpload,
     selectedAssetSource,
     selectedQueueAssetId,
-    t.wb_ready,
+    setSeedanceReplayPreviewAsset,
     uploadedFile,
   ]);
 
@@ -7798,36 +8453,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setActiveScriptPage(nextIndex);
 
     setScripts(scriptPages[nextIndex]?.scripts || []);
-    setIsShotBreakdownOpen(false);
-  };
-
-  const getScriptGridMaxStart = (length: number, pageSize: number) => {
-    if (length <= pageSize) return 0;
-    return Math.floor((length - 1) / pageSize) * pageSize;
-  };
-
-  useEffect(() => {
-    setScriptGridPageStart((prev) => Math.min(prev, getScriptGridMaxStart(scriptPages.length, SCRIPT_GRID_PAGE_SIZE)));
-  }, [scriptPages.length]);
-
-  useEffect(() => {
-    setScriptGridPageStart((prev) => {
-      if (activeScriptPage < prev || activeScriptPage >= prev + SCRIPT_GRID_PAGE_SIZE) {
-        return Math.min(
-          Math.max(0, Math.floor(activeScriptPage / SCRIPT_GRID_PAGE_SIZE) * SCRIPT_GRID_PAGE_SIZE),
-          getScriptGridMaxStart(scriptPages.length, SCRIPT_GRID_PAGE_SIZE)
-        );
-      }
-      return prev;
-    });
-  }, [activeScriptPage, scriptPages.length]);
-
-  const handleScriptGridSlidePrev = () => {
-    setScriptGridPageStart((prev) => Math.max(0, prev - SCRIPT_GRID_PAGE_SIZE));
-  };
-
-  const handleScriptGridSlideNext = () => {
-    setScriptGridPageStart((prev) => Math.min(getScriptGridMaxStart(scriptPages.length, SCRIPT_GRID_PAGE_SIZE), prev + SCRIPT_GRID_PAGE_SIZE));
+    const nextPageId = scriptPages[nextIndex]?.id;
+    const nextStoryboardEnabled = nextPageId ? !!storyboardEditorEnabledByPage[nextPageId] : false;
+    const nextShotBreakdownOpen = nextPageId ? !!shotBreakdownOpenByPage[nextPageId] : false;
+    setEnableStoryboardEditor(nextStoryboardEnabled);
+    setIsShotBreakdownOpen(nextShotBreakdownOpen);
   };
 
   useEffect(() => {
@@ -7940,8 +8570,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const computeDurationFromScripts = (items: ScriptItem[]) =>
     items.reduce((total, s) => total + (parseFloat(String(s.dur || '').replace('s', '')) || 0), 0);
 
-  const buildQueuedScriptFromPage = (page: ScriptPage): QueuedScript => {
-    const duration = enableStoryboardEditor ? computeDurationFromScripts(page.scripts || []) : genDuration;
+  const buildQueuedScriptFromPage = (page: ScriptPage, storyboardEnabled = enableStoryboardEditor): QueuedScript => {
+    const duration = storyboardEnabled ? computeDurationFromScripts(page.scripts || []) : genDuration;
     const idx = Math.max(0, scriptPages.findIndex((p) => p.id === page.id));
     return {
       id: page.id,
@@ -7954,21 +8584,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
   };
 
-  const handleBatchGenerateSubmit = async () => {
-    const selectedScriptPages: ScriptPage[] = batchGenerateSlots
-      .map((slot) => (slot.scriptPageId ? scriptPages.find((p) => p.id === slot.scriptPageId) : null))
-      .filter(Boolean) as ScriptPage[];
-
-    if (selectedScriptPages.length === 0) {
-      openInfo(popupTitles.notice, language === 'zh' ? '请选择至少一个脚本。' : 'Select at least one script.');
-      return;
-    }
-
-    if (selectedModel === 'kling') {
-      openInfo(popupTitles.notice, 'Kling 当前版本暂不支持一次生成多条视频。');
-      return;
-    }
-
+  const validateScriptPageBatchGenerateRequirements = (items: typeof scriptPageBatchGenerateItems) => {
     const issues: string[] = [];
     if (!selectedTemplate?.id && !selectedFileObj && !selectedAssetUrl && !uploadedFile && uploadDisplayAssets.length === 0) {
       issues.push(t.wb_gen_req_issue_asset_or_template || 'Assets: upload an asset or select a template first.');
@@ -7976,18 +8592,41 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!selectedTemplate?.id && !user?.id) {
       issues.push(t.wb_gen_req_issue_login || 'Account: please sign in.');
     }
-    if (enableStoryboardEditor) {
-      const invalid = selectedScriptPages
-        .map((p) => ({ page: p, duration: computeDurationFromScripts(p.scripts || []) }))
-        .filter((row) => Math.abs(row.duration - genDuration) >= 0.1);
-      if (invalid.length > 0) {
-        issues.push(t.wb_gen_req_issue_duration_mismatch || 'Storyboard duration must match configured duration.');
+    items.forEach((item) => {
+      const hasScriptConcept = Boolean((item.page.fullScript || '').trim())
+        || Boolean((item.page.creativeCardText || '').trim())
+        || (item.page.scripts || []).some((script) => Boolean((script.visual || script.audio || '').trim()));
+      if (!hasScriptConcept) {
+        const name = formatScriptPageDisplayName(item.page.name, item.pageIndex, t.wb_script_page_prefix);
+        issues.push(`${name}: ${t.wb_gen_req_issue_master_script_missing || 'Please generate or complete the script plan.'}`);
       }
+      if (item.storyboardEnabled && Math.abs(item.duration - genDuration) >= 0.1) {
+        const template = t.wb_gen_req_issue_duration_mismatch || 'Storyboard: total shot duration ({scriptDuration}s) must match configured duration ({configDuration}s).';
+        const name = formatScriptPageDisplayName(item.page.name, item.pageIndex, t.wb_script_page_prefix);
+        issues.push(`${name}: ${formatI18nTemplate(template, {
+          scriptDuration: item.duration.toFixed(1),
+          configDuration: genDuration,
+        })}`);
+      }
+    });
+    return issues;
+  };
+
+  const handleScriptPageBatchGenerateSubmit = async () => {
+    if (scriptPageBatchGenerateItems.length === 0) {
+      openInfo(popupTitles.notice, t.wb_generate_at_least_one_video || '请至少生成一个视频');
+      return;
     }
+
+    const issues = validateScriptPageBatchGenerateRequirements(scriptPageBatchGenerateItems);
     if (issues.length > 0) {
       showGenerateValidationIssues(issues);
       return;
     }
+
+    const generationJobs = scriptPageBatchGenerateItems.flatMap((item) => (
+      Array.from({ length: item.count }, (_, copyIndex) => ({ ...item, copyIndex }))
+    ));
 
     setIsGenerating(true);
     setGeneratedVideoUrl(null);
@@ -7996,9 +8635,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       const basePayload = await buildSingleGeneratePayload();
       let createdCount = 0;
 
-      for (let i = 0; i < selectedScriptPages.length; i += 1) {
-        const page = selectedScriptPages[i];
-        const scriptPack = buildQueuedScriptFromPage(page);
+      for (let i = 0; i < generationJobs.length; i += 1) {
+        const job = generationJobs[i];
+        const page = job.page;
+        const scriptPack = buildQueuedScriptFromPage(page, job.storyboardEnabled);
 
         let newProjectId: string | undefined;
         if (selectedTemplate?.id) {
@@ -8008,11 +8648,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         } else {
           if (!user?.id) throw new Error('请先登录');
           const createResp = await videoApi.createProject(user.id, {
-            title: (productName || '').trim() || `${fileName || 'Video'} × ${scriptPack.name}`,
+            title: (productName || '').trim() || `${fileName || 'Video'} × ${scriptPack.name}${job.count > 1 ? ` #${job.copyIndex + 1}` : ''}`,
             aspect_ratio: aspectRatio || selectedTemplate?.aspect_ratio || '9:16',
             script_content: {
               duration: scriptPack.duration,
-              shots: enableStoryboardEditor ? scriptPack.scripts : [],
+              shots: job.storyboardEnabled ? scriptPack.scripts : [],
             },
           });
           newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
@@ -8053,7 +8693,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             estimatedSeconds,
             type: 'video_generation',
             status: 'processing',
-            name: `${(productName || '').trim() || fileName || 'Video'} · ${scriptPack.name}`,
+            name: `${(productName || '').trim() || fileName || 'Video'} · ${scriptPack.name}${job.count > 1 ? ` #${job.copyIndex + 1}` : ''}`,
             thumbnail: uploadedFile || undefined,
             createdAt: Date.now(),
           });
@@ -8064,7 +8704,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       if (createdCount > 0) {
         openInfo(popupTitles.success, formatMessage(t.wb_popup_batch_success, { count: createdCount }));
-        setIsBatchGenerateOpen(false);
       } else {
         openInfo(popupTitles.notice, t.wb_popup_batch_no_task_id);
       }
@@ -8072,8 +8711,378 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       if (err?.message === USER_CANCELLED_ADAPT) {
         openInfo(popupTitles.notice, t.wb_popup_batch_cancelled);
       } else {
-        openErrorModal(err, { category: 'generation_failed', onRetry: handleBatchGenerateSubmit });
+        openErrorModal(err, { category: 'generation_failed', onRetry: handleScriptPageBatchGenerateSubmit });
       }
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const patchReplayBatchItem = (itemId: string, patch: Partial<ReplayBatchItem>) => {
+    setReplayBatchRun((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        items: prev.items.map((item) => item.id === itemId ? { ...item, ...patch } : item),
+      };
+    });
+  };
+
+  const patchReplayReverse = (patch: Partial<ReplayBatchRun['reverse']>) => {
+    setReplayBatchRun((prev) => prev ? { ...prev, reverse: { ...prev.reverse, ...patch } } : prev);
+  };
+
+  const buildReplayPrompt = (basePrompt: string, label: string) => {
+    const productLabel = (productName || '').trim() || 'xx产品';
+    return [
+      String(basePrompt || '').replace(/xx产品/g, productLabel).trim(),
+      productName.trim() ? `商品名称：${productName.trim()}` : '',
+      productCategory.trim() ? `商品品类：${productCategory.trim()}` : '',
+      coreSellingPoints.trim() ? `核心卖点：${coreSellingPoints.trim()}` : '',
+      targetAudience.trim() ? `目标人群：${targetAudience.trim()}` : '',
+      `生成来源：${label}`,
+      '只使用用户上传的商品图片和已选虚拟模特作为视觉参考，不要把参考广告视频作为 Seedance 生成素材。',
+    ].filter(Boolean).join('\n');
+  };
+
+  const resolveReplayGenerationAssets = async () => {
+    const productImageAssets = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image' && asset.materialType !== 'model');
+    const modelAssets = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image' && asset.materialType === 'model');
+    const videoAssets = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'video');
+    const pathUpdates: Record<string, string> = {};
+    const productImagePaths: string[] = [];
+    const seedanceImagePaths: string[] = [];
+    const imageAssetsMeta: Array<{ path: string; material_type: string; seedance_asset_id?: string; frame_role?: string | null }> = [];
+
+    for (const imageAsset of productImageAssets) {
+      let resolvedPath = imageAsset.uploadedPath || imageAsset.assetUrl || null;
+      if (!resolvedPath && imageAsset.fileObj) {
+        const uploadResp = await assetsApi.uploadTempAsset(imageAsset.fileObj);
+        resolvedPath = extractUploadedAssetPath(uploadResp);
+      }
+      if (!resolvedPath) continue;
+      productImagePaths.push(resolvedPath);
+      seedanceImagePaths.push(resolvedPath);
+      imageAssetsMeta.push({
+        path: resolvedPath,
+        material_type: imageAsset.materialType || 'product',
+        frame_role: imageAsset.frameRole === '首帧' ? 'first_frame' : imageAsset.frameRole === '尾帧' ? 'last_frame' : null,
+      });
+      if (imageAsset.id && imageAsset.id !== 'current-upload') {
+        pathUpdates[imageAsset.id] = resolvedPath;
+      }
+    }
+
+    for (const modelAsset of modelAssets) {
+      const seedanceAssetId = String(modelAsset.seedanceAssetId || '').trim();
+      if (!seedanceAssetId) {
+        throw new Error(t.wb_replay_error_model_missing_seedance_id || '该虚拟模特缺少 Seedance 资产 ID，无法用于爆款复刻生成。');
+      }
+      const resolvedPath = modelAsset.uploadedPath || modelAsset.assetUrl || modelAsset.previewUrl || `asset://${seedanceAssetId}`;
+      seedanceImagePaths.push(resolvedPath);
+      imageAssetsMeta.push({
+        path: resolvedPath,
+        material_type: 'model',
+        seedance_asset_id: seedanceAssetId,
+        frame_role: null,
+      });
+    }
+
+    if (Object.keys(pathUpdates).length > 0) {
+      setAssetQueue((prev) => prev.map((item) => pathUpdates[item.id] ? { ...item, uploadedPath: pathUpdates[item.id] } : item));
+    }
+
+    return {
+      productImagePaths,
+      seedanceImagePaths,
+      imageAssetsMeta,
+      modelAssetIds: modelAssets.map((asset) => String(asset.seedanceAssetId || '').trim()).filter(Boolean),
+      referenceVideoAsset: videoAssets[0] || null,
+    };
+  };
+
+  const buildReplayReversePayload = (referenceVideoAsset: QueuedAsset, debugTraceId: string) => {
+    if (referenceVideoAsset.fileObj) {
+      const formData = new FormData();
+      formData.append('video_file', referenceVideoAsset.fileObj, referenceVideoAsset.fileObj.name || referenceVideoAsset.name || 'reference.mp4');
+      formData.append('user_language', language);
+      formData.append('debug_trace_id', debugTraceId);
+      formData.append('debug', 'true');
+      if (productName.trim()) formData.append('product_name', productName.trim());
+      if (productCategory.trim()) formData.append('product_category', productCategory.trim());
+      if (coreSellingPoints.trim()) formData.append('core_selling_points', coreSellingPoints.trim());
+      if (targetAudience?.trim()) formData.append('target_audience', targetAudience.trim());
+      return formData;
+    }
+
+    const videoPath = String(referenceVideoAsset.uploadedPath || referenceVideoAsset.assetUrl || '').trim();
+    if (!videoPath) {
+      throw new Error(t.wb_replay_error_reference_video_unreadable || '无法读取参考广告视频');
+    }
+    const productExtra = {
+      ...(productName.trim() ? { product_name: productName.trim() } : {}),
+      ...(productCategory.trim() ? { product_category: productCategory.trim() } : {}),
+      ...(coreSellingPoints.trim() ? { core_selling_points: coreSellingPoints.trim() } : {}),
+      ...(targetAudience?.trim() ? { target_audience: targetAudience.trim() } : {}),
+    };
+    if (/^https?:\/\//i.test(videoPath)) {
+      return { video_url: videoPath, user_language: language, debug_trace_id: debugTraceId, debug: true, ...productExtra };
+    }
+    return { video_path: videoPath, user_language: language, debug_trace_id: debugTraceId, debug: true, ...productExtra };
+  };
+
+  const handleReplayBatchGenerateSubmit = async () => {
+    if (!requireAuth()) return;
+
+    const imageCount = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image' && asset.materialType !== 'model').length;
+    const videoCount = uploadDisplayAssets.filter((asset) => asset.mediaKind === 'video').length;
+    const issues: string[] = [];
+    if (!productName.trim()) issues.push(t.wb_required_product_name || '请填写商品名称');
+    if (!productCategory.trim()) issues.push(t.wb_required_product_category || '请填写商品品类');
+    if (!coreSellingPoints.trim()) issues.push(t.wb_required_core_selling_points || '请填写核心卖点');
+    if (imageCount <= 0) issues.push(t.wb_replay_error_missing_product_image || '请上传至少 1 张商品图片');
+    if (videoCount <= 0) issues.push(t.wb_replay_error_missing_reference_video || '请上传 1 个参考广告视频');
+    if (videoCount > 1) issues.push(t.wb_replay_error_single_reference_video || '爆款复刻模式只支持 1 个参考广告视频');
+    if (seedanceReplayValidation.hasBlockingIssues) {
+      issues.push(...seedanceReplayValidation.imageErrors, ...seedanceReplayValidation.videoErrors, ...seedanceReplayValidation.audioErrors, ...seedanceReplayValidation.globalErrors);
+    }
+    if (replayTotalGenerateCount <= 0) issues.push(t.wb_replay_error_zero_total || '请至少设置生成 1 条视频');
+
+    if (issues.length > 0) {
+      showGenerateValidationIssues(Array.from(new Set(issues.filter(Boolean))));
+      if (imageCount <= 0) focusSeedanceReplayValidationTarget('image');
+      else if (videoCount !== 1) focusSeedanceReplayValidationTarget('video');
+      return;
+    }
+
+    setIsGenerating(true);
+    setGeneratedVideoUrl(null);
+
+    const runId = `replay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const templateJobs = REPLAY_SCRIPT_TEMPLATES.flatMap((template) => (
+      Array.from({ length: normalizeBatchGenerateCount(replayTemplateCountsById[template.id]) }, (_, copyIndex) => ({ template, copyIndex }))
+    ));
+    const userReferenceJobs = Array.from({ length: normalizeBatchGenerateCount(replayUserReferenceGenerateCount) }, (_, copyIndex) => ({ copyIndex }));
+    const initialItems: ReplayBatchItem[] = [
+      ...templateJobs.map(({ template, copyIndex }) => ({
+        id: `${runId}-tpl-${template.id}-${copyIndex}`,
+        label: `${template.title}${templateJobs.length > 1 ? ` #${copyIndex + 1}` : ''}`,
+        source: 'template' as const,
+        templateId: template.id,
+        copyIndex,
+        status: 'queued' as const,
+      })),
+      ...userReferenceJobs.map(({ copyIndex }) => ({
+        id: `${runId}-ref-${copyIndex}`,
+        label: `${t.wb_replay_user_reference_generation || '用户参考脚本生成'} #${copyIndex + 1}`,
+        source: 'user_reference' as const,
+        copyIndex,
+        status: 'queued' as const,
+      })),
+    ];
+
+    setReplayBatchRun({
+      id: runId,
+      expanded: true,
+      startedAt: Date.now(),
+      totalVideos: replayTotalGenerateCount,
+      userReferenceCount: userReferenceJobs.length,
+      templateVideoCount: templateJobs.length,
+      reverse: {
+        status: userReferenceJobs.length > 0 ? 'queued' : 'idle',
+        progress: 0,
+        detail: userReferenceJobs.length > 0 ? (t.wb_replay_reverse_queued || '等待逆向解析参考广告') : undefined,
+      },
+      items: initialItems,
+    });
+
+    try {
+      const { productImagePaths, seedanceImagePaths, imageAssetsMeta, modelAssetIds, referenceVideoAsset } = await resolveReplayGenerationAssets();
+      if (productImagePaths.length === 0) throw new Error(t.wb_replay_error_missing_product_image || '请上传至少 1 张商品图片');
+      if (!referenceVideoAsset) throw new Error(t.wb_replay_error_missing_reference_video || '请上传 1 个参考广告视频');
+
+      const submitReplayVideo = async (params: {
+        itemId: string;
+        label: string;
+        prompt: string;
+        source: 'template' | 'user_reference';
+        copyIndex: number;
+        templateId?: string;
+      }) => {
+        patchReplayBatchItem(params.itemId, {
+          status: 'submitting',
+          detail: t.wb_replay_submitting || '提交中',
+        });
+
+        try {
+          const createResp = await videoApi.createProject(user!.id, {
+            title: `${(productName || '').trim() || 'Replay'} · ${params.label}`,
+            aspect_ratio: aspectRatio,
+            script_content: {
+              duration: genDuration,
+              shots: [],
+              replay_source: params.source,
+              prompt: params.source === 'template' ? params.prompt : '',
+              prompt_hidden: params.source === 'user_reference',
+              replay_template_id: params.templateId || null,
+            },
+          });
+          const newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
+          if (!newProjectId) throw new Error('Failed to create project');
+
+          const requestPayload: GeneratePayload = {
+            model: 'seedance-2.0',
+            prompt: params.prompt,
+            product_name: productName,
+            duration: Math.max(4, Math.min(15, Math.round(Number(genDuration) || 8))),
+            aspect_ratio: aspectRatio,
+            sound: soundSetting,
+            asset_source: 'product',
+            pricing_mode: 'replay',
+            user_language: language,
+            target_language: targetLanguage,
+            debug: true,
+            debug_trace_id: runId,
+            replay_batch_role: params.source === 'template' ? 'template' : 'qwen_reverse',
+            replay_template_id: params.templateId || null,
+            replay_copy_index: params.copyIndex,
+            replay_item_label: params.label,
+            replay_model_asset_ids: modelAssetIds,
+            reference_video_sent_to_seedance: false,
+            model_asset_id: null,
+            motion_asset_id: null,
+            project_id: String(newProjectId),
+            image_path: seedanceImagePaths[0],
+            ...(seedanceImagePaths.length > 1 ? { image_paths: seedanceImagePaths } : {}),
+            ...(imageAssetsMeta.length > 0 ? { image_assets_meta: imageAssetsMeta } : {}),
+          };
+
+          const genResp = await generateWithAdaptiveImageConfirm(requestPayload);
+          const taskId = genResp?.data?.task_id || genResp?.task_id;
+          const projectId = genResp?.data?.project_id || newProjectId;
+          if (!taskId) throw new Error(t.wb_popup_batch_no_task_id || '任务提交成功但没有返回 task_id');
+
+          const estimatedSeconds = await fetchEstimatedSeconds({
+            model: 'seedance-2.0',
+            duration: Number(requestPayload.duration ?? genDuration),
+            sound: String(requestPayload.sound || '') === 'off' ? 'off' : 'on',
+            aspect_ratio: String(requestPayload.aspect_ratio || ''),
+            resolution: String((requestPayload as any).resolution || ''),
+          });
+
+          addTask({
+            id: taskId,
+            projectId: String(projectId),
+            workbenchProjectId: projectStore.currentProjectId,
+            estimatedSeconds,
+            type: 'video_generation',
+            status: 'processing',
+            name: params.label,
+            thumbnail: uploadDisplayAssets.find((asset) => asset.mediaKind === 'image')?.previewUrl || uploadedFile || undefined,
+            createdAt: Date.now(),
+            result: {
+              replay_source: params.source,
+              copyIndex: params.copyIndex,
+            },
+          });
+          patchReplayBatchItem(params.itemId, {
+            status: 'processing',
+            taskId,
+            projectId: String(projectId),
+            detail: t.wb_status_processing || '进行中',
+          });
+        } catch (error: any) {
+          const message = error?.message || String(error || t.wb_popup_submit_failed || '提交失败');
+          patchReplayBatchItem(params.itemId, {
+            status: 'failed',
+            error: message,
+            detail: message,
+          });
+        }
+      };
+
+      let reverseProgressTimer: number | null = null;
+      const reversePromise = (async () => {
+        if (userReferenceJobs.length === 0) return;
+        patchReplayReverse({ status: 'processing', progress: 8, detail: t.wb_replay_reverse_processing || '正在逆向解析参考广告脚本' });
+        reverseProgressTimer = window.setInterval(() => {
+          setReplayBatchRun((prev) => {
+            if (!prev || prev.reverse.status !== 'processing') return prev;
+            return {
+              ...prev,
+              reverse: {
+                ...prev.reverse,
+                progress: Math.min(88, Math.max(prev.reverse.progress + 2, prev.reverse.progress * 1.03)),
+              },
+            };
+          });
+        }, 1000);
+
+        try {
+          const reverseResp = await videoApi.reverseScriptFromVideo(user!.id, buildReplayReversePayload(referenceVideoAsset, runId));
+          const reverseData: any = reverseResp?.data || {};
+          const reversePrompt = String(
+            reverseData.seedancePrompt
+            || reverseData.seedance_prompt
+            || reverseData.suggestedPrompt
+            || reverseData.styleReferenceText
+            || ''
+          ).trim();
+          if (!reversePrompt) throw new Error(t.wb_replay_reverse_empty_prompt || '参考广告解析完成，但没有返回可用脚本');
+          patchReplayReverse({ status: 'success', progress: 100, detail: t.wb_replay_reverse_done || '脚本逆向解析完成', scriptBrief: '' });
+
+          for (const { copyIndex } of userReferenceJobs) {
+            const itemId = `${runId}-ref-${copyIndex}`;
+            await submitReplayVideo({
+              itemId,
+              label: `${t.wb_replay_user_reference_generation || '用户参考脚本生成'} #${copyIndex + 1}`,
+              prompt: buildReplayPrompt(reversePrompt, t.wb_replay_user_reference_generation || '用户参考脚本生成'),
+              source: 'user_reference',
+              copyIndex,
+            });
+          }
+        } catch (error: any) {
+          const message = error?.message || String(error || t.wb_replay_reverse_failed || '参考广告解析失败');
+          patchReplayReverse({ status: 'failed', progress: 100, error: message, detail: message });
+          userReferenceJobs.forEach(({ copyIndex }) => {
+            patchReplayBatchItem(`${runId}-ref-${copyIndex}`, {
+              status: 'failed',
+              error: message,
+              detail: message,
+            });
+          });
+        } finally {
+          if (reverseProgressTimer !== null) {
+            window.clearInterval(reverseProgressTimer);
+          }
+        }
+      })();
+
+      for (const { template, copyIndex } of templateJobs) {
+        await submitReplayVideo({
+          itemId: `${runId}-tpl-${template.id}-${copyIndex}`,
+          label: `${template.title}${normalizeBatchGenerateCount(replayTemplateCountsById[template.id]) > 1 ? ` #${copyIndex + 1}` : ''}`,
+          prompt: buildReplayPrompt(template.prompt, template.title),
+          source: 'template',
+          copyIndex,
+          templateId: template.id,
+        });
+      }
+
+      await reversePromise;
+      openInfo(popupTitles.success, formatMessage(t.wb_replay_batch_submitted || '已提交 {count} 条视频生成任务。', { count: replayTotalGenerateCount }));
+    } catch (error: any) {
+      const message = error?.message || String(error || t.wb_popup_submit_failed || '提交失败');
+      openErrorModal(error, { category: 'generation_failed', onRetry: handleReplayBatchGenerateSubmit });
+      setReplayBatchRun((prev) => prev ? {
+        ...prev,
+        reverse: prev.reverse.status === 'processing' || prev.reverse.status === 'queued'
+          ? { ...prev.reverse, status: 'failed', progress: 100, error: message, detail: message }
+          : prev.reverse,
+        items: prev.items.map((item) => item.status === 'queued' || item.status === 'submitting'
+          ? { ...item, status: 'failed', error: message, detail: message }
+          : item),
+      } : prev);
     } finally {
       setIsGenerating(false);
     }
@@ -8081,176 +9090,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const handleGenerateVideo = async () => {
     if (!requireAuth()) return;
-    const issues = validateGenerateRequirements();
-    if (issues.length > 0) {
-      showGenerateValidationIssues(issues);
+    if (isSeedanceReplayMode) {
+      await handleReplayBatchGenerateSubmit();
       return;
     }
-
-    if (reuseQueueEnabled) {
-      setIsGenerating(true);
-      setGeneratedVideoUrl(null);
-
-      try {
-        let batchCount = 0;
-
-        const preparedAssets = await Promise.all(assetQueue.map(async (asset) => {
-          let apiPath = asset.uploadedPath || asset.assetUrl || null;
-
-          if (!apiPath && asset.fileObj) {
-            const uploadResp = await assetsApi.uploadTempAsset(asset.fileObj);
-            let rawPath = null;
-            if (uploadResp.assets && Array.isArray(uploadResp.assets) && uploadResp.assets.length > 0) {
-              rawPath = uploadResp.assets[0].url || uploadResp.assets[0].file_url || uploadResp.assets[0].path;
-            } else {
-              rawPath = uploadResp.url || uploadResp.file_url || uploadResp.path || uploadResp.data?.url;
-            }
-            if (!rawPath) throw new Error("素材上传后未返回路径");
-            apiPath = rawPath;
-
-            setAssetQueue(prev => prev.map(a => a.id === asset.id ? { ...a, uploadedPath: apiPath } : a));
-          }
-
-          if (!apiPath) throw new Error(`无法获取素材路径：${asset.name}`);
-
-          return { ...asset, apiPath };
-        }));
-
-        // 收集所有音频素材的路径，用于 Seedance reference_audio
-        const audioPaths = preparedAssets
-          .filter((a) => a.mediaKind === 'audio')
-          .map((a) => (a as any).apiPath as string);
-
-        // 非音频素材才参与 asset × script 矩阵生成
-        const nonAudioAssets = preparedAssets.filter((a) => a.mediaKind !== 'audio');
-
-        // 如果全部是音频（无图片/视频），仍走 text-to-video，用空数组兜底
-        const effectiveAssets = nonAudioAssets.length > 0 ? nonAudioAssets : [null];
-
-        for (const asset of effectiveAssets) {
-          for (const scriptPack of scriptQueue) {
-            const combinedScriptPrompt = buildCombinedScriptPrompt(
-              scriptPack.fullScript || '',
-              scriptPack.creativeCard,
-              scriptPack.scripts,
-              scriptPack.creativeCardText || ''
-            );
-
-            let newProjectId: string | undefined;
-            if (selectedTemplate?.id) {
-              const cloneResp = await videoApi.cloneProject(selectedTemplate.id);
-              newProjectId = cloneResp?.data?.new_project_id || cloneResp?.new_project_id || cloneResp?.data?.id;
-              if (!newProjectId) throw new Error('Failed to clone project');
-            } else {
-              if (!user?.id) throw new Error('请先登录');
-              const createResp = await videoApi.createProject(user.id, {
-                title: (productName || '').trim() || `${asset?.name || 'Text'} × ${scriptPack.name}`,
-                aspect_ratio: '9:16',
-                script_content: {
-                  duration: scriptPack.duration,
-                  shots: scriptPack.scripts
-                }
-              });
-              newProjectId = createResp?.data?.id || createResp?.data?.project_id || createResp?.id;
-              if (!newProjectId) throw new Error('Failed to create project');
-            }
-
-            const payload = {
-              model: backendModel,
-              prompt: combinedScriptPrompt,
-              product_name: productName,
-              project_id: newProjectId,
-              duration: scriptPack.duration,
-              aspect_ratio: aspectRatio,
-              ...(asset
-                ? (asset.mediaKind === 'video'
-                  ? { motion_video_path: (asset as any).apiPath }
-                  : { image_path: (asset as any).apiPath })
-                : {}),
-              sound: soundSetting,
-              ...(audioPaths.length > 0 ? { audio_paths: audioPaths } : {}),
-              ...(selectedBackgroundAudio && soundSetting === 'off'
-                ? {
-                  background_audio_asset_id: selectedBackgroundAudio.id,
-                  background_audio_url: selectedBackgroundAudio.file_url,
-                  background_audio_name: selectedBackgroundAudio.name,
-                }
-                : {}),
-              asset_source: asset?.source ?? null,
-              user_language: language,
-              target_language: targetLanguage,
-              model_asset_id: selectedTemplate?.default_model_asset?.id ?? null,
-              motion_asset_id: asset?.mediaKind === 'video' ? null : (selectedTemplate?.default_motion_asset?.id ?? null),
-              ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
-            };
-
-            const genResp = await generateWithAdaptiveImageConfirm(payload);
-            const taskId = genResp?.data?.task_id || genResp?.task_id;
-            const projectId = genResp?.data?.project_id || newProjectId;
-
-            if (genResp?.code === 0 && taskId) {
-              const estimatedSeconds = await fetchEstimatedSeconds({
-                model: backendModel,
-                duration: scriptPack.duration,
-                sound: soundSetting,
-                aspect_ratio: String(payload.aspect_ratio || ''),
-                resolution: String((payload as any).resolution || (payload as any).size || ''),
-              });
-              console.log('[Estimate] batchGeneration', { taskId, projectId: String(projectId), estimatedSeconds });
-
-              addTask({
-                id: taskId,
-                projectId: String(projectId),
-                workbenchProjectId: projectStore.currentProjectId,
-                estimatedSeconds,
-                type: 'video_generation',
-                status: 'processing',
-                name: `${(productName || '').trim() || asset?.name || 'Text-to-Video'}`,
-                thumbnail: asset?.previewUrl || undefined,
-                createdAt: Date.now(),
-              });
-
-              batchCount += 1;
-            } else {
-              console.warn('Batch generation response invalid', genResp);
-            }
-          }
-        }
-
-        if (batchCount > 0) {
-          openInfo(popupTitles.success, formatMessage(t.wb_popup_batch_success, { count: batchCount }));
-        } else {
-          openInfo(popupTitles.notice, t.wb_popup_batch_no_task_id);
-        }
-      } catch (err: any) {
-        if (err?.message === USER_CANCELLED_ADAPT) {
-          openInfo(popupTitles.notice, t.wb_popup_batch_cancelled);
-        } else {
-          openErrorModal(err, { category: 'generation_failed', onRetry: handleGenerateVideo });
-        }
-      } finally {
-        setIsGenerating(false);
-      }
-
-      return;
-    }
-
-    setIsGenerating(true);
-    setGeneratedVideoUrl(null);
-
-    try {
-      const payload = await buildSingleGeneratePayload();
-      payload.script_count = Math.max(1, Number(scriptVariantCount) || 1);
-      await submitSingleGeneration(payload);
-    } catch (err: any) {
-      if (err?.message === USER_CANCELLED_ADAPT) {
-        openInfo(popupTitles.notice, t.wb_popup_batch_cancelled);
-      } else {
-        openErrorModal(err, { category: 'generation_failed', onRetry: handleGenerateVideo });
-      }
-    } finally {
-      setIsGenerating(false);
-    }
+    await handleScriptPageBatchGenerateSubmit();
   };
 
   const handlePublishToTikTok = async () => {
@@ -8394,6 +9238,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setSeedanceReplayFocusTarget(null);
     }
   }, [isSeedanceReplayMode, seedanceReplayValidation.hasBlockingIssues]);
+  useEffect(() => () => {
+    if (assetLibraryUploadSummaryToastTimerRef.current) {
+      window.clearTimeout(assetLibraryUploadSummaryToastTimerRef.current);
+      assetLibraryUploadSummaryToastTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     setGenDuration((prev) => normalizeDurationForModel(prev, selectedModel));
@@ -8470,6 +9320,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         <div className="mt-1 text-[10px] leading-relaxed text-zinc-200/80">{desc}</div>
       </div>
     );
+    const creationModeIndex = creationMode === 'replay' ? 1 : 0;
+    const audioModeIndex = soundSetting === 'off' ? 1 : 0;
+    const klingModeIndex = klingGenerateMode === 'subject' ? 1 : klingGenerateMode === 'first_last_frame' ? 2 : 0;
+    const boundaryModelIndex = imageGenModel === 'flux-2-flex' ? 1 : imageGenModel === 'gpt-image-1.5' ? 2 : 0;
 
     const legacyModelSelector = (
       <div className="flex flex-col gap-3">
@@ -8562,6 +9416,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           desc: t.wb_model_sora2pro_desc,
           Icon: Sparkles,
         },
+        {
+          id: 'seedance2.0',
+          title: 'Seedance 2.0',
+          desc: t.wb_model_tip_seedance,
+          Icon: Video,
+        },
 
       ];
 
@@ -8579,7 +9439,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           }}
           disabled={locked}
           className={[
-            'w-full text-left rounded-2xl border p-3 transition flex items-center gap-4',
+            'wb-fast-model-card w-full text-left rounded-2xl border p-3 transition flex items-center gap-4',
             'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
             active
               ? 'border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10'
@@ -8640,7 +9500,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const modelSelector = (
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2 mb-1">
-          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+          <h2 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
             <Wand2 className="w-3 h-3" /> {t.wb_creation_mode_title}
           </h2>
           <button
@@ -8670,17 +9530,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               ].join(' ')}
             >
               <div>
-                <div className="creation-mode-toggle mx-3 rounded-2xl bg-white/5 border border-white/10 p-1 flex items-center gap-1">
+                <div className="wb-mode-toggle grid-cols-2">
+                  <span
+                    className="wb-mode-thumb w-1/2"
+                    style={{ transform: `translateX(${creationModeIndex * 100}%)` }}
+                  />
                   <button
                     type="button"
                     onClick={() => handleSetCreationMode('fast')}
                     aria-pressed={creationMode === 'fast'}
                     className={[
-                      'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
+                      'relative z-10 rounded-lg py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
                       'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
                       creationMode === 'fast'
-                        ? 'bg-white text-zinc-900 shadow-md'
-                        : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
+                        ? 'text-orange-200'
+                        : 'bg-transparent text-zinc-500 hover:text-orange-300',
                     ].join(' ')}
                   >
                     <Zap className={creationMode === 'fast' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
@@ -8691,11 +9555,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     onClick={() => handleSetCreationMode('replay')}
                     aria-pressed={creationMode === 'replay'}
                     className={[
-                      'flex-1 rounded-xl py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
+                      'relative z-10 rounded-lg py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
                       'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
                       creationMode === 'replay'
-                        ? 'bg-white text-zinc-900 shadow-md'
-                        : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5',
+                        ? 'text-orange-200'
+                        : 'bg-transparent text-zinc-500 hover:text-orange-300',
                     ].join(' ')}
                   >
                     <Layers className={creationMode === 'replay' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
@@ -8705,7 +9569,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
 
               {creationMode === 'fast' ? (
-                <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
+                <div className="space-y-3">
                   <div className="mb-3">
                     <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
                       <ArrowRight className="w-3 h-3 text-zinc-500" />
@@ -8715,7 +9579,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
                 </div>
               ) : (
-                <div className="glass-panel rounded-2xl p-3 border border-white/10 bg-black/20">
+                <div className="space-y-3">
                   <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-2">
                     <ArrowRight className="w-3 h-3 text-zinc-500" />
                     {t.wb_render_power_title}
@@ -8767,10 +9631,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     );
 
     const renderLeftColumnSettings = () => (
-      <div ref={configSectionRef} className={`flex flex-col gap-3 flex-1 transition-opacity duration-500 ${getGuideFocusClass('config')}`}>
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-            <Gift className="w-3 h-3 shrink-0" /> {t.wb_product_info_title || 'Product Info'}
+      <div ref={configSectionRef} className={`wb-config-form flex flex-col gap-3 flex-1 scroll-mt-4 transition-opacity duration-500 ${getGuideFocusClass('config')}`}>
+        <div className="flex items-center justify-between gap-2 border-t border-white/10 pt-4">
+          <h2 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+            <Gift className="w-4 h-4 shrink-0" /> {t.wb_product_info_title || 'Product Info'}
           </h2>
           <button
             type="button"
@@ -8800,9 +9664,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         )}
 
         <div className="flex flex-col gap-4">
-          <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
+          <div className="flex flex-col gap-4">
             <div ref={videoTypeFieldRef}>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+              <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">
                 {t.wb_field_product_name_label}
                 <span className="ml-1 text-red-400">*</span>
               </label>
@@ -8817,15 +9681,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   }
                 }}
                 placeholder={t.wb_field_product_name_placeholder}
-                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition"
+                className="wb-workbench-field"
               />
               {requiredErrors.productName && (
-                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.productName}</div>
+                <div className="mt-1 text-[12px] text-red-400 font-medium">{requiredErrors.productName}</div>
               )}
             </div>
 
             <div ref={productCategoryFieldRef}>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+              <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">
                 {t.wb_field_product_category_label}
                 <span className="ml-1 text-red-400">*</span>
               </label>
@@ -8846,18 +9710,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     setRequiredErrors((prev) => ({ ...prev, productCategory: undefined }));
                   }
                 }}
-                buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                buttonClassName="wb-workbench-field cursor-pointer text-left"
                 labelClassName=""
                 iconClassName="w-3 h-3 text-zinc-500"
                 optionClassName="text-xs"
               />
               {requiredErrors.productCategory && (
-                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.productCategory}</div>
+                <div className="mt-1 text-[12px] text-red-400 font-medium">{requiredErrors.productCategory}</div>
               )}
             </div>
 
             <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+              <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">
                 {t.wb_field_core_selling_points_label}
                 <span className="ml-1 text-red-400">*</span>
               </label>
@@ -8872,15 +9736,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   }
                 }}
                 placeholder={t.wb_field_core_selling_points_placeholder}
-                className="w-full h-[96px] overflow-y-auto custom-scroll bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition resize-none"
+                className="wb-workbench-field h-[96px] overflow-y-auto custom-scroll resize-none"
               />
               {requiredErrors.coreSellingPoints && (
-                <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.coreSellingPoints}</div>
+                <div className="mt-1 text-[12px] text-red-400 font-medium">{requiredErrors.coreSellingPoints}</div>
               )}
             </div>
 
             <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_target_audience_label}</label>
+              <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_target_audience_label}</label>
               <input
                 value={targetAudience}
                 onChange={(e) => {
@@ -8888,28 +9752,28 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   setProductInfoTouched((prev) => ({ ...prev, audience: true }));
                 }}
                 placeholder={t.wb_field_target_audience_placeholder}
-                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500 transition"
+                className="wb-workbench-field"
               />
             </div>
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-4 mt-2">
-          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-            <SlidersHorizontal className="w-3 h-3" /> {t.wb_generation_settings_title}
+        <div className="flex items-center justify-between gap-4 border-t border-white/10 pt-4 mt-2">
+          <h2 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+            <SlidersHorizontal className="w-4 h-4" /> {t.wb_generation_settings_title}
           </h2>
         </div>
 
         <div className="flex flex-col gap-4">
-          <div className="glass-panel rounded-xl p-5 flex flex-col gap-4">
+          <div className="flex flex-col gap-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_delivery_region_label}</label>
+                <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_delivery_region_label}</label>
                 <DropdownSelect
                   value={deliveryRegion}
                   options={DELIVERY_REGION_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
                   onChange={setDeliveryRegion}
-                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  buttonClassName="wb-workbench-field cursor-pointer text-left"
                   labelClassName=""
                   iconClassName="w-3 h-3 text-zinc-500"
                   optionClassName="text-xs"
@@ -8917,12 +9781,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
 
               <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_video_language_label}</label>
+                <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_video_language_label}</label>
                 <DropdownSelect
                   value={targetLanguage}
                   options={TARGET_LANGUAGE_OPTIONS.map((opt) => ({ value: opt.value, label: t[opt.labelKey] }))}
                   onChange={setTargetLanguage}
-                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  buttonClassName="wb-workbench-field cursor-pointer text-left"
                   labelClassName=""
                   iconClassName="w-3 h-3 text-zinc-500"
                   optionClassName="text-xs"
@@ -8932,7 +9796,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
             <div className="flex flex-col gap-4">
               <div>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">
+                <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">
                   {t.wb_field_video_type_label}
                   <span className="ml-1 text-red-400">*</span>
                 </label>
@@ -8954,19 +9818,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       setRequiredErrors((prev) => ({ ...prev, videoType: undefined }));
                     }
                   }}
-                  buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                  buttonClassName="wb-workbench-field cursor-pointer text-left"
                   labelClassName=""
                   iconClassName="w-3 h-3 text-zinc-500"
                   optionClassName="text-xs"
                 />
                 {requiredErrors.videoType && (
-                  <div className="mt-1 text-[10px] text-red-400 font-medium">{requiredErrors.videoType}</div>
+                  <div className="mt-1 text-[12px] text-red-400 font-medium">{requiredErrors.videoType}</div>
                 )}
               </div>
 
               {!(selectedModel === 'kling' && klingGenerateMode === 'first_frame') && (
                 <div>
-                  <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.aspect_ratio}</label>
+                  <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">{t.aspect_ratio}</label>
                   <DropdownSelect
                     value={aspectRatio}
                     options={selectedModel === 'seedance2.0'
@@ -8986,7 +9850,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           : []),
                       ]}
                     onChange={(v) => setAspectRatio(normalizeWorkbenchAspectRatio(v))}
-                    buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                    buttonClassName="wb-workbench-field cursor-pointer text-left"
                     labelClassName=""
                     iconClassName="w-3 h-3 text-zinc-500"
                     optionClassName="text-xs"
@@ -8996,7 +9860,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
 
             <div>
-              <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_additional_requirements_label}</label>
+              <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_field_additional_requirements_label}</label>
               <textarea
                 readOnly={!hasCurrentAsset}
                 onFocus={() => {
@@ -9005,7 +9869,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 onClick={() => {
                   if (!hasCurrentAsset) openInfo(popupTitles.notice, t.wb_additional_requirements_need_asset);
                 }}
-                className={`w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-y min-h-[80px] ${!hasCurrentAsset ? 'text-zinc-500 opacity-60' : 'text-zinc-300 focus:border-orange-500 focus:outline-none'}`}
+                className={`wb-workbench-field wb-workbench-field--textarea resize-y min-h-[80px] ${!hasCurrentAsset ? 'opacity-60 cursor-not-allowed' : ''}`}
                 placeholder={t.wb_field_additional_requirements_placeholder}
                 value={genPrompt}
                 onChange={(e) => {
@@ -9020,7 +9884,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 {selectedModel === 'kling' || selectedModel === 'seedance2.0' ? (
                   <div className="flex flex-col gap-3">
                     <div className="flex justify-between items-center">
-                      <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_config_duration}</label>
+                      <label className="text-[12px] text-zinc-500 font-bold block uppercase">{t.wb_config_duration}</label>
                       <span className="text-[12px] font-bold text-orange-400">{genDuration}s</span>
                     </div>
                     <input
@@ -9030,12 +9894,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       step={1}
                       value={genDuration}
                       onChange={(e) => setGenDuration(normalizeDurationForModel(Number(e.target.value), selectedModel))}
-                      className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                      className="wb-range w-full h-2 rounded-lg cursor-pointer accent-orange-500"
                     />
                   </div>
                 ) : (
                   <>
-                    <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
+                    <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_duration}</label>
                     <DropdownSelect
                       value={String(genDuration)}
                       options={selectedModel === 'sora2' || selectedModel === 'sora2pro'
@@ -9050,7 +9914,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           { value: '15', label: '15s' },
                         ]}
                       onChange={(v) => setGenDuration(normalizeDurationForModel(Number(v), selectedModel))}
-                      buttonClassName="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-orange-500 transition cursor-pointer hover:bg-white/5"
+                      buttonClassName="wb-workbench-field cursor-pointer text-left"
                       labelClassName=""
                       iconClassName="w-3 h-3 text-zinc-500"
                       optionClassName="text-xs"
@@ -9060,10 +9924,40 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
 
               <div ref={audioConfigSectionRef}>
-                <label className="text-[10px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_audio}</label>
-                <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
-                  <button onClick={() => setSoundSetting('on')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'on' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_on}</button>
-                  <button onClick={() => setSoundSetting('off')} className={`wb-choice-btn flex-1 py-1.5 rounded-md text-[10px] font-medium transition ${soundSetting === 'off' ? 'wb-choice-btn--active' : 'wb-choice-btn--inactive'}`}>{t.wb_config_audio_off}</button>
+                <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">{t.wb_config_audio}</label>
+                <div className="wb-mode-toggle grid-cols-2">
+                  <span
+                    className="wb-mode-thumb w-1/2"
+                    style={{ transform: `translateX(${audioModeIndex * 100}%)` }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setSoundSetting('on')}
+                    aria-pressed={soundSetting === 'on'}
+                    className={[
+                      'relative z-10 rounded-lg py-2 text-[11px] font-bold transition',
+                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                      soundSetting === 'on'
+                        ? 'text-orange-200'
+                        : 'bg-transparent text-zinc-500 hover:text-orange-300',
+                    ].join(' ')}
+                  >
+                    {t.wb_config_audio_on}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSoundSetting('off')}
+                    aria-pressed={soundSetting === 'off'}
+                    className={[
+                      'relative z-10 rounded-lg py-2 text-[11px] font-bold transition',
+                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                      soundSetting === 'off'
+                        ? 'text-orange-200'
+                        : 'bg-transparent text-zinc-500 hover:text-orange-300',
+                    ].join(' ')}
+                  >
+                    {t.wb_config_audio_off}
+                  </button>
                 </div>
                 {soundSetting === 'off' && (
                   <div className="mt-2 space-y-2">
@@ -9128,42 +10022,46 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_reference_script_label || '参考脚本（来自视频解析）'}</label>
-              <textarea
-                value={referenceScript}
-                onChange={(e) => {
-                  setReferenceScript(e.target.value);
-                  setReferenceScriptProductSignature(currentProductInfoSignature);
-                }}
-                rows={4}
-                placeholder={t.wb_reference_script_placeholder || '粘贴或使用“视频解析反向生成脚本”应用到工作台后的参考脚本'}
-                className="w-full bg-black/40 text-xs p-3 rounded-lg border border-white/10 resize-y min-h-[86px] text-zinc-300 focus:border-orange-500 focus:outline-none"
-              />
-              <div className="text-[10px] text-zinc-500">{t.wb_reference_script_hint || '该内容将作为风格参考一并输入脚本模型，帮助生成更接近参考风格的新脚本。'}</div>
-              {!isReferenceScriptFresh && referenceScript.trim() && (
-                <div className="text-[10px] text-amber-300 font-medium">
-                  当前参考脚本对应的是旧商品信息，生成脚本时将自动忽略它。
+            {!isSeedanceReplayMode && (
+              <>
+                <div className="space-y-2">
+                  <label className="text-[12px] text-zinc-500 font-bold block uppercase">{t.wb_reference_script_label || '参考脚本（来自视频解析）'}</label>
+                  <textarea
+                    value={referenceScript}
+                    onChange={(e) => {
+                      setReferenceScript(e.target.value);
+                      setReferenceScriptProductSignature(currentProductInfoSignature);
+                    }}
+                    rows={4}
+                    placeholder={t.wb_reference_script_placeholder || '粘贴或使用“视频解析反向生成脚本”应用到工作台后的参考脚本'}
+                    className="wb-workbench-field wb-workbench-field--textarea resize-y min-h-[86px]"
+                  />
+                  <div className="text-[11px] text-zinc-500">{t.wb_reference_script_hint || '该内容将作为风格参考一并输入脚本模型，帮助生成更接近参考风格的新脚本。'}</div>
+                  {!isReferenceScriptFresh && referenceScript.trim() && (
+                    <div className="text-[11px] text-amber-300 font-medium">
+                      当前参考脚本对应的是旧商品信息，生成脚本时将自动忽略它。
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            <div className="border-t border-white/5 my-1" />
+                <div className="border-t border-white/5 my-1" />
 
-            <div className="flex flex-col gap-3">
-              <div className="flex justify-between items-center">
-                <label className="text-[10px] text-zinc-500 font-bold block uppercase">{t.wb_script_count_label}</label>
-                <span className="text-[12px] font-bold text-orange-400">{scriptVariantCount} {t.wb_script_count_unit}</span>
-              </div>
-              <input
-                type="range"
-                min={1}
-                max={10}
-                value={scriptVariantCount}
-                onChange={(e) => setScriptVariantCount(Number(e.target.value))}
-                className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
-              />
-            </div>
+                <div className="flex flex-col gap-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[12px] text-zinc-500 font-bold block uppercase">{t.wb_script_count_label}</label>
+                    <span className="text-[12px] font-bold text-orange-400">{scriptVariantCount} {t.wb_script_count_unit}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={1}
+                    max={10}
+                    value={scriptVariantCount}
+                    onChange={(e) => setScriptVariantCount(Number(e.target.value))}
+                    className="wb-range w-full h-2 rounded-lg cursor-pointer accent-orange-500"
+                  />
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -9171,32 +10069,53 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     );
 
     return (
-      <div className="w-full flex flex-col gap-6 h-full overflow-y-auto overflow-x-hidden custom-scroll pr-1">
+      <div className="w-full flex flex-col gap-6 h-full overflow-y-auto overflow-x-visible custom-scroll px-2 py-2">
         <div ref={modeSectionRef} className={getGuideFocusClass('mode')}>
           {modelSelector}
         </div>
         {false && legacyModelSelector}
         {/* Upload Section */}
-        <div ref={uploadSectionRef} className={`flex flex-col gap-3 ${getGuideFocusClass('upload')}`}>
+        <div ref={uploadSectionRef} className={`flex flex-col gap-3 border-t border-white/10 pt-4 ${getGuideFocusClass('upload')}`}>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-3 h-3" /> {t.wb_upload_title}</h2>
-            {isSeedanceReplayMode && (
+            <h2 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-4 h-4" /> {t.wb_upload_title}</h2>
+            <div className="flex items-center gap-2">
+              {isSeedanceMode && (
+                <button
+                  type="button"
+                  onClick={handleSeedanceReplayOpenLibrary}
+                  className="wb-upload-library-btn inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-1.5 text-xs font-bold text-zinc-300 transition hover:border-white/25 hover:bg-white/[0.08] hover:text-white"
+                >
+                  <Library className="h-3.5 w-3.5" />
+                  {t.wb_seedance_replay_quick_add_button || '快速添加'}
+                </button>
+              )}
               <button
                 type="button"
-                onClick={handleSeedanceReplayOpenLibrary}
-                className="wb-upload-library-btn inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-1.5 text-xs font-bold text-zinc-300 transition hover:border-white/25 hover:bg-white/[0.08] hover:text-white"
+                onClick={() => setIsUploadSectionCollapsed(!isUploadSectionCollapsed)}
+                className="p-1.5 text-zinc-600 hover:text-zinc-300 transition rounded"
+                title={isUploadSectionCollapsed ? t.wb_expand : t.wb_collapse}
               >
-                <Library className="h-3.5 w-3.5" />
-                {t.wb_seedance_replay_quick_add_button || '快速添加'}
+                <ChevronsDown className={`w-4 h-4 transition-transform duration-200 ${isUploadSectionCollapsed ? 'rotate-0' : 'rotate-180'}`} />
               </button>
-            )}
+            </div>
           </div>
-          {isSeedanceReplayMode ? (
+          <div
+            className={[
+              'grid overflow-hidden transition-[grid-template-rows,opacity] duration-300',
+              'ease-[cubic-bezier(0.22,1,0.36,1)]',
+              isUploadSectionCollapsed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
+            ].join(' ')}
+            aria-hidden={isUploadSectionCollapsed}
+          >
+          <div className="min-h-0 overflow-hidden">
+          {isSeedanceMode ? (
             <>
               <SeedanceReplayUploadPanel
                 assets={seedanceReplayUploadAssets}
                 validationSummary={seedanceReplayValidation}
                 focusTarget={seedanceReplayFocusTarget}
+                visibleKinds={isSeedanceReplayMode ? ['image', 'video', 'model'] : undefined}
+                videoLimitOverride={isSeedanceReplayMode ? 1 : undefined}
                 onAddVirtualModel={handleSeedanceReplayAddVirtualModel}
                 onOpenLibraryForKind={handleSeedanceReplayAddFromLibrary}
                 onPreview={handleSeedanceReplayPreview}
@@ -9207,11 +10126,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           ) : (
             <div className="flex flex-col gap-3">
               {isKlingOmniMode && (
-                <div className="grid grid-cols-3 gap-2">
+                <div className="wb-mode-toggle grid-cols-3">
+                  <span
+                    className="wb-mode-thumb w-1/3"
+                    style={{ transform: `translateX(${klingModeIndex * 100}%)` }}
+                  />
                   <button
                     type="button"
                     onClick={() => handleKlingGenerateModeChange('first_frame')}
-                    className={`relative flex items-center justify-center overflow-visible rounded-xl border px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'first_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                    aria-pressed={klingGenerateMode === 'first_frame'}
+                    className={`relative z-10 flex items-center justify-center overflow-visible rounded-md border border-transparent px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'first_frame' ? 'text-orange-200' : 'text-zinc-300 hover:text-orange-300'}`}
                   >
                     <div className="flex items-center justify-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_first_frame}</span>
@@ -9228,13 +10152,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <button
                     type="button"
                     onClick={() => handleKlingGenerateModeChange('subject')}
-                    className={`relative flex items-center justify-center overflow-visible rounded-xl border px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'subject' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                    aria-pressed={klingGenerateMode === 'subject'}
+                    className={`relative z-10 flex items-center justify-center overflow-visible rounded-md border border-transparent px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'subject' ? 'text-orange-200' : 'text-zinc-300 hover:text-orange-300'}`}
                   >
                     <div className="flex items-center justify-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_subject}</span>
                       <span className="relative z-10 inline-flex items-center group/info hover:z-20">
                         <Info className="h-3 w-3 text-zinc-400" />
-                        <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 ml-6 w-44 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
+                        <span className="pointer-events-none absolute bottom-full right-0 z-20 mb-1 w-52 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
                           <span className="block">{t.wb_material_requirement_title}</span>
                           <span className="block">{t.wb_kling_subject_requirement}</span>
                           <span className="mt-1 block text-zinc-300">{t.wb_kling_subject_requirement_note}</span>
@@ -9246,7 +10171,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <button
                     type="button"
                     onClick={() => handleKlingGenerateModeChange('first_last_frame')}
-                    className={`relative flex items-center justify-center overflow-visible rounded-xl border px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'first_last_frame' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200 z-20' : 'border-white/10 bg-black/20 text-zinc-300 hover:bg-white/5'}`}
+                    aria-pressed={klingGenerateMode === 'first_last_frame'}
+                    className={`relative z-10 flex items-center justify-center overflow-visible rounded-md border border-transparent px-3 py-2 text-center transition hover:z-20 ${klingGenerateMode === 'first_last_frame' ? 'text-orange-200' : 'text-zinc-300 hover:text-orange-300'}`}
                   >
                     <div className="flex items-center justify-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_first_last_frame || 'First + Last Frame Mode'}</span>
@@ -9289,44 +10215,48 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 onDragEnter={undefined}
                 onDragLeave={undefined}
                 onDrop={undefined}
-                className={`glass-panel rounded-xl p-1 border-2 border-dashed transition-colors min-h-32 relative group ${uploadDisplayAssets.length > 0 ? 'border-none' : ''} ${isKlingOmniMode ? 'border-none' : (isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50')}`}
+                className={`rounded-xl transition-colors min-h-32 relative group ${isKlingOmniMode || uploadDisplayAssets.length === 0
+                  ? 'p-0 border-none bg-transparent'
+                  : `glass-panel p-1 border-2 border-dashed ${uploadDisplayAssets.length > 0 ? 'border-none' : ''} ${isDragUploadActive ? 'border-orange-500/80 bg-orange-500/10' : 'border-zinc-800 hover:border-orange-500/50'}`
+                  }`}
               >
                 {!isKlingOmniMode && isDragUploadActive && (
                   <div className="absolute inset-1 rounded-lg border border-dashed border-orange-500/60 bg-orange-500/10 pointer-events-none" />
                 )}
                 <input type="file" ref={fileInputRef} className="hidden" accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.mkv,.webm,.avi" multiple onChange={handleWorkbenchUpload} />
                 {!isKlingOmniMode && uploadDisplayAssets.length === 0 ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
+                  <div className="absolute inset-0 z-10">
                     <button
                       type="button"
-                      onClick={openAssetLibraryPicker}
-                      className="wb-upload-library-btn inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-bold text-zinc-100 transition hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-200"
+                      onClick={() => openAssetLibraryPicker()}
+                      className="wb-upload-library-btn group flex h-full w-full items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-2 text-sm font-bold text-zinc-200 transition hover:border-orange-400/60 hover:bg-orange-500/10 hover:text-orange-200"
                     >
-                      <FolderOpen className="w-3.5 h-3.5" />
-                      {t.wb_btn_choose_from_library || '从素材库选择'}
+                      <FolderOpen className="h-5 w-5 text-zinc-400 transition group-hover:text-orange-300" />
+                      <span>{t.wb_btn_choose_from_library || '从素材库选择'}</span>
                     </button>
-                    <p className="mt-2 text-[10px] text-zinc-500">
-                      {t.wb_upload_library_hint || '可在素材库弹窗中本地上传并自动保存到素材库'}
-                    </p>
                   </div>
                 ) : (
-                  <div className="rounded-lg bg-zinc-900/80 p-2">
+                  <div className={isKlingOmniMode ? '' : 'rounded-lg bg-zinc-900/80 p-2'}>
                     {isKlingOmniMode ? (
                       klingGenerateMode === 'first_last_frame' ? (
                         klingPrimarySlotAsset && klingTailSlotAsset ? (
-                          <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scroll pr-1">
-                            <div className="rounded-xl border border-white/10 bg-black/25 p-2">
+                          <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto bg-transparent custom-scroll pr-1">
+                            <div className="rounded-xl border border-white/10 bg-black/25 p-1">
                               <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">{t.wb_label_first_frame_short || t.wb_label_first_frame || 'First'}</div>
                               {renderUploadAssetCard(klingPrimarySlotAsset)}
                             </div>
-                            <div className="rounded-xl border border-white/10 bg-black/25 p-2">
+                            <div className="rounded-xl border border-white/10 bg-black/25 p-1">
                               <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">{t.wb_label_tail_frame || 'Tail Frame'}</div>
                               {renderUploadAssetCard(klingTailSlotAsset)}
                             </div>
                           </div>
                         ) : (
                           <div className="flex flex-col gap-2">
-                            <div className="flex gap-1.5 flex-wrap">
+                            <div className="wb-mode-toggle grid-cols-3">
+                              <span
+                                className="wb-mode-thumb w-1/3"
+                                style={{ transform: `translateX(${boundaryModelIndex * 100}%)` }}
+                              />
                               {([
                                 { id: 'flux-2-pro', label: 'Flux 2 Pro' },
                                 { id: 'flux-2-flex', label: 'Flux 2 Flex' },
@@ -9336,29 +10266,34 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                   key={m.id}
                                   type="button"
                                   onClick={() => setImageGenModel(m.id)}
-                                  className={`rounded-md px-2 py-1 text-[10px] font-bold transition border ${imageGenModel === m.id ? 'border-orange-400/60 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10'}`}
+                                  aria-pressed={imageGenModel === m.id}
+                                  className={`relative z-10 flex items-center justify-center rounded-md border border-transparent px-3 py-2 text-center text-[10px] font-bold leading-none transition hover:z-20 ${imageGenModel === m.id ? 'text-orange-200' : 'text-zinc-300 hover:text-orange-300'}`}
                                 >
                                   {m.label}
                                 </button>
                               ))}
                             </div>
-                            <div
-                              className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
-                              onClick={openAssetLibraryPicker}
-                            >
+                            <div className="rounded-xl border border-white/10 bg-black/25 p-2">
                               <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
                                 <span>{t.wb_label_reference_image || '参考图'}</span>
-                                <UploadCloud className="w-3.5 h-3.5 text-zinc-500" />
+                                <button
+                                  type="button"
+                                  className="flex h-6 w-6 items-center justify-center rounded-md border border-white/20 bg-black/55 text-zinc-200 transition hover:border-orange-400/70 hover:bg-orange-500/20 hover:text-orange-200"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openAssetLibraryPicker('reference');
+                                  }}
+                                  aria-label={t.wb_upload_click || 'Click to Upload'}
+                                >
+                                  <Plus className="h-3.5 w-3.5" />
+                                </button>
                               </div>
                               {klingReferenceSlotAssets.length > 0 ? (
                                 <div className="flex flex-col gap-2 max-h-60 overflow-y-auto custom-scroll pr-1">
                                   {klingReferenceSlotAssets.map((asset) => renderUploadAssetCard(asset))}
                                 </div>
                               ) : (
-                                <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20 flex flex-col items-center justify-center gap-2">
-                                  <UploadCloud className="w-5 h-5 text-zinc-600" />
-                                  <span className="text-[10px] text-zinc-500">{t.wb_kling_reference_upload_hint || 'Click to upload a product reference image'}</span>
-                                </div>
+                                <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20" />
                               )}
                             </div>
                           </div>
@@ -9366,8 +10301,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       ) : (
                         <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scroll pr-1">
                           <div
-                            className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
-                            onClick={openAssetLibraryPicker}
+                            className="relative rounded-xl border border-white/10 bg-black/25 p-2"
                             onDragOver={(e) => {
                               if (!draggingWorkbenchAssetId) return;
                               e.preventDefault();
@@ -9382,16 +10316,32 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             }}
                           >
                             <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
-                              <span>{klingGenerateMode === 'subject' ? (t.wb_label_subject_image || 'Subject') : (t.wb_label_first_frame || 'First Frame')}</span>
-                              {klingPrimarySlotHint}
+                              <span className="inline-flex items-center gap-1">
+                                {klingGenerateMode === 'subject' ? (t.wb_label_subject_image || 'Subject') : (t.wb_label_first_frame || 'First Frame')}
+                                {klingGenerateMode === 'first_frame' ? (
+                                  <span className="text-[10px] font-medium normal-case tracking-normal text-zinc-400">
+                                    {klingPrimaryCountLabel}
+                                  </span>
+                                ) : null}
+                              </span>
+                              <button
+                                type="button"
+                                className="flex h-6 w-6 items-center justify-center rounded-md border border-white/20 bg-black/55 text-zinc-200 transition hover:border-orange-400/70 hover:bg-orange-500/20 hover:text-orange-200"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openAssetLibraryPicker('primary');
+                                }}
+                                aria-label={t.wb_upload_click || 'Click to Upload'}
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                              </button>
                             </div>
                             {klingPrimarySlotAsset ? renderUploadAssetCard(klingPrimarySlotAsset) : (
                               <div className="h-28 rounded-lg border border-dashed border-white/10 bg-black/20" />
                             )}
                           </div>
                           <div
-                            className="rounded-xl border border-white/10 bg-black/25 p-2 cursor-pointer"
-                            onClick={openAssetLibraryPicker}
+                            className="relative rounded-xl border border-white/10 bg-black/25 p-2"
                             onDragOver={(e) => {
                               if (!draggingWorkbenchAssetId) return;
                               e.preventDefault();
@@ -9406,8 +10356,23 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             }}
                           >
                             <div className="mb-2 flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
-                              <span>{t.wb_label_reference_image || 'Reference'}</span>
-                              {klingReferenceSlotHint}
+                              <span className="inline-flex items-center gap-1.5">
+                                <span>{t.wb_label_reference_image || 'Reference'}</span>
+                                <span className={`text-[10px] font-medium normal-case tracking-normal ${isKlingReferenceOverflow ? 'text-red-400' : 'text-zinc-400'}`}>
+                                  {klingReferenceCountLabel}
+                                </span>
+                              </span>
+                              <button
+                                type="button"
+                                className="flex h-6 w-6 items-center justify-center rounded-md border border-white/20 bg-black/55 text-zinc-200 transition hover:border-orange-400/70 hover:bg-orange-500/20 hover:text-orange-200"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openAssetLibraryPicker('reference');
+                                }}
+                                aria-label={t.wb_upload_click || 'Click to Upload'}
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                              </button>
                             </div>
                             {klingReferenceSlotAssets.length > 0 ? (
                               <div className="flex flex-col gap-2 max-h-60 overflow-y-auto custom-scroll pr-1">
@@ -9487,7 +10452,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               {!(isKlingOmniMode && (klingGenerateMode === 'first_frame' || klingGenerateMode === 'first_last_frame')) ? (
                                 <div className="absolute top-1 left-1 z-10" onClick={(e) => e.stopPropagation()}>
                                   <select
-                                    className="text-[9px] font-bold px-2 py-1 pr-5 rounded-full border border-white/15 bg-black/80 text-zinc-100 cursor-pointer focus:outline-none focus:border-orange-500 appearance-none shadow-sm"
+                                    className="wb-workbench-field wb-workbench-field--compact cursor-pointer appearance-none shadow-sm"
                                     value={asset.materialType || (asset.mediaKind === 'video' ? 'motion' : asset.mediaKind === 'audio' ? 'audio' : 'product')}
                                     onChange={(e) => {
                                       const newType = e.target.value as AssetLibraryTab;
@@ -9503,7 +10468,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                                     }}
                                     style={{
                                       backgroundImage:
-                                        'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ffffff\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")',
+                                        'url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%230f172a\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")',
                                       backgroundRepeat: 'no-repeat',
                                       backgroundPosition: 'right 6px center',
                                     }}
@@ -9603,18 +10568,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <div className={`grid gap-2 grid-cols-1`}>
                 <button
                   type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openAssetLibraryPicker();
-                  }}
-                  className="wb-upload-library-btn rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold text-zinc-200 hover:bg-white/5"
-                >
-                  {t.wb_btn_choose_from_library || '从素材库选择'}
-                </button>
-                <button
-                  type="button"
                   onClick={openAiOptimizeDialog}
-                  className={`${isKlingOmniMode ? 'col-span-2' : 'col-span-2'} w-full rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-[10px] font-bold text-orange-200 hover:bg-orange-500/20`}
+                  className="w-full rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-xs font-bold text-orange-200 hover:bg-orange-500/20"
                 >
                   <span className="inline-flex items-center justify-center gap-1.5">
                     <ImagePlus className="w-3.5 h-3.5" />
@@ -9629,7 +10584,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       void handleGenerateKlingBoundaryFrames();
                     }}
                     disabled={isGeneratingKlingBoundaryFrames}
-                    className={`rounded-lg border px-3 py-2 text-[10px] font-bold transition ${isGeneratingKlingBoundaryFrames ? 'border-orange-500/30 bg-orange-500/10 text-orange-300/70' : 'border-orange-500/60 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
+                    className={`w-full rounded-lg border px-3 py-2 text-xs font-bold transition ${isGeneratingKlingBoundaryFrames ? 'border-orange-500/30 bg-orange-500/10 text-orange-300/70' : 'border-orange-500/40 bg-orange-500/10 text-orange-200 hover:bg-orange-500/20'}`}
                   >
                     {isGeneratingKlingBoundaryFrames
                       ? (t.wb_kling_boundary_frames_generating || t.wb_generating || 'Generating...')
@@ -9679,8 +10634,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-2">
-                    <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-3 h-3" /> {t.wb_reuse_queue}</h2>
+                  <div className="flex items-center justify-between gap-2 border-t border-white/10 pt-4">
+                    <h2 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><FolderPlus className="w-4 h-4" /> {t.wb_reuse_queue}</h2>
                     <button
                       type="button"
                       onClick={() => setReuseQueueEnabled((prev) => !prev)}
@@ -9806,11 +10761,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               )}
             </div>
           )}
+          </div>
+          </div>
         </div>
 
         {renderLeftColumnSettings()}
 
         <div className="pt-1">
+          {!isSeedanceReplayMode && (
+            <>
           {scriptGenerationNotice && !isScriptGenerationForCurrentProject && (
             <div className="mb-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-medium text-emerald-200 shadow-[0_8px_24px_rgba(16,185,129,0.12)]">
               {scriptGenerationNotice}
@@ -9869,13 +10828,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               </span>
             </button>
           )}
+            </>
+          )}
         </div>
       </div>
     );
   };
 
   return (
-    <div className="relative flex flex-col h-full z-10 rounded-3xl overflow-hidden border border-white/10 bg-zinc-950/80 shadow-2xl backdrop-blur-xl">
+    <div className={`relative flex flex-col h-full overflow-hidden border border-white/10 bg-zinc-950/80 shadow-2xl backdrop-blur-xl ${isGuideOpen ? 'z-[80]' : 'z-10'}`}>
       <header className="flex justify-between items-center px-8 py-4 border-b border-white/5 bg-black/20 backdrop-blur-sm shrink-0 relative z-50">
         <div className="flex items-center gap-4">
           <div className="relative">
@@ -10132,27 +11093,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             />
           ) : (
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={canGoToPrevProject ? goToPrevProject : undefined}
-                aria-disabled={!canGoToPrevProject}
-                className={`p-1 rounded transition ${canGoToPrevProject ? 'text-zinc-400 hover:text-white hover:bg-white/10' : 'text-zinc-400 opacity-35 cursor-not-allowed'}`}
-                title="上一项目"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
               <h1 className="text-xl font-bold tracking-tight text-white cursor-text" onClick={beginHeaderRename}>
                 {currentProject?.name || DEFAULT_PROJECT_NAME}
               </h1>
-              <button
-                type="button"
-                onClick={canGoToNextProject ? goToNextProject : undefined}
-                aria-disabled={!canGoToNextProject}
-                className={`p-1 rounded transition ${canGoToNextProject ? 'text-zinc-400 hover:text-white hover:bg-white/10' : 'text-zinc-400 opacity-35 cursor-not-allowed'}`}
-                title="下一项目"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
             </div>
           )}
           {ENABLE_PROMPT_LAB && (
@@ -10162,8 +11105,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 className="flex items-center gap-1.5 px-2 py-1 rounded border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
                 title="查看/编辑内置 prompts（临时功能）"
               >
-                <FileJson className="w-3.5 h-3.5" />
-                <span className="text-[10px] font-bold">Prompt</span>
+                <FileJson className="w-4 h-4" />
+                <span className="text-[12px] font-bold">Prompt</span>
               </button>
               <button
                 type="button"
@@ -10174,13 +11117,27 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 className="flex items-center gap-1.5 px-2 py-1 rounded border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 transition"
                 title={t.wb_guide_button_title}
               >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span className="text-[10px] font-bold">{t.wb_guide_button_label}</span>
+                <Sparkles className="w-4 h-4" />
+                <span className="text-[12px] font-bold">{t.wb_guide_button_label}</span>
               </button>
             </>
           )}
         </div>
         <div className="flex items-center gap-3">
+          <a
+            href="/privacy-policy"
+            className="flex items-center px-2 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
+            title={t.login_agreement_privacy || '隐私政策'}
+          >
+            <span className="text-[11px] font-bold">{t.login_agreement_privacy || '隐私政策'}</span>
+          </a>
+          <a
+            href="/terms-of-service"
+            className="flex items-center px-2 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
+            title={t.login_agreement_user || '服务条款'}
+          >
+            <span className="text-[11px] font-bold">{t.login_agreement_user || '服务条款'}</span>
+          </a>
           <div className="relative">
             <button
               ref={taskQueueButtonRef}
@@ -10370,7 +11327,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       {isGuideOpen && (
         <>
-          <div className="fixed inset-0 z-[70] bg-black/35 backdrop-blur-[1px]" onClick={() => setIsGuideOpen(false)} />
           <div
             className="fixed z-[90] rounded-2xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/60 p-4"
             style={guidePanelStyle}
@@ -10391,30 +11347,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
 
             <div className="mt-3 rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-3">
-              <div className="text-sm font-bold text-orange-200">{activeGuideStep?.title}</div>
+              <div className="text-sm font-bold text-orange-400">{activeGuideStep?.title}</div>
               <div className="mt-2 text-sm text-zinc-100">{activeGuideStep?.description}</div>
             </div>
 
-            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {guideSteps.map((step, index) => (
-                <button
-                  key={step.key}
-                  type="button"
-                  onClick={() => setGuideStepIndex(index)}
-                  className={`text-left rounded-lg border px-3 py-2 text-xs transition ${guideStepIndex === index ? 'border-orange-500/70 bg-orange-500/20 text-orange-200' : 'border-white/10 bg-black/40 text-zinc-300 hover:bg-white/5'}`}
-                >
-                  {index + 1}. {step.title}
-                </button>
-              ))}
-            </div>
-
             <div className="mt-4 flex justify-end gap-2">
-              <button
-                className="bg-zinc-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-600"
-                onClick={() => setIsGuideOpen(false)}
-              >
-                {t.wb_guide_close}
-              </button>
               <button
                 className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={guideStepIndex <= 0}
@@ -10769,68 +11706,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         </AppDialog>
       )}
 
-      {isScriptGridDialogOpen && (
-        <AppDialog
-          isOpen={isScriptGridDialogOpen}
-          title={t.wb_script_grid_title || 'Script Variants'}
-          onClose={() => setIsScriptGridDialogOpen(false)}
-          widthClassName="max-w-[min(96vw,1320px)]"
-        >
-          <div className="max-h-[72vh] overflow-x-auto overflow-y-hidden custom-scroll pr-1 pb-2">
-            <div className="flex flex-nowrap gap-3">
-              {scriptPages.map((page, index) => {
-                const active = index === activeScriptPage;
-                const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim()
-                  || (t.wb_script_grid_card_empty || 'No script content yet');
-                return (
-                  <div key={page.id} className="relative group/scriptcard">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleScriptPageChange(index);
-                        setIsScriptGridDialogOpen(false);
-                      }}
-                      className={`${scriptPlanCardClass} ${active ? 'border-orange-500/70 bg-orange-500/10 ring-1 ring-orange-500/35' : 'border-white/10 bg-black/25 hover:border-orange-500/35 hover:bg-white/5'}`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            {page.sourceLabel && (
-                              <span className="rounded border border-sky-400/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-200">
-                                {page.sourceLabel}
-                              </span>
-                            )}
-                          </div>
-                          <div className={`text-[12px] font-bold leading-5 ${active ? 'text-orange-400' : 'text-zinc-100'}`}>
-                            {formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix)}
-                          </div>
-                        </div>
-                        <span className={`shrink-0 text-[10px] ${active ? 'text-orange-400' : 'text-zinc-500'}`}>
-                          {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
-                        </span>
-                      </div>
-                      <div className={`${scriptPlanCardBodyClass} mt-1 ${active ? 'border-orange-400/30 bg-black/15 text-orange-100/90' : 'border-white/10 bg-black/20 text-zinc-300'}`}>
-                        {previewText}
-                      </div>
-                    </button>
-                    {scriptPages.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); removeScriptPage(index); }}
-                        className="absolute -top-1.5 -right-1.5 z-10 hidden group-hover/scriptcard:flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-zinc-900 text-zinc-400 transition hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-300"
-                        title={t.wb_delete || 'Delete'}
-                      >
-                        <Trash2 className="h-2.5 w-2.5" />
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </AppDialog>
-      )}
-
       {isScriptSaveDialogOpen && (
         <AppDialog
           isOpen={isScriptSaveDialogOpen}
@@ -11050,7 +11925,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   max={100}
                   value={aiOptimizeStyleStrength}
                   onChange={(e) => setAiOptimizeStyleStrength(Number(e.target.value))}
-                  className="w-full h-2 bg-black/30 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                  className="wb-range w-full h-2 rounded-lg cursor-pointer accent-orange-500"
                 />
               </div>
               <div className="space-y-2">
@@ -11147,30 +12022,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <div className="flex items-center justify-between gap-3 px-1">
                 <div className="text-xs text-zinc-400">{t.wb_audio_picker_hint || '仅显示音频素材'}</div>
                 <div className="flex items-center gap-2">
-                  {assetLibraryTab !== 'subject' && (
+                  {!shouldHideAssetLibraryLocalUpload && assetLibraryTab !== 'subject' && (
                     <button
                       type="button"
                       onClick={triggerAssetLibraryLocalUpload}
                       disabled={isAssetLibraryUploading}
                       className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading
                         ? 'cursor-not-allowed border-white/10 bg-white/5 text-zinc-200/70'
-                        : assetLibraryUploadSuccessVisible
-                          ? 'border-transparent bg-transparent text-emerald-200'
-                          : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
+                        : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
                         }`}
                     >
-                      {isAssetLibraryUploading ? (
-                        (t as any).wb_uploading || '上传中...'
-                      ) : assetLibraryUploadSuccessVisible ? (
-                        <span
-                          className={`inline-flex items-center justify-center gap-1.5 text-emerald-200 transition-opacity duration-[2000ms] ${assetLibraryUploadSuccessFading ? 'opacity-0' : 'opacity-100'}`}
-                          aria-label={language === 'zh' ? '上传成功' : 'Upload succeeded'}
-                        >
-                          <CheckCircle className="h-4 w-4" />
-                        </span>
-                      ) : (
-                        (t as any).wb_btn_upload_to_library || '上传素材'
-                      )}
+                      {isAssetLibraryUploading
+                        ? ((t as any).wb_uploading || '上传中...')
+                        : ((t as any).wb_btn_upload_to_library || '上传素材')}
                     </button>
                   )}
                   <button
@@ -11200,30 +12064,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   ))}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  {assetLibraryTab !== 'subject' && (
+                  {!shouldHideAssetLibraryLocalUpload && assetLibraryTab !== 'subject' && (
                     <button
                       type="button"
                       onClick={triggerAssetLibraryLocalUpload}
                       disabled={isAssetLibraryUploading}
                       className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading
                         ? 'cursor-not-allowed border-white/10 bg-white/5 text-zinc-200/70'
-                        : assetLibraryUploadSuccessVisible
-                          ? 'border-transparent bg-transparent text-emerald-200'
-                          : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
+                        : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
                         }`}
                     >
-                      {isAssetLibraryUploading ? (
-                        (t as any).wb_uploading || '上传中...'
-                      ) : assetLibraryUploadSuccessVisible ? (
-                        <span
-                          className={`inline-flex items-center justify-center gap-1.5 text-emerald-200 transition-opacity duration-[2000ms] ${assetLibraryUploadSuccessFading ? 'opacity-0' : 'opacity-100'}`}
-                          aria-label={language === 'zh' ? '上传成功' : 'Upload succeeded'}
-                        >
-                          <CheckCircle className="h-4 w-4" />
-                        </span>
-                      ) : (
-                        (t as any).wb_btn_upload_to_library || '上传素材'
-                      )}
+                      {isAssetLibraryUploading
+                        ? ((t as any).wb_uploading || '上传中...')
+                        : ((t as any).wb_btn_upload_to_library || '上传素材')}
                     </button>
                   )}
                   <button
@@ -11234,6 +12087,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     {(t as any).wb_btn_manage_assets_library || '前往素材库'}
                   </button>
                 </div>
+              </div>
+            )}
+            {assetLibraryUploadSummaryToast && (
+              <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-4 text-xs font-normal text-emerald-400/85">
+                {formatMessage(
+                  (t as any).wb_upload_library_summary_toast || 'Successfully uploaded and saved {uploadedCount} assets to library, and added {addedCount} assets to the current material area.',
+                  {
+                    uploadedCount: assetLibraryUploadSummaryToast.uploadedCount,
+                    addedCount: assetLibraryUploadSummaryToast.addedCount,
+                  }
+                )}
               </div>
             )}
             {assetLibraryTab !== 'subject' && (
@@ -11311,30 +12175,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         ? (t.wb_script_library_empty || '暂无脚本素材')
                         : '暂无素材'}
                   </div>
-                  <button
-                    type="button"
-                    onClick={triggerAssetLibraryLocalUpload}
-                    disabled={isAssetLibraryUploading}
-                    className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${isAssetLibraryUploading
-                      ? 'cursor-not-allowed border-white/10 bg-white/5 text-zinc-200/70'
-                      : assetLibraryUploadSuccessVisible
-                        ? 'border-transparent bg-transparent text-emerald-200'
-                        : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
-                      }`}
-                  >
-                    {isAssetLibraryUploading ? (
-                      (t as any).wb_uploading || '上传中...'
-                    ) : assetLibraryUploadSuccessVisible ? (
-                      <span
-                        className={`inline-flex items-center justify-center gap-1.5 text-emerald-200 transition-opacity duration-[2000ms] ${assetLibraryUploadSuccessFading ? 'opacity-0' : 'opacity-100'}`}
-                        aria-label={language === 'zh' ? '上传成功' : 'Upload succeeded'}
-                      >
-                        <CheckCircle className="h-4 w-4" />
-                      </span>
-                    ) : (
-                      (t as any).wb_btn_upload_to_library || '上传素材'
-                    )}
-                  </button>
                 </div>
               ) : (
                 <div className="grid grid-cols-6 gap-2">
@@ -11359,6 +12199,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       && assetLibraryPickMode === 'default'
                       && isSeedanceReplayAssetAlreadyAdded(asset)
                     );
+                    const alreadyAddedInKling = (
+                      isKlingOmniMode
+                      && assetLibraryPickMode === 'default'
+                      && isKlingAssetAlreadyAdded(asset)
+                    );
+                    const alreadyAddedInLibrary = alreadyAddedInSeedance || alreadyAddedInKling;
 
                     return (
                       <button
@@ -11373,12 +12219,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           setAssetLibraryHoverClickedAssetId((prev) => (prev === asset.id ? null : prev));
                         }}
                         onClick={() => {
-                          if (alreadyAddedInSeedance) return;
+                          if (alreadyAddedInLibrary) return;
                           const ok = selectAssetFromLibraryPopup(asset);
                           if (ok) setAssetLibraryHoverClickedAssetId(asset.id);
                         }}
-                        className={`group text-left rounded-lg border bg-black/30 p-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30 ${alreadyAddedInSeedance ? 'border-emerald-400/70 ring-1 ring-emerald-400/35' : 'border-white/10 hover:border-orange-500/50 hover:bg-white/5'}`}
-                        title={alreadyAddedInSeedance ? (t.wb_seedance_replay_notice_duplicate_asset || 'This asset has already been added.') : undefined}
+                        className={`group text-left rounded-lg border bg-black/30 p-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30 ${alreadyAddedInLibrary ? 'border-emerald-400/70 ring-1 ring-emerald-400/35' : 'border-white/10 hover:border-orange-500/50 hover:bg-white/5'}`}
+                        title={alreadyAddedInLibrary ? (t.wb_seedance_replay_notice_duplicate_asset || 'This asset has already been added.') : undefined}
                       >
                         <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
                           {isKlingOmniMode && hasSubjectOtherViews(asset) && (
@@ -11386,7 +12232,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               <Layers3 className="w-3.5 h-3.5" />
                             </div>
                           )}
-                          {alreadyAddedInSeedance && (
+                          {alreadyAddedInLibrary && (
                             <div className="wb-seedance-replay-added-badge absolute left-1.5 top-1.5 z-10 rounded-full border border-emerald-500/20 bg-emerald-500/5 px-1.5 py-0.5 text-[9px] font-bold text-emerald-400/85">
                               {t.wb_seedance_replay_added_badge || '已添加'}
                             </div>
@@ -11406,7 +12252,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} />
                           )}
 
-                          {!alreadyAddedInSeedance ? (
+                          {!alreadyAddedInLibrary ? (
                             <>
                               <div
                                 className={`pointer-events-none absolute inset-0 bg-black/45 transition-opacity duration-200 ${assetLibraryHoverAssetId === asset.id ? 'opacity-100' : 'opacity-0'}`}
@@ -11487,220 +12333,56 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       </AppDialog>
 
       <AppDialog
-        isOpen={isBatchGenerateOpen}
-        title={language === 'zh' ? '批量生成视频' : 'Batch Generate Videos'}
-        subtitle={language === 'zh' ? '选择一次性生成几条视频（最多 5 条），并拖拽指定每条视频对应的脚本。' : 'Choose up to 5 videos and drag scripts to map each video.'}
-        onClose={() => setIsBatchGenerateOpen(false)}
-        widthClassName="max-w-none w-[min(92vw,1080px)]"
-        contentClassName="overflow-hidden"
+        isOpen={!!replayPreviewTemplate}
+        title={replayPreviewTemplate?.title || (t.wb_replay_template_preview_title || '脚本模板预览')}
+        onClose={() => setReplayPreviewTemplate(null)}
+        widthClassName="max-w-[min(92vw,980px)]"
+        titleClassName="text-base"
       >
-        <div className="h-[min(72vh,720px)] flex gap-6">
-          <div className="w-[360px] shrink-0 rounded-2xl border border-white/10 bg-black/20 overflow-hidden flex flex-col">
-            <div className="px-5 py-4 border-b border-white/10 bg-black/30 flex items-center justify-between gap-3">
-              <div className="text-sm font-extrabold text-zinc-200">{language === 'zh' ? '脚本列表' : 'Scripts'}</div>
-              <div className="text-[11px] font-bold text-zinc-500">{scriptPages.length}</div>
-            </div>
-            <div className="flex-1 min-h-0 overflow-y-auto custom-scroll p-4 space-y-2">
-              {scriptPages.map((page, idx) => {
-                const displayName = formatScriptPageDisplayName(page.name, idx, t.wb_script_page_prefix);
-                const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim();
-                return (
-                  <div
-                    key={page.id}
-                    draggable
-                    onDragStart={(e) => {
-                      batchGenerateDragRef.current = { kind: 'script', scriptPageId: page.id };
-                      e.dataTransfer.effectAllowed = 'copyMove';
-                    }}
-                    className="rounded-xl border border-white/10 bg-black/30 px-3 py-3 hover:border-white/20 transition cursor-grab active:cursor-grabbing"
-                    title={language === 'zh' ? '拖拽到右侧槽位' : 'Drag into a slot on the right'}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-xs font-extrabold text-zinc-200 truncate">{displayName}</div>
-                        <div className="mt-1 text-[11px] text-zinc-500 line-clamp-2">{previewText || (t.wb_script_grid_card_empty || 'No script content yet')}</div>
-                      </div>
-                      <div className="shrink-0 mt-0.5 text-[10px] font-bold text-zinc-500">#{idx + 1}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+        <div className="grid gap-5 md:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)]">
+          <div className="min-h-[280px] overflow-hidden rounded-xl border border-white/10 bg-black/30">
+            {replayPreviewTemplate?.previewVideoUrl ? (
+              <video
+                src={replayPreviewTemplate.previewVideoUrl}
+                className="h-full max-h-[calc(100vh-14rem)] w-full object-contain"
+                controls
+                autoPlay
+                loop
+                playsInline
+              />
+            ) : (
+              <img
+                src={replayPreviewTemplate?.previewImageUrl || ASSET_PLACEHOLDER_DATA_URL}
+                alt={replayPreviewTemplate?.title || 'template'}
+                className="h-full max-h-[calc(100vh-14rem)] w-full object-contain"
+              />
+            )}
           </div>
-
-          <div className="flex-1 min-w-0 rounded-2xl border border-white/10 bg-black/20 overflow-hidden flex flex-col">
-            <div className="px-5 py-4 border-b border-white/10 bg-black/30 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="text-sm font-extrabold text-zinc-200">{language === 'zh' ? '生成映射' : 'Mapping'}</div>
-                <div className="text-[11px] text-zinc-500">{language === 'zh' ? '把左侧脚本拖到下方每个视频槽位' : 'Drag a script into each slot'}</div>
+          <div className="space-y-4">
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">
+                {t.wb_replay_template_script_brief || '脚本简介'}
               </div>
-              <div className="flex items-center gap-2">
-                <select
-                  value={batchGenerateCount}
-                  onChange={(e) => setBatchGenerateCount(Math.max(1, Math.min(5, Number(e.target.value) || 1)))}
-                  className="h-8 rounded-lg border border-white/10 bg-black/40 px-2 text-xs text-zinc-200 outline-none hover:border-white/20"
-                >
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <option key={n} value={n}>
-                      {language === 'zh' ? `${n} 条` : `${n} videos`}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const ordered = scriptPages.map((p) => p.id);
-                    setBatchGenerateSlots((prev) =>
-                      prev.map((slot, idx) => ({ ...slot, scriptPageId: ordered[idx] || null }))
-                    );
-                  }}
-                  className="h-8 px-3 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition"
-                >
-                  {language === 'zh' ? '自动填充' : 'Auto fill'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setBatchGenerateSlots((prev) => prev.map((s) => ({ ...s, scriptPageId: null })))}
-                  className="h-8 px-3 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition"
-                >
-                  {language === 'zh' ? '清空' : 'Clear'}
-                </button>
-              </div>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-200">{replayPreviewTemplate?.description}</p>
             </div>
-
-            <div className="flex-1 min-h-0 overflow-y-auto custom-scroll p-5">
-              <div className="grid grid-cols-1 gap-3">
-                {batchGenerateSlots.map((slot, idx) => {
-                  const page = slot.scriptPageId ? scriptPages.find((p) => p.id === slot.scriptPageId) : null;
-                  const pageIndex = page ? scriptPages.findIndex((p) => p.id === page.id) : -1;
-                  const displayName = page ? formatScriptPageDisplayName(page.name, Math.max(0, pageIndex), t.wb_script_page_prefix) : '';
-                  const previewText = page ? String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim() : '';
-                  const hasValue = Boolean(page);
-
-                  return (
-                    <div
-                      key={slot.slotId}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = 'move';
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const drag = batchGenerateDragRef.current;
-                        if (!drag) return;
-                        setBatchGenerateSlots((prev) => {
-                          const next = prev.map((x) => ({ ...x }));
-                          const targetIndex = next.findIndex((x) => x.slotId === slot.slotId);
-                          if (targetIndex < 0) return prev;
-
-                          if (drag.kind === 'script') {
-                            next[targetIndex].scriptPageId = drag.scriptPageId;
-                            return next;
-                          }
-
-                          if (drag.kind === 'slot' && drag.slotId) {
-                            const sourceIndex = next.findIndex((x) => x.slotId === drag.slotId);
-                            if (sourceIndex < 0 || sourceIndex === targetIndex) return prev;
-                            const tmp = next[targetIndex].scriptPageId;
-                            next[targetIndex].scriptPageId = drag.scriptPageId;
-                            next[sourceIndex].scriptPageId = tmp ?? null;
-                            return next;
-                          }
-
-                          return prev;
-                        });
-                      }}
-                      className={`rounded-2xl border p-4 transition ${hasValue ? 'border-white/15 bg-black/30' : 'border-dashed border-white/10 bg-black/20'
-                        }`}
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <div className="text-[11px] font-bold text-zinc-500">
-                            {language === 'zh' ? `视频 ${idx + 1}` : `Video ${idx + 1}`}
-                          </div>
-                          {hasValue ? (
-                            <>
-                              <div
-                                draggable
-                                onDragStart={(e) => {
-                                  if (!slot.scriptPageId) return;
-                                  batchGenerateDragRef.current = { kind: 'slot', scriptPageId: slot.scriptPageId, slotId: slot.slotId };
-                                  e.dataTransfer.effectAllowed = 'move';
-                                }}
-                                className="mt-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 cursor-grab active:cursor-grabbing"
-                                title={language === 'zh' ? '拖拽到其它槽位以交换' : 'Drag to another slot to swap'}
-                              >
-                                <div className="text-xs font-extrabold text-zinc-200 truncate">{displayName}</div>
-                                <div className="mt-1 text-[11px] text-zinc-500 line-clamp-2">{previewText || (t.wb_script_grid_card_empty || 'No script content yet')}</div>
-                              </div>
-                            </>
-                          ) : (
-                            <div className="mt-2 text-xs text-zinc-500">{language === 'zh' ? '拖拽脚本到此处' : 'Drop a script here'}</div>
-                          )}
-                        </div>
-                        <div className="shrink-0 flex items-center gap-2">
-                          {hasValue ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setBatchGenerateSlots((prev) =>
-                                  prev.map((s) => (s.slotId === slot.slotId ? { ...s, scriptPageId: null } : s))
-                                )
-                              }
-                              className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20 transition flex items-center justify-center"
-                              aria-label="Remove"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          ) : (
-                            <div className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-zinc-500 flex items-center justify-center">
-                              <Layers className="w-4 h-4" />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">
+                {t.wb_replay_template_script_detail || '脚本信息'}
               </div>
+              <p className="mt-2 whitespace-pre-wrap rounded-xl border border-white/10 bg-black/25 p-3 text-xs leading-relaxed text-zinc-300">
+                {replayPreviewTemplate?.fullScript}
+              </p>
             </div>
-
-            <div className="px-5 py-4 border-t border-white/10 bg-black/30 flex items-center justify-between gap-3">
-              <div className="text-[11px] text-zinc-500">
-                {language === 'zh' ? '提示：可以重复使用同一个脚本生成多条视频。' : 'Tip: you can reuse the same script for multiple videos.'}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsBatchGenerateOpen(false)}
-                  className="h-9 px-4 rounded-xl border border-white/10 bg-white/5 text-sm font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition"
-                >
-                  {t.wb_confirm_cancel || '取消'}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleBatchGenerateSubmit}
-                  disabled={isGenerating}
-                  className={`relative overflow-hidden rounded-xl px-4 py-2 text-xs font-extrabold text-white shadow-lg transition active:scale-[0.98] ${isGenerating ? 'opacity-50 cursor-not-allowed grayscale' : 'hover:brightness-110'
-                    }`}
-                >
-                  <span className="absolute inset-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-600" />
-                  <span className="absolute inset-0 opacity-0 transition-opacity duration-200 hover:opacity-100 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.22),transparent_55%)]" />
-                  <span className="relative flex items-center gap-2">
-                    {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clapperboard className="w-4 h-4" />}
-                    <span>{language === 'zh' ? '开始批量生成' : 'Start Batch'}</span>
-                    {/* {estimatedBatchVideoCostLabel ? (
-                      <span className="ml-2 text-[9px] font-semibold text-white/80 whitespace-nowrap">{estimatedBatchVideoCostLabel}</span>
-                    ) : null} */}
-                  </span>
-                </button>
-              </div>
+            <div className="flex flex-wrap gap-1.5">
+              {replayPreviewTemplate?.tags.map((tag) => (
+                <span key={tag} className="rounded-full border border-orange-300/20 bg-orange-500/10 px-2 py-0.5 text-[10px] font-bold text-orange-200/85">{tag}</span>
+              ))}
             </div>
           </div>
         </div>
       </AppDialog>
 
-      <div ref={workspaceRowRef} className="flex-1 flex overflow-hidden p-6 gap-6" style={rowStyle}>
+      <div ref={workspaceRowRef} className="flex-1 flex overflow-hidden p-8 gap-6" style={rowStyle}>
         <div style={{ width: leftColumnWidth }} className="shrink-0 h-full min-w-[260px] max-w-[640px]">
           {renderLeftColumn()}
         </div>
@@ -11730,8 +12412,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             <div className="flex justify-between items-center shrink-0 min-h-[32px] gap-3">
               <div className="flex items-center gap-3">
                 <div className="relative group/scripts-title">
-                  <h2 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2" title={t.wb_col_scripts}>
-                    <Clapperboard className="w-3 h-3" />
+                  <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2" title={t.wb_col_scripts}>
+                    <Clapperboard className="w-4 h-4" />
                     {!isScriptsHeaderCompact && <span>{t.wb_col_scripts}</span>}
                   </h2>
                   {isScriptsHeaderCompact && (
@@ -11741,35 +12423,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   )}
                 </div>
                 <div className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isDurationValid ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>{genDuration}s</div>
+                {!isSeedanceReplayMode && (
                 <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
-                  <div className="relative group/save-btn">
-                    <button
-                        onClick={openScriptSaveDialog}
-                        disabled={isSavingScriptAsset}
-                        className={`flex items-center gap-1.5 px-2 py-1 rounded transition ${isSavingScriptAsset ? 'text-zinc-600 cursor-not-allowed' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
-                        title={t.wb_script_save_to_library || '保存到素材库'}
-                    >
-                      {isSavingScriptAsset ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BookmarkPlus className="w-3.5 h-3.5" />}
-                      {!isScriptsHeaderCompact && (
-                        <span className="text-[10px] font-medium">{t.wb_script_save_to_library || '保存到素材库'}</span>
-                      )}
-                    </button>
-                    {isScriptsHeaderCompact && (
-                      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/save-btn:opacity-100">
-                        {t.wb_script_save_to_library || '保存到素材库'}
-                      </span>
-                    )}
-                  </div>
-
                   <div className="relative group/import-btn">
                     <button
                         onClick={openScriptLibraryPicker}
-                        className="flex items-center gap-1.5 px-2 py-1 text-zinc-500 hover:text-white hover:bg-white/5 rounded transition"
+                        className={`h-9 ${isScriptsHeaderCompact ? 'px-2' : 'px-3'} rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition inline-flex items-center gap-2`}
                         title={t.wb_script_import_from_library || '从素材库导入'}
                     >
-                      <FolderOpen className="w-3.5 h-3.5" />
+                      <FolderOpen className="w-4 h-4" />
                       {!isScriptsHeaderCompact && (
-                        <span className="text-[10px] font-medium">{t.wb_script_import_from_library || '从素材库导入'}</span>
+                        <span>{t.wb_script_import_from_library || '从素材库导入'}</span>
                       )}
                     </button>
                     {isScriptsHeaderCompact && (
@@ -11779,27 +12443,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     )}
                   </div>
                 </div>
+                )}
               </div>
               <div className="flex items-center gap-2">
-                <div className="relative group/batch-btn">
-                  <button
-                    type="button"
-                    onClick={() => setIsBatchGenerateOpen(true)}
-                    disabled={isGenerating}
-                    className={`h-9 ${isScriptsHeaderCompact ? 'px-2' : 'px-3'} rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 hover:border-white/20 transition inline-flex items-center gap-2 ${isGenerating ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    title={language === 'zh' ? '批量生成视频' : 'Batch Generate Videos'}
-                  >
-                    <Layers className="w-4 h-4" />
-                    {!isScriptsHeaderCompact && (
-                      <span>{language === 'zh' ? '批量生成' : 'Batch'}</span>
-                    )}
-                  </button>
-                  {isScriptsHeaderCompact && (
-                    <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 whitespace-nowrap rounded-md border border-white/10 bg-zinc-900/95 px-2 py-1 text-[10px] text-zinc-100 opacity-0 shadow-xl transition group-hover/batch-btn:opacity-100">
-                      {language === 'zh' ? '批量生成视频' : 'Batch Generate Videos'}
-                    </span>
-                  )}
-                </div>
                 <div className="relative group/cost-video">
                   <button
                     onClick={handleGenerateVideo}
@@ -11831,397 +12477,537 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-2 space-y-4 pb-10">
-            {scriptPages.length > 0 && (
-              <div className="shrink-0 rounded-xl border border-white/10 bg-black/20 p-2.5">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">
-                    {t.wb_script_grid_title || 'Script Variants'}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={handleScriptGridSlidePrev}
-                      disabled={!canSlideScriptGridPrev}
-                      className={`h-6 w-6 rounded border transition flex items-center justify-center ${canSlideScriptGridPrev ? 'border-white/15 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5' : 'border-white/10 text-zinc-600 cursor-not-allowed'}`}
-                      aria-label={(t as any).wb_previous || 'Previous'}
-                    >
-                      <ChevronLeft className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleScriptGridSlideNext}
-                      disabled={!canSlideScriptGridNext}
-                      className={`h-6 w-6 rounded border transition flex items-center justify-center ${canSlideScriptGridNext ? 'border-white/15 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5' : 'border-white/10 text-zinc-600 cursor-not-allowed'}`}
-                      aria-label={(t as any).wb_next || 'Next'}
-                    >
-                      <ChevronRight className="h-3.5 w-3.5" />
-                    </button>
-                    <span className="px-1 text-[10px] tabular-nums text-zinc-500">
-                      {scriptPages.length === 0 ? '-' : `${scriptGridPageStart + 1}-${Math.min(scriptGridPageStart + SCRIPT_GRID_PAGE_SIZE, scriptPages.length)}`}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setIsScriptGridDialogOpen(true)}
-                      className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:border-orange-500/50 hover:text-orange-200 hover:bg-orange-500/5 transition"
-                    >
-                      {(language === 'zh' ? '查看全部' : 'View All')} ({scriptPages.length})
-                    </button>
-                  </div>
-                </div>
-                <div className="flex gap-3 overflow-x-auto overflow-y-hidden custom-scroll pb-1">
-                  {visibleScriptPages.map((page, offset) => {
-                    const index = scriptGridPageStart + offset;
-                    const active = index === activeScriptPage;
-                    const previewText = String(page.fullScript || page.creativeCardText || page.scripts?.[0]?.visual || '').trim()
-                      || (t.wb_script_grid_card_empty || 'No script content yet');
-                    return (
-                      <div key={page.id} className="relative group/scriptcard">
-                        <button
-                          type="button"
-                          onClick={() => handleScriptPageChange(index)}
-                          className={`${scriptPlanCardClass} ${active ? 'border-orange-500/70 bg-orange-500/10 ring-1 ring-orange-500/35' : 'border-white/10 bg-black/30 hover:border-white/25 hover:bg-white/5'}`}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                {page.sourceLabel && (
-                                  <span className="rounded border border-sky-400/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-200">
-                                    {page.sourceLabel}
-                                  </span>
-                                )}
-                              </div>
-                              <div className={`text-[12px] font-bold leading-5 ${active ? 'text-orange-400' : 'text-zinc-100'}`}>
-                                {formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix)}
-                              </div>
-                            </div>
-                            <span className={`shrink-0 text-[9px] ${active ? 'text-orange-400 font-bold' : 'text-zinc-500'}`}>
-                              {active ? (t.wb_script_grid_current || 'Current') : `${page.scripts.length} ${t.wb_shot || 'Shot'}`}
-                            </span>
-                          </div>
-                          <div className={`${scriptPlanCardBodyClass} ${active ? 'border-orange-400/30 bg-black/15 text-orange-100/90' : 'border-white/10 bg-black/20 text-zinc-300'}`}>
-                            {previewText}
-                          </div>
-                        </button>
-                        {scriptPages.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); removeScriptPage(index); }}
-                            className="absolute -top-1.5 -right-1.5 z-10 hidden group-hover/scriptcard:flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-zinc-900 text-zinc-400 transition hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-300"
-                            title={t.wb_delete || 'Delete'}
-                          >
-                            <Trash2 className="h-2.5 w-2.5" />
-                          </button>
-                        )}
+          <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-2 pl-1 pt-1 space-y-4 pb-10">
+            {isSeedanceReplayMode ? (
+              <>
+                <section className="rounded-2xl border border-orange-300/25 bg-black/25 p-4 shadow-md">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-bold uppercase tracking-widest text-orange-300/85">
+                        {t.wb_replay_generation_formula || '生成数量'}
                       </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-black text-zinc-100">
+                        <span>{t.wb_replay_user_reference_short || '用户参考'}</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={replayUserReferenceGenerateCount}
+                          onChange={(e) => setReplayUserReferenceGenerateCount(normalizeBatchGenerateCount(e.target.value))}
+                          className="h-8 w-16 rounded-lg border border-white/10 bg-black/45 px-2 text-right text-xs font-bold text-zinc-100 outline-none transition focus:border-orange-400/60"
+                        />
+                        <span className="text-zinc-500">+</span>
+                        <span>{t.wb_replay_template_short || '网站脚本'}</span>
+                        <span className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-zinc-100">{replayTemplateGenerateCount}</span>
+                        <span className="text-zinc-500">=</span>
+                        <span className="rounded-lg border border-orange-400/35 bg-orange-500/15 px-2 py-1 text-xs text-orange-200">
+                          {formatMessage(t.wb_replay_total_videos || '共 {count} 条视频', { count: replayTotalGenerateCount })}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-xs leading-relaxed text-zinc-400">
+                      {t.wb_replay_formula_hint || '参考广告只用于脚本逆向，Seedance 仅使用商品图片生成视频。'}
+                    </div>
+                  </div>
+                </section>
+
+                {replayBatchRun && replayBatchProgress && (
+                  <section className="rounded-2xl border border-white/10 bg-black/25 p-4 shadow-md">
+                    <button
+                      type="button"
+                      onClick={() => setReplayBatchRun((prev) => prev ? { ...prev, expanded: !prev.expanded } : prev)}
+                      className="flex w-full items-center justify-between gap-3 text-left"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">
+                          {t.wb_replay_batch_progress || '复刻批次进度'}
+                        </div>
+                        <div className="mt-1 text-xs font-bold text-zinc-200">
+                          {formatMessage(t.wb_replay_batch_progress_count || '已处理 {done}/{total}', {
+                            done: replayBatchProgress.completedUnits,
+                            total: replayBatchProgress.totalUnits,
+                          })}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs font-bold text-orange-200">
+                        <span>{replayBatchProgress.percent}%</span>
+                        <ChevronDown className={`h-4 w-4 transition-transform ${replayBatchRun.expanded ? 'rotate-180' : ''}`} />
+                      </div>
+                    </button>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-orange-500 via-amber-300 to-purple-300 transition-[width] duration-300"
+                        style={{ width: `${Math.max(3, replayBatchProgress.percent)}%` }}
+                      />
+                    </div>
+                    {replayBatchRun.expanded && (
+                      <div className="mt-4 space-y-2 border-t border-white/10 pt-3">
+                        {replayBatchRun.userReferenceCount > 0 && (
+                          <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-bold text-zinc-200">{t.wb_replay_reverse_stage || 'Qwen 脚本逆向解析'}</span>
+                              <span className={`font-bold ${replayBatchRun.reverse.status === 'failed' ? 'text-red-300' : replayBatchRun.reverse.status === 'success' ? 'text-emerald-300' : 'text-orange-300'}`}>
+                                {replayBatchRun.reverse.status === 'success'
+                                  ? (t.wb_status_success || '成功')
+                                  : replayBatchRun.reverse.status === 'failed'
+                                    ? (t.wb_status_failed || '失败')
+                                    : (t.wb_status_processing || '进行中')}
+                              </span>
+                            </div>
+                            {(replayBatchRun.reverse.detail || replayBatchRun.reverse.error || replayBatchRun.reverse.scriptBrief) && (
+                              <div className="mt-1 line-clamp-3 text-zinc-500">
+                                {replayBatchRun.reverse.error || replayBatchRun.reverse.scriptBrief || replayBatchRun.reverse.detail}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {replayBatchProgress.items.map((item) => {
+                          const task = item.taskId ? replayTaskById.get(String(item.taskId)) : null;
+                          const videoUrl = task?.result?.video_url || task?.result?.url;
+                          return (
+                            <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs">
+                              <div className="min-w-0">
+                                <div className="truncate font-bold text-zinc-200">{item.label}</div>
+                                <div className="truncate text-[11px] text-zinc-500">{item.detail || item.error || (item.source === 'template' ? (t.wb_replay_template_generation || '模板脚本生成') : (t.wb_replay_user_reference_generation || '用户参考脚本生成'))}</div>
+                              </div>
+                              {item.status === 'success' && videoUrl ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPreviewProjectId(item.projectId || task?.projectId || null);
+                                    setLastGeneratedProjectId(item.projectId || task?.projectId || null);
+                                    setGeneratedVideoUrl(videoUrl);
+                                  }}
+                                  className="shrink-0 text-orange-300 hover:text-orange-200"
+                                >
+                                  {t.wb_replay_preview_result || '预览'}
+                                </button>
+                              ) : (
+                                <span className={`shrink-0 font-bold ${item.status === 'failed' ? 'text-red-300' : item.status === 'success' ? 'text-emerald-300' : 'text-zinc-500'}`}>
+                                  {item.status === 'failed'
+                                    ? (t.wb_status_failed || '失败')
+                                    : item.status === 'success'
+                                      ? (t.wb_status_success || '成功')
+                                      : item.status === 'submitting'
+                                        ? (t.wb_replay_submitting || '提交中')
+                                        : item.status === 'processing'
+                                          ? (t.wb_status_processing || '进行中')
+                                          : (t.wb_status_pending || '排队')}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                )}
+
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  {REPLAY_SCRIPT_TEMPLATES.map((template) => {
+                    const count = normalizeBatchGenerateCount(replayTemplateCountsById[template.id]);
+                    return (
+                      <button
+                        key={template.id}
+                        type="button"
+                        onClick={() => setReplayPreviewTemplate(template)}
+                        className="group flex h-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] text-left shadow-md transition hover:-translate-y-0.5 hover:border-orange-400/45 hover:bg-white/[0.07]"
+                      >
+                        <div className="relative aspect-video w-full overflow-hidden bg-zinc-900">
+                          {template.previewVideoUrl ? (
+                            <video src={template.previewVideoUrl} className="h-full w-full object-cover opacity-80 transition group-hover:opacity-100" muted playsInline preload="metadata" />
+                          ) : (
+                            <img src={template.previewImageUrl} alt={template.title} className="h-full w-full object-cover opacity-80 transition group-hover:opacity-100" />
+                          )}
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 transition group-hover:opacity-100">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white">
+                              <Play className="h-4 w-4 fill-current" />
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex flex-1 flex-col gap-3 p-4">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="text-sm font-black text-zinc-100">{template.title}</h3>
+                              <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-bold text-zinc-500">{template.duration}s</span>
+                            </div>
+                            <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-zinc-400">{template.description}</p>
+                          </div>
+                          <div className="mt-auto flex flex-wrap gap-1.5">
+                            {template.tags.map((tag) => (
+                              <span key={tag} className="rounded-full border border-orange-300/20 bg-orange-500/10 px-2 py-0.5 text-[10px] font-bold text-orange-200/85">{tag}</span>
+                            ))}
+                          </div>
+                          <div className="flex items-center justify-between gap-3 border-t border-white/10 pt-3">
+                            <span className="text-[11px] font-bold text-zinc-500">{t.wb_replay_template_count_label || '使用该模板生成'}</span>
+                            <input
+                              type="number"
+                              min={0}
+                              step={1}
+                              value={count}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                const next = normalizeBatchGenerateCount(e.target.value);
+                                setReplayTemplateCountsById((prev) => ({ ...prev, [template.id]: next }));
+                              }}
+                              className="h-8 w-16 rounded-lg border border-white/10 bg-black/45 px-2 text-right text-xs font-bold text-zinc-100 outline-none transition focus:border-orange-400/60"
+                            />
+                          </div>
+                        </div>
+                      </button>
                     );
                   })}
                 </div>
-              </div>
-            )}
-
-            {activeScriptPlan && (
-              <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-2xl relative overflow-hidden">
-                {/* 装饰性背景光晕：极微弱的紫色透出 */}
-                <div className="absolute -top-20 -right-20 w-72 h-72 bg-purple-500/10 rounded-full blur-[100px] pointer-events-none" />
-
-                {/* 头部 */}
-                <div className={`flex items-center justify-between gap-3 relative z-10 mb-6 pb-4 ${isLightTheme ? 'border-b border-slate-300/80' : 'border-b border-white/10'}`}>
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.15)]">
-                      <Sparkles className="w-4 h-4 text-purple-400" />
-                    </div>
-                    <div>
-                      <div className={`flex flex-wrap items-center gap-2 text-[13px] font-black tracking-wider ${isLightTheme ? 'text-slate-900' : 'text-zinc-100'}`}>
-                        <span>{t.wb_script_plan_card_title || 'Script plan'}</span>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-normal tracking-normal ${isLightTheme
-                          ? 'border border-purple-300 bg-purple-100 text-purple-800'
-                          : 'border border-purple-500/30 bg-purple-500/20 text-purple-200'
-                          }`}>
-                          {t.wb_script_plan_card_badge || 'Kling prompt'}
-                        </span>
-                        {activeScriptPlan?.sourceLabel && (
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-normal tracking-normal ${isLightTheme
-                            ? 'border border-sky-300 bg-sky-100 text-sky-700'
-                            : 'border border-sky-400/30 bg-sky-500/20 text-sky-200'
-                            }`}>
-                            {activeScriptPlan.sourceLabel}
-                          </span>
-                        )}
-                      </div>
-                      <div className={`text-[10px] mt-0.5 font-medium ${isLightTheme ? 'text-slate-600' : 'text-zinc-500'}`}>
-                        {formatScriptPageDisplayName(activeScriptPlan?.name, activeScriptPage, t.wb_script_page_prefix)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-1.5 relative z-10">
-                  <div className={cardThemeClass.shell}>
-                    <div className={cardThemeClass.panel}>
-                      <textarea
-                        rows={1}
-                        data-card-autosize="true"
-                        value={(activeScriptPlan?.creativeCardText ?? buildCreativeCardEditorText(activeCreativeCard)) || activeFullScript}
-                        onChange={(e) => updateActiveCreativeCardText(e.target.value)}
-                        onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
-                        className={`${cardThemeClass.textarea} w-full min-h-[220px]`}
-                        style={{
-                          color: isLightTheme ? '#1f2937' : '#f4f4f5',
-                          WebkitTextFillColor: isLightTheme ? '#1f2937' : '#f4f4f5',
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            {enableStoryboardEditor ? (
-              <>
-                <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                  <div className="text-[10px] text-zinc-400 uppercase tracking-widest">分镜结构（可编辑）</div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setIsShotBreakdownOpen((prev) => !prev)}
-                      className="text-[10px] px-2 py-1 rounded border border-white/10 text-zinc-300 hover:bg-white/5 transition"
-                    >
-                      {isShotBreakdownOpen ? '收起分镜' : '展开分镜'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setEnableStoryboardEditor(false); setIsShotBreakdownOpen(false); }}
-                      className="text-[10px] px-2 py-1 rounded border border-zinc-700 text-zinc-500 hover:text-red-400 hover:border-red-500/40 transition"
-                    >
-                      关闭分镜
-                    </button>
-                  </div>
-                </div>
-                {scripts.length === 0 ? (
-                  (() => {
-                    const currentPageFullScript = String(scriptPages[activeScriptPage]?.fullScript || '').trim();
-                    if (currentPageFullScript) {
-                      return (
-                        <div className="h-64 flex flex-col items-center justify-center text-zinc-500 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20 gap-3 px-6 text-center">
-                          <FileJson className="w-10 h-10 opacity-50" />
-                          <p className="text-xs text-zinc-400">
-                            分镜尚未生成
-                          </p>
-                          <p className="text-[10px] text-zinc-600 max-w-xs">
-                            当前脚本只有整片方案。点击下方按钮在此基础上拆分镜头。
-                          </p>
-                          <button
-                            type="button"
-                            onClick={handleGenerateShotsOnly}
-                            disabled={isGeneratingShotsOnly}
-                            className={`flex items-center gap-2 text-[11px] px-3 py-1.5 rounded border transition ${isGeneratingShotsOnly ? 'border-white/10 text-zinc-500 cursor-not-allowed' : 'border-orange-500/40 text-orange-400 hover:bg-orange-500/10'}`}
-                          >
-                            {isGeneratingShotsOnly ? (
-                              <>
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                <span>生成分镜中...</span>
-                              </>
-                            ) : (
-                              <>
-                                <Plus className="w-3.5 h-3.5" />
-                                <span>补生成分镜</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      );
-                    }
-                    return (
-                      <div className="h-64 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-black/20">
-                        <FileJson className="w-10 h-10 mb-2 opacity-50" />
-                        <p className="text-xs">No scripts yet.</p>
-                      </div>
-                    );
-                  })()
-                ) : (
-                  scripts.map((script, index) => (
-                    <div key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex items-center gap-2">
-                          <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
-                          <select
-                            value={script.type}
-                            onChange={(e) => handleScriptTypeChange(script.id, e.target.value)}
-                            className="text-[10px] text-zinc-300 border border-white/10 px-1.5 py-0.5 rounded bg-black/40 focus:outline-none focus:border-orange-500"
-                            title={t.wb_shot_type_label || '镜头类型'}
-                          >
-                            {shotTypeOptions.map((option) => (
-                              <option key={option.value} value={option.value} className="bg-black text-zinc-100">
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                          <input type="number" min={0.1} step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s', ''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
-                          <span className="text-[10px] text-zinc-500">s</span>
-                        </div>
-                        <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
-                      </div>
-                      <div className="grid grid-cols-1 gap-3">
-                        <div className="flex flex-col gap-1.5">
-                          <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_visual}</p>
-                          <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll" value={script.visual} onChange={(e) => { const ns = [...scripts]; ns[index].visual = e.target.value; updateScripts(ns); }} />
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                          <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
-                          <input
-                            type="text"
-                            disabled={soundSetting === 'off'}
-                            className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
-                            value={soundSetting === 'off' ? '已关闭音频' : script.audio}
-                            onChange={(e) => {
-                              if (soundSetting === 'off') return;
-                              const ns = [...scripts];
-                              ns[index].audio = e.target.value;
-                              updateScripts(ns);
-                            }}
-                          />
-                        </div>
-                        {language !== targetLanguage && (
-                          <div className="flex flex-col gap-1">
-                            <div className="flex items-center justify-between">
-                              <p className="text-[10px] text-zinc-600 uppercase font-bold ml-1">{t.wb_audio_translation || 'Translation'}</p>
-                              {soundSetting !== 'off' && (
-                                <div className="relative group/translate">
-                                  <button
-                                    type="button"
-                                    className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-white/10 text-zinc-400 hover:text-orange-400 hover:border-orange-500/40 transition"
-                                    disabled={!script.audioTranslation?.trim() || translatingShots[script.id]}
-                                  >
-                                    {translatingShots[script.id] ? (
-                                      <>
-                                        <Loader2 className="w-3 h-3 animate-spin" />
-                                        <span>{t.wb_translating || '翻译中...'}</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Languages className="w-3 h-3" />
-                                        <span>{t.wb_btn_translate_to_target || '翻译成目标语言'}</span>
-                                      </>
-                                    )}
-                                  </button>
-                                  {/* 悬浮弹出菜单：直接翻译 / 创意翻译 */}
-                                  {!translatingShots[script.id] && script.audioTranslation?.trim() && (
-                                    <div className="absolute right-0 top-full pt-1 hidden group-hover/translate:flex flex-col z-50 min-w-[160px]">
-                                      <div className="flex flex-col gap-1 bg-zinc-900 border border-white/10 rounded-lg p-2 shadow-xl">
-                                        <button
-                                          type="button"
-                                          className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 hover:text-orange-400 px-2 py-1.5 rounded hover:bg-white/5 transition whitespace-nowrap"
-                                          onClick={() => handleTranslateShot(script, index, 'direct')}
-                                        >
-                                          <span>{t.wb_translate_direct || '直接翻译'}</span>
-                                          <span className="relative group/tip-d">
-                                            <HelpCircle className="w-3 h-3 text-zinc-500" />
-                                            <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden group-hover/tip-d:block bg-black/90 text-zinc-300 text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap border border-white/10">
-                                              {t.wb_translate_direct_tip || '直接翻译，保持原文含义和语气'}
-                                            </span>
-                                          </span>
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 hover:text-purple-400 px-2 py-1.5 rounded hover:bg-white/5 transition whitespace-nowrap"
-                                          onClick={() => handleTranslateShot(script, index, 'creative')}
-                                        >
-                                          <span>{t.wb_translate_creative || '创意翻译'}</span>
-                                          <span className="relative group/tip-c">
-                                            <HelpCircle className="w-3 h-3 text-zinc-500" />
-                                            <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden group-hover/tip-c:block bg-black/90 text-zinc-300 text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap border border-white/10">
-                                              {t.wb_translate_creative_tip || '结合产品特点和画面进行创意翻译'}
-                                            </span>
-                                          </span>
-                                        </button>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                            <textarea
-                              className="w-full bg-black/20 text-xs text-zinc-400 p-3 rounded-lg border border-white/5 resize-none min-h-[40px] focus:border-white/20 transition-colors outline-none italic"
-                              value={script.audioTranslation}
-                              placeholder={t.wb_audio_translation || 'Translation'}
-                              onChange={(e) => {
-                                const ns = [...scripts];
-                                ns[index].audioTranslation = e.target.value;
-                                updateScripts(ns);
-                              }}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-                {isShotBreakdownOpen && (
-                  <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
-                )}
               </>
             ) : (
               <>
-                <div className="flex items-center justify-between rounded-xl border border-dashed border-white/10 bg-black/20 px-3 py-3">
-                  <span className="text-[11px] text-zinc-500">{t.wb_storyboard_master_mode_hint}</span>
-                  <button
-                    type="button"
-                    onClick={() => setEnableStoryboardEditor(true)}
-                    className="text-[10px] px-2.5 py-1 rounded border border-orange-500/40 text-orange-400 hover:bg-orange-500/10 transition whitespace-nowrap"
-                  >
-                    {t.wb_enable_storyboard}
-                  </button>
-                </div>
-                {scripts.length === 0 ? null : (
-                  scripts.map((script, index) => (
-                    <div key={script.id} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${index % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex items-center gap-2">
-                          <span className={`${index % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
-                          <select
-                            value={script.type}
-                            onChange={(e) => handleScriptTypeChange(script.id, e.target.value)}
-                            className="text-[10px] text-zinc-300 border border-white/10 px-1.5 py-0.5 rounded bg-black/40 focus:outline-none focus:border-orange-500"
-                            title={t.wb_shot_type_label || '镜头类型'}
-                          >
-                            {shotTypeOptions.map((option) => (
-                              <option key={option.value} value={option.value} className="bg-black text-zinc-100">
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                          <input type="number" min={0.1} step="0.1" className="w-8 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s', ''))} onChange={(e) => handleDurationChange(script.id, e.target.value)} />
-                          <span className="text-[10px] text-zinc-500">s</span>
-                        </div>
-                        <button onClick={() => removeScript(script.id)} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
+            {scriptPages.map((page, index) => {
+              const active = index === activeScriptPage;
+              const pageScripts = active ? scripts : (page.scripts || []);
+              const pageText = (page.creativeCardText ?? (active ? buildCreativeCardEditorText(activeCreativeCard) : '')) || page.fullScript || '';
+              const displayName = formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix);
+              const storyboardEnabled = storyboardEditorEnabledByPage[page.id] ?? (active ? enableStoryboardEditor : false);
+              const shotBreakdownOpen = shotBreakdownOpenByPage[page.id] ?? (active ? isShotBreakdownOpen : false);
+              const batchGenerateCountForPage = getScriptPageBatchGenerateCount(page.id, index);
+              const pageGenerationDuration = getPageScriptDuration({ ...page, scripts: pageScripts }, index, storyboardEnabled);
+              const hasStoryboardDurationMismatch = storyboardEnabled && Math.abs(pageGenerationDuration - genDuration) >= 0.1;
+              const pageBatchCost = (() => {
+                const rate = Number(selectedVideoPricing?.rate ?? 0);
+                if (!Number.isFinite(rate) || rate <= 0 || batchGenerateCountForPage <= 0) return 0;
+                return roundCreditTenths(rate * pageGenerationDuration * batchGenerateCountForPage);
+              })();
+
+              return (
+                <section
+                  key={page.id}
+                  onMouseDownCapture={() => {
+                    if (!active) handleScriptPageChange(index);
+                  }}
+                  className={`rounded-2xl border bg-white/5 backdrop-blur-xl p-5 shadow-md relative overflow-hidden transition ${active ? 'border-purple-300/50 ring-1 ring-purple-400/35 shadow-purple-950/25' : 'border-white/10 hover:border-purple-400/60 hover:ring-1 hover:ring-purple-400/25'}`}
+                >
+                  <div className="absolute -top-20 -right-20 w-72 h-72 bg-purple-500/10 rounded-full blur-[100px] pointer-events-none" />
+                  {active && <div className="absolute inset-0 bg-purple-500/1 pointer-events-none" />}
+                  <div className="relative z-10 flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${active ? 'border-purple-300/45 bg-purple-500/25' : 'border-purple-300/20 bg-purple-500/10'}`}>
+                        <Sparkles className={`h-5 w-5 ${active ? 'text-purple-600' : 'text-purple-300/75'}`} />
                       </div>
-                      <div className="grid grid-cols-1 gap-3">
-                        <div className="flex flex-col gap-1.5">
-                          <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_visual}</p>
-                          <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll" value={script.visual} onChange={(e) => { const ns = [...scripts]; ns[index].visual = e.target.value; updateScripts(ns); }} />
+                      <div className="min-w-0">
+                        <div className={`flex flex-wrap items-center gap-2 text-[13px] font-black tracking-wider ${isLightTheme ? 'text-slate-900' : 'text-zinc-100'}`}>
+                          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${active ? 'border-purple-300/45 bg-purple-500/15 text-purple-600' : 'border-purple-300/20 text-purple-300/75'}`}>
+                            #{index + 1}
+                          </span>
+                          <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-bold text-zinc-500">
+                            {`${pageScripts.length} ${t.wb_shot || 'Shot'}`}
+                          </span>
+                          {hasStoryboardDurationMismatch && (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-red-300/35 bg-red-500/10 px-2 py-0.5 text-[10px] font-bold text-red-300">
+                              <AlertCircle className="h-3 w-3" />
+                              <span>{t.wb_storyboard_duration_mismatch_badge || '生成时间和分镜时长不匹配'}</span>
+                            </span>
+                          )}
                         </div>
-                        <div className="flex flex-col gap-1.5">
-                          <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
-                          <input
-                            type="text"
-                            disabled={soundSetting === 'off'}
-                            className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
-                            value={soundSetting === 'off' ? '已关闭音频' : script.audio}
-                            onChange={(e) => {
-                              if (soundSetting === 'off') return;
-                              const ns = [...scripts];
-                              ns[index].audio = e.target.value;
-                              updateScripts(ns);
-                            }}
-                          />
-                        </div>
+                        <input
+                          value={page.name || ''}
+                          onChange={(e) => updateScriptPageNameAt(index, e.target.value)}
+                          placeholder={displayName}
+                          className={`mt-1 box-border w-[200px] max-w-full rounded-md border border-transparent bg-transparent px-2 py-0.5 text-[13px] font-bold placeholder:font-bold outline-none transition focus:border-purple-400/45 focus:bg-black/15 ${isLightTheme ? 'text-slate-700 placeholder:text-slate-500 focus:bg-white' : 'text-zinc-300 placeholder:text-zinc-600'}`}
+                        />
                       </div>
                     </div>
-                  ))
-                )}
-                {isShotBreakdownOpen && (
-                  <button onClick={addScript} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
-                )}
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!active) {
+                            handleScriptPageChange(index);
+                            return;
+                          }
+                          openScriptSaveDialog();
+                        }}
+                        disabled={isSavingScriptAsset}
+                        className={`h-9 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-bold text-zinc-200 transition inline-flex items-center gap-2 ${isSavingScriptAsset ? 'cursor-not-allowed opacity-60' : 'hover:bg-white/10 hover:border-white/20'}`}
+                        title={t.wb_script_save_to_library || '保存到素材库'}
+                      >
+                        {isSavingScriptAsset ? <Loader2 className="w-4 h-4 animate-spin" /> : <BookmarkPlus className="w-4 h-4" />}
+                        <span>{t.wb_script_save_to_library || '保存到素材库'}</span>
+                      </button>
+                      {scriptPages.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); removeScriptPage(index); }}
+                          className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-zinc-500 transition hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-300"
+                          title={t.wb_delete || 'Delete'}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="relative z-10 mt-4">
+                    <div className={cardThemeClass.shell}>
+                      <div className={cardThemeClass.panel}>
+                        <textarea
+                          rows={1}
+                          data-card-autosize="true"
+                          value={pageText}
+                          onChange={(e) => updateScriptPageCreativeCardTextAt(index, e.target.value)}
+                          onInput={(e) => autoResizeCardTextarea(e.currentTarget)}
+                          className={`${cardThemeClass.textarea} w-full min-h-[180px]`}
+                          style={{
+                            color: isLightTheme ? '#1f2937' : '#f4f4f5',
+                            WebkitTextFillColor: isLightTheme ? '#1f2937' : '#f4f4f5',
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                      <div className="flex items-center gap-2 text-[13px] font-bold text-zinc-300">
+                          <Layers className="h-4 w-4 text-purple-300" />
+                          <span>{t.wb_batch_generate_setting || 'Batch generation setting'}</span>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3">
+                        {isSeedanceModel(selectedModel) && batchGenerateCountForPage > 0 ? (
+                          <span className="text-[11px] font-semibold text-zinc-400">
+                            {t.wb_usage_based_billing || '按量付费'}
+                          </span>
+                        ) : pageBatchCost > 0 ? (
+                          <span className="text-[11px] font-semibold text-zinc-400">
+                            {formatCreditAmount(pageBatchCost)} {t.v_points || 'V点'}
+                          </span>
+                        ) : null}
+                        <label className="flex items-center gap-2 text-[12px] font-bold text-zinc-500">
+                          <span>{t.wb_batch_generate_count_label || 'Videos'}</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={1}
+                            value={batchGenerateCountForPage}
+                            onChange={(e) => {
+                              const nextCount = normalizeBatchGenerateCount(e.target.value);
+                              setBatchGenerateCountsByPage((prev) => ({ ...prev, [page.id]: nextCount }));
+                            }}
+                            className="h-8 w-16 rounded-lg border border-white/10 bg-black/40 px-2 text-right text-xs font-bold text-zinc-100 outline-none transition focus:border-purple-400/50"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="relative z-10 mt-4 border-t border-white/10 pt-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border-none bg-transparent px-3 py-2">
+                      <div className="text-[13px] font-medium text-zinc-400">
+                        {storyboardEnabled
+                          ? (t.wb_storyboard_shot_mode_hint || 'Currently generating video from the shot structure.')
+                          : t.wb_storyboard_master_mode_hint}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {storyboardEnabled && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const nextOpen = !shotBreakdownOpen;
+                              setShotBreakdownOpenByPage((prev) => ({ ...prev, [page.id]: nextOpen }));
+                              setIsShotBreakdownOpen(nextOpen);
+                            }}
+                            className="text-[13px] px-2 py-1 rounded border text-zinc-300 hover:border-orange-500/40 transition"
+                            title={shotBreakdownOpen ? (t.wb_storyboard_collapse || 'Collapse storyboard') : (t.wb_storyboard_expand || 'Expand storyboard')}
+                          >
+                            <ChevronDown
+                              className={[
+                                'h-4 w-4 transition-transform duration-200',
+                                shotBreakdownOpen ? 'rotate-180' : '',
+                              ].join(' ')}
+                            />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (storyboardEnabled) {
+                              setStoryboardEditorEnabledByPage((prev) => ({ ...prev, [page.id]: false }));
+                              setShotBreakdownOpenByPage((prev) => ({ ...prev, [page.id]: false }));
+                              setEnableStoryboardEditor(false);
+                              setIsShotBreakdownOpen(false);
+                            } else {
+                              setStoryboardEditorEnabledByPage((prev) => ({ ...prev, [page.id]: true }));
+                              setShotBreakdownOpenByPage((prev) => ({ ...prev, [page.id]: true }));
+                              setEnableStoryboardEditor(true);
+                              setIsShotBreakdownOpen(true);
+                            }
+                          }}
+                          className={`text-[12px] px-2.5 py-1 rounded border transition whitespace-nowrap ${storyboardEnabled ? 'border-orange-500/40 text-orange-400 hover:bg-orange-500/10' : 'wb-storyboard-enable-btn border-purple-500/40 text-purple-400 hover:border-purple-500/50'}`}
+                        >
+                          {storyboardEnabled ? (t.wb_disable_storyboard || 'Disable storyboard') : t.wb_enable_storyboard}
+                        </button>
+                      </div>
+                    </div>
+
+                    {!storyboardEnabled ? (
+                      null
+                    ) : (
+                      <div className="mt-3 space-y-3">
+                        {shotBreakdownOpen && pageScripts.length > 0 && (
+                          <ShotTimelineBar scripts={pageScripts} onUpdateScripts={(nextScripts) => updateScriptPageScriptsAt(index, nextScripts)} t={t} />
+                        )}
+                        {shotBreakdownOpen ? (
+                          pageScripts.length === 0 ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                addScriptToPage(index);
+                              }}
+                              className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"
+                            >
+                              <Plus className="w-4 h-4" />
+                              <span className="text-xs font-bold">{t.wb_btn_add_shot}</span>
+                            </button>
+                          ) : (
+                            <>
+                              {pageScripts.map((script, shotIndex) => (
+                                <div id={`shot-card-${page.id}-${script.id}`} key={`${page.id}-${script.id}`} className={`glass-card p-4 rounded-xl group relative !border-l-2 ${shotIndex % 2 === 0 ? '!border-l-purple-500' : '!border-l-orange-500'}`}>
+                                  <div className="flex justify-between items-start mb-3">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className={`${shotIndex % 2 === 0 ? 'bg-purple-600' : 'bg-orange-500'} text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm`}>{t.wb_shot} {script.shot}</span>
+                                      <select
+                                        value={script.type}
+                                        onChange={(e) => handleScriptTypeChangeForPage(index, script.id, e.target.value)}
+                                        className="text-[10px] text-zinc-300 border border-white/10 px-1.5 py-0.5 rounded bg-black/40 focus:outline-none focus:border-orange-500"
+                                        title={t.wb_shot_type_label || '镜头类型'}
+                                      >
+                                        {shotTypeOptions.map((option) => (
+                                          <option key={option.value} value={option.value} className="bg-black text-zinc-100">
+                                            {option.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <input type="number" min={0.1} step="0.1" className="w-10 bg-transparent text-[10px] text-zinc-300 text-right" value={parseFloat(script.dur.replace('s', ''))} onChange={(e) => handleDurationChangeForPage(index, script.id, e.target.value)} />
+                                      <span className="text-[10px] text-zinc-500">s</span>
+                                    </div>
+                                    <button onClick={(e) => { e.stopPropagation(); removeScriptFromPage(index, script.id); }} className="text-zinc-600 hover:text-red-500 transition p-1"><X className="w-3.5 h-3.5" /></button>
+                                  </div>
+                                  <div className="grid grid-cols-1 gap-3">
+                                    <div className="flex flex-col gap-1.5">
+                                      <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_visual}</p>
+                                      <textarea className="w-full bg-black/20 text-xs text-zinc-300 p-3 rounded-lg border border-white/5 resize-none min-h-[60px] focus:border-white/20 transition-colors outline-none custom-scroll" value={script.visual} onChange={(e) => { const ns = [...pageScripts]; ns[shotIndex].visual = e.target.value; updateScriptPageScriptsAt(index, ns); }} />
+                                    </div>
+                                    <div className="flex flex-col gap-1.5">
+                                      <p className="text-[10px] text-zinc-500 uppercase font-bold ml-1">{t.wb_audio}</p>
+                                      <input
+                                        type="text"
+                                        disabled={soundSetting === 'off'}
+                                        className={`w-full text-xs p-3 rounded-lg border italic transition-colors outline-none ${soundSetting === 'off' ? 'bg-zinc-900/60 text-zinc-500 border-zinc-800 cursor-not-allowed' : 'bg-black/20 text-zinc-400 border-white/5 focus:border-white/20'}`}
+                                        value={soundSetting === 'off' ? '已关闭音频' : script.audio}
+                                        onChange={(e) => {
+                                          if (soundSetting === 'off') return;
+                                          const ns = [...pageScripts];
+                                          ns[shotIndex].audio = e.target.value;
+                                          updateScriptPageScriptsAt(index, ns);
+                                        }}
+                                      />
+                                    </div>
+                                    {language !== targetLanguage && (
+                                      <div className="flex flex-col gap-1">
+                                        <div className="flex items-center justify-between">
+                                          <p className="text-[10px] text-zinc-600 uppercase font-bold ml-1">{t.wb_audio_translation || 'Translation'}</p>
+                                          {soundSetting !== 'off' && (
+                                            <div className="relative group/translate">
+                                              <button
+                                                type="button"
+                                                className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-white/10 text-zinc-400 hover:text-orange-400 hover:border-orange-500/40 transition"
+                                                disabled={!script.audioTranslation?.trim() || translatingShots[script.id]}
+                                              >
+                                                {translatingShots[script.id] ? (
+                                                  <>
+                                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                                    <span>{t.wb_translating || '翻译中...'}</span>
+                                                  </>
+                                                ) : (
+                                                  <>
+                                                    <Languages className="w-3 h-3" />
+                                                    <span>{t.wb_btn_translate_to_target || '翻译成目标语言'}</span>
+                                                  </>
+                                                )}
+                                              </button>
+                                              {!translatingShots[script.id] && script.audioTranslation?.trim() && (
+                                                <div className="absolute right-0 top-full pt-1 hidden group-hover/translate:flex flex-col z-50 min-w-[160px]">
+                                                  <div className="flex flex-col gap-1 bg-zinc-900 border border-white/10 rounded-lg p-2 shadow-xl">
+                                                    <button
+                                                      type="button"
+                                                      className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 hover:text-orange-400 px-2 py-1.5 rounded hover:bg-white/5 transition whitespace-nowrap"
+                                                      onClick={() => handleTranslateShotForPage(index, script, shotIndex, 'direct')}
+                                                    >
+                                                      <span>{t.wb_translate_direct || '直接翻译'}</span>
+                                                      <span className="relative group/tip-d">
+                                                        <HelpCircle className="w-3 h-3 text-zinc-500" />
+                                                        <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden group-hover/tip-d:block bg-black/90 text-zinc-300 text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap border border-white/10">
+                                                          {t.wb_translate_direct_tip || '直接翻译，保持原文含义和语气'}
+                                                        </span>
+                                                      </span>
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 hover:text-purple-400 px-2 py-1.5 rounded hover:bg-white/5 transition whitespace-nowrap"
+                                                      onClick={() => handleTranslateShotForPage(index, script, shotIndex, 'creative')}
+                                                    >
+                                                      <span>{t.wb_translate_creative || '创意翻译'}</span>
+                                                      <span className="relative group/tip-c">
+                                                        <HelpCircle className="w-3 h-3 text-zinc-500" />
+                                                        <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden group-hover/tip-c:block bg-black/90 text-zinc-300 text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap border border-white/10">
+                                                          {t.wb_translate_creative_tip || '结合产品特点和画面进行创意翻译'}
+                                                        </span>
+                                                      </span>
+                                                    </button>
+                                                  </div>
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                        <textarea
+                                          className="w-full bg-black/20 text-xs text-zinc-400 p-3 rounded-lg border border-white/5 resize-none min-h-[40px] focus:border-white/20 transition-colors outline-none italic"
+                                          value={script.audioTranslation}
+                                          placeholder={t.wb_audio_translation || 'Translation'}
+                                          onChange={(e) => {
+                                            const ns = [...pageScripts];
+                                            ns[shotIndex].audioTranslation = e.target.value;
+                                            updateScriptPageScriptsAt(index, ns);
+                                          }}
+                                        />
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                              <button onClick={(e) => { e.stopPropagation(); addScriptToPage(index); }} className="w-full py-4 border border-dashed border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 hover:text-orange-500 gap-2"><Plus className="w-4 h-4" /><span className="text-xs font-bold">{t.wb_btn_add_shot}</span></button>
+                            </>
+                          )
+                        ) : (
+                          <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-[12px] text-zinc-500">
+                            {`${pageScripts.length} ${t.wb_shot || 'Shot'}`}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+
+            <button
+              type="button"
+              onClick={addScriptPage}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-white/15 bg-black/20 px-4 py-5 text-xs font-bold text-zinc-500 transition hover:border-orange-500/45 hover:bg-orange-500/10 hover:text-orange-300"
+              aria-label={language === 'zh' ? '新增脚本方案' : 'Add script plan'}
+            >
+              <Plus className="h-5 w-5" />
+              <span>{language === 'zh' ? '新增脚本方案' : 'Add script plan'}</span>
+            </button>
               </>
             )}
           </div>
@@ -12240,9 +13026,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
         {/* Right Column: Preview & Results */}
         <div ref={previewSectionRef} style={{ flex: 1 - scriptPreviewRatio }} className={`flex flex-col gap-3 shrink-0 h-full ${getGuideFocusClass('preview')}`}>
-          <div className="flex justify-between items-end shrink-0 h-[32px]">
-            <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-3 h-3" /> {t.wb_col_preview}</h2>
-          </div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <h2 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-4 h-4" /> {t.wb_col_preview}</h2>
+          <button
+              onClick={handlePublishToTikTok}
+              disabled={!generatedVideoUrl || isPostingTikTok}
+              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border border-white/10 ${(!generatedVideoUrl || isPostingTikTok) ? 'opacity-40 cursor-not-allowed text-zinc-500' : 'text-white bg-gradient-to-r from-purple-600 to-orange-500 hover:brightness-110'}`}
+            >
+              {isPostingTikTok ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+              {isPostingTikTok ? t.wb_tiktok_uploading : t.wb_btn_tiktok_draft}
+          </button>
+        </div>
           {/* Video Player */}
           <div className="glass-panel flex-1 rounded-2xl p-1 relative flex flex-col overflow-hidden">
             <div className="flex-1 bg-black rounded-xl relative overflow-hidden group flex items-center justify-center">
@@ -12323,18 +13117,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 </button>
               </div>
             </div>
-          </div>
-
-          <div className="glass-panel rounded-2xl p-3 border border-white/5 flex items-center justify-between">
-            <div className="text-[10px] text-zinc-500 uppercase tracking-widest">{t.wb_tiktok_draft_title}</div>
-            <button
-              onClick={handlePublishToTikTok}
-              disabled={!generatedVideoUrl || isPostingTikTok}
-              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border border-white/10 ${(!generatedVideoUrl || isPostingTikTok) ? 'opacity-40 cursor-not-allowed text-zinc-500' : 'text-white bg-gradient-to-r from-purple-600 to-orange-500 hover:brightness-110'}`}
-            >
-              {isPostingTikTok ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-              {isPostingTikTok ? t.wb_tiktok_uploading : t.wb_btn_tiktok_draft}
-            </button>
           </div>
 
           <div className="glass-panel rounded-2xl p-4 border border-white/5 max-h-56 overflow-y-auto custom-scroll">

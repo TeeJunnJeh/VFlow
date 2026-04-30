@@ -1,10 +1,24 @@
-﻿// src/services/video.ts
+// src/services/video.ts
 
 import { traceApiRequest } from './opsTrace';
 import { apiRequest, getCookie } from './apiClient';
 import { ApiError, parseApiError, type ApiActionRequired } from './errors';
 
 const API_BASE_URL = '/api/projects';
+
+const isApiDebugEnabled = () => {
+  const isDev = Boolean((import.meta as any)?.env?.DEV);
+  if (isDev) return true;
+  if (typeof window === 'undefined') return false;
+  const flag = String(window.localStorage.getItem('vflow_api_debug') || '').trim().toLowerCase();
+  return flag === '1' || flag === 'true' || flag === 'on';
+};
+
+const debugApiLog = (label: string, payload: Record<string, unknown>) => {
+  if (!isApiDebugEnabled()) return;
+  // Structured browser logs for request/response inspection.
+  console.log(`[API DEBUG] ${label}`, payload);
+};
 
 // ——— 向后兼容：VideoApiError 现在是 ApiError 的别名 ———
 // 外部代码如果 import 了 VideoApiError 或 instanceof 检查，都无缝过渡
@@ -103,6 +117,11 @@ export type ReplayReverseScriptData = {
   styleTags: string[];
   styleReferenceText?: string;
   suggestedPrompt: string;
+  scriptBrief?: string;
+  shotOutline?: string[];
+  seedancePrompt?: string;
+  seedance_prompt?: string;
+  debug_trace?: Array<Record<string, unknown>>;
   suggestedCategory: string;
   suggestedSellingPoints: string;
   sampled_keyframes?: Array<{
@@ -451,8 +470,15 @@ export const videoApi = {
   // Backward-compatible entry used by WorkbenchView (Kling first/last frame generation).
   generateFirstFrame: async (payload: GenerateFirstFramePayload) => {
     const csrftoken = getCookie('csrftoken');
+    const endpoint = `${API_BASE_URL}/generate_first_frame`;
 
-    const response = await fetch(`${API_BASE_URL}/generate_first_frame`, {
+    debugApiLog('request generate_first_frame', {
+      endpoint,
+      method: 'POST',
+      payload,
+    });
+
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -461,6 +487,20 @@ export const videoApi = {
       },
       credentials: 'include',
       body: JSON.stringify(payload),
+    });
+    const responseClone = response.clone();
+
+    let debugResponseBody: unknown = null;
+    try {
+      debugResponseBody = await responseClone.json();
+    } catch {
+      debugResponseBody = { nonJson: true };
+    }
+    debugApiLog('response generate_first_frame', {
+      endpoint,
+      status: response.status,
+      ok: response.ok,
+      body: debugResponseBody,
     });
 
     if (!response.ok) {
@@ -473,6 +513,7 @@ export const videoApi = {
 
   generateProductGallery: async (payload: {
     client_history_id?: string;
+    skip_history?: boolean;
     prompt?: string;
     image_paths: string[];
     aspect_ratio?: string;
@@ -1142,7 +1183,7 @@ export const videoApi = {
 
   reverseScriptFromVideo: async (
     userId: string | number,
-    payload: { video_url?: string; user_language?: string } | FormData,
+    payload: { video_url?: string; video_path?: string; user_language?: string; debug_trace_id?: string; debug?: boolean } | FormData,
   ): Promise<ApiEnvelope<ReplayReverseScriptData>> => {
     return apiRequest<ApiEnvelope<ReplayReverseScriptData>>(
       `${API_BASE_URL}/users/${userId}/replay-reverse-script`,
@@ -1251,8 +1292,15 @@ export const videoApi = {
     output_language?: string;
   }) => {
     const csrftoken = getCookie('csrftoken');
+    const endpoint = `${API_BASE_URL}/generate_optimized_image`;
 
-    const response = await fetch(`${API_BASE_URL}/generate_optimized_image`, {
+    debugApiLog('request generate_optimized_image', {
+      endpoint,
+      method: 'POST',
+      payload,
+    });
+
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1261,6 +1309,20 @@ export const videoApi = {
       },
       credentials: 'include',
       body: JSON.stringify(payload),
+    });
+    const responseClone = response.clone();
+
+    let debugResponseBody: unknown = null;
+    try {
+      debugResponseBody = await responseClone.json();
+    } catch {
+      debugResponseBody = { nonJson: true };
+    }
+    debugApiLog('response generate_optimized_image', {
+      endpoint,
+      status: response.status,
+      ok: response.ok,
+      body: debugResponseBody,
     });
 
     if (!response.ok) {

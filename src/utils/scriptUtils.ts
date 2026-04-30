@@ -50,6 +50,48 @@ export type ScriptCreativeCardLike = ScriptCreativeCard;
 
 const WB_SCRIPT_PAGE_DEFAULT_PREFIXES = new Set(['脚本', 'Script', 'Skrip', 'Kịch bản', '스크립트']);
 
+export const parseDurSeconds = (dur: string | number | null | undefined): number => {
+  if (dur == null) return 0;
+  const n = parseFloat(String(dur).replace('s', ''));
+  return Number.isFinite(n) ? n : 0;
+};
+
+export const durToTenths = (dur: string | number | null | undefined): number =>
+  Math.round(parseDurSeconds(dur) * 10);
+
+export const tenthsToDur = (n: number): string => `${n / 10}s`;
+
+/**
+ * 将 `total`（整数十分位）按 `weights` 的比例分配给 N 个桶，每个桶至少 `minEach` 十分位。
+ * 使用「最大剩余法」保证 Σresult == max(total, minEach * N)。
+ * 所有权重为 0 时按均分；weights 与 total 不同号或不合法时按均分兜底。
+ */
+export function distributeTenthsProportional(
+  weights: number[],
+  total: number,
+  minEach = 1
+): number[] {
+  const n = weights.length;
+  if (n === 0) return [];
+  const minSum = minEach * n;
+  const effectiveTotal = Math.max(total, minSum);
+  const extra = effectiveTotal - minSum;
+  const weightSum = weights.reduce((acc, w) => acc + (w > 0 ? w : 0), 0);
+  const raw = weightSum > 0
+    ? weights.map((w) => ((w > 0 ? w : 0) / weightSum) * extra)
+    : new Array(n).fill(extra / n);
+  const floored = raw.map((x) => Math.floor(x));
+  let allocated = floored.reduce((a, b) => a + b, 0);
+  const remainder = extra - allocated;
+  const order = raw
+    .map((x, i) => ({ i, frac: x - Math.floor(x) }))
+    .sort((a, b) => b.frac - a.frac);
+  for (let k = 0; k < remainder && k < n; k++) {
+    floored[order[k].i] += 1;
+  }
+  return floored.map((x) => x + minEach);
+}
+
 export function formatScriptPageDisplayName(name: string | undefined, zeroBasedIndex: number, prefix: string): string {
   const trimmed = String(name || '').trim();
   if (!trimmed) return `${prefix} ${zeroBasedIndex + 1}`;

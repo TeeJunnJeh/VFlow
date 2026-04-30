@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Wand2 } from 'lucide-react';
+import { Minus, Plus, Wand2 } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import { billingApi } from '../../../../services/billing';
 import { productImagesApi } from '../../../../services/productImagesApi';
-import type { FirstFrameParams } from '../../../../types/productImages';
+import type { FirstFrameAspectRatio, FirstFrameModel, FirstFrameOpeningScene, FirstFrameParams } from '../../../../types/productImages';
+import { formatCreditAmount, roundCreditTenths } from '../../../../utils/credits';
+import { AspectRatioPicker, firstFrameRatiosForModel, ratioDescriptorsForLanguage } from '../../Common';
 
 interface FirstFrameFormProps {
   images: File[];
@@ -12,16 +14,81 @@ interface FirstFrameFormProps {
   isSubmitting?: boolean;
   onReset: () => void;
   defaultParams?: Partial<FirstFrameParams>;
+  applyVersion?: number;
+  onChange?: (params: FirstFrameParams) => void;
+  workspaceId?: string;
 }
 
-const STORAGE_KEY = 'firstFrameParams';
+const buildStorageKey = (workspaceId?: string) => {
+  const normalized = String(workspaceId || '').trim();
+  return normalized ? `firstFrameParams:${normalized}` : 'firstFrameParams';
+};
 
 const FALLBACK_PARAMS: FirstFrameParams = {
   prompt: '',
+  openingScene: 'person_selling',
   aspectRatio: '9:16',
-  model: 'flux-2-pro',
+  model: 'nano-banana-pro',
   outputCount: 4,
 };
+
+const NANO_BANANA_FIRST_FRAME_MODEL: FirstFrameModel = 'nano-banana-pro';
+const GPT_FIRST_FRAME_MODELS: FirstFrameModel[] = ['gpt-image-2', 'gpt-image-1.5'];
+const VISIBLE_FIRST_FRAME_MODELS: FirstFrameModel[] = [
+  NANO_BANANA_FIRST_FRAME_MODEL,
+  'gpt-image-2',
+  'gpt-image-1.5',
+];
+
+const isGptFirstFrameModel = (model?: FirstFrameModel) => (
+  GPT_FIRST_FRAME_MODELS.includes(model as FirstFrameModel)
+);
+
+const normalizeFirstFrameModel = (model?: FirstFrameParams['model']): FirstFrameModel => (
+  VISIBLE_FIRST_FRAME_MODELS.includes(model as FirstFrameModel)
+    ? model as FirstFrameModel
+    : NANO_BANANA_FIRST_FRAME_MODEL
+);
+
+const getFirstFrameAspectRatioValues = (model?: FirstFrameModel): FirstFrameAspectRatio[] => {
+  const allRatios: FirstFrameAspectRatio[] = ['1:1', '9:16', '4:5', '3:4', '2:3', '16:9', '4:3', '3:2', '5:4', '21:9'];
+  const gptRatios: FirstFrameAspectRatio[] = ['1:1', '2:3', '3:2'];
+  return isGptFirstFrameModel(model) ? gptRatios : allRatios;
+};
+
+const normalizeFirstFrameAspectRatio = (
+  value: FirstFrameParams['aspectRatio'],
+  model: FirstFrameParams['model']
+): FirstFrameAspectRatio => {
+  const options = getFirstFrameAspectRatioValues(normalizeFirstFrameModel(model));
+  return options.includes(value as FirstFrameAspectRatio) ? value as FirstFrameAspectRatio : options[0];
+};
+
+const normalizeFirstFrameOutputCount = (value: unknown): NonNullable<FirstFrameParams['outputCount']> => {
+  const count = Math.round(Number(value || 1));
+  if (!Number.isFinite(count)) return 1;
+  return Math.max(1, Math.min(4, count)) as NonNullable<FirstFrameParams['outputCount']>;
+};
+
+const normalizeFirstFrameOpeningScene = (value?: FirstFrameParams['openingScene']): FirstFrameOpeningScene => {
+  const allowed: FirstFrameOpeningScene[] = ['person_selling', 'product_showcase', 'usage_demo', 'brand_ad'];
+  return allowed.includes(value as FirstFrameOpeningScene) ? value as FirstFrameOpeningScene : 'person_selling';
+};
+
+const normalizeFirstFrameParams = (params: FirstFrameParams): FirstFrameParams => {
+  const model = NANO_BANANA_FIRST_FRAME_MODEL;
+  return {
+    ...params,
+    model,
+    openingScene: normalizeFirstFrameOpeningScene(params.openingScene),
+    aspectRatio: normalizeFirstFrameAspectRatio(params.aspectRatio, model),
+    outputCount: normalizeFirstFrameOutputCount(params.outputCount),
+  };
+};
+
+const pricingModelKeyForFirstFrame = (model?: FirstFrameModel): string => (
+  model === NANO_BANANA_FIRST_FRAME_MODEL ? 'gemini-3-pro-image-preview' : String(model || '')
+);
 
 export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   images,
@@ -29,8 +96,12 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   isSubmitting = false,
   onReset,
   defaultParams,
+  applyVersion = 0,
+  onChange,
+  workspaceId,
 }) => {
   const { t, language } = useLanguage();
+  const storageKey = useMemo(() => buildStorageKey(workspaceId), [workspaceId]);
 
   const mergedDefaultParams = useMemo<FirstFrameParams>(
     () => ({
@@ -40,29 +111,21 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
     [defaultParams]
   );
 
-  const aspectRatios = useMemo(
-    () => [
-      { label: t.ff_aspect_ratio_vertical, value: '9:16' },
-      { label: '4:5', value: '4:5' },
-      { label: t.ff_aspect_ratio_square, value: '1:1' },
-    ],
-    [t]
-  );
-
   const models = useMemo(
     () => [
-      { label: 'Flux 2 Pro', value: 'flux-2-pro' },
-      { label: 'Flux 2 Flex', value: 'flux-2-flex' },
+      { label: 'Nano Banana Pro', value: 'nano-banana-pro' },
+      { label: 'GPT Image 2', value: 'gpt-image-2' },
       { label: 'GPT Image 1.5', value: 'gpt-image-1.5' },
     ],
     []
   );
 
-  const outputCounts = useMemo(
+  const openingSceneOptions = useMemo(
     () => [
-      { label: t.ff_output_count_1, value: 1 as const },
-      { label: t.ff_output_count_2, value: 2 as const },
-      { label: t.ff_output_count_4, value: 4 as const },
+      { label: t.ff_opening_scene_person_selling, value: 'person_selling' },
+      { label: t.ff_opening_scene_product_showcase, value: 'product_showcase' },
+      { label: t.ff_opening_scene_usage_demo, value: 'usage_demo' },
+      { label: t.ff_opening_scene_brand_ad, value: 'brand_ad' },
     ],
     [t]
   );
@@ -70,13 +133,13 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   const [isPolishingPrompt, setIsPolishingPrompt] = useState(false);
   const [imageModelRates, setImageModelRates] = useState<Record<string, number>>({});
   const [formData, setFormData] = useState<FirstFrameParams>(() => {
-    const baseDefaults: FirstFrameParams = { ...mergedDefaultParams };
+    const baseDefaults: FirstFrameParams = normalizeFirstFrameParams({ ...mergedDefaultParams });
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(storageKey);
       if (saved) {
         const parsed = JSON.parse(saved) as Partial<FirstFrameParams>;
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          return { ...baseDefaults, ...parsed };
+          return normalizeFirstFrameParams({ ...baseDefaults, ...parsed });
         }
       }
     } catch {
@@ -86,20 +149,50 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  const firstFrameRatioConfig = useMemo(
+    () => firstFrameRatiosForModel(formData.model),
+    [formData.model],
+  );
+
   useEffect(() => {
-    setFormData((prev) => ({
-      ...mergedDefaultParams,
-      ...prev,
-    }));
-  }, [mergedDefaultParams]);
+    setFormData((prev) => {
+      const normalized = normalizeFirstFrameParams(prev);
+      if (normalized.model === prev.model && normalized.aspectRatio === prev.aspectRatio) return prev;
+      return normalized;
+    });
+  }, [formData.aspectRatio, formData.model]);
+
+  useEffect(() => {
+    if (applyVersion > 0) {
+      setFormData(normalizeFirstFrameParams({ ...mergedDefaultParams }));
+      setErrors({});
+      return;
+    }
+
+    let nextFormData: FirstFrameParams = normalizeFirstFrameParams({ ...mergedDefaultParams });
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved) as Partial<FirstFrameParams>;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          nextFormData = normalizeFirstFrameParams({ ...mergedDefaultParams, ...parsed });
+        }
+      }
+    } catch {
+      // Ignore corrupted local cache and fallback to defaults.
+    }
+    setFormData(nextFormData);
+    setErrors({});
+  }, [applyVersion, mergedDefaultParams, storageKey]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(formData));
+      localStorage.setItem(storageKey, JSON.stringify(formData));
     } catch {
       // Ignore localStorage write failures.
     }
-  }, [formData]);
+    onChange?.(formData);
+  }, [formData, onChange, storageKey]);
 
   useEffect(() => {
     let alive = true;
@@ -123,11 +216,11 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   }, []);
 
   const estimatedCost = useMemo(() => {
-    const modelKey = String(formData.model || '').trim();
+    const modelKey = pricingModelKeyForFirstFrame(formData.model);
     const rate = Number(imageModelRates[modelKey] || 0);
     const units = Math.max(1, Number(formData.outputCount || 1));
     if (!Number.isFinite(rate) || rate <= 0) return 0;
-    return Math.max(0, Math.round(rate * units));
+    return Math.max(0, roundCreditTenths(rate * units));
   }, [formData.model, formData.outputCount, imageModelRates]);
 
   const validateForm = (): boolean => {
@@ -184,10 +277,31 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
     onReset();
   };
 
+  const updateOutputCount = (delta: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      outputCount: normalizeFirstFrameOutputCount(Number(prev.outputCount || 1) + delta),
+    }));
+  };
+
   return (
     <form onSubmit={handleSubmit} className="w-full">
       <div className="space-y-6">
         <div>
+          <div className="mb-4">
+            <label className="block text-sm text-zinc-300 mb-2 font-medium">
+              {t.ff_opening_scene_label}
+            </label>
+            <DropdownSelect
+              value={formData.openingScene || 'person_selling'}
+              options={openingSceneOptions}
+              onChange={(value) => setFormData({ ...formData, openingScene: normalizeFirstFrameOpeningScene(value as FirstFrameOpeningScene) })}
+              buttonClassName="w-full bg-zinc-900/70 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800"
+              iconClassName="w-4 h-4 text-zinc-500"
+              optionClassName="text-sm"
+            />
+          </div>
+
           <div className="mb-2 flex items-center justify-between gap-2">
             <label className="block text-sm text-zinc-300 font-medium">
               {t.ff_prompt_label || '填写生成要求'}
@@ -224,28 +338,19 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
         </div>
 
         <div className="space-y-6">
-          <div>
-            <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_aspect_ratio_label}</label>
-            <div className="grid grid-cols-3 gap-2">
-              {aspectRatios.map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  onClick={() => setFormData({ ...formData, aspectRatio: item.value as any })}
-                  className={`px-3 py-2 rounded-xl text-sm font-medium border transition ${formData.aspectRatio === item.value ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
+          <div className="hidden">
             <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.wb_model_title || t.ff_style_label}</label>
             <DropdownSelect
               value={formData.model || ''}
               options={models}
-              onChange={(value) => setFormData({ ...formData, model: value as any })}
+              onChange={(value) => {
+                const nextModel = value as FirstFrameModel;
+                setFormData({
+                  ...formData,
+                  model: nextModel,
+                  aspectRatio: normalizeFirstFrameAspectRatio(formData.aspectRatio, nextModel),
+                });
+              }}
               buttonClassName={`w-full bg-zinc-900/70 border rounded-xl px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 ${errors.model ? 'border-red-500' : 'border-white/10'}`}
               iconClassName="w-4 h-4 text-zinc-500"
               optionClassName="text-sm"
@@ -253,19 +358,51 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
             {errors.model && <p className="text-red-400 text-xs mt-1">{errors.model}</p>}
           </div>
 
-          <div>
-            <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_output_count_label}</label>
-            <div className="grid grid-cols-3 gap-2">
-              {outputCounts.map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  onClick={() => setFormData({ ...formData, outputCount: item.value as any })}
-                  className={`px-3 py-2 rounded-xl text-sm font-medium border transition ${formData.outputCount === item.value ? 'border-orange-500/60 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-white/20 hover:bg-white/5'}`}
-                >
-                  {item.label}
-                </button>
-              ))}
+          <div className="space-y-4">
+            {/* Row 1: 比例选择独占整行 */}
+            <div>
+              <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_aspect_ratio_label}</label>
+              <AspectRatioPicker
+                value={String(formData.aspectRatio || '1:1')}
+                onChange={(value) => setFormData({ ...formData, aspectRatio: value as FirstFrameAspectRatio })}
+                primary={firstFrameRatioConfig.primary}
+                more={firstFrameRatioConfig.more}
+                labels={{
+                  more: language === 'zh' ? '更多比例' : 'More ratios',
+                  vertical: t.pi_gallery_ratio_group_vertical,
+                  landscape: t.pi_gallery_ratio_group_landscape,
+                }}
+                descriptors={ratioDescriptorsForLanguage(language)}
+              />
+              {errors.aspectRatio && <p className="text-red-400 text-xs mt-1">{errors.aspectRatio}</p>}
+            </div>
+
+            {/* Row 2: 输出数量靠右 */}
+            <div className="flex justify-end">
+              <div className="w-32">
+                <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_output_count_label}</label>
+                <div className="flex h-10 w-full items-center">
+                  <button
+                    type="button"
+                    onClick={() => updateOutputCount(-1)}
+                    disabled={isSubmitting || Number(formData.outputCount || 1) <= 1}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-l-xl border border-white/10 bg-white/5 text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Minus className="h-4 w-4" />
+                  </button>
+                  <div className="flex h-10 min-w-0 flex-1 items-center justify-center border-y border-white/10 bg-black/30 text-sm font-medium tabular-nums text-zinc-100">
+                    {normalizeFirstFrameOutputCount(formData.outputCount)}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => updateOutputCount(1)}
+                    disabled={isSubmitting || Number(formData.outputCount || 1) >= 4}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-r-xl border border-white/10 bg-white/5 text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -286,7 +423,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
             <span className="justify-self-end self-center text-right">
               {estimatedCost > 0 ? (
                 <span className="ff-generate-cost whitespace-nowrap text-[10px] font-semibold tabular-nums text-orange-100/80">
-                  {`-${estimatedCost} ${t.v_points || 'V点'}`}
+                  {`-${formatCreditAmount(estimatedCost)} ${t.v_points || 'V点'}`}
                 </span>
               ) : null}
             </span>

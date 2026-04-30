@@ -40,6 +40,7 @@ export type InviteSummary = {
   invited_count: number;
   cap: number;
   reward_per_invite: number;
+  invitee_reward: number;
   is_capped: boolean;
   total_reward_earned: number;
 };
@@ -67,6 +68,31 @@ type InviteApplicationResponse = {
     status: string;
     inviter: InviterPreview | null;
   };
+};
+
+export type MaydayCheckinStatus = {
+  event_active: boolean;
+  event_start_ymd: string;
+  event_end_ymd: string;
+  today_ymd: string;
+  checked_in_today: boolean;
+  last_checkin_date: string | null;
+  reward_per_day: number;
+  balance?: number;
+};
+
+export type MaydayCheckinResult = {
+  rewarded: number;
+  checked_in_date: string;
+  balance?: number;
+};
+
+type MaydayCheckinStatusResponse = {
+  data: MaydayCheckinStatus;
+};
+
+type MaydayCheckinResultResponse = {
+  data: MaydayCheckinResult;
 };
 
 export const authApi = {
@@ -237,6 +263,23 @@ export const authApi = {
         invite_code: payload.inviteCode || '',
       },
       fallbackMessage: 'Failed to submit application',
+    });
+    return json.data;
+  },
+
+  getMaydayCheckinStatus: async (force?: boolean): Promise<MaydayCheckinStatus> => {
+    const qs = force ? '?force=1' : '';
+    const json = await apiRequest<MaydayCheckinStatusResponse>(`${API_BASE_URL}/checkin/status/${qs}`, {
+      fallbackMessage: 'Failed to load check-in status',
+    });
+    return json.data;
+  },
+
+  doMaydayCheckin: async (force?: boolean): Promise<MaydayCheckinResult> => {
+    const qs = force ? '?force=1' : '';
+    const json = await apiRequest<MaydayCheckinResultResponse>(`${API_BASE_URL}/checkin/${qs}`, {
+      method: 'POST',
+      fallbackMessage: 'Check-in failed',
     });
     return json.data;
   },

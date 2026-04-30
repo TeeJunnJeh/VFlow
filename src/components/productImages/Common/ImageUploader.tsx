@@ -2,7 +2,8 @@
  * 图片上传组件 - 支持拖拽和点击上传
  */
 
-import React, { useCallback, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Upload, X } from 'lucide-react';
 import { useLanguage } from '../../../context/LanguageContext';
 
@@ -15,6 +16,7 @@ interface ImageUploaderProps {
   disabled?: boolean;
   multiple?: boolean;
   previewVariant?: 'default' | 'first-frame';
+  value?: File[];
 }
 
 const DEFAULT_ACCEPTED_FORMATS = ['image/jpeg', 'image/png', 'image/webp'];
@@ -29,6 +31,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   disabled = false,
   multiple = true,
   previewVariant = 'default',
+  value,
 }) => {
   const { t } = useLanguage();
   const [dragActive, setDragActive] = useState(false);
@@ -36,6 +39,11 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   const [previews, setPreviews] = useState<string[]>([]);
   const [previewingIndex, setPreviewingIndex] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!Array.isArray(value)) return;
+    setSelectedFiles(value);
+  }, [value]);
 
   /**
    * 验证文件
@@ -93,11 +101,28 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
     );
   };
 
+  useEffect(() => {
+    let alive = true;
+    if (selectedFiles.length === 0) {
+      setPreviews([]);
+      return () => {
+        alive = false;
+      };
+    }
+    setPreviews([]);
+    void generatePreviews(selectedFiles).then((nextPreviews) => {
+      if (alive) setPreviews(nextPreviews);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [selectedFiles]);
+
   /**
    * 处理文件选择
    */
   const handleFileSelect = useCallback(
-    async (files: FileList | null) => {
+    (files: FileList | null) => {
       if (!files || files.length === 0) return;
 
       const fileArray = Array.from(files);
@@ -111,10 +136,6 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       const newSelectedFiles = [...selectedFiles, ...valid];
       setSelectedFiles(newSelectedFiles);
 
-      // 生成新预览
-      const newPreviews = await generatePreviews(valid);
-      setPreviews([...previews, ...newPreviews]);
-
       // 通知父组件
       onFilesSelected(newSelectedFiles);
 
@@ -123,7 +144,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
         inputRef.current.value = '';
       }
     },
-    [selectedFiles, previews, onFilesSelected, onError, maxFiles, maxFileSize, acceptedFormats]
+    [selectedFiles, onFilesSelected, onError, maxFiles, maxFileSize, acceptedFormats]
   );
 
   /**
@@ -156,11 +177,9 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
    */
   const handleRemoveFile = (index: number) => {
     const newFiles = selectedFiles.filter((_, i) => i !== index);
-    const newPreviews = previews.filter((_, i) => i !== index);
 
     setPreviewingIndex((current) => (current === null || current === index ? null : current > index ? current - 1 : current));
     setSelectedFiles(newFiles);
-    setPreviews(newPreviews);
     onFilesSelected(newFiles);
   };
 
@@ -175,11 +194,24 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
 
   const previewingFile = previewingIndex !== null ? selectedFiles[previewingIndex] || null : null;
   const previewingImage = previewingIndex !== null ? previews[previewingIndex] || '' : '';
+  const showFirstFrameLargeSlot = previewVariant === 'first-frame' && selectedFiles.length === 0;
+  const showFirstFrameGrid = previewVariant === 'first-frame' && selectedFiles.length > 0;
+  const canAddMoreFiles = selectedFiles.length < maxFiles;
 
   return (
     <div className="w-full">
+      <input
+        ref={inputRef}
+        type="file"
+        multiple={multiple && maxFiles > 1}
+        accept={acceptedFormats.join(',')}
+        onChange={(e) => handleFileSelect(e.target.files)}
+        disabled={disabled}
+        className="hidden"
+      />
+
       {/* 上传区 */}
-      {selectedFiles.length < maxFiles && (
+      {(showFirstFrameLargeSlot || (previewVariant !== 'first-frame' && selectedFiles.length < maxFiles)) && (
         <div
           className={`
             relative w-full border-2 border-dashed rounded-lg p-8
@@ -198,21 +230,17 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
           onDrop={handleDrop}
           onClick={handleClick}
         >
-          <input
-            ref={inputRef}
-            type="file"
-            multiple={multiple && maxFiles > 1}
-            accept={acceptedFormats.join(',')}
-            onChange={(e) => handleFileSelect(e.target.files)}
-            disabled={disabled}
-            className="hidden"
-          />
-
           <div className="flex flex-col items-center justify-center">
             <Upload className="w-8 h-8 text-orange-500 mb-3" />
             <p className="text-zinc-100 font-medium mb-1">
-              {t.ff_upload_title}
-              {maxFiles > 1 && ` (${selectedFiles.length}/${maxFiles})`}
+              {previewVariant === 'first-frame'
+                ? (((t as any).ff_upload_title_range_1_4 as string) || '上传1~4张图片')
+                : (
+                  <>
+                    {t.ff_upload_title}
+                    {maxFiles > 1 && ` (${selectedFiles.length}/${maxFiles})`}
+                  </>
+                )}
             </p>
             <p className="text-zinc-400 text-sm">
               {t.ff_upload_drag_or_click}
@@ -224,74 +252,123 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
         </div>
       )}
 
+      {showFirstFrameGrid && (
+        <div className="mt-6">
+          <div className="grid grid-cols-2 gap-4">
+            {selectedFiles.slice(0, maxFiles).map((file, index) => (
+              <div key={`${file.name}-${index}`} className="relative group">
+                <div className="relative w-full aspect-square rounded-lg overflow-hidden bg-zinc-900">
+                  {previews[index] ? (
+                    <img
+                      src={previews[index]}
+                      alt={`Preview ${index + 1}`}
+                      className="w-full h-full object-cover cursor-zoom-in"
+                      onClick={() => setPreviewingIndex(index)}
+                    />
+                  ) : (
+                    <div className="h-full w-full animate-pulse bg-zinc-800" />
+                  )}
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/15 to-transparent opacity-0 transition-opacity group-hover:opacity-100">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveFile(index);
+                      }}
+                      className="pointer-events-auto absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/65 text-white transition hover:bg-black/85"
+                      title={t.ff_delete}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                    <div className="absolute inset-x-0 bottom-0 p-2">
+                      <p className="truncate text-xs font-medium !text-white">
+                        {file.name}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {canAddMoreFiles && (
+              <button
+                type="button"
+                onClick={handleClick}
+                onDragEnter={handleDrag}
+                onDragLeave={handleDrag}
+                onDragOver={handleDrag}
+                onDrop={handleDrop}
+                className={`
+                  flex aspect-square w-full items-center justify-center rounded-lg border-2 border-dashed transition-all duration-200
+                  ${
+                    disabled
+                      ? 'border-zinc-600 bg-zinc-800 cursor-not-allowed opacity-60'
+                      : dragActive
+                        ? 'border-orange-500 bg-orange-500/5'
+                        : 'border-zinc-600 bg-zinc-900 hover:border-orange-500/50'
+                  }
+                `}
+                aria-label={t.ff_upload_title}
+              >
+                <Upload className="h-6 w-6 text-orange-500" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* 预览列表 */}
-      {selectedFiles.length > 0 && (
+      {previewVariant !== 'first-frame' && selectedFiles.length > 0 && (
         <div className="mt-6">
           <p className="text-zinc-300 text-sm font-medium mb-3">{t.ff_uploaded_images}</p>
           <div className={maxFiles === 1 ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"}>
-            {previews.map((preview, index) => (
+            {selectedFiles.map((file, index) => {
+              const preview = previews[index] || '';
+              return (
               <div
-                key={index}
+                key={`${file.name}-${index}`}
                 className="relative group"
               >
                 <div className="relative w-full max-w-[250px] aspect-square rounded-lg overflow-hidden bg-zinc-900">
-                  <img
-                    src={preview}
-                    alt={`Preview ${index + 1}`}
-                    className={`w-full h-full object-cover ${previewVariant === 'first-frame' ? 'cursor-zoom-in' : ''}`}
-                    onClick={previewVariant === 'first-frame' ? () => setPreviewingIndex(index) : undefined}
-                  />
-
-                  {previewVariant === 'first-frame' ? (
-                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/15 to-transparent opacity-0 transition-opacity group-hover:opacity-100">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleRemoveFile(index);
-                        }}
-                        className="pointer-events-auto absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/65 text-white transition hover:bg-black/85"
-                        title={t.ff_delete}
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                      <div className="absolute inset-x-0 bottom-0 p-2">
-                        <p className="truncate text-xs font-medium !text-white">
-                          {selectedFiles[index].name}
-                        </p>
-                      </div>
-                    </div>
+                  {preview ? (
+                    <img
+                      src={preview}
+                      alt={`Preview ${index + 1}`}
+                      className="w-full h-full object-cover"
+                    />
                   ) : (
-                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveFile(index)}
-                        className="p-2 bg-red-500 text-white rounded hover:bg-red-600 transition"
-                        title={t.ff_delete}
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                      <span className="text-white text-xs">
-                        {selectedFiles[index].name}
-                      </span>
-                    </div>
+                    <div className="h-full w-full animate-pulse bg-zinc-800" />
                   )}
+
+                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFile(index)}
+                      className="p-2 bg-red-500 text-white rounded hover:bg-red-600 transition"
+                      title={t.ff_delete}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                    <span className="text-white text-xs">
+                      {file.name}
+                    </span>
+                  </div>
                 </div>
 
                 {/* 文件大小 */}
                 <p className="text-zinc-500 text-xs mt-1">
-                  {(selectedFiles[index].size / 1024).toFixed(0)} KB
+                  {(file.size / 1024).toFixed(0)} KB
                 </p>
               </div>
-            ))}
+            );
+            })}
           </div>
 
         </div>
       )}
 
-      {previewVariant === 'first-frame' && previewingFile && previewingImage && (
+      {previewVariant === 'first-frame' && previewingFile && previewingImage && typeof document !== 'undefined' && createPortal(
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
           onClick={() => setPreviewingIndex(null)}
         >
           <div className="relative max-h-screen max-w-5xl" onClick={(e) => e.stopPropagation()}>
@@ -311,7 +388,8 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
               <X className="h-5 w-5" />
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

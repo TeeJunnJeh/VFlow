@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, Minus, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronsDown, Minus, Plus, Save } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import { ImageUploader } from '../../Common/ImageUploader';
@@ -11,6 +11,7 @@ import { LoadingProgress } from '../../Common/LoadingProgress';
 import { ErrorDialog, type ErrorInfo } from '../../Common/ErrorDialog';
 import { productImagesApi } from '../../../../services/productImagesApi';
 import { assetsApi } from '../../../../services/assets';
+import { apiRequest } from '../../../../services/apiClient';
 import type { FirstFrameParams, ProductImageResult } from '../../../../types/productImages';
 import { deleteImageHistoryItem, notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
 import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../../../utils/loadingTheme';
@@ -35,6 +36,17 @@ interface FirstFrameHistoryItem {
   elapsedSeconds: number | null;
 }
 
+interface FirstFrameExampleTemplate {
+  id: string;
+  title: string;
+  subtitle: string;
+  previewUrl: string;
+  inputImageUrls: string[];
+  resultImageUrls?: string[];
+  params: FirstFrameParams;
+  isUserSnapshot?: boolean;
+}
+
 interface FirstFrameViewProps {
   onBack?: () => void;
   projectId?: string;
@@ -47,8 +59,11 @@ interface FirstFrameViewProps {
 const FIRST_FRAME_TRANSFER_KEY = 'vflow_apply_first_frame';
 const FIRST_FRAME_WORKSPACE_META_KEY = 'vflow_first_frame_workspaces_v1';
 const FIRST_FRAME_ACTIVE_WORKSPACE_KEY = 'vflow_first_frame_active_workspace_v1';
+const FIRST_FRAME_EXAMPLES_COLLAPSED_KEY = 'vflow_first_frame_examples_collapsed_v1';
 const FIRST_FRAME_COUNTDOWN_SECONDS = 120;
 const FIRST_FRAME_PROGRESS_HOLD_MAX = 95;
+const FIRST_FRAME_ASYNC_POLL_INTERVAL_MS = 3000;
+const FIRST_FRAME_ASYNC_POLL_MAX_ATTEMPTS = 80;
 const FIRST_FRAME_PANEL_MIN_WIDTH = 280;
 const FIRST_FRAME_PANEL_MAX_WIDTH = 720;
 const FIRST_FRAME_DEFAULT_LEFT_RATIO = 0.8;
@@ -56,6 +71,52 @@ const FIRST_FRAME_DEFAULT_MIDDLE_RATIO = 1;
 const FIRST_FRAME_DEFAULT_RIGHT_RATIO = 1;
 const FIRST_FRAME_DEFAULT_TOTAL_RATIO =
   FIRST_FRAME_DEFAULT_LEFT_RATIO + FIRST_FRAME_DEFAULT_MIDDLE_RATIO + FIRST_FRAME_DEFAULT_RIGHT_RATIO;
+const FIRST_FRAME_USER_EXAMPLE_LIMIT = 20;
+
+const FIRST_FRAME_EXAMPLE_TEMPLATES: FirstFrameExampleTemplate[] = [
+  {
+    id: 'brand_ad_skincare',
+    title: '品牌广告大片',
+    subtitle: '打造高级、有视觉冲击力的品牌广告开场',
+    previewUrl: '/first-frame-examples/brand_ad/result1.jpg',
+    inputImageUrls: [
+      '/first-frame-examples/brand_ad/input_model.png',
+      '/first-frame-examples/brand_ad/input_product.jpg',
+    ],
+    resultImageUrls: [
+      '/first-frame-examples/brand_ad/result1.jpg',
+      '/first-frame-examples/brand_ad/result2.jpg'
+    ],
+    params: {
+      openingScene: 'brand_ad',
+      prompt: '人物自然手持护肤品出镜，妆容精致，产品清晰突出。背景简洁高级，光线柔和，整体呈现高质感护肤品广告画面。',
+      aspectRatio: '3:4',
+      outputCount: 2,
+      model: 'nano-banana-pro',
+    },
+  },
+  {
+    id: 'usage_demo_headphones',
+    title: '使用场景演示',
+    subtitle: '展示商品真实使用状态的生活化开场',
+    previewUrl: '/first-frame-examples/usage_demo/result1.jpg',
+    inputImageUrls: [
+      '/first-frame-examples/usage_demo/input_product.jpg',
+    ],
+    resultImageUrls: [
+      '/first-frame-examples/usage_demo/result1.jpg',
+      '/first-frame-examples/usage_demo/result2.jpg',
+      '/first-frame-examples/usage_demo/result3.jpg',
+    ],
+    params: {
+      openingScene: 'usage_demo',
+      prompt: '一个年轻亚裔女孩在安静的居家空间中自然佩戴耳机，单手轻扶耳机，呈现沉浸听音乐的状态。耳机清晰突出，画面柔和有生活感。',
+      aspectRatio: '16:9',
+      outputCount: 3,
+      model: 'nano-banana-pro',
+    },
+  },
+];
 
 const createDefaultWorkspaceMeta = (): FirstFrameWorkspaceMeta => ({
   id: 'ff-workspace-1',
@@ -184,13 +245,34 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const [resultSelectionKey, setResultSelectionKey] = useState<string>('');
   const [loadingTheme, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
   const [loadingBackgroundSrc, setLoadingBackgroundSrc] = useState<string>('');
+  const [isAsyncGenerating, setIsAsyncGenerating] = useState(false);
+  const [resultAspectRatio, setResultAspectRatio] = useState<string>('9:16');
+  const [userExampleTemplates, setUserExampleTemplates] = useState<FirstFrameExampleTemplate[]>([]);
+  const [exampleParams, setExampleParams] = useState<Partial<FirstFrameParams>>({});
+  const [currentFormParams, setCurrentFormParams] = useState<FirstFrameParams>({
+    prompt: '',
+    openingScene: 'person_selling',
+    aspectRatio: '9:16',
+    model: 'nano-banana-pro',
+    outputCount: 4,
+  });
+  const [exampleApplyVersion, setExampleApplyVersion] = useState(0);
+  const [isApplyingExample, setIsApplyingExample] = useState(false);
+  const [isSavingExampleSnapshot, setIsSavingExampleSnapshot] = useState(false);
+  const [isDeletingExampleSnapshot, setIsDeletingExampleSnapshot] = useState(false);
+  const [isExamplesCollapsed, setIsExamplesCollapsed] = useState(false);
 
   const generationSeqRef = useRef(0);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const progressStartedAtRef = useRef<number | null>(null);
 
-  const isGenerating = phase === 'generating';
+  const isGenerating = phase === 'generating' || isAsyncGenerating;
+  const showFullScreenGenerating = phase === 'generating' && !isAsyncGenerating;
   const hasResults = results.length > 0;
+  const firstFrameExamples = useMemo(
+    () => [...FIRST_FRAME_EXAMPLE_TEMPLATES, ...userExampleTemplates],
+    [userExampleTemplates]
+  );
 
   const refreshWorkspaceHistory = useCallback(async () => {
     await refreshImageHistory();
@@ -208,6 +290,83 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       void refreshWorkspaceHistory();
     });
   }, [refreshWorkspaceHistory]);
+
+  useEffect(() => {
+    let canceled = false;
+    (async () => {
+      try {
+        const resp = await apiRequest<any>('/api/projects/first-frame/example-snapshots', {
+          method: 'GET',
+          fallbackMessage: t.ff_error_generation_failed,
+        });
+        if (canceled) return;
+        const items = Array.isArray(resp?.data?.items) ? resp.data.items : [];
+        const templates = items
+          .map((row: any) => {
+            const id = String(row?.id || '').trim();
+            const title = String(row?.title || '').trim();
+            const subtitle = String(row?.subtitle || '').trim();
+            const previewUrl = String(row?.preview_url || '').trim();
+            const settings = row?.settings_snapshot && typeof row.settings_snapshot === 'object' && !Array.isArray(row.settings_snapshot)
+              ? row.settings_snapshot
+              : {};
+            const inputImageUrls = Array.isArray(settings?.inputImageUrls)
+              ? settings.inputImageUrls.map((v: any) => String(v || '').trim()).filter(Boolean).slice(0, 4)
+              : [];
+            const resultImageUrls = Array.isArray(settings?.resultImageUrls)
+              ? settings.resultImageUrls.map((v: any) => String(v || '').trim()).filter(Boolean).slice(0, 4)
+              : [];
+            const paramsSeed = settings?.params && typeof settings.params === 'object' && !Array.isArray(settings.params)
+              ? settings.params
+              : {};
+            if (!id || !title || !previewUrl) return null;
+            return {
+              id,
+              title,
+              subtitle,
+              previewUrl,
+              inputImageUrls,
+              resultImageUrls,
+              params: {
+                openingScene: paramsSeed.openingScene,
+                prompt: String(paramsSeed.prompt || '').trim(),
+                aspectRatio: paramsSeed.aspectRatio,
+                outputCount: paramsSeed.outputCount,
+                model: 'nano-banana-pro',
+              },
+              isUserSnapshot: true,
+            } as FirstFrameExampleTemplate;
+          })
+          .filter(Boolean)
+          .slice(0, FIRST_FRAME_USER_EXAMPLE_LIMIT) as FirstFrameExampleTemplate[];
+        setUserExampleTemplates(templates);
+      } catch {
+        if (!canceled) setUserExampleTemplates([]);
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, [t.ff_error_generation_failed]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      setIsExamplesCollapsed(window.localStorage.getItem(FIRST_FRAME_EXAMPLES_COLLAPSED_KEY) === '1');
+    } catch {
+      // Ignore localStorage read failures.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(FIRST_FRAME_EXAMPLES_COLLAPSED_KEY, isExamplesCollapsed ? '1' : '0');
+    } catch {
+      // Ignore localStorage write failures.
+    }
+  }, [isExamplesCollapsed]);
 
   useEffect(() => {
     let alive = true;
@@ -258,17 +417,230 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     clearProgressTimer();
   }, [clearProgressTimer]);
 
+  const isTerminalFirstFrameStatus = (status: string) => (
+    ['succeeded', 'success', 'completed', 'done', 'ready', 'failed', 'error', 'cancelled', 'canceled', 'rejected']
+      .includes(String(status || '').trim().toLowerCase())
+  );
+
+  const isSuccessfulFirstFrameStatus = (status: string) => (
+    ['succeeded', 'success', 'completed', 'done', 'ready']
+      .includes(String(status || '').trim().toLowerCase())
+  );
+
+  const isNonRetryableFirstFramePollError = (err: unknown) => {
+    const status = Number((err as any)?.status || 0);
+    if (status === 400 || status === 404) return true;
+    const message = String((err as any)?.message || err || '').trim().toLowerCase();
+    return [
+      'not found',
+      'not exist',
+      'invalid request',
+      'invalid request_id',
+      'request_id is required',
+      'first-frame task not found',
+    ].some((marker) => message.includes(marker));
+  };
+
+  const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
   const handleImagesSelected = useCallback((files: File[]) => {
     setImages(files);
     setError(null);
     setProgress(0);
     setResults([]);
     setLastElapsedSeconds(null);
+    setIsAsyncGenerating(false);
     setPhase(files.length > 0 ? 'form' : 'upload');
   }, []);
 
+  const loadExampleFiles = async (imageUrls: string[], seedName: string) => {
+    const files: File[] = [];
+    for (let index = 0; index < imageUrls.length; index += 1) {
+      const url = String(imageUrls[index] || '').trim();
+      if (!url) continue;
+      const resp = await fetch(url, { credentials: 'include' });
+      if (!resp.ok) throw new Error(t.ff_error_generation_failed);
+      const blob = await resp.blob();
+      const mime = String(blob.type || '').trim() || 'image/jpeg';
+      const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
+      files.push(new File([blob], `first-frame-example-${seedName}-${index + 1}.${ext}`, { type: mime }));
+    }
+    return files;
+  };
+
+  const applyFirstFrameExample = async (exampleId: string) => {
+    if (!requireAuth()) return;
+    if (isGenerating || isApplyingExample) return;
+    const template = firstFrameExamples.find((item) => item.id === exampleId) || null;
+    if (!template) return;
+
+    setIsApplyingExample(true);
+    try {
+      const files = await loadExampleFiles(template.inputImageUrls, template.id);
+      if (files.length === 0) {
+        setError({
+          code: 'EXAMPLE_LOAD_FAILED',
+          message: t.ff_error_upload_product_image_first,
+          severity: 'warning',
+        });
+        return;
+      }
+      setImages(files);
+      setExampleParams(template.params);
+      setCurrentFormParams({
+        ...template.params,
+        model: 'nano-banana-pro',
+      });
+      setExampleApplyVersion((prev) => prev + 1);
+      setResults([]);
+      const restoredResults: ProductImageResult[] = (template.resultImageUrls || [])
+        .map((url, index) => String(url || '').trim()
+          ? {
+              id: `first-frame-example-result-${template.id}-${index}`,
+              imageUrl: String(url || '').trim(),
+              downloadUrl: String(url || '').trim(),
+              format: 'jpg',
+              category: 'frame',
+              generationStatus: 'succeeded',
+              metadata: {
+                source: 'example',
+                exampleId: template.id,
+              },
+            }
+          : null)
+        .filter(Boolean) as ProductImageResult[];
+      if (restoredResults.length > 0) {
+        setResults(restoredResults);
+        setResultSelectionKey(`example:${template.id}:${Date.now()}`);
+      }
+      setProgress(0);
+      setLastElapsedSeconds(null);
+      setResultAspectRatio(template.params.aspectRatio || '9:16');
+      setRightPanel('preview');
+      setError(null);
+      setPhase('form');
+    } catch (err: any) {
+      setError({
+        code: 'EXAMPLE_LOAD_FAILED',
+        message: String(err?.message || t.ff_error_generation_failed),
+        severity: 'error',
+      });
+    } finally {
+      setIsApplyingExample(false);
+    }
+  };
+
+  const saveFirstFrameExampleSnapshot = async () => {
+    if (!requireAuth()) return;
+    if (isSavingExampleSnapshot) return;
+    if (images.length === 0) {
+      setError({
+        code: 'NO_IMAGES',
+        message: t.ff_error_upload_product_image_first,
+        severity: 'warning',
+      });
+      return;
+    }
+
+    setIsSavingExampleSnapshot(true);
+    try {
+      const uploadedImagePaths: string[] = [];
+      for (const file of images.slice(0, 4)) {
+        const uploadResp = await assetsApi.uploadAsset(file, 'PRODUCT', undefined, { bundleOnly: true });
+        const url = String((uploadResp as any)?.data?.url || '').trim();
+        if (url) uploadedImagePaths.push(url);
+      }
+      if (uploadedImagePaths.length === 0) throw new Error(t.ff_error_generation_failed);
+
+      const succeededCover = results.find((item) => Boolean(String(item.imageUrl || '').trim()) && item.generationStatus !== 'failed');
+      const resultImageUrls = results
+        .filter((item) => Boolean(String(item.imageUrl || '').trim()) && item.generationStatus !== 'failed')
+        .map((item) => String(item.imageUrl || '').trim())
+        .slice(0, 4);
+      const coverImage = String(succeededCover?.imageUrl || uploadedImagePaths[0] || '').trim();
+      const params: FirstFrameParams = {
+        model: 'nano-banana-pro',
+        openingScene: currentFormParams.openingScene || 'person_selling',
+        prompt: String(currentFormParams.prompt || '').trim(),
+        aspectRatio: currentFormParams.aspectRatio || resultAspectRatio as any || '9:16',
+        outputCount: currentFormParams.outputCount || 1,
+      };
+      const now = new Date();
+      const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const title = params.openingScene === 'brand_ad' ? '品牌广告大片' : 'AI首帧图示例';
+      const subtitle = `保存当前工作区快照 · ${stamp}`;
+      const settingsSnapshot = {
+        inputImageUrls: uploadedImagePaths,
+        resultImageUrls,
+        params,
+      };
+
+      const resp = await apiRequest<any>('/api/projects/first-frame/example-snapshots', {
+        method: 'POST',
+        body: {
+          title,
+          subtitle,
+          cover_image: coverImage,
+          settings_snapshot: settingsSnapshot,
+        },
+        fallbackMessage: t.ff_error_generation_failed,
+      });
+      const created = resp?.data?.item || null;
+      const createdId = String(created?.id || '').trim();
+      const previewUrl = String(created?.preview_url || coverImage).trim();
+      if (createdId && previewUrl) {
+        setUserExampleTemplates((prev) => [
+          ...prev,
+          {
+            id: createdId,
+            title: String(created?.title || title).trim(),
+            subtitle: String(created?.subtitle || subtitle).trim(),
+            previewUrl,
+            inputImageUrls: uploadedImagePaths,
+            resultImageUrls,
+            params,
+            isUserSnapshot: true,
+          },
+        ].slice(-FIRST_FRAME_USER_EXAMPLE_LIMIT));
+      }
+    } catch (err: any) {
+      setError({
+        code: 'SAVE_EXAMPLE_FAILED',
+        message: String(err?.message || t.ff_error_generation_failed),
+        severity: 'error',
+      });
+    } finally {
+      setIsSavingExampleSnapshot(false);
+    }
+  };
+
+  const deleteFirstFrameExampleSnapshot = async (snapshotId: string) => {
+    if (!requireAuth()) return;
+    if (isDeletingExampleSnapshot) return;
+    const id = String(snapshotId || '').trim();
+    if (!id) return;
+
+    setIsDeletingExampleSnapshot(true);
+    try {
+      await apiRequest<any>(`/api/projects/first-frame/example-snapshots/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        fallbackMessage: t.ff_error_generation_failed,
+      });
+      setUserExampleTemplates((prev) => prev.filter((item) => item.id !== id));
+    } catch (err: any) {
+      setError({
+        code: 'DELETE_EXAMPLE_FAILED',
+        message: String(err?.message || t.ff_error_generation_failed),
+        severity: 'error',
+      });
+    } finally {
+      setIsDeletingExampleSnapshot(false);
+    }
+  };
+
   const handleGenerateFormSubmit = async (params: FirstFrameParams) => {
     if (!requireAuth()) return;
+    setCurrentFormParams(params);
     if (images.length === 0) {
       setError({
         code: 'NO_IMAGES',
@@ -285,6 +657,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       setPhase('generating');
       setRightPanel('preview');
       setError(null);
+      setResultAspectRatio(params.aspectRatio || '9:16');
       setProgress(2);
       startProgressSimulation();
 
@@ -293,6 +666,154 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
         workspaceOrder,
       });
       if (generationSeqRef.current !== runSeq) return;
+
+      if (response.isAsync && response.requests && response.requests.length > 0) {
+        const placeholders: ProductImageResult[] = response.requests
+          .slice()
+          .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0))
+          .map((item, index) => ({
+            id: `first-frame-async-${item.requestId}`,
+            imageUrl: '',
+            downloadUrl: '',
+            format: 'jpg',
+            category: 'frame',
+            generationStatus: 'processing',
+            metadata: {
+              requestId: item.requestId,
+              status: item.status,
+              outputIndex: item.outputIndex ?? index + 1,
+              sortOrder: item.sortOrder ?? index,
+              frameRole: item.frameRole,
+              role: item.role,
+            },
+          }));
+
+        setProgress(8);
+
+        const startedAt = progressStartedAtRef.current || Date.now();
+        let hasRevealedResults = false;
+        setResults(placeholders);
+
+        await Promise.all(response.requests.map(async (requestItem, index) => {
+          const requestId = String(requestItem.requestId || '').trim();
+          if (!requestId) return;
+
+          for (let attempt = 0; attempt < FIRST_FRAME_ASYNC_POLL_MAX_ATTEMPTS; attempt += 1) {
+            if (generationSeqRef.current !== runSeq) return;
+            if (attempt > 0) await sleep(FIRST_FRAME_ASYNC_POLL_INTERVAL_MS);
+            if (generationSeqRef.current !== runSeq) return;
+
+            try {
+              const poll = await productImagesApi.getFirstFrameResult(requestId);
+              const status = String(poll.status || '').trim().toLowerCase();
+              const imageUrl = String(poll.imageUrl || '').trim();
+
+              if (imageUrl) {
+                if (!hasRevealedResults) {
+                  hasRevealedResults = true;
+                  setResultSelectionKey(`generation:${workspaceId}:${Date.now()}:async`);
+                  setPhase('result');
+                  setIsAsyncGenerating(true);
+                }
+                setResults((prev) => prev.map((item) => (
+                  String(item.metadata?.requestId || '') === requestId
+                    ? {
+                        ...item,
+                        imageUrl,
+                        downloadUrl: imageUrl,
+                        generationStatus: 'succeeded',
+                        errorMessage: '',
+                        metadata: {
+                          ...(item.metadata || {}),
+                          ...(poll.metadata || {}),
+                          status,
+                          requestId,
+                        },
+                      }
+                    : item
+                )));
+                return;
+              }
+
+              if (isTerminalFirstFrameStatus(status)) {
+                setResults((prev) => prev.map((item) => (
+                  String(item.metadata?.requestId || '') === requestId
+                    ? {
+                        ...item,
+                        generationStatus: isSuccessfulFirstFrameStatus(status) ? 'failed' : 'failed',
+                        errorMessage: poll.error || t.ff_error_generation_failed,
+                        metadata: {
+                          ...(item.metadata || {}),
+                          ...(poll.metadata || {}),
+                          status,
+                          requestId,
+                        },
+                      }
+                    : item
+                )));
+                return;
+              }
+            } catch (pollError) {
+              if (isNonRetryableFirstFramePollError(pollError) || attempt >= FIRST_FRAME_ASYNC_POLL_MAX_ATTEMPTS - 1) {
+                setResults((prev) => prev.map((item) => (
+                  String(item.metadata?.requestId || '') === requestId
+                    ? {
+                        ...item,
+                        generationStatus: 'failed',
+                        errorMessage: pollError instanceof Error ? pollError.message : t.ff_error_generation_failed,
+                        metadata: {
+                          ...(item.metadata || {}),
+                          status: 'failed',
+                          requestId,
+                        },
+                      }
+                    : item
+                )));
+                return;
+              }
+            }
+
+            setProgress((prev) => Math.max(prev, Math.min(FIRST_FRAME_PROGRESS_HOLD_MAX, 8 + Math.round(((index + 1) / response.requests!.length) * 20))));
+          }
+
+          setResults((prev) => prev.map((item) => (
+            String(item.metadata?.requestId || '') === requestId
+              ? {
+                  ...item,
+                  generationStatus: 'failed',
+                  errorMessage: t.ff_error_generation_failed,
+                  metadata: {
+                    ...(item.metadata || {}),
+                    status: 'timeout',
+                    requestId,
+                  },
+                }
+              : item
+          )));
+        }));
+
+        if (generationSeqRef.current !== runSeq) return;
+        clearProgressTimer();
+        setProgress(100);
+        setIsAsyncGenerating(false);
+        const completedElapsedSeconds = Math.max(1, Math.floor((Date.now() - startedAt) / 1000));
+        setLastElapsedSeconds(completedElapsedSeconds);
+        progressStartedAtRef.current = null;
+        if (!hasRevealedResults) {
+          setResults([]);
+          setError({
+            code: 'GENERATION_FAILED',
+            message: t.ff_error_generation_failed,
+            severity: 'error',
+            suggestion: t.ff_error_suggestion_clear_front_image,
+          });
+          setPhase(images.length > 0 ? 'form' : 'upload');
+          return;
+        }
+        await refreshWorkspaceHistory();
+        notifyImageHistoryUpdated();
+        return;
+      }
 
       clearProgressTimer();
       setProgress(100);
@@ -317,11 +838,12 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
         severity: 'error',
         suggestion: t.ff_error_suggestion_clear_front_image,
       });
-      setPhase('error');
+      setPhase(images.length > 0 ? 'form' : 'upload');
     } catch (err) {
       if (generationSeqRef.current !== runSeq) return;
 
       clearProgressTimer();
+      setIsAsyncGenerating(false);
       const message = err instanceof Error ? err.message : t.ff_unknown_error;
       setError({
         code: 'GENERATION_ERROR',
@@ -329,7 +851,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
         severity: 'error',
         suggestion: t.ff_error_suggestion_check_network,
       });
-      setPhase('error');
+      setPhase(images.length > 0 ? 'form' : 'upload');
     }
   };
 
@@ -338,6 +860,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     clearProgressTimer();
     progressStartedAtRef.current = null;
     setLastElapsedSeconds(null);
+    setIsAsyncGenerating(false);
     setPhase(images.length > 0 ? 'form' : 'upload');
     setProgress(0);
   };
@@ -345,6 +868,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const handleRegenerate = () => {
     setResults([]);
     setLastElapsedSeconds(null);
+    setIsAsyncGenerating(false);
     setPhase('form');
     setProgress(0);
     setError(null);
@@ -356,14 +880,13 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     clearProgressTimer();
     progressStartedAtRef.current = null;
 
-    setImages([]);
     setResults([]);
     setLastElapsedSeconds(null);
+    setIsAsyncGenerating(false);
     setProgress(0);
     setError(null);
-    setPhase('upload');
-    setUploaderResetKey((prev) => prev + 1);
-  }, [clearProgressTimer]);
+    setPhase(images.length > 0 ? 'form' : 'upload');
+  }, [clearProgressTimer, images.length]);
 
   const buildFileName = useCallback((prefix: string, index: number, imageId: string) => {
     const safePrefix = prefix.trim() || 'ai_first_frame';
@@ -392,6 +915,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const handleDownloadAll = async (prefix: string) => {
     for (let i = 0; i < results.length; i += 1) {
       const item = results[i];
+      if (!item.imageUrl || item.generationStatus === 'failed') continue;
       // Keep sequential order so filenames are deterministic.
       // eslint-disable-next-line no-await-in-loop
       await handleDownload(item.id, buildFileName(prefix, i, item.id));
@@ -457,7 +981,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
   const handleErrorRetry = () => {
     setError(null);
-    if (phase === 'error') {
+    if (phase !== 'generating' && phase !== 'result') {
       setPhase(images.length > 0 ? 'form' : 'upload');
     }
   };
@@ -630,8 +1154,108 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
   return (
     <>
-      {phase !== 'error' && (
-        <div ref={containerRef} className="relative flex h-full min-h-0 items-stretch overflow-hidden">
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="mb-4 shrink-0">
+          <div className="mb-3 flex items-center gap-2">
+            <div className="text-sm font-bold text-zinc-200">{t.ff_examples_title || '示例首帧'}</div>
+            <button
+              type="button"
+              onClick={() => setIsExamplesCollapsed((prev) => !prev)}
+              className="p-1.5 text-zinc-600 hover:text-zinc-300 transition rounded"
+              title={isExamplesCollapsed ? (t.wb_expand || '展开') : (t.wb_collapse || '折叠')}
+              aria-label={isExamplesCollapsed ? (t.wb_expand || '展开') : (t.wb_collapse || '折叠')}
+            >
+              <ChevronsDown className={`w-4 h-4 transition-transform duration-200 ${isExamplesCollapsed ? 'rotate-0' : 'rotate-180'}`} />
+            </button>
+          </div>
+          <div
+            className={[
+              'grid overflow-hidden transition-[grid-template-rows,opacity] duration-300',
+              'ease-[cubic-bezier(0.22,1,0.36,1)]',
+              isExamplesCollapsed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
+            ].join(' ')}
+            aria-hidden={isExamplesCollapsed}
+          >
+            <div className="min-h-0 overflow-hidden">
+              <div className="flex gap-3 overflow-x-auto pb-2 custom-scroll">
+                {firstFrameExamples.map((item) => {
+                  const isUserSnapshot = Boolean(item.isUserSnapshot);
+                  const isBusy = Boolean(isGenerating || isApplyingExample || isSavingExampleSnapshot || isDeletingExampleSnapshot);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => (isUserSnapshot ? undefined : void applyFirstFrameExample(item.id))}
+                      disabled={isBusy}
+                      className={`group relative w-[240px] shrink-0 overflow-hidden rounded-2xl border border-white/10 ${isUserSnapshot ? 'bg-black/10' : 'bg-black/20'} text-left transition hover:border-orange-500/30 hover:bg-black/30 disabled:opacity-60 disabled:hover:border-white/10 ${isUserSnapshot ? 'hover:-translate-y-1' : ''}`}
+                      title={isBusy ? (t.ff_examples_loading || '处理中...') : (isUserSnapshot ? (t.ff_saved_example_hover_tip || '悬浮显示操作') : (t.ff_examples_click_to_fill || '点击填充'))}
+                    >
+                      <div className="relative h-[112px]">
+                        <img
+                          src={item.previewUrl}
+                          alt={item.title}
+                          className={`h-full w-full object-cover transition ${isUserSnapshot ? 'opacity-85 group-hover:opacity-70 group-hover:blur-sm' : 'opacity-85 group-hover:opacity-95'}`}
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
+                        <div className="absolute inset-x-4 bottom-3">
+                          <div className="text-sm font-extrabold text-white/95">{item.title}</div>
+                          <div className="mt-0.5 text-[11px] text-white/70 line-clamp-1">{item.subtitle}</div>
+                        </div>
+
+                        {isUserSnapshot && (
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 transition group-hover:opacity-100">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void applyFirstFrameExample(item.id);
+                                }}
+                                className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-500/15 border border-emerald-500/30 text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60 disabled:hover:bg-emerald-500/15 transition"
+                              >
+                                {t.ff_saved_example_apply || '添加'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void deleteFirstFrameExampleSnapshot(item.id);
+                                }}
+                                className="px-3 py-2 rounded-xl text-xs font-bold bg-red-500/15 border border-red-500/30 text-red-100 hover:bg-red-500/20 disabled:opacity-60 disabled:hover:bg-red-500/15 transition"
+                              >
+                                {t.ff_saved_example_delete || '删除'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+
+                <button
+                  type="button"
+                  onClick={() => void saveFirstFrameExampleSnapshot()}
+                  disabled={isGenerating || isApplyingExample || isSavingExampleSnapshot}
+                  className="group relative w-[240px] shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-black/10 text-left transition hover:border-orange-500/30 hover:bg-black/20 disabled:opacity-60 disabled:hover:border-white/10"
+                  title={isSavingExampleSnapshot ? (t.ff_saving || '保存中...') : (t.ff_save_as_example || '保存当前配置为示例')}
+                >
+                  <div className="relative h-[112px] flex items-center justify-center gap-2 px-4">
+                    <Save className="h-4 w-4 text-orange-300/90" />
+                    <div>
+                      <div className="text-sm font-extrabold text-zinc-200">{t.ff_save_as_example || '保存为示例'}</div>
+                      <div className="mt-0.5 text-[11px] text-zinc-500 line-clamp-1">{t.ff_save_as_example_desc || '保存当前工作区快照'}</div>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div ref={containerRef} className="relative flex min-h-0 flex-1 items-stretch overflow-hidden">
           <section
             className="mr-3 h-full shrink-0 rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100"
             style={{ width: `${leftWidth}px`, minWidth: `${FIRST_FRAME_PANEL_MIN_WIDTH}px` }}
@@ -643,8 +1267,9 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
             </div>
             <ImageUploader
               key={`${workspaceId}-${uploaderResetKey}`}
-              maxFiles={1}
+              maxFiles={4}
               previewVariant="first-frame"
+              value={images}
               onFilesSelected={handleImagesSelected}
               onError={(err) =>
                 setError({
@@ -678,7 +1303,11 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
             <FirstFrameForm
               images={images}
+              workspaceId={workspaceId}
+              defaultParams={exampleParams}
+              applyVersion={exampleApplyVersion}
               isSubmitting={isGenerating}
+              onChange={setCurrentFormParams}
               onSubmit={handleGenerateFormSubmit}
               onReset={handleResetLayout}
             />
@@ -695,10 +1324,10 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
           />
 
           <section
-            className="ml-3 h-full flex-1 rounded-2xl border border-white/5 bg-white/[0.02] p-5"
+            className="ml-3 flex h-full min-h-0 flex-1 flex-col rounded-2xl border border-white/5 bg-white/[0.02] p-5"
             style={{ minWidth: `${FIRST_FRAME_PANEL_MIN_WIDTH}px` }}
           >
-            <div className="mb-5 flex items-start justify-between gap-3">
+            <div className="mb-5 flex shrink-0 items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-white">
                   {t.ff_result_preview}
@@ -730,8 +1359,9 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
               </div>
             </div>
 
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
             {rightPanel === 'preview' ? (
-              isGenerating ? (
+              showFullScreenGenerating ? (
                 <div className="flex min-h-[420px] items-center justify-center">
                   <LoadingProgress
                     progress={progress}
@@ -749,6 +1379,8 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                   results={results}
                   elapsedSeconds={lastElapsedSeconds}
                   selectionKey={resultSelectionKey}
+                  loadingTheme={loadingTheme}
+                  aspectRatio={resultAspectRatio}
                   onRegenerate={handleRegenerate}
                   onDownload={handleDownload}
                   onDownloadAll={handleDownloadAll}
@@ -774,7 +1406,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                     {t.ff_no_history_yet}
                   </div>
                 ) : (
-                  <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
+                  <div className="space-y-3 pr-1">
                     {historyItems.map((item) => (
                       <div key={item.id} className="rounded-xl border border-white/10 bg-black/30 overflow-hidden">
                         <div className="px-3 py-2 border-b border-white/10 bg-black/40 flex items-center justify-between text-xs text-zinc-400">
@@ -806,21 +1438,12 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                 )}
               </div>
             )}
+            </div>
           </section>
         </div>
-      )}
+      </div>
 
-      {phase === 'error' && error && (
-        <ErrorDialog
-          isOpen={true}
-          error={error}
-          onClose={() => setPhase(images.length > 0 ? 'form' : 'upload')}
-          onRetry={handleErrorRetry}
-          showRetry={true}
-        />
-      )}
-
-      {error && phase !== 'error' && (
+      {error && phase !== 'generating' && (
         <ErrorDialog
           isOpen={!!error}
           error={error}

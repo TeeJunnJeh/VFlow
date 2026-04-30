@@ -82,7 +82,7 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
   ];
 
   return (
-    <div className="mx-auto w-full max-w-2xl">
+    <div className="mx-auto w-full max-w-xl">
       <style>{`
         @keyframes ff-gradient-blob {
           0% { transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
@@ -102,7 +102,7 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
       <div
         className="relative overflow-hidden rounded-[40px]"
         style={{
-          minHeight: '520px',
+          minHeight: '420px',
           background: `linear-gradient(180deg, ${hexToRgba(palette.primary, 0.08)} 0%, ${palette.surface} 18%, ${palette.surface} 100%)`,
           boxShadow: `0 20px 40px rgba(0, 0, 0, 0.05), inset 0 1px 0 ${hexToRgba(palette.primary, 0.16)}`,
         }}
@@ -153,7 +153,7 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
         </div>
       </div>
 
-      {onCancel ? (
+      {/* {onCancel ? (
         <div className="mt-4 flex justify-end">
           <button
             onClick={onCancel}
@@ -163,7 +163,7 @@ export const LoadingProgress: React.FC<LoadingProgressProps> = ({
             {t.ff_cancel_generation}
           </button>
         </div>
-      ) : null}
+      ) : null} */}
     </div>
   );
 };

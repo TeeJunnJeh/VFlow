@@ -368,6 +368,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
                 onChange={(value) => setFormData({ ...formData, aspectRatio: value as FirstFrameAspectRatio })}
                 primary={firstFrameRatioConfig.primary}
                 more={firstFrameRatioConfig.more}
+                stretch
                 labels={{
                   more: language === 'zh' ? '更多比例' : 'More ratios',
                   vertical: t.pi_gallery_ratio_group_vertical,
@@ -378,8 +379,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
               {errors.aspectRatio && <p className="text-red-400 text-xs mt-1">{errors.aspectRatio}</p>}
             </div>
 
-            {/* Row 2: 输出数量靠右 */}
-            <div className="flex justify-end">
+            <div className="flex justify-start">
               <div className="w-32">
                 <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_output_count_label}</label>
                 <div className="flex h-10 w-full items-center">

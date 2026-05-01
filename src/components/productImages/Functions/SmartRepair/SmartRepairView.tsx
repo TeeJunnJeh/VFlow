@@ -68,6 +68,13 @@ interface SmartRepairViewProps {
   embedded?: boolean;
 }
 
+interface SmartRepairPreset {
+  labelZh: string;
+  labelEn: string;
+  promptZh: string;
+  promptEn: string;
+}
+
 interface SmartRepairToolDef {
   code: SmartRepairToolCode;
   titleZh: string;
@@ -78,6 +85,7 @@ interface SmartRepairToolDef {
   promptEn: string;
   suggestionsZh: string[];
   suggestionsEn: string[];
+  presets?: SmartRepairPreset[];
 }
 
 interface SmartRepairHistoryEntry {
@@ -139,6 +147,40 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       promptEn: 'Replace the dress form or mannequin with a realistic human model naturally wearing the garment. Preserve all fit, proportions, colors and details during transfer, adjusting overall tone to match human photography.',
       suggestionsZh: ['换成真人模特', '保持服装版型', '保留面料纹理', '保留颜色与图案', '商业拍摄质感'],
       suggestionsEn: ['Real human model', 'Keep garment fit', 'Preserve fabric texture', 'Preserve colors and patterns', 'Commercial photography'],
+      presets: [
+        {
+          labelZh: '工作室模特',
+          labelEn: 'Studio Model',
+          promptZh:
+            '将假人台或人台展示的服装自然迁移到一位真实的工作室模特身上，模特站姿端正、面向镜头、表情自然平和，置于干净的浅灰渐变工作室背景中。完整保留服装的版型、面料质感、颜色与图案细节；柔光摄影棚顶光为主、轻微阴影衬托轮廓；整体呈现专业商业拍摄质感，画面克制、无多余道具。',
+          promptEn:
+            "Replace the dress form or mannequin with a realistic studio model wearing the exact same garment. The model stands upright, facing camera with a calm natural expression, against a clean light-grey gradient seamless backdrop. Preserve the garment's exact fit, fabric texture, colors and patterns; use soft top-key studio lighting with subtle contour shadows. Deliver a clean, professional commercial product shot with no extra props.",
+        },
+        {
+          labelZh: 'T 台模特',
+          labelEn: 'Runway Model',
+          promptZh:
+            '将假人台展示的服装自然迁移到一位走在 T 台上的真实模特身上，模特处于行进中的动态姿势，腿部前后交替、肩部自然摆动，目光直视前方。背景是柔和虚化的 T 台灯光、远处观众席与品牌 logo 灯阵。光线带轻微暖色聚光、面部立体感强烈。完整保留服装的版型、面料垂感与图案细节；整体呈现高级时装周大秀质感。',
+          promptEn:
+            "Transfer the garment from the dress form onto a runway model in a confident walking pose — legs in mid-stride, shoulders naturally rotating, eyes locked forward. Background: softly blurred runway lights, distant audience silhouettes and brand-name spotlights. Lighting is warm directional spotlight with strong facial dimension. Preserve the garment's silhouette, fabric drape and pattern details exactly. Deliver a high-fashion runway-show aesthetic.",
+        },
+        {
+          labelZh: '居家模特',
+          labelEn: 'Lifestyle (At-home) Model',
+          promptZh:
+            '将假人台上的服装自然迁移到一位真实模特身上，模特处于温馨居家场景——可以是坐在带亚麻抱枕的浅色沙发上、靠在午后阳光下的飘窗边，或斜倚于木质书架旁。模特表情放松、眼神柔和、姿态轻松自然。光线为大面积自然窗户光、轻微暖色调。保留服装版型、面料纹理、颜色与图案；整体呈现轻松日常的生活方式电商质感。',
+          promptEn:
+            "Place the garment on a realistic model in a warm home setting — seated on a light sofa with linen cushions, leaning against a sunlit bay window, or relaxing beside a wooden bookshelf. The model's expression is relaxed, gaze soft, posture natural and unforced. Lighting is broad natural window light with a faintly warm tone. Preserve the garment's fit, fabric texture, colors and patterns. Deliver a casual lifestyle e-commerce mood.",
+        },
+        {
+          labelZh: '室外模特',
+          labelEn: 'Outdoor Model',
+          promptZh:
+            '将假人台上的服装自然迁移到一位真实模特身上，模特置身于自然室外场景中——可以是城市街道、林荫公园步道，或海边沙滩；背景适度虚化与主体分离。光线为黄金时段或柔和阴天日光，色调通透自然。模特姿态生动而不夸张，与场景氛围契合。完整保留服装版型、面料纹理、颜色与图案细节；整体呈现真实生活方式商业拍摄质感。',
+          promptEn:
+            "Transfer the garment to a realistic model placed in a natural outdoor environment — a city street, a tree-lined park path, or a coastal beach — with the background gently blurred to separate the subject. Lighting is golden-hour or soft overcast daylight with clean natural color. The model's pose is dynamic but not exaggerated, matching the scene's mood. Preserve the garment's fit, fabric texture, colors and patterns exactly. Deliver an authentic lifestyle commercial shoot aesthetic.",
+        },
+      ],
     },
     {
       code: 'anime_ip',
@@ -150,6 +192,32 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       promptEn: 'Convert the person and garment into anime illustration style, preserving outfit structure, brand elements and key design features. Use clean linework, stylized anime coloring and proportions appropriate for the character design.',
       suggestionsZh: ['二次元插画风', '保持服装结构', '线条干净', '色彩鲜明', '角色风格化'],
       suggestionsEn: ['Anime illustration style', 'Keep outfit structure', 'Clean linework', 'Vibrant colors', 'Stylized character'],
+      presets: [
+        {
+          labelZh: '日漫风',
+          labelEn: 'Japanese Anime',
+          promptZh: '将照片中的人物与服装转换为日本动漫插画风格，保持服装结构和品牌识别特征。线条干净细腻、色彩明亮饱和、阴影分块清晰；眼睛大而有神、表情灵动；整体呈现日式少女漫或少年漫常见的角色设计语言。',
+          promptEn: 'Convert the subject and garment into a Japanese anime illustration style. Preserve the outfit structure and brand-recognizable features. Use clean delicate linework, vibrant saturated colors, cel-shaded blocked shadows; large expressive eyes and lively expressions. Deliver the visual language of mainstream shoujo/shounen manga character design.',
+        },
+        {
+          labelZh: '韩漫风',
+          labelEn: 'Korean Webtoon',
+          promptZh: '将照片中的人物与服装转换为韩国网络漫画插画风格，保持服装结构与图案识别度。线条柔和、色彩淡雅清透、面部精致写实、五官比例向真人靠拢；常见柔光和淡色渐变背景。整体呈现高品质韩漫的精致质感。',
+          promptEn: 'Convert the subject and garment into a Korean webtoon illustration style. Preserve the outfit structure and pattern recognizability. Use soft linework, light airy colors, refined semi-realistic facial features approaching real proportions; common soft glow and pastel gradient backgrounds. Deliver the polished aesthetic of premium Korean webtoons.',
+        },
+        {
+          labelZh: '美漫风',
+          labelEn: 'American Comic',
+          promptZh: '将照片中的人物与服装转换为美式漫画插画风格，保持服装结构。粗黑勾边、色彩高饱和、阴影硬朗有力、肌肉与体态结构夸张；常见网点纹理和动作线。整体呈现 Marvel/DC 类英雄漫画的视觉语言。',
+          promptEn: 'Convert the subject and garment into an American comic-book illustration style. Preserve the outfit structure. Use bold black outlines, high-saturation colors, hard-edged dramatic shadows, exaggerated musculature and posture; common halftone textures and motion lines. Deliver the visual language of Marvel/DC hero comics.',
+        },
+        {
+          labelZh: '国风插画',
+          labelEn: 'Chinese Ink-style',
+          promptZh: '将照片中的人物与服装转换为中国国风工笔插画风格，保持服装结构识别度。线条工整流畅、色彩沉稳典雅、淡雅水墨晕染背景；可融入云纹、花鸟或山水元素。整体呈现传统中式美学的现代插画质感。',
+          promptEn: 'Convert the subject and garment into a Chinese gongbi ink-illustration style. Preserve the outfit structure and recognizability. Use clean flowing linework, restrained elegant colors, subtle ink-wash backgrounds; optionally weave in cloud motifs, florals or landscape elements. Deliver a modern interpretation of traditional Chinese aesthetic.',
+        },
+      ],
     },
     {
       code: 'fashion_3d_showcase',
@@ -161,6 +229,32 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       promptEn: 'Transform the flat garment image into a 3D-volumetric display by enhancing folds, fabric volume, material reflections, and dimensional contours, making it appear more lifelike and dynamic.',
       suggestionsZh: ['立体展示效果', '增强褶皱体积', '突出材质反射', '保持真实摄影感', '避免建模渲染'],
       suggestionsEn: ['3D volumetric look', 'Enhance fold volume', 'Boost material reflection', 'Photographic realism', 'Avoid CG render style'],
+      presets: [
+        {
+          labelZh: '写实立体',
+          labelEn: 'Realistic Volumetric',
+          promptZh: '将平面服装图片立体化展示，强化褶皱体积、面料垂感与立体轮廓。保持真实摄影质感、不要变成纯 3D 建模渲染。可微调光线方向以增强材质层次，整体呈现高级商品图的真实立体观感。',
+          promptEn: 'Render the flat garment image into volumetric display. Strengthen fold volumes, fabric drape and dimensional contours while keeping authentic photographic quality — avoid pure CG render look. Subtly adjust lighting direction to enhance material layering. Deliver an authentic premium product-photo dimensional feel.',
+        },
+        {
+          labelZh: '软陶质感',
+          labelEn: 'Soft Clay Texture',
+          promptZh: '将平面服装图片转换为软陶/橡皮泥材质的立体小品质感，保持服装版型与图案颜色识别度。表面带有柔软的塑形痕迹、磨砂哑光质感、明暗对比柔和可爱；适合趣味营销图。',
+          promptEn: 'Transform the flat garment into a soft polymer-clay/playdough volumetric look while keeping silhouette and pattern recognizable. Surface shows gentle sculpting marks, matte powdery texture, soft cute light-shadow contrast. Suited for playful marketing visuals.',
+        },
+        {
+          labelZh: '玻璃质感',
+          labelEn: 'Glass / Crystal',
+          promptZh: '将平面服装图片转换为通透的玻璃或水晶质感立体展示，保持服装版型轮廓识别。增加折射高光、内部透光与边缘反射，背景为干净深色或浅色渐变以衬托晶莹剔透感。',
+          promptEn: 'Transform the flat garment into a translucent glass or crystal volumetric display while keeping the silhouette recognizable. Add refractive highlights, internal light transmission and edge reflections; place against a clean dark or gradient backdrop to emphasize crystalline clarity.',
+        },
+        {
+          labelZh: '织物特写',
+          labelEn: 'Fabric Macro',
+          promptZh: '将平面服装图片放大为局部织物特写立体效果，重点展示线圈、纹理、缝线、印花的微观细节与立体感。光线为侧逆光以突出纤维与表面微凹凸，呈现高品质面料宣传质感。',
+          promptEn: 'Render the garment as a macro fabric close-up with three-dimensional emphasis on yarn loops, texture, stitching and print micro-details. Use side-back lighting to highlight fibers and micro-relief surfaces. Deliver the premium feel of high-end fabric promotional imagery.',
+        },
+      ],
     },
     {
       code: 'flat_lay_with_accessories',
@@ -172,6 +266,32 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       promptEn: 'Recompose the garment into a clean, styled flat lay with complementary accessories selected to match the brand and style. Maintain consistent lighting and premium e-commerce composition.',
       suggestionsZh: ['整洁平铺构图', '搭配匹配配饰', '保持品牌调性', '光线统一', '电商级干净'],
       suggestionsEn: ['Clean flat lay', 'Match accessories', 'Keep brand tone', 'Consistent lighting', 'E-commerce clean'],
+      presets: [
+        {
+          labelZh: '极简',
+          labelEn: 'Minimalist',
+          promptZh: '将服装重排为极简平铺构图，背景为纯白或纯浅灰、无多余元素。仅保留服装本体与一两件极简单的中性配饰（如平整的腰带或简洁手表）。光线柔和均匀、阴影克制、强调画面留白。',
+          promptEn: 'Recompose the garment into a minimalist flat-lay on a pure white or pure light-grey backdrop with no extraneous elements. Keep only the garment plus one or two extremely simple neutral accessories (a flat belt or plain watch). Soft even lighting, restrained shadows, emphasis on negative space.',
+        },
+        {
+          labelZh: '配饰丰富',
+          labelEn: 'Accessory-Rich',
+          promptZh: '将服装平铺并自动搭配丰富的匹配配饰——包、鞋、项链、耳饰、丝巾、眼镜等可按风格选择 4-6 件。整体构图饱满有节奏，色调统一、品牌调性一致；电商级摄影光线、画面干净专业。',
+          promptEn: 'Flat-lay the garment with rich matching accessories — bag, shoes, necklace, earrings, scarf, sunglasses, choose 4-6 by style. Full but rhythmic composition, unified color palette and brand tone; e-commerce-grade lighting, clean professional finish.',
+        },
+        {
+          labelZh: '季节主题',
+          labelEn: 'Seasonal Theme',
+          promptZh: '将服装平铺并融入对应季节的氛围元素——春日花瓣、夏日海滩贝壳、秋日落叶、冬日松枝雪粒等，按服装风格选择最合适的一套。整体色调与季节情绪契合，画面既有故事感又保持商业可读性。',
+          promptEn: "Flat-lay the garment with season-themed atmospheric elements — spring petals, summer shells, autumn leaves, or winter pine sprigs and snow bits — picked to match the garment style. Color palette matches the seasonal mood; image has story while remaining commercially readable.",
+        },
+        {
+          labelZh: '礼物开箱',
+          labelEn: 'Gift Unboxing',
+          promptZh: '将服装平铺为礼物开箱构图——半开的礼盒、缎带、卡片、干花、小礼品等元素围绕服装。整体氛围温暖喜庆、节日感强；适合双十一/圣诞/情人节等促销节点电商素材。',
+          promptEn: "Flat-lay the garment in a gift-unboxing composition — a half-open gift box, ribbon, card, dried flowers and small gifts surrounding the garment. Warm festive mood with strong holiday vibe; suited for Black Friday / Christmas / Valentine's-Day e-commerce visuals.",
+        },
+      ],
     },
     {
       code: 'body_reshape',
@@ -183,6 +303,32 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       promptEn: 'Precisely adjust the model body based on user-defined target shape (taller/shorter, slimmer/standard/plus-size), including controllable proportions such as shoulder width, waist size, and leg length. Follow the requested body type explicitly instead of auto-optimizing to a generic fit. Keep anatomy plausible and preserve garment fit, silhouette, and details.',
       suggestionsZh: ['更高一些', '更瘦一些', '加宽肩', '收腰', '加长腿', '保持服装贴合'],
       suggestionsEn: ['Make taller', 'Make slimmer', 'Wider shoulders', 'Smaller waist', 'Longer legs', 'Keep garment fit'],
+      presets: [
+        {
+          labelZh: '标准模特',
+          labelEn: 'Standard Model',
+          promptZh: '将模特体型精确调整为标准模特身材：身高约 175cm 比例、肩宽适中、腰部纤细、腿部修长。保持服装版型贴合度与细节不丢失，整体身材协调健康，适合高品质电商主图。',
+          promptEn: 'Precisely adjust the model body to a standard fashion-model proportion: roughly 175 cm tall, moderate shoulder width, slim waist, long legs. Preserve garment fit and details without loss; overall coordinated and healthy build suitable for premium e-commerce main visuals.',
+        },
+        {
+          labelZh: '偏瘦修长',
+          labelEn: 'Slim & Tall',
+          promptZh: '将模特体型调整为偏瘦修长比例：身材纤细、四肢拉长、肩腰臀比例显瘦，但保持自然不夸张。服装贴合度自然修身，整体呈现轻盈高挑的时装大片感。',
+          promptEn: 'Adjust the model body toward a slim & tall proportion: slender frame, elongated limbs, slim shoulder-waist-hip ratio, while staying natural and not exaggerated. Garment fit is naturally slim. Overall delivers a lightweight, leggy editorial fashion feel.',
+        },
+        {
+          labelZh: '健美比例',
+          labelEn: 'Athletic Build',
+          promptZh: '将模特体型调整为健美/运动比例：肩部稍宽、肌肉线条清晰但不夸张、腰腹紧致、腿部强健。保持服装版型与细节不变，整体呈现自信有力的运动时尚感。',
+          promptEn: 'Adjust the model body toward an athletic build: slightly broader shoulders, defined-but-natural muscle lines, taut waist, strong legs. Preserve garment fit and details. Overall delivers a confident, powerful sporty-fashion vibe.',
+        },
+        {
+          labelZh: '大码模特',
+          labelEn: 'Plus-Size Model',
+          promptZh: '将模特体型调整为大码模特身材：丰满有曲线、肩腰臀比例自然柔和、肢体匀称健康。服装贴合度按真实大码版型呈现，整体氛围自信舒适，适合大码服饰主图。',
+          promptEn: 'Adjust the model body toward a plus-size proportion: full curvy figure, soft natural shoulder-waist-hip ratio, well-balanced healthy limbs. Garment fit reflects authentic plus-size patterns. Overall vibe is confident and comfortable, suited for plus-size apparel main visuals.',
+        },
+      ],
     },
     {
       code: 'accessory_try_on',
@@ -194,6 +340,32 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       promptEn: 'The input is typically clothing and accessory images (such as flat-lay references). First generate a suitable model that matches the outfit style, then dress the model with the provided clothing and accessories as a complete look. Ensure correct placement, realistic occlusion, consistent lighting/materials/scale, and produce a commercial-quality try-on result.',
       suggestionsZh: ['生成合适模特', '完整穿戴', '位置准确', '光影一致', '商业穿搭效果'],
       suggestionsEn: ['Generate matching model', 'Complete outfit fit', 'Correct placement', 'Consistent lighting', 'Commercial try-on'],
+      presets: [
+        {
+          labelZh: '通勤',
+          labelEn: 'Commute',
+          promptZh: '基于平铺服装与配饰生成合适模特并完成上身穿戴，整体风格为城市通勤/商务休闲：模特处于现代办公楼大堂或街拍场景。光线为日光自然光、姿态干练自信，强调商务实用感。',
+          promptEn: 'From the flat-lay clothing and accessories, generate a suitable model and dress them in a complete commute / business-casual look. Place in a modern office lobby or street setting. Daylight natural lighting, sharp confident posture, emphasis on professional practicality.',
+        },
+        {
+          labelZh: '度假',
+          labelEn: 'Resort',
+          promptZh: '基于平铺服装与配饰生成合适模特并完成上身穿戴，整体风格为海岛度假感：模特处于海边沙滩、棕榈树或池畔场景。阳光强烈明亮、肌肤质感真实、姿态轻松自由，强调假日松弛氛围。',
+          promptEn: 'Generate a model dressed in the provided clothing and accessories with a tropical resort vibe: place at a sandy beach, palm trees or poolside. Strong bright sunlight, authentic skin tone, relaxed free posture, emphasizing holiday ease.',
+        },
+        {
+          labelZh: '派对',
+          labelEn: 'Party / Evening',
+          promptZh: '基于平铺服装与配饰生成合适模特并完成上身穿戴，整体风格为派对/晚宴：模特处于带霓虹或聚光的派对现场或高级餐厅。光线戏剧化、姿态优雅有力，妆容和发型精致，强调夜场社交氛围。',
+          promptEn: 'Generate a model in a complete party / evening look using the provided pieces. Place in a neon-lit or spotlight party venue or upscale restaurant. Dramatic lighting, elegant powerful posture, refined makeup and hair, emphasizing nightlife social atmosphere.',
+        },
+        {
+          labelZh: '运动',
+          labelEn: 'Sport / Active',
+          promptZh: '基于平铺服装与配饰生成合适模特并完成上身穿戴，整体风格为运动场景：模特处于健身房、田径跑道或户外训练场。姿态有动感（拉伸、慢跑、动作启动等），光线明亮干净，强调活力健康。',
+          promptEn: 'Generate a model in a complete sportwear look using the provided pieces. Place in a gym, running track or outdoor training ground. Dynamic posture (stretching, jogging, action initiation), bright clean lighting, emphasizing vitality and health.',
+        },
+      ],
     },
   ],
   product_object: [
@@ -207,6 +379,32 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       promptEn: 'Repair all visible defects including scratches, dents, scuffs, breaks and damage areas on the product surface. Restore pristine appearance while preserving exact shape, logo, branding and all structural details.',
       suggestionsZh: ['修复划痕', '修复凹陷', '修复破损', '保留品牌标识', '保持产品形态'],
       suggestionsEn: ['Fix scratches', 'Fix dents', 'Fix damage', 'Keep branding', 'Keep shape'],
+      presets: [
+        {
+          labelZh: '表面划痕',
+          labelEn: 'Surface Scratches',
+          promptZh: '修复产品表面所有可见的划痕、刮花和细小划伤，恢复光洁如新的表面状态。完整保留产品形态、品牌标识、文字信息、材质纹理与高光反射，仅修复划伤本身，不改变产品其他外观特征。',
+          promptEn: 'Repair all visible surface scratches, scuffs and fine cuts, restoring a pristine smooth surface. Preserve the product shape, branding, text, material texture and highlight reflections fully. Fix only the scratches themselves without altering any other visual features.',
+        },
+        {
+          labelZh: '凹陷变形',
+          labelEn: 'Dents & Deformation',
+          promptZh: '修复产品表面的凹陷、压痕、轻微变形等结构问题，恢复产品原始几何形态。保持品牌标识、文字、材质纹理、颜色与高光反射不变，整体呈现完美出厂状态。',
+          promptEn: 'Repair dents, press marks and slight deformation on the product surface, restoring its original geometry. Keep branding, text, material texture, color and highlight reflections unchanged. Deliver a perfect factory-condition look overall.',
+        },
+        {
+          labelZh: '角部破损',
+          labelEn: 'Edge / Corner Damage',
+          promptZh: '修复产品边角处的破损、碎裂、缺失部分，自然地补全到原始完整形态。保持其他位置的纹理、颜色、品牌信息不变，修复痕迹隐匿无可见接缝，呈现完好如新质感。',
+          promptEn: 'Repair damaged, chipped or missing edges and corners by naturally restoring the original complete form. Keep texture, color and branding elsewhere unchanged. Repairs are seamless with no visible joints, delivering a flawless as-new finish.',
+        },
+        {
+          labelZh: '综合多瑕疵',
+          labelEn: 'Multiple Defects',
+          promptZh: '综合修复产品表面所有可见瑕疵，包括划痕、凹陷、破损、污渍、生锈或氧化等。完整保留产品的形态、品牌标识、文字信息、原始材质特性；不要"美颜"过度，仅恢复出厂全新状态。',
+          promptEn: "Comprehensively repair all visible defects — scratches, dents, damage, stains, rust or oxidation. Preserve the product's shape, branding, text and original material characteristics fully. Do not over-beautify; restore strictly to factory-new condition.",
+        },
+      ],
     },
     {
       code: 'background_replace',
@@ -218,6 +416,32 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       promptEn: 'Keep the product untouched and replace the background with a cleaner, more professional e-commerce background. Maintain clean product edges, natural seamless boundary, and consistent lighting and shadow on the product.',
       suggestionsZh: ['干净电商背景', '保持主体不变', '边缘自然', '光线一致', '阴影自然'],
       suggestionsEn: ['Clean e-commerce backdrop', 'Keep subject', 'Natural edges', 'Consistent lighting', 'Natural shadow'],
+      presets: [
+        {
+          labelZh: '纯白电商',
+          labelEn: 'Pure White',
+          promptZh: '保持商品主体不变，将背景替换为标准纯白电商背景（接近 #FFFFFF）。商品边缘自然干净、底部带柔和投影、光线方向与原图一致。整体符合天猫/亚马逊等电商主图规范。',
+          promptEn: 'Keep the product unchanged and replace the background with a standard pure-white e-commerce backdrop (near #FFFFFF). Clean natural product edges, soft floor shadow, lighting direction consistent with the original. Compliant with Tmall / Amazon main-image specs.',
+        },
+        {
+          labelZh: '浅灰渐变',
+          labelEn: 'Light Grey Gradient',
+          promptZh: '保持商品主体不变，将背景替换为浅灰柔和渐变背景（顶部浅、底部稍深）。商品边缘自然、阴影与渐变融合柔和、光线层次丰富，整体呈现高级精品电商主图质感。',
+          promptEn: 'Keep the product unchanged and replace the background with a light-grey soft gradient (lighter top, slightly deeper bottom). Natural product edges, shadows blending smoothly with the gradient, rich lighting depth. Deliver a premium boutique-grade main-image feel.',
+        },
+        {
+          labelZh: '自然场景',
+          labelEn: 'Natural Scene',
+          promptZh: '保持商品主体不变，将背景替换为自然真实使用场景——如木质桌面+绿植、大理石台面+暖光、户外草地+阳光等，按商品类型选择最合适的一种。光线、阴影、视角与商品保持一致。',
+          promptEn: 'Keep the product unchanged and replace the background with a natural in-use scene — wooden tabletop with greenery, marble counter with warm light, or outdoor grass with sunlight — picked by product category. Maintain consistent lighting, shadow and perspective with the product.',
+        },
+        {
+          labelZh: '主题氛围',
+          labelEn: 'Themed Atmosphere',
+          promptZh: '保持商品主体不变，将背景替换为带主题情绪的高级氛围——例如奢华暗夜+金色聚光、梦幻粉色雾气、北欧极简冷调等。商品边缘干净、光线层次丰富，整体呈现品牌广告级视觉。',
+          promptEn: 'Keep the product unchanged and replace the background with a moody themed atmosphere — luxurious dark night with gold spotlight, dreamy pink mist, or Nordic minimalist cool tone. Clean product edges, rich lighting depth; delivers a brand-ad-grade visual.',
+        },
+      ],
     },
     {
       code: 'stain_remove',
@@ -229,6 +453,32 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       promptEn: 'Clean visible stains, watermarks, fingerprints, dust, water spots, and unwanted artifacts from the product. Preserve all original material textures, highlights, reflections, brand markings, and product geometry perfectly.',
       suggestionsZh: ['去除污点', '去除水印', '去除指纹', '保留材质纹理', '保留高光反射'],
       suggestionsEn: ['Remove stains', 'Remove watermarks', 'Remove fingerprints', 'Keep texture', 'Keep highlights'],
+      presets: [
+        {
+          labelZh: '污渍',
+          labelEn: 'Stains',
+          promptZh: '清理产品表面所有污渍，包括食物渍、油渍、咖啡渍、墨水渍等。完整保留产品的形态、品牌标识、文字、材质纹理、高光反射、颜色，仅清除污渍本身，呈现干净如新的状态。',
+          promptEn: "Clean all stains from the product surface — food stains, oil, coffee, ink and similar marks. Preserve the product's shape, branding, text, material texture, highlight reflections and color. Remove only the stains themselves, leaving a clean as-new state.",
+        },
+        {
+          labelZh: '水印',
+          labelEn: 'Watermarks',
+          promptZh: '清理产品图片上的所有水印（包括半透明文字、Logo 水印、版权标识等），按周边内容自然补全被遮盖区域。保留商品所有原始细节、纹理、颜色、品牌识别信息，无可见修复痕迹。',
+          promptEn: 'Remove all watermarks from the product image (translucent text, logo watermarks, copyright marks). Naturally inpaint the covered areas based on surrounding context. Preserve all original details, textures, colors and branding; no visible repair artifacts.',
+        },
+        {
+          labelZh: '指纹灰尘',
+          labelEn: 'Fingerprints & Dust',
+          promptZh: '清理产品表面的指纹、灰尘、毛絮、水珠等微小杂质，恢复光洁干净的表面状态。完整保留材质纹理、高光反射、品牌标识与所有原始细节，仅清除杂质本身，呈现专业棚拍级别质感。',
+          promptEn: 'Clean fingerprints, dust, lint and water droplets from the product surface, restoring a smooth pristine state. Preserve material texture, highlight reflections, branding and all original details; remove only the contaminants themselves. Deliver studio-grade cleanliness.',
+        },
+        {
+          labelZh: '综合杂质',
+          labelEn: 'Comprehensive Cleanup',
+          promptZh: '综合清理产品上的所有污渍、水印、指纹、灰尘、毛絮、刮痕等可见杂质和残留。完整保留产品形态、品牌、文字、纹理、颜色与材质特性，仅清除杂质本身，呈现专业商品拍摄级别的洁净度。',
+          promptEn: "Comprehensively clean all visible stains, watermarks, fingerprints, dust, lint, scratches and residues. Preserve the product's shape, branding, text, texture, color and material characteristics. Remove only the contaminants. Deliver professional commercial-photography-grade cleanliness.",
+        },
+      ],
     },
     {
       code: 'detail_enhance',
@@ -240,6 +490,32 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       promptEn: 'Enhance the sharpness and texture details of seams, prints, material surfaces and micro details while avoiding over-sharpening, producing premium e-commerce visuals.',
       suggestionsZh: ['提升清晰度', '增强缝线纹理', '突出材质', '避免过度锐化', '高质感电商图'],
       suggestionsEn: ['Sharpen details', 'Enhance stitching', 'Highlight material', 'Avoid over-sharpening', 'Premium e-commerce'],
+      presets: [
+        {
+          labelZh: '缝线纹理',
+          labelEn: 'Stitching Detail',
+          promptZh: '重点增强服装的缝线、车线、走线等结构细节的清晰度与立体感，让缝线锐利、纹路清楚、走线工艺一目了然。保持其他部分自然不变，避免整体过度锐化或噪点；适合服装做工特写图。',
+          promptEn: 'Specifically enhance the clarity and dimensionality of stitching, seams and threadwork — crisp stitches, clear grain, visible craftsmanship. Keep other areas naturally unchanged; avoid global over-sharpening or noise. Ideal for garment-craftsmanship close-ups.',
+        },
+        {
+          labelZh: '印花图案',
+          labelEn: 'Print Pattern',
+          promptZh: '重点增强服装或产品上的印花、图案、Logo、文字的清晰度与色彩饱和度。让图案边缘锐利、色彩鲜活、细节肌理可见，但不破坏底布材质的自然质感。适合品牌识别和图案展示用图。',
+          promptEn: 'Specifically enhance the clarity and color saturation of prints, patterns, logos and text on the garment or product. Sharp pattern edges, vibrant colors, visible detail texture, without breaking the natural feel of the base fabric. Ideal for brand-recognition and pattern showcase visuals.',
+        },
+        {
+          labelZh: '材质质感',
+          labelEn: 'Material Texture',
+          promptZh: '重点增强商品材质的肌理与质感表现——丝绸的光泽、棉麻的纤维、皮革的纹路、金属的反光等。光线层次更丰富、表面细节更丰富，整体呈现高级感、避免过度锐化与噪点。',
+          promptEn: 'Specifically enhance the texture and material quality — silk sheen, cotton/linen fibers, leather grain, metal reflections, etc. Richer lighting depth, richer surface detail. Deliver a premium feel while avoiding over-sharpening or noise.',
+        },
+        {
+          labelZh: '整体清晰度',
+          labelEn: 'Overall Sharpness',
+          promptZh: '综合提升整张图片的清晰度、对比度与色彩通透感，包括缝线、纹理、印花、材质、高光反射等所有细节维度。整体呈现高品质电商主图质感，但避免过度锐化和噪点产生。',
+          promptEn: "Comprehensively boost the entire image's sharpness, contrast and color clarity across stitching, texture, prints, materials and highlight reflections. Deliver high-quality e-commerce main-image polish while avoiding over-sharpening or noise.",
+        },
+      ],
     },
   ],
   other: [
@@ -253,6 +529,32 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       promptEn: 'Restore aged photographs by removing fading, blur, creases, spots and degradation artifacts. Improve overall clarity, contrast and color vibrancy while maintaining historical accuracy and original content integrity.',
       suggestionsZh: ['修复褪色', '提升清晰度', '修复折痕', '修复污点', '保持人物特征'],
       suggestionsEn: ['Restore color', 'Sharpen', 'Fix creases', 'Remove spots', 'Keep features'],
+      presets: [
+        {
+          labelZh: '黑白上色',
+          labelEn: 'B&W Colorization',
+          promptZh: '将黑白老照片自然上色为彩色，参考照片年代和内容选择真实合理的肤色、衣物颜色、场景色调。同时修复模糊、折痕、污点等老化痕迹，保持人物特征和原始构图准确。',
+          promptEn: "Naturally colorize a black-and-white old photo with realistic skin tones, clothing colors and scene palette appropriate to its era and content. At the same time, repair blur, creases and spots. Preserve the subjects' features and original composition accurately.",
+        },
+        {
+          labelZh: '褪色还原',
+          labelEn: 'Color Restoration',
+          promptZh: '还原老照片中褪色、偏黄、偏黑的颜色，恢复到照片拍摄时的自然色调。同时修复模糊、提升清晰度、修复轻微折痕和污点，保持人物表情、姿态和场景细节真实。',
+          promptEn: "Restore faded, yellowed or darkened colors in an old photo back to natural tones at the time of capture. Also fix blur, boost clarity and repair light creases and spots. Preserve the subjects' expressions, postures and scene details authentically.",
+        },
+        {
+          labelZh: '折痕修复',
+          labelEn: 'Crease Repair',
+          promptZh: '重点修复老照片上的折痕、撕裂、磨损边缘、污渍等物理损伤痕迹，自然补全损坏区域。保留照片原有色调与时代感，仅修复损伤本身，整体呈现完好保存的老照片质感。',
+          promptEn: 'Specifically repair physical damage on the old photo — creases, tears, worn edges and stains — naturally inpainting damaged regions. Keep the original color tone and era feel; fix only the damage itself. Deliver a well-preserved vintage photo look.',
+        },
+        {
+          labelZh: '综合修复',
+          labelEn: 'Comprehensive',
+          promptZh: '综合修复老照片：去除褪色与偏色、修复模糊与划痕、清理污点和折痕、恢复对比度与清晰度。同时保持原始构图、人物特征、年代质感不变，整体呈现典藏级修复质感。',
+          promptEn: "Comprehensively restore the old photo: remove fading and color cast, repair blur and scratches, clean spots and creases, restore contrast and clarity. Preserve the original composition, subjects' features and period atmosphere. Deliver an archival-grade restoration.",
+        },
+      ],
     },
     {
       code: 'logo_cleanup',
@@ -264,6 +566,32 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       promptEn: 'Remove conflicting logos, watermarks, and unwanted text while seamlessly filling removed areas based on surrounding image context. Maintain overall image composition, lighting continuity and visual flow.',
       suggestionsZh: ['去除 Logo', '去除水印', '自然补全', '保持构图', '光影连续'],
       suggestionsEn: ['Remove logo', 'Remove watermark', 'Natural inpaint', 'Keep composition', 'Continuous lighting'],
+      presets: [
+        {
+          labelZh: '单点水印',
+          labelEn: 'Single Watermark',
+          promptZh: '清理图片上的单个水印或 logo（通常位于角落或图片中心），按周边内容自然补全被遮盖区域。完整保留画面的构图、光影、纹理、色彩与品牌主体信息，无可见修复痕迹。',
+          promptEn: 'Remove a single watermark or logo (typically at a corner or center) from the image, naturally inpainting the covered area based on surrounding context. Preserve the composition, lighting, texture, colors and main subject; no visible repair artifacts.',
+        },
+        {
+          labelZh: '大面积 logo',
+          labelEn: 'Large Logo',
+          promptZh: '清理图片上覆盖大面积或重复排列的 Logo、品牌花纹、图案水印，按周边内容自然补全。处理时注意整体构图节奏与光影连贯性，避免补全区域出现明显的色块或纹理跳跃。',
+          promptEn: 'Remove large-area or repeated pattern logos, brand motifs and pattern watermarks from the image, naturally inpainting based on surrounding context. Watch for overall composition rhythm and lighting continuity; avoid color or texture jumps in the inpainted regions.',
+        },
+        {
+          labelZh: '杂乱文字',
+          labelEn: 'Cluttered Text',
+          promptZh: '清理图片中杂乱的文字、价格标签、广告文案、贴纸文字等，根据周边内容自然补全。保持画面构图、产品/人物主体、光影连贯性不变，整体呈现干净专业的视觉效果。',
+          promptEn: 'Remove cluttered text, price tags, ad copy and sticker text from the image, naturally inpainting based on surrounding context. Keep the composition, the product/subject and lighting continuity intact. Deliver a clean professional visual.',
+        },
+        {
+          labelZh: '综合污染',
+          labelEn: 'Comprehensive',
+          promptZh: '综合清理图片中所有的水印、Logo、文字、贴纸、广告标识、印章等视觉污染，按周边内容自然补全所有清理区域。整体保持构图完整、光影连贯、纹理自然，不留可见修复痕迹。',
+          promptEn: 'Comprehensively remove all watermarks, logos, text, stickers, ad marks and stamps from the image, inpainting all removed areas based on surrounding context. Keep the composition complete, lighting continuous and textures natural; no visible repair artifacts.',
+        },
+      ],
     },
     {
       code: 'text_replace',
@@ -275,6 +603,32 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       promptEn: 'Replace the text content in the image while keeping the original typography style, font family, layout rhythm, spacing and overall design language intact.',
       suggestionsZh: ['替换文案', '保持字体', '保持字号', '保持排版', '保持设计风格'],
       suggestionsEn: ['Replace text', 'Keep font', 'Keep font size', 'Keep layout', 'Keep design style'],
+      presets: [
+        {
+          labelZh: '中英互换',
+          labelEn: 'CN ↔ EN',
+          promptZh: '将图片中所有中文文案替换为对应的英文版本（或英文换为中文），保持完全相同的字体风格、字重、字号、颜色、排版位置和设计语言。仅替换文字内容，画面其他设计元素不变。',
+          promptEn: 'Replace all Chinese copy in the image with the corresponding English version (or English to Chinese), keeping the exact same font, weight, size, color, layout position and design language. Only the text content changes; all other design elements remain unchanged.',
+        },
+        {
+          labelZh: '季节促销',
+          labelEn: 'Seasonal Promo',
+          promptZh: '将原文案替换为季节促销主题文案——春夏新品上市、夏季清凉特惠、秋冬温暖钜惠等，按图片中的产品风格选择最贴切的一套。保持字体风格、版式节奏与原图设计语言完全一致。',
+          promptEn: 'Replace the original copy with seasonal-promo copy — spring/summer new arrivals, summer cool deals, autumn/winter warm savings — picked to match the product style in the image. Keep the typography, layout rhythm and design language fully consistent with the original.',
+        },
+        {
+          labelZh: '节日营销',
+          labelEn: 'Holiday Marketing',
+          promptZh: '将原文案替换为节日营销主题文案——双十一、圣诞、情人节、母亲节等，按图片整体氛围选择最合适的一套。保持原始字体、字号、颜色、排版完全一致；适合节点电商和社交媒体宣发。',
+          promptEn: "Replace the original copy with holiday-marketing copy — Black Friday, Christmas, Valentine's Day, Mother's Day — picked to match the image's overall atmosphere. Keep the original font, size, color and layout fully consistent. Suited for occasion-based e-commerce and social campaigns.",
+        },
+        {
+          labelZh: '风格统一',
+          labelEn: 'Style Harmonize',
+          promptZh: '替换图片中的不协调或风格混杂的文案，统一为单一字体家族、合理字号层级和品牌主色调。保持原有信息内容和排版位置基本不变，整体呈现专业品牌设计的精致质感。',
+          promptEn: 'Replace mismatched or stylistically inconsistent copy in the image with a unified font family, sensible size hierarchy and brand color palette. Keep the original information content and layout positions essentially intact. Deliver a polished professional brand-design feel.',
+        },
+      ],
     },
     {
       code: 'custom_retouch',
@@ -286,6 +640,32 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       promptEn: 'Complete the custom retouch task according to my specific request while preserving subject consistency and maintaining natural, professional image quality throughout.',
       suggestionsZh: ['精细修整', '保持主体一致', '画面自然', '商业可用质量', '保留细节'],
       suggestionsEn: ['Detailed retouch', 'Keep subject', 'Natural look', 'Commercial quality', 'Preserve details'],
+      presets: [
+        {
+          labelZh: '综合优化',
+          labelEn: 'General Polish',
+          promptZh: '综合优化图片的曝光、白平衡、对比度、清晰度、色彩饱和度等基础维度。轻微提升整体精致度，保持画面真实感和主体特征不变，避免过度"美颜"或风格化处理，整体呈现自然舒适的专业质感。',
+          promptEn: "Comprehensively polish the image's exposure, white balance, contrast, sharpness and color saturation. Lightly boost overall refinement while preserving authenticity and subject features. Avoid over-beautification or heavy stylization; deliver a natural, comfortable professional feel.",
+        },
+        {
+          labelZh: '清洁化',
+          labelEn: 'Cleanup-First',
+          promptZh: '重点清理图片中的杂乱元素——背景杂物、皮肤瑕疵、产品上的污点、画面中的多余对象等。完整保留主体身份、姿态、原始构图，整体呈现干净专业的视觉效果，不引入新的元素或大幅风格变化。',
+          promptEn: "Focus on cleaning up clutter in the image — background distractions, skin blemishes, product spots, extraneous objects. Preserve the subject's identity, posture and original composition. Deliver a clean professional visual; introduce no new elements or major stylistic changes.",
+        },
+        {
+          labelZh: '风格化',
+          labelEn: 'Stylized Mood',
+          promptZh: '在保持主体身份与原始构图的前提下，给图片增加一种风格化氛围——例如电影级冷调、复古胶片、暖光黄昏、黑金高级感等。色调风格化但仍可识别商品/人物，避免过度滤镜导致细节丢失。',
+          promptEn: 'While preserving the subject and original composition, give the image a stylized mood — cinematic cool tone, vintage film, warm dusk, or black-gold premium feel. Stylized palette while keeping product/subject recognizable; avoid heavy filters that lose details.',
+        },
+        {
+          labelZh: '商业品质',
+          labelEn: 'Commercial Quality',
+          promptZh: '综合提升图片到商业级电商主图标准：精确的曝光与色温、专业的高光阴影层次、干净的边缘与背景、突出的主体焦点。保持主体身份与原始构图不变，整体呈现高品质品牌图的精致质感。',
+          promptEn: 'Comprehensively elevate the image to commercial-grade e-commerce main-image standards: accurate exposure and color temperature, professional highlight-shadow depth, clean edges and background, focused main subject. Preserve subject identity and original composition; deliver premium brand-image polish.',
+        },
+      ],
     },
   ],
 };
@@ -308,6 +688,8 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   const [selectedModel, setSelectedModel] = useState<SmartRepairModel>('flux-2-pro');
   const [activeSubpage, setActiveSubpage] = useState<SmartRepairSubpage>('fashion_model');
   const [activeToolCode, setActiveToolCode] = useState<SmartRepairToolCode | null>(null);
+  // -1 = no preset active (legacy chip mode / cleared / tool has no presets)
+  const [activePresetIndex, setActivePresetIndex] = useState<number>(-1);
   const [historyItems, setHistoryItems] = useState<SmartRepairHistoryEntry[]>([]);
   // loadingTheme/backgroundSrc kept for potential reuse but no longer drives a full-page overlay
   const [, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
@@ -436,6 +818,33 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     ].join('\n');
   }, [editablePromptTokens, isZh]);
 
+  // When a tool has presets, the first preset's prompt is the default textarea content;
+  // otherwise we fall back to the legacy token-based template (still used by the other 13 tools).
+  const getInitialToolPrompt = useCallback(
+    (tool: SmartRepairToolDef): string => {
+      if (tool.presets && tool.presets.length > 0) {
+        return isZh ? tool.presets[0].promptZh : tool.presets[0].promptEn;
+      }
+      return buildPromptTemplate(tool);
+    },
+    [buildPromptTemplate, isZh],
+  );
+
+  const applyPresetPrompt = useCallback(
+    (preset: SmartRepairPreset, index: number) => {
+      setPrompt(isZh ? preset.promptZh : preset.promptEn);
+      setActivePresetIndex(index);
+      window.setTimeout(() => {
+        const el = promptTextareaRef.current;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(el.value.length, el.value.length);
+        }
+      }, 0);
+    },
+    [isZh],
+  );
+
   const getSamplePath = (code: SmartRepairToolCode, type: 'before' | 'after') =>
     `/smart-repair-examples/${code}_${type}.jpg`;
 
@@ -555,9 +964,11 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     if (currentTools.length === 0) return;
     const stillExists = activeToolCode && currentTools.some((tool) => tool.code === activeToolCode);
     if (stillExists) return;
-    setActiveToolCode(currentTools[0].code);
-    setPrompt(buildPromptTemplate(currentTools[0]));
-  }, [activeToolCode, buildPromptTemplate, currentTools]);
+    const tool = currentTools[0];
+    setActiveToolCode(tool.code);
+    setPrompt(getInitialToolPrompt(tool));
+    setActivePresetIndex(tool.presets && tool.presets.length > 0 ? 0 : -1);
+  }, [activeToolCode, currentTools, getInitialToolPrompt]);
 
   useEffect(() => {
     void refreshHistory();
@@ -745,6 +1156,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     if (item.settings?.outputCount) setOutputCount(item.settings.outputCount);
     if (item.settings?.subpage) setActiveSubpage(item.settings.subpage);
     if (item.settings?.toolCode) setActiveToolCode(item.settings.toolCode);
+    setActivePresetIndex(-1);
     setError(null);
 
     // surface the historical result as a synthetic succeeded card so the user
@@ -778,6 +1190,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     setActiveSubpage(task.settings.subpage);
     setActiveToolCode(task.settings.toolCode);
     if (task.settings.model) setSelectedModel(task.settings.model);
+    setActivePresetIndex(-1);
     dismissCard(task.localId);
   };
 
@@ -836,6 +1249,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                           setSourceImage(null);
                           setReferenceImage(null);
                           setPrompt('');
+                          setActivePresetIndex(-1);
                         }}
                         className={`px-4 py-2 rounded-full text-sm font-semibold transition border ${
                           selected
@@ -884,7 +1298,8 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                             type="button"
                             onClick={() => {
                               setActiveToolCode(tool.code);
-                              setPrompt(buildPromptTemplate(tool));
+                              setPrompt(getInitialToolPrompt(tool));
+                              setActivePresetIndex(tool.presets && tool.presets.length > 0 ? 0 : -1);
                             }}
                             className={`group relative aspect-[4/3] w-[247px] shrink-0 overflow-hidden rounded-2xl border bg-black/20 text-left transition duration-300 hover:-translate-y-1 ${
                               selected
@@ -1022,38 +1437,67 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                       <div className="flex min-h-0 flex-1 flex-col">
                         <div className="mb-2 flex shrink-0 items-baseline justify-between gap-3">
                           <div className="flex items-baseline gap-2">
-                            <h3 className="text-sm font-semibold text-zinc-100">{isZh ? '你想怎么改？' : 'What do you want to change?'}</h3>
+                            <h3 className="text-base font-semibold text-zinc-100">{isZh ? '你想怎么改？' : 'What do you want to change?'}</h3>
                             {activeTool && (
-                              <span className="text-[11px] text-zinc-500">
+                              <span className="text-xs text-zinc-500">
                                 {isZh ? '当前：' : 'Tool: '}
                                 {isZh ? activeTool.titleZh : activeTool.titleEn}
                               </span>
                             )}
                           </div>
-                          <span className="text-[11px] text-zinc-500">
+                          <span className="text-xs text-zinc-500">
                             {isZh ? '直接用自然语言描述你想要的修改效果' : 'Describe the desired result in natural language'}
                           </span>
                         </div>
 
                         {activeTool && (
                           <div className="mb-2 flex shrink-0 flex-wrap gap-2">
-                            {(isZh ? activeTool.suggestionsZh : activeTool.suggestionsEn).map((phrase) => {
-                              const inserted = prompt.includes(phrase);
-                              return (
-                                <button
-                                  key={phrase}
-                                  type="button"
-                                  onClick={() => appendPromptSuggestion(phrase)}
-                                  className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-                                    inserted
-                                      ? 'border-orange-500/50 bg-orange-500/15 text-orange-200'
-                                      : 'border-white/10 bg-black/20 text-zinc-300 hover:border-orange-400/40 hover:text-orange-200'
-                                  }`}
-                                >
-                                  {phrase}
-                                </button>
-                              );
-                            })}
+                            {activeTool.presets && activeTool.presets.length > 0
+                              ? activeTool.presets.map((preset, index) => {
+                                  const presetPrompt = isZh ? preset.promptZh : preset.promptEn;
+                                  const isActive = activePresetIndex === index;
+                                  const hasDeviated = isActive && prompt.trim() !== presetPrompt.trim();
+                                  const baseClass = 'rounded-full border px-3.5 py-1.5 text-sm font-medium transition';
+                                  const stateClass = isActive
+                                    ? hasDeviated
+                                      ? 'border-dashed border-orange-400/50 bg-orange-500/5 text-orange-200/80'
+                                      : 'border-orange-500/60 bg-orange-500/15 text-orange-200'
+                                    : 'border-white/10 bg-black/20 text-zinc-300 hover:border-orange-400/40 hover:text-orange-200';
+                                  return (
+                                    <button
+                                      key={`${preset.labelZh}-${index}`}
+                                      type="button"
+                                      onClick={() => applyPresetPrompt(preset, index)}
+                                      className={`${baseClass} ${stateClass}`}
+                                      title={
+                                        hasDeviated
+                                          ? isZh
+                                            ? '已偏离原预设，点击重置为该场景预设'
+                                            : 'Edited away from this preset — click to reset'
+                                          : undefined
+                                      }
+                                    >
+                                      {isZh ? preset.labelZh : preset.labelEn}
+                                    </button>
+                                  );
+                                })
+                              : (isZh ? activeTool.suggestionsZh : activeTool.suggestionsEn).map((phrase) => {
+                                  const inserted = prompt.includes(phrase);
+                                  return (
+                                    <button
+                                      key={phrase}
+                                      type="button"
+                                      onClick={() => appendPromptSuggestion(phrase)}
+                                      className={`rounded-full border px-3.5 py-1.5 text-sm font-medium transition ${
+                                        inserted
+                                          ? 'border-orange-500/50 bg-orange-500/15 text-orange-200'
+                                          : 'border-white/10 bg-black/20 text-zinc-300 hover:border-orange-400/40 hover:text-orange-200'
+                                      }`}
+                                    >
+                                      {phrase}
+                                    </button>
+                                  );
+                                })}
                           </div>
                         )}
 
@@ -1062,7 +1506,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                             ref={promptTextareaRef}
                             value={prompt}
                             onChange={(e) => setPrompt(e.target.value)}
-                            className="h-full w-full resize-none rounded-xl border border-white/10 bg-black/30 px-4 py-3 pb-7 text-sm text-zinc-100 outline-none focus:border-orange-400/50"
+                            className="h-full w-full resize-none rounded-xl border border-white/10 bg-black/30 px-4 py-3 pb-7 text-base leading-relaxed text-zinc-100 outline-none focus:border-orange-400/50"
                             placeholder={t.sr_prompt_placeholder}
                           />
                           <div className="pointer-events-none absolute bottom-2 right-3 text-[11px] text-zinc-500">
@@ -1178,7 +1622,10 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                             setSourceImage(null);
                             setReferenceImage(null);
                             if (activeTool) {
-                              setPrompt(buildPromptTemplate(activeTool));
+                              setPrompt(getInitialToolPrompt(activeTool));
+                              setActivePresetIndex(
+                                activeTool.presets && activeTool.presets.length > 0 ? 0 : -1,
+                              );
                             }
                           }}
                           className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition"

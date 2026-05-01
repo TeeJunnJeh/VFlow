@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, Eye, Image as ImageIcon, LayoutGrid, Minus, Plus, RotateCw, Save, Sparkles, Upload, Wand2, X } from 'lucide-react';
+import { ArrowRight, ChevronLeft, Eye, Image as ImageIcon, LayoutGrid, Minus, Plus, RotateCw, Save, Sparkles, Upload, Wand2, X } from 'lucide-react';
 import Masonry from 'react-masonry-css';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import { AspectRatioPicker, GALLERY_RATIOS, ratioDescriptorsForLanguage } from '../../Common';
@@ -8,6 +8,7 @@ import type { ViewType } from '../../../workbench/types';
 import type { LoadingTheme } from '../../../../utils/loadingTheme';
 import ResizableSplitter from '../../../common/ResizableSplitter';
 import { AppDialog } from '../../../common/AppDialog';
+import { HelpTooltip } from '../../../common/HelpTooltip';
 
 const GALLERY_PANEL_MIN_WIDTH = 300;
 const GALLERY_PANEL_MAX_WIDTH = 500;
@@ -101,7 +102,7 @@ export type ImagesGalleryViewProps = {
   panelClassName: (view: ViewType) => string;
   t: any;
 
-  galleryExamples: Array<{ id: string; title: string; subtitle: string; previewUrl: string; isUserSnapshot?: boolean }>;
+  galleryExamples: Array<{ id: string; title: string; subtitle: string; previewUrl: string; isUserSnapshot?: boolean; inputImageUrls?: string[] }>;
   applyGalleryExample: (id: string) => void;
   isGalleryApplyingExample: boolean;
   saveGalleryExampleSnapshot?: () => void;
@@ -141,7 +142,7 @@ export type ImagesGalleryViewProps = {
   addGalleryModelCard: () => void;
   removeGalleryModelCard: (cardId: string) => void;
   clearGalleryModelCardImage: (cardId: string) => void;
-  handleGalleryModelCardFileSelection: (cardId: string, picked: File[]) => void;
+  openGalleryModelPicker: (cardId: string) => void;
 
   galleryTargetScene: 'detail' | 'xiaohongshu' | 'douyin' | 'poster' | 'ads';
   setGalleryTargetScene: React.Dispatch<React.SetStateAction<'detail' | 'xiaohongshu' | 'douyin' | 'poster' | 'ads'>>;
@@ -698,6 +699,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
   }, [getGuideTargetElement]);
 
   const galleryGuideSeenKey = useMemo(() => 'vflow_product_gallery_guide_seen_v2', []);
+  const galleryGuideTriggerKey = useMemo(() => 'vflow_product_gallery_guide_trigger', []);
   const markGalleryGuideSeen = useCallback(() => {
     try {
       window.localStorage.setItem(galleryGuideSeenKey, '1');
@@ -724,15 +726,25 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     if (!isVisible) return;
     if (isGuideOpen) return;
     try {
+      if (window.sessionStorage.getItem(galleryGuideTriggerKey) !== '1') return;
+    } catch {
+      return;
+    }
+    try {
+      window.sessionStorage.removeItem(galleryGuideTriggerKey);
+    } catch {
+    }
+    try {
       if (window.localStorage.getItem(galleryGuideSeenKey) === '1') return;
     } catch {
+      return;
     }
     const timer = window.setTimeout(() => {
       setGuideStepIndex(0);
       setIsGuideOpen(true);
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [galleryGuideSeenKey, isGuideOpen, isVisible]);
+  }, [galleryGuideSeenKey, galleryGuideTriggerKey, isGuideOpen, isVisible]);
 
   useEffect(() => {
     if (!isGuideOpen) return;
@@ -866,7 +878,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     addGalleryModelCard,
     removeGalleryModelCard,
     clearGalleryModelCardImage,
-    handleGalleryModelCardFileSelection,
+    openGalleryModelPicker,
 
     galleryTargetScene,
     setGalleryTargetScene,
@@ -1118,7 +1130,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
           <div className="flex items-end justify-between gap-4">
             <div>
               <div className="text-sm font-bold text-zinc-200">
-                {props.t.pg_img_examples_title || '示例套图'}
+                {props.t.pg_img_examples_title || '示例案例'}
               </div>
               <div className="mt-1 text-xs text-zinc-500">
                 {props.t.pg_img_examples_subtitle || '点击示例，自动填充参数与出图方案'}
@@ -1132,6 +1144,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
               const canDelete = isUserSnapshot && Boolean(props.deleteGalleryExampleSnapshot);
               const canApply = isUserSnapshot;
               const isBusy = Boolean(props.isGalleryGenerating || props.isGalleryApplyingExample || props.isGalleryDeletingExampleSnapshot);
+              const inputThumbs = (Array.isArray(item.inputImageUrls) ? item.inputImageUrls : [])
+                .filter(Boolean)
+                .slice(0, 2);
+              if (inputThumbs.length === 0) inputThumbs.push(item.previewUrl);
 
               return (
                 <button
@@ -1139,20 +1155,45 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   type="button"
                   onClick={() => (isUserSnapshot ? undefined : props.applyGalleryExample(item.id))}
                   disabled={props.isGalleryGenerating || props.isGalleryApplyingExample}
-                  className={`group relative w-[240px] shrink-0 overflow-hidden rounded-2xl border border-white/10 ${isUserSnapshot ? 'bg-black/10' : 'bg-black/20'} text-left transition hover:border-orange-500/30 hover:bg-black/30 disabled:opacity-60 disabled:hover:border-white/10 ${isUserSnapshot ? 'hover:-translate-y-1' : ''}`}
+                  className={`group relative aspect-[4/3] w-[288px] shrink-0 overflow-hidden rounded-2xl border border-white/10 ${isUserSnapshot ? 'bg-black/10' : 'bg-black/20'} text-left transition duration-300 hover:-translate-y-1 hover:border-white/20 disabled:opacity-60 disabled:hover:border-white/10`}
                   title={props.isGalleryGenerating || props.isGalleryApplyingExample ? (props.t.pg_img_examples_loading || '生成中...') : (isUserSnapshot ? (props.t.pg_img_saved_example_hover_tip || '悬浮显示操作') : (props.t.pg_img_examples_click_to_generate || '点击填充'))}
                 >
-                  <div className="relative h-[112px]">
+                  <div className="relative h-full w-full">
                     <img
                       src={item.previewUrl}
                       alt={item.title}
-                      className={`h-full w-full object-cover transition ${isUserSnapshot ? 'opacity-85 group-hover:opacity-70 group-hover:blur-sm' : 'opacity-85 group-hover:opacity-95'}`}
+                      className={`h-full w-full object-cover transition duration-300 group-hover:scale-[1.04] group-hover:brightness-110 ${isUserSnapshot ? 'opacity-85 group-hover:opacity-70 group-hover:blur-sm' : ''}`}
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
-                    <div className="absolute inset-x-4 bottom-3">
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
+
+                    <div className="absolute left-3 top-3 inline-flex items-center rounded-full border border-white/15 bg-black/35 px-2.5 py-1 text-[11px] font-semibold text-white/80">
+                      最终结果
+                    </div>
+
+                    <div className="absolute left-3 bottom-[62px] px-1 py-0.5">
+                      <div className="mb-1 text-[11px] font-normal leading-none text-white/80">输入素材</div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2">
+                          {inputThumbs.map((thumb, thumbIndex) => (
+                            <div
+                              key={`${item.id}-input-thumb-${thumbIndex}`}
+                              className="h-[64px] w-[64px] overflow-hidden rounded-[10px] bg-black/20 shadow-[0_2px_8px_rgba(0,0,0,0.22)]"
+                            >
+                              <img src={thumb} alt="input" className="h-full w-full object-cover" />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="absolute inset-x-4 bottom-3 pr-12">
                       <div className="text-sm font-extrabold text-white/95">{item.title}</div>
                       <div className="mt-0.5 text-[11px] text-white/70 line-clamp-1">{item.subtitle}</div>
                     </div>
+
+                    <span className="absolute right-3 bottom-3 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/70 bg-transparent text-white transition duration-300 group-hover:scale-110">
+                      <ArrowRight className="h-4 w-4 !text-white" style={{ color: '#fff' }} />
+                    </span>
 
                     {isUserSnapshot && (
                       <div className="absolute inset-0 flex items-center justify-center opacity-0 transition group-hover:opacity-100">
@@ -1196,10 +1237,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 type="button"
                 onClick={props.saveGalleryExampleSnapshot}
                 disabled={props.isGalleryGenerating || props.isGalleryApplyingExample || props.isGallerySavingExampleSnapshot}
-                className="group relative w-[240px] shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-black/10 text-left transition hover:border-orange-500/30 hover:bg-black/20 disabled:opacity-60 disabled:hover:border-white/10"
+                className="group relative aspect-[4/3] w-[288px] shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-black/10 text-left transition duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-black/20 disabled:opacity-60 disabled:hover:border-white/10"
                 title={props.isGallerySavingExampleSnapshot ? (props.t.pg_img_saving || '保存中...') : (props.t.pg_img_save_as_example || '保存当前配置为示例')}
               >
-                <div className="relative h-[112px] flex items-center justify-center gap-2 px-4">
+                <div className="relative h-full flex items-center justify-center gap-2 px-4">
                   <Save className="h-4 w-4 text-orange-300/90" />
                   <div>
                     <div className="text-sm font-extrabold text-zinc-200">{props.t.pg_img_save_as_example || '保存为示例'}</div>
@@ -1544,7 +1585,6 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 </button>
               ) : (
                 galleryModelCards.map((card) => {
-                  const uploadInputId = `gallery-model-upload-${card.id}`;
                   const previewSrc = String(card.imagePreviewUrl || card.imagePath || '').trim();
                   return (
                     <div key={card.id} className="rounded-xl border border-white/10 bg-black/20 p-3 space-y-3">
@@ -1574,9 +1614,14 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                           {previewSrc ? (
                             <img src={previewSrc} className="w-full h-full object-cover" alt={String(card.name || 'model')} />
                           ) : (
-                            <label htmlFor={uploadInputId} className="w-full h-full flex items-center justify-center text-zinc-500 hover:text-zinc-300 cursor-pointer">
-                              <Upload className="w-5 h-5" />
-                            </label>
+                            <button
+                              type="button"
+                              onClick={() => openGalleryModelPicker(card.id)}
+                              className="w-full h-full flex items-center justify-center text-zinc-500 hover:text-zinc-300"
+                              aria-label={t.pg_img_select_virtual_model || '从素材库选择'}
+                            >
+                              <ImageIcon className="w-5 h-5" />
+                            </button>
                           )}
                           {previewSrc ? (
                             <button
@@ -1591,22 +1636,20 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                         </div>
 
                         <div className="flex-1 min-w-0">
-                          <label
-                            htmlFor={uploadInputId}
-                            className="inline-flex px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+                          <button
+                            type="button"
+                            onClick={() => openGalleryModelPicker(card.id)}
+                            className="inline-flex px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800"
                           >
-                            {previewSrc ? t.pg_img_replace_photo : t.pg_img_upload_photo}
-                          </label>
-                          <div className="mt-2 text-[11px] text-zinc-500">
-                            {t.pg_img_model_photo_required_note}
+                            {previewSrc ? (t.pg_img_replace_virtual_model || '更换虚拟模特') : (t.pg_img_select_virtual_model || '从素材库选择')}
+                          </button>
+                          <div className="mt-2 flex items-center gap-1 text-[11px] text-zinc-500">
+                            <span>{t.pg_img_model_photo_required_note || '仅支持从素材库的「虚拟模特」中选择'}</span>
+                            <HelpTooltip
+                              text="为降低肖像权与版权合规风险，建议优先使用授权明确的虚拟模特素材；使用现实人物照片可能引发肖像权、版权等争议。"
+                              align="left"
+                            />
                           </div>
-                          <input
-                            id={uploadInputId}
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => handleGalleryModelCardFileSelection(card.id, Array.from(e.target.files || []))}
-                          />
                         </div>
                       </div>
 

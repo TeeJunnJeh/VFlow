@@ -16,6 +16,8 @@ interface ImageUploaderProps {
   disabled?: boolean;
   multiple?: boolean;
   previewVariant?: 'default' | 'first-frame';
+  /** Empty-state padding/typography sizing. 'compact' shrinks the dropzone for tight side panels. */
+  size?: 'default' | 'compact';
   value?: File[];
 }
 
@@ -31,6 +33,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   disabled = false,
   multiple = true,
   previewVariant = 'default',
+  size = 'default',
   value,
 }) => {
   const { t } = useLanguage();
@@ -214,7 +217,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       {(showFirstFrameLargeSlot || (previewVariant !== 'first-frame' && selectedFiles.length < maxFiles)) && (
         <div
           className={`
-            relative w-full border-2 border-dashed rounded-lg p-8
+            relative w-full border-2 border-dashed rounded-lg ${size === 'compact' ? 'p-4' : 'p-8'}
             transition-all duration-200 cursor-pointer
             ${
               disabled
@@ -231,8 +234,8 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
           onClick={handleClick}
         >
           <div className="flex flex-col items-center justify-center">
-            <Upload className="w-8 h-8 text-orange-500 mb-3" />
-            <p className="text-zinc-100 font-medium mb-1">
+            <Upload className={size === 'compact' ? 'w-5 h-5 text-orange-500 mb-1.5' : 'w-8 h-8 text-orange-500 mb-3'} />
+            <p className={size === 'compact' ? 'text-zinc-100 text-xs font-medium' : 'text-zinc-100 font-medium mb-1'}>
               {previewVariant === 'first-frame'
                 ? (((t as any).ff_upload_title_range_1_4 as string) || '上传1~4张图片')
                 : (
@@ -242,11 +245,15 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
                   </>
                 )}
             </p>
-            <p className="text-zinc-400 text-sm">
-              {t.ff_upload_drag_or_click}
-            </p>
-            <p className="text-zinc-500 text-xs mt-3">
-              {t.ff_upload_supports} {Math.ceil(maxFileSize / 1024 / 1024)}MB
+            {size !== 'compact' && (
+              <p className="text-zinc-400 text-sm">
+                {t.ff_upload_drag_or_click}
+              </p>
+            )}
+            <p className={size === 'compact' ? 'text-zinc-500 text-[10px] mt-1' : 'text-zinc-500 text-xs mt-3'}>
+              {size === 'compact'
+                ? `JPG/PNG/WebP · ${Math.ceil(maxFileSize / 1024 / 1024)}MB`
+                : `${t.ff_upload_supports} ${Math.ceil(maxFileSize / 1024 / 1024)}MB`}
             </p>
           </div>
         </div>

@@ -85,6 +85,9 @@ export const AspectRatioPicker: React.FC<AspectRatioPickerProps> = ({
 
   useLayoutEffect(() => {
     if (!open) return;
+    // popover max height (matches max-h-72 = 18rem ≈ 288px) — used to decide
+    // whether to flip upward when there's not enough room below the trigger.
+    const POPOVER_MAX_HEIGHT = 288;
     const update = () => {
       const triggerEl = triggerRef.current;
       if (!triggerEl) return;
@@ -93,13 +96,30 @@ export const AspectRatioPicker: React.FC<AspectRatioPickerProps> = ({
       // 默认让 popover 右对齐到 trigger 的右边；如果会超出窗口左边就 clamp
       const desiredLeft = rect.right - minWidth;
       const left = Math.max(8, Math.min(desiredLeft, window.innerWidth - minWidth - 8));
-      setPopoverStyle({
-        position: 'fixed',
-        left,
-        top: rect.bottom + 6,
-        minWidth,
-        zIndex: 1000,
-      });
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      const placeAbove = spaceBelow < POPOVER_MAX_HEIGHT && spaceAbove > spaceBelow;
+      if (placeAbove) {
+        // anchor popover bottom edge 6px above trigger top — popover grows
+        // upward, so its actual height (≤ POPOVER_MAX_HEIGHT) doesn't matter.
+        setPopoverStyle({
+          position: 'fixed',
+          left,
+          bottom: window.innerHeight - rect.top + 6,
+          maxHeight: Math.max(120, spaceAbove - 16),
+          minWidth,
+          zIndex: 1000,
+        });
+      } else {
+        setPopoverStyle({
+          position: 'fixed',
+          left,
+          top: rect.bottom + 6,
+          maxHeight: Math.max(120, spaceBelow - 16),
+          minWidth,
+          zIndex: 1000,
+        });
+      }
     };
     update();
     window.addEventListener('resize', update);

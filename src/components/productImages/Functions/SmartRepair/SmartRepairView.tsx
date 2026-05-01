@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, ChevronLeft, ChevronsDown, Download, Sparkles, Loader2, X, RotateCcw } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronsDown, Download, Sparkles, Loader2, Minus, Plus, X, RotateCcw } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { AspectRatioPicker, ErrorDialog, type ErrorInfo, ImageUploader, SMART_REPAIR_RATIOS, ratioDescriptorsForLanguage } from '../../Common';
 import ResizableSplitter from '../../../common/ResizableSplitter';
 import { downloadBlob, productImagesApi } from '../../../../services/productImagesApi';
 import { billingApi } from '../../../../services/billing';
-import type { ProductImageResult, SmartRepairParams, SmartRepairSubpage, SmartRepairToolCode } from '../../../../types/productImages';
+import type { ProductImageResult, SmartRepairModel, SmartRepairParams, SmartRepairSubpage, SmartRepairToolCode } from '../../../../types/productImages';
 import { notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
 import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../../../utils/loadingTheme';
 import { useRequireAuth } from '../../../../utils/useRequireAuth';
@@ -20,6 +20,7 @@ interface RepairTaskSettingsSnapshot {
   outputCount: SmartRepairParams['outputCount'];
   subpage: SmartRepairSubpage;
   toolCode: SmartRepairToolCode;
+  model?: SmartRepairModel;
 }
 
 interface RepairTask {
@@ -36,12 +37,28 @@ interface RepairTask {
 const POLL_INTERVAL_MS = 1500;
 const POLL_MAX_ATTEMPTS = 120; // 1.5s × 120 ≈ 3 minutes ceiling
 
-const SMART_REPAIR_PANEL_MIN_WIDTH = 280;
-const SMART_REPAIR_PANEL_MAX_WIDTH = 720;
-// middle ≈ left + right (so middle is the widest single column);
-// right is wider than left so the result panel has more breathing room.
-const SMART_REPAIR_PANEL_RATIOS = { left: 0.45, middle: 1.0, right: 0.55 } as const;
+const SMART_REPAIR_COMBINED_MIN_WIDTH = 560;
+const SMART_REPAIR_COMBINED_MAX_WIDTH = 1080;
+const SMART_REPAIR_RIGHT_MIN_WIDTH = 280;
+// combined column = old (left + middle), right column stays the result panel.
+const SMART_REPAIR_PANEL_RATIOS = { combined: 1.45, right: 0.55 } as const;
 const SMART_REPAIR_TOOLS_COLLAPSED_KEY = 'vflow.smart_repair.tools_collapsed';
+const SMART_REPAIR_PROMPT_SOFT_MAX = 1000;
+const SMART_REPAIR_OUTPUT_COUNT_MIN = 1;
+const SMART_REPAIR_OUTPUT_COUNT_MAX = 4;
+
+interface SmartRepairModelOption {
+  value: SmartRepairModel;
+  labelZh: string;
+  labelEn: string;
+}
+
+const SMART_REPAIR_MODEL_OPTIONS: SmartRepairModelOption[] = [
+  { value: 'flux-2-pro', labelZh: 'Flux 2 Pro · 通用推荐', labelEn: 'Flux 2 Pro · Recommended' },
+  { value: 'flux-2-max', labelZh: 'Flux 2 Max · 最高质量', labelEn: 'Flux 2 Max · Best quality' },
+  { value: 'flux-2-flex', labelZh: 'Flux 2 Flex · 快速', labelEn: 'Flux 2 Flex · Fast' },
+  { value: 'flux-2-dev', labelZh: 'Flux 2 Dev · 开发版', labelEn: 'Flux 2 Dev · Beta' },
+];
 
 const generateLocalId = () => `sr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -59,6 +76,8 @@ interface SmartRepairToolDef {
   descEn: string;
   promptZh: string;
   promptEn: string;
+  suggestionsZh: string[];
+  suggestionsEn: string[];
 }
 
 interface SmartRepairHistoryEntry {
@@ -118,6 +137,8 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       descEn: 'Replace dress form with realistic model wearing the garment.',
       promptZh: '将假人台服装自然迁移到真实模特身上，保留版型、面料纹理、颜色与细节，生成真实商业拍摄质感。',
       promptEn: 'Replace the dress form or mannequin with a realistic human model naturally wearing the garment. Preserve all fit, proportions, colors and details during transfer, adjusting overall tone to match human photography.',
+      suggestionsZh: ['换成真人模特', '保持服装版型', '保留面料纹理', '保留颜色与图案', '商业拍摄质感'],
+      suggestionsEn: ['Real human model', 'Keep garment fit', 'Preserve fabric texture', 'Preserve colors and patterns', 'Commercial photography'],
     },
     {
       code: 'anime_ip',
@@ -127,6 +148,8 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       descEn: 'Transform into anime-style illustration fashion character.',
       promptZh: '将人物与服装转换为二次元插画风格，保持服装结构和识别特征，线条干净、色彩统一、角色风格明确。',
       promptEn: 'Convert the person and garment into anime illustration style, preserving outfit structure, brand elements and key design features. Use clean linework, stylized anime coloring and proportions appropriate for the character design.',
+      suggestionsZh: ['二次元插画风', '保持服装结构', '线条干净', '色彩鲜明', '角色风格化'],
+      suggestionsEn: ['Anime illustration style', 'Keep outfit structure', 'Clean linework', 'Vibrant colors', 'Stylized character'],
     },
     {
       code: 'fashion_3d_showcase',
@@ -136,6 +159,8 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       descEn: 'Transform flat garment photo into 3D volumetric showcase.',
       promptZh: '将平面的服装图片立体化，增强褶皱体积感、材质反射和立体轮廓，保持真实摄影观感，不要生成纯3D建模渲染风。',
       promptEn: 'Transform the flat garment image into a 3D-volumetric display by enhancing folds, fabric volume, material reflections, and dimensional contours, making it appear more lifelike and dynamic.',
+      suggestionsZh: ['立体展示效果', '增强褶皱体积', '突出材质反射', '保持真实摄影感', '避免建模渲染'],
+      suggestionsEn: ['3D volumetric look', 'Enhance fold volume', 'Boost material reflection', 'Photographic realism', 'Avoid CG render style'],
     },
     {
       code: 'flat_lay_with_accessories',
@@ -145,6 +170,8 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       descEn: 'Generate styled flat lay with matching complementary accessories.',
       promptZh: '将服装重排为整洁的平铺构图，并自动补充匹配配饰，保持品牌调性、光线一致和电商级画面干净度。',
       promptEn: 'Recompose the garment into a clean, styled flat lay with complementary accessories selected to match the brand and style. Maintain consistent lighting and premium e-commerce composition.',
+      suggestionsZh: ['整洁平铺构图', '搭配匹配配饰', '保持品牌调性', '光线统一', '电商级干净'],
+      suggestionsEn: ['Clean flat lay', 'Match accessories', 'Keep brand tone', 'Consistent lighting', 'E-commerce clean'],
     },
     {
       code: 'body_reshape',
@@ -154,6 +181,8 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       descEn: 'Adjust model height and body size as requested while keeping wearability natural.',
       promptZh: '根据用户要求精确调整模特体型（高/矮、偏瘦/标准/偏胖等），可按指令改变肩宽、腰围、腿长等比例；重点是实现用户指定体型，而不是自动改成“更合适”的体型。保持人体结构合理，服装版型、贴合关系与细节不丢失。',
       promptEn: 'Precisely adjust the model body based on user-defined target shape (taller/shorter, slimmer/standard/plus-size), including controllable proportions such as shoulder width, waist size, and leg length. Follow the requested body type explicitly instead of auto-optimizing to a generic fit. Keep anatomy plausible and preserve garment fit, silhouette, and details.',
+      suggestionsZh: ['更高一些', '更瘦一些', '加宽肩', '收腰', '加长腿', '保持服装贴合'],
+      suggestionsEn: ['Make taller', 'Make slimmer', 'Wider shoulders', 'Smaller waist', 'Longer legs', 'Keep garment fit'],
     },
     {
       code: 'accessory_try_on',
@@ -163,6 +192,8 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       descEn: 'Generate a suitable model and dress them with provided clothing and accessories.',
       promptZh: '输入通常是服装与配饰图片（如平铺图）。请先生成与服装风格匹配的合适模特，再让该模特完整穿戴对应服装与配饰；确保穿戴位置正确，光影、遮挡、材质和尺度一致，输出真实商业穿搭效果。',
       promptEn: 'The input is typically clothing and accessory images (such as flat-lay references). First generate a suitable model that matches the outfit style, then dress the model with the provided clothing and accessories as a complete look. Ensure correct placement, realistic occlusion, consistent lighting/materials/scale, and produce a commercial-quality try-on result.',
+      suggestionsZh: ['生成合适模特', '完整穿戴', '位置准确', '光影一致', '商业穿搭效果'],
+      suggestionsEn: ['Generate matching model', 'Complete outfit fit', 'Correct placement', 'Consistent lighting', 'Commercial try-on'],
     },
   ],
   product_object: [
@@ -174,6 +205,8 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       descEn: 'Repair scratches, dents, and damaged areas.',
       promptZh: '修复产品表面的划痕、凹陷、破损等缺陷，恢复完整质感，保持品牌标识、文字信息和关键结构不变。',
       promptEn: 'Repair all visible defects including scratches, dents, scuffs, breaks and damage areas on the product surface. Restore pristine appearance while preserving exact shape, logo, branding and all structural details.',
+      suggestionsZh: ['修复划痕', '修复凹陷', '修复破损', '保留品牌标识', '保持产品形态'],
+      suggestionsEn: ['Fix scratches', 'Fix dents', 'Fix damage', 'Keep branding', 'Keep shape'],
     },
     {
       code: 'background_replace',
@@ -183,6 +216,8 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       descEn: 'Replace background while preserving the subject.',
       promptZh: '保留商品主体不变，替换为干净专业的电商背景，保证边缘自然、光线方向与阴影关系一致。',
       promptEn: 'Keep the product untouched and replace the background with a cleaner, more professional e-commerce background. Maintain clean product edges, natural seamless boundary, and consistent lighting and shadow on the product.',
+      suggestionsZh: ['干净电商背景', '保持主体不变', '边缘自然', '光线一致', '阴影自然'],
+      suggestionsEn: ['Clean e-commerce backdrop', 'Keep subject', 'Natural edges', 'Consistent lighting', 'Natural shadow'],
     },
     {
       code: 'stain_remove',
@@ -192,6 +227,8 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       descEn: 'Remove stains, marks, and unwanted artifacts.',
       promptZh: '清理产品上的污点、水印、指纹、灰尘等杂质，保留原有纹理、高光反射和产品形体，不改变材质观感。',
       promptEn: 'Clean visible stains, watermarks, fingerprints, dust, water spots, and unwanted artifacts from the product. Preserve all original material textures, highlights, reflections, brand markings, and product geometry perfectly.',
+      suggestionsZh: ['去除污点', '去除水印', '去除指纹', '保留材质纹理', '保留高光反射'],
+      suggestionsEn: ['Remove stains', 'Remove watermarks', 'Remove fingerprints', 'Keep texture', 'Keep highlights'],
     },
     {
       code: 'detail_enhance',
@@ -201,6 +238,8 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       descEn: 'Boost product detail sharpness and texture quality.',
       promptZh: '增强产品细部纹理、缝线、印花等细节的清晰度和质感，提升材质表现力，但避免过度锐化和噪点，输出高质感电商图。',
       promptEn: 'Enhance the sharpness and texture details of seams, prints, material surfaces and micro details while avoiding over-sharpening, producing premium e-commerce visuals.',
+      suggestionsZh: ['提升清晰度', '增强缝线纹理', '突出材质', '避免过度锐化', '高质感电商图'],
+      suggestionsEn: ['Sharpen details', 'Enhance stitching', 'Highlight material', 'Avoid over-sharpening', 'Premium e-commerce'],
     },
   ],
   other: [
@@ -212,6 +251,8 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       descEn: 'Restore faded, blurry, and creased images.',
       promptZh: '修复老旧图片的褪色、模糊、折痕和污渍，提升清晰度与对比度，同时保持原始内容与人物特征真实性。',
       promptEn: 'Restore aged photographs by removing fading, blur, creases, spots and degradation artifacts. Improve overall clarity, contrast and color vibrancy while maintaining historical accuracy and original content integrity.',
+      suggestionsZh: ['修复褪色', '提升清晰度', '修复折痕', '修复污点', '保持人物特征'],
+      suggestionsEn: ['Restore color', 'Sharpen', 'Fix creases', 'Remove spots', 'Keep features'],
     },
     {
       code: 'logo_cleanup',
@@ -221,6 +262,8 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       descEn: 'Remove conflicting logos while preserving integrity.',
       promptZh: '清理图片中的冲突Logo、水印和杂乱文字，并根据周边内容自然补全，保持画面构图、光影和质感连续。',
       promptEn: 'Remove conflicting logos, watermarks, and unwanted text while seamlessly filling removed areas based on surrounding image context. Maintain overall image composition, lighting continuity and visual flow.',
+      suggestionsZh: ['去除 Logo', '去除水印', '自然补全', '保持构图', '光影连续'],
+      suggestionsEn: ['Remove logo', 'Remove watermark', 'Natural inpaint', 'Keep composition', 'Continuous lighting'],
     },
     {
       code: 'text_replace',
@@ -230,6 +273,8 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       descEn: 'Replace text while keeping visual design style.',
       promptZh: '替换图片中的文案内容，保持字体风格、字重、排版节奏和整体设计语言一致。',
       promptEn: 'Replace the text content in the image while keeping the original typography style, font family, layout rhythm, spacing and overall design language intact.',
+      suggestionsZh: ['替换文案', '保持字体', '保持字号', '保持排版', '保持设计风格'],
+      suggestionsEn: ['Replace text', 'Keep font', 'Keep font size', 'Keep layout', 'Keep design style'],
     },
     {
       code: 'custom_retouch',
@@ -239,6 +284,8 @@ const TOOL_MATRIX: Record<SmartRepairSubpage, SmartRepairToolDef[]> = {
       descEn: 'Handle custom and complex retouch tasks.',
       promptZh: '根据我给出的修图要求完成目标，保持主体一致、画面自然和商业可用质量。',
       promptEn: 'Complete the custom retouch task according to my specific request while preserving subject consistency and maintaining natural, professional image quality throughout.',
+      suggestionsZh: ['精细修整', '保持主体一致', '画面自然', '商业可用质量', '保留细节'],
+      suggestionsEn: ['Detailed retouch', 'Keep subject', 'Natural look', 'Commercial quality', 'Preserve details'],
     },
   ],
 };
@@ -258,6 +305,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   const [aspectRatio, setAspectRatio] = useState<SmartRepairParams['aspectRatio']>('1:1');
   const [strength, setStrength] = useState<SmartRepairParams['strength']>('medium');
   const [outputCount, setOutputCount] = useState<SmartRepairParams['outputCount']>(1);
+  const [selectedModel, setSelectedModel] = useState<SmartRepairModel>('flux-2-pro');
   const [activeSubpage, setActiveSubpage] = useState<SmartRepairSubpage>('fashion_model');
   const [activeToolCode, setActiveToolCode] = useState<SmartRepairToolCode | null>(null);
   const [historyItems, setHistoryItems] = useState<SmartRepairHistoryEntry[]>([]);
@@ -270,10 +318,10 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   const pollStartedRef = useRef<Set<string>>(new Set());
   const isSubmittingRef = useRef<boolean>(false);
 
-  // FirstFrame-style 3-column layout state
+  // Two-column layout state: combined edit column + right preview/history column
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [leftWidth, setLeftWidth] = useState<number>(360);
-  const [middleWidth, setMiddleWidth] = useState<number>(420);
+  const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [combinedWidth, setCombinedWidth] = useState<number>(720);
   const [rightPanel, setRightPanel] = useState<'preview' | 'history'>('preview');
   const [isToolsCollapsed, setIsToolsCollapsed] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -286,16 +334,18 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   }, [isToolsCollapsed]);
 
   const computeDefaultPanelWidths = useCallback((containerWidth: number) => {
-    const splittersTotal = 6; // two ~3px visual splitters
-    const totalRatio =
-      SMART_REPAIR_PANEL_RATIOS.left + SMART_REPAIR_PANEL_RATIOS.middle + SMART_REPAIR_PANEL_RATIOS.right;
-    const usable = Math.max(containerWidth - splittersTotal, SMART_REPAIR_PANEL_MIN_WIDTH * 3);
-    const clamp = (v: number) =>
-      Math.min(SMART_REPAIR_PANEL_MAX_WIDTH, Math.max(SMART_REPAIR_PANEL_MIN_WIDTH, v));
-    return {
-      left: clamp(usable * (SMART_REPAIR_PANEL_RATIOS.left / totalRatio)),
-      middle: clamp(usable * (SMART_REPAIR_PANEL_RATIOS.middle / totalRatio)),
-    };
+    const splitterWidth = 6;
+    const totalRatio = SMART_REPAIR_PANEL_RATIOS.combined + SMART_REPAIR_PANEL_RATIOS.right;
+    const usable = Math.max(
+      containerWidth - splitterWidth,
+      SMART_REPAIR_COMBINED_MIN_WIDTH + SMART_REPAIR_RIGHT_MIN_WIDTH,
+    );
+    const combinedRaw = usable * (SMART_REPAIR_PANEL_RATIOS.combined / totalRatio);
+    const combined = Math.min(
+      SMART_REPAIR_COMBINED_MAX_WIDTH,
+      Math.max(SMART_REPAIR_COMBINED_MIN_WIDTH, combinedRaw),
+    );
+    return { combined };
   }, []);
 
   useEffect(() => {
@@ -303,9 +353,8 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width;
       if (w && w > 0) {
-        const { left, middle } = computeDefaultPanelWidths(w);
-        setLeftWidth(left);
-        setMiddleWidth(middle);
+        const { combined } = computeDefaultPanelWidths(w);
+        setCombinedWidth(combined);
       }
     });
     ro.observe(containerRef.current);
@@ -315,6 +364,29 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   useEffect(() => {
     if (repairTasks.length > 0) setRightPanel('preview');
   }, [repairTasks.length]);
+
+  const appendPromptSuggestion = useCallback(
+    (phrase: string) => {
+      if (!phrase) return;
+      setPrompt((prev) => {
+        const trimmed = prev.trim();
+        if (!trimmed) return phrase;
+        if (trimmed.includes(phrase)) return prev;
+        const sep = isZh ? '、' : ', ';
+        const needsSpace = !/[\s,.;:、，。；：]$/.test(trimmed);
+        return `${trimmed}${needsSpace ? sep : ' '}${phrase}`;
+      });
+      // refocus textarea so user sees the cursor at the end
+      window.setTimeout(() => {
+        const el = promptTextareaRef.current;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(el.value.length, el.value.length);
+        }
+      }, 0);
+    },
+    [isZh],
+  );
 
   const subpageOptions: Array<{ key: SmartRepairSubpage; label: string }> = [
     { key: 'fashion_model', label: t.sr_subpage_fashion_model_name },
@@ -516,6 +588,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
             outputCount: (item.settings.outputCount as SmartRepairParams['outputCount']) || 1,
             subpage: (item.settings.subpage as SmartRepairSubpage) || 'product_object',
             toolCode: (item.settings.toolCode as SmartRepairToolCode) || 'custom_retouch',
+            model: (item.settings.model as SmartRepairModel) || undefined,
           },
           submittedAt: item.submittedAt,
         }));
@@ -613,6 +686,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
       outputCount,
       subpage: activeSubpage,
       toolCode: activeToolCode,
+      model: selectedModel,
     };
 
     try {
@@ -627,6 +701,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
           outputCount,
           subpage: activeSubpage,
           toolCode: activeToolCode,
+          model: selectedModel,
         },
         {
           projectId,
@@ -702,6 +777,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     setOutputCount(task.settings.outputCount);
     setActiveSubpage(task.settings.subpage);
     setActiveToolCode(task.settings.toolCode);
+    if (task.settings.model) setSelectedModel(task.settings.model);
     dismissCard(task.localId);
   };
 
@@ -810,7 +886,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                               setActiveToolCode(tool.code);
                               setPrompt(buildPromptTemplate(tool));
                             }}
-                            className={`group relative aspect-[4/3] w-[288px] shrink-0 overflow-hidden rounded-2xl border bg-black/20 text-left transition duration-300 hover:-translate-y-1 ${
+                            className={`group relative aspect-[4/3] w-[247px] shrink-0 overflow-hidden rounded-2xl border bg-black/20 text-left transition duration-300 hover:-translate-y-1 ${
                               selected
                                 ? 'border-orange-400/70 ring-2 ring-orange-400/70'
                                 : 'border-white/10 hover:border-white/20'
@@ -850,8 +926,8 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                                   {isZh ? tool.descZh : tool.descEn}
                                 </div>
                               </div>
-                              <span className="absolute right-3 bottom-3 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/70 bg-transparent text-white transition duration-300 group-hover:scale-110">
-                                <ArrowRight className="h-4 w-4 !text-white" style={{ color: '#fff' }} />
+                              <span className="absolute right-3 bottom-3 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/70 bg-transparent text-white transition duration-300 group-hover:scale-110">
+                                <ArrowRight className="h-3.5 w-3.5 !text-white" style={{ color: '#fff' }} />
                               </span>
                             </div>
                           </button>
@@ -871,132 +947,156 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
               {activeToolCode && (
                 <div
                   ref={containerRef}
-                  className="relative flex items-stretch overflow-hidden min-h-[680px]"
+                  className="relative flex items-stretch overflow-hidden min-h-[600px]"
                 >
-                  {/* Left column: upload */}
+                  {/* Combined column: uploads (left sub-area) + prompt (right sub-area) + bottom gen-settings */}
                   <section
                     className="mr-3 flex h-full min-h-0 shrink-0 flex-col rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100"
-                    style={{ width: `${leftWidth}px`, minWidth: `${SMART_REPAIR_PANEL_MIN_WIDTH}px` }}
+                    style={{ width: `${combinedWidth}px`, minWidth: `${SMART_REPAIR_COMBINED_MIN_WIDTH}px` }}
                   >
-                    <div className="mb-5 shrink-0">
-                      <h2 className="text-lg font-semibold text-white">{isZh ? '上传素材' : 'Upload Materials'}</h2>
+                    <div className="mb-4 shrink-0">
+                      <h2 className="text-lg font-semibold text-white">{isZh ? '编辑需求' : 'Edit Requirements'}</h2>
                     </div>
-                    <div className="min-h-0 flex-1 overflow-y-auto pr-1 space-y-4">
-                      <div className="rounded-xl border border-white/5 bg-black/20 p-4">
-                        <div className="mb-2 text-sm font-semibold text-zinc-200">{isZh ? '上传原图' : 'Source Image'}</div>
-                        {!sourceImage ? (
+
+                    {/* Top split: upload sub-area | prompt sub-area */}
+                    <div className="flex min-h-0 flex-1 gap-4">
+                      <div className="w-[220px] shrink-0 overflow-y-auto pr-1 space-y-4">
+                        <div className="rounded-xl border border-white/5 bg-black/20 p-3">
+                          <div className="mb-2 text-sm font-semibold text-zinc-200">
+                            {isZh ? '原图（必传）' : 'Source Image (Required)'}
+                          </div>
+                          {!sourceImage ? (
+                            <ImageUploader
+                              maxFiles={1}
+                              size="compact"
+                              onFilesSelected={(files) => setSourceImage(files[0] || null)}
+                              onError={(err) =>
+                                setError({
+                                  code: 'UPLOAD_ERROR',
+                                  message: err,
+                                  severity: 'warning',
+                                })
+                              }
+                            />
+                          ) : (
+                            <div>
+                              <img src={sourcePreviewUrl} alt="source" className="w-full rounded-lg border border-white/10 object-cover" style={{ maxHeight: '170px' }} />
+                              <button
+                                onClick={() => setSourceImage(null)}
+                                className="mt-2 text-xs text-zinc-400 hover:text-zinc-200 underline"
+                              >
+                                {t.sr_change_image}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="rounded-xl border border-white/5 bg-black/20 p-3">
+                          <div className="mb-2 text-sm font-semibold text-zinc-200">{t.sr_reference_optional}</div>
                           <ImageUploader
                             maxFiles={1}
-                            onFilesSelected={(files) => setSourceImage(files[0] || null)}
+                            size="compact"
+                            onFilesSelected={(files) => setReferenceImage(files[0] || null)}
                             onError={(err) =>
                               setError({
-                                code: 'UPLOAD_ERROR',
+                                code: 'REFERENCE_UPLOAD_ERROR',
                                 message: err,
                                 severity: 'warning',
                               })
                             }
                           />
-                        ) : (
-                          <div>
-                            <img src={sourcePreviewUrl} alt="source" className="w-full rounded-lg border border-white/10 object-cover" style={{ maxHeight: '280px' }} />
-                            <button
-                              onClick={() => setSourceImage(null)}
-                              className="mt-2 text-xs text-zinc-400 hover:text-zinc-200 underline"
-                            >
-                              {t.sr_change_image}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="rounded-xl border border-white/5 bg-black/20 p-4">
-                        <div className="mb-2 text-sm font-semibold text-zinc-200">{t.sr_reference_optional}</div>
-                        <ImageUploader
-                          maxFiles={1}
-                          onFilesSelected={(files) => setReferenceImage(files[0] || null)}
-                          onError={(err) =>
-                            setError({
-                              code: 'REFERENCE_UPLOAD_ERROR',
-                              message: err,
-                              severity: 'warning',
-                            })
-                          }
-                        />
-                        {referencePreviewUrl && (
-                          <div className="mt-2">
-                            <img src={referencePreviewUrl} alt="reference" className="w-full rounded-lg border border-white/10 object-cover" style={{ maxHeight: '220px' }} />
-                            <button
-                              onClick={() => setReferenceImage(null)}
-                              className="mt-2 text-xs text-zinc-400 hover:text-zinc-200 underline"
-                            >
-                              {t.sr_remove_reference}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </section>
-
-                  <ResizableSplitter
-                    position={leftWidth}
-                    minSize={SMART_REPAIR_PANEL_MIN_WIDTH}
-                    onResize={(next) => setLeftWidth(Math.min(SMART_REPAIR_PANEL_MAX_WIDTH, next))}
-                    hitAreaSize={8}
-                    lineThickness={2}
-                  />
-
-                  {/* Middle column: prompt + params + submit */}
-                  <section
-                    className="mx-3 flex h-full min-h-0 shrink-0 flex-col rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100"
-                    style={{ width: `${middleWidth}px`, minWidth: `${SMART_REPAIR_PANEL_MIN_WIDTH}px` }}
-                  >
-                    <div className="mb-5 shrink-0">
-                      <h2 className="text-lg font-semibold text-white">{isZh ? '修复说明' : 'Repair Instructions'}</h2>
-                    </div>
-                    <div className="min-h-0 flex-1 overflow-y-auto pr-1 space-y-4">
-                      <div className="rounded-xl border border-orange-500/40 bg-orange-500/5 p-4">
-                        <div className="mb-1 text-sm font-semibold text-orange-200">
-                          {activeTool ? (isZh ? activeTool.titleZh : activeTool.titleEn) : '-'}
+                          {referencePreviewUrl && (
+                            <div className="mt-2">
+                              <img src={referencePreviewUrl} alt="reference" className="w-full rounded-lg border border-white/10 object-cover" style={{ maxHeight: '170px' }} />
+                              <button
+                                onClick={() => setReferenceImage(null)}
+                                className="mt-2 text-xs text-zinc-400 hover:text-zinc-200 underline"
+                              >
+                                {t.sr_remove_reference}
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        <p className="text-sm text-zinc-300">
-                          {activeTool ? (isZh ? activeTool.descZh : activeTool.descEn) : '-'}
-                        </p>
                       </div>
 
-                      <div className="rounded-xl border border-orange-500/40 bg-black/35 p-4">
-                        <div className="mb-3 flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-semibold text-zinc-100">{isZh ? '修复说明（可编辑）' : 'Repair Instructions (Editable)'}</span>
-                          {editablePromptTokens.map((token) => (
-                            <span key={token} className="rounded-full border border-orange-400/40 bg-orange-500/15 px-2 py-0.5 text-[11px] font-medium text-orange-200">
-                              {token}
-                            </span>
-                          ))}
+                      <div className="flex min-h-0 flex-1 flex-col">
+                        <div className="mb-2 flex shrink-0 items-baseline justify-between gap-3">
+                          <div className="flex items-baseline gap-2">
+                            <h3 className="text-sm font-semibold text-zinc-100">{isZh ? '你想怎么改？' : 'What do you want to change?'}</h3>
+                            {activeTool && (
+                              <span className="text-[11px] text-zinc-500">
+                                {isZh ? '当前：' : 'Tool: '}
+                                {isZh ? activeTool.titleZh : activeTool.titleEn}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[11px] text-zinc-500">
+                            {isZh ? '直接用自然语言描述你想要的修改效果' : 'Describe the desired result in natural language'}
+                          </span>
                         </div>
-                        <textarea
-                          value={prompt}
-                          onChange={(e) => setPrompt(e.target.value)}
-                          rows={8}
-                          className="w-full rounded-xl border border-orange-500/40 bg-black/30 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-orange-300"
-                          placeholder={t.sr_prompt_placeholder}
-                        />
-                        <div className="mt-3 rounded-xl border border-white/10 bg-black/40 p-3">
-                          <div className="mb-2 text-xs text-zinc-400">{isZh ? '高亮预览（橙色部分可按需求修改）' : 'Highlighted preview (orange tokens are editable)'}</div>
-                          <div className="max-h-36 overflow-y-auto whitespace-pre-wrap text-xs leading-5 text-zinc-300">
-                            {prompt.split(/(\{\{[^}]+\}\})/g).map((part, index) => {
-                              const isEditable = /^\{\{[^}]+\}\}$/.test(part);
-                              return isEditable ? (
-                                <span key={`editable-${index}`} className="rounded bg-orange-500/20 px-1 py-0.5 text-orange-200">{part}</span>
-                              ) : (
-                                <span key={`normal-${index}`}>{part}</span>
+
+                        {activeTool && (
+                          <div className="mb-2 flex shrink-0 flex-wrap gap-2">
+                            {(isZh ? activeTool.suggestionsZh : activeTool.suggestionsEn).map((phrase) => {
+                              const inserted = prompt.includes(phrase);
+                              return (
+                                <button
+                                  key={phrase}
+                                  type="button"
+                                  onClick={() => appendPromptSuggestion(phrase)}
+                                  className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                                    inserted
+                                      ? 'border-orange-500/50 bg-orange-500/15 text-orange-200'
+                                      : 'border-white/10 bg-black/20 text-zinc-300 hover:border-orange-400/40 hover:text-orange-200'
+                                  }`}
+                                >
+                                  {phrase}
+                                </button>
                               );
                             })}
                           </div>
+                        )}
+
+                        <div className="relative flex-1 min-h-[360px]">
+                          <textarea
+                            ref={promptTextareaRef}
+                            value={prompt}
+                            onChange={(e) => setPrompt(e.target.value)}
+                            className="h-full w-full resize-none rounded-xl border border-white/10 bg-black/30 px-4 py-3 pb-7 text-sm text-zinc-100 outline-none focus:border-orange-400/50"
+                            placeholder={t.sr_prompt_placeholder}
+                          />
+                          <div className="pointer-events-none absolute bottom-2 right-3 text-[11px] text-zinc-500">
+                            <span className={prompt.length > SMART_REPAIR_PROMPT_SOFT_MAX ? 'text-orange-300' : ''}>
+                              {prompt.length}
+                            </span>
+                            /{SMART_REPAIR_PROMPT_SOFT_MAX}
+                          </div>
                         </div>
                       </div>
+                    </div>
 
-                      <div className="rounded-xl border border-white/5 bg-black/20 p-4 space-y-3">
-                        <div>
-                          <div className="mb-2 text-xs font-medium text-zinc-400">{t.sr_aspect}</div>
+                    {/* Bottom: gen settings + actions, spans full combined column */}
+                    <div className="mt-4 shrink-0 border-t border-white/10 pt-4">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+                        <div className="text-sm font-semibold text-zinc-200 shrink-0">
+                          {isZh ? '生成设置' : 'Generation Settings'}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-zinc-500 shrink-0">{isZh ? '模型' : 'Model'}</span>
+                          <select
+                            value={selectedModel}
+                            onChange={(e) => setSelectedModel(e.target.value as SmartRepairModel)}
+                            className="rounded-lg border border-white/10 bg-black/20 px-3 py-1.5 text-sm text-zinc-200 focus:border-orange-400/50"
+                          >
+                            {SMART_REPAIR_MODEL_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {isZh ? opt.labelZh : opt.labelEn}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-zinc-500 shrink-0">{t.sr_aspect}</span>
                           <AspectRatioPicker
                             value={String(aspectRatio || '1:1')}
                             onChange={(next) => setAspectRatio(next as SmartRepairParams['aspectRatio'])}
@@ -1010,69 +1110,103 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                             descriptors={ratioDescriptorsForLanguage(language)}
                           />
                         </div>
-
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <div className="mb-2 text-xs font-medium text-zinc-400">{t.sr_strength}</div>
-                            <select
-                              value={strength}
-                              onChange={(e) => setStrength(e.target.value as SmartRepairParams['strength'])}
-                              className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-zinc-200 focus:border-orange-400/50"
-                            >
-                              <option value="light">{t.sr_strength_light}</option>
-                              <option value="medium">{t.sr_strength_medium}</option>
-                              <option value="strong">{t.sr_strength_strong}</option>
-                            </select>
-                          </div>
-                          <div>
-                            <div className="mb-2 text-xs font-medium text-zinc-400">{t.sr_count}</div>
-                            <select
-                              value={outputCount}
-                              onChange={(e) => setOutputCount(Number(e.target.value) as SmartRepairParams['outputCount'])}
-                              className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-zinc-200 focus:border-orange-400/50"
-                            >
-                              <option value={1}>1</option>
-                              <option value={2}>2</option>
-                              <option value={4}>4</option>
-                            </select>
-                          </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-zinc-500 shrink-0">{t.sr_strength}</span>
+                          <select
+                            value={strength}
+                            onChange={(e) => setStrength(e.target.value as SmartRepairParams['strength'])}
+                            className="rounded-lg border border-white/10 bg-black/20 px-3 py-1.5 text-sm text-zinc-200 focus:border-orange-400/50"
+                          >
+                            <option value="light">{t.sr_strength_light}</option>
+                            <option value="medium">{t.sr_strength_medium}</option>
+                            <option value="strong">{t.sr_strength_strong}</option>
+                          </select>
                         </div>
-
-                        <div className="flex items-center gap-3 pt-1">
-                          <button
-                            onClick={() => {
-                              setSourceImage(null);
-                              setReferenceImage(null);
-                              if (activeTool) {
-                                setPrompt(buildPromptTemplate(activeTool));
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-zinc-500 shrink-0">{t.sr_count}</span>
+                          <div className="inline-flex items-stretch overflow-hidden rounded-lg border border-white/10 bg-black/20">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setOutputCount(
+                                  (Math.max(SMART_REPAIR_OUTPUT_COUNT_MIN, Number(outputCount || 1) - 1) as SmartRepairParams['outputCount']),
+                                )
                               }
-                            }}
-                            className="px-4 py-2 text-sm bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition"
-                          >
-                            {t.sr_clear_input}
-                          </button>
-                          <button
-                            onClick={handleGenerate}
-                            className="flex-1 px-4 py-2 text-sm font-semibold bg-orange-500 text-black rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                            disabled={!sourceImage}
-                          >
-                            <Sparkles className="w-4 h-4" />
-                            {isZh ? '开始智能修复' : 'Start Smart Repair'}
-                            {estimatedCost > 0 ? (
-                              <span className="ml-1 text-[10px] font-semibold text-black/75 whitespace-nowrap">
-                                {`-${formatCreditAmount(estimatedCost)} ${t.v_points}`}
-                              </span>
-                            ) : null}
-                          </button>
+                              disabled={Number(outputCount || 1) <= SMART_REPAIR_OUTPUT_COUNT_MIN}
+                              className="px-2 text-zinc-400 hover:bg-white/5 hover:text-orange-300 transition disabled:opacity-30 disabled:cursor-not-allowed"
+                              aria-label={isZh ? '减少' : 'Decrease'}
+                            >
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                            <input
+                              type="number"
+                              min={SMART_REPAIR_OUTPUT_COUNT_MIN}
+                              max={SMART_REPAIR_OUTPUT_COUNT_MAX}
+                              step={1}
+                              value={outputCount}
+                              onChange={(e) => {
+                                const raw = Number(e.target.value);
+                                if (!Number.isFinite(raw)) return;
+                                const clamped = Math.min(
+                                  SMART_REPAIR_OUTPUT_COUNT_MAX,
+                                  Math.max(SMART_REPAIR_OUTPUT_COUNT_MIN, Math.round(raw)),
+                                );
+                                setOutputCount(clamped as SmartRepairParams['outputCount']);
+                              }}
+                              className="w-10 bg-transparent text-center text-sm text-zinc-200 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setOutputCount(
+                                  (Math.min(SMART_REPAIR_OUTPUT_COUNT_MAX, Number(outputCount || 1) + 1) as SmartRepairParams['outputCount']),
+                                )
+                              }
+                              disabled={Number(outputCount || 1) >= SMART_REPAIR_OUTPUT_COUNT_MAX}
+                              className="px-2 text-zinc-400 hover:bg-white/5 hover:text-orange-300 transition disabled:opacity-30 disabled:cursor-not-allowed"
+                              aria-label={isZh ? '增加' : 'Increase'}
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
+                      </div>
+
+                      <div className="mt-3 flex items-center gap-3">
+                        <button
+                          onClick={() => {
+                            setSourceImage(null);
+                            setReferenceImage(null);
+                            if (activeTool) {
+                              setPrompt(buildPromptTemplate(activeTool));
+                            }
+                          }}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          {t.sr_clear_input}
+                        </button>
+                        <button
+                          onClick={handleGenerate}
+                          className="flex-1 px-4 py-2 text-sm font-semibold bg-orange-500 text-black rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={!sourceImage}
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          {isZh ? '立即生成' : 'Generate Now'}
+                          {estimatedCost > 0 ? (
+                            <span className="ml-1 text-[10px] font-semibold text-black/75 whitespace-nowrap">
+                              {`-${formatCreditAmount(estimatedCost)} ${t.v_points}`}
+                            </span>
+                          ) : null}
+                        </button>
                       </div>
                     </div>
                   </section>
 
                   <ResizableSplitter
-                    position={middleWidth}
-                    minSize={SMART_REPAIR_PANEL_MIN_WIDTH}
-                    onResize={(next) => setMiddleWidth(Math.min(SMART_REPAIR_PANEL_MAX_WIDTH, next))}
+                    position={combinedWidth}
+                    minSize={SMART_REPAIR_COMBINED_MIN_WIDTH}
+                    onResize={(next) => setCombinedWidth(Math.min(SMART_REPAIR_COMBINED_MAX_WIDTH, next))}
                     hitAreaSize={8}
                     lineThickness={2}
                   />
@@ -1080,7 +1214,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                   {/* Right column: preview / history tabs */}
                   <section
                     className="ml-3 flex h-full min-h-0 flex-1 flex-col rounded-2xl border border-white/5 bg-white/[0.02] p-5"
-                    style={{ minWidth: `${SMART_REPAIR_PANEL_MIN_WIDTH}px` }}
+                    style={{ minWidth: `${SMART_REPAIR_RIGHT_MIN_WIDTH}px` }}
                   >
                     <div className="mb-5 flex shrink-0 items-center justify-between gap-3">
                       <h2 className="text-lg font-semibold text-white">{isZh ? '结果' : 'Results'}</h2>

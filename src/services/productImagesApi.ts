@@ -6,6 +6,7 @@ import type {
   GenerationStatusResponse,
   ProductImageResult,
   SmartRepairAspectRatio,
+  SmartRepairModel,
   SmartRepairParams,
   SmartRepairPendingItem,
   SmartRepairPollResult,
@@ -514,6 +515,7 @@ export const productImagesApi = {
       subpage: params.subpage || 'product_object',
       tool_code: params.toolCode || 'custom_retouch',
     };
+    if (params.model) payload.model = params.model;
     if (options?.projectId) payload.project_id = options.projectId;
     if (referenceImagePath) payload.reference_image_path = referenceImagePath;
     if (options?.clientHistoryId) payload.client_history_id = options.clientHistoryId;
@@ -651,8 +653,14 @@ export const productImagesApi = {
         const toolCodeRaw = String(settings.toolCode || settings.tool_code || 'custom_retouch') as SmartRepairToolCode;
         const outputCountRaw = (() => {
           const n = Number(settings.outputCount || settings.output_count || 1);
-          return (n === 2 ? 2 : n === 4 ? 4 : 1) as 1 | 2 | 4;
+          if (n === 2 || n === 3 || n === 4) return n as 1 | 2 | 3 | 4;
+          return 1 as 1 | 2 | 3 | 4;
         })();
+        const modelRaw = String(settings.model || '').trim();
+        const SUPPORTED_MODELS: ReadonlyArray<SmartRepairModel> = ['flux-2-pro', 'flux-2-max', 'flux-2-flex', 'flux-2-dev'];
+        const modelNarrowed = (SUPPORTED_MODELS as ReadonlyArray<string>).includes(modelRaw)
+          ? (modelRaw as SmartRepairModel)
+          : undefined;
         return {
           requestId,
           historyRecordId: String(row?.history_record_id || '').trim(),
@@ -669,7 +677,7 @@ export const productImagesApi = {
             toolCode: toolCodeRaw,
             sourceImagePath: String(settings.sourceImagePath || settings.source_image_path || ''),
             referenceImagePath: String(settings.referenceImagePath || settings.reference_image_path || ''),
-            model: String(settings.model || ''),
+            model: modelNarrowed,
           },
         };
       })

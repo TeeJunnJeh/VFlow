@@ -131,13 +131,16 @@ export type SmartRepairToolCode =
   | 'text_replace'
   | 'custom_retouch';
 
+export type SmartRepairModel = 'flux-2-pro' | 'flux-2-max' | 'flux-2-flex' | 'flux-2-dev';
+
 export interface SmartRepairParams {
   prompt: string;
   aspectRatio?: SmartRepairAspectRatio;
   strength?: SmartRepairStrength;
-  outputCount?: 1 | 2 | 4;
+  outputCount?: 1 | 2 | 3 | 4;
   subpage?: SmartRepairSubpage;
   toolCode?: SmartRepairToolCode;
+  model?: SmartRepairModel;
 }
 
 export type SmartRepairPollStatus = 'created' | 'processing' | 'succeeded' | 'failed';

@@ -3,6 +3,7 @@ import { parseApiError } from './errors';
 import type {
   FirstFrameParams,
   FirstFrameModel,
+  FirstFrameOpeningScene,
   GenerationStatusResponse,
   ProductImageResult,
   SmartRepairAspectRatio,
@@ -439,23 +440,21 @@ export const productImagesApi = {
     };
   },
 
-  async polishFirstFramePrompt(rawPrompt: string, outputLanguage?: string): Promise<string> {
+  async polishFirstFramePrompt(
+    rawPrompt: string,
+    openingScene: FirstFrameOpeningScene,
+    outputLanguage: string,
+  ): Promise<string> {
     const prompt = String(rawPrompt || '').trim();
     if (!prompt) {
       throw new Error('Please provide prompt requirements first');
     }
-
-    const payload: Record<string, unknown> = {
-      raw_prompt: prompt,
-      sound: 'off',
-    };
-
-    const language = String(outputLanguage || '').trim();
-    if (language) {
-      payload.output_language = language;
+    const lang = String(outputLanguage || '').trim();
+    if (!lang) {
+      throw new Error('output_language is required');
     }
 
-    const response = await fetch(`${PROJECTS_API_BASE}/generate_prompt_script`, {
+    const response = await fetch(`${PROJECTS_API_BASE}/polish_first_frame_image_prompt`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -463,7 +462,11 @@ export const productImagesApi = {
         'X-Requested-With': 'XMLHttpRequest',
       },
       credentials: 'include',
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        raw_prompt: prompt,
+        opening_scene: openingScene,
+        output_language: lang,
+      }),
     });
 
     if (!response.ok) {
@@ -471,7 +474,7 @@ export const productImagesApi = {
     }
 
     const data = await response.json();
-    const polished = String(data?.data?.prompt_script || '').trim();
+    const polished = String(data?.data?.polished_prompt || '').trim();
     if (!polished) {
       throw new Error('Prompt polish succeeded but no prompt text was returned');
     }

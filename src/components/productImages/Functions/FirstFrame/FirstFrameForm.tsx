@@ -258,7 +258,11 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
     });
 
     try {
-      const polished = await productImagesApi.polishFirstFramePrompt(rawPrompt, language);
+      const polished = await productImagesApi.polishFirstFramePrompt(
+        rawPrompt,
+        normalizeFirstFrameOpeningScene(formData.openingScene),
+        language,
+      );
       setFormData((prev) => ({
         ...prev,
         prompt: polished,

@@ -5,9 +5,10 @@ import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { ClothingSwapView, FirstFrameView, ImagesGalleryView, SmartRepairView } from '../productImages';
 import { AppDialog } from '../common/AppDialog';
+import { HelpTooltip } from '../common/HelpTooltip';
 import TextSeparationDemoView, { type TextSeparationBlock } from './TextSeparationDemoView';
 import GalleryBoardEditor, { type GalleryBoardAsset, type GalleryBoardDraft } from './GalleryBoardEditor';
-import { assetsApi } from '../../services/assets';
+import { assetsApi, seedanceApi, type SeedanceCharacter } from '../../services/assets';
 import { videoApi } from '../../services/video';
 import { downloadBlob, productImagesApi } from '../../services/productImagesApi';
 import { billingApi } from '../../services/billing';
@@ -1937,9 +1938,103 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     return `${prefix}${next}`;
   };
 
+  const [isGalleryModelPickerOpen, setIsGalleryModelPickerOpen] = useState(false);
+  const [galleryModelPickerCardId, setGalleryModelPickerCardId] = useState<string | null>(null);
+  const [galleryModelPickerItems, setGalleryModelPickerItems] = useState<SeedanceCharacter[]>([]);
+  const [galleryModelPickerLoading, setGalleryModelPickerLoading] = useState(false);
+  const [galleryModelPickerError, setGalleryModelPickerError] = useState<string | null>(null);
+  const [galleryModelPickerPage, setGalleryModelPickerPage] = useState(1);
+  const [galleryModelPickerHasMore, setGalleryModelPickerHasMore] = useState(true);
+
+  const closeGalleryModelPicker = () => {
+    setIsGalleryModelPickerOpen(false);
+    setGalleryModelPickerCardId(null);
+    setGalleryModelPickerItems([]);
+    setGalleryModelPickerLoading(false);
+    setGalleryModelPickerError(null);
+    setGalleryModelPickerPage(1);
+    setGalleryModelPickerHasMore(true);
+  };
+
+  const loadGalleryModelPickerPage = async (page: number) => {
+    if (galleryModelPickerLoading) return;
+    setGalleryModelPickerLoading(true);
+    setGalleryModelPickerError(null);
+    try {
+      const resp = await seedanceApi.getCharacters({ page, page_size: 24 });
+      const items = Array.isArray(resp?.data?.results) ? resp.data.results : [];
+      const nextCount = Number(resp?.data?.count || 0);
+      const nextPageSize = Number(resp?.data?.page_size || 24);
+      const nextPage = Number(resp?.data?.page || page);
+      setGalleryModelPickerItems((prev) => (page === 1 ? items : [...prev, ...items]));
+      setGalleryModelPickerPage(nextPage);
+      setGalleryModelPickerHasMore(nextCount > nextPage * nextPageSize);
+    } catch (err: any) {
+      setGalleryModelPickerError(String(err?.message || '加载虚拟模特失败'));
+    } finally {
+      setGalleryModelPickerLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isGalleryModelPickerOpen) return;
+    void loadGalleryModelPickerPage(1);
+  }, [isGalleryModelPickerOpen]);
+
+  const openGalleryModelPicker = (cardId: string) => {
+    setGalleryModelPickerCardId(cardId);
+    setIsGalleryModelPickerOpen(true);
+  };
+
+  const buildSeedanceModelInfo = (character: SeedanceCharacter) => {
+    const parts: string[] = [];
+    const gender = character.gender === 'Female' ? '女' : character.gender === 'Male' ? '男' : '';
+    if (gender) parts.push(gender);
+    if (Number.isFinite(character.age)) parts.push(`${character.age}岁`);
+    if (String(character.country || '').trim()) parts.push(String(character.country).trim());
+    if (String(character.occupation || '').trim()) parts.push(String(character.occupation).trim());
+    if (String(character.temperament || '').trim()) parts.push(String(character.temperament).trim());
+    return parts.join(' / ');
+  };
+
+  const chooseGalleryModelCharacter = async (character: SeedanceCharacter) => {
+    const cardId = String(galleryModelPickerCardId || '').trim();
+    if (!cardId) return;
+    setGalleryModelPickerLoading(true);
+    setGalleryModelPickerError(null);
+    try {
+      const resp = await seedanceApi.collectCharacter(character.id);
+      const fileUrl = String(resp?.data?.file_url || '').trim();
+      if (!fileUrl) {
+        throw new Error(String(resp?.message || '加载虚拟模特失败'));
+      }
+      setGalleryModelCards((prev) =>
+        prev.map((card) => {
+          if (card.id !== cardId) return card;
+          revokeGalleryModelPreviewUrl(card.imagePreviewUrl);
+          return {
+            ...card,
+            name: String(character.title || card.name || '').trim() || card.name,
+            modelInfo: String(card.modelInfo || '').trim() ? card.modelInfo : buildSeedanceModelInfo(character),
+            imageFile: null,
+            imagePath: fileUrl,
+            imagePreviewUrl: fileUrl,
+          };
+        })
+      );
+      closeGalleryModelPicker();
+    } catch (err: any) {
+      setGalleryModelPickerError(String(err?.message || '加载虚拟模特失败'));
+    } finally {
+      setGalleryModelPickerLoading(false);
+    }
+  };
+
   const addGalleryModelCard = () => {
-    setGalleryModelCards((prev) => [...prev, createGalleryModelCard(buildNextGalleryResourceName('模特', prev))]);
+    const nextCard = createGalleryModelCard(buildNextGalleryResourceName('模特', galleryModelCards));
+    setGalleryModelCards((prev) => [...prev, nextCard]);
     guideGalleryResourceSection('model');
+    openGalleryModelPicker(nextCard.id);
   };
 
   const addGallerySceneCard = () => {
@@ -3353,28 +3448,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     void handleTextSeparationUpload(file);
   };
 
-  const handleGalleryModelCardFileSelection = (cardId: string, picked: File[]) => {
-    const file = picked[0];
-    if (!file) return;
-    if (!isSupportedGalleryImageFile(file)) {
-      openGalleryAlert(gallerySupportedFormatTip);
-      return;
-    }
-    const previewUrl = URL.createObjectURL(file);
-    setGalleryModelCards((prev) =>
-      prev.map((card) => {
-        if (card.id !== cardId) return card;
-        revokeGalleryModelPreviewUrl(card.imagePreviewUrl);
-        return {
-          ...card,
-          imageFile: file,
-          imagePath: '',
-          imagePreviewUrl: previewUrl,
-        };
-      })
-    );
-  };
-
   const preventDragDefaults = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -4729,6 +4802,66 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           />
           {galleryAiOutputPlanner.error ? (
             <div className="text-xs text-red-400">{galleryAiOutputPlanner.error}</div>
+          ) : null}
+        </div>
+      </AppDialog>
+
+      <AppDialog
+        isOpen={isGalleryModelPickerOpen}
+        title={(t as any).pg_img_select_virtual_model || '选择虚拟模特'}
+        onClose={closeGalleryModelPicker}
+        widthClassName="max-w-4xl"
+        overlayClassName="z-[180]"
+        footer={
+          <button
+            type="button"
+            onClick={closeGalleryModelPicker}
+            className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
+          >
+            {t.pg_main_btn_close || '关闭'}
+          </button>
+        }
+      >
+        <div className="space-y-3">
+          <div className="flex items-center gap-1 text-xs text-zinc-500">
+            <span>{(t as any).pg_img_model_picker_desc || '仅支持从素材库的「虚拟模特」中选择并加载'}</span>
+            <HelpTooltip text="为降低肖像权与版权合规风险，建议优先使用授权明确的虚拟模特素材；使用现实人物照片可能引发肖像权、版权等争议。" />
+          </div>
+          {galleryModelPickerError ? <div className="text-xs text-red-400">{galleryModelPickerError}</div> : null}
+          <div className="max-h-[60vh] overflow-y-auto custom-scroll pr-1">
+            <div className="grid grid-cols-3 gap-3">
+              {galleryModelPickerItems.map((item) => {
+                const cover = String(item.image_thumb_url || item.image_url || '').trim();
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    disabled={galleryModelPickerLoading}
+                    onClick={() => void chooseGalleryModelCharacter(item)}
+                    className="group rounded-2xl border border-white/10 bg-black/20 overflow-hidden text-left transition hover:border-orange-500/30 hover:bg-black/30 disabled:opacity-60"
+                  >
+                    <div className="relative aspect-[4/3] w-full bg-black/30">
+                      {cover ? <img src={cover} alt={item.title} className="h-full w-full object-cover opacity-90 group-hover:opacity-100 transition" /> : null}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
+                      <div className="absolute inset-x-3 bottom-3">
+                        <div className="text-sm font-extrabold text-white/95 line-clamp-1">{item.title}</div>
+                        <div className="mt-0.5 text-[11px] text-white/70 line-clamp-1">{buildSeedanceModelInfo(item)}</div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {galleryModelPickerHasMore ? (
+            <button
+              type="button"
+              onClick={() => void loadGalleryModelPickerPage(galleryModelPickerPage + 1)}
+              disabled={galleryModelPickerLoading}
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-zinc-300 hover:bg-white/10 disabled:opacity-60"
+            >
+              {galleryModelPickerLoading ? '加载中...' : '加载更多'}
+            </button>
           ) : null}
         </div>
       </AppDialog>
@@ -6237,7 +6370,16 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           isVisible={currentValue === 'product_images_gallery'}
           panelClassName={panelClassName}
           t={t}
-          galleryExamples={galleryExampleTemplates.map(({ id, title, subtitle, previewUrl, isUserSnapshot }) => ({ id, title, subtitle, previewUrl, isUserSnapshot: Boolean(isUserSnapshot) }))}
+          galleryExamples={galleryExampleTemplates.map((template) => ({
+            id: template.id,
+            title: template.title,
+            subtitle: template.subtitle,
+            previewUrl: template.previewUrl,
+            isUserSnapshot: Boolean(template.isUserSnapshot),
+            inputImageUrls: (Array.isArray(template.inputImageUrls) && template.inputImageUrls.length > 0)
+              ? template.inputImageUrls
+              : (Array.isArray(template.settings?.uploadedImagePaths) ? template.settings.uploadedImagePaths : []),
+          }))}
           applyGalleryExample={applyGalleryExample}
           isGalleryApplyingExample={Boolean(galleryExampleApplyingId)}
           saveGalleryExampleSnapshot={saveGalleryExampleSnapshot}
@@ -6272,7 +6414,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           addGalleryModelCard={addGalleryModelCard}
           removeGalleryModelCard={removeGalleryModelCard}
           clearGalleryModelCardImage={clearGalleryModelCardImage}
-          handleGalleryModelCardFileSelection={handleGalleryModelCardFileSelection}
+          openGalleryModelPicker={openGalleryModelPicker}
           galleryTargetScene={galleryTargetScene}
           setGalleryTargetScene={setGalleryTargetScene}
           galleryStyle={galleryStyle}

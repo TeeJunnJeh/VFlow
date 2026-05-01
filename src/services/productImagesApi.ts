@@ -3,9 +3,11 @@ import { parseApiError } from './errors';
 import type {
   FirstFrameParams,
   FirstFrameModel,
+  FirstFrameOpeningScene,
   GenerationStatusResponse,
   ProductImageResult,
   SmartRepairAspectRatio,
+  SmartRepairModel,
   SmartRepairParams,
   SmartRepairPendingItem,
   SmartRepairPollResult,
@@ -112,6 +114,7 @@ async function generateFirstFrameOnce(options: {
   projectId?: string;
   model: string;
   prompt?: string;
+  openingScene?: string;
   category?: string;
   personType?: string;
   holdingStyle?: string;
@@ -126,6 +129,7 @@ async function generateFirstFrameOnce(options: {
     frame_type: 'first',
     model: options.model,
     prompt_override: options.prompt,
+    opening_scene: options.openingScene,
     category: options.category,
     person_type: options.personType,
     holding_style: options.holdingStyle,
@@ -204,6 +208,7 @@ async function createFirstFrameAsync(options: {
   projectId?: string;
   model: string;
   prompt?: string;
+  openingScene?: string;
   category?: string;
   personType?: string;
   holdingStyle?: string;
@@ -219,6 +224,7 @@ async function createFirstFrameAsync(options: {
     frame_type: 'first',
     model: options.model,
     prompt_override: options.prompt,
+    opening_scene: options.openingScene,
     category: options.category,
     person_type: options.personType,
     holding_style: options.holdingStyle,
@@ -328,6 +334,7 @@ export const productImagesApi = {
         projectId: resolvedProjectId,
         model,
         prompt: params.prompt,
+        openingScene: params.openingScene,
         category: params.category,
         personType: params.personType,
         holdingStyle: params.holdingStyle,
@@ -346,6 +353,7 @@ export const productImagesApi = {
         projectId: resolvedProjectId,
         model,
         prompt: params.prompt,
+        openingScene: params.openingScene,
         category: params.category,
         personType: params.personType,
         holdingStyle: params.holdingStyle,
@@ -433,23 +441,21 @@ export const productImagesApi = {
     };
   },
 
-  async polishFirstFramePrompt(rawPrompt: string, outputLanguage?: string): Promise<string> {
+  async polishFirstFramePrompt(
+    rawPrompt: string,
+    openingScene: FirstFrameOpeningScene,
+    outputLanguage: string,
+  ): Promise<string> {
     const prompt = String(rawPrompt || '').trim();
     if (!prompt) {
       throw new Error('Please provide prompt requirements first');
     }
-
-    const payload: Record<string, unknown> = {
-      raw_prompt: prompt,
-      sound: 'off',
-    };
-
-    const language = String(outputLanguage || '').trim();
-    if (language) {
-      payload.output_language = language;
+    const lang = String(outputLanguage || '').trim();
+    if (!lang) {
+      throw new Error('output_language is required');
     }
 
-    const response = await fetch(`${PROJECTS_API_BASE}/generate_prompt_script`, {
+    const response = await fetch(`${PROJECTS_API_BASE}/polish_first_frame_image_prompt`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -457,7 +463,11 @@ export const productImagesApi = {
         'X-Requested-With': 'XMLHttpRequest',
       },
       credentials: 'include',
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        raw_prompt: prompt,
+        opening_scene: openingScene,
+        output_language: lang,
+      }),
     });
 
     if (!response.ok) {
@@ -465,7 +475,7 @@ export const productImagesApi = {
     }
 
     const data = await response.json();
-    const polished = String(data?.data?.prompt_script || '').trim();
+    const polished = String(data?.data?.polished_prompt || '').trim();
     if (!polished) {
       throw new Error('Prompt polish succeeded but no prompt text was returned');
     }
@@ -508,6 +518,7 @@ export const productImagesApi = {
       subpage: params.subpage || 'product_object',
       tool_code: params.toolCode || 'custom_retouch',
     };
+    if (params.model) payload.model = params.model;
     if (options?.projectId) payload.project_id = options.projectId;
     if (referenceImagePath) payload.reference_image_path = referenceImagePath;
     if (options?.clientHistoryId) payload.client_history_id = options.clientHistoryId;
@@ -645,8 +656,14 @@ export const productImagesApi = {
         const toolCodeRaw = String(settings.toolCode || settings.tool_code || 'custom_retouch') as SmartRepairToolCode;
         const outputCountRaw = (() => {
           const n = Number(settings.outputCount || settings.output_count || 1);
-          return (n === 2 ? 2 : n === 4 ? 4 : 1) as 1 | 2 | 4;
+          if (n === 2 || n === 3 || n === 4) return n as 1 | 2 | 3 | 4;
+          return 1 as 1 | 2 | 3 | 4;
         })();
+        const modelRaw = String(settings.model || '').trim();
+        const SUPPORTED_MODELS: ReadonlyArray<SmartRepairModel> = ['flux-2-pro', 'flux-2-max', 'flux-2-flex', 'flux-2-dev'];
+        const modelNarrowed = (SUPPORTED_MODELS as ReadonlyArray<string>).includes(modelRaw)
+          ? (modelRaw as SmartRepairModel)
+          : undefined;
         return {
           requestId,
           historyRecordId: String(row?.history_record_id || '').trim(),
@@ -663,7 +680,7 @@ export const productImagesApi = {
             toolCode: toolCodeRaw,
             sourceImagePath: String(settings.sourceImagePath || settings.source_image_path || ''),
             referenceImagePath: String(settings.referenceImagePath || settings.reference_image_path || ''),
-            model: String(settings.model || ''),
+            model: modelNarrowed,
           },
         };
       })

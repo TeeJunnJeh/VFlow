@@ -77,8 +77,15 @@ export type FirstFrameWhitespace =
   | 'right'
   | 'none';
 
+export type FirstFrameOpeningScene =
+  | 'person_selling'
+  | 'product_showcase'
+  | 'usage_demo'
+  | 'brand_ad';
+
 export interface FirstFrameParams {
   prompt?: string;
+  openingScene?: FirstFrameOpeningScene;
   category?: FirstFrameCategory;
   personType?: FirstFramePersonType;
   holdingStyle?: FirstFrameHoldingStyle;
@@ -86,14 +93,21 @@ export interface FirstFrameParams {
   model?: FirstFrameModel;
   style?: FirstFrameStyle;
   textWhitespace?: FirstFrameWhitespace;
-  outputCount?: 1 | 2 | 4;
+  outputCount?: 1 | 2 | 3 | 4;
 }
 
 // ==================== 智能修复相关类型 ====================
 
+// Flux 文生图 API 实际支持 9 个比例（无 21:9）。前端类型保持与上游对齐，
+// 这样 SmartRepair picker 暴露的全集和 Flux 的支持范围一致。
 export type SmartRepairAspectRatio =
   | '1:1'
+  | '2:3'
+  | '3:2'
+  | '3:4'
+  | '4:3'
   | '4:5'
+  | '5:4'
   | '9:16'
   | '16:9';
 
@@ -117,13 +131,16 @@ export type SmartRepairToolCode =
   | 'text_replace'
   | 'custom_retouch';
 
+export type SmartRepairModel = 'flux-2-pro' | 'flux-2-max' | 'flux-2-flex' | 'flux-2-dev';
+
 export interface SmartRepairParams {
   prompt: string;
   aspectRatio?: SmartRepairAspectRatio;
   strength?: SmartRepairStrength;
-  outputCount?: 1 | 2 | 4;
+  outputCount?: 1 | 2 | 3 | 4;
   subpage?: SmartRepairSubpage;
   toolCode?: SmartRepairToolCode;
+  model?: SmartRepairModel;
 }
 
 export type SmartRepairPollStatus = 'created' | 'processing' | 'succeeded' | 'failed';

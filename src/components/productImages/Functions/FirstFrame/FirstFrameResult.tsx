@@ -332,7 +332,7 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
   return (
     <div className="w-full space-y-6">
       <div className="overflow-hidden rounded-xl bg-transparent">
-        <div className="flex flex-col items-center gap-4 bg-transparent p-8">
+        <div className="flex flex-col items-center gap-4 bg-transparent px-8 pb-8 pt-1">
           <div className="relative">
             {selectedImage ? (
               <div className="relative">

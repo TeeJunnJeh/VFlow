@@ -295,7 +295,6 @@ export const ImageInpaintDialog: React.FC<ImageInpaintDialogProps> = ({
                   placeholder={labels.promptPlaceholder}
                   className="mt-3 min-h-[140px] resize-none rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 outline-none focus:border-indigo-300"
                 />
-                <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-xs leading-relaxed text-amber-800">{labels.promptHint}</div>
                 {error ? <div className="mt-3 text-xs font-bold text-rose-600">{error}</div> : null}
                 <button
                   type="button"

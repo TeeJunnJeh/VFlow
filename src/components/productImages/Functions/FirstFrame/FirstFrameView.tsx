@@ -1476,7 +1476,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
             className="ml-3 flex h-full min-h-0 flex-1 flex-col rounded-2xl border border-white/5 bg-white/[0.02] p-5"
             style={{ minWidth: `${FIRST_FRAME_PANEL_MIN_WIDTH}px` }}
           >
-            <div className="mb-5 flex shrink-0 items-start justify-between gap-3">
+            <div className="mb-5 flex shrink-0 items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-white">
                   {t.ff_result_preview}

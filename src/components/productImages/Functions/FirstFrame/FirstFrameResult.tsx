@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { AlertCircle, ArrowRight, Download, FolderPlus, RotateCcw } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
-import type { ProductImageResult } from '../../../../types/productImages';
+import type { FirstFrameParams, ProductImageResult } from '../../../../types/productImages';
 import type { LoadingTheme } from '../../../../utils/loadingTheme';
+import { ImageDetailDialog } from '../../Common/ImageDetailDialog';
+import { ImageInpaintDialog, type ImageInpaintRunOptions } from '../../Common/ImageInpaintDialog';
+import { videoApi } from '../../../../services/video';
 
 interface FirstFrameResultProps {
   results: ProductImageResult[];
@@ -11,10 +14,13 @@ interface FirstFrameResultProps {
   selectionKey?: string;
   loadingTheme?: LoadingTheme;
   aspectRatio?: string;
+  generationParams?: FirstFrameParams;
+  createdAt?: string;
   onRegenerate: () => void;
   onDownload: (imageId: string, filename?: string) => Promise<void>;
   onDownloadAll: (prefix: string) => Promise<void>;
   onSaveToAssets: (imageId: string) => Promise<boolean>;
+  onReplaceImage?: (imageId: string, imageUrl: string) => void;
   onNextStep: (imageId: string) => void;
 }
 
@@ -50,6 +56,14 @@ const hexToRgba = (hex: string, alpha: number) => {
   const g = (value >> 8) & 255;
   const b = value & 255;
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+const formatDateTime = (raw?: string) => {
+  if (!raw) return '-';
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
 
 const LoadingGradientPlaceholder: React.FC<{ theme?: LoadingTheme; className: string }> = ({
@@ -138,10 +152,13 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
   selectionKey,
   loadingTheme,
   aspectRatio,
+  generationParams,
+  createdAt,
   onRegenerate,
   onDownload,
   onDownloadAll,
   onSaveToAssets,
+  onReplaceImage,
   onNextStep,
 }) => {
   const { t } = useLanguage();
@@ -152,6 +169,8 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
   const [selectedImageId, setSelectedImageId] = useState<string | null>(results[0]?.id || null);
   const [showFullImage, setShowFullImage] = useState(false);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+  const [detailResolution, setDetailResolution] = useState<{ width: number; height: number } | null>(null);
+  const [isInpaintOpen, setIsInpaintOpen] = useState(false);
 
   const isResultSucceeded = (item?: ProductImageResult | null) => (
     Boolean(item?.imageUrl) && item?.generationStatus !== 'failed'
@@ -179,7 +198,12 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
     setSelectedImageId((results.find((item) => isResultSucceeded(item)) || results[0])?.id || null);
   }, [results, selectionKey]);
 
+  useEffect(() => {
+    setDetailResolution(null);
+  }, [selectedImageId]);
+
   const selectedImage = results.find((r) => r.id === selectedImageId) || results.find((item) => isResultSucceeded(item)) || results[0] || null;
+  const selectedIndex = selectedImage ? results.findIndex((item) => item.id === selectedImage.id) : -1;
   const parsedAspectRatio = parseAspectRatio(aspectRatio);
   const previewMaxSize = 384;
   const previewWidth = parsedAspectRatio.ratio >= 1
@@ -240,6 +264,70 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
       });
     }
   };
+
+  const handlePreviewPrev = () => {
+    if (selectedIndex <= 0) return;
+    const prev = results.slice(0, selectedIndex).reverse().find((item) => isResultSucceeded(item));
+    if (prev) setSelectedImageId(prev.id);
+  };
+
+  const handlePreviewNext = () => {
+    if (selectedIndex < 0) return;
+    const next = results.slice(selectedIndex + 1).find((item) => isResultSucceeded(item));
+    if (next) setSelectedImageId(next.id);
+  };
+
+  const runInpaint = async (options: ImageInpaintRunOptions): Promise<string> => {
+    const apiBase = (import.meta as any).env?.VITE_API_BASE || '/api';
+    const resp = await fetch(`${apiBase}/projects/inpaint_image`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        image_url: options.imageUrl,
+        mask_data_url: options.maskDataUrl,
+        prompt: options.prompt,
+        aspect_ratio: options.aspectRatio,
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || (data && data.code && data.code !== 0)) {
+      throw new Error(String(data?.message || data?.error?.message || 'request failed'));
+    }
+    const requestId = String(data?.data?.request_id || '').trim();
+    if (!requestId) throw new Error('Create task failed');
+
+    for (let i = 0; i < 40; i += 1) {
+      const res = await videoApi.getProductGalleryResult(requestId);
+      const status = String((res as any)?.data?.status || (res as any)?.status || '').toLowerCase();
+      const outputs = (res as any)?.data?.outputs || (res as any)?.outputs || [];
+      const list = Array.isArray(outputs) ? outputs : [];
+      const outputUrl = String(list[0] || '').trim();
+      if (outputUrl) return outputUrl;
+      if (status && ['failed', 'canceled', 'cancelled', 'error'].includes(status)) break;
+      await new Promise<void>((resolve) => setTimeout(resolve, 1500));
+    }
+    throw new Error(t.pg_main_toast_generation_failed_retry || 'Generation failed');
+  };
+
+  const openingSceneLabel = (() => {
+    const value = generationParams?.openingScene;
+    if (value === 'person_selling') return t.ff_opening_scene_person_selling;
+    if (value === 'product_showcase') return t.ff_opening_scene_product_showcase;
+    if (value === 'usage_demo') return t.ff_opening_scene_usage_demo;
+    if (value === 'brand_ad') return t.ff_opening_scene_brand_ad;
+    return '-';
+  })();
+
+  const modelLabel = (() => {
+    const value = String(generationParams?.model || '').trim();
+    if (value === 'nano-banana-pro') return 'Nano Banana Pro';
+    if (value === 'gpt-image-2') return 'GPT Image 2';
+    if (value === 'gpt-image-1.5') return 'GPT Image 1.5';
+    return value || '-';
+  })();
+
+  const detailPrompt = String(generationParams?.prompt || selectedImage?.metadata?.prompt || '').trim();
 
   return (
     <div className="w-full space-y-6">
@@ -360,22 +448,84 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
         </div>
       )}
 
-      {showFullImage && selectedImage && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-          onClick={() => setShowFullImage(false)}
-        >
-          <div className="relative max-h-screen max-w-2xl" onClick={(e) => e.stopPropagation()}>
-            <img src={selectedImage.imageUrl} alt="preview" className="h-full w-full object-contain" />
-            <button
-              onClick={() => setShowFullImage(false)}
-              className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white transition hover:bg-black/70"
-            >
-              x
-            </button>
-          </div>
-        </div>
-      )}
+      {showFullImage && selectedImage && isResultSucceeded(selectedImage) ? (
+        <ImageDetailDialog
+          open={showFullImage}
+          imageUrl={selectedImage.imageUrl}
+          title={t.ff_detail_title || '图片详情'}
+          imageAlt={t.ff_first_frame_alt}
+          infoTitle={t.pg_main_generation_info || '生成信息'}
+          infoRows={[
+            {
+              label: t.pg_main_resolution || '分辨率',
+              value: detailResolution ? `${detailResolution.width} × ${detailResolution.height} px` : '-',
+            },
+            { label: t.ff_detail_ratio || '比例', value: generationParams?.aspectRatio || aspectRatio || '-' },
+            { label: t.ff_detail_opening_scene_type || '开场情景类型', value: openingSceneLabel },
+            { label: t.pg_main_created_at || '生成时间', value: formatDateTime(createdAt) },
+            { label: t.pg_main_model || '生成模型', value: modelLabel },
+          ]}
+          promptLabel={t.ff_detail_prompt_label || '生成要求'}
+          promptValue={detailPrompt}
+          onClose={() => setShowFullImage(false)}
+          onImageLoad={setDetailResolution}
+          onPrev={results.some((item, index) => index < selectedIndex && isResultSucceeded(item)) ? handlePreviewPrev : undefined}
+          onNext={results.some((item, index) => index > selectedIndex && isResultSucceeded(item)) ? handlePreviewNext : undefined}
+          canPrev={results.some((item, index) => index < selectedIndex && isResultSucceeded(item))}
+          canNext={results.some((item, index) => index > selectedIndex && isResultSucceeded(item))}
+          onInpaint={() => setIsInpaintOpen(true)}
+          inpaintLabel={t.pg_main_inpaint_edit || '局部重绘 / 修改'}
+          onDownload={() => void handleDownload(selectedImage.id)}
+          downloadLabel={downloadingIds.has(selectedImage.id) ? (t.pg_main_downloading || '下载中') : (t.pi_gallery_preview_download_image || t.ff_download_image)}
+          downloadDisabled={downloadingIds.has(selectedImage.id)}
+          onSave={() => void handleSaveToAssets(selectedImage.id)}
+          saveLabel={
+            savedIds.has(selectedImage.id)
+              ? t.ff_saved_to_image_assets
+              : savingIds.has(selectedImage.id)
+                ? t.ff_saving_to_image_assets
+                : t.ff_save_to_image_assets
+          }
+          saveDisabled={savingIds.has(selectedImage.id) || savedIds.has(selectedImage.id)}
+          zoomMode="toggle"
+          zoomLabel={t.ff_detail_zoom || '放大查看'}
+          closeLabel={t.pg_main_btn_close || '关闭'}
+          expandLabel={t.ff_detail_expand || '展开'}
+          collapseLabel={t.ff_detail_collapse || '收起'}
+        />
+      ) : null}
+
+      {showFullImage && selectedImage && isResultSucceeded(selectedImage) ? (
+        <ImageInpaintDialog
+          open={isInpaintOpen}
+          imageUrl={selectedImage.imageUrl}
+          onClose={() => setIsInpaintOpen(false)}
+          onRun={runInpaint}
+          onApply={async (nextUrl) => {
+            onReplaceImage?.(selectedImage.id, nextUrl);
+          }}
+          labels={{
+            title: t.pg_main_inpaint_local_edit || '局部重绘修改',
+            resultTitle: t.pg_main_inpaint_choose_result || '重绘结果选择',
+            subtitle: t.pg_main_inpaint_select_on_left || '请在左侧框选需要修改的部分',
+            resultSubtitle: t.pg_main_inpaint_compare_hint || '对比两张图片，选择继续修改或应用覆盖原图。',
+            original: t.pg_main_original || '原图',
+            edited: t.pg_main_edited || '修改后',
+            promptLabel: t.pi_gallery_inpaint_prompt_label || '修改指令',
+            promptPlaceholder: t.pi_gallery_inpaint_prompt_placeholder || '',
+            promptHint: t.pg_main_inpaint_prompt_hint || '',
+            clearSelection: t.pg_main_btn_clear_all_selection || '清除框选',
+            start: t.pg_main_btn_start_editing || '开始修改',
+            generating: t.pi_gallery_inpaint_generating || '生成中...',
+            continueEditing: t.pg_main_btn_continue_editing || '继续修改',
+            apply: t.pg_main_btn_apply_replace_original || '应用并替换原图',
+            keepOriginal: t.pg_main_btn_keep_original || '保留原图',
+            selectAreaError: t.pg_main_inpaint_error_select_area || '请先框选要修改的区域',
+            imageNotReadyError: t.pg_main_inpaint_error_image_not_ready || '图片未加载完成',
+            promptError: t.pg_main_inpaint_error_enter_instruction || '请填写修改指令',
+          }}
+        />
+      ) : null}
     </div>
   );
 };

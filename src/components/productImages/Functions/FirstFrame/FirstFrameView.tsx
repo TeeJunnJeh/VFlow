@@ -34,6 +34,7 @@ interface FirstFrameHistoryItem {
   createdAt: string;
   outputImages: ProductImageResult[];
   elapsedSeconds: number | null;
+  params?: Partial<FirstFrameParams>;
 }
 
 interface FirstFrameExampleTemplate {
@@ -67,7 +68,7 @@ const FIRST_FRAME_ASYNC_POLL_MAX_ATTEMPTS = 80;
 const FIRST_FRAME_PANEL_MIN_WIDTH = 280;
 const FIRST_FRAME_PANEL_MAX_WIDTH = 720;
 const FIRST_FRAME_DEFAULT_LEFT_RATIO = 0.8;
-const FIRST_FRAME_DEFAULT_MIDDLE_RATIO = 1;
+const FIRST_FRAME_DEFAULT_MIDDLE_RATIO = 1.1;
 const FIRST_FRAME_DEFAULT_RIGHT_RATIO = 1;
 const FIRST_FRAME_DEFAULT_TOTAL_RATIO =
   FIRST_FRAME_DEFAULT_LEFT_RATIO + FIRST_FRAME_DEFAULT_MIDDLE_RATIO + FIRST_FRAME_DEFAULT_RIGHT_RATIO;
@@ -130,7 +131,7 @@ const FIRST_FRAME_EXAMPLE_TEMPLATES: FirstFrameExampleTemplate[] = [
     ],
     params: {
       openingScene: 'usage_demo',
-      prompt: '一个年轻亚裔女孩在安静的居家空间中自然佩戴耳机，单手轻扶耳机，呈现沉浸听音乐的状态。耳机清晰突出，画面柔和有生活感。',
+      prompt: '一个年轻帅气的男性在安静的居家空间中自然佩戴耳机，单手轻扶耳机，呈现沉浸听音乐的状态。耳机清晰突出，画面柔和有生活感。',
       aspectRatio: '16:9',
       outputCount: 3,
       model: 'nano-banana-pro',
@@ -186,6 +187,51 @@ const sanitizeHistoryImage = (item: any, index: number, historyId: string): Prod
   };
 };
 
+const readFirstFrameHistoryParams = (item: ImageHistoryItem): Partial<FirstFrameParams> | undefined => {
+  const candidates = [
+    item.settings?.params,
+    item.settings?.parameters,
+    item.settings,
+    item.metadata?.params,
+    item.metadata?.parameters,
+    item.metadata,
+  ].filter((value) => value && typeof value === 'object' && !Array.isArray(value)) as Record<string, any>[];
+
+  const readString = (...keys: string[]) => {
+    for (const source of candidates) {
+      for (const key of keys) {
+        const raw = source[key];
+        if (raw === undefined || raw === null) continue;
+        const value = String(raw).trim();
+        if (value) return value;
+      }
+    }
+    return '';
+  };
+
+  const readNumber = (...keys: string[]) => {
+    const value = readString(...keys);
+    if (!value) return undefined;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : undefined;
+  };
+
+  const outputCount = readNumber('outputCount', 'output_count');
+  const params: Partial<FirstFrameParams> = {};
+  const prompt = readString('prompt', 'promptOverride', 'prompt_override');
+  const openingScene = readString('openingScene', 'opening_scene');
+  const aspectRatio = readString('aspectRatio', 'aspect_ratio', 'ratio');
+  const model = readString('model', 'generationModel', 'generation_model');
+
+  if (prompt) params.prompt = prompt;
+  if (openingScene) params.openingScene = openingScene as FirstFrameParams['openingScene'];
+  if (aspectRatio) params.aspectRatio = aspectRatio as FirstFrameParams['aspectRatio'];
+  if (model) params.model = model as FirstFrameParams['model'];
+  if (outputCount) params.outputCount = outputCount as FirstFrameParams['outputCount'];
+
+  return Object.keys(params).length > 0 ? params : undefined;
+};
+
 const mapImageHistoryToFirstFrameItem = (item: ImageHistoryItem): FirstFrameHistoryItem | null => {
   if (item.featureType !== 'first_frame') return null;
 
@@ -212,6 +258,7 @@ const mapImageHistoryToFirstFrameItem = (item: ImageHistoryItem): FirstFrameHist
     createdAt: item.createdAt,
     outputImages,
     elapsedSeconds,
+    params: readFirstFrameHistoryParams(item),
   } satisfies FirstFrameHistoryItem;
 };
 
@@ -283,6 +330,8 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const [rightPanel, setRightPanel] = useState<'preview' | 'history'>('preview');
   const [historyItems, setHistoryItems] = useState<FirstFrameHistoryItem[]>([]);
   const [lastElapsedSeconds, setLastElapsedSeconds] = useState<number | null>(null);
+  const [resultCreatedAt, setResultCreatedAt] = useState<string>('');
+  const [resultParams, setResultParams] = useState<Partial<FirstFrameParams> | null>(null);
   const [resultSelectionKey, setResultSelectionKey] = useState<string>('');
   const [loadingTheme, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
   const [loadingBackgroundSrc, setLoadingBackgroundSrc] = useState<string>('');
@@ -490,6 +539,8 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     setProgress(0);
     setResults([]);
     setLastElapsedSeconds(null);
+    setResultCreatedAt('');
+    setResultParams(null);
     setIsAsyncGenerating(false);
     setPhase(files.length > 0 ? 'form' : 'upload');
   }, []);
@@ -532,6 +583,11 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
         ...template.params,
         model: 'nano-banana-pro',
       });
+      setResultParams({
+        ...template.params,
+        model: 'nano-banana-pro',
+      });
+      setResultCreatedAt('');
       setExampleApplyVersion((prev) => prev + 1);
       setResults([]);
       const restoredResults: ProductImageResult[] = (template.resultImageUrls || [])
@@ -682,6 +738,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const handleGenerateFormSubmit = async (params: FirstFrameParams) => {
     if (!requireAuth()) return;
     setCurrentFormParams(params);
+    setResultParams(params);
     if (images.length === 0) {
       setError({
         code: 'NO_IMAGES',
@@ -699,6 +756,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       setRightPanel('preview');
       setError(null);
       setResultAspectRatio(params.aspectRatio || '9:16');
+      setResultCreatedAt(new Date().toISOString());
       setProgress(2);
       startProgressSimulation();
 
@@ -901,6 +959,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     clearProgressTimer();
     progressStartedAtRef.current = null;
     setLastElapsedSeconds(null);
+    setResultParams(null);
     setIsAsyncGenerating(false);
     setPhase(images.length > 0 ? 'form' : 'upload');
     setProgress(0);
@@ -909,6 +968,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const handleRegenerate = () => {
     setResults([]);
     setLastElapsedSeconds(null);
+    setResultParams(null);
     setIsAsyncGenerating(false);
     setPhase('form');
     setProgress(0);
@@ -936,6 +996,8 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     setResultSelectionKey('');
     setResultAspectRatio('9:16');
     setLastElapsedSeconds(null);
+    setResultCreatedAt('');
+    setResultParams(null);
     setIsAsyncGenerating(false);
     setProgress(0);
     setError(null);
@@ -1033,6 +1095,16 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     applyToWorkbench(image);
   };
 
+  const handleReplaceResultImage = (imageId: string, imageUrl: string) => {
+    const cleaned = String(imageUrl || '').trim();
+    if (!cleaned) return;
+    setResults((prev) => prev.map((item) => (
+      item.id === imageId
+        ? { ...item, imageUrl: cleaned, downloadUrl: cleaned, generationStatus: 'succeeded' }
+        : item
+    )));
+  };
+
   const handleErrorRetry = () => {
     setError(null);
     if (phase !== 'generating' && phase !== 'result') {
@@ -1044,6 +1116,14 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     if (!item.outputImages || item.outputImages.length === 0) return;
     setResults(item.outputImages);
     setLastElapsedSeconds(item.elapsedSeconds);
+    setResultCreatedAt(item.createdAt);
+    if (item.params) {
+      setCurrentFormParams((prev) => ({ ...prev, ...item.params }));
+      setResultParams(item.params);
+      if (item.params.aspectRatio) setResultAspectRatio(item.params.aspectRatio);
+    } else {
+      setResultParams(null);
+    }
     setResultSelectionKey(`history:${item.id}:${item.createdAt}`);
     setPhase('result');
     setProgress(100);
@@ -1450,10 +1530,13 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                   selectionKey={resultSelectionKey}
                   loadingTheme={loadingTheme}
                   aspectRatio={resultAspectRatio}
+                  generationParams={resultParams || undefined}
+                  createdAt={resultCreatedAt}
                   onRegenerate={handleRegenerate}
                   onDownload={handleDownload}
                   onDownloadAll={handleDownloadAll}
                   onSaveToAssets={handleSaveToAssets}
+                  onReplaceImage={handleReplaceResultImage}
                   onNextStep={handleNextStep}
                 />
               ) : (

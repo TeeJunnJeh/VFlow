@@ -5,7 +5,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { ClothingSwapView, FirstFrameView, ImagesGalleryView, SmartRepairView } from '../productImages';
 import { AppDialog } from '../common/AppDialog';
-import { HelpTooltip } from '../common/HelpTooltip';
+import { ErrorModal } from './workflow/ErrorModal';
 import TextSeparationDemoView, { type TextSeparationBlock } from './TextSeparationDemoView';
 import GalleryBoardEditor, { type GalleryBoardAsset, type GalleryBoardDraft } from './GalleryBoardEditor';
 import { assetsApi, seedanceApi, type SeedanceCharacter } from '../../services/assets';
@@ -18,6 +18,7 @@ import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingThe
 import { saveBlobWithPickerFallback } from '../../utils/browserDownload';
 import { useRequireAuth } from '../../utils/useRequireAuth';
 import { formatCreditAmount, roundCreditTenths } from '../../utils/credits';
+import { buildErrorModalData, type ErrorCategory, type ErrorModalData } from '../../utils/errorModalHelper';
 
 interface ProductImagesViewProps {
   activeView: ViewType;
@@ -266,9 +267,9 @@ const GALLERY_EXAMPLE_TEMPLATES: GalleryExampleTemplate[] = [
     ],
     modelCards: [
       {
-        name: '模特-刘亦菲',
-        imageUrl: '/product-gallery-examples/1/model1.jpg',
-        modelInfo: '亚洲女模特 / 干净妆面',
+        name: '中国 18岁 女性 美甲师',
+        imageUrl: '/product-gallery-examples/1/model1.png',
+        modelInfo: '女 / 18岁 / 中国 / 美甲师 / 明媚',
       },
     ],
     sceneCards: [
@@ -417,6 +418,13 @@ const GALLERY_EXAMPLE_TEMPLATES: GalleryExampleTemplate[] = [
     subtitle: '高级感封面 + 海报，适合品牌调性',
     previewUrl: '/product-gallery-examples/3/result_3.jpeg',
     inputImageUrls: ['/product-gallery-examples/3/product_1.webp'],
+    modelCards: [
+      {
+        name: '中国 19岁 男 DJ/音乐制作人',
+        imageUrl: '/product-gallery-examples/3/model_1.png',
+        modelInfo: '中国 19岁 男 DJ/音乐制作人 活力'
+      },
+    ],
     settings: {
       productName: 'Nike 连帽拉链运动外套',
       productCategory: '服装鞋靴',
@@ -1366,6 +1374,77 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       message,
     });
 
+  const [galleryErrorModalData, setGalleryErrorModalData] = useState<ErrorModalData | null>(null);
+  const closeGalleryErrorModal = () => setGalleryErrorModalData(null);
+
+  const galleryErrorI18n = useMemo(() => ({
+    err_title_generation: t.err_title_generation,
+    err_title_script: t.err_title_script,
+    err_title_parse: t.err_title_parse,
+    err_title_recognize: t.err_title_recognize,
+    err_title_upload: t.err_title_upload,
+    err_title_network: t.err_title_network,
+    err_title_auth: t.err_title_auth,
+    err_title_unknown: t.err_title_unknown,
+    err_msg_generation: t.err_msg_generation,
+    err_msg_script: t.err_msg_script,
+    err_msg_parse: t.err_msg_parse,
+    err_msg_recognize: t.err_msg_recognize,
+    err_msg_upload: t.err_msg_upload,
+    err_msg_network: t.err_msg_network,
+    err_msg_auth: t.err_msg_auth,
+    err_msg_unknown: t.err_msg_unknown,
+    err_sug_retry: t.err_sug_retry,
+    err_sug_check_network: t.err_sug_check_network,
+    err_sug_check_params: t.err_sug_check_params,
+    err_sug_relogin: t.err_sug_relogin,
+    err_sug_contact_support: t.err_sug_contact_support,
+    err_sug_try_later: t.err_sug_try_later,
+    err_sug_manual_fill: t.err_sug_manual_fill,
+    err_btn_retry: t.err_btn_retry,
+    err_btn_feedback: t.err_btn_feedback,
+  }), [
+    t.err_btn_feedback,
+    t.err_btn_retry,
+    t.err_msg_auth,
+    t.err_msg_generation,
+    t.err_msg_network,
+    t.err_msg_parse,
+    t.err_msg_recognize,
+    t.err_msg_script,
+    t.err_msg_unknown,
+    t.err_msg_upload,
+    t.err_sug_check_network,
+    t.err_sug_check_params,
+    t.err_sug_contact_support,
+    t.err_sug_manual_fill,
+    t.err_sug_relogin,
+    t.err_sug_retry,
+    t.err_sug_try_later,
+    t.err_title_auth,
+    t.err_title_generation,
+    t.err_title_network,
+    t.err_title_parse,
+    t.err_title_recognize,
+    t.err_title_script,
+    t.err_title_unknown,
+    t.err_title_upload,
+  ]);
+
+  const openGalleryErrorModal = (
+    error: unknown,
+    opts?: { category?: ErrorCategory; onRetry?: () => void; messageOverride?: string },
+  ) => {
+    const data = buildErrorModalData({
+      error,
+      category: opts?.category,
+      onRetry: opts?.onRetry,
+      messageOverride: opts?.messageOverride,
+      i18n: galleryErrorI18n,
+    });
+    setGalleryErrorModalData(data);
+  };
+
   const galleryBoardPickerGuideSteps = useMemo<Array<{ key: GalleryBoardPickerGuideStepKey; title: string; description: string }>>(
     () => [
       {
@@ -1945,6 +2024,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [galleryModelPickerError, setGalleryModelPickerError] = useState<string | null>(null);
   const [galleryModelPickerPage, setGalleryModelPickerPage] = useState(1);
   const [galleryModelPickerHasMore, setGalleryModelPickerHasMore] = useState(true);
+  const galleryModelPickerLocalUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const closeGalleryModelPicker = () => {
     setIsGalleryModelPickerOpen(false);
@@ -1984,6 +2064,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const openGalleryModelPicker = (cardId: string) => {
     setGalleryModelPickerCardId(cardId);
     setIsGalleryModelPickerOpen(true);
+  };
+
+  const triggerGalleryModelPickerLocalUpload = () => {
+    galleryModelPickerLocalUploadInputRef.current?.click();
   };
 
   const buildSeedanceModelInfo = (character: SeedanceCharacter) => {
@@ -3448,6 +3532,28 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     void handleTextSeparationUpload(file);
   };
 
+  const handleGalleryModelCardFileSelection = (cardId: string, picked: File[]) => {
+    const file = picked[0];
+    if (!file) return;
+    if (!isSupportedGalleryImageFile(file)) {
+      openGalleryAlert(gallerySupportedFormatTip);
+      return;
+    }
+    const previewUrl = URL.createObjectURL(file);
+    setGalleryModelCards((prev) =>
+      prev.map((card) => {
+        if (card.id !== cardId) return card;
+        revokeGalleryModelPreviewUrl(card.imagePreviewUrl);
+        return {
+          ...card,
+          imageFile: file,
+          imagePath: '',
+          imagePreviewUrl: previewUrl,
+        };
+      })
+    );
+  };
+
   const preventDragDefaults = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -4704,6 +4810,33 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           ? prev
           : prev.map((item) => ({ ...item, status: 'failed' as const, error: message }))
       );
+      const isFetchFailed = message.toLowerCase().includes('failed to fetch') || message.toLowerCase().includes('network');
+      if (isFetchFailed) {
+        let refunded = false;
+        try {
+          if (collectedImageUrls.length === 0) {
+            const resp = await apiRequest<any>('/api/projects/generate_product_gallery_refund', {
+              method: 'POST',
+              body: { client_history_id: clientHistoryId },
+              fallbackMessage: '退款请求失败',
+            });
+            refunded = Boolean(resp?.data?.refunded);
+          }
+        } catch {
+          refunded = false;
+        }
+
+        const messageOverride = refunded
+          ? '网络请求失败，无法连接服务器。本次生成已发起退款，请稍后重试。'
+          : '网络请求失败，无法连接服务器。请检查网络后重试；如本次已扣费且未生成成功，系统会自动退回。';
+
+        openGalleryErrorModal(err, {
+          category: 'network_error',
+          messageOverride,
+          onRetry: () => void handleGalleryGenerate(),
+        });
+        return;
+      }
       openGalleryAlert(message);
     } finally {
       if (galleryPollRunIdRef.current === runId) {
@@ -4714,6 +4847,17 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
   return (
     <div className="flex flex-col h-full z-10">
+      <ErrorModal
+        isOpen={Boolean(galleryErrorModalData)}
+        title={galleryErrorModalData?.title || ''}
+        code={galleryErrorModalData?.code}
+        message={galleryErrorModalData?.message || ''}
+        details={galleryErrorModalData?.details}
+        suggestions={galleryErrorModalData?.suggestions}
+        actions={galleryErrorModalData?.actions}
+        trackingId={galleryErrorModalData?.trackingId}
+        onClose={closeGalleryErrorModal}
+      />
       <AppDialog
         isOpen={galleryAlert.open}
         title={galleryAlert.title}
@@ -4823,9 +4967,35 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         }
       >
         <div className="space-y-3">
-          <div className="flex items-center gap-1 text-xs text-zinc-500">
-            <span>{(t as any).pg_img_model_picker_desc || '仅支持从素材库的「虚拟模特」中选择并加载'}</span>
-            <HelpTooltip text="为降低肖像权与版权合规风险，建议优先使用授权明确的虚拟模特素材；使用现实人物照片可能引发肖像权、版权等争议。" />
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs text-zinc-500">
+              {(t as any).pg_img_model_picker_desc || '可从素材库选择虚拟模特，或从本地上传图片'}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={triggerGalleryModelPickerLocalUpload}
+                disabled={galleryModelPickerLoading}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 disabled:opacity-60 transition"
+              >
+                <Upload className="w-4 h-4" />
+                {(t as any).pg_img_upload_local_model || '从本地上传'}
+              </button>
+              <input
+                ref={galleryModelPickerLocalUploadInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || []);
+                  e.target.value = '';
+                  const cardId = String(galleryModelPickerCardId || '').trim();
+                  if (!cardId) return;
+                  handleGalleryModelCardFileSelection(cardId, files);
+                  closeGalleryModelPicker();
+                }}
+              />
+            </div>
           </div>
           {galleryModelPickerError ? <div className="text-xs text-red-400">{galleryModelPickerError}</div> : null}
           <div className="max-h-[60vh] overflow-y-auto custom-scroll pr-1">
@@ -6415,6 +6585,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           removeGalleryModelCard={removeGalleryModelCard}
           clearGalleryModelCardImage={clearGalleryModelCardImage}
           openGalleryModelPicker={openGalleryModelPicker}
+          handleGalleryModelCardFileSelection={handleGalleryModelCardFileSelection}
           galleryTargetScene={galleryTargetScene}
           setGalleryTargetScene={setGalleryTargetScene}
           galleryStyle={galleryStyle}

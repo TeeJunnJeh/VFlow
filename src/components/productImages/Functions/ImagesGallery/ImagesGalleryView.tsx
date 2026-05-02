@@ -8,7 +8,6 @@ import type { ViewType } from '../../../workbench/types';
 import type { LoadingTheme } from '../../../../utils/loadingTheme';
 import ResizableSplitter from '../../../common/ResizableSplitter';
 import { AppDialog } from '../../../common/AppDialog';
-import { HelpTooltip } from '../../../common/HelpTooltip';
 
 const GALLERY_PANEL_MIN_WIDTH = 300;
 const GALLERY_PANEL_MAX_WIDTH = 500;
@@ -143,6 +142,7 @@ export type ImagesGalleryViewProps = {
   removeGalleryModelCard: (cardId: string) => void;
   clearGalleryModelCardImage: (cardId: string) => void;
   openGalleryModelPicker: (cardId: string) => void;
+  handleGalleryModelCardFileSelection: (cardId: string, picked: File[]) => void;
 
   galleryTargetScene: 'detail' | 'xiaohongshu' | 'douyin' | 'poster' | 'ads';
   setGalleryTargetScene: React.Dispatch<React.SetStateAction<'detail' | 'xiaohongshu' | 'douyin' | 'poster' | 'ads'>>;
@@ -879,6 +879,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     removeGalleryModelCard,
     clearGalleryModelCardImage,
     openGalleryModelPicker,
+    handleGalleryModelCardFileSelection,
 
     galleryTargetScene,
     setGalleryTargetScene,
@@ -1585,6 +1586,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 </button>
               ) : (
                 galleryModelCards.map((card) => {
+                  const uploadInputId = `gallery-model-upload-${card.id}`;
                   const previewSrc = String(card.imagePreviewUrl || card.imagePath || '').trim();
                   return (
                     <div key={card.id} className="rounded-xl border border-white/10 bg-black/20 p-3 space-y-3">
@@ -1636,20 +1638,32 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                         </div>
 
                         <div className="flex-1 min-w-0">
-                          <button
-                            type="button"
-                            onClick={() => openGalleryModelPicker(card.id)}
-                            className="inline-flex px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800"
-                          >
-                            {previewSrc ? (t.pg_img_replace_virtual_model || '更换虚拟模特') : (t.pg_img_select_virtual_model || '从素材库选择')}
-                          </button>
-                          <div className="mt-2 flex items-center gap-1 text-[11px] text-zinc-500">
-                            <span>{t.pg_img_model_photo_required_note || '仅支持从素材库的「虚拟模特」中选择'}</span>
-                            <HelpTooltip
-                              text="为降低肖像权与版权合规风险，建议优先使用授权明确的虚拟模特素材；使用现实人物照片可能引发肖像权、版权等争议。"
-                              align="left"
-                            />
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openGalleryModelPicker(card.id)}
+                              className="inline-flex px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800"
+                            >
+                              {previewSrc ? (t.pg_img_replace_virtual_model || '从素材库选择') : (t.pg_img_select_virtual_model || '从素材库选择')}
+                            </button>
+                            <label
+                              htmlFor={uploadInputId}
+                              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+                            >
+                              <Upload className="w-4 h-4" />
+                              {t.pg_img_upload_photo || '从本地上传'}
+                            </label>
                           </div>
+                          <div className="mt-2 flex items-center gap-1 text-[11px] text-zinc-500">
+                            <span>{t.pg_img_model_photo_required_note || '支持从素材库选择或本地上传'}</span>
+                          </div>
+                          <input
+                            id={uploadInputId}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => handleGalleryModelCardFileSelection(card.id, Array.from(e.target.files || []))}
+                          />
                         </div>
                       </div>
 
@@ -1867,7 +1881,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
         <div
           ref={galleryMiddlePanelRef}
-          className={`flex flex-col gap-4 min-h-0 overflow-y-auto custom-scroll pr-2 shrink-0 transition-[width] duration-100 border border-transparent hover:border-orange-500/20 ${getGuideFocusClass('middle')}`}
+          className={`flex flex-col gap-4 min-h-0 overflow-y-auto custom-scroll pr-2 shrink-0 transition-[width] duration-100 border border-transparent ${getGuideFocusClass('middle')}`}
           style={{ width: `${middleWidth}px`, minWidth: `${GALLERY_PANEL_MIN_WIDTH}px` }}
           data-testid="middle-panel"
         >
@@ -2424,7 +2438,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
         />
 
         <div
-          className="flex-1 rounded-2xl border border-transparent bg-white/2 p-5 flex flex-col min-h-0 overflow-hidden hover:border-orange-500/20"
+          className="flex-1 rounded-2xl border border-transparent bg-white/2 p-5 flex flex-col min-h-0 overflow-hidden"
           style={{ minWidth: `${GALLERY_PANEL_MIN_WIDTH}px` }}
           data-testid="right-panel"
         >

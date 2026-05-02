@@ -1,9 +1,18 @@
 import { Link } from 'react-router-dom';
+import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import privacyPolicyContent from '../../privacy_policy.md?raw';
+import { setMetaDescription } from '../utils/seo';
 
 const PrivacyPolicyPage = () => {
+  React.useEffect(() => {
+    if (typeof document !== 'undefined') document.title = 'VFLOW AI - 隐私政策';
+    setMetaDescription(
+      'Learn how VFLOW AI collects, uses, and protects your data. This Privacy Policy explains information we store, cookies, security measures, and your rights.'
+    );
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#050505] text-zinc-100">
       <header className="border-b border-white/10">

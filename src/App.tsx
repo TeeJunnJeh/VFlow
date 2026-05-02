@@ -11,6 +11,7 @@ import { LanguageProvider } from './context/LanguageContext';
 import { useLanguage } from './context/LanguageContext';
 import { ErrorModal } from './components/workbench/workflow/ErrorModal';
 import { buildErrorModalData, type ErrorI18n, type ErrorModalData } from './utils/errorModalHelper';
+import { setMetaDescription } from './utils/seo';
 import LoginPage from './pages/Login';
 import LandingPage from './pages/Landing';
 import Workbench from './pages/Workbench';
@@ -147,6 +148,31 @@ const OptionalAuthRoute = ({ children }: { children: React.ReactNode }) => {
 const AnimatedRoutes = () => {
     const location = useLocation();
     const { t } = useLanguage();
+
+    React.useEffect(() => {
+        const pathname = location.pathname || '/';
+        const base = 'VFLOW AI';
+        let suffix = '';
+        let desc = '';
+        if (pathname === '/') suffix = '首页';
+        else if (pathname === '/login') suffix = '登录';
+        else if (pathname.startsWith('/app')) suffix = '工作台';
+        const nextTitle = suffix ? `${base} - ${suffix}` : base;
+        if (typeof document !== 'undefined' && document.title !== nextTitle) {
+            document.title = nextTitle;
+        }
+        if (pathname === '/') {
+            desc =
+                'VFLOW AI helps ecommerce sellers and creators turn product links or images into TikTok/Reels videos, with templates, scenes, captions, and one-click export.';
+        } else if (pathname === '/login') {
+            desc =
+                'Sign in to VFLOW AI to access your workspace, manage assets, generate product images and videos, review history, and control billing and settings securely.';
+        } else if (pathname.startsWith('/app')) {
+            desc =
+                'Use the VFLOW AI workspace to generate product videos and images, manage assets and templates, monitor tasks in real time, and export results for publishing.';
+        }
+        if (desc) setMetaDescription(desc);
+    }, [location.pathname]);
 
     // 1. 修复：必须将 useState 移到 useEffect 之前，防止 ReferenceError
     const [isInfoOpen, setIsInfoOpen] = React.useState(false);

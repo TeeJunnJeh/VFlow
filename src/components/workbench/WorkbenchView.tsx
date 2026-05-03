@@ -4250,14 +4250,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const scriptPageBatchGenerateTotalCount = scriptPageBatchGenerateItems.reduce((sum, item) => sum + item.count, 0);
   const hasScriptPageBatchGeneratePlan = scriptPageBatchGenerateTotalCount > 0;
   const scriptPageBatchGenerateTotalSeconds = scriptPageBatchGenerateItems.reduce((sum, item) => sum + item.duration * item.count, 0);
-  const formatVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined) => {
+  const formatVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined, modelId?: string) => {
+    if (isSeedanceModel(modelId)) {
+      return t.wb_usage_based_billing || 'Pay as you go';
+    }
     const rate = Number(entry?.rate ?? 0);
     if (!Number.isFinite(rate) || rate <= 0) return '-';
     return `${formatCreditAmount(rate)}${t.wb_vpoints_per_sec || ''}`;
   };
-  const formatApproxVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined) => {
-    const label = formatVideoRateLabel(entry);
-    if (label === '-') return label;
+  const formatApproxVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined, modelId?: string) => {
+    const label = formatVideoRateLabel(entry, modelId);
+    if (label === '-' || isSeedanceModel(modelId)) return label;
     return `${t.wb_rate_approx_prefix || 'Approx. '}${label}`;
   };
   const estimatedVideoCost = useMemo(() => {
@@ -4274,7 +4277,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return Math.max(0, roundCreditTenths(rate * Math.max(1, Math.min(4, Number(aiOptimizeCount) || 1))));
   }, [aiOptimizeCount, selectedImagePricing]);
 
-  const estimatedVideoCostLabel = hasScriptPageBatchGeneratePlan && isSeedanceModel(selectedModel)
+  const isSeedanceDelayedBilling = hasScriptPageBatchGeneratePlan && isSeedanceModel(selectedModel) && creationMode === 'fast';
+  const estimatedVideoCostLabel = isSeedanceDelayedBilling
     ? (t.wb_usage_based_billing || '按量付费')
     : (estimatedVideoCost > 0 ? `${formatCreditAmount(estimatedVideoCost)} ${t.v_points || 'V点'}` : '');
   const estimatedImageCostLabel = estimatedImageCost > 0 ? `-${formatCreditAmount(estimatedImageCost)} ${t.v_points || 'V点'}` : '';
@@ -9774,7 +9778,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const renderModelCard = (opt: typeof modelOptions[number]) => {
       const active = selectedModel === opt.id;
       const locked = false;  // Seedance 2.0 backend ready — unlock fast mode
-      const rateLabel = formatVideoRateLabel(getVideoModelPricingEntry(billingPricing, opt.id, 'fast'));
+      const rateLabel = formatVideoRateLabel(getVideoModelPricingEntry(billingPricing, opt.id, 'fast'), opt.id);
       return (
         <button
           key={opt.id}
@@ -9835,7 +9839,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   active ? 'font-bold text-orange-500' : 'font-medium text-zinc-500',
                 ].join(' ')}
               >
-                {rateLabel}
+                {isSeedanceModel(opt.id) ? (
+                  <span className="relative inline-flex items-center gap-0.5 group/seedance-billing">
+                    <span>{rateLabel}</span>
+                    <Info className="h-3 w-3 text-zinc-600 hover:text-zinc-400 cursor-help" />
+                    <span className="pointer-events-none absolute bottom-full right-0 z-30 mb-1 w-64 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2.5 py-2 text-[10px] font-medium leading-relaxed text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/seedance-billing:opacity-100">
+                      {t.wb_seedance_billing_480p_no_video || '480p/720p 无视频输入：460 V点/百万 tokens'}<br />
+                      {t.wb_seedance_billing_480p_with_video || '480p/720p 含视频输入：280 V点/百万 tokens'}<br />
+                      {t.wb_seedance_billing_1080p_no_video || '1080p 无视频输入：510 V点/百万 tokens'}<br />
+                      {t.wb_seedance_billing_1080p_with_video || '1080p 含视频输入：310 V点/百万 tokens'}<br />
+                      <span className="mt-1 block border-t border-white/10 pt-1">
+                        {t.wb_seedance_billing_minimum || '最终扣费向上取整到 0.1 V点，最低 0.1 V点'}<br />
+                        {t.wb_seedance_billing_after_completion || '最终费用按生成完成后的实际 token 用量计算'}
+                      </span>
+                    </span>
+                  </span>
+                ) : rateLabel}
               </div>
             </div>
           )}
@@ -9963,7 +9982,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         <Check className="w-2.5 h-2.5 text-white" />
                       </div>
                       <div className="text-[8px] whitespace-nowrap font-bold text-orange-500">
-                        {formatApproxVideoRateLabel(getVideoModelPricingEntry(billingPricing, 'seedance2.0', 'replay'))}
+                        {formatApproxVideoRateLabel(getVideoModelPricingEntry(billingPricing, 'seedance2.0', 'replay'), 'seedance2.0')}
                       </div>
                     </div>
                   </div>
@@ -13209,7 +13228,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           <span>{t.wb_batch_generate_setting || 'Batch generation setting'}</span>
                       </div>
                       <div className="flex shrink-0 items-center gap-3">
-                        {isSeedanceModel(selectedModel) && batchGenerateCountForPage > 0 ? (
+                        {isSeedanceModel(selectedModel) && creationMode === 'fast' && batchGenerateCountForPage > 0 ? (
                           <span className="text-[11px] font-semibold text-zinc-400">
                             {t.wb_usage_based_billing || '按量付费'}
                           </span>

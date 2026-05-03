@@ -13,7 +13,7 @@ import { productImagesApi } from '../../../../services/productImagesApi';
 import { assetsApi } from '../../../../services/assets';
 import { apiRequest } from '../../../../services/apiClient';
 import type { FirstFrameParams, ProductImageResult } from '../../../../types/productImages';
-import { deleteImageHistoryItem, notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
+import { deleteImageHistoryItem, notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, replaceImageHistoryAsset, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
 import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../../../utils/loadingTheme';
 import { saveBlobWithPickerFallback } from '../../../../utils/browserDownload';
 import { useRequireAuth } from '../../../../utils/useRequireAuth';
@@ -182,7 +182,11 @@ const sanitizeHistoryImage = (item: any, index: number, historyId: string): Prod
     downloadUrl: String(item?.downloadUrl || imageUrl),
     format: String(item?.format || 'jpg'),
     category: item?.category,
-    metadata: item?.metadata,
+    metadata: {
+      ...(item?.metadata && typeof item.metadata === 'object' ? item.metadata : {}),
+      historyRecordId: historyId,
+      historyAssetIndex: index,
+    },
     size: typeof item?.size === 'number' ? item.size : undefined,
   };
 };
@@ -782,6 +786,8 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
               status: item.status,
               outputIndex: item.outputIndex ?? index + 1,
               sortOrder: item.sortOrder ?? index,
+              historyRecordId: response.historyRecordId,
+              historyAssetIndex: item.sortOrder ?? index,
               frameRole: item.frameRole,
               role: item.role,
             },
@@ -1095,14 +1101,25 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     applyToWorkbench(image);
   };
 
-  const handleReplaceResultImage = (imageId: string, imageUrl: string) => {
+  const handleReplaceResultImage = async (imageId: string, imageUrl: string) => {
     const cleaned = String(imageUrl || '').trim();
     if (!cleaned) return;
+    const current = results.find((item) => item.id === imageId);
+    const historyRecordId = String(current?.metadata?.historyRecordId || '').trim();
+    const rawHistoryAssetIndex = Number(current?.metadata?.historyAssetIndex ?? current?.metadata?.sortOrder);
+    const historyAssetIndex = Number.isInteger(rawHistoryAssetIndex) && rawHistoryAssetIndex >= 0
+      ? rawHistoryAssetIndex
+      : -1;
+
     setResults((prev) => prev.map((item) => (
       item.id === imageId
         ? { ...item, imageUrl: cleaned, downloadUrl: cleaned, generationStatus: 'succeeded' }
         : item
     )));
+    if (historyRecordId && historyAssetIndex >= 0) {
+      await replaceImageHistoryAsset(historyRecordId, historyAssetIndex, cleaned);
+      await refreshWorkspaceHistory();
+    }
   };
 
   const handleErrorRetry = () => {

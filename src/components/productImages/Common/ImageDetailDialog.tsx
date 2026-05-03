@@ -205,7 +205,7 @@ export const ImageDetailDialog: React.FC<ImageDetailDialogProps> = ({
           ) : null}
 
           <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center pr-6">
-            <div className="relative flex h-full w-full items-center justify-center rounded-2xl bg-black/20">
+            <div className="relative flex h-full w-full items-center justify-center rounded-2xl bg-black/20 lg:p-2">
               {onPrev ? (
                 <button
                   type="button"

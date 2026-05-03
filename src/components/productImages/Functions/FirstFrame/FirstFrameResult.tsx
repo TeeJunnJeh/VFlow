@@ -20,7 +20,7 @@ interface FirstFrameResultProps {
   onDownload: (imageId: string, filename?: string) => Promise<void>;
   onDownloadAll: (prefix: string) => Promise<void>;
   onSaveToAssets: (imageId: string) => Promise<boolean>;
-  onReplaceImage?: (imageId: string, imageUrl: string) => void;
+  onReplaceImage?: (imageId: string, imageUrl: string) => Promise<void> | void;
   onNextStep: (imageId: string) => void;
 }
 
@@ -502,7 +502,7 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
           onClose={() => setIsInpaintOpen(false)}
           onRun={runInpaint}
           onApply={async (nextUrl) => {
-            onReplaceImage?.(selectedImage.id, nextUrl);
+            await onReplaceImage?.(selectedImage.id, nextUrl);
           }}
           labels={{
             title: t.pg_main_inpaint_local_edit || '局部重绘修改',

@@ -437,7 +437,12 @@ export const productImagesApi = {
       status: String(payload?.status || ''),
       imageUrl: toDisplayUrl(String(payload?.image_url || payload?.first_frame_path || '').trim()),
       error: String(payload?.error || ''),
-      metadata: payload?.metadata && typeof payload.metadata === 'object' ? payload.metadata : undefined,
+      metadata: {
+        ...(payload?.metadata && typeof payload.metadata === 'object' ? payload.metadata : {}),
+        historyRecordId: String(payload?.history_record_id || '').trim() || undefined,
+        historyAssetId: String(payload?.asset_id || '').trim() || undefined,
+        historyAssetIndex: Number.isFinite(Number(payload?.sort_order)) ? Number(payload.sort_order) : undefined,
+      },
     };
   },
 

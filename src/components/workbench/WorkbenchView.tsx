@@ -65,7 +65,6 @@ import {
   removeTransferStationItem,
   type TransferStationItem,
 } from '../../utils/workbenchTransferStation';
-import { type ReplayReusePayload } from './ReplayScriptView';
 import ShotTimelineBar from './ShotTimelineBar';
 import {
   SeedanceReplayUploadPanel,
@@ -528,7 +527,7 @@ const createWorkspaceState = (params?: {
     scriptVariantCount:
       typeof prefs.scriptVariantCount === 'number' && prefs.scriptVariantCount > 0 ? prefs.scriptVariantCount : 1,
     targetLanguage: prefs.targetLanguage || 'en',
-    creationMode: prefs.creationMode === 'replay' ? 'replay' : 'fast',
+    creationMode: 'fast',
     reuseQueueEnabled: false,
     scripts: params?.scripts || [],
     scriptPages: [{
@@ -1037,7 +1036,7 @@ interface WorkbenchViewProps {
   initialLibraryAssetTargetProjectId?: string | null;
   initialLibraryAssetForceFirstFrame?: boolean;
   onInitialLibraryAssetHandled?: () => void;
-  initialTransferRole?: 'first_frame' | 'asset_apply' | 'replay_apply' | null;
+  initialTransferRole?: 'first_frame' | 'asset_apply' | null;
   initialTransferProjectName?: string | null;
   initialTransferModel?: 'sora2' | 'sora2pro' | 'seedance2.0' | null;
   onTransferRoleHandled?: () => void;
@@ -1048,8 +1047,6 @@ interface WorkbenchViewProps {
   setGeneratedVideoUrl: (url: string | null) => void;
   onExportToServer?: (data: any) => Promise<void>;
   onNavigateToAssetsLibrary?: () => void;
-  replayReusePayload?: ReplayReusePayload | null;
-  onReplayReusePayloadHandled?: () => void;
 }
 
 export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
@@ -1072,9 +1069,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   generatedVideoUrl,
   setGeneratedVideoUrl,
   onExportToServer,
-  onNavigateToAssetsLibrary,
-  replayReusePayload,
-  onReplayReusePayloadHandled
+  onNavigateToAssetsLibrary
 }) => {
   const { t, language } = useLanguage();
   const uiLanguageCode = useMemo(() => normalizeUiLanguageCode(language), [language]);
@@ -1320,95 +1315,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
   }, [transferStationItems.length]);
 
-  useEffect(() => {
-    if (!replayReusePayload) return;
-    if (initialTransferRole === 'replay_apply') return;
-
-    const applyReplayPayload = () => {
-      const nextCategory = String(replayReusePayload.productCategory || '').trim();
-      const nextSellingPoints = String(replayReusePayload.coreSellingPoints || '').trim();
-      const nextPrompt = String(replayReusePayload.prompt || '').trim();
-      const nextReferenceScript = String(replayReusePayload.referenceScript || replayReusePayload.prompt || '').trim();
-      const nextReferenceScriptSignature = buildProductInfoSignature({
-        productName: latestProductInfoRef.current.productName,
-        productCategory: nextCategory,
-        coreSellingPoints: nextSellingPoints,
-      });
-
-      if (nextCategory) setProductCategory(nextCategory);
-      if (nextSellingPoints) setCoreSellingPoints(nextSellingPoints);
-      if (nextPrompt) setGenPrompt(nextPrompt);
-      if (nextReferenceScript) setReferenceScript(nextReferenceScript);
-      if (nextReferenceScript) setReferenceScriptProductSignature(nextReferenceScriptSignature);
-      setCreationMode('replay');
-      setSelectedModel('seedance2.0');
-
-      setToastMessage(t.wb_replay_applied_to_workbench || '复刻结果已带入工作台，可继续上传图片并生成新脚本。');
-      onReplayReusePayloadHandled?.();
-    };
-
-    const targetProjectId = String(replayReusePayload.targetProjectId || '').trim();
-    if (targetProjectId && targetProjectId !== projectStore.currentProjectId) {
-      setProjectStore((prev) => {
-        const now = Date.now();
-        const hasProject = prev.projects.some((project) => project.id === targetProjectId);
-        const hasWorkspace = !!prev.workspaces[targetProjectId];
-
-        const projects = hasProject
-          ? prev.projects
-          : [{
-            id: targetProjectId,
-            name: ensureUniqueProjectName(`Project ${targetProjectId.slice(0, 6)}`, prev.projects),
-            updatedAt: now,
-            createdAt: now,
-          }, ...prev.projects];
-
-        const workspaces = hasWorkspace
-          ? prev.workspaces
-          : {
-            ...prev.workspaces,
-            [targetProjectId]: createWorkspaceState({
-              scriptPagePrefix: t.wb_script_page_prefix,
-              userId: user?.id ?? null,
-            }),
-          };
-
-        return {
-          ...prev,
-          currentProjectId: targetProjectId,
-          projects,
-          workspaces,
-        };
-      });
-
-      let elapsed = 0;
-      const MIN_WAIT_MS = 180;
-      const MAX_WAIT_MS = 5000;
-      const POLL_INTERVAL_MS = 50;
-
-      const timer = window.setInterval(() => {
-        elapsed += POLL_INTERVAL_MS;
-
-        const shouldWaitForWorkspaceRestore = elapsed < MIN_WAIT_MS || isApplyingProjectWorkspaceRef.current;
-        if (shouldWaitForWorkspaceRestore && elapsed < MAX_WAIT_MS) return;
-
-        window.clearInterval(timer);
-        applyReplayPayload();
-      }, POLL_INTERVAL_MS);
-
-      return () => window.clearInterval(timer);
-    }
-
-    applyReplayPayload();
-  }, [
-    initialTransferRole,
-    onReplayReusePayloadHandled,
-    replayReusePayload,
-    setSelectedModel,
-    t.wb_replay_applied_to_workbench,
-    t.wb_script_page_prefix,
-    user?.id,
-  ]);
 
   const productNameFieldRef = useRef<HTMLInputElement | null>(null);
   const productCategoryFieldRef = useRef<HTMLDivElement | null>(null);
@@ -1425,9 +1331,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   );
   const [targetLanguage, setTargetLanguage] = useState<string>(() => initialPrefs.targetLanguage || 'en');
   const [translatingShots, setTranslatingShots] = useState<Record<number, boolean>>({});
-  const [creationMode, setCreationMode] = useState<'fast' | 'replay'>(() => (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
-  const isSeedanceReplayMode = creationMode === 'replay' && selectedModel === 'seedance2.0';
-  const isSeedanceFastMode = creationMode === 'fast' && selectedModel === 'seedance2.0';
+  const creationMode = 'fast' as 'fast' | 'replay';
+  const isSeedanceReplayMode = false;
+  const isSeedanceFastMode = selectedModel === 'seedance2.0';
   const isSeedanceMode = isSeedanceReplayMode || isSeedanceFastMode;
   const [seedanceReplayUploadIntent, setSeedanceReplayUploadIntent] = useState<SeedanceReplayUploadIntent>({ targetMediaKind: null });
   const [seedanceReplayFocusTarget, setSeedanceReplayFocusTarget] = useState<SeedanceReplayMediaKind | null>(null);
@@ -1517,7 +1423,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return 0.55;
     }
   });
-  const lastFastModelRef = useRef<'kling' | 'sora2' | 'sora2pro' | 'seedance2.0'>('kling');
   const currentAssetMediaKind = inferMediaKind({ name: fileName, url: selectedAssetUrl || uploadedFile, file: selectedFileObj });
 
   useEffect(() => {
@@ -1527,7 +1432,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (prefSyncTimerRef.current) window.clearTimeout(prefSyncTimerRef.current);
 
     prefSyncTimerRef.current = window.setTimeout(() => {
-      const effectiveModel = creationMode === 'replay' ? 'seedance2.0' : selectedModel;
 
       setWorkbenchPreferences({
         deliveryRegion,
@@ -1537,8 +1441,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         genDuration,
         soundSetting,
         scriptVariantCount,
-        creationMode,
-        selectedModelId: effectiveModel,
+        creationMode: 'fast',
+        selectedModelId: selectedModel,
       }, user?.id ?? null);
     }, 400);
 
@@ -1547,7 +1451,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
   }, [
     aspectRatio,
-    creationMode,
     deliveryRegion,
     genDuration,
     isRestoring,
@@ -2221,7 +2124,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         : (typeof initialPrefs.scriptVariantCount === 'number' && initialPrefs.scriptVariantCount > 0 ? initialPrefs.scriptVariantCount : 1)
     );
     setTargetLanguage(workspace.targetLanguage || initialPrefs.targetLanguage || 'en');
-    setCreationMode(workspace.creationMode || (initialPrefs.creationMode === 'replay' ? 'replay' : 'fast'));
     setReuseQueueEnabled(!!workspace.reuseQueueEnabled);
     const restoredScriptPages = (Array.isArray(workspace.scriptPages) && workspace.scriptPages.length > 0)
       ? workspace.scriptPages
@@ -2982,7 +2884,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       selectedBackgroundAudio,
       scriptVariantCount,
       targetLanguage,
-      creationMode,
+      creationMode: 'fast',
       reuseQueueEnabled,
       scripts,
       scriptPages,
@@ -3035,7 +2937,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     selectedBackgroundAudio,
     scriptVariantCount,
     targetLanguage,
-    creationMode,
     reuseQueueEnabled,
     scripts,
     scriptPages,
@@ -3604,7 +3505,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
 
       await reloadAssetLibraryItems();
-      const shouldAutoAddForSeedance = creationMode === 'replay' && selectedModel === 'seedance2.0';
+      const shouldAutoAddForSeedance = false;
       if (shouldAutoAddForSeedance && assetLibraryPickMode === 'default' && successfulUploadedAssetIds.length > 0 && user) {
         setPendingSeedanceAutoAddPayload({
           ids: successfulUploadedAssetIds,
@@ -3651,7 +3552,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     probeAssetLibraryMediaMeta,
     reloadAssetLibraryItems,
     assetLibraryPickMode,
-    creationMode,
     selectedModel,
     assetLibraryCurrentFolderId,
     setPendingSeedanceAutoAddPayload,
@@ -3660,7 +3560,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   ]);
 
   const getSeedanceReplayLibraryIntent = useCallback((targetMediaKind?: SeedanceReplayMediaKind | null): SeedanceReplayLibraryIntent => {
-    const replayOnly = creationMode === 'replay' && selectedModel === 'seedance2.0';
+    const replayOnly = false;
     if (targetMediaKind === 'image') {
       return {
         targetMediaKind: 'image',
@@ -9562,22 +9462,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
   };
 
-  useEffect(() => {
-    if (creationMode !== 'fast') return;
-    if (
-      selectedModel === 'kling' ||
-      selectedModel === 'sora2' ||
-      selectedModel === 'sora2pro' ||
-      selectedModel === 'seedance2.0'
-    ) {
-      lastFastModelRef.current = selectedModel;
-    }
-  }, [creationMode, selectedModel]);
-
-  useEffect(() => {
-    if (creationMode !== 'replay') return;
-    if (selectedModel !== 'seedance2.0') setSelectedModel('seedance2.0');
-  }, [creationMode, selectedModel, setSelectedModel]);
 
   useEffect(() => {
     if (!isSeedanceReplayMode || !seedanceReplayValidation.hasBlockingIssues) {
@@ -9666,7 +9550,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         <div className="mt-1 text-[10px] leading-relaxed text-zinc-200/80">{desc}</div>
       </div>
     );
-    const creationModeIndex = creationMode === 'replay' ? 1 : 0;
     const audioModeIndex = soundSetting === 'off' ? 1 : 0;
     const klingModeIndex = klingGenerateMode === 'subject' ? 1 : klingGenerateMode === 'first_last_frame' ? 2 : 0;
     const boundaryModelIndex = imageGenModel === 'flux-2-flex' ? 1 : imageGenModel === 'gpt-image-1.5' ? 2 : 0;
@@ -9718,25 +9601,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         </div>
       </div>
     );
-
-    const handleSetCreationMode = (next: 'fast' | 'replay') => {
-      if (next === creationMode) return;
-      if (next === 'replay') {
-        if (
-          selectedModel === 'kling' ||
-          selectedModel === 'sora2' ||
-          selectedModel === 'sora2pro' ||
-          selectedModel === 'seedance2.0'
-        ) {
-          lastFastModelRef.current = selectedModel;
-        }
-        setCreationMode('replay');
-        setSelectedModel('seedance2.0');
-        return;
-      }
-      setCreationMode('fast');
-      setSelectedModel(lastFastModelRef.current || 'kling');
-    };
 
     const modelOptions: Array<{
       id: 'kling' | 'sora2' | 'sora2pro' | 'seedance2.0';
@@ -9875,61 +9739,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 isModelSectionCollapsed ? '-translate-y-3 opacity-0' : 'translate-y-0 opacity-100',
               ].join(' ')}
             >
-              <div>
-                <div className="wb-mode-toggle grid-cols-2">
-                  <span
-                    className="wb-mode-thumb w-1/2"
-                    style={{ transform: `translateX(${creationModeIndex * 100}%)` }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleSetCreationMode('fast')}
-                    aria-pressed={creationMode === 'fast'}
-                    className={[
-                      'relative z-10 rounded-lg py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
-                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
-                      creationMode === 'fast'
-                        ? 'text-orange-200'
-                        : 'bg-transparent text-zinc-500 hover:text-orange-300',
-                    ].join(' ')}
-                  >
-                    <Zap className={creationMode === 'fast' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
-                    <span className="text-[12px]">{t.wb_creation_mode_fast}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSetCreationMode('replay')}
-                    aria-pressed={creationMode === 'replay'}
-                    className={[
-                      'relative z-10 rounded-lg py-2 flex items-center justify-center gap-2 font-black tracking-wide transition',
-                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
-                      creationMode === 'replay'
-                        ? 'text-orange-200'
-                        : 'bg-transparent text-zinc-500 hover:text-orange-300',
-                    ].join(' ')}
-                  >
-                    <Layers className={creationMode === 'replay' ? 'w-4 h-4 text-orange-500' : 'w-4 h-4 text-zinc-500'} />
-                    <span className="text-[12px]">{t.wb_creation_mode_replay}</span>
-                  </button>
-                </div>
-              </div>
-
-              {creationMode === 'fast' ? (
-                <div className="space-y-3">
-                  <div className="mb-3">
-                    <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                      <ArrowRight className="w-3 h-3 text-zinc-500" />
-                      {t.wb_render_power_title}
-                    </h2>
-                  </div>
-                  <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+              <div className="space-y-3">
+                <div className="mb-3">
+                  <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
                     <ArrowRight className="w-3 h-3 text-zinc-500" />
                     {t.wb_render_power_title}
                   </h2>
+<<<<<<< HEAD
                   <div className="group w-full text-left rounded-2xl border border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10 p-4 flex items-center gap-4">
                     <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-orange-500/20 border border-orange-500/30">
                       <Video className="w-5 h-5 text-orange-400" />
@@ -9968,8 +9784,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </div>
                   </div>
 
+=======
+>>>>>>> d043543ced6f3eb8cf25cd97ca80afdd3a6dedd5
                 </div>
-              )}
+                <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
+              </div>
             </div>
           </div>
         </div>

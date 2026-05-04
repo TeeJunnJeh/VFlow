@@ -11299,6 +11299,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           >
             <span className="text-[11px] font-bold">{t.login_agreement_user || '服务条款'}</span>
           </a>
+          <a
+            href="/doc"
+            className="flex items-center px-2 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition"
+            title="产品文档"
+          >
+            <span className="text-[11px] font-bold">产品文档</span>
+          </a>
           <div className="relative">
             <button
               ref={taskQueueButtonRef}

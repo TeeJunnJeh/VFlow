@@ -9745,7 +9745,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     <ArrowRight className="w-3 h-3 text-zinc-500" />
                     {t.wb_render_power_title}
                   </h2>
-<<<<<<< HEAD
                   <div className="group w-full text-left rounded-2xl border border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10 p-4 flex items-center gap-4">
                     <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-orange-500/20 border border-orange-500/30">
                       <Video className="w-5 h-5 text-orange-400" />
@@ -9783,9 +9782,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       </div>
                     </div>
                   </div>
-
-=======
->>>>>>> d043543ced6f3eb8cf25cd97ca80afdd3a6dedd5
                 </div>
                 <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
               </div>

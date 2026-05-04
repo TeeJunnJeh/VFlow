@@ -100,6 +100,14 @@ export async function parseApiError(
 
         // 提取 data 和 action_required
         data = asRecord(rec.data);
+        const userMessage = data?.user_error;
+        const classification = asRecord(data?.error_classification);
+        const classifiedMessage = classification?.user_message ?? classification?.safe_message;
+        if (typeof userMessage === 'string' && userMessage.trim()) {
+          message = userMessage.trim();
+        } else if (typeof classifiedMessage === 'string' && classifiedMessage.trim()) {
+          message = classifiedMessage.trim();
+        }
         const action = data ? asRecord(data.action_required) : null;
         actionRequired = action as ApiActionRequired;
       }

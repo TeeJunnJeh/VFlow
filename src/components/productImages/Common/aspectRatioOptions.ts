@@ -2,7 +2,7 @@
  * 商品图片生成 4 模块共享的「比例选择器」配置。
  *
  * 设计原则：
- * - 主 chip 行：`{1:1, 2:3, 3:4, 9:16}` 是电商主图 / 短视频封面 / 社媒竖屏的最常用集
+ * - 主 chip 行：多数模块用 `{1:1, 2:3, 3:4, 9:16}` 作为电商主图 / 短视频封面 / 社媒竖屏常用集
  * - 「更多比例」popover：每个模块只暴露其上游 API 实际支持的剩余比例
  *
  * 上游 API 支持矩阵（见 backend `projects/views.py`）：
@@ -12,8 +12,8 @@
  *      `_normalize_first_frame_aspect_ratio`
  *  - GPT (FirstFrame openai-compat): 仅 3 个：1:1 / 3:2 / 2:3
  *      `_aspect_ratio_to_gpt_size`
- *  - ClothingSwap 上游: 10 个全部
- *      `CLOTHING_SWAP_ASPECT_RATIO_CHOICES`
+ *  - ClothingSwap 图片上游: 10 个全部；视频上游 Veo 3.1 优先使用 16:9 / 9:16
+ *      `CLOTHING_SWAP_ASPECT_RATIO_CHOICES` / `generate_clothing_swap_video`
  */
 
 import type { FirstFrameModel } from '../../../types/productImages';
@@ -32,8 +32,8 @@ export const SMART_REPAIR_RATIOS: AspectRatioConfig = {
 };
 
 export const CLOTHING_SWAP_RATIOS: AspectRatioConfig = {
-  primary: PRIMARY_DEFAULT,
-  more: ['16:9', '21:9', '3:2', '4:3', '4:5', '5:4'],
+  primary: ['16:9', '9:16'],
+  more: ['1:1', '2:3', '3:4', '4:5', '5:4', '4:3', '3:2', '21:9'],
 };
 
 export const GALLERY_RATIOS: AspectRatioConfig = {

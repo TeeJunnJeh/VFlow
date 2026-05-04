@@ -4,15 +4,19 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, Sparkles, X } from 'lucide-react';
+import { ArrowRight, ChevronLeft, Download, Eye, Library, Play, Sparkles, UploadCloud } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { ImageUploader } from '../../Common/ImageUploader';
 import { ClothingSwapForm } from './ClothingSwapForm';
 import { ClothingSwapResult } from './ClothingSwapResult';
+import { ClothingSwapVideoPlayer } from './ClothingSwapVideoPlayer';
 import ResizableSplitter from '../../../common/ResizableSplitter';
+import { AppDialog } from '../../../common/AppDialog';
+import { CreativeAssetPickerDialog } from '../../../creativeLab/CreativeAssetPickerDialog';
 import { LoadingProgress } from '../../Common/LoadingProgress';
 import { ErrorDialog, type ErrorInfo } from '../../Common/ErrorDialog';
-import { productImagesApi } from '../../../../services/productImagesApi';
+import { productImagesApi, type ClothingSwapImageInput } from '../../../../services/productImagesApi';
+import type { Asset } from '../../../../services/assets';
 import type {
   ClothingSwapAspectRatio,
   ClothingSwapBackground,
@@ -70,6 +74,81 @@ const CS_DEFAULT_MIDDLE_RATIO = 1;
 const CS_DEFAULT_RIGHT_RATIO = 1;
 const CS_DEFAULT_TOTAL_RATIO = CS_DEFAULT_LEFT_RATIO + CS_DEFAULT_MIDDLE_RATIO + CS_DEFAULT_RIGHT_RATIO;
 const CS_VIDEO_CACHE_KEY = 'vflow_cs_videos';
+const CS_EXAMPLE_ASSETS = {
+  model: '/cs-guide/model_male_1.jpg',
+  garment: '/cs-guide/product_set_male_5.jpg',
+  result: '/cs-guide/ai_clothing_swap_3_clothing.png',
+  video: '/cs-guide/ai_clothing_swap_3_clothing_swap_6388e3d762.mp4',
+} as const;
+const CS_EXAMPLE_PARAMS: Required<Pick<ClothingSwapParams, 'category' | 'targetColor' | 'background' | 'aspectRatio' | 'outputCount'>> = {
+  category: 'Top',
+  targetColor: 'Red',
+  background: 'model',
+  aspectRatio: '16:9',
+  outputCount: 3,
+};
+
+type ClothingSwapInputSource = {
+  source: 'local' | 'asset' | 'example';
+  name: string;
+  file?: File;
+  path?: string;
+  previewUrl?: string;
+  assetId?: string;
+};
+
+type ClothingSwapPickerTarget = 'model' | 'garment';
+type ClothingSwapResultSettings = Partial<Pick<ClothingSwapParams, 'category' | 'targetColor' | 'background' | 'aspectRatio' | 'outputCount'>>;
+
+const CS_VALID_ASPECT_RATIOS = new Set<string>(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']);
+const CS_VALID_BACKGROUNDS = new Set<string>(['model', 'runway', 'street', 'white_wall']);
+
+const normalizeClothingSwapAspectRatio = (value: unknown): ClothingSwapAspectRatio | undefined => {
+  const normalized = String(value || '').trim().replace('：', ':');
+  return CS_VALID_ASPECT_RATIOS.has(normalized) ? normalized as ClothingSwapAspectRatio : undefined;
+};
+
+const normalizeClothingSwapBackground = (value: unknown): ClothingSwapBackground | undefined => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return CS_VALID_BACKGROUNDS.has(normalized) ? normalized as ClothingSwapBackground : undefined;
+};
+
+const normalizeClothingSwapOutputCount = (value: unknown): ClothingSwapOutputCount | undefined => {
+  const count = Number(value);
+  return [1, 2, 3, 4].includes(count) ? count as ClothingSwapOutputCount : undefined;
+};
+
+const normalizeClothingSwapSettings = (settings?: Record<string, any> | null): ClothingSwapResultSettings => {
+  if (!settings || typeof settings !== 'object') return {};
+  return {
+    category: settings.category as ClothingSwapCategory | undefined,
+    targetColor: (settings.targetColor || settings.target_color) as ClothingSwapColor | undefined,
+    background: normalizeClothingSwapBackground(settings.background),
+    aspectRatio: normalizeClothingSwapAspectRatio(settings.aspectRatio || settings.aspect_ratio),
+    outputCount: normalizeClothingSwapOutputCount(settings.outputCount || settings.output_count),
+  };
+};
+
+const attachClothingSwapSettings = (images: ProductImageResult[], settings: ClothingSwapResultSettings): ProductImageResult[] => (
+  images.map((image) => ({
+    ...image,
+    metadata: {
+      ...(image.metadata || {}),
+      clothingSwap: {
+        ...normalizeClothingSwapSettings((image.metadata as any)?.clothingSwap),
+        ...normalizeClothingSwapSettings(settings as Record<string, any>),
+      },
+    },
+  }))
+);
+
+const readClothingSwapSettingsFromImage = (image: ProductImageResult): ClothingSwapResultSettings => {
+  const metadata = image.metadata || {};
+  return {
+    ...normalizeClothingSwapSettings(metadata as Record<string, any>),
+    ...normalizeClothingSwapSettings((metadata as any).clothingSwap),
+  };
+};
 
 /**
  * 与 productImagesApi.toDisplayUrl 保持一致的 URL 规范化：
@@ -86,7 +165,7 @@ function normalizeMediaUrl(raw: string): string {
   return normalized;
 }
 
-const sanitizeHistoryImage = (item: any, index: number, historyId: string): ProductImageResult | null => {
+const sanitizeHistoryImage = (item: any, index: number, historyId: string, settings?: ClothingSwapResultSettings): ProductImageResult | null => {
   const rawUrl = String(item?.imageUrl || item?.downloadUrl || '').trim();
   if (!rawUrl) return null;
   // 规范化 URL：使历史记录的 imageUrl 与生成时存入 videoMap 的 key 保持一致
@@ -100,6 +179,13 @@ const sanitizeHistoryImage = (item: any, index: number, historyId: string): Prod
     imageUrl,
     downloadUrl: String(item?.downloadUrl || rawUrl),
     format: String(item?.format || 'png'),
+    metadata: {
+      ...(item?.metadata && typeof item.metadata === 'object' ? item.metadata : {}),
+      clothingSwap: {
+        ...normalizeClothingSwapSettings((item?.metadata as any)?.clothingSwap),
+        ...normalizeClothingSwapSettings(settings as Record<string, any>),
+      },
+    },
   };
 };
 
@@ -107,20 +193,19 @@ const mapImageHistoryToCsItem = (item: ImageHistoryItem): ClothingSwapHistoryIte
   if (item.featureType !== 'clothing_swap') return null;
   const historyId = String(item.id || '').trim();
 
+  const settings = normalizeClothingSwapSettings((item.settings as Record<string, any>) || {});
   const metaOutputs = Array.isArray((item.metadata as any)?.outputImages)
     ? (item.metadata as any).outputImages
     : null;
   const outputImages = (metaOutputs
     ? metaOutputs
-        .map((img: any, index: number) => sanitizeHistoryImage(img, index, historyId))
+        .map((img: any, index: number) => sanitizeHistoryImage(img, index, historyId, settings))
         .filter(Boolean)
     : item.images
-        .map((imageUrl, index) => sanitizeHistoryImage({ imageUrl, downloadUrl: imageUrl }, index, historyId))
+        .map((imageUrl, index) => sanitizeHistoryImage({ imageUrl, downloadUrl: imageUrl }, index, historyId, settings))
         .filter(Boolean)) as ProductImageResult[];
 
   if (outputImages.length === 0) return null;
-
-  const settings = (item.settings as Record<string, any>) || {};
 
   return {
     id: item.id,
@@ -136,6 +221,148 @@ const mapImageHistoryToCsItem = (item: ImageHistoryItem): ClothingSwapHistoryIte
       outputCount: settings.outputCount as ClothingSwapOutputCount | undefined,
     },
   } satisfies ClothingSwapHistoryItem;
+};
+
+const makeClothingSwapInput = (source: ClothingSwapInputSource): ClothingSwapImageInput => (
+  source.file
+    ? source.file
+    : {
+      path: source.path,
+      fileUrl: source.path,
+      previewUrl: source.previewUrl,
+    }
+);
+
+const fetchPublicImageAsFile = async (url: string, filename: string): Promise<File> => {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to load ${filename}`);
+  const blob = await response.blob();
+  return new File([blob], filename, { type: blob.type || 'image/jpeg' });
+};
+
+interface ClothingSwapExampleFlowProps {
+  t: Record<string, any>;
+  onUseExample: () => void;
+  onOpenExample: () => void;
+  onDownloadExampleVideo: () => void;
+}
+
+const ClothingSwapExampleFlow: React.FC<ClothingSwapExampleFlowProps> = ({ t, onUseExample, onOpenExample, onDownloadExampleVideo }) => {
+  const chips = [
+    t.cs_category_top || 'Top',
+    t.cs_color_red || 'Red',
+    '16:9',
+    `${t.cs_output_count_label || 'Output count'} 3`,
+  ];
+
+  return (
+    <section className="shrink-0 rounded-2xl border border-orange-500/15 bg-gradient-to-r from-white/[0.065] via-white/[0.04] to-white/[0.025] p-4 shadow-[0_18px_45px_rgba(0,0,0,0.18)]">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-stretch xl:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-orange-500/15 text-orange-300">
+                <Sparkles className="h-4 w-4" />
+              </span>
+              <div>
+                <h3 className="text-sm font-black text-zinc-100">{(t as any).cs_example_flow_title || '示例流程'}</h3>
+                <p className="mt-0.5 text-xs text-zinc-400">{(t as any).cs_example_flow_desc || '上传人像与服装，生成试穿图，并一键生成展示视频'}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {chips.map((chip) => (
+                <span key={chip} className="rounded-full border border-orange-400/20 bg-orange-500/10 px-2.5 py-1 text-[11px] font-bold text-orange-200">
+                  {chip}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-[1fr_auto_1fr_auto_1fr] lg:items-center">
+            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+              <div className="mb-2 flex items-center gap-2 text-xs font-black text-orange-200">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-[11px] text-black">1</span>
+                {(t as any).cs_example_step_upload || '上传素材'}
+              </div>
+              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                <div>
+                  <img src={CS_EXAMPLE_ASSETS.model} alt="model example" className="aspect-square w-full rounded-lg object-cover" />
+                  <div className="mt-1 text-center text-[10px] text-zinc-400">{t.cs_upload_model_title}</div>
+                </div>
+                <span className="text-lg font-black text-zinc-300">+</span>
+                <div>
+                  <img src={CS_EXAMPLE_ASSETS.garment} alt="garment example" className="aspect-square w-full rounded-lg object-cover" />
+                  <div className="mt-1 text-center text-[10px] text-zinc-400">{t.cs_upload_garment_title}</div>
+                </div>
+              </div>
+            </div>
+
+            <ArrowRight className="hidden h-5 w-5 text-orange-300/80 lg:block" />
+
+            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+              <div className="mb-2 flex items-center gap-2 text-xs font-black text-orange-200">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-[11px] text-black">2</span>
+                {(t as any).cs_example_step_generate || '生成试穿图'}
+              </div>
+              <img src={CS_EXAMPLE_ASSETS.result} alt="clothing swap result example" className="mx-auto aspect-[16/9] max-h-28 rounded-lg object-cover" />
+            </div>
+
+            <ArrowRight className="hidden h-5 w-5 text-orange-300/80 lg:block" />
+
+            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+              <div className="mb-2 flex items-center gap-2 text-xs font-black text-orange-200">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-[11px] text-black">3</span>
+                {(t as any).cs_example_step_video || '一键生成视频'}
+              </div>
+              <div className="relative overflow-hidden rounded-lg bg-black">
+                <video src={CS_EXAMPLE_ASSETS.video} className="aspect-video w-full object-cover" muted loop playsInline preload="metadata" disableRemotePlayback />
+                <span className="absolute inset-0 flex items-center justify-center bg-black/20 text-white">
+                  <Play className="h-7 w-7 fill-white/80" />
+                </span>
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={onOpenExample}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-[11px] font-bold text-zinc-200 transition hover:bg-white/10"
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                  {(t as any).cs_preview_tab || '预览'}
+                </button>
+                <button
+                  type="button"
+                  onClick={onDownloadExampleVideo}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-[11px] font-bold text-zinc-200 transition hover:bg-white/10"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {(t as any).cs_download_video || '下载视频'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 flex-row gap-2 xl:w-44 xl:flex-col xl:justify-center xl:items-center xl:gap-4">
+          <button
+            type="button"
+            onClick={onUseExample}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-xs font-black text-black transition hover:bg-orange-400"
+          >
+            <UploadCloud className="h-4 w-4" />
+            {(t as any).cs_use_example_assets || '使用示例素材'}
+          </button>
+          <button
+            type="button"
+            onClick={onOpenExample}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold text-zinc-200 transition hover:bg-white/10"
+          >
+            <Eye className="h-4 w-4" />
+            {(t as any).cs_view_full_example || '查看完整示例'}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
 };
 
 interface ClothingSwapWorkspacePaneProps {
@@ -159,8 +386,8 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
   const [middleWidth, setMiddleWidth] = useState<number>(600);
 
   const [phase, setPhase] = useState<Phase>('upload');
-  const [modelImage, setModelImage] = useState<File | null>(null);
-  const [garmentImage, setGarmentImage] = useState<File | null>(null);
+  const [modelSource, setModelSource] = useState<ClothingSwapInputSource | null>(null);
+  const [garmentSource, setGarmentSource] = useState<ClothingSwapInputSource | null>(null);
   const [modelUploaderKey, setModelUploaderKey] = useState(0);
   const [garmentUploaderKey, setGarmentUploaderKey] = useState(0);
   const [results, setResults] = useState<ProductImageResult[]>([]);
@@ -172,6 +399,9 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
   const [restoredParams, setRestoredParams] = useState<Partial<ClothingSwapParams> | undefined>(undefined);
   const [loadingTheme, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
   const [loadingBackgroundSrc, setLoadingBackgroundSrc] = useState<string>('');
+  const [assetPickerTarget, setAssetPickerTarget] = useState<ClothingSwapPickerTarget | null>(null);
+  const [isExamplePreviewOpen, setIsExamplePreviewOpen] = useState(false);
+  const [presetToken, setPresetToken] = useState(0);
   // ── video state ──────────────────────────────────────────────────────────────
   const [videoMap, setVideoMap] = useState<Record<string, string>>(() => {
     if (typeof window === 'undefined') return {};
@@ -182,141 +412,10 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
   });
   const [generatingVideoIds, setGeneratingVideoIds] = useState<Set<string>>(new Set());
   const [lastGeneratedBackground, setLastGeneratedBackground] = useState<ClothingSwapBackground>('model');
+  const [lastGeneratedAspectRatio, setLastGeneratedAspectRatio] = useState<ClothingSwapAspectRatio>('16:9');
 
-  // ── guide state ──────────────────────────────────────────────────────────────
-  const csLeftPanelRef = useRef<HTMLElement | null>(null);
-  const csMiddlePanelRef = useRef<HTMLElement | null>(null);
-  const csRightPanelRef = useRef<HTMLElement | null>(null);
-  const [isGuideOpen, setIsGuideOpen] = useState(false);
-  const [guideStepIndex, setGuideStepIndex] = useState(0);
-  const [guidePanelStyle, setGuidePanelStyle] = useState<React.CSSProperties>({});
-  const [guideHighlightStyle, setGuideHighlightStyle] = useState<React.CSSProperties>({});
-  const isVisibleRef = useRef(isVisible);
-  useEffect(() => { isVisibleRef.current = isVisible; }, [isVisible]);
-
-  type CsGuideStepKey = 'upload' | 'settings' | 'result';
-  const csGuideSteps = useMemo<
-    Array<{ key: CsGuideStepKey; title: string; description: string; image: string }>
-  >(
-    () => [
-      {
-        key: 'upload',
-        title: t.cs_guide_step_upload_title,
-        description: t.cs_guide_step_upload_desc,
-        image: '/cs-guide/step1.png', // ← 在此处填写步骤1的示意图路径，如 '/cs-guide/step1-upload.png'
-      },
-      {
-        key: 'settings',
-        title: t.cs_guide_step_settings_title,
-        description: t.cs_guide_step_settings_desc,
-        image: '/cs-guide/step2.png', // ← 在此处填写步骤2的示意图路径，如 '/cs-guide/step2-settings.png'
-      },
-      {
-        key: 'result',
-        title: t.cs_guide_step_result_title,
-        description: t.cs_guide_step_result_desc,
-        image: '/cs-guide/step3.png', // ← 在此处填写步骤3的示意图路径，如 '/cs-guide/step3-result.png'
-      },
-    ],
-    [t],
-  );
-
-  const activeCsGuideStep = isGuideOpen ? csGuideSteps[guideStepIndex] : null;
-  const getCsGuideFocusClass = (key: CsGuideStepKey) =>
-    activeCsGuideStep?.key === key
-      ? 'relative z-[85] ring-2 ring-orange-400/80 ring-offset-2 ring-offset-black/60 shadow-[0_0_24px_rgba(251,146,60,0.35)] rounded-2xl'
-      : '';
-
-  const getCsGuideTargetElement = useCallback(() => {
-    const map: Record<CsGuideStepKey, React.RefObject<HTMLElement | null>> = {
-      upload: csLeftPanelRef,
-      settings: csMiddlePanelRef,
-      result: csRightPanelRef,
-    };
-    const key = csGuideSteps[guideStepIndex]?.key;
-    return key ? map[key]?.current ?? null : null;
-  }, [guideStepIndex, csGuideSteps]);
-
-  const updateCsGuidePanelPosition = useCallback(() => {
-    const target = getCsGuideTargetElement();
-    const vp = 12;
-    const panelWidth = Math.min(420, window.innerWidth - vp * 2);
-    const panelHeight = 380;
-    const pad = 10;
-
-    if (!target) {
-      setGuidePanelStyle({
-        width: `${panelWidth}px`,
-        left: `${Math.max(vp, Math.round((window.innerWidth - panelWidth) / 2))}px`,
-        top: `${Math.max(vp, Math.round((window.innerHeight - panelHeight) / 2))}px`,
-      });
-      setGuideHighlightStyle({ display: 'none' });
-      return;
-    }
-
-    const rect = target.getBoundingClientRect();
-    setGuideHighlightStyle({
-      left: `${Math.round(rect.left - pad)}px`,
-      top: `${Math.round(rect.top - pad)}px`,
-      width: `${Math.round(rect.width + pad * 2)}px`,
-      height: `${Math.round(rect.height + pad * 2)}px`,
-    });
-
-    let left = rect.right + 16;
-    if (left + panelWidth > window.innerWidth - vp) left = rect.left - panelWidth - 16;
-    if (left < vp) left = Math.max(vp, Math.round((window.innerWidth - panelWidth) / 2));
-
-    let top = rect.top;
-    if (top + panelHeight > window.innerHeight - vp) top = window.innerHeight - panelHeight - vp;
-    if (top < vp) top = vp;
-
-    setGuidePanelStyle({
-      width: `${panelWidth}px`,
-      left: `${Math.round(left)}px`,
-      top: `${Math.round(top)}px`,
-    });
-  }, [getCsGuideTargetElement]);
-
-  const csGuideSeenKey = 'vflow_cs_guide_seen_v1';
-  const markCsGuideSeen = useCallback(() => {
-    try { window.localStorage.setItem(csGuideSeenKey, '1'); } catch { /* ignore */ }
-  }, []);
-
-  useEffect(() => {
-    const handler = () => {
-      if (!isVisibleRef.current) return;
-      setGuideStepIndex(0);
-      setIsGuideOpen(true);
-    };
-    window.addEventListener('vflow:open-clothing-swap-guide', handler as EventListener);
-    return () => window.removeEventListener('vflow:open-clothing-swap-guide', handler as EventListener);
-  }, []);
-
-  useEffect(() => {
-    if (!isVisible) setIsGuideOpen(false);
-  }, [isVisible]);
-
-  useEffect(() => {
-    if (!isVisible || isGuideOpen) return;
-    try { if (window.localStorage.getItem(csGuideSeenKey) === '1') return; } catch { /* ignore */ }
-    const timer = window.setTimeout(() => { setGuideStepIndex(0); setIsGuideOpen(true); }, 400);
-    return () => window.clearTimeout(timer);
-  }, [isGuideOpen, isVisible]);
-
-  useEffect(() => {
-    if (!isGuideOpen) return;
-    const target = getCsGuideTargetElement();
-    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-    const timer = window.setTimeout(() => updateCsGuidePanelPosition(), 260);
-    const onResize = () => updateCsGuidePanelPosition();
-    window.addEventListener('scroll', onResize, true);
-    window.addEventListener('resize', onResize);
-    return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener('scroll', onResize, true);
-      window.removeEventListener('resize', onResize);
-    };
-  }, [guideStepIndex, getCsGuideTargetElement, isGuideOpen, updateCsGuidePanelPosition]);
+  const modelImage = modelSource?.file ?? null;
+  const garmentImage = garmentSource?.file ?? null;
 
   const generationSeqRef = useRef(0);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -324,7 +423,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
 
   const isGenerating = phase === 'generating';
   const hasResults = results.length > 0;
-  const hasBothImages = !!modelImage && !!garmentImage;
+  const hasBothImages = !!modelSource && !!garmentSource;
 
   useEffect(() => {
     if (phase === 'generating' || phase === 'result' || phase === 'error') return;
@@ -350,22 +449,33 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
 
   useEffect(() => {
     let alive = true;
-    const files = [modelImage, garmentImage].filter(Boolean) as File[];
-    if (files.length === 0) {
+    const createdUrls: string[] = [];
+    const sourceUrls = [modelSource, garmentSource]
+      .map((source) => {
+        if (!source) return '';
+        if (source.file) {
+          const objectUrl = URL.createObjectURL(source.file);
+          createdUrls.push(objectUrl);
+          return objectUrl;
+        }
+        return source.previewUrl || source.path || '';
+      })
+      .filter(Boolean);
+
+    if (sourceUrls.length === 0) {
       setLoadingTheme(getDefaultLoadingTheme());
       setLoadingBackgroundSrc('');
       return;
     }
-    const objectUrls = files.map((file) => URL.createObjectURL(file));
-    setLoadingBackgroundSrc(objectUrls[0] || '');
-    void extractLoadingThemeFromSources(objectUrls).then((theme) => {
+    setLoadingBackgroundSrc(sourceUrls[0] || '');
+    void extractLoadingThemeFromSources(sourceUrls).then((theme) => {
       if (alive) setLoadingTheme(theme);
     });
     return () => {
       alive = false;
-      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+      createdUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [modelImage, garmentImage]);
+  }, [modelSource, garmentSource]);
 
   const clearProgressTimer = useCallback(() => {
     if (progressTimerRef.current) {
@@ -393,14 +503,18 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
   useEffect(() => () => { clearProgressTimer(); }, [clearProgressTimer]);
 
   const handleModelImagesSelected = useCallback((files: File[]) => {
-    setModelImage(files[0] || null);
+    const file = files[0] || null;
+    setModelSource(file ? { source: 'local', file, name: file.name } : null);
+    setRestoredParams(undefined);
     setError(null);
     setProgress(0);
     setResults([]);
   }, []);
 
   const handleGarmentImagesSelected = useCallback((files: File[]) => {
-    setGarmentImage(files[0] || null);
+    const file = files[0] || null;
+    setGarmentSource(file ? { source: 'local', file, name: file.name } : null);
+    setRestoredParams(undefined);
     setError(null);
     setProgress(0);
     setResults([]);
@@ -410,7 +524,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
     params: Required<Pick<ClothingSwapParams, 'category' | 'targetColor' | 'background' | 'aspectRatio' | 'outputCount'>>,
   ) => {
     if (!requireAuth()) return;
-    if (!modelImage || !garmentImage) {
+    if (!modelSource || !garmentSource) {
       setError({
         code: 'NO_IMAGES',
         message: t.cs_error_upload_first,
@@ -428,6 +542,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
       setError(null);
       setProgress(2);
       setLastGeneratedBackground(params.background ?? 'model');
+      setLastGeneratedAspectRatio(params.aspectRatio ?? '16:9');
       startProgressSimulation();
 
       const clientHistoryId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -435,8 +550,8 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
         : `clothing-swap-${Date.now()}`;
 
       const response = await productImagesApi.generateClothingSwap(
-        modelImage,
-        garmentImage,
+        makeClothingSwapInput(modelSource),
+        makeClothingSwapInput(garmentSource),
         params,
         { projectId, workspaceId, clientHistoryId },
       );
@@ -448,7 +563,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
       progressStartedAtRef.current = null;
 
       if (response && response.outputImages && response.outputImages.length > 0) {
-        setResults(response.outputImages);
+        setResults(attachClothingSwapSettings(response.outputImages, params));
         setResultSelectionKey(`generation:${workspaceId}:${Date.now()}`);
         await refreshWorkspaceHistory();
         notifyImageHistoryUpdated();
@@ -496,6 +611,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
     clearProgressTimer();
     progressStartedAtRef.current = null;
     setResults([]);
+    setRestoredParams(undefined);
     setProgress(0);
     setError(null);
     setPhase(hasBothImages ? 'form' : 'upload');
@@ -568,17 +684,25 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
     });
   }, []);
 
+  const resolveVideoSettings = useCallback((imageItem: ProductImageResult) => {
+    const itemSettings = readClothingSwapSettingsFromImage(imageItem);
+    return {
+      background: itemSettings.background ?? lastGeneratedBackground ?? normalizeClothingSwapBackground(restoredParams?.background) ?? 'model',
+      aspectRatio: itemSettings.aspectRatio ?? lastGeneratedAspectRatio ?? normalizeClothingSwapAspectRatio(restoredParams?.aspectRatio) ?? '16:9',
+    };
+  }, [lastGeneratedAspectRatio, lastGeneratedBackground, restoredParams]);
+
   const handleGenerateVideo = useCallback(async (imageId: string) => {
     const imageItem = results.find((r) => r.id === imageId);
     if (!imageItem) return;
     if (generatingVideoIds.has(imageId)) return; // 防止重复触发
-    const background: ClothingSwapBackground =
-      (restoredParams?.background) ?? lastGeneratedBackground ?? 'model';
+    const { background, aspectRatio } = resolveVideoSettings(imageItem);
     setGeneratingVideoIds((prev) => new Set([...prev, imageId]));
     try {
       const result = await productImagesApi.generateClothingSwapVideo(
         imageItem.imageUrl,
         background,
+        aspectRatio,
       );
       // key by imageUrl so the video survives history restores
       saveVideoToCache(imageItem.imageUrl, result.videoUrl);
@@ -592,7 +716,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
         return next;
       });
     }
-  }, [generatingVideoIds, lastGeneratedBackground, restoredParams, results, saveVideoToCache, t]);
+  }, [generatingVideoIds, resolveVideoSettings, results, saveVideoToCache, t]);
 
   const handleDownloadVideo = useCallback(async (imageId: string) => {
     const imageItem = results.find((r) => r.id === imageId);
@@ -621,6 +745,8 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
         aspectRatio: item.settings.aspectRatio,
         outputCount: item.settings.outputCount,
       });
+      setLastGeneratedBackground(item.settings.background ?? 'model');
+      setLastGeneratedAspectRatio(item.settings.aspectRatio ?? '16:9');
     }
     setPhase('result');
     setProgress(100);
@@ -751,21 +877,157 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
   }, [isVisible, leftWidth, middleWidth, resetPanelWidthsForVisibleLayout]);
 
   const resetUploaders = () => {
-    setModelImage(null);
-    setGarmentImage(null);
+    setModelSource(null);
+    setGarmentSource(null);
+    setRestoredParams(undefined);
     setModelUploaderKey((k) => k + 1);
     setGarmentUploaderKey((k) => k + 1);
+  };
+
+  const handleOpenAssetPicker = (target: ClothingSwapPickerTarget) => {
+    setAssetPickerTarget(target);
+  };
+
+  const applySourceFromAsset = (target: ClothingSwapPickerTarget, asset: Asset) => {
+    const next: ClothingSwapInputSource = {
+      source: 'asset',
+      name: asset.name || (target === 'model' ? t.cs_upload_model_title : t.cs_upload_garment_title),
+      path: asset.file_url,
+      previewUrl: asset.thumbnail || asset.file_url,
+      assetId: asset.id,
+    };
+    if (target === 'model') {
+      setModelSource(next);
+      setModelUploaderKey((k) => k + 1);
+    } else {
+      setGarmentSource(next);
+      setGarmentUploaderKey((k) => k + 1);
+    }
+    setRestoredParams(undefined);
+    setError(null);
+    setProgress(0);
+    setResults([]);
+    setAssetPickerTarget(null);
+  };
+
+  const handleAssetPickerConfirm = (assets: Asset[]) => {
+    const asset = assets[0];
+    if (!asset || !assetPickerTarget) return;
+    applySourceFromAsset(assetPickerTarget, asset);
+  };
+
+  const handleUseExampleAssets = async () => {
+    try {
+      const [modelFile, garmentFile] = await Promise.all([
+        fetchPublicImageAsFile(CS_EXAMPLE_ASSETS.model, 'model_male_1.jpg'),
+        fetchPublicImageAsFile(CS_EXAMPLE_ASSETS.garment, 'product_set_male_5.jpg'),
+      ]);
+      setModelSource({ source: 'example', file: modelFile, name: modelFile.name, previewUrl: CS_EXAMPLE_ASSETS.model });
+      setGarmentSource({ source: 'example', file: garmentFile, name: garmentFile.name, previewUrl: CS_EXAMPLE_ASSETS.garment });
+      setModelUploaderKey((k) => k + 1);
+      setGarmentUploaderKey((k) => k + 1);
+      setRestoredParams(CS_EXAMPLE_PARAMS);
+      setPresetToken(Date.now());
+      setResults([]);
+      setProgress(0);
+      setError(null);
+      setRightPanel('preview');
+      setPhase('form');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t.cs_error_generic;
+      setError({ code: 'EXAMPLE_LOAD_FAILED', message, severity: 'error' });
+    }
+  };
+
+  const handleDownloadExampleVideo = useCallback(() => {
+    void downloadUrlDirectly(CS_EXAMPLE_ASSETS.video, 'ai_clothing_swap_example_video.mp4');
+  }, []);
+
+  const renderSourceInput = (
+    target: ClothingSwapPickerTarget,
+    title: string,
+    source: ClothingSwapInputSource | null,
+    uploaderKey: number,
+    onFilesSelected: (files: File[]) => void,
+  ) => {
+    const isAssetSource = !!source && !source.file;
+    const pickerLabel = target === 'model'
+      ? ((t as any).cs_select_model_from_library || '从素材库选择模特')
+      : ((t as any).cs_select_garment_from_library || '从素材库选择服装');
+
+    return (
+      <div>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 className="text-sm font-medium text-zinc-300">{title}</h3>
+          <button
+            type="button"
+            onClick={() => handleOpenAssetPicker(target)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-[11px] font-bold text-zinc-200 transition hover:bg-white/10"
+          >
+            <Library className="h-3.5 w-3.5" />
+            {pickerLabel}
+          </button>
+        </div>
+
+        {isAssetSource ? (
+          <div className="overflow-hidden rounded-xl border border-white/10 bg-black/25">
+            <div className="relative aspect-square bg-zinc-950">
+              <img
+                src={source.previewUrl || source.path}
+                alt={source.name}
+                className="h-full w-full object-cover"
+              />
+              <span className="absolute left-2 top-2 rounded-full border border-orange-400/30 bg-orange-500/15 px-2 py-1 text-[10px] font-black text-orange-200">
+                {(t as any).cs_library_asset_badge || '素材库'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-2 p-3">
+              <div className="min-w-0">
+                <div className="truncate text-xs font-bold text-zinc-100">{source.name}</div>
+                <div className="mt-0.5 text-[10px] text-zinc-500">{pickerLabel}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (target === 'model') setModelSource(null);
+                  else setGarmentSource(null);
+                }}
+                className="shrink-0 rounded-lg border border-white/10 px-2 py-1 text-[11px] font-bold text-zinc-300 transition hover:bg-white/10"
+              >
+                {t.cs_btn_clear}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <ImageUploader
+            key={`${workspaceId}-${target}-${uploaderKey}`}
+            maxFiles={1}
+            previewVariant="first-frame"
+            value={source?.file ? [source.file] : []}
+            onFilesSelected={onFilesSelected}
+            onError={(err) => setError({ code: 'UPLOAD_ERROR', message: err, severity: 'warning' })}
+          />
+        )}
+      </div>
+    );
   };
 
   return (
     <>
       {phase !== 'error' && (
-        <div ref={containerRef} className="relative flex h-full min-h-0 items-stretch overflow-hidden">
+        <div className="cs-gray-scrollbar flex h-full min-h-0 flex-col gap-4 overflow-y-auto overflow-x-hidden pr-1">
+          <ClothingSwapExampleFlow
+            t={t as any}
+            onUseExample={() => void handleUseExampleAssets()}
+            onOpenExample={() => setIsExamplePreviewOpen(true)}
+            onDownloadExampleVideo={handleDownloadExampleVideo}
+          />
+
+        <div ref={containerRef} className="relative flex min-h-[720px] flex-1 items-stretch overflow-hidden">
           {/* Left: Upload */}
           <section
-            ref={csLeftPanelRef}
-            className={`mr-3 h-full shrink-0 overflow-y-auto rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100 ${getCsGuideFocusClass('upload')}`}
-            style={{ width: `${leftWidth}px`, minWidth: `${CS_PANEL_MIN_WIDTH}px`, scrollbarColor: 'black transparent', scrollbarWidth: 'thin' }}
+            className="cs-gray-scrollbar mr-3 h-full shrink-0 overflow-y-auto rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100"
+            style={{ width: `${leftWidth}px`, minWidth: `${CS_PANEL_MIN_WIDTH}px` }}
           >
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">{t.cs_upload_materials}</h2>
@@ -781,26 +1043,8 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
             </div>
 
             <div className="space-y-5">
-              <div>
-                <h3 className="text-sm font-medium text-zinc-300 mb-2">{t.cs_upload_model_title}</h3>
-                <ImageUploader
-                  key={`${workspaceId}-model-${modelUploaderKey}`}
-                  maxFiles={1}
-                  previewVariant="first-frame"
-                  onFilesSelected={handleModelImagesSelected}
-                  onError={(err) => setError({ code: 'UPLOAD_ERROR', message: err, severity: 'warning' })}
-                />
-              </div>
-              <div>
-                <h3 className="text-sm font-medium text-zinc-300 mb-2">{t.cs_upload_garment_title}</h3>
-                <ImageUploader
-                  key={`${workspaceId}-garment-${garmentUploaderKey}`}
-                  maxFiles={1}
-                  previewVariant="first-frame"
-                  onFilesSelected={handleGarmentImagesSelected}
-                  onError={(err) => setError({ code: 'UPLOAD_ERROR', message: err, severity: 'warning' })}
-                />
-              </div>
+              {renderSourceInput('model', t.cs_upload_model_title, modelSource, modelUploaderKey, handleModelImagesSelected)}
+              {renderSourceInput('garment', t.cs_upload_garment_title, garmentSource, garmentUploaderKey, handleGarmentImagesSelected)}
             </div>
           </section>
 
@@ -816,9 +1060,8 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
 
           {/* Middle: Form */}
           <section
-            ref={csMiddlePanelRef}
-            className={`mx-3 h-full shrink-0 overflow-y-auto rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100 ${getCsGuideFocusClass('settings')}`}
-            style={{ width: `${middleWidth}px`, minWidth: `${CS_PANEL_MIN_WIDTH}px`, scrollbarColor: 'black transparent', scrollbarWidth: 'thin' }}
+            className="cs-gray-scrollbar mx-3 h-full shrink-0 overflow-y-auto rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100"
+            style={{ width: `${middleWidth}px`, minWidth: `${CS_PANEL_MIN_WIDTH}px` }}
           >
             <div className="mb-5">
               <h2 className="text-lg font-semibold text-white">{t.cs_generation_settings}</h2>
@@ -826,11 +1069,14 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
             <ClothingSwapForm
               modelImage={modelImage}
               garmentImage={garmentImage}
+              modelReady={!!modelSource}
+              garmentReady={!!garmentSource}
               workspaceId={workspaceId}
               isSubmitting={isGenerating}
               onSubmit={handleGenerateFormSubmit}
               onReset={handleResetLayout}
               defaultParams={restoredParams}
+              presetToken={presetToken}
             />
           </section>
 
@@ -846,8 +1092,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
 
           {/* Right: Result */}
           <section
-            ref={csRightPanelRef}
-            className={`ml-3 h-full flex-1 overflow-y-auto rounded-2xl border border-white/5 bg-white/[0.02] p-5 ${getCsGuideFocusClass('result')}`}
+            className="cs-gray-scrollbar ml-3 h-full flex-1 overflow-y-auto rounded-2xl border border-white/5 bg-white/[0.02] p-5"
             style={{ minWidth: `${CS_PANEL_MIN_WIDTH}px` }}
           >
             <div className="mb-5 flex items-start justify-between gap-3">
@@ -929,7 +1174,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
                     {t.cs_no_history_yet}
                   </div>
                 ) : (
-                  <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
+                  <div className="cs-gray-scrollbar space-y-3 max-h-[520px] overflow-y-auto pr-1">
                     {historyItems.map((item) => (
                       <div key={item.id} className="rounded-xl border border-white/10 bg-black/30 overflow-hidden">
                         <div className="px-3 py-2 border-b border-white/10 bg-black/40 flex items-center justify-between text-xs text-zinc-400">
@@ -979,6 +1224,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
             )}
           </section>
         </div>
+        </div>
       )}
 
       {phase === 'error' && error && (
@@ -1001,106 +1247,87 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
         />
       )}
 
-      {/* ── 新手引导 overlay ──────────────────────────────────────────────────── */}
-      {isGuideOpen && (
-        <div
-          className="fixed inset-0 z-[120]"
-          onClick={() => { setIsGuideOpen(false); markCsGuideSeen(); }}
-        >
-          {/* 高亮框 */}
-          <div
-            className="absolute rounded-2xl border-2 border-orange-400/90 bg-transparent pointer-events-none shadow-[0_0_0_9999px_rgba(0,0,0,0.72),0_0_32px_rgba(249,115,22,0.35)]"
-            style={guideHighlightStyle}
-          />
-          {/* 面板 */}
-          <div
-            className="absolute rounded-2xl border border-orange-500/30 bg-zinc-950/95 shadow-2xl shadow-black/60 backdrop-blur p-4"
-            style={guidePanelStyle}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* 标题行 */}
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-base font-bold text-white">{t.cs_guide_modal_title}</div>
-                <div className="mt-1 text-xs text-zinc-400">
-                  {t.wb_guide_step} {guideStepIndex + 1} / {csGuideSteps.length}
-                </div>
+      <CreativeAssetPickerDialog
+        isOpen={assetPickerTarget !== null}
+        kind={assetPickerTarget === 'model' ? 'model' : 'product'}
+        multiple={false}
+        selectedIds={assetPickerTarget === 'model'
+          ? (modelSource?.assetId ? [modelSource.assetId] : [])
+          : (garmentSource?.assetId ? [garmentSource.assetId] : [])}
+        title={assetPickerTarget === 'model'
+          ? ((t as any).cs_model_picker_title || '选择模特素材')
+          : ((t as any).cs_garment_picker_title || '选择服装素材')}
+        subtitle={(t as any).cs_asset_picker_desc || '可从素材库选择图片，或从本地上传并保存后直接使用。'}
+        emptyLabel={assetPickerTarget === 'model'
+          ? ((t as any).cs_model_picker_empty || '素材库里还没有模特图片')
+          : ((t as any).cs_garment_picker_empty || '素材库里还没有服装图片')}
+        requireSeedanceId={false}
+        imageOnly
+        autoSelectUploaded
+        onConfirm={handleAssetPickerConfirm}
+        onClose={() => setAssetPickerTarget(null)}
+      />
+
+      <AppDialog
+        isOpen={isExamplePreviewOpen}
+        title={(t as any).cs_full_example_title || '完整示例'}
+        onClose={() => setIsExamplePreviewOpen(false)}
+        widthClassName="max-w-5xl"
+        footer={(
+          <>
+            <button
+              type="button"
+              onClick={handleDownloadExampleVideo}
+              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-zinc-200 transition hover:bg-white/10"
+            >
+              <Download className="h-4 w-4" />
+              {t.cs_download_video || '下载视频'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsExamplePreviewOpen(false)}
+              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-zinc-200 transition hover:bg-white/10"
+            >
+              {t.wb_guide_close || '关闭'}
+            </button>
+          </>
+        )}
+      >
+        <div className="grid gap-4 lg:grid-cols-[0.75fr_1.25fr]">
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl border border-white/10 bg-black/20 p-2">
+                <img src={CS_EXAMPLE_ASSETS.model} alt="model example" className="aspect-square w-full rounded-lg object-cover" />
+                <div className="mt-2 text-center text-xs font-bold text-zinc-300">{t.cs_upload_model_title}</div>
               </div>
-              <button
-                type="button"
-                onClick={() => { setIsGuideOpen(false); markCsGuideSeen(); }}
-                className="text-zinc-400 hover:text-white"
-                title={t.wb_guide_close}
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="rounded-xl border border-white/10 bg-black/20 p-2">
+                <img src={CS_EXAMPLE_ASSETS.garment} alt="garment example" className="aspect-square w-full rounded-lg object-cover" />
+                <div className="mt-2 text-center text-xs font-bold text-zinc-300">{t.cs_upload_garment_title}</div>
+              </div>
             </div>
-
-            {/* 步骤内容 */}
-            <div className="mt-4 rounded-xl border border-white/10 bg-black/30 px-3 py-3">
-              <div className="text-sm font-bold text-orange-200">{activeCsGuideStep?.title ?? ''}</div>
-              <div className="mt-2 text-xs leading-5 text-zinc-300">{activeCsGuideStep?.description ?? ''}</div>
-              {/* 示意图展示位 — 将 image 字段设为非空路径即可显示 */}
-              {activeCsGuideStep?.image ? (
-                <img
-                  src={activeCsGuideStep.image}
-                  alt={activeCsGuideStep.title}
-                  className="mt-3 w-full rounded-lg border border-white/10 object-cover max-h-40"
-                />
-              ) : (
-                <div className="mt-3 flex h-28 items-center justify-center rounded-lg border border-dashed border-white/10 bg-black/20 text-xs text-zinc-600">
-                  {/* 示意图占位区 — 将对应步骤的 image 字段填写图片路径后此占位将被替换 */}
-                  示意图
-                </div>
-              )}
+            <div className="rounded-xl border border-orange-500/20 bg-orange-500/10 p-3 text-xs text-orange-100">
+              <div className="mb-2 font-black">{(t as any).cs_example_settings || '示例设置'}</div>
+              <div className="flex flex-wrap gap-1.5">
+                {[t.cs_category_top, t.cs_color_red, '16:9', `${t.cs_output_count_label} 3`].map((label) => (
+                  <span key={label} className="rounded-full border border-orange-400/30 bg-black/20 px-2.5 py-1 font-bold">{label}</span>
+                ))}
+              </div>
             </div>
-
-            {/* 步骤导航按钮 */}
-            <div className="mt-4 flex flex-wrap gap-2">
-              {csGuideSteps.map((step, index) => (
-                <button
-                  key={step.key}
-                  type="button"
-                  onClick={() => setGuideStepIndex(index)}
-                  className={`text-left rounded-lg border px-3 py-2 text-xs transition ${
-                    guideStepIndex === index
-                      ? 'border-orange-500/70 bg-orange-500/20 text-orange-200'
-                      : 'border-white/10 bg-black/40 text-zinc-300 hover:bg-white/5'
-                  }`}
-                >
-                  {index + 1}. {step.title}
-                </button>
-              ))}
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-xl border border-white/10 bg-black/20 p-2">
+              <img src={CS_EXAMPLE_ASSETS.result} alt="clothing swap result example" className="mx-auto max-h-[58vh] rounded-lg object-contain" />
             </div>
-
-            {/* 上一步 / 下一步 */}
-            <div className="mt-4 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => setGuideStepIndex((prev) => Math.max(0, prev - 1))}
-                disabled={guideStepIndex <= 0}
-                className="px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-xs font-bold text-zinc-200 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5 transition"
-              >
-                {t.wb_guide_prev}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (guideStepIndex >= csGuideSteps.length - 1) {
-                    setIsGuideOpen(false);
-                    markCsGuideSeen();
-                    return;
-                  }
-                  setGuideStepIndex((prev) => Math.min(csGuideSteps.length - 1, prev + 1));
-                }}
-                className="px-4 py-2 rounded-xl bg-orange-500 text-xs font-bold text-black hover:bg-orange-400 transition"
-              >
-                {guideStepIndex >= csGuideSteps.length - 1 ? t.wb_guide_finish : t.wb_guide_next}
-              </button>
+            <div className="rounded-xl border border-white/10 bg-black/20 p-2">
+              <ClothingSwapVideoPlayer
+                src={CS_EXAMPLE_ASSETS.video}
+                className="h-full min-h-[280px] w-full rounded-lg bg-black object-contain"
+                videoClassName="min-h-[280px]"
+              />
             </div>
           </div>
         </div>
-      )}
+      </AppDialog>
     </>
   );
 };

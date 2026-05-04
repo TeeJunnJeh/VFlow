@@ -60,7 +60,8 @@ const WORKBENCH_VIEW_TITLES: Record<ViewType, string> = {
   product_images_smart_repair: 'VFLOW AI - 商品图 - 智能修复',
   product_images_gallery: 'VFLOW AI - 商品图 - 商品套图',
   product_images_text_separation: 'VFLOW AI - 商品图 - 文本分离',
-  replay_lab: 'VFLOW AI - Replay Lab',
+  creative_lab_replay: 'VFLOW AI - 创意实验室 - 爆款复刻',
+  creative_lab_script_extract: 'VFLOW AI - 创意实验室 - 脚本提取',
   templates: 'VFLOW AI - 模板',
   history: 'VFLOW AI - 历史记录',
   agent: 'VFLOW AI - Agent',
@@ -84,8 +85,10 @@ const WORKBENCH_VIEW_DESCRIPTIONS: Record<ViewType, string> = {
     'Create AI product photo sets with virtual models or local uploads. Define scenes, ratios, and styles, preview outputs, and export a consistent store gallery.',
   product_images_text_separation:
     'Extract clean text layers from product images for faster editing. Automatically separate captions, labels, and design elements while keeping backgrounds intact.',
-  replay_lab:
-    'Replay Lab helps you reuse and iterate on previous scripts and structures, quickly generating new variations while keeping the creative direction consistent.',
+  creative_lab_replay:
+    'Use Creative Lab viral replay to select reference videos, product images, and virtual models, then generate Seedance-ready product ads with safe fallback paths.',
+  creative_lab_script_extract:
+    'Extract Seedance-ready advertising scripts from reference videos, including reusable structure, shot rhythm, style tags, and selling point suggestions.',
   templates:
     'Browse templates for TikTok/Reels ads. Customize scenes, scripts, style, and branding to generate product videos faster and consistently across channels.',
   history:

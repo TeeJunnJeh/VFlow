@@ -1183,7 +1183,15 @@ export const videoApi = {
 
   reverseScriptFromVideo: async (
     userId: string | number,
-    payload: { video_url?: string; video_path?: string; user_language?: string; debug_trace_id?: string; debug?: boolean } | FormData,
+    payload: {
+      video_url?: string;
+      video_path?: string;
+      user_language?: string;
+      product_name?: string;
+      core_selling_points?: string;
+      debug_trace_id?: string;
+      debug?: boolean;
+    } | FormData,
   ): Promise<ApiEnvelope<ReplayReverseScriptData>> => {
     return apiRequest<ApiEnvelope<ReplayReverseScriptData>>(
       `${API_BASE_URL}/users/${userId}/replay-reverse-script`,

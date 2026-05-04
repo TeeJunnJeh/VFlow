@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { ApiError } from '../services/errors';
+import { normalizeTaskError } from '../utils/taskError';
 
 export type TaskStatus = 'pending' | 'processing' | 'success' | 'failed';
 
@@ -237,7 +238,7 @@ export const TaskProvider = ({ children }: { children: React.ReactNode }) => {
 
       // 兜底：任务本身 status === failed（来自 data.result 里的信息）
       const result = update.result || {};
-      const baseError = result?.error || '后台任务执行失败';
+      const baseError = normalizeTaskError(result, '后台任务执行失败');
       const trackingId = result?.tracking_id;
       const errorCode = result?.error_code;
       const apiErr = new ApiError(

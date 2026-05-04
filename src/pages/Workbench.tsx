@@ -42,7 +42,8 @@ import { AgentView } from '../components/workbench/AgentView_v2';
 import { EditorView } from '../components/workbench/EditorView';
 import { ProfileView } from '../components/workbench/ProfileView';
 import { BillingView } from '../components/workbench/BillingView';
-import { ReplayScriptView, type ReplayReusePayload } from '../components/workbench/ReplayScriptView';
+import { CreativeLabReplayView } from '../components/creativeLab/CreativeLabReplayView';
+import { CreativeLabScriptExtractView } from '../components/creativeLab/CreativeLabScriptExtractView';
 import { Sidebar } from '../components/workbench/Sidebar';
 import ProductImagesView from '../components/workbench/ProductImagesView';
 import type { ViewType } from '../components/workbench/types';
@@ -310,7 +311,6 @@ const Workbench = () => {
   const [isDebugModeEnabled, setIsDebugModeEnabledState] = useState(getDebugModeEnabled());
   const [isDebugModeUpdating, setIsDebugModeUpdating] = useState(false);
   const [assetsNavigationIntent, setAssetsNavigationIntent] = useState<AssetsNavigationIntent>(null);
-  const [replayReusePayload, setReplayReusePayload] = useState<ReplayReusePayload | null>(null);
 
   // --- Effects ---
   useEffect(() => {
@@ -567,7 +567,7 @@ const Workbench = () => {
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [infoTitle, setInfoTitle] = useState('');
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
-  const [transferRole, setTransferRole] = useState<'first_frame' | 'asset_apply' | 'replay_apply' | null>(null);
+  const [transferRole, setTransferRole] = useState<'first_frame' | 'asset_apply' | null>(null);
   const [transferProjectName, setTransferProjectName] = useState<string | null>(null);
   const [transferModel, setTransferModel] = useState<'sora2' | 'sora2pro' | 'seedance2.0' | null>(null);
 
@@ -698,28 +698,20 @@ const Workbench = () => {
               setGeneratedVideoUrl={setGeneratedVideoUrl}
               onExportToServer={handleExportToServer}
               onNavigateToAssetsLibrary={handleNavigateToAssetsLibrary}
-              replayReusePayload={replayReusePayload}
-              onReplayReusePayloadHandled={() => setReplayReusePayload(null)}
             />
             </ViewErrorBoundary>
           </div>
 
-          <div className={activeView === 'replay_lab' ? 'flex-1 h-full min-h-0' : 'hidden'}>
-            <ReplayScriptView
-              onReuseToWorkbench={(payload) => {
-                if (payload.createNewProject) {
-                  setTransferRole('replay_apply');
-                  setTransferProjectName(String(payload.newProjectName || '').trim() || null);
-                  setTransferModel(null);
-                } else {
-                  setTransferRole(null);
-                  setTransferProjectName(null);
-                  setTransferModel(null);
-                }
-                setReplayReusePayload(payload);
-                setActiveView('workbench');
-              }}
-            />
+          <div className={activeView === 'creative_lab_replay' ? 'flex-1 h-full min-h-0' : 'hidden'}>
+            <ViewErrorBoundary label="CreativeLabReplayView">
+              <CreativeLabReplayView />
+            </ViewErrorBoundary>
+          </div>
+
+          <div className={activeView === 'creative_lab_script_extract' ? 'flex-1 h-full min-h-0' : 'hidden'}>
+            <ViewErrorBoundary label="CreativeLabScriptExtractView">
+              <CreativeLabScriptExtractView />
+            </ViewErrorBoundary>
           </div>
 
           {activeView === 'assets' && (

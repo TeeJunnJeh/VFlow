@@ -9540,7 +9540,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const tooltipAlignClass = (align: 'left' | 'center' | 'right') => {
       if (align === 'left') return 'left-0 translate-x-0';
-      if (align === 'right') return 'right-0 left-auto translate-x-0';
+      if (align === 'right') return 'left-full translate-x-full';
       return 'left-1/2 -translate-x-1/2';
     };
 
@@ -9674,7 +9674,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <div className="text-[14px] font-black tracking-wide text-zinc-200 truncate">{opt.title}</div>
               <span className="relative inline-flex items-center group/model-tip shrink-0">
                 <Info className="h-3.5 w-3.5 text-zinc-500" />
-                <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 w-52 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[11px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/model-tip:opacity-100">
+                <span className="pointer-events-none absolute bottom-full left-full z-20 mb-1 ml-2 w-52 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[11px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/model-tip:opacity-100">
                   {opt.desc}
                 </span>
               </span>

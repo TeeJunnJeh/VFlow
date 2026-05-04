@@ -86,9 +86,9 @@ const WORKBENCH_VIEW_DESCRIPTIONS: Record<ViewType, string> = {
   product_images_text_separation:
     'Extract clean text layers from product images for faster editing. Automatically separate captions, labels, and design elements while keeping backgrounds intact.',
   creative_lab_replay:
-    'Use Creative Lab Replay to recreate high-performing video styles from references and iterate quickly with controlled prompts, scenes, and pacing.',
+    'Use Creative Lab viral replay to select reference videos, product images, and virtual models, then generate Seedance-ready product ads with safe fallback paths.',
   creative_lab_script_extract:
-    'Extract scripts and key selling points from reference videos, turning them into reusable structures for faster creative iteration.',
+    'Extract Seedance-ready advertising scripts from reference videos, including reusable structure, shot rhythm, style tags, and selling point suggestions.',
   templates:
     'Browse templates for TikTok/Reels ads. Customize scenes, scripts, style, and branding to generate product videos faster and consistently across channels.',
   history:

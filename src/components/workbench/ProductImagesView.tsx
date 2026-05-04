@@ -6266,19 +6266,6 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           {t.wb_guide_button_label}
         </button>
       )}
-      {currentValue === 'product_images_clothing_swap' && (
-        <button
-          type="button"
-          onClick={() => {
-            window.dispatchEvent(new CustomEvent('vflow:open-clothing-swap-guide'));
-          }}
-          className="px-3 py-2 rounded-xl text-xs font-bold transition border border-orange-500/30 bg-orange-500/10 text-orange-300 hover:bg-orange-500/15 inline-flex items-center gap-2"
-          title={t.cs_guide_modal_title}
-        >
-          <Sparkles className="w-4 h-4" />
-          {t.wb_guide_button_label}
-        </button>
-      )}
           <LanguageSwitcher />
           {currentValue === 'product_images_first_frame' && <div ref={setFirstFrameHeaderActionsContainer} className="flex items-center gap-3" />}
         </div>

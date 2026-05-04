@@ -206,6 +206,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
           try {
             window.sessionStorage.removeItem(PRODUCT_GALLERY_GUIDE_TRIGGER_KEY);
           } catch {
+            // ignore storage write failures
           }
           setActiveView(readLastProductImageView());
         }}
@@ -373,6 +374,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
                         window.sessionStorage.removeItem(PRODUCT_GALLERY_GUIDE_TRIGGER_KEY);
                       }
                     } catch {
+                      // ignore storage write failures
                     }
                     setActiveView(opt.view);
                   }}

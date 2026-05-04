@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, Download, Maximize2, RotateCcw, Video, X } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import type { ProductImageResult } from '../../../../types/productImages';
+import { ClothingSwapVideoPlayer } from './ClothingSwapVideoPlayer';
 
 interface ClothingSwapResultProps {
   results: ProductImageResult[];
@@ -34,7 +35,6 @@ export const ClothingSwapResult: React.FC<ClothingSwapResultProps> = ({
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(results[0]?.id || null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   // Close lightbox on Escape, navigate with arrow keys
   useEffect(() => {
@@ -57,14 +57,6 @@ export const ClothingSwapResult: React.FC<ClothingSwapResultProps> = ({
   const isSelectedGenerating =
     selectedId != null &&
     (generatingVideoIds ? generatingVideoIds.has(selectedId) : isGeneratingVideoForId === selectedId);
-
-  // Auto-play video when it first becomes available for selected image
-  useEffect(() => {
-    if (!selectedVideoUrl) return;
-    if (videoRef.current) {
-      videoRef.current.load();
-    }
-  }, [selectedVideoUrl]);
 
   if (results.length === 0) return null;
 
@@ -208,15 +200,12 @@ export const ClothingSwapResult: React.FC<ClothingSwapResultProps> = ({
               </button>
             )}
           </div>
-          <video
-            ref={videoRef}
+          <ClothingSwapVideoPlayer
             src={selectedVideoUrl}
-            className="w-full max-h-[480px] object-contain bg-zinc-950"
-            controls
+            className="max-h-[480px] w-full"
             autoPlay
             loop
             muted
-            playsInline
           />
         </div>
       )}

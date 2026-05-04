@@ -67,6 +67,8 @@ const FIRST_FRAME_ASYNC_POLL_INTERVAL_MS = 3000;
 const FIRST_FRAME_ASYNC_POLL_MAX_ATTEMPTS = 80;
 const FIRST_FRAME_PANEL_MIN_WIDTH = 280;
 const FIRST_FRAME_PANEL_MAX_WIDTH = 720;
+const FIRST_FRAME_PANEL_VERTICAL_GAP = 16;
+const FIRST_FRAME_PANEL_BOTTOM_GAP = 24;
 const FIRST_FRAME_DEFAULT_LEFT_RATIO = 0.8;
 const FIRST_FRAME_DEFAULT_MIDDLE_RATIO = 1.1;
 const FIRST_FRAME_DEFAULT_RIGHT_RATIO = 1;
@@ -320,10 +322,13 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 }) => {
   const { t } = useLanguage();
   const { requireAuth } = useRequireAuth();
+  const paneRootRef = useRef<HTMLDivElement | null>(null);
+  const examplesHeaderRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const previousContainerWidthRef = useRef(0);
   const [leftWidth, setLeftWidth] = useState<number>(500);
   const [middleWidth, setMiddleWidth] = useState<number>(600);
+  const [workspacePanelHeight, setWorkspacePanelHeight] = useState<number | null>(null);
 
   const [phase, setPhase] = useState<Phase>('upload');
   const [images, setImages] = useState<File[]>([]);
@@ -1303,11 +1308,57 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     return () => observer.disconnect();
   }, [isVisible, leftWidth, middleWidth, resetPanelWidthsForVisibleLayout]);
 
+  useEffect(() => {
+    if (!isVisible) return;
+
+    const updateWorkspacePanelHeight = () => {
+      const root = paneRootRef.current;
+      const examplesHeader = examplesHeaderRef.current;
+      const viewport = root?.parentElement;
+      if (!root || !examplesHeader || !viewport) return;
+
+      const nextHeight = Math.max(
+        360,
+        Math.round(
+          viewport.clientHeight
+          - examplesHeader.offsetHeight
+          - FIRST_FRAME_PANEL_VERTICAL_GAP
+          - FIRST_FRAME_PANEL_BOTTOM_GAP
+        )
+      );
+
+      setWorkspacePanelHeight((current) => (current === nextHeight ? current : nextHeight));
+    };
+
+    updateWorkspacePanelHeight();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateWorkspacePanelHeight);
+      return () => window.removeEventListener('resize', updateWorkspacePanelHeight);
+    }
+
+    const observer = new ResizeObserver(updateWorkspacePanelHeight);
+    const root = paneRootRef.current;
+    const examplesHeader = examplesHeaderRef.current;
+    const viewport = root?.parentElement;
+    if (viewport) observer.observe(viewport);
+    if (examplesHeader) observer.observe(examplesHeader);
+    window.addEventListener('resize', updateWorkspacePanelHeight);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateWorkspacePanelHeight);
+    };
+  }, [isVisible]);
+
   return (
     <>
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="mb-4 shrink-0">
-          <div className="mb-1 flex items-center gap-2">
+      <div
+        ref={paneRootRef}
+        className={isExamplesCollapsed ? 'flex h-full min-h-0 flex-col gap-4 pb-6' : 'flex min-h-full flex-col gap-4 pb-6'}
+      >
+        <div className="shrink-0">
+          <div ref={examplesHeaderRef} className="flex items-center gap-2">
             <div className="text-sm font-bold text-zinc-200">{t.ff_examples_title || '示例案例'}</div>
             <button
               type="button"
@@ -1418,7 +1469,11 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
           </div>
         </div>
 
-        <div ref={containerRef} className="relative flex min-h-0 flex-1 items-stretch overflow-hidden">
+        <div
+          ref={containerRef}
+          className={`relative flex min-h-0 items-stretch overflow-hidden ${workspacePanelHeight ? 'shrink-0' : 'flex-1'}`}
+          style={workspacePanelHeight ? { height: `${workspacePanelHeight}px` } : undefined}
+        >
           <section
             className="mr-3 flex h-full min-h-0 shrink-0 flex-col rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-[width] duration-100"
             style={{ width: `${leftWidth}px`, minWidth: `${FIRST_FRAME_PANEL_MIN_WIDTH}px` }}

@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 
@@ -6,7 +6,7 @@ import { ChevronDown } from 'lucide-react';
  * 「比例分组」语义——只保留 横屏 / 竖屏 / 正方形 三类（去掉了原 flex「灵活」一类）。
  * - 5:4（w>h）归 landscape
  * - 4:5（h>w）归 vertical
- * 1:1 是 square，但 1:1 永远在 primary chip 行展示，因此 popover 实际只用 vertical 和 landscape。
+ * 1:1 是 square；某些模块会把它放入「更多比例」，因此 popover 需要渲染 square 分组。
  */
 const RATIO_GROUP: Record<string, 'square' | 'vertical' | 'landscape'> = {
   '1:1': 'square',
@@ -21,16 +21,18 @@ const RATIO_GROUP: Record<string, 'square' | 'vertical' | 'landscape'> = {
   '21:9': 'landscape',
 };
 
-const GROUP_ORDER: Array<'vertical' | 'landscape'> = ['vertical', 'landscape'];
+const GROUP_ORDER: Array<'square' | 'vertical' | 'landscape'> = ['square', 'vertical', 'landscape'];
 
 export interface AspectRatioPickerLabels {
   more: string;       // "更多比例" / "More ratios"
+  square: string;     // "方形"
   vertical: string;   // "竖屏"
   landscape: string;  // "横屏"
 }
 
 const FALLBACK_LABELS: AspectRatioPickerLabels = {
   more: 'More ratios',
+  square: 'Square',
   vertical: 'Vertical',
   landscape: 'Landscape',
 };
@@ -44,6 +46,8 @@ export interface AspectRatioPickerProps {
   labels?: Partial<AspectRatioPickerLabels>;
   /** 每个比例对应的描述文字，仅在 popover 内展示，例如 {'21:9': '超宽'}。chip 行永远只显示数字。 */
   descriptors?: Record<string, string>;
+  /** 每个比例对应的额外提示文字，显示在 popover 选项右侧，例如视频兼容性提醒。 */
+  optionHints?: Record<string, string>;
   className?: string;
   /** chip 内边距尺寸：sm 给 ImagesGallery 的紧凑卡片用；md 给独立表单用 */
   size?: 'sm' | 'md';
@@ -59,11 +63,13 @@ export const AspectRatioPicker: React.FC<AspectRatioPickerProps> = ({
   disabled = false,
   labels: labelsProp,
   descriptors,
+  optionHints,
   className = '',
   size = 'md',
   stretch = false,
 }) => {
   const labels: AspectRatioPickerLabels = { ...FALLBACK_LABELS, ...labelsProp };
+  const hasOptionHints = useMemo(() => Object.values(optionHints || {}).some(Boolean), [optionHints]);
   const moreSet = new Set(more);
   const isInMore = moreSet.has(value);
   const [open, setOpen] = useState(false);
@@ -92,7 +98,7 @@ export const AspectRatioPicker: React.FC<AspectRatioPickerProps> = ({
       const triggerEl = triggerRef.current;
       if (!triggerEl) return;
       const rect = triggerEl.getBoundingClientRect();
-      const minWidth = 220;
+      const minWidth = hasOptionHints ? 340 : 220;
       // 默认让 popover 右对齐到 trigger 的右边；如果会超出窗口左边就 clamp
       const desiredLeft = rect.right - minWidth;
       const left = Math.max(8, Math.min(desiredLeft, window.innerWidth - minWidth - 8));
@@ -128,7 +134,7 @@ export const AspectRatioPicker: React.FC<AspectRatioPickerProps> = ({
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
     };
-  }, [open]);
+  }, [hasOptionHints, open]);
 
   const sizeClasses = size === 'sm' ? 'px-2 py-1.5 text-[11px]' : 'px-3 py-2 text-xs';
   const baseChip = `${sizeClasses} rounded-xl font-medium border transition`;
@@ -141,17 +147,19 @@ export const AspectRatioPicker: React.FC<AspectRatioPickerProps> = ({
     setOpen(false);
   };
 
-  const grouped: Record<'vertical' | 'landscape', string[]> = {
+  const grouped: Record<'square' | 'vertical' | 'landscape', string[]> = {
+    square: [],
     vertical: [],
     landscape: [],
   };
   for (const r of more) {
     const g = RATIO_GROUP[r];
-    if (g === 'vertical' || g === 'landscape') {
+    if (g === 'square' || g === 'vertical' || g === 'landscape') {
       grouped[g].push(r);
     }
   }
   const groupLabel = {
+    square: labels.square,
     vertical: labels.vertical,
     landscape: labels.landscape,
   };
@@ -174,6 +182,7 @@ export const AspectRatioPicker: React.FC<AspectRatioPickerProps> = ({
             {items.map((r) => {
               const selected = r === value;
               const desc = descriptors?.[r];
+              const hint = optionHints?.[r];
               return (
                 <button
                   key={r}
@@ -186,7 +195,12 @@ export const AspectRatioPicker: React.FC<AspectRatioPickerProps> = ({
                   aria-selected={selected}
                 >
                   <span className="font-medium tabular-nums">{r}</span>
-                  {desc ? <span className="text-[11px] text-zinc-400">{desc}</span> : null}
+                  {(desc || hint) ? (
+                    <span className="flex min-w-0 flex-col items-end gap-0.5 text-right">
+                      {desc ? <span className="text-[11px] text-zinc-400">{desc}</span> : null}
+                      {hint ? <span className="max-w-[230px] text-[10px] leading-4 text-amber-300/80">{hint}</span> : null}
+                    </span>
+                  ) : null}
                 </button>
               );
             })}

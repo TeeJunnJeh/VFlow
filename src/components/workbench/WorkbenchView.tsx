@@ -4150,17 +4150,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const scriptPageBatchGenerateTotalCount = scriptPageBatchGenerateItems.reduce((sum, item) => sum + item.count, 0);
   const hasScriptPageBatchGeneratePlan = scriptPageBatchGenerateTotalCount > 0;
   const scriptPageBatchGenerateTotalSeconds = scriptPageBatchGenerateItems.reduce((sum, item) => sum + item.duration * item.count, 0);
-  const formatVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined, modelId?: string) => {
-    if (isSeedanceModel(modelId)) {
-      return t.wb_usage_based_billing || 'Pay as you go';
-    }
+  const formatVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined) => {
     const rate = Number(entry?.rate ?? 0);
     if (!Number.isFinite(rate) || rate <= 0) return '-';
     return `${formatCreditAmount(rate)}${t.wb_vpoints_per_sec || ''}`;
   };
-  const formatApproxVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined, modelId?: string) => {
-    const label = formatVideoRateLabel(entry, modelId);
-    if (label === '-' || isSeedanceModel(modelId)) return label;
+  const formatApproxVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined) => {
+    const label = formatVideoRateLabel(entry);
+    if (label === '-') return label;
     return `${t.wb_rate_approx_prefix || 'Approx. '}${label}`;
   };
   const estimatedVideoCost = useMemo(() => {
@@ -4177,8 +4174,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return Math.max(0, roundCreditTenths(rate * Math.max(1, Math.min(4, Number(aiOptimizeCount) || 1))));
   }, [aiOptimizeCount, selectedImagePricing]);
 
-  const isSeedanceDelayedBilling = hasScriptPageBatchGeneratePlan && isSeedanceModel(selectedModel) && creationMode === 'fast';
-  const estimatedVideoCostLabel = isSeedanceDelayedBilling
+  const estimatedVideoCostLabel = hasScriptPageBatchGeneratePlan && isSeedanceModel(selectedModel)
     ? (t.wb_usage_based_billing || '按量付费')
     : (estimatedVideoCost > 0 ? `${formatCreditAmount(estimatedVideoCost)} ${t.v_points || 'V点'}` : '');
   const estimatedImageCostLabel = estimatedImageCost > 0 ? `-${formatCreditAmount(estimatedImageCost)} ${t.v_points || 'V点'}` : '';
@@ -9544,7 +9540,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const tooltipAlignClass = (align: 'left' | 'center' | 'right') => {
       if (align === 'left') return 'left-0 translate-x-0';
-      if (align === 'right') return 'right-0 left-auto translate-x-0';
+      if (align === 'right') return 'left-full translate-x-full';
       return 'left-1/2 -translate-x-1/2';
     };
 
@@ -9642,7 +9638,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const renderModelCard = (opt: typeof modelOptions[number]) => {
       const active = selectedModel === opt.id;
       const locked = false;  // Seedance 2.0 backend ready — unlock fast mode
-      const rateLabel = formatVideoRateLabel(getVideoModelPricingEntry(billingPricing, opt.id, 'fast'), opt.id);
+      const rateLabel = formatVideoRateLabel(getVideoModelPricingEntry(billingPricing, opt.id, 'fast'));
       return (
         <button
           key={opt.id}
@@ -9678,7 +9674,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               <div className="text-[14px] font-black tracking-wide text-zinc-200 truncate">{opt.title}</div>
               <span className="relative inline-flex items-center group/model-tip shrink-0">
                 <Info className="h-3.5 w-3.5 text-zinc-500" />
-                <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 w-52 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[11px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/model-tip:opacity-100">
+                <span className="pointer-events-none absolute bottom-full left-full z-20 mb-1 ml-2 w-52 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[11px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/model-tip:opacity-100">
                   {opt.desc}
                 </span>
               </span>
@@ -9703,22 +9699,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   active ? 'font-bold text-orange-500' : 'font-medium text-zinc-500',
                 ].join(' ')}
               >
-                {isSeedanceModel(opt.id) ? (
-                  <span className="relative inline-flex items-center gap-0.5 group/seedance-billing">
-                    <span>{rateLabel}</span>
-                    <Info className="h-3 w-3 text-zinc-600 hover:text-zinc-400 cursor-help" />
-                    <span className="pointer-events-none absolute bottom-full right-0 z-30 mb-1 w-64 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2.5 py-2 text-[10px] font-medium leading-relaxed text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/seedance-billing:opacity-100">
-                      {t.wb_seedance_billing_480p_no_video || '480p/720p 无视频输入：460 V点/百万 tokens'}<br />
-                      {t.wb_seedance_billing_480p_with_video || '480p/720p 含视频输入：280 V点/百万 tokens'}<br />
-                      {t.wb_seedance_billing_1080p_no_video || '1080p 无视频输入：510 V点/百万 tokens'}<br />
-                      {t.wb_seedance_billing_1080p_with_video || '1080p 含视频输入：310 V点/百万 tokens'}<br />
-                      <span className="mt-1 block border-t border-white/10 pt-1">
-                        {t.wb_seedance_billing_minimum || '最终扣费向上取整到 0.1 V点，最低 0.1 V点'}<br />
-                        {t.wb_seedance_billing_after_completion || '最终费用按生成完成后的实际 token 用量计算'}
-                      </span>
-                    </span>
-                  </span>
-                ) : rateLabel}
+                {rateLabel}
               </div>
             </div>
           )}
@@ -9764,6 +9745,43 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     <ArrowRight className="w-3 h-3 text-zinc-500" />
                     {t.wb_render_power_title}
                   </h2>
+                  <div className="group w-full text-left rounded-2xl border border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10 p-4 flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-orange-500/20 border border-orange-500/30">
+                      <Video className="w-5 h-5 text-orange-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 overflow-hidden">
+                        <div className="text-[14px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div>
+                        <div className="min-w-0 overflow-hidden">
+                          <div className="flex max-w-0 items-center gap-1.5 whitespace-nowrap opacity-0 transition-all duration-300 ease-out group-hover:max-w-[176px] group-hover:opacity-100">
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
+                              <ImageIcon className="h-3.5 w-3.5" />
+                            </span>
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
+                              <Video className="h-3.5 w-3.5" />
+                            </span>
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
+                              <Music className="h-3.5 w-3.5" />
+                            </span>
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
+                              <Users className="h-3.5 w-3.5" />
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-center gap-2 shrink-0">
+                      <div
+                        className="model-check w-4 h-4 rounded-full border border-orange-500 bg-orange-500 flex items-center justify-center"
+                        aria-hidden="true"
+                      >
+                        <Check className="w-2.5 h-2.5 text-white" />
+                      </div>
+                      <div className="text-[8px] whitespace-nowrap font-bold text-orange-500">
+                        {formatApproxVideoRateLabel(getVideoModelPricingEntry(billingPricing, 'seedance2.0', 'replay'))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
               </div>
@@ -13013,7 +13031,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           <span>{t.wb_batch_generate_setting || 'Batch generation setting'}</span>
                       </div>
                       <div className="flex shrink-0 items-center gap-3">
-                        {isSeedanceModel(selectedModel) && creationMode === 'fast' && batchGenerateCountForPage > 0 ? (
+                        {isSeedanceModel(selectedModel) && batchGenerateCountForPage > 0 ? (
                           <span className="text-[11px] font-semibold text-zinc-400">
                             {t.wb_usage_based_billing || '按量付费'}
                           </span>

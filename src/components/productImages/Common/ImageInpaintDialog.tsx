@@ -21,6 +21,15 @@ interface ImageInpaintDialogProps {
     resultSubtitle: React.ReactNode;
     original: React.ReactNode;
     edited: React.ReactNode;
+    done: React.ReactNode;
+    selectVersionHint: React.ReactNode;
+    currentVersion: React.ReactNode;
+    aiEditedVersion: React.ReactNode;
+    originalVersion: React.ReactNode;
+    oneResult: React.ReactNode;
+    keepUnmodified: React.ReactNode;
+    tip: React.ReactNode;
+    tipContinue: React.ReactNode;
     promptLabel: React.ReactNode;
     promptPlaceholder: string;
     promptHint: React.ReactNode;
@@ -258,7 +267,41 @@ export const ImageInpaintDialog: React.FC<ImageInpaintDialogProps> = ({
           <div className="flex w-[360px] shrink-0 flex-col rounded-2xl border border-white/10 bg-white p-6 text-zinc-900">
             {step === 'compare' ? (
               <>
-                <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-4 text-sm font-bold text-indigo-900">{labels.resultSubtitle}</div>
+                <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-4 text-indigo-900">
+                  <div className="text-sm font-extrabold">{labels.done}</div>
+                  <div className="mt-2 text-xs leading-relaxed text-indigo-700">
+                    {labels.selectVersionHint}
+                  </div>
+                </div>
+
+                <div className="mt-5">
+                  <div className="text-xs font-bold text-zinc-500">{labels.currentVersion}</div>
+                  <div className="mt-2 flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-indigo-600/10">
+                      <img
+                        src={selectedVersion === 'edited' ? (resultUrl || imageUrl) : imageUrl}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-extrabold text-zinc-900">
+                        {selectedVersion === 'edited' ? labels.aiEditedVersion : labels.originalVersion}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-zinc-500">
+                        {selectedVersion === 'edited' ? labels.oneResult : labels.keepUnmodified}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-amber-800">
+                  <div className="text-xs font-bold">{labels.tip}</div>
+                  <div className="mt-2 text-xs leading-relaxed">
+                    {labels.tipContinue}
+                  </div>
+                </div>
+
                 <div className="mt-auto flex flex-col gap-3">
                   <button type="button" onClick={() => { setStep('edit'); setRect(null); setError(null); }} className="rounded-xl border border-rose-400 bg-white px-4 py-3 text-sm font-bold text-rose-600 transition hover:bg-rose-50">
                     {labels.continueEditing}

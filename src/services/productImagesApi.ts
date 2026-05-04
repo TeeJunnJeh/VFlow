@@ -19,6 +19,7 @@ import type {
   SmartRepairToolCode,
   ClothingSwapParams,
   ClothingSwapResult,
+  ClothingSwapAspectRatio,
   ClothingSwapBackground,
   ClothingSwapVideoResult,
 } from '../types/productImages';
@@ -51,6 +52,63 @@ function toDisplayUrl(pathOrUrl: string): string {
     return `${mediaBaseUrl}${normalized}`;
   }
   return normalized;
+}
+
+export type ClothingSwapImageInput = File | {
+  file?: File | null;
+  path?: string;
+  imagePath?: string;
+  fileUrl?: string;
+  url?: string;
+  previewUrl?: string;
+};
+
+function toApiMediaPath(pathOrUrl: string): string {
+  const raw = String(pathOrUrl || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+
+  const mediaBaseUrl = String(import.meta.env.VITE_MEDIA_BASE_URL || '').replace(/\/+$/, '');
+  if (mediaBaseUrl && raw.startsWith(`${mediaBaseUrl}/media/`)) {
+    return raw.slice(mediaBaseUrl.length);
+  }
+
+  if (typeof window !== 'undefined') {
+    try {
+      const url = new URL(raw, window.location.origin);
+      if (url.origin === window.location.origin && url.pathname.startsWith('/media/')) {
+        return `${url.pathname}${url.search}`;
+      }
+    } catch {
+      // fall through to relative path normalization
+    }
+  }
+
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const normalized = raw.startsWith('/') ? raw : `/${raw}`;
+  if (normalized.startsWith('/media/')) return normalized;
+  return raw;
+}
+
+async function resolveClothingSwapImageInput(input: ClothingSwapImageInput, fallbackMessage: string): Promise<string> {
+  if (input instanceof File) {
+    return uploadTempImage(input);
+  }
+
+  const file = input?.file || null;
+  if (file instanceof File) {
+    return uploadTempImage(file);
+  }
+
+  const existingPath =
+    String(input?.path || '').trim() ||
+    String(input?.imagePath || '').trim() ||
+    String(input?.fileUrl || '').trim() ||
+    String(input?.url || '').trim() ||
+    String(input?.previewUrl || '').trim();
+  const resolved = toApiMediaPath(existingPath);
+  if (!resolved) throw new Error(fallbackMessage);
+  return resolved;
 }
 
 function styleToModel(style?: FirstFrameParams['style']): string {
@@ -693,8 +751,8 @@ export const productImagesApi = {
   },
 
   async generateClothingSwap(
-    modelImage: File,
-    garmentImage: File,
+    modelImage: ClothingSwapImageInput,
+    garmentImage: ClothingSwapImageInput,
     params: ClothingSwapParams,
     options?: {
       projectId?: string;
@@ -710,8 +768,8 @@ export const productImagesApi = {
     }
 
     const [modelImagePath, garmentImagePath] = await Promise.all([
-      uploadTempImage(modelImage),
-      uploadTempImage(garmentImage),
+      resolveClothingSwapImageInput(modelImage, 'Please upload a model image first'),
+      resolveClothingSwapImageInput(garmentImage, 'Please upload a garment image first'),
     ]);
 
     const payload: Record<string, unknown> = {
@@ -753,12 +811,22 @@ export const productImagesApi = {
       .map((u: unknown) => toDisplayUrl(String(u || '').trim()))
       .filter(Boolean);
     const displayPrimary = displayUrls[0] || toDisplayUrl(primaryUrl);
+    const clothingSwapSettings = {
+      category: String(data?.data?.category || params.category || 'Top'),
+      targetColor: String(data?.data?.target_color || params.targetColor || 'Original'),
+      background: String(data?.data?.background || params.background || 'model'),
+      aspectRatio: String(data?.data?.aspect_ratio || params.aspectRatio || '16:9'),
+      outputCount: Number(data?.data?.output_count || params.outputCount || 1),
+    };
 
     const outputImages: ProductImageResult[] = displayUrls.map((url: string, index: number) => ({
       id: `clothing-swap-${Date.now()}-${index}`,
       imageUrl: url,
       downloadUrl: url,
       format: 'png',
+      metadata: {
+        clothingSwap: clothingSwapSettings,
+      },
     }));
 
     return {
@@ -778,11 +846,15 @@ export const productImagesApi = {
   async generateClothingSwapVideo(
     imageUrl: string,
     background: ClothingSwapBackground,
+    aspectRatioOrOptions?: ClothingSwapAspectRatio | { signal?: AbortSignal },
     options?: { signal?: AbortSignal }
   ): Promise<ClothingSwapVideoResult> {
+    const aspectRatio = typeof aspectRatioOrOptions === 'string' ? aspectRatioOrOptions : '16:9';
+    const requestOptions = typeof aspectRatioOrOptions === 'object' ? aspectRatioOrOptions : options;
     const payload: Record<string, unknown> = {
       image_url: imageUrl,
       background,
+      aspect_ratio: aspectRatio,
     };
     const response = await fetch(`${PROJECTS_API_BASE}/generate_clothing_swap_video`, {
       method: 'POST',
@@ -792,7 +864,7 @@ export const productImagesApi = {
         'X-Requested-With': 'XMLHttpRequest',
       },
       credentials: 'include',
-      signal: options?.signal,
+      signal: requestOptions?.signal,
       body: JSON.stringify(payload),
     });
     if (!response.ok) {
@@ -803,7 +875,14 @@ export const productImagesApi = {
     if (!videoUrl) {
       throw new Error('Video generation succeeded but video_url was missing');
     }
-    return { videoUrl, background };
+    return {
+      videoUrl,
+      background,
+      requestedAspectRatio: (String(data?.data?.requested_aspect_ratio || '').trim() || aspectRatio) as ClothingSwapAspectRatio,
+      veoAspectRatio: (String(data?.data?.veo_aspect_ratio || '').trim() || undefined) as '16:9' | '9:16' | undefined,
+      cropped: typeof data?.data?.cropped === 'boolean' ? data.data.cropped : undefined,
+      sourceVideoUrl: String(data?.data?.source_video_url || '').trim() || undefined,
+    };
   },
 
   async downloadImageByUrl(imageUrl: string): Promise<Blob> {

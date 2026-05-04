@@ -16,11 +16,14 @@ import { AspectRatioPicker, CLOTHING_SWAP_RATIOS, ratioDescriptorsForLanguage } 
 interface ClothingSwapFormProps {
   modelImage: File | null;
   garmentImage: File | null;
+  modelReady?: boolean;
+  garmentReady?: boolean;
   workspaceId?: string;
   isSubmitting?: boolean;
   onSubmit: (params: Required<Pick<ClothingSwapParams, 'category' | 'targetColor' | 'background' | 'aspectRatio' | 'outputCount'>>) => Promise<void> | void;
   onReset: () => void;
   defaultParams?: Partial<ClothingSwapParams>;
+  presetToken?: number;
 }
 
 const CATEGORIES: ClothingSwapCategory[] = ['Top', 'Bottom', 'Full Body'];
@@ -50,9 +53,11 @@ const FALLBACK: Required<Pick<ClothingSwapParams, 'category' | 'targetColor' | '
   category: 'Top',
   targetColor: 'Original',
   background: 'model',
-  aspectRatio: '1:1',
+  aspectRatio: '16:9',
   outputCount: 1,
 };
+
+const VIDEO_NATIVE_RATIOS = new Set<string>(['16:9', '9:16']);
 
 const buildStorageKey = (workspaceId?: string) => {
   const normalized = String(workspaceId || '').trim();
@@ -62,11 +67,14 @@ const buildStorageKey = (workspaceId?: string) => {
 export const ClothingSwapForm: React.FC<ClothingSwapFormProps> = ({
   modelImage,
   garmentImage,
+  modelReady,
+  garmentReady,
   workspaceId,
   isSubmitting = false,
   onSubmit,
   onReset,
   defaultParams,
+  presetToken = 0,
 }) => {
   const { t, language } = useLanguage();
   const storageKey = useMemo(() => buildStorageKey(workspaceId), [workspaceId]);
@@ -107,6 +115,11 @@ export const ClothingSwapForm: React.FC<ClothingSwapFormProps> = ({
     }
     setFormData(next);
   }, [mergedDefaults, storageKey]);
+
+  useEffect(() => {
+    if (!presetToken) return;
+    setFormData({ ...mergedDefaults });
+  }, [mergedDefaults, presetToken]);
 
   useEffect(() => {
     try {
@@ -164,7 +177,15 @@ export const ClothingSwapForm: React.FC<ClothingSwapFormProps> = ({
     return map[key] || key;
   }, [t]);
 
-  const canSubmit = !!modelImage && !!garmentImage && !isSubmitting;
+  const canSubmit = (modelReady ?? !!modelImage) && (garmentReady ?? !!garmentImage) && !isSubmitting;
+
+  const ratioOptionHints = useMemo(() => {
+    const hint = (t as any).cs_ratio_video_crop_warning || 'Video may be cropped';
+    return CLOTHING_SWAP_RATIOS.more.reduce<Record<string, string>>((acc, ratio) => {
+      if (!VIDEO_NATIVE_RATIOS.has(ratio)) acc[ratio] = hint;
+      return acc;
+    }, {});
+  }, [t]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -226,16 +247,18 @@ export const ClothingSwapForm: React.FC<ClothingSwapFormProps> = ({
         <div>
           <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.cs_aspect_ratio_label}</label>
           <AspectRatioPicker
-            value={String(formData.aspectRatio || '1:1')}
+            value={String(formData.aspectRatio || '16:9')}
             onChange={(next) => setFormData({ ...formData, aspectRatio: next as ClothingSwapAspectRatio })}
             primary={CLOTHING_SWAP_RATIOS.primary}
             more={CLOTHING_SWAP_RATIOS.more}
             labels={{
               more: language === 'zh' ? '更多比例' : 'More ratios',
+              square: t.pi_gallery_ratio_group_square,
               vertical: t.pi_gallery_ratio_group_vertical,
               landscape: t.pi_gallery_ratio_group_landscape,
             }}
             descriptors={ratioDescriptorsForLanguage(language)}
+            optionHints={ratioOptionHints}
           />
         </div>
 

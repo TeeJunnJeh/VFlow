@@ -241,6 +241,10 @@ export interface ClothingSwapResult {
 export interface ClothingSwapVideoResult {
   videoUrl: string;
   background: ClothingSwapBackground;
+  requestedAspectRatio?: ClothingSwapAspectRatio;
+  veoAspectRatio?: '16:9' | '9:16';
+  cropped?: boolean;
+  sourceVideoUrl?: string;
 }
 
 // ==================== 生成任务相关类型 ====================

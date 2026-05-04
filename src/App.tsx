@@ -417,7 +417,7 @@ const AnimatedRoutes = () => {
                         }
                     />
                     <Route path="/login" element={<LoginPage />} />
-                    <Route path="/help/*" element={<HelpPage />} />
+                    <Route path="/doc/*" element={<HelpPage />} />
                     <Route
                         path="/app/*"
                         element={

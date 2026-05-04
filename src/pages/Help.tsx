@@ -35,16 +35,16 @@ const HelpPage = () => {
   const topPages = React.useMemo<HelpTopPage[]>(() => ([
     { key: 'guide', label: '使用指南' },
     { key: 'scenarios', label: '场景示例' },
-    { key: 'faq', label: '常见问题' },
+    { key: 'pricing', label: '定价说明' },
     { key: 'terms', label: '条款与协议' },
     { key: 'changelog', label: '更新日志' },
-    { key: 'pricing', label: '定价说明' },
+    { key: 'faq', label: '常见问题' },
   ]), []);
 
   const activeTopPageKey = React.useMemo<HelpTopPageKey>(() => {
     const path = (location.pathname || '').replace(/\/+$/, '');
     const parts = path.split('/').filter(Boolean);
-    const helpIdx = parts.lastIndexOf('help');
+    const helpIdx = parts.lastIndexOf('doc');
     const candidate = helpIdx >= 0 ? parts[helpIdx + 1] : '';
     const keys = new Set<HelpTopPageKey>(topPages.map((p) => p.key));
     if (candidate && keys.has(candidate as HelpTopPageKey)) return candidate as HelpTopPageKey;
@@ -95,9 +95,29 @@ const HelpPage = () => {
           </div>
         </blockquote>
       ),
-      a: (props: any) => (
-        <a className="text-orange-400 hover:text-orange-300 transition-colors underline underline-offset-4" {...props} />
-      ),
+      a: ({ href, children, ...props }: any) => {
+        const nextHref = String(href || '');
+        const className = 'text-orange-400 hover:text-orange-300 transition-colors underline underline-offset-4';
+        if (nextHref.startsWith('/')) {
+          return (
+            <Link to={nextHref} className={className}>
+              {children}
+            </Link>
+          );
+        }
+        return (
+          <a
+            href={nextHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={className}
+            {...props}
+          >
+            {children}
+          </a>
+        );
+      },
+
       code: ({ inline, className, children, ...props }: any) => {
         if (!inline) {
           return (
@@ -159,6 +179,8 @@ const HelpPage = () => {
 
   const sectionsByPage = React.useMemo<Record<HelpTopPageKey, HelpSection[]>>(() => {
     const videoGuideImage = '/help-page-demo/video_demo1.png';
+    const scriptImage = '/help-page-demo/video_demo2.png';
+    const videoPreviewImage = '/help-page-demo/video_demo3.png';
     const map: Record<HelpTopPageKey, HelpSection[]> = {
       guide: [
         {
@@ -202,8 +224,13 @@ const HelpPage = () => {
             '',
             '2. 准备素材：主图、细节、上身/使用场景或参考视频。',
             '3. 填写卖点与约束：目标人群、风格、语气、禁词/必含信息等。',
-            '4. 点击“生成脚本”, 等待后台自动生成脚本完成',
-            '5. 预览并微调脚本/镜头/字幕，导出后发布到 TikTok 等平台。',
+            '4. 点击“生成分镜脚本”, 等待后台自动生成脚本完成',
+            '',
+            `![生成脚本示意](${scriptImage})`,
+            '',
+            '5. 预览并微调脚本，并点击生成视频，生成完成后可在右侧进行预览，或者导出视频素材、发布到 TikTok 等平台。',
+            '',
+            `![生成视频并发布示意](${videoPreviewImage})`,
             '',
           ].join('\n'),
         },
@@ -212,13 +239,21 @@ const HelpPage = () => {
           title: '图片生成',
           navLabel: '图片生成',
           markdown: [
-            '图片生成用于产出电商可用的商品图（如换装、首帧、修复、套图等）。',
+            '图片生成用于产出电商可用的商品图（如换装、首帧、修复、套图等）。目前可用的生图模型包括Flux、谷歌的nanobana pro等，后续将考虑接入最新的GPT image 2模型。',
             '',
-            '### 常见用法',
+            '### 基本功能',
             '',
-            '- **首帧/封面**：为视频生成统一的封面风格，提高点击率',
-            '- **智能修复**：去噪/补全/细节增强，提升商品图质感',
-            '- **商品套图**：多场景/多角度批量生成，保持店铺视觉一致',
+            '- **[AI 换装](/app?view=product_images_clothing_swap)**：快速替换服饰上身效果，生成更贴近真实试穿的商品展示图',
+            '- **[AI 首帧图](/app?view=product_images_first_frame)**：生成视频封面/首帧主图，统一风格并提升点击率',
+            '- **[AI 智能修复](/app?view=product_images_smart_repair)**：去噪、补全与细节增强，改善清晰度与质感',
+            '- **[AI 商品套图](/app?view=product_images_gallery)**：按场景/角度批量生成多张商品图，保持店铺视觉一致性',
+            '- **[AI 海报编辑](/app?view=product_images_gallery&poster_editor=1)**：基于商品信息自动排版与生成海报图，快速出图并提升表现',
+            '',
+            '### [AI 换装](/app?view=product_images_clothing_swap)',
+            '### [AI 首帧图](/app?view=product_images_first_frame)',
+            '### [AI 智能修复](/app?view=product_images_smart_repair)',
+            '### [AI 商品套图](/app?view=product_images_gallery)',
+            '### [AI 海报编辑](/app?view=product_images_gallery&poster_editor=1)',
             '',
             '### 注意事项',
             '',
@@ -234,8 +269,8 @@ const HelpPage = () => {
           markdown: [
             '如果你遇到功能异常、计费疑问或需要商务合作，请通过以下方式联系我们：',
             '',
-            '- Email：`support@vflow.ai`',
-            '- Business：`biz@vflow.ai`',
+            '- Error report： error@genviewtech.com',
+            '- Email：contact@cvml.tsinghua.edu.cn',
             '',
             '> 为了更快定位问题，反馈时请附上：发生时间、操作步骤、截图/录屏、浏览器与系统版本。',
           ].join('\n'),
@@ -294,15 +329,6 @@ const HelpPage = () => {
           ].join('\n'),
         },
         {
-          id: 'pricing_faq',
-          title: '费用如何计算？',
-          navLabel: '费用计算',
-          markdown: [
-            '计费与模型能力、生成类型（图片/视频/脚本）以及资源消耗相关。',
-            '更准确的实时单价以产品内 Billing 为准。',
-          ].join('\n'),
-        },
-        {
           id: 'quality',
           title: '如何提升生成质量？',
           navLabel: '提升质量',
@@ -312,6 +338,15 @@ const HelpPage = () => {
             '- 先做短流程验证节奏，再扩展到更长结构',
           ].join('\n'),
         },
+        {
+          id: 'more',
+          title: '欢迎反馈',
+          navLabel: '欢迎反馈',
+          markdown: [
+            '如果您有更多问题, 欢迎随时联系我们。联系邮箱：error@genviewtech.com。',
+            '共性问题将会被展示在此。您对产品的认可就是我们前进最大的动力！'
+          ].join('\n'),
+        }
       ],
       terms: [
         {
@@ -372,10 +407,10 @@ const HelpPage = () => {
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
-    const path = (location.pathname || '').replace(/\/+$/, '');
-    if (path !== '/help') return;
+    const path = (location.pathname || '').replace(/\/\/+$/, '');
+    if (path !== '/doc') return;
     const first = sections[0]?.id || 'overview';
-    navigate(`/help/${activeTopPageKey}#${first}`, { replace: true });
+    navigate(`/doc/${activeTopPageKey}#${first}`, { replace: true });
     setActiveSectionId(first);
   }, [activeTopPageKey, location.pathname, navigate, sections]);
 
@@ -430,7 +465,7 @@ const HelpPage = () => {
               VF
             </div>
             <div className="min-w-0">
-              <div className="text-lg md:text-xl font-semibold">帮助中心</div>
+              <div className="text-lg md:text-xl font-semibold">产品文档</div>
               <div className="text-xs text-zinc-400">产品介绍 · 使用方式 · 定价 · 联系支持</div>
             </div>
           </div>
@@ -464,7 +499,7 @@ const HelpPage = () => {
                   type="button"
                   onClick={() => {
                     const first = sectionsByPage[p.key]?.[0]?.id || 'overview';
-                    navigate(`/help/${p.key}#${first}`);
+                    navigate(`/doc/${p.key}#${first}`);
                     setActiveSectionId(first);
                   }}
                   className={[

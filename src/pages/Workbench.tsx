@@ -47,7 +47,7 @@ import { CreativeLabScriptExtractView } from '../components/creativeLab/Creative
 import { Sidebar } from '../components/workbench/Sidebar';
 import ProductImagesView from '../components/workbench/ProductImagesView';
 import type { ViewType } from '../components/workbench/types';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { WorkbenchModelProvider } from '../context/WorkbenchModelContext';
 import { normalizeThemeMode, type ThemeMode } from '../utils/theme';
 import { setMetaDescription } from '../utils/seo';
@@ -102,6 +102,11 @@ const WORKBENCH_VIEW_DESCRIPTIONS: Record<ViewType, string> = {
   billing:
     'View your plan, balance, invoices, and usage. Manage payments and understand how credits are consumed for video and product image generation in one place.',
 };
+
+const isWorkbenchViewType = (value: string | null | undefined): value is ViewType => (
+  typeof value === 'string'
+  && Object.prototype.hasOwnProperty.call(WORKBENCH_VIEW_TITLES, value)
+);
 
 type AssetsNavigationIntent =
   | 'open_assets_for_subject_creation'
@@ -436,6 +441,7 @@ const Workbench = () => {
   };
 
   const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const state = location.state as {
@@ -478,6 +484,36 @@ const Workbench = () => {
       window.history.replaceState({}, document.title, location.pathname);
     }
   }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const viewParam = params.get('view');
+    const shouldOpenPosterEditor = params.get('poster_editor') === '1';
+    const nextView: ViewType | null = isWorkbenchViewType(viewParam)
+      ? viewParam
+      : (shouldOpenPosterEditor ? 'product_images_gallery' : null);
+
+    if (!nextView) return;
+
+    setActiveView(nextView);
+
+    params.delete('view');
+    params.delete('poster_editor');
+    const nextSearch = params.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch ? `?${nextSearch}` : '',
+      },
+      { replace: true }
+    );
+
+    if (shouldOpenPosterEditor) {
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('vflow:open_poster_editor'));
+      }, 60);
+    }
+  }, [location.pathname, location.search, navigate]);
 
   // Listen for custom navigation events from child components (e.g. ImageHistoryPanel)
   useEffect(() => {

@@ -2395,6 +2395,17 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     setIsGalleryBoardAssetPickerOpen(true);
   };
 
+  useEffect(() => {
+    const handler = () => {
+      setActiveView('product_images_gallery');
+      setGalleryTargetScene('poster');
+      openGalleryBoardEditor({ onboarding: true });
+    };
+
+    window.addEventListener('vflow:open_poster_editor', handler);
+    return () => window.removeEventListener('vflow:open_poster_editor', handler);
+  }, [openGalleryBoardEditor, setActiveView, setGalleryTargetScene]);
+
   const closeGalleryBoardEditor = () => {
     setIsGalleryBoardEditorOpen(false);
     setGalleryBoardOnboardingStage('idle');
